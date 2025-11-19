@@ -1,0 +1,1295 @@
+.chatContainer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 var(--space-4);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Message List */
+.messageList {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-4) 0;
+    padding-bottom: 100px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    opacity: 0;
+    animation: fadeIn 0.3s forwards;
+    animation-delay: 0.3s;
+    scroll-behavior: auto;
+    /* Hide scrollbar */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+}
+
+.messageList::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+}
+
+.messageListHidden {
+    display: none;
+}
+
+/* Message Row */
+.messageRow {
+    display: flex;
+    gap: var(--space-3);
+    width: 100%;
+    animation: fadeInUp 0.3s ease-out forwards;
+    align-items: flex-start;
+    flex-wrap: nowrap;
+}
+
+.groupedRow {
+    margin-top: calc(var(--space-2) * -1);
+}
+
+.userRow {
+    justify-content: flex-end;
+}
+
+.aiRow {
+    justify-content: flex-start;
+}
+
+/* Avatars */
+.avatar,
+.avatarPlaceholder {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+}
+
+.aiAvatarIcon {
+    width: 100%;
+    height: 100%;
+    background: var(--accent-secondary);
+    border-radius: 50%;
+    position: relative;
+}
+
+.aiAvatarIcon::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12L2 12"/><path d="M12 12L12 22"/></svg>') no-repeat center;
+    mask-size: contain;
+}
+
+.userAvatarIcon {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+}
+
+/* Content Wrapper */
+.messageContentWrapper {
+    display: flex;
+    flex-direction: column;
+    max-width: 85%;
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.userRow .messageContentWrapper {
+    align-items: flex-end;
+}
+
+.senderName {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.timestamp {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+/* Bubbles */
+.bubble {
+    padding: 12px 16px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.5;
+    position: relative;
+    word-wrap: break-word;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s;
+}
+
+.bubble:hover {
+    box-shadow: var(--shadow-md);
+}
+
+.userBubble {
+    background: rgba(91, 141, 239, 0.1);
+    color: var(--text-primary);
+    border-top-right-radius: 4px;
+}
+
+.aiBubble {
+    background: transparent;
+    padding: 0;
+    color: var(--text-primary);
+    box-shadow: none;
+    white-space: normal;
+}
+
+.aiBubble:hover {
+    box-shadow: none;
+}
+
+/* Actions */
+.actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.messageRow:hover .actions {
+    opacity: 1;
+}
+
+/* Date Separator */
+.dateSeparator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: var(--space-6) 0;
+    position: relative;
+}
+
+.dateSeparator::before,
+.dateSeparator::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.dateSeparator span {
+    padding: 0 var(--space-3);
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-primary);
+    font-weight: 500;
+}
+
+/* Continue Generation */
+.continueWrapper {
+    margin-top: var(--space-2);
+    display: flex;
+    justify-content: flex-start;
+}
+
+.continueBtn {
+    padding: var(--space-2) var(--space-3);
+    background: rgba(91, 141, 239, 0.1);
+    color: var(--accent-secondary);
+    border: 1px solid rgba(91, 141, 239, 0.2);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.continueBtn:hover {
+    background: rgba(91, 141, 239, 0.15);
+    border-color: rgba(91, 141, 239, 0.3);
+}
+
+.userActions {
+    justify-content: flex-end;
+}
+
+.actionBtn {
+    padding: 4px;
+    color: var(--text-muted);
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.actionBtn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+}
+
+/* Hero Content (Welcome) */
+.heroContent {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-8);
+    transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+    z-index: 1;
+}
+
+.heroContentHidden {
+    opacity: 0;
+    transform: translate(-50%, -60%);
+    pointer-events: none;
+}
+
+.welcomeLogo {
+    width: 64px;
+    height: 64px;
+    background: var(--accent-secondary);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 700;
+    color: white;
+    box-shadow: var(--shadow-md);
+    margin-bottom: var(--space-2);
+    animation: fadeInUp 0.4s ease-out;
+}
+
+.welcomeTitle {
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: center;
+    letter-spacing: -0.5px;
+    animation: fadeInUp 0.4s ease-out 0.1s backwards;
+}
+
+/* Strategies Dropdown */
+.strategiesContainer {
+    position: relative;
+    padding-bottom: 2px;
+}
+
+.strategyToggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.03);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    min-height: 24px;
+}
+
+.strategyToggle span {
+    display: inline-block;
+    color: inherit;
+}
+
+.strategyToggle:hover,
+.strategyToggleActive {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-primary);
+}
+
+.strategyToggleActive {
+    background: var(--bg-card);
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-sm);
+}
+
+.chevron {
+    transition: transform 0.2s;
+    opacity: 0.5;
+}
+
+.chevronRotated {
+    transform: rotate(180deg);
+}
+
+.strategyDropdown {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 6px;
+    width: 260px;
+    background: var(--bg-card);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+    padding: 4px;
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: fadeInUp 0.2s ease-out;
+    z-index: 20;
+}
+
+.strategyItem {
+    padding: 8px;
+    border-radius: 8px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.strategyItem:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.strategyLabel {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.strategyDesc {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+/* Input Area */
+.inputArea {
+    position: absolute;
+    left: 0;
+    right: 0;
+    padding: 0 var(--space-4);
+    transition: all 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+}
+
+.inputCenter {
+    top: 65%;
+    transform: translateY(0);
+}
+
+.inputBottom {
+    top: auto;
+    bottom: 24px;
+    transform: translateY(0);
+}
+
+.inputWrapper {
+    width: 100%;
+    max-width: 760px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: box-shadow 0.3s;
+}
+
+.inputBottom .inputWrapper {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    border-color: transparent;
+}
+
+.inputCenter .inputWrapper {
+    box-shadow: var(--shadow-lg);
+}
+
+.inputWrapper:focus-within {
+    box-shadow: var(--shadow-xl);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+
+
+.inputRow {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.attachBtn {
+    padding: 6px;
+    color: var(--text-secondary);
+    border-radius: 50%;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.attachBtn:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.textArea {
+    flex: 1;
+    border: none;
+    background: transparent;
+    resize: none;
+    max-height: 120px;
+    padding: 6px 0;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    line-height: 1.4;
+    color: var(--text-primary);
+}
+
+.textArea::placeholder {
+    color: var(--text-muted);
+}
+
+.sendBtn {
+    padding: 6px;
+    background: var(--text-primary);
+    color: var(--bg-primary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s, background 0.2s;
+    flex-shrink: 0;
+}
+
+.sendBtn:active {
+    transform: scale(0.95);
+}
+
+.stopBtn {
+    background: var(--accent-primary);
+    /* Or a danger color if preferred */
+}
+
+/* Thinking State */
+.thinkingBubble {
+    display: flex;
+    gap: 8px;
+    padding: 12px 0;
+    align-items: center;
+}
+
+.thinkingText {
+    font-size: 14px;
+    color: var(--text-muted);
+    animation: fadeIn 0.3s;
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.dot:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.dot:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+
+    0%,
+    80%,
+    100% {
+        transform: scale(0);
+    }
+
+    40% {
+        transform: scale(1);
+    }
+}
+
+@keyframes fadeIn {
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Jump to Bottom Button */
+.jumpToBottom {
+    position: absolute;
+    bottom: 100px;
+    /* Above input area */
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    padding: 8px 16px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    z-index: 5;
+    animation: fadeInUp 0.3s ease-out;
+}
+
+.jumpToBottom:hover {
+    background: var(--bg-card);
+    transform: translateX(-50%) translateY(-2px);
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* Strategy Card */
+.strategyCard {
+    background: var(--bg-card);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 16px;
+    padding: 16px;
+    width: 100%;
+    max-width: 320px;
+    box-shadow: var(--shadow-sm);
+}
+
+.strategyIcon {
+    width: 32px;
+    height: 32px;
+    background: rgba(91, 141, 239, 0.1);
+    color: var(--accent-primary);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.strategyTitleGroup {
+    display: flex;
+    flex-direction: column;
+}
+
+.strategyType {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.strategyToken {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.infoRow {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.label {
+    color: var(--text-secondary);
+}
+
+.value {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.divider {
+    height: 1px;
+    background: rgba(0, 0, 0, 0.05);
+    margin: 12px 0;
+}
+
+.limitsGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.limitItem {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.02);
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.limitIcon {
+    opacity: 0.7;
+}
+
+.secondaryBtn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.secondaryBtn:hover {
+    background: rgba(0, 0, 0, 0.03);
+    color: var(--text-primary);
+}
+
+.primaryBtn {
+    flex: 1;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: white;
+    background: var(--text-primary);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: opacity 0.2s;
+}
+
+.primaryBtn:hover {
+    opacity: 0.9;
+}
+
+.cardFooter {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.cardBody {
+    padding: 12px 0;
+}
+
+.cardHeader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.titleGroup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Token Card */
+.tokenCard {
+    background: var(--bg-card);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 16px;
+    padding: 16px;
+    width: 100%;
+    max-width: 340px;
+    box-shadow: var(--shadow-md);
+}
+
+.tokenInfo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tokenIcon {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 700;
+    font-size: 18px;
+}
+
+.tokenSymbol {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.tokenName {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.priceInfo {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.price {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.changePos {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--accent-success);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.changeNeg {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--accent-danger);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.chartPlaceholder {
+    margin: 12px 0;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sparkline {
+    width: 100%;
+    height: 30px;
+}
+
+.marketDataRow {
+    display: flex;
+    gap: 12px;
+    margin: 12px 0;
+    padding: 10px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.marketDataItem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.marketDataItem svg {
+    color: var(--accent-secondary);
+}
+
+.recentTransactions {
+    margin: 12px 0;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.transactionsHeader {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.transactionsList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.transactionItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    padding: 6px;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 6px;
+}
+
+.transactionType {
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 35px;
+}
+
+.transactionAmount {
+    color: var(--text-secondary);
+}
+
+.transactionPrice {
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+.transactionTime {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.riskBadge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--accent-success);
+    font-weight: 500;
+}
+
+.actionBtn {
+    padding: 6px 12px;
+    background: var(--text-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.actionBtn:hover {
+    opacity: 0.9;
+}
+
+/* Execution Preview Card */
+.executionCard {
+    background: var(--bg-card);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 16px;
+    padding: 16px;
+    width: 100%;
+    max-width: 340px;
+    box-shadow: var(--shadow-md);
+}
+
+.executionIcon {
+    width: 32px;
+    height: 32px;
+    background: rgba(59, 165, 93, 0.1);
+    color: var(--accent-success);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cardTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.riskId {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: monospace;
+    background: rgba(0, 0, 0, 0.03);
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: auto;
+}
+
+.stepsContainer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    position: relative;
+}
+
+.stepItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+    z-index: 1;
+    flex: 1;
+}
+
+.stepIndicator {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+}
+
+.stepDot {
+    width: 6px;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+}
+
+.stepName {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.stepLine {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    width: 100%;
+    height: 2px;
+    background: rgba(0, 0, 0, 0.05);
+    z-index: -1;
+}
+
+.completed .stepIndicator {
+    background: var(--accent-success);
+    border-color: var(--accent-success);
+    color: white;
+}
+
+.completed .stepName {
+    color: var(--accent-success);
+}
+
+.active .stepIndicator {
+    border-color: var(--accent-primary);
+    background: white;
+}
+
+.active .stepDot {
+    background: var(--accent-primary);
+}
+
+.active .stepName {
+    color: var(--accent-primary);
+}
+
+.detailsBox {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.detailRow {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.detailRow:last-child {
+    margin-bottom: 0;
+}
+
+.highlightValue {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.riskWarningBox {
+    background: rgba(228, 84, 84, 0.05);
+    border: 1px solid rgba(228, 84, 84, 0.1);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 16px;
+}
+
+.warningHeader {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-danger);
+    margin-bottom: 4px;
+}
+
+.warningList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.warningList li {
+    position: relative;
+    padding-left: 10px;
+}
+
+.warningList li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: var(--accent-danger);
+}
+
+.auditBadge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--accent-success);
+    font-weight: 500;
+}
+
+.relatedPages {
+    margin: 12px 0;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.relatedPagesHeader {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.relatedPagesList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.relatedPageLink {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.02);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.relatedPageLink:hover {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.relatedPageLink svg {
+    color: var(--text-muted);
+}
+
+/* Markdown Content Styles */
+.markdownContent {
+    width: 100%;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.markdownParagraph {
+    margin: 0 0 12px 0;
+    line-height: 1.6;
+}
+
+.markdownParagraph:last-child {
+    margin-bottom: 0;
+}
+
+.markdownH1,
+.markdownH2,
+.markdownH3,
+.markdownH4 {
+    margin: 16px 0 8px 0;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--text-primary);
+}
+
+.markdownH1 {
+    font-size: 20px;
+    margin-top: 20px;
+}
+
+.markdownH2 {
+    font-size: 18px;
+    margin-top: 18px;
+}
+
+.markdownH3 {
+    font-size: 16px;
+    margin-top: 16px;
+}
+
+.markdownH4 {
+    font-size: 15px;
+    margin-top: 14px;
+}
+
+.markdownH1:first-child,
+.markdownH2:first-child,
+.markdownH3:first-child,
+.markdownH4:first-child {
+    margin-top: 0;
+}
+
+.markdownStrong {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.markdownEm {
+    font-style: italic;
+}
+
+.markdownList {
+    margin: 8px 0 12px 0;
+    padding-left: 24px;
+    line-height: 1.6;
+}
+
+.markdownList:last-child {
+    margin-bottom: 0;
+}
+
+.markdownListItem {
+    margin: 4px 0;
+    line-height: 1.6;
+}
+
+.markdownInlineCode {
+    background: rgba(0, 0, 0, 0.06);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.markdownCodeBlock {
+    display: block;
+    background: rgba(0, 0, 0, 0.04);
+    padding: 12px;
+    border-radius: 8px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-x: auto;
+    margin: 12px 0;
+}
+
+.markdownPre {
+    margin: 12px 0;
+    padding: 0;
+    background: transparent;
+    overflow-x: auto;
+}
+
+.markdownPre code {
+    display: block;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.markdownBlockquote {
+    margin: 12px 0;
+    padding: 8px 16px;
+    border-left: 3px solid rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 4px;
+    font-style: italic;
+    color: var(--text-secondary);
+}
+
+.markdownTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 14px;
+}
+
+.markdownTableHead {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.markdownTableRow {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.markdownTableRow:last-child {
+    border-bottom: none;
+}
+
+.markdownTableHeader {
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.markdownTableCell {
+    padding: 8px 12px;
+    color: var(--text-primary);
+}
+
+.markdownHr {
+    margin: 16px 0;
+    border: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}

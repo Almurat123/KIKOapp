@@ -1,0 +1,53 @@
+/**
+ * CSS Custom Properties for breakpoints
+ * Use in CSS: @media (min-width: var(--breakpoint-md)) { ... }
+ */
+
+:root {
+  --breakpoint-xs: 0px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+}
+
+/**
+ * Utility classes for responsive visibility
+ */
+.hide-xs {
+  @media (max-width: 639px) {
+    display: none !important;
+  }
+}
+
+.hide-sm {
+  @media (min-width: 640px) and (max-width: 767px) {
+    display: none !important;
+  }
+}
+
+.hide-md {
+  @media (min-width: 768px) and (max-width: 1023px) {
+    display: none !important;
+  }
+}
+
+.show-xs {
+  @media (min-width: 640px) {
+    display: none !important;
+  }
+}
+
+.show-sm {
+  @media (max-width: 639px), (min-width: 768px) {
+    display: none !important;
+  }
+}
+
+.show-md {
+  @media (max-width: 767px), (min-width: 1024px) {
+    display: none !important;
+  }
+}
+

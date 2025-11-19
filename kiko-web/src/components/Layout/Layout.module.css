@@ -1,0 +1,70 @@
+.layout {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    background: var(--bg-primary);
+    overflow: hidden;
+}
+
+.main {
+    flex: 1;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.mobileHeader {
+    display: none;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-primary);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+@media (max-width: 768px) {
+    .mobileHeader {
+        display: flex;
+    }
+}
+
+.hamburger {
+    color: var(--text-primary);
+    padding: var(--space-1);
+}
+
+.mobileTitle {
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--text-primary);
+}
+
+.desktopTrigger {
+    position: absolute;
+    top: var(--space-4);
+    left: var(--space-4);
+    z-index: 50;
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+}
+
+.desktopTrigger:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+    .desktopTrigger {
+        display: none;
+    }
+}
+
+.content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
