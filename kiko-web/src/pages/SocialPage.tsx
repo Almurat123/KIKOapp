@@ -1,0 +1,1231 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  MessageCircle,
+  Repeat2,
+  Heart,
+  BadgeCheck,
+  ArrowUpRight,
+  RefreshCw,
+  Calendar,
+  ChevronDown,
+  Check,
+  Filter
+} from 'lucide-react';
+import { socialApi } from '../services/api';
+import { PageContainer } from '../components/Layout/PageContainer';
+import { CastCard3D } from '../components/Social/CastCard3D';
+import { ContentFrame } from '../components/Social/ContentFrame';
+import { HlsVideoPlayer } from '../components/Social/HlsVideoPlayer';
+import { LoadingSpinner } from '../components/Common/LoadingSpinner';
+import { useThemeContext } from '../contexts/ThemeContext';
+import { EmbedPreview } from '../components/Social/EmbedPreview';
+import { ImageViewer } from '../components/Common/ImageViewer';
+import type { TrendingCast, FeedItem } from '../services/api';
+
+// Theme colors
+const getThemeColors = (isDark: boolean) => ({
+  textPrimary: isDark ? '#f4f4f5' : '#1a1a1a',
+  textSecondary: isDark ? '#a1a1aa' : '#666666',
+  textMuted: isDark ? '#71717a' : '#999999',
+  bgHover: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+  bgCard: isDark ? 'rgba(39, 39, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+  border: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+  bgButton: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+  bgButtonHover: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+});
+
+// --- Types ---
+
+
+
+// --- Mock Data ---
+
+const TRENDING_FEED: FeedItem[] = [
+  {
+    id: 1,
+    rank: 1,
+    heatScore: '98.5',
+    type: 'frame',
+    author: {
+      name: 'Base Protocol',
+      handle: '@base',
+      avatar: 'https://placehold.co/100/0052ff/ffffff?text=B',
+      isVerified: true
+    },
+    time: '2h',
+    content: "Onchain Summer is officially live! 🟡🔵 \n\nMint the commemorative 'Builder Pass' below to unlock exclusive perks across the ecosystem. Let's build the future together.",
+    frame: {
+      image: 'https://placehold.co/600x300/0052ff/ffffff?text=Onchain+Summer+Live',
+      buttons: ['Mint Free', 'Check Eligibility']
+    },
+    stats: { replies: '2.1k', recasts: '15.4k', likes: '42k' }
+  },
+  {
+    id: 2,
+    rank: 2,
+    heatScore: '95.2',
+    type: 'text',
+    author: {
+      name: 'Vitalik Buterin',
+      handle: '@vitalik.eth',
+      avatar: 'https://placehold.co/100/6366f1/ffffff?text=V',
+      isVerified: true
+    },
+    time: '5h',
+    content: "The most underrated property of crypto is not decentralization of money, but decentralization of trust. \n\nWe are building systems that can survive without a central point of failure. This is why scaling via L2s matters more than ever.",
+    stats: { replies: '890', recasts: '5.2k', likes: '21k' }
+  },
+  {
+    id: 3,
+    rank: 3,
+    heatScore: '92.8',
+    type: 'image',
+    author: {
+      name: 'Zora',
+      handle: '@ourZORA',
+      avatar: 'https://placehold.co/100/111111/ffffff?text=Z',
+      isVerified: true
+    },
+    time: '4h',
+    content: "Imagine. Create. Mint. \n\nThe new creator toolkit is now available for everyone. No code required.",
+    images: [
+      'https://placehold.co/600x400/1e1e1e/333333?text=Creator+Toolkit'
+    ],
+    stats: { replies: '450', recasts: '3.1k', likes: '12k' }
+  },
+  {
+    id: 'suggestion_break',
+    type: 'suggestions'
+  },
+  {
+    id: 4,
+    rank: 4,
+    heatScore: '88.4',
+    type: 'poll',
+    author: {
+      name: 'Degen News',
+      handle: '@degennews',
+      avatar: 'https://placehold.co/100/f0932b/ffffff?text=D',
+      isVerified: true
+    },
+    time: '8h',
+    content: "Community Pulse Check: Which narrative dominates Q3 2025?",
+    frame: {
+      isPoll: true,
+      options: [
+        { label: 'AI Agents', percent: 52 },
+        { label: 'SocialFi', percent: 28 },
+        { label: 'RWA', percent: 20 }
+      ]
+    },
+    stats: { replies: '1.2k', recasts: '890', likes: '5.6k' }
+  },
+  {
+    id: 5,
+    rank: 5,
+    heatScore: '85.1',
+    type: 'text',
+    author: {
+      name: 'Brian Armstrong',
+      handle: '@brian_armstrong',
+      avatar: 'https://placehold.co/100/0052ff/ffffff?text=BA',
+      isVerified: true
+    },
+    time: '12h',
+    content: "Regulatory clarity is coming. The builders who stayed focused during the bear market are about to be rewarded.",
+    stats: { replies: '670', recasts: '2.4k', likes: '8.9k' }
+  }
+];
+
+// --- Components ---
+
+
+// --- Helpers ---
+const isImageUrl = (url: string): boolean => {
+  if (!url) return false;
+  if (url.includes('imagedelivery.net')) return true;
+  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i.test(url)) return true;
+  if (/\.(imgur|imgbb|cloudinary|unsplash|pexels)\./i.test(url)) return true;
+  return false;
+};
+
+const isVideoUrl = (url: string): boolean => {
+  if (!url) return false;
+  if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(url)) return true;
+  if (url.includes('imagedelivery.net') && !isImageUrl(url)) return true;
+  return false;
+};
+
+const formatText = (text: string) => {
+  if (!text) return null;
+  const parts = text.split(/(@[\w.-]+)|(https?:\/\/[^\s]+)/g);
+  return parts.map((part, i) => {
+    if (!part) return null;
+    if (part.startsWith('@')) {
+      return (
+        <span key={i} style={{ color: '#5B8DEF', cursor: 'pointer', fontWeight: 500 }} onClick={(e) => {
+          e.stopPropagation();
+          window.open(`https://warpcast.com/${part.substring(1)}`, '_blank');
+        }}>
+          {part}
+        </span>
+      );
+    }
+    if (part.startsWith('http')) {
+      return (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: '#5B8DEF', textDecoration: 'none' }}>
+          {part.length > 30 ? `${part.substring(0, 30)}...` : part}
+        </a>
+      );
+    }
+    return part;
+  });
+};
+
+// --- Icons ---
+const BaseIcon = ({ size = 16, style = {} }: { size?: number, style?: React.CSSProperties }) => (
+  <img
+    src="/Base_square_blue.png"
+    alt="Base"
+    style={{ ...style, width: size, height: size, borderRadius: '2px' }}
+  />
+);
+
+const TrendingCastItem: React.FC<{
+  data: FeedItem;
+  isDark: boolean;
+  onClick: (cast: FeedItem) => void;
+  onAvatarClick?: (cast: FeedItem) => void;
+  onImageClick?: (images: string[], index: number) => void;
+}> = ({ data, isDark, onClick, onAvatarClick, onImageClick }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [is3DOpen, setIs3DOpen] = useState(false);
+  const [selectedCast, setSelectedCast] = useState<FeedItem | null>(null);
+  const [cardMode, setCardMode] = useState<'cast' | 'profile'>('cast');
+  const colors = getThemeColors(isDark);
+
+  // Check if content is long (more than ~15 lines or 400 chars)
+  const MAX_CHARS = 400;
+  const contentIsLong = (data.content?.length || 0) > MAX_CHARS;
+  const displayContent = contentIsLong && !isExpanded
+    ? data.content?.substring(0, MAX_CHARS) + '...'
+    : data.content;
+
+  // Extract Twitter/X links from embeds or content
+  const twitterLinks = [
+    ...(data.content?.match(/https?:\/\/(twitter\.com|x\.com)\/\w+\/status\/\d+/g) || []),
+  ];
+
+  useEffect(() => {
+    const checkScreenSize = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, []);
+
+  if (!data.author || !data.stats) return null;
+
+  const handleClick = () => {
+    onClick(data);
+  };
+
+  const handleExpandClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsExpanded(!isExpanded);
+  };
+
+  return (
+    <>
+      <style>{`
+        article a,
+        article span,
+        article div {
+          text-decoration: none !important;
+        }
+      `}</style>
+      <article
+        style={{
+          position: 'relative',
+          padding: isMobile ? '12px' : '14px 16px',
+          borderBottom: `1px solid ${colors.border}`,
+          background: isHovered ? colors.bgHover : 'transparent',
+          transition: 'all 0.2s',
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div style={{
+          display: 'flex',
+          gap: isMobile ? '10px' : '12px',
+          paddingLeft: '4px',
+        }}>
+          {/* Avatar */}
+          <div style={{
+            flexShrink: 0,
+            paddingTop: '2px',
+          }}>
+            <div
+              style={{
+                width: isMobile ? '32px' : '36px',
+                height: isMobile ? '32px' : '36px',
+                cursor: 'pointer',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onAvatarClick) {
+                  onAvatarClick(data);
+                } else {
+                  onClick(data);
+                }
+              }}
+              title={data.author.bio ? `${data.author.bio.substring(0, 100)}...` : 'View Profile'}
+            >
+              <img
+                src={data.author?.avatar || `https://placehold.co/100/6366f1/ffffff?text=U`}
+                alt={data.author?.handle || 'author'}
+                title={data.author?.bio || ''}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  borderRadius: '50%',
+                  background: colors.bgCard,
+                  objectFit: 'cover',
+                  display: 'block',
+                }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = `https://placehold.co/100/6366f1/ffffff?text=${(data.author?.name || 'U').charAt(0).toUpperCase()}`;
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Content Column */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '4px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                <span style={{
+                  fontWeight: '600',
+                  fontSize: '15px',
+                  color: colors.textPrimary,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {data.author?.name}
+                </span>
+                {data.author?.isVerified && (
+                  <BadgeCheck size={14} style={{ color: '#5B8DEF', flexShrink: 0 }} />
+                )}
+                <span style={{
+                  color: colors.textSecondary,
+                  fontSize: '14px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {data.author?.handle}
+                </span>
+
+                {/* Post Coin Badge */}
+                {data.isBaseAppCoin && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'rgba(0, 82, 255, 0.1)',
+                    border: '1px solid rgba(0, 82, 255, 0.2)',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginLeft: '4px',
+                  }}>
+                    {/* Replaced Icon with Base Logo Image */}
+                    <BaseIcon size={12} />
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: '700',
+                      color: '#0052FF',
+                      letterSpacing: '0.02em',
+                    }}>
+                      Post Coin
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}>
+                <span style={{
+                  color: colors.textMuted,
+                  fontSize: '12px',
+                }}>{data.time}</span>
+              </div>
+            </div>
+
+            {/* Post Content with Mentions */}
+            <p style={{
+              fontSize: '15px',
+              lineHeight: '1.5',
+              color: colors.textPrimary,
+              marginTop: '2px',
+              marginBottom: '8px',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}>
+              {formatText(data.content || '')}
+            </p>
+
+            {/* Recasts / Quote Casts in Embeds */}
+            {data.embeds && data.embeds.map((embed: any, idx: number) => {
+              if (embed.castId || (embed.cast && embed.cast.hash)) {
+                // Handle cast embed
+                const quotedCast = embed.cast || embed; // Normalize
+                return (
+                  <div key={idx} style={{
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: '12px',
+                    padding: '12px',
+                    marginTop: '8px',
+                    marginBottom: '8px',
+                    background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+                  }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                      <img
+                        src={quotedCast.author?.avatar || `https://placehold.co/100/6366f1/ffffff?text=${quotedCast.author?.fid}`}
+                        style={{ width: '20px', height: '20px', borderRadius: '50%' }}
+                        alt=""
+                      />
+                      <span style={{ fontWeight: 600, fontSize: '13px' }}>{quotedCast.author?.displayName}</span>
+                      <span style={{ color: colors.textSecondary, fontSize: '13px' }}>@{quotedCast.author?.username}</span>
+                    </div>
+                    <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
+                      {quotedCast.text}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })}
+
+
+
+            {/* Attachments */}
+            {(data.type === 'frame' || data.type === 'poll') && data.frame && (
+              <ContentFrame frame={data.frame} isDark={isDark} />
+            )}
+            {data.type === 'video' && data.videos && data.videos.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <HlsVideoPlayer
+                  src={data.videos[0]}
+                  maxWidth={isMobile ? '100%' : '320px'}
+                  maxHeight="400px"
+                />
+              </div>
+            )}
+            {data.type === 'image' && data.images && data.images.length > 0 && (
+              <div style={{
+                marginTop: '8px',
+                display: 'grid',
+                gap: '4px',
+                gridTemplateColumns: data.images.length > 1 ? 'repeat(2, 1fr)' : '1fr',
+                maxWidth: isMobile ? '100%' : '320px', // Reduced to ~2/3 size
+              }}>
+                {data.images!.map((img: string, idx: number) => (
+                  <div
+                    key={idx}
+                    style={{
+                      position: 'relative',
+                      borderRadius: '8px',
+                      overflow: 'hidden',
+                      border: `1px solid ${colors.border}`,
+                      background: colors.bgCard,
+                      aspectRatio: data.images!.length > 1 ? '1' : '16/9',
+                      cursor: 'zoom-in', // Indicate clickable
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onImageClick?.(data.images || [], idx);
+                    }}
+                  >
+                    <img
+                      src={img}
+                      alt="Content"
+                      loading="lazy"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        opacity: isHovered ? 0.9 : 1,
+                        transition: 'opacity 0.2s',
+                        display: 'block',
+                      }}
+                      onError={(e) => {
+                        // Hide broken images
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Links Preview - Moved below Images */}
+            {data.embeds && data.embeds.length > 0 && (
+              <div style={{ marginTop: '8px', maxWidth: isMobile ? '100%' : '380px' }}>
+                {data.embeds.filter((e: any) => e.url && !isImageUrl(e.url) && !isVideoUrl(e.url) && !e.castId).map((e: any, i: number) => {
+                  if (e.url.startsWith('zoraCoin:') || e.url.startsWith('ethereum:')) return null;
+                  return (
+                    <div key={i} onClick={evt => evt.stopPropagation()}>
+                      <EmbedPreview url={e.url} isDark={isDark} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Stats Bar */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginTop: isMobile ? '10px' : '6px',
+              paddingTop: isMobile ? '8px' : '6px',
+              borderTop: 'none',
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '16px',
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: isHovered ? '#5B8DEF' : colors.textSecondary,
+                  transition: 'color 0.2s',
+                }}>
+                  <MessageCircle size={14} />
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: '500',
+                  }}>{data.stats.replies}</span>
+                </div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: isHovered ? '#10b981' : colors.textSecondary,
+                  transition: 'color 0.2s',
+                }}>
+                  <Repeat2 size={14} />
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: '500',
+                  }}>{data.stats.recasts}</span>
+                </div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: isHovered ? '#e74c3c' : colors.textSecondary,
+                  transition: 'color 0.2s',
+                }}>
+                  <Heart size={14} />
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: '500',
+                  }}>{data.stats.likes}</span>
+                </div>
+
+                {/* Coin Value Display in Stats Row */}
+                {data.coinValue && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    color: '#10b981', // Green like stock up
+                    fontWeight: '600',
+                    fontSize: '12px',
+                    marginLeft: '4px',
+                  }}>
+                    {/* K-line / Chart Icon */}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="20" x2="18" y2="10"></line>
+                      <line x1="12" y1="20" x2="12" y2="4"></line>
+                      <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    {data.coinValue}
+                  </div>
+                )}
+
+                {/* 3D View Toggle */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    marginLeft: '12px',
+                    color: colors.textSecondary,
+                    cursor: 'pointer',
+                    transition: 'color 0.2s',
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCardMode('cast'); // Set mode to cast
+                    onClick(data);
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#7C3AED'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = colors.textSecondary}
+                  title="View 3D Card"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article >
+
+      {/* 3D Card Modal */}
+      <CastCard3D
+        cast={data}
+        isOpen={selectedCast?.id === data.id && is3DOpen}
+        onClose={() => setIs3DOpen(false)}
+        isDark={isDark}
+        mode={cardMode}
+      />
+    </>
+  );
+};
+
+function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
+  const now = Date.now();
+
+  // Parse timestamp - handle both number and string formats
+  let castTimestamp: number;
+  if (typeof cast.timestamp === 'number') {
+    castTimestamp = cast.timestamp;
+  } else if (typeof cast.timestamp === 'string') {
+    castTimestamp = parseInt(cast.timestamp, 10);
+  } else {
+    castTimestamp = 0;
+  }
+
+  // If timestamp is in seconds (not milliseconds), convert it
+  // Timestamps before 2001 in ms would be < 1e12
+  if (castTimestamp > 0 && castTimestamp < 1e12) {
+    castTimestamp = castTimestamp * 1000;
+  }
+
+  let timeStr = '';
+
+  // Validate: must be positive and not too far in the future
+  if (castTimestamp > 0 && castTimestamp < now + (7 * 24 * 60 * 60 * 1000)) {
+    const timeDiff = now - castTimestamp;
+
+    // Calculate time ago
+    const secondsAgo = Math.floor(timeDiff / 1000);
+    const minutesAgo = Math.floor(secondsAgo / 60);
+    const hoursAgo = Math.floor(minutesAgo / 60);
+    const daysAgo = Math.floor(hoursAgo / 24);
+
+    if (secondsAgo < 0) {
+      timeStr = 'now';
+    } else if (secondsAgo < 60) {
+      timeStr = 'now';
+    } else if (minutesAgo < 60) {
+      timeStr = `${minutesAgo}m`;
+    } else if (hoursAgo < 24) {
+      timeStr = `${hoursAgo}h`;
+    } else if (daysAgo < 7) {
+      timeStr = `${daysAgo}d`;
+    } else if (daysAgo < 365) {
+      const date = new Date(castTimestamp);
+      timeStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } else {
+      const date = new Date(castTimestamp);
+      timeStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+
+  // Format stats with K/M suffixes
+  const formatStat = (num: number | undefined | null): string => {
+    // Handle undefined, null, or NaN
+    const value = typeof num === 'number' && !isNaN(num) ? num : 0;
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+    return value.toString();
+  };
+
+  // Determine type based on embeds
+  // Check for images: Neynar CDN URLs (imagedelivery.net) or URLs with image extensions
+  const isImageUrl = (url: string): boolean => {
+    // Neynar CDN images
+    if (url.includes('imagedelivery.net')) return true;
+    // URLs with image extensions
+    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i.test(url)) return true;
+    // Common image hosting services
+    if (/\.(imgur|imgbb|cloudinary|unsplash|pexels)\./i.test(url)) return true;
+    return false;
+  };
+
+  const isVideoUrl = (url: string): boolean => {
+    // Explicit video file extensions
+    if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(url)) return true;
+    // Cloudflare imagedelivery.net streams (will use HLS.js)
+    if (url.includes('imagedelivery.net') && !isImageUrl(url)) return true;
+    return false;
+  };
+
+  let type: 'frame' | 'text' | 'image' | 'poll' | 'video' = 'text';
+
+  const imageEmbeds = cast.embeds?.filter(e => e.url && isImageUrl(e.url)) || [];
+  const videoEmbeds = cast.embeds?.filter(e => e.url && isVideoUrl(e.url)) || [];
+
+  if (videoEmbeds.length > 0) {
+    type = 'video';
+  } else if (imageEmbeds.length > 0) {
+    type = 'image';
+  }
+
+  // Extract URLs
+  const images = imageEmbeds.map(e => e.url!);
+  const videos = videoEmbeds.map(e => e.url!);
+
+  // Generate Farcaster URL for the cast
+  // Format: https://warpcast.com/{username}/{hash}
+  const castUrl = cast.author.username
+    ? `https://warpcast.com/${cast.author.username}/${cast.hash}`
+    : `https://warpcast.com/~/conversations/${cast.hash}`;
+
+  return {
+    id: cast.hash,
+    rank: index + 1,
+    heatScore: cast.heatScore.toFixed(1),
+    type,
+    author: {
+      name: cast.author.displayName || cast.author.username || 'Unknown',
+      handle: `@${cast.author.username}`,
+      avatar: cast.author.avatar || `https://placehold.co/100/6366f1/ffffff?text=${cast.author.fid}`,
+      isVerified: cast.author.verified || false,
+      bio: cast.author.bio,
+      creatorCoin: cast.author.creatorCoin // Pass creator coin data
+    },
+    time: timeStr,
+    content: cast.text,
+    embeds: cast.embeds, // Pass raw embeds
+    images: images.length > 0 ? images : undefined,
+    videos: videos.length > 0 ? videos : undefined,
+    stats: {
+      replies: formatStat(cast.stats.replies),
+      recasts: formatStat(cast.stats.recasts),
+      likes: formatStat(cast.stats.likes),
+    },
+    castUrl: castUrl, // Add URL for navigation
+    isBaseAppCoin: cast.isBaseAppCoin,
+    baseAppCoinMetadata: cast.baseAppCoinMetadata,
+    coinValue: cast.coinValue,
+    mentions: cast.mentions, // Pass mentions
+    timestamp: castTimestamp, // Add timestamp for sorting
+  };
+}
+
+export const SocialPage: React.FC = () => {
+  const { resolvedTheme } = useThemeContext();
+  const isDark = resolvedTheme === 'dark';
+  const colors = getThemeColors(isDark);
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Image Viewer State
+  const [imageViewerState, setImageViewerState] = useState<{
+    isOpen: boolean;
+    images: string[];
+    initialIndex: number;
+  }>({
+    isOpen: false,
+    images: [],
+    initialIndex: 0
+  });
+
+  const handleImageClick = (images: string[], index: number) => {
+    setImageViewerState({
+      isOpen: true,
+      images,
+      initialIndex: index
+    });
+  };
+
+  type TimeRange = 'trending' | '24h' | '7d' | '30d';
+  type SortOption = 'rank' | 'newest' | 'oldest';
+
+  const [timeRange, setTimeRange] = useState<TimeRange>('trending');
+  const [sortBy, setSortBy] = useState<SortOption>('rank');
+  const [filterByBaseAppCoin, setFilterByBaseAppCoin] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const sortedFeedItems = React.useMemo(() => {
+    let items = [...feedItems];
+    if (sortBy === 'newest') {
+      items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    } else if (sortBy === 'oldest') {
+      items.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    }
+    // 'rank' preserves API order (default)
+    return items;
+  }, [feedItems, sortBy]);
+
+  const [selectedCast, setSelectedCast] = useState<FeedItem | null>(null);
+  const [cardMode, setCardMode] = useState<'cast' | 'profile'>('cast');
+
+  const mountedRef = useRef(true);
+
+  // Load data on mount
+  useEffect(() => {
+    // Reset mounted ref on each mount (important for StrictMode)
+    mountedRef.current = true;
+
+    loadTrendingCasts(true);
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [timeRange, filterByBaseAppCoin]);
+
+  const loadTrendingCasts = async (showLoading: boolean = true) => {
+    if (!mountedRef.current) return;
+
+    try {
+      if (showLoading) {
+        setLoading(true);
+      }
+      setError(null);
+      console.log('[SocialPage] Starting to load casts...');
+
+      // Direct API call - no requestManager
+      // Increase limit to 800 to show all posts with >15 likes
+      const casts = await socialApi.getTrending(800, timeRange).catch((err) => {
+        console.warn('[SocialPage] getTrending failed:', err);
+        return [];
+      });
+
+      console.log('[SocialPage] Fetched casts:', casts.length);
+
+      // Always update state if component is still mounted
+      if (mountedRef.current) {
+        if (casts && casts.length > 0) {
+          const MIN_VALID_TIMESTAMP = 1577836800000; // Jan 1, 2020 in ms
+          const items = casts
+            .filter((cast) => {
+              // Must have 15+ likes
+              if (cast.stats.likes < 15) return false;
+
+              // Parse timestamp
+              let ts = typeof cast.timestamp === 'number' ? cast.timestamp : Number(cast.timestamp) || 0;
+
+              // Convert seconds to milliseconds if needed
+              if (ts > 0 && ts < 1e12) {
+                ts = ts * 1000;
+              }
+
+              // Filter out invalid timestamps (before 2020 or 0)
+              if (ts < MIN_VALID_TIMESTAMP) {
+                console.log('[SocialPage] Filtering out cast with invalid timestamp:', cast.author?.username, ts);
+                return false;
+              }
+
+              return true;
+            })
+            // Filter by Base App Coin if enabled
+            .filter((cast) => {
+              if (filterByBaseAppCoin) {
+                return cast.isBaseAppCoin === true;
+              }
+              return true;
+            })
+            .map((cast, index) => trendingCastToFeedItem(cast, index))
+            // Secondary filter: remove posts with empty time (invalid date display)
+            .filter((item) => {
+              if (!item.time || item.time.trim() === '') {
+                console.log('[SocialPage] Filtering out item with empty time:', item.author?.name);
+                return false;
+              }
+              return true;
+            });
+          setFeedItems(items);
+          setError(null);
+        } else {
+          setError('No trending casts available. The data may still be loading.');
+          setFeedItems([]);
+        }
+        setLoading(false);
+        console.log('[SocialPage] State updated, loading set to false');
+      }
+    } catch (err: any) {
+      console.error('[SocialPage] Error loading trending casts:', err);
+      if (mountedRef.current) {
+        setError(err.message || 'Failed to load trending casts');
+        setFeedItems([]);
+        setLoading(false);
+        console.log('[SocialPage] Error handled, loading set to false');
+      }
+    }
+  };
+
+
+  if (loading && feedItems.length === 0) {
+    return (
+      <PageContainer>
+        <LoadingSpinner color={colors.textSecondary} />
+      </PageContainer>
+    );
+  }
+
+  return (
+    <PageContainer>
+      <div style={{
+        paddingBottom: '80px',
+      }}>
+        <main style={{
+          maxWidth: '520px',
+          margin: '0 auto',
+        }}>
+          {/* Time Range Selector */}
+          <div style={{
+            padding: '12px 16px',
+            borderBottom: `1px solid ${colors.border}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            {/* Filter Menu & Base Coin Toggle */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              {/* Menu Trigger */}
+              <div
+                ref={menuRef}
+                style={{ position: 'relative' }}
+              >
+                <button
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    background: isMenuOpen ? colors.bgButtonHover : colors.bgButton,
+                    borderRadius: '12px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: colors.textPrimary,
+                    transition: 'all 0.2s',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                  }}
+                >
+                  <Calendar size={16} />
+                  <span>
+                    {timeRange === 'trending' ? 'Trending' :
+                      timeRange === '24h' ? '24h' :
+                        timeRange === '7d' ? '7 Days' : '30 Days'}
+                  </span>
+                  <ChevronDown size={14} style={{
+                    opacity: 0.5,
+                    transform: isMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.2s'
+                  }} />
+                </button>
+
+                {/* Dropdown Menu */}
+                {isMenuOpen && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '8px',
+                    width: '220px',
+                    background: isDark ? '#1F1F22' : '#FFFFFF',
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: '16px',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                    padding: '8px',
+                    zIndex: 50,
+                    overflow: 'hidden',
+                    animation: 'fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+                  }}>
+                    {/* Time Range Section */}
+                    <div style={{ padding: '8px 12px', fontSize: '12px', fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Time Period
+                    </div>
+                    {(['trending', '24h', '7d', '30d'] as TimeRange[]).map((range) => (
+                      <div
+                        key={range}
+                        onClick={() => {
+                          setTimeRange(range);
+                          // Reset sort to rank when changing time range usually desirable, but user might want to keep sort. 
+                          // Let's keep sort.
+                          setIsMenuOpen(false);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          color: timeRange === range ? '#0052FF' : colors.textPrimary,
+                          background: timeRange === range ? (isDark ? 'rgba(0, 82, 255, 0.1)' : '#F0F5FF') : 'transparent',
+                          transition: 'background 0.1s',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (timeRange !== range) e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
+                        }}
+                        onMouseLeave={(e) => {
+                          if (timeRange !== range) e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <span style={{ fontSize: '14px', fontWeight: timeRange === range ? 500 : 400 }}>
+                          {range === 'trending' ? 'Smart Trending' :
+                            range === '24h' ? 'Last 24 Hours' :
+                              range === '7d' ? 'Last 7 Days' : 'Last 30 Days'}
+                        </span>
+                        {timeRange === range && <Check size={14} />}
+                      </div>
+                    ))}
+
+                    <div style={{ height: '1px', background: colors.border, margin: '8px 0' }} />
+
+                    {/* Sort Order Section */}
+                    <div style={{ padding: '8px 12px', fontSize: '12px', fontWeight: 600, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Sort By
+                    </div>
+                    {[
+                      { id: 'rank', label: 'Smart Rank' },
+                      { id: 'newest', label: 'Newest First' },
+                      { id: 'oldest', label: 'Oldest First' }
+                    ].map((option) => (
+                      <div
+                        key={option.id}
+                        onClick={() => {
+                          setSortBy(option.id as SortOption);
+                          setIsMenuOpen(false);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          color: sortBy === option.id ? '#0052FF' : colors.textPrimary,
+                          background: sortBy === option.id ? (isDark ? 'rgba(0, 82, 255, 0.1)' : '#F0F5FF') : 'transparent',
+                          transition: 'background 0.1s',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (sortBy !== option.id) e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
+                        }}
+                        onMouseLeave={(e) => {
+                          if (sortBy !== option.id) e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <span style={{ fontSize: '14px', fontWeight: sortBy === option.id ? 500 : 400 }}>
+                          {option.label}
+                        </span>
+                        {sortBy === option.id && <Check size={14} />}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Is Post Coin Toggle */}
+              <div
+                onClick={() => setFilterByBaseAppCoin(!filterByBaseAppCoin)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 12px',
+                  borderRadius: '12px',
+                  background: filterByBaseAppCoin ? 'rgba(0, 82, 255, 0.1)' : colors.bgButton,
+                  border: filterByBaseAppCoin ? '1px solid #0052FF' : '1px solid transparent',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <BaseIcon size={16} style={{ opacity: filterByBaseAppCoin ? 1 : 0.5 }} />
+                <span style={{
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: filterByBaseAppCoin ? '#0052FF' : colors.textSecondary
+                }}>
+                  Base Coin
+                </span>
+              </div>
+            </div>
+
+            {/* Hidden original tabs */}
+            <div style={{ display: 'none' }}>
+              {(['trending', '24h', '7d', '30d'] as TimeRange[]).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setTimeRange(range)}
+                >
+                  {range}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <style>{`
+            @keyframes fadeIn {
+              from { opacity: 0; transform: translateY(-8px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+          `}</style>
+
+          {/* Error message */}
+          {error && (
+            <div style={{
+              padding: '16px 20px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              color: '#dc2626',
+              fontSize: '14px',
+              borderBottom: `1px solid ${colors.border}`,
+            }}>
+              {error}
+            </div>
+          )}
+
+          {/* Feed Stream */}
+          <div style={{
+            marginTop: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            {sortedFeedItems.map((item) => (
+              item.type === 'suggestions' ? (
+                <div key={item.id} style={{
+                  padding: '24px 16px',
+                  textAlign: 'center',
+                  borderBottom: `1px solid ${colors.border}`,
+                }}>
+                  <span style={{ fontSize: '12px', color: colors.textSecondary, fontWeight: '500' }}>
+                    SUGGESTED FOR YOU
+                  </span>
+                </div>
+              ) : (
+                <TrendingCastItem
+                  key={item.id}
+                  data={item}
+                  isDark={isDark}
+                  onClick={(cast: FeedItem) => {
+                    setCardMode('cast');
+                    setSelectedCast(cast);
+                  }}
+                  onAvatarClick={(cast: FeedItem) => {
+                    setCardMode('profile');
+                    setSelectedCast(cast);
+                  }}
+                  onImageClick={handleImageClick}
+                />
+              )
+            ))}
+          </div>
+
+          {sortedFeedItems.length === 0 && !loading && (
+            <div style={{
+              padding: '64px 32px',
+              textAlign: 'center',
+              color: colors.textSecondary,
+            }}>
+              <div style={{ marginBottom: '12px' }}>No trending casts found</div>
+              <button
+                onClick={() => loadTrendingCasts(true)}
+                style={{
+                  padding: '8px 24px',
+                  background: colors.bgButton,
+                  color: colors.textSecondary,
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  borderRadius: '9999px',
+                  border: `1px solid ${colors.border}`,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = colors.bgButtonHover;
+                  e.currentTarget.style.color = colors.textPrimary;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = colors.bgButton;
+                  e.currentTarget.style.color = colors.textSecondary;
+                }}
+              >
+                Try Again
+              </button>
+            </div>
+          )}
+        </main>
+
+        <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+      </div>
+      <CastCard3D
+        cast={selectedCast}
+        isOpen={!!selectedCast}
+        onClose={() => setSelectedCast(null)}
+        isDark={isDark}
+        mode={cardMode}
+      />
+
+      <ImageViewer
+        isOpen={imageViewerState.isOpen}
+        onClose={() => setImageViewerState(prev => ({ ...prev, isOpen: false }))}
+        images={imageViewerState.images}
+        initialIndex={imageViewerState.initialIndex}
+      />
+    </PageContainer>
+  );
+};
+
+export default SocialPage;
+
+
+

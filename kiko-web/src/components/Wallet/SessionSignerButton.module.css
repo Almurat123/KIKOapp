@@ -1,0 +1,103 @@
+.container {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f4f4f5;
+}
+
+:global(.light) .title {
+    color: #18181b;
+}
+
+.chainBadge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #a1a1aa;
+    font-weight: 500;
+}
+
+:global(.light) .chainBadge {
+    border-color: rgba(0, 0, 0, 0.2);
+    color: #52525b;
+}
+
+.description {
+    font-size: 12px;
+    color: #a1a1aa;
+    margin: 0 0 12px 0;
+    line-height: 1.5;
+}
+
+:global(.light) .description {
+    color: #52525b;
+}
+
+.button {
+    width: 100%;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.authorizeButton {
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    color: #fff;
+}
+
+.authorizeButton:hover:not(:disabled) {
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    transform: translateY(-1px);
+}
+
+.revokeButton {
+    background: #3f3f46;
+    color: #f4f4f5;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+:global(.light) .revokeButton {
+    background: #e4e4e7;
+    color: #18181b;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.revokeButton:hover:not(:disabled) {
+    background: #52525b;
+}
+
+:global(.light) .revokeButton:hover:not(:disabled) {
+    background: #d4d4d8;
+}
+
+.error {
+    font-size: 11px;
+    color: #f87171;
+    margin: 8px 0 0 0;
+    text-align: center;
+}

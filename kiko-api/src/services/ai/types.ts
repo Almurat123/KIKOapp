@@ -1,0 +1,27 @@
+export type IntentType =
+    | 'TRADING'
+    | 'MARKET_ANALYSIS'
+    | 'SOCIAL_SENSING'
+    | 'RISK_SCAN'
+    | 'GENERAL_CHAT';
+
+export type ModelType = 'deepseek' | 'grok';
+
+export interface UserContext {
+    userAddress?: string;
+    solanaAddress?: string;
+    chainId?: number;
+    chainName?: string;
+    isWalletConnected?: boolean;
+    balance?: Record<string, string>;
+    nativeBalance?: string;
+    pageContext?: string;
+    currentPage?: string;
+    pendingSwapToken?: { address: string; symbol: string; chainId: number };
+    toolConfig?: any;
+}
+
+export interface OrchestratorOptions {
+    mode?: 'default' | 'strict' | 'experiment';
+    agent?: 'kiko-terminal' | 'copytrade';
+}

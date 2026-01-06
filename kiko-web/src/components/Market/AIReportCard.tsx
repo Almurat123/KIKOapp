@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, ArrowRight, AlertTriangle, TrendingUp, ExternalLink, FileText } from 'lucide-react';
+import { Sparkles, ArrowRight, TrendingUp, ExternalLink, FileText } from 'lucide-react';
 import styles from './AIReportCard.module.css';
 
 interface AIReportCardProps {
@@ -12,10 +12,10 @@ interface AIReportCardProps {
     onLinkClick?: (href: string) => void;
 }
 
-export const AIReportCard: React.FC<AIReportCardProps> = ({ 
-    title, 
-    insight, 
-    metrics, 
+export const AIReportCard: React.FC<AIReportCardProps> = ({
+    title,
+    insight,
+    metrics,
     recommendation,
     sourcePage,
     relatedLinks = [],
@@ -25,7 +25,7 @@ export const AIReportCard: React.FC<AIReportCardProps> = ({
         if (onLinkClick) {
             onLinkClick(href);
         } else {
-            window.location.href = href;
+            window.location.assign(href);
         }
     };
 

@@ -1,42 +1,898 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, StopCircle, ArrowDown, Square, ChevronDown, Sparkles } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { ArrowDown, ChevronDown, Settings, ArrowUp } from 'lucide-react';
+import { usePrivy, useWallets, useSessionSigners } from '@privy-io/react-auth';
+import type { WalletWithMetadata } from '@privy-io/react-auth';
+import { DelegatedActionRequest } from '../Privy/DelegatedActionRequest';
+import { useChainId, useAccount, useBalance } from 'wagmi';
+import { toast, Toaster } from 'sonner';
 import { MessageBubble } from './MessageBubble';
-import { TokenCard } from './TokenCard';
+import { WelcomeScreen } from './WelcomeScreen';
+import { CustomAISettingsModal } from './CustomAISettingsModal';
+import { ChatInputSuggestions, type SuggestionItem } from './ChatInputSuggestions';
+import { useSmartSuggestions } from './useSmartSuggestions';
+import { useSidebar } from '../Layout/Layout';
+import { useThemeContext } from '../../contexts/ThemeContext';
+// Use global ChainContext for app-wide chain state
+import { useChain } from '../../contexts/ChainContext';
+import { extractStrategiesFromMessages } from '../../utils/strategyExtractor';
+import { useStrategies } from '../../hooks/useStrategies';
+import { getUserBalance } from '../../services/swapService';
+import type { UserContext } from '../../services/aiService';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
+import { chatApi } from '../../services/api';
+import { chatWSClient, type ChatEvent } from '../../utils/chatWebSocket';
 import type { Message } from '../../hooks/useConversations';
+import { moderationService } from '../../services/moderation';
+import { ChatInput } from './ChatInput';
+
+// Model options
+// DeepSeek models:
+// - deepseek-chat: DeepSeek-V3.2 (非思考模式)
+// - deepseek-reasoner: DeepSeek-V3.2 (思考模式)
+// X.ai (Grok) models:
+// - grok-4-1-fast-reasoning: Grok-4.1 Fast (Reasoning mode) - for complex multi-step workflows
+// - grok-4-1-fast-non-reasoning: Grok-4.1 Fast (Non-reasoning mode) - for fast chat, brainstorming
+const MODEL_OPTIONS = [
+    { id: 'deepseek-v3-fast', name: 'DeepSeek-V3.2', mode: 'fast' },
+    { id: 'deepseek-v3-thinking', name: 'DeepSeek-V3.2', mode: 'thinking' },
+    { id: 'grok-4-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
+    { id: 'grok-4-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
+];
+
+// Common token addresses by chain with decimals
+const COMMON_TOKENS: Record<number, Array<{ address: string; symbol: string; decimals: number }>> = {
+    1: [
+        { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6 },
+        { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6 },
+        { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', symbol: 'DAI', decimals: 18 },
+    ],
+    8453: [
+        { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
+        { address: '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA', symbol: 'USDbC', decimals: 6 }, // Bridged USDC (common on Base)
+        { address: '0x4200000000000000000000000000000000000006', symbol: 'WETH', decimals: 18 },
+    ],
+    56: [
+        { address: '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56', symbol: 'BUSD', decimals: 18 },
+    ],
+};
 
 interface ChatInterfaceProps {
     conversationId?: string | null;
     initialMessages?: Message[];
     onMessagesChange?: (messages: Message[]) => void;
-    onNewConversation?: (title: string) => string; // Returns new conversation ID
+    onNewConversation?: (title: string) => Promise<string | null>; // Returns new conversation ID
+    conversationTitle?: string;
+    onNewChat?: () => void;
+    pendingAIPrompt?: string | null;
+    onAIPromptSet?: () => void;
+    activeTask?: any | null; // Active task from backend
+    onTaskUpdate?: (task: any | null) => void; // Callback to update task state
 }
+
+// Helper to extract EVM addresses from text
+const extractAddresses = (text: string): string[] => {
+    // Regex for EVM address (0x followed by 40 hex chars)
+    const matches = text.match(/0x[a-fA-F0-9]{40}/gi);
+    return matches ? Array.from(new Set(matches)) : [];
+};
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     conversationId,
     initialMessages = [],
     onMessagesChange,
     onNewConversation,
+    conversationTitle: _conversationTitle,
+    onNewChat: _onNewChat,
+    pendingAIPrompt,
+    onAIPromptSet,
+    activeTask: propActiveTask,
+    onTaskUpdate,
 }) => {
+
+    const sidebar = useSidebar();
+    const { resolvedTheme } = useThemeContext();
+    const { createStrategy, strategies, toggleStrategyStatus } = useStrategies();
+    const { user, authenticated } = usePrivy();
+    const { wallets } = useWallets();
+    // Use global chain context instead of Wagmi's useChainId
+    // this ensures AI knows about selected chain even if wallet is on different chain
+    const { currentChain } = useChain();
+    const chainId = currentChain.id;
+    const { address: wagmiAddress } = useAccount();
     const [messages, setMessages] = useState<Message[]>(initialMessages);
+
+    // CRITICAL: Keep messagesRef in sync with messages state at all times.
+    // This ensures the unmount save (line ~1046) has the latest data when user navigates away.
+    const messagesRef = useRef<Message[]>(initialMessages);
+    useEffect(() => {
+        messagesRef.current = messages;
+    }, [messages]);
+
+    // Get wallet address based on current chain (Solana vs EVM)
+    // If on Solana (900), try to find Solana embedded wallet first
+    const walletAddress = useMemo(() => {
+        if (currentChain.id === 900) {
+            // Priority: User's linked Solana embedded wallet
+            const solLink = user?.linkedAccounts?.find(
+                (acc): acc is WalletWithMetadata => acc.type === 'wallet' && acc.chainType === 'solana' && acc.walletClientType === 'privy'
+            );
+            if (solLink) return solLink.address;
+
+            // Fallback: any Solana wallet from useWallets()
+            const solWallet = wallets.find(w => w.walletClientType === 'solana');
+            return solWallet?.address || '';
+        }
+        // Default to EVM priority
+        // Prioritize embedded wallet if possible
+        const embeddedEVM = user?.linkedAccounts?.find(
+            (acc): acc is WalletWithMetadata => acc.type === 'wallet' && acc.chainType === 'ethereum' && acc.walletClientType === 'privy'
+        );
+        if (embeddedEVM) return embeddedEVM.address;
+
+        const evmWallet = wallets.find(w => w.walletClientType !== 'solana');
+        return evmWallet?.address || wagmiAddress || user?.wallet?.address || '';
+    }, [wallets, wagmiAddress, user, currentChain.id]);
+
+    // Get native balance
+    const { data: nativeBalanceData } = useBalance({
+        address: walletAddress as `0x${string}` | undefined,
+        chainId: chainId,
+        query: {
+            enabled: !!walletAddress && authenticated,
+        },
+    });
+
+    // Chain name mapping
+    const chainNameMap: Record<number, string> = {
+        1: 'Ethereum',
+        8453: 'Base',
+        56: 'BSC',
+        42161: 'Arbitrum',
+        10: 'Optimism',
+        137: 'Polygon',
+        43114: 'Avalanche',
+        250: 'Fantom',
+    };
+
+    const chainName = chainNameMap[chainId] || `Chain ${chainId}`;
+
+    // State for user balances (common tokens)
+    const [userBalances, setUserBalances] = useState<Record<string, string>>({});
+    const [_isLoadingBalances, setIsLoadingBalances] = useState(false);
+    const processedStrategyIdsRef = useRef<Set<string>>(new Set());
     const [input, setInput] = useState('');
     const [isThinking, setIsThinking] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
-    const [hasStarted, setHasStarted] = useState(false);
+    const [isStopping, setIsStopping] = useState(false);
+
+    const [hasStarted, setHasStartedLocal] = useState(initialMessages.length > 0);
+
+    // Wrapper to sync hasStarted with Layout's chatStarted
+    const setHasStarted = (value: boolean) => {
+        setHasStartedLocal(value);
+        sidebar?.setChatStarted(value);
+    };
     const [thinkingText, setThinkingText] = useState('Thinking');
     const [showJumpToBottom, setShowJumpToBottom] = useState(false);
-    const [showStrategies, setShowStrategies] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
     const [stoppedMessageId, setStoppedMessageId] = useState<string | null>(null);
     const [stoppedMessageContent, setStoppedMessageContent] = useState<string>('');
+    const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+
+    // Load selected model from localStorage or use default
+    const getInitialModel = () => {
+        try {
+            const saved = localStorage.getItem('kiko-selected-model');
+            console.log('[ChatInterface] Loading model from localStorage:', saved);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
+                if (found) {
+                    console.log('[ChatInterface] Found saved model:', found.id);
+                    return found;
+                }
+            }
+        } catch (e) {
+            console.warn('[ChatInterface] Failed to load saved model from localStorage:', e);
+        }
+        console.log('[ChatInterface] Using default model:', MODEL_OPTIONS[0].id);
+        return MODEL_OPTIONS[0];
+    };
+
+    const [selectedModel, setSelectedModel] = useState(getInitialModel);
+
+    // Suggestions State
+    const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+
+    // Intent Detection Logic
+    const detectIntent = useCallback((text: string) => {
+        console.log('[ChatInterface] detectIntent called with:', text);
+        if (!text || text.trim().length === 0) {
+            setSuggestions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
+        const lowerText = text.toLowerCase().trim();
+        console.log('[ChatInterface] Processing text:', lowerText);
+        const newSuggestions: SuggestionItem[] = [];
+
+        // 1. Address Detection (EVM or Solana)
+        const evmAddressMatch = text.match(/0x[a-fA-F0-9]{40}/);
+        const solanaAddressMatch = text.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
+
+        if (evmAddressMatch) {
+            const address = evmAddressMatch[0];
+            const shortAddr = `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+            newSuggestions.push({
+                id: 'check-evm',
+                label: `Check Token Analysis`,
+                subLabel: `Run risk & safety check for ${shortAddr}`,
+                action: () => handleSend(`Check ${address}`),
+                highlight: true
+            });
+            newSuggestions.push({
+                id: 'swap-evm',
+                label: `Swap Token`,
+                subLabel: `Buy/Sell ${shortAddr}`,
+                action: () => handleSend(`Swap ${address}`),
+            });
+            newSuggestions.push({
+                id: 'buyers-evm',
+                label: `Check Early Buyers`,
+                subLabel: `Analyze top holders/snipers for ${shortAddr}`,
+                action: () => handleSend(`Check early buyers for ${address}`),
+            });
+        } else if (solanaAddressMatch) {
+            const address = solanaAddressMatch[0];
+            // Filter out common non-address base58 strings if needed (simplified check logic)
+            if (address.length > 30) {
+                const shortAddr = `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+                newSuggestions.push({
+                    id: 'check-sol',
+                    label: `Check Solana Token`,
+                    subLabel: `Run deep analysis for ${shortAddr}`,
+                    action: () => handleSend(`Check ${address}`),
+                    highlight: true
+                });
+                newSuggestions.push({
+                    id: 'swap-sol',
+                    label: `Swap on Solana`,
+                    subLabel: `Trade ${shortAddr}`,
+                    action: () => handleSend(`Swap ${address}`),
+                });
+                newSuggestions.push({
+                    id: 'dev-sol',
+                    label: `Check Developer`,
+                    subLabel: `Analyze dev wallet history for ${shortAddr}`,
+                    action: () => handleSend(`Check developer of ${address}`),
+                });
+            }
+        }
+
+        // 2. Keyword Detection
+        if (newSuggestions.length === 0) {
+            if (lowerText.startsWith('swap')) {
+                newSuggestions.push({
+                    id: 'swap-generic',
+                    label: 'Swap Tokens',
+                    subLabel: 'I want to swap [Token] for [Token]',
+                    action: () => setInput('[SWAP] I want to swap '), // Pre-fill
+                });
+                newSuggestions.push({
+                    id: 'swap-eth-usdc',
+                    label: 'Quick Swap: ETH -> USDC',
+                    subLabel: 'Swap 0.1 ETH to USDC',
+                    action: () => handleSend('Swap 0.1 ETH to USDC'),
+                });
+                newSuggestions.push({
+                    id: 'swap-sol-usdc',
+                    label: 'Quick Swap: SOL -> USDC',
+                    subLabel: 'Swap 1 SOL to USDC',
+                    action: () => handleSend('Swap 1 SOL to USDC on Solana'),
+                });
+            } else if (lowerText.startsWith('check') || lowerText.startsWith('analyze')) {
+                newSuggestions.push({
+                    id: 'check-generic',
+                    label: 'Analyze Token',
+                    subLabel: 'Paste a contract address to check safety',
+                    action: () => setInput('Check '), // Pre-fill
+                });
+                newSuggestions.push({
+                    id: 'check-wallet',
+                    label: 'Check Wallet',
+                    subLabel: 'Analyze a wallet address PnL',
+                    action: () => setInput('Analyze wallet '),
+                });
+                newSuggestions.push({
+                    id: 'check-trending',
+                    label: 'Check Trending Tokens',
+                    subLabel: 'See what is hot on Base/Solana',
+                    action: () => handleSend('What are the trending tokens right now?'),
+                });
+            } else if (lowerText.startsWith('copy')) {
+                newSuggestions.push({
+                    id: 'copy-trade',
+                    label: 'Copy Trade Setup',
+                    subLabel: 'I want to copy trade a wallet',
+                    action: () => handleSend('I want to copy trade a wallet'),
+                });
+                newSuggestions.push({
+                    id: 'copy-list',
+                    label: 'List My Tasks',
+                    subLabel: 'Show my active copy trade tasks',
+                    action: () => handleSend('Show my copy trade tasks'),
+                });
+            }
+        }
+
+        // Limit to 5 suggestions max
+        const limitedSuggestions = newSuggestions.slice(0, 5);
+        console.log('[ChatInterface] Suggestions found:', limitedSuggestions.length);
+        setSuggestions(limitedSuggestions);
+        setShowSuggestions(limitedSuggestions.length > 0);
+    }, []);
+
+    // Delegation state for instant trades (delegation is handled by DelegatedActionRequest component)
+    const [showDelegationModal, setShowDelegationModal] = useState(false);
+    const [pendingSwapAction, setPendingSwapAction] = useState<any>(null);
+
+    const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [customSettings, setCustomSettings] = useState<any | null>(null); // Using any for now to avoid importing type, or we can import if exported
+
+    // Load custom settings
+    useEffect(() => {
+        const loadCustomSettings = () => {
+            try {
+                const saved = localStorage.getItem('kiko-custom-ai-settings');
+                if (saved) {
+                    setCustomSettings(JSON.parse(saved));
+                }
+            } catch (e) {
+                console.warn('[ChatInterface] Failed to load custom settings:', e);
+            }
+        };
+
+        loadCustomSettings();
+
+        const handleCustomSettingsChange = (event: CustomEvent) => {
+            setCustomSettings(event.detail);
+        };
+
+        window.addEventListener('kiko-custom-ai-changed', handleCustomSettingsChange as EventListener);
+        return () => {
+            window.removeEventListener('kiko-custom-ai-changed', handleCustomSettingsChange as EventListener);
+        };
+    }, []);
+
+    // WebSocket listener for real-time updates
+    // NOTE: We only SUBSCRIBE here - App.tsx controls the WebSocket CONNECTION
+    // This ensures generating conversations aren't interrupted when switching conversations
+    useEffect(() => {
+        if (!conversationId) return;
+
+        console.log(`[ChatInterface] Subscribing to conversation ${conversationId}`);
+        // DO NOT call chatWSClient.connect() here - App.tsx manages connections
+        // to ensure generating conversation is not overridden
+
+        const unsubscribe = chatWSClient.subscribe((event: ChatEvent) => {
+            if (event.sessionId !== conversationId) return;
+
+            switch (event.type) {
+                case 'chunk':
+                    // Defensive check against malformed payloads
+                    if (!event.data) {
+                        console.warn('[ChatInterface] Received chunk without data:', event);
+                        break;
+                    }
+
+                    setMessages(prev => {
+                        const lastMsg = prev[prev.length - 1];
+                        // Database returns snake_case field names
+                        const chunkMessageId = event.data.message_id || event.data.messageId;
+                        const hasContent = event.data.content && event.data.content.length > 0;
+                        const hasReasoning = event.data.reasoning_content && event.data.reasoning_content.length > 0;
+
+                        // DEBUG: Log chunk info
+                        if (hasReasoning) {
+                            console.log('[ChatInterface DEBUG] Got reasoning chunk:', event.data.reasoning_content.substring(0, 30));
+                        }
+
+                        if (!chunkMessageId) return prev;
+
+                        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.id === chunkMessageId) {
+                            return prev.map(m => m.id === chunkMessageId
+                                ? {
+                                    ...m,
+                                    content: (m.content || '') + (event.data.content || ''),
+                                    reasoning_content: (m.reasoning_content || '') + (event.data.reasoning_content || '')
+                                }
+                                : m);
+                        } else {
+                            console.log('[ChatInterface DEBUG] Chunk mismatch! Expected:', lastMsg?.id, 'Got:', chunkMessageId);
+                        }
+                        return prev;
+                    });
+
+                    // Only stop thinking when actual content arrives
+                    // If we're receiving reasoning_content, keep the "Thinking" state
+                    if (event.data.content && event.data.content.length > 0) {
+                        setIsThinking(false);
+                        setIsStreaming(true);
+                    } else if (event.data.reasoning_content) {
+                        // Still in thinking/reasoning phase
+                        setThinkingText('Thinking');
+                    }
+                    break;
+                case 'task_status':
+                    if (event.data.status === 'running') {
+                        setIsThinking(true);
+                        setThinkingText(event.data.message || 'Thinking');
+                        setActiveTaskId(event.data.taskId || null);
+                        // CRITICAL: Only update task if we have a valid taskId
+                        // This prevents setting propActiveTask to { id: undefined, status: 'running' }
+                        // which would cause the UI state restoration to keep resetting isThinking
+                        if (onTaskUpdate && event.data.taskId) {
+                            onTaskUpdate({ id: event.data.taskId, status: 'running' });
+                        }
+                        if (sidebar?.setGeneratingConversationId) {
+                            sidebar.setGeneratingConversationId(conversationId || null);
+                        }
+                    } else if (event.data.status === 'done') {
+                        setIsThinking(false);
+                        setIsStreaming(false);
+                        setActiveTaskId(null);
+                        if (onTaskUpdate) {
+                            onTaskUpdate(null);
+                        }
+                        if (sidebar?.setGeneratingConversationId) {
+                            sidebar.setGeneratingConversationId(null);
+                        }
+                        // Mark current message as complete
+                        setMessages(prev => {
+                            const lastMsg = prev[prev.length - 1];
+                            if (lastMsg && lastMsg.role === 'assistant') {
+                                return prev.map(m => m.id === lastMsg.id ? { ...m, status: 'complete' } : m);
+                            }
+                            return prev;
+                        });
+                    } else if (event.data.status === 'failed' || event.data.status === 'error') {
+                        setIsThinking(false);
+                        setIsStreaming(false);
+                        setActiveTaskId(null);
+                        if (onTaskUpdate) {
+                            onTaskUpdate(null);
+                        }
+                        setMessages(prev => {
+                            const lastMsg = prev[prev.length - 1];
+                            if (lastMsg && lastMsg.role === 'assistant') {
+                                return prev.map(m => m.id === lastMsg.id ? { ...m, status: 'error' } : m);
+                            }
+                            return prev;
+                        });
+                        if (sidebar?.setGeneratingConversationId) {
+                            sidebar.setGeneratingConversationId(null);
+                        }
+                        toast.error('AI Task failed: ' + (event.data.error || 'Unknown error'));
+                    }
+                    break;
+                case 'usage':
+                    console.log('[ChatInterface DEBUG] Received usage event:', event.data);
+                    // Update message with token usage data
+                    setMessages(prev => prev.map(m =>
+                        m.id === event.data.message_id
+                            ? { ...m, usage: event.data.usage }
+                            : m
+                    ));
+                    break;
+                case 'citations':
+                    console.log('[ChatInterface DEBUG] Received citations event:', event.data);
+                    // Update message with citation data
+                    setMessages(prev => prev.map(m =>
+                        m.id === event.data.message_id
+                            ? { ...m, citations: event.data.citations }
+                            : m
+                    ));
+                    break;
+                case 'message_start':
+                    // CRITICAL: Create the assistant message placeholder BEFORE chunks arrive
+                    // This fixes the race condition where chunks are dropped because the message doesn't exist yet
+                    {
+                        const msgId = event.data.messageId || event.data.message_id;
+                        console.log('[ChatInterface] message_start received, creating placeholder for:', msgId);
+                        setMessages(prev => {
+                            // Check if message already exists (e.g., from initial load)
+                            const exists = prev.some(m => m.id === msgId);
+                            if (exists) {
+                                console.log('[ChatInterface] Message already exists, skipping placeholder creation');
+                                return prev;
+                            }
+                            // Create new placeholder message
+                            return [...prev, {
+                                id: msgId,
+                                role: 'assistant' as const,
+                                content: '',
+                                reasoning_content: '',
+                                status: 'streaming',
+                                timestamp: new Date().toISOString(),
+                                type: 'text'
+                            } as Message];
+                        });
+                    }
+                    break;
+                case 'message_complete':
+                    // CRITICAL: Reset ALL streaming states to prevent stuck UI
+                    setIsThinking(false);
+                    setIsStreaming(false);
+                    setActiveTaskId(null);
+                    // Mark the message as complete if we have a messageId
+                    if (event.data.messageId || event.data.message_id) {
+                        const msgId = event.data.messageId || event.data.message_id;
+                        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: 'complete' } : m));
+                    }
+                    break;
+                case 'client_action':
+                    console.log('[ChatInterface] Received client action:', event.data.action);
+
+                    if (event.data.action.type === 'execute_swap_instant') {
+                        // DIRECT SERVER EXECUTION - NO UI CARD
+                        // This bypasses SwapCard completely for instant/allowance trades
+                        const actionData = event.data.action.payload || event.data.action.data;
+                        const targetChainId = actionData.chainId || actionData.chain_id || chainId;
+
+                        // Helper to resolve token address from symbol or object
+                        const resolveTokenAddress = (symbolOrObj: any): string => {
+                            if (!symbolOrObj) return '';
+
+                            // If it's already an address string
+                            if (typeof symbolOrObj === 'string' && symbolOrObj.startsWith('0x')) {
+                                return symbolOrObj;
+                            }
+
+                            // If it's an object with address
+                            if (typeof symbolOrObj === 'object' && symbolOrObj.address) {
+                                return symbolOrObj.address;
+                            }
+
+                            // If it's a symbol string, resolve from COMMON_TOKENS
+                            const symbol = typeof symbolOrObj === 'string' ? symbolOrObj : symbolOrObj?.symbol;
+
+                            // Handle native tokens
+                            if (['ETH', 'BNB', 'MATIC', 'AVAX'].includes(symbol)) {
+                                return '0x0000000000000000000000000000000000000000';
+                            }
+
+                            // Lookup in COMMON_TOKENS
+                            const common = COMMON_TOKENS[targetChainId]?.find(t => t.symbol === symbol);
+                            return common?.address || '';
+                        };
+
+                        const tokenInAddress = resolveTokenAddress(actionData.tokenIn || actionData.token_in);
+                        const tokenOutAddress = resolveTokenAddress(actionData.tokenOut || actionData.token_out);
+                        const amountIn = actionData.amountIn || actionData.amount_in;
+                        const slippageBps = actionData.slippageBps || actionData.slippage_bps ||
+                            (actionData.slippage ? Math.round(actionData.slippage * 100) : 50);
+
+                        console.log('[ChatInterface] Executing instant swap:', {
+                            tokenIn: tokenInAddress,
+                            tokenOut: tokenOutAddress,
+                            amountIn,
+                            chainId: targetChainId,
+                            slippageBps
+                        });
+
+                        // Update message to show "executing" status
+                        setMessages(prev => {
+                            const lastMsg = prev[prev.length - 1];
+                            if (lastMsg && lastMsg.role === 'assistant') {
+                                return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                    ...m,
+                                    transactionStatus: 'waiting' as const,
+                                    content: m.content + '\n\n⏳ **Executing transaction...**'
+                                } : m);
+                            }
+                            return prev;
+                        });
+
+                        // Call executeSwapInstant directly
+                        import('../../services/swapService').then(({ executeSwapInstant }) => {
+                            executeSwapInstant({
+                                tokenIn: tokenInAddress,
+                                tokenOut: tokenOutAddress,
+                                amountIn: String(amountIn),
+                                chainId: targetChainId,
+                                slippageBps
+                            }).then(result => {
+                                if (result.success && result.txHash) {
+                                    // Update message with success status (inline, no toast)
+                                    setMessages(prev => {
+                                        const lastMsg = prev[prev.length - 1];
+                                        if (lastMsg && lastMsg.role === 'assistant') {
+                                            // Remove the "executing" text and add success
+                                            const baseContent = lastMsg.content.replace(/\n\n⏳ \*\*Executing transaction\.\.\.\*\*$/, '');
+                                            return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                                ...m,
+                                                content: baseContent + `\n\n✅ **Transaction successful!** [View on Explorer](https://basescan.org/tx/${result.txHash})`,
+                                                transactionStatus: 'success' as const,
+                                                transactionHash: result.txHash
+                                            } : m);
+                                        }
+                                        return prev;
+                                    });
+                                } else {
+                                    // Update message with error status (inline, no toast)
+                                    setMessages(prev => {
+                                        const lastMsg = prev[prev.length - 1];
+                                        if (lastMsg && lastMsg.role === 'assistant') {
+                                            const baseContent = lastMsg.content.replace(/\n\n⏳ \*\*Executing transaction\.\.\.\*\*$/, '');
+                                            return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                                ...m,
+                                                content: baseContent + `\n\n❌ **Transaction failed:** ${result.error}`,
+                                                transactionStatus: 'failed' as const
+                                            } : m);
+                                        }
+                                        return prev;
+                                    });
+                                }
+                            }).catch(err => {
+                                setMessages(prev => {
+                                    const lastMsg = prev[prev.length - 1];
+                                    if (lastMsg && lastMsg.role === 'assistant') {
+                                        const baseContent = lastMsg.content.replace(/\n\n⏳ \*\*Executing transaction\.\.\.\*\*$/, '');
+                                        return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                            ...m,
+                                            content: baseContent + `\n\n❌ **Transaction error:** ${err.message}`,
+                                            transactionStatus: 'failed' as const
+                                        } : m);
+                                    }
+                                    return prev;
+                                });
+                            });
+                        });
+
+                    } else if (event.data.action.type === 'show_swap_card') {
+                        // Show SwapCard UI for user confirmation (manual swap)
+                        setMessages(prev => {
+                            const lastMsg = prev[prev.length - 1];
+                            if (lastMsg && lastMsg.role === 'assistant') {
+                                const actionData = event.data.action.payload || event.data.action.data;
+                                const targetChainId = actionData.chainId || actionData.chain_id || chainId;
+
+                                // Helper to resolve token object from symbol
+                                const resolveToken = (symbolOrObj: any): any => {
+                                    if (!symbolOrObj) return undefined;
+                                    const symbol = typeof symbolOrObj === 'string' ? symbolOrObj : symbolOrObj.symbol;
+
+                                    // Handle Native
+                                    if (['ETH', 'SOL', 'BNB', 'MATIC', 'AVAX'].includes(symbol)) {
+                                        return {
+                                            symbol,
+                                            address: '0x0000000000000000000000000000000000000000',
+                                            decimals: 18,
+                                            chainId: targetChainId
+                                        };
+                                    }
+
+                                    // Lookup in COMMON_TOKENS
+                                    const common = COMMON_TOKENS[targetChainId]?.find(t => t.symbol === symbol);
+                                    if (common) {
+                                        return { ...common, chainId: targetChainId };
+                                    }
+
+                                    // Fallback: return as-is
+                                    if (typeof symbolOrObj === 'object' && symbolOrObj.address) {
+                                        return symbolOrObj;
+                                    }
+                                    return { symbol, address: '', chainId: targetChainId };
+                                };
+
+                                const swapData = {
+                                    tokenIn: resolveToken(actionData.tokenIn || actionData.token_in),
+                                    tokenOut: resolveToken(actionData.tokenOut || actionData.token_out),
+                                    amountIn: actionData.amountIn || actionData.amount_in,
+                                    amountOutMin: actionData.amountOutMin || actionData.amount_out_min,
+                                    slippageBps: actionData.slippageBps || actionData.slippage_bps || (actionData.slippage ? actionData.slippage * 100 : undefined),
+                                    chainId: targetChainId,
+                                    autoExecute: false,
+                                    useServerExecution: false
+                                };
+
+                                return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                    ...m,
+                                    type: 'swap-card',
+                                    data: swapData
+                                } : m);
+                            }
+                            return prev;
+                        });
+                    } else if (['show_strategy_card', 'show_chart_card', 'show_launchpad_card'].includes(event.data.action.type)) {
+                        // Update the specific message or the latest assistant message
+                        const targetMessageId = event.data.message_id || event.data.messageId;
+
+                        setMessages(prev => {
+                            // First, try to find by ID
+                            const targetIdx = targetMessageId ? prev.findIndex(m => m.id === targetMessageId) : -1;
+
+                            if (targetIdx !== -1) {
+                                return prev.map((m, idx) => idx === targetIdx ? {
+                                    ...m,
+                                    type: (event.data.action.type === 'show_strategy_card' ? 'strategy-card' :
+                                        event.data.action.type === 'show_chart_card' ? 'chart-card' : 'launchpad-card') as any,
+                                    data: event.data.action.data
+                                } : m);
+                            }
+
+                            // Fallback to latest assistant message
+                            const lastMsgIdx = [...prev].reverse().findIndex(m => m.role === 'assistant');
+                            if (lastMsgIdx !== -1) {
+                                const actualIdx = prev.length - 1 - lastMsgIdx;
+                                return prev.map((m, idx) => idx === actualIdx ? {
+                                    ...m,
+                                    type: (event.data.action.type === 'show_strategy_card' ? 'strategy-card' :
+                                        event.data.action.type === 'show_chart_card' ? 'chart-card' : 'launchpad-card') as any,
+                                    data: event.data.action.data
+                                } : m);
+                            }
+
+                            return prev;
+                        });
+                    }
+                    break;
+                case 'content_block':
+                    // Handle atomic content blocks (e.g. from AI analysis)
+                    // Treat similar to chunk but usually larger/complete blocks
+                    setMessages(prev => {
+                        const lastMsg = prev[prev.length - 1];
+                        const blockMessageId = event.data.message_id || event.data.messageId;
+
+                        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.id === blockMessageId) {
+                            return prev.map(m => m.id === blockMessageId ? {
+                                ...m,
+                                content: (m.content || '') + (event.data.content || '')
+                            } : m);
+                        } else {
+                            // If message doesn't exist, create it (rare case for async push)
+                            return [...prev, {
+                                id: blockMessageId,
+                                role: 'assistant',
+                                content: event.data.content || '',
+                                timestamp: new Date().toLocaleTimeString(),
+                                type: 'text'
+                            } as Message];
+                        }
+                    });
+
+                    // If this block signifies completion of a task/step, we might want to ensure streaming matches
+                    if (event.data.is_final) {
+                        setIsThinking(false);
+                        setIsStreaming(false);
+                    }
+                    break;
+            }
+        });
+
+        return () => {
+            unsubscribe();
+            // We don't necessarily want to close WS here if it's used elsewhere, 
+            // but for simplicity we can
+            // chatWSClient.close();
+        };
+    }, [conversationId]);
+
+    // Sync with localStorage on mount and when it changes externally
+    useEffect(() => {
+        const syncModelFromStorage = () => {
+            try {
+                const saved = localStorage.getItem('kiko-selected-model');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
+                    if (found) {
+                        setSelectedModel(current => {
+                            if (found.id !== current.id) {
+                                console.log('[ChatInterface] Syncing model from localStorage:', found.id);
+                                return found;
+                            }
+                            return current;
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('[ChatInterface] Failed to sync model from localStorage:', e);
+            }
+        };
+
+        // Check on mount
+        syncModelFromStorage();
+
+        // Listen for custom event from WelcomeScreen
+        const handleModelChange = (event: CustomEvent) => {
+            const newModel = event.detail;
+            const found = MODEL_OPTIONS.find(m => m.id === newModel.id);
+            if (found) {
+                setSelectedModel(current => {
+                    if (found.id !== current.id) {
+                        console.log('[ChatInterface] Model changed via event:', found.id);
+                        return found;
+                    }
+                    return current;
+                });
+            }
+        };
+
+        window.addEventListener('kiko-model-changed', handleModelChange as EventListener);
+
+        // Also listen for storage events (from other tabs)
+        window.addEventListener('storage', syncModelFromStorage);
+
+        return () => {
+            window.removeEventListener('kiko-model-changed', handleModelChange as EventListener);
+            window.removeEventListener('storage', syncModelFromStorage);
+        };
+    }, []);
+
+    // Save model selection to localStorage whenever it changes
+    useEffect(() => {
+        try {
+            localStorage.setItem('kiko-selected-model', JSON.stringify(selectedModel));
+            console.log('[ChatInterface] Saved model selection to localStorage:', selectedModel.id);
+        } catch (e) {
+            console.warn('[ChatInterface] Failed to save model selection to localStorage:', e);
+        }
+    }, [selectedModel]);
+
+    // Listen for swap request events from LaunchpadCard
+    // Store pending swap message in state so useEffect can handle it after handleSend is defined
+    const [pendingSwapMessage, setPendingSwapMessage] = useState<string | null>(null);
+
+    useEffect(() => {
+        const handleSwapRequest = (e: CustomEvent<{
+            tokenAddress: string;
+            tokenSymbol: string;
+            tokenName: string;
+            chainId: number;
+            provider: string;
+        }>) => {
+            const { tokenSymbol, tokenAddress, chainId } = e.detail;
+            console.log('[ChatInterface] Swap request received:', e.detail);
+
+            // Store token info for swap context (will be used by AI)
+            localStorage.setItem('kiko-pending-swap', JSON.stringify({
+                tokenAddress,
+                tokenSymbol,
+                chainId,
+                timestamp: Date.now()
+            }));
+
+            // [SWAP] prefix signals to skip launchpad detection and let AI handle
+            // AI will see contract address and know to ask for amount per KIKO_RULES rule 5
+            const swapMessage = `[SWAP] I want to swap ${tokenSymbol} (${tokenAddress}). How much should I swap?`;
+            setPendingSwapMessage(swapMessage);
+        };
+
+        window.addEventListener('kiko-swap-request', handleSwapRequest as EventListener);
+        return () => {
+            window.removeEventListener('kiko-swap-request', handleSwapRequest as EventListener);
+        };
+    }, []);
+
     const currentConversationIdRef = useRef<string | null>(conversationId || null);
+    const processedMessagesRef = useRef<Set<string>>(new Set());
+    const modelSelectorRef = useRef<HTMLDivElement>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
     const isAtBottomRef = useRef(true);
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const streamIntervalRef = useRef<number | null>(null);
+    const userScrolledUpRef = useRef(false);
+    const lastScrollTopRef = useRef<number>(0);
+    const justSwitchedConversationRef = useRef(false);
+    const isSendingRef = useRef(false); // Flag to prevent stopGeneration during active send
 
     const scrollToBottom = useCallback((smooth = true) => {
         if (scrollContainerRef.current) {
@@ -48,63 +904,468 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     }, []);
 
+    // Sync chatStarted state with Layout on mount
+    useEffect(() => {
+        sidebar?.setChatStarted(hasStarted);
+    }, []);
+
+    // Close model dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (modelSelectorRef.current && !modelSelectorRef.current.contains(event.target as Node)) {
+                setIsModelDropdownOpen(false);
+            }
+        };
+
+        if (isModelDropdownOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isModelDropdownOpen]);
+
+    // Create a stable key for initialMessages to detect changes
+    const initialMessagesKey = initialMessages.length > 0
+        ? `${initialMessages.length}-${initialMessages[initialMessages.length - 1]?.id || ''}`
+        : '0';
+
     // Sync messages when conversationId or initialMessages change
     useEffect(() => {
-        // Only sync if conversationId actually changed, not on every render
-        if (currentConversationIdRef.current !== conversationId) {
-            const prevId = currentConversationIdRef.current;
-            const newId = conversationId;
-            
-            // Case 1: Creating new conversation (null -> new ID) - don't reset if we have messages
-            if (!prevId && newId && messages.length > 0) {
-                // We're creating a new conversation and already have messages (user just sent)
-                // Don't reset, just update the ref
-                currentConversationIdRef.current = newId;
-                setHasStarted(true);
+        const prevId = currentConversationIdRef.current;
+        const newId = conversationId;
+        const conversationIdChanged = prevId !== newId;
+
+        // Case 1: Conversation ID changed
+        if (conversationIdChanged) {
+            console.log('[ChatInterface] ⚠️ CONVERSATION CHANGED:', { prevId, newId });
+
+            // If we're actively sending a message (creating new conversation), don't interrupt
+            if (isSendingRef.current) {
+                console.log('[ChatInterface] Skipping stopGeneration - active send in progress');
+                currentConversationIdRef.current = newId || null;
                 return;
             }
-            
-            // Case 2: Switching to existing conversation - load its messages
-            if (newId && messages.length === 0) {
-                setMessages(initialMessages);
-                setHasStarted(initialMessages.length > 0);
-            }
-            // Case 3: Switching away from conversation - clear messages
-            else if (!newId && prevId) {
-                setMessages([]);
-                setHasStarted(false);
-            }
-            // Case 4: Switching between different conversations - load new messages
-            else if (newId && prevId && newId !== prevId) {
-                setMessages(initialMessages);
-                setHasStarted(initialMessages.length > 0);
-            }
-            
-            currentConversationIdRef.current = newId || null;
-        }
-    }, [conversationId, initialMessages, messages.length]);
 
+            // IMPORTANT: Do NOT cancel backend task when switching conversations!
+            // The generation should continue in the background.
+            // We only reset local UI state here.
+            console.log('[ChatInterface] Resetting UI states (backend continues generating)...');
+
+            // CRITICAL: Force reset all UI states immediately (but don't cancel backend!)
+            setIsThinking(false);
+            setIsStreaming(false);
+            setThinkingText('Thinking');
+            setInput('');
+            console.log('[ChatInterface] UI states reset, loading new messages:', initialMessages.length);
+
+            // Always load the new conversation's messages when ID changes
+            setMessages(initialMessages);
+            messagesRef.current = initialMessages;
+            setHasStarted(initialMessages.length > 0);
+            processedMessagesRef.current.clear();
+            processedStrategyIdsRef.current.clear();
+            currentConversationIdRef.current = newId || null;
+
+            // Clear active task when switching conversations
+            setActiveTaskId(null);
+            if (onTaskUpdate) {
+                onTaskUpdate(null);
+            }
+
+            // CRITICAL: Mark all initial messages as processed to prevent auto-send
+            initialMessages.forEach(msg => {
+                processedMessagesRef.current.add(msg.id);
+            });
+
+            // Set flag to skip auto-send on next render cycle
+            justSwitchedConversationRef.current = true;
+            console.log('[ChatInterface] Conversation switch complete. New ID:', newId, 'Marked', initialMessages.length, 'messages as processed');
+        } else if (initialMessages.length > 0) {
+            // Case 2: Conversation ID is same, check for background updates from App.tsx
+            // This can happen when:
+            // a) loadConversation completes and updates initialMessages (async loading)
+            // b) Background streaming accumulated messages
+
+            // CRITICAL: If our local messages are empty but initialMessages arrived, always sync
+            // This fixes the "welcome screen appears instead of conversation" bug
+            if (messages.length === 0 && initialMessages.length > 0) {
+                console.log('[ChatInterface] Syncing - local empty but props has messages');
+                setMessages(initialMessages);
+                messagesRef.current = initialMessages;
+                setHasStarted(true);
+                // Mark as processed to prevent auto-send
+                initialMessages.forEach(msg => processedMessagesRef.current.add(msg.id));
+                return;
+            }
+
+            // Only sync background updates if we are NOT currently streaming
+            // (If we ARE streaming, our local state is more up-to-date)
+            if (!isStreaming && !isThinking) {
+                const lastLocal = messages[messages.length - 1];
+                const lastInitial = initialMessages[initialMessages.length - 1];
+
+                const hasSubstantialDiff =
+                    messages.length !== initialMessages.length ||
+                    (lastLocal?.id === lastInitial?.id && (
+                        lastLocal?.status !== lastInitial?.status ||
+                        (lastInitial?.content || '').length > (lastLocal?.content || '').length
+                    ));
+
+                if (hasSubstantialDiff) {
+                    console.log('[ChatInterface] Syncing messages from props - background update detected');
+                    setMessages(initialMessages);
+                    messagesRef.current = initialMessages;
+                    setHasStarted(initialMessages.length > 0);
+                }
+            }
+        }
+    }, [conversationId, initialMessages, isStreaming, isThinking, setHasStarted, messages.length]);
+
+    // Check active task and restore UI state when conversationId changes or component mounts
+    useEffect(() => {
+        if (!conversationId) {
+            // Clear task state when no conversation
+            if (activeTaskId) {
+                setActiveTaskId(null);
+                setIsThinking(false);
+                setIsStreaming(false);
+            }
+            return;
+        }
+
+        // Check if we have activeTask from props (loaded by App.tsx)
+        if (propActiveTask) {
+            const task = propActiveTask;
+
+            // If task is still running, restore UI state
+            if (task.status === 'queued' || task.status === 'running') {
+                console.log('[ChatInterface] Restoring UI state for active task:', task.id, task.status);
+
+                // Set active task ID
+                setActiveTaskId(task.id);
+
+                // Check last message to determine if streaming or thinking
+                // CRITICAL: Use `messages` state (updated by WebSocket), NOT `initialMessages` props (stale)
+                const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+
+                if (lastMessage && lastMessage.role === 'assistant') {
+                    // If message is explicitly streaming, set isStreaming
+                    if (lastMessage.status === 'streaming') {
+                        setIsThinking(false);
+                        setIsStreaming(true);
+                        console.log('[ChatInterface] Task is streaming (message status is streaming)');
+                    } else if (lastMessage.status === 'complete') {
+                        // If message is complete but task is running, AI is likely between turns (e.g. tool calling)
+                        // so we should be in thinking state, not streaming
+                        setIsThinking(true);
+                        setIsStreaming(false);
+                        console.log('[ChatInterface] Task is thinking (last message complete, but task running)');
+                    } else {
+                        // Fallback: if message has NO status but has content, assume it finished if we don't know otherwise
+                        // BUT since task is running, we assume it's still doing something
+                        setIsThinking(true);
+                        setIsStreaming(false);
+                    }
+                } else {
+                    // No assistant message yet, assume thinking
+                    setIsThinking(true);
+                    setIsStreaming(false);
+                    console.log('[ChatInterface] Task is thinking (no assistant message yet)');
+                }
+            } else {
+                // Task is done/failed/cancelled, clear UI state
+                // REMOVED: activeTaskId === task.id check to ensure cleanup on refresh/mount
+                setActiveTaskId(null);
+                setIsThinking(false);
+                setIsStreaming(false);
+                console.log('[ChatInterface] Task is complete, clearing UI state:', task.id, task.status);
+            }
+        } else {
+            // No active task, ensure UI state is cleared
+            if (activeTaskId) {
+                setActiveTaskId(null);
+                setIsThinking(false);
+                setIsStreaming(false);
+            }
+        }
+    }, [conversationId, propActiveTask, messages, activeTaskId]);
+
+    // Fetch user balances for common tokens AND tokens mentioned in chat
+    useEffect(() => {
+        if (!walletAddress || !authenticated || chainId === 0) return;
+
+        const fetchBalances = async () => {
+            setIsLoadingBalances(true);
+            try {
+                // Dynamically import to avoid circular dependencies if any
+                const { getWalletPortfolio } = await import('../../services/swapService');
+                const balances: Record<string, string> = {};
+
+                // First, get native balance (ETH, BNB, etc.)
+                // Chain-specific native token symbols
+                const NATIVE_SYMBOLS: Record<number, string> = {
+                    1: 'ETH',       // Ethereum
+                    8453: 'ETH',    // Base
+                    10: 'ETH',      // Optimism
+                    42161: 'ETH',   // Arbitrum
+                    56: 'BNB',      // BSC
+                    137: 'MATIC',   // Polygon
+                    43114: 'AVAX',  // Avalanche
+                    250: 'FTM',     // Fantom
+                    900: 'SOL',     // Solana
+                };
+
+                if (nativeBalanceData && nativeBalanceData.value) {
+                    const nativeSymbol = nativeBalanceData.symbol || NATIVE_SYMBOLS[chainId] || 'ETH';
+                    const nativeBalance = parseFloat(nativeBalanceData.formatted);
+                    if (nativeBalance > 0) {
+                        balances[nativeSymbol] = nativeBalance.toFixed(4);
+                    }
+                }
+
+                // Call the unified portfolio API - returns ALL tokens with known metadata/decimals
+                // This solves the issue of needing to guess decimals for new tokens
+                const portfolio = await getWalletPortfolio(walletAddress, chainId);
+
+                // Map portfolio items to balances
+                if (portfolio) {
+                    portfolio.forEach(token => {
+                        // Prefer formatted balance directly from API as it handles decimals correctly
+                        // But API returns string like "123.456"
+                        const balanceVal = parseFloat(token.formatted);
+                        if (balanceVal > 0) {
+                            balances[token.symbol] = token.formatted;
+                            // Also store by address for context awareness
+                            if (token.contractAddress) {
+                                balances[token.contractAddress.toLowerCase()] = token.formatted;
+                            }
+                        }
+                    });
+                }
+
+                // Ensure Common Tokens and Context Tokens have entries (even if 0)
+                // This helps AI know that we CHECKED and found 0, vs unknown
+                const commonTokens = COMMON_TOKENS[chainId] || [];
+                const contextAddresses = messages
+                    .slice(-10)
+                    .flatMap(msg => extractAddresses(msg.content));
+
+                // Set of addresses to ensure we have coverage for
+                const targetAddresses = new Set([
+                    ...commonTokens.map(t => t.address.toLowerCase()),
+                    ...contextAddresses.map(a => a.toLowerCase())
+                ]);
+
+                targetAddresses.forEach(addr => {
+                    // Check if we have it by address
+                    if (!balances[addr]) {
+                        // Check if we have it by symbol (for common tokens)
+                        const common = commonTokens.find(t => t.address.toLowerCase() === addr);
+                        if (common && balances[common.symbol]) {
+                            // We have it by symbol, ensure address key points to same value
+                            balances[addr] = balances[common.symbol];
+                        } else {
+                            // Truly missing/zero
+                            balances[addr] = "0";
+                            if (common) {
+                                balances[common.symbol] = "0";
+                            }
+                        }
+                    }
+                });
+
+                setUserBalances(balances);
+            } catch (error) {
+                console.error('[ChatInterface] Error fetching balances:', error);
+            } finally {
+                setIsLoadingBalances(false);
+            }
+        };
+
+        fetchBalances();
+    }, [walletAddress, authenticated, chainId, nativeBalanceData, messages.length]); // Re-run when new messages arrive
+
+    // Extract strategies from messages
+    useEffect(() => {
+        if (messages.length === 0 || !conversationId) return;
+
+        // Extract strategies from current messages
+        const extractedStrategies = extractStrategiesFromMessages(messages, conversationId);
+
+        // Create strategies that don't already exist
+        extractedStrategies.forEach((strategy) => {
+            // Use a combination of conversationId and strategy name as a unique key
+            const strategyKey = `${conversationId}-${strategy.name}-${strategy.type}`;
+
+            // Check if we've already processed this strategy
+            if (!processedStrategyIdsRef.current.has(strategyKey)) {
+                // Check if strategy already exists in storage (by name and type)
+                const exists = strategies.some(
+                    s => s.name === strategy.name &&
+                        s.type === strategy.type &&
+                        s.conversationId === conversationId
+                );
+
+                if (!exists) {
+                    createStrategy(strategy);
+                    processedStrategyIdsRef.current.add(strategyKey);
+                }
+            }
+        });
+    }, [messages, conversationId, createStrategy, strategies]);
+
+    // Auto-send for pending user messages (e.g., from AI report button)
+    useEffect(() => {
+        // Skip if just switched conversation - prevents firing API calls for loaded history
+        if (justSwitchedConversationRef.current) {
+            console.log('[ChatInterface] Skipping auto-send - just switched conversation');
+            justSwitchedConversationRef.current = false;
+            return;
+        }
+
+        if (isThinking || isStreaming || messages.length === 0) return;
+
+        // Only check if we have messages and conversation is active
+        if (!conversationId) return;
+
+        // Check if the last message is a user message that hasn't been processed yet
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage &&
+            lastMessage.role === 'user' &&
+            !processedMessagesRef.current.has(lastMessage.id)) {
+            // Check if there's already an AI response (if so, don't auto-send)
+            // This handles the case where messages were loaded from storage
+            const hasAIResponse = messages.some((msg, idx) =>
+                idx > messages.indexOf(lastMessage) && msg.role === 'assistant'
+            );
+
+            if (!hasAIResponse) {
+                // Mark as processed to avoid duplicate sends
+                processedMessagesRef.current.add(lastMessage.id);
+
+                // Auto-send after a short delay to ensure state is updated
+                // Use requestAnimationFrame to ensure we're not in render phase
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        handleSend(lastMessage.content, lastMessage.id);
+                    }, 100);
+                });
+            }
+        }
+    }, [messages, conversationId, isThinking, isStreaming]);
+
+    // Auto-save messages whenever they change (debounced)
     // Auto-save messages whenever they change (debounced)
     useEffect(() => {
         if (onMessagesChange && messages.length > 0 && currentConversationIdRef.current) {
             const timeoutId = setTimeout(() => {
                 onMessagesChange(messages);
             }, 500);
-            return () => clearTimeout(timeoutId);
+            return () => {
+                clearTimeout(timeoutId);
+                // DO NOT sync immediately here to prevent render loop
+            };
         }
     }, [messages, onMessagesChange]);
 
-    // Smart scroll on new messages (only when not streaming to avoid animation)
+    // Sync on unmount only
     useEffect(() => {
-        if (isAtBottomRef.current && !isStreaming) {
-            scrollToBottom(false); // Instant scroll, no animation
+        return () => {
+            if (onMessagesChange && messagesRef.current.length > 0 && currentConversationIdRef.current) {
+                console.log('[ChatInterface] Saving messages on unmount');
+                onMessagesChange(messagesRef.current);
+            }
+        };
+    }, []); // Empty dependency array = runs only on mount/unmount
+
+    // Safety timeout removed: No timeouts during AI response to ensure uninterrupted flow
+
+    // Smart scroll on new messages - follow output if user is at bottom
+    useEffect(() => {
+        // IMPORTANT: If user has scrolled up, NEVER auto-scroll until they scroll back to bottom
+        if (userScrolledUpRef.current) {
+            return; // Exit early - respect user's scroll position
         }
-    }, [messages, isThinking, scrollToBottom, isStreaming]);
+
+        // CRITICAL: Don't auto-scroll if user is actively selecting text
+        const selection = window.getSelection();
+        if (selection && selection.toString().length > 0) {
+            return; // Exit early - user is selecting text, don't interfere
+        }
+
+        if (scrollContainerRef.current && messages.length > 0) {
+            // Check if last message is from AI (indicates streaming or recent output)
+            const lastMessage = messages[messages.length - 1];
+            const isAIMessage = lastMessage?.role === 'assistant';
+            const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            const isNearBottom = distanceFromBottom < 50;
+
+            // Auto-scroll if: streaming and user at bottom, OR after streaming and user at bottom
+            const shouldScroll = isNearBottom || (isStreaming && isAIMessage);
+
+            if (shouldScroll) {
+                requestAnimationFrame(() => {
+                    // Double-check user hasn't scrolled up or started selecting during the frame
+                    const currentSelection = window.getSelection();
+                    if (scrollContainerRef.current && !userScrolledUpRef.current &&
+                        (!currentSelection || currentSelection.toString().length === 0)) {
+                        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+                        isAtBottomRef.current = true;
+                        lastScrollTopRef.current = scrollContainerRef.current.scrollTop;
+                        // DO NOT reset userScrolledUpRef here - only handleScroll should do that
+                    }
+                });
+            }
+        }
+    }, [messages, isThinking, isStreaming]);
 
     const handleScroll = () => {
         if (scrollContainerRef.current) {
             const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-            const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            const isAtBottom = distanceFromBottom < 50; // Match threshold used in auto-scroll
+
+            // IMPORTANT: During streaming, don't interfere with auto-scroll
+            // Only detect user scroll when NOT streaming to avoid false positives
+            if (!isStreaming) {
+                // Detect scroll direction - if scrollTop increased, user scrolled up
+                const scrollDelta = scrollTop - lastScrollTopRef.current;
+                const isScrollingUp = scrollDelta > 0; // Positive delta means scrolling up
+
+                // If user scrolled up (even slightly), immediately stop auto-scrolling
+                if (isScrollingUp && scrollDelta > 1) { // Threshold of 1px to catch any upward movement
+                    userScrolledUpRef.current = true;
+                }
+
+                // Track if user manually scrolled up (away from bottom)
+                const wasAtBottom = isAtBottomRef.current;
+
+                if (!isAtBottom && wasAtBottom) {
+                    // User was at bottom but scrolled up - stop auto-scrolling
+                    userScrolledUpRef.current = true;
+                } else if (isAtBottom && !isScrollingUp) {
+                    // User scrolled DOWN to bottom - resume auto-scrolling
+                    userScrolledUpRef.current = false;
+                }
+            } else {
+                // During streaming: detect user scrolling UP (scrollDelta < 0 means scrollTop decreased)
+                // Auto-scroll causes scrollTop to increase (scrollDelta > 0), so we only stop on negative delta
+                const scrollDelta = scrollTop - lastScrollTopRef.current;
+
+                // User scrolled UP (scrollTop decreased) - stop auto-scrolling immediately
+                if (scrollDelta < 0) {
+                    userScrolledUpRef.current = true;
+                } else if (scrollDelta > 0 && isAtBottom) {
+                    // User scrolled DOWN and reached bottom - resume auto-scrolling
+                    userScrolledUpRef.current = false;
+                }
+            }
+
+            // Update last scroll position
+            lastScrollTopRef.current = scrollTop;
             isAtBottomRef.current = isAtBottom;
             setShowJumpToBottom(!isAtBottom);
         }
@@ -114,273 +1375,214 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         scrollToBottom();
     };
 
-    const stopGeneration = () => {
-        if (streamIntervalRef.current) {
-            window.clearInterval(streamIntervalRef.current);
-            streamIntervalRef.current = null;
+    // silentMode: if true, doesn't trigger visual stopping state (for conversation switches)
+    const stopGeneration = async (silentMode = false) => {
+        if (!isThinking && !isStreaming) return;
+
+        if (!silentMode) {
+            setIsStopping(true);
         }
-        const wasStreaming = isStreaming;
-        setIsStreaming(false);
+
         setIsThinking(false);
-        
-        // Store the message ID and full content for continue generation
-        if (wasStreaming && messages.length > 0) {
-            const lastMessage = messages[messages.length - 1];
-            if (lastMessage.role === 'ai') {
-                setStoppedMessageId(lastMessage.id);
-                // Keep the stoppedMessageContent that was set when streaming started
+        setIsStreaming(false);
+
+        if (activeTaskId) {
+            try {
+                await chatApi.stopTask(activeTaskId);
+                setActiveTaskId(null);
+            } catch (err) {
+                console.error('[ChatInterface] Failed to stop task:', err);
             }
         }
-        
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            abortControllerRef.current = null;
-        }
+
+        setTimeout(() => setIsStopping(false), 300);
     };
 
-    const continueGeneration = (messageId: string, fullText: string, currentContent: string) => {
-        const remainingText = fullText.slice(currentContent.length);
-        if (remainingText.length > 0) {
-            setStoppedMessageId(null);
-            setStoppedMessageContent('');
-            simulateStreaming(remainingText, messageId, currentContent);
-        }
-    };
 
-    const simulateStreaming = (fullText: string, messageId: string, existingContent: string = '') => {
-        let currentIndex = existingContent.length;
-        const totalText = existingContent + fullText;
-        setIsStreaming(true);
-        setStoppedMessageId(null);
 
-        streamIntervalRef.current = window.setInterval(() => {
-            setMessages(prevMessages => {
-                if (currentIndex >= totalText.length) {
-                    stopGeneration();
-                    // Clear stopped state when complete
-                    setStoppedMessageId(null);
-                    setStoppedMessageContent('');
-                    // Final save after streaming completes
-                    const finalMessages = prevMessages.map(msg =>
-                        msg.id === messageId ? { ...msg, content: totalText } : msg
-                    );
-                    if (onMessagesChange && currentConversationIdRef.current) {
-                        // Use setTimeout to ensure state is updated
-                        setTimeout(() => {
-                            onMessagesChange(finalMessages);
-                        }, 0);
-                    }
-                    return finalMessages;
-                }
+    // Flag to prevent double submission (race condition)
+    const isSubmittingRef = useRef(false);
 
-                const nextChunk = totalText.slice(0, currentIndex + 1);
-                const updatedMessages = prevMessages.map(msg =>
-                    msg.id === messageId ? { ...msg, content: nextChunk } : msg
-                );
-                
-                currentIndex++;
-
-                // Force instant scroll if we are at the bottom (no animation during streaming)
-                if (isAtBottomRef.current && scrollContainerRef.current) {
-                    const { scrollHeight, clientHeight } = scrollContainerRef.current;
-                    scrollContainerRef.current.scrollTop = scrollHeight - clientHeight;
-                }
-
-                return updatedMessages;
-            });
-        }, 15); // 15ms per character (~66 FPS - faster like ChatGPT)
-    };
-
-    const handleSend = async (text: string = input) => {
+    const handleSend = async (text: string = input, existingMessageId?: string) => {
+        if (isSubmittingRef.current) return;
         if (!text.trim()) return;
 
-        // Create new conversation if this is the first message and no conversation exists
-        let currentConvId = currentConversationIdRef.current;
-        if (!currentConvId && onNewConversation) {
-            // Only create conversation when actually sending a message
-            currentConvId = onNewConversation(text);
-            currentConversationIdRef.current = currentConvId;
-        }
+        isSubmittingRef.current = true;
 
-        setHasStarted(true);
-
-        // Stop any current generation
-        stopGeneration();
-
-        const now = new Date();
-        const userMsg: Message = {
-            id: Date.now().toString(),
-            role: 'user',
-            content: text,
-            timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            date: now.toISOString().split('T')[0], // YYYY-MM-DD format
-        };
-
-        const updatedMessages = [...messages, userMsg];
-        setMessages(updatedMessages);
-        setInput('');
-        setIsThinking(true);
-        setThinkingText('Thinking');
-        isAtBottomRef.current = true;
-        
-        // Save user message immediately if conversation exists
-        if (currentConvId && onMessagesChange) {
-            onMessagesChange(updatedMessages);
-        }
-        
-        // Scroll after state update
-        setTimeout(() => scrollToBottom(false), 0); // Instant scroll, no animation
-
-        // Thinking Timeout Logic
-        const thinkingTimeout = setTimeout(() => {
-            setThinkingText('Waiting for Data Source...');
-        }, 3000);
-
-        // Use AI service to generate response
         try {
-            const { streamAIResponse } = await import('../../services/aiService');
-            
-            // Build conversation history for context
-            const conversationHistory = updatedMessages.map(msg => ({
-                role: msg.role,
-                content: msg.content,
-            }));
+            // Perform client-side moderation check
+            const moderationResult = await moderationService.checkInput(text, conversationId, selectedModel?.id);
+            if (!moderationResult.safe) {
+                toast.error(moderationResult.reason || 'Message blocked by safety policy');
+                return;
+            }
 
-            // Don't create AI message yet - we'll create it when we receive first content
-            // This prevents showing an empty message bubble with a separate thinking indicator
+            // Set flag to prevent conversation-change useEffect from interrupting
+            isSendingRef.current = true;
 
-            // Stream AI response
-            let fullResponse = '';
-            let detectedIntent: any = null;
-            let hasReceivedContent = false;
-            let aiMsgId: string | null = null;
-            
-            for await (const chunk of streamAIResponse(text, conversationHistory, currentConvId || undefined)) {
-                if (chunk.content) {
-                    // Create AI message when we receive first content
-                    if (!hasReceivedContent) {
-                        clearTimeout(thinkingTimeout);
-                        setIsThinking(false);
-                        hasReceivedContent = true;
-                        
-                        // Create the AI message now with first chunk
-                        aiMsgId = (Date.now() + 1).toString();
-                        const aiNow = new Date();
-                        const aiMsg: Message = {
-                            id: aiMsgId,
-                            role: 'ai',
-                            content: chunk.content,
-                            timestamp: aiNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                            date: aiNow.toISOString().split('T')[0],
-                            type: 'text',
-                        };
-                        
-                        fullResponse = chunk.content;
-                        setMessages(prev => [...prev, aiMsg]);
-                        
-                        // Save immediately
-                        if (currentConvId && onMessagesChange) {
-                            onMessagesChange([...updatedMessages, aiMsg]);
+            // LOGGING: Log the chain context before sending
+            console.log(`[ChatInterface] Sending message on chain: ${currentChain.name} (${currentChain.id})`);
+
+            // Prevent sending new messages while stopping
+            if (isStopping) {
+                console.log('[ChatInterface] Blocked send - currently stopping');
+                return;
+            }
+
+            // Get the latest model selection
+            let modelToUse = selectedModel;
+            try {
+                const saved = localStorage.getItem('kiko-selected-model');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
+                    if (found) {
+                        modelToUse = found;
+                        if (found.id !== selectedModel.id) {
+                            setSelectedModel(found);
                         }
-                    } else {
-                        // Continue appending to existing message
-                        fullResponse += chunk.content;
-                        setMessages(prev => prev.map(msg => 
-                            msg.id === aiMsgId ? { ...msg, content: fullResponse } : msg
-                        ));
-                    }
-                    
-                    // Force instant scroll during streaming
-                    if (isAtBottomRef.current && scrollContainerRef.current) {
-                        const { scrollHeight, clientHeight } = scrollContainerRef.current;
-                        scrollContainerRef.current.scrollTop = scrollHeight - clientHeight;
                     }
                 }
-                if (chunk.intent) {
-                    detectedIntent = chunk.intent;
-                }
-            }
-            
-            // If no content was received, clear thinking state anyway
-            if (!hasReceivedContent) {
-                clearTimeout(thinkingTimeout);
-                setIsThinking(false);
+            } catch (e) {
+                console.warn('[ChatInterface] Failed to read model from localStorage:', e);
             }
 
-            // Check if we should show a token card based on intent
-            if (aiMsgId && detectedIntent?.action === 'token_info' && detectedIntent?.token_symbol) {
-                // Update message to include token card
-                const tokenSymbol = detectedIntent.token_symbol.toUpperCase();
-                const isTokenQuery = tokenSymbol === 'ETH' || tokenSymbol === 'EThereum';
-                
-                setMessages(prev => prev.map(msg => 
-                    msg.id === aiMsgId ? {
-                        ...msg,
-                        type: 'token-card',
-                        data: isTokenQuery ? {
-                            symbol: tokenSymbol,
-                            name: tokenSymbol === 'ETH' ? 'Ethereum' : tokenSymbol,
-                            price: 3450.25,
-                            change24h: 5.2,
-                            riskScore: 85,
-                            liquidity: '$2.5B',
-                            volume24h: '$1.2B',
-                            recentTransactions: [
-                                { type: 'buy', amount: '100 ETH', price: '3450', time: '2m ago' },
-                                { type: 'sell', amount: '50 ETH', price: '3448', time: '5m ago' },
-                                { type: 'buy', amount: '200 ETH', price: '3452', time: '8m ago' }
-                            ],
-                            chartData: [3200, 3250, 3180, 3300, 3350, 3400, 3450]
-                        } : undefined
-                    } : msg
-                ));
+            // 1. Ensure conversation exists
+            let currentConvId = conversationId;
+            if (!currentConvId && onNewConversation) {
+                currentConvId = await onNewConversation(text);
+            }
+            if (!currentConvId) {
+                toast.error('Failed to create chat session');
+                return;
             }
 
-            // Store full response for continue generation
-            setStoppedMessageContent(fullResponse);
-            
-            // Final save after streaming completes
-            if (currentConvId && onMessagesChange && aiMsgId) {
-                setTimeout(() => {
-                    setMessages(prev => {
-                        const finalMessages = prev.map(msg =>
-                            msg.id === aiMsgId ? { ...msg, content: fullResponse } : msg
-                        );
-                        onMessagesChange(finalMessages);
-                        return finalMessages;
-                    });
-                }, 0);
-            }
+            setHasStarted(true);
+            stopGeneration();
 
-        } catch (error) {
-            console.error('AI service error:', error);
-            clearTimeout(thinkingTimeout);
-            setIsThinking(false);
-            
-            // Fallback response
-            const aiMsgId = (Date.now() + 1).toString();
-            const aiNow = new Date();
-            const errorMsg: Message = {
-                id: aiMsgId,
-                role: 'ai',
-                content: 'I apologize, but I encountered an error processing your request. Please try again.',
-                timestamp: aiNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                date: aiNow.toISOString().split('T')[0],
+            // 2. Prepare user message for UI
+            const now = new Date();
+            const userMsg: Message = {
+                id: existingMessageId || Date.now().toString(),
+                role: 'user',
+                content: text,
+                timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                date: now.toISOString().split('T')[0],
                 type: 'text',
             };
 
-            const messagesWithError = [...updatedMessages, errorMsg];
-            setMessages(messagesWithError);
-            
-            if (currentConvId && onMessagesChange) {
-                onMessagesChange(messagesWithError);
+            // CRITICAL: Immediately mark this message ID as processed to block the auto-send useEffect
+            processedMessagesRef.current.add(userMsg.id);
+
+            if (!existingMessageId) {
+                setMessages(prev => [...prev, userMsg]);
             }
+
+            setInput('');
+            if (textareaRef.current) {
+                textareaRef.current.style.height = 'auto';
+            }
+
+            console.log('[ChatInterface DEBUG] Setting isThinking=true');
+            setIsThinking(true);
+            setThinkingText('Thinking');
+            userScrolledUpRef.current = false;
+            isAtBottomRef.current = true;
+
+            setTimeout(() => scrollToBottom(false), 0);
+
+            // 3. WebSocket is already connected globally in App.tsx
+            // checks are handled by handleGlobalChatEvent
+
+            // 4. Call backend API
+            console.log('[ChatInterface DEBUG] Sending message with walletAddress:', walletAddress, 'chainId:', chainId);
+            const resp = await chatApi.sendMessage(currentConvId, text, {
+                model: modelToUse.id,
+                walletAddress: walletAddress,
+                chainId: chainId,
+                toolConfig: customSettings,
+                balance: userBalances,
+            });
+
+            if (resp.success) {
+                const { assistantMessage, task } = resp;
+
+                // CRITICAL: Immediately set generating conversation ID so WebSocket stays connected
+                // This must happen before any async operations or user interactions
+                if (sidebar?.setGeneratingConversationId) {
+                    sidebar.setGeneratingConversationId(currentConvId);
+                }
+
+                // Add assistant message placeholder
+                const aiMsg: Message = {
+                    id: assistantMessage.id,
+                    role: 'assistant',
+                    content: '',
+                    reasoning_content: '',
+                    timestamp: new Date(assistantMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    date: new Date(assistantMessage.created_at).toISOString().split('T')[0],
+                    type: 'text',
+                    status: 'streaming',
+                };
+
+                setMessages(prev => [...prev, aiMsg]);
+                console.log('[ChatInterface DEBUG] Added AI message placeholder, id:', aiMsg.id);
+                setActiveTaskId(task.id);
+
+                // Update task state in parent component
+                if (onTaskUpdate) {
+                    onTaskUpdate({ id: task.id, status: task.status });
+                }
+
+                // WebSocket will handle the chunks and status updates
+            } else {
+                throw new Error(resp.error || 'Failed to send message');
+            }
+        } catch (error: any) {
+            console.error('[ChatInterface] Error sending message:', error);
+            setIsThinking(false);
+            const errorMsg: Message = {
+                id: Date.now().toString(),
+                role: 'assistant',
+                content: `Error: ${error.message || 'Failed to connect to backend'}`,
+                status: 'error',
+                type: 'text',
+                timestamp: new Date().toLocaleTimeString(),
+            };
+            setMessages(prev => [...prev, errorMsg]);
+        } finally {
+            // Clear sending flag
+            isSendingRef.current = false;
+            // Clear submission lock
+            isSubmittingRef.current = false;
         }
     };
+    // Process pending swap message from LaunchpadCard
+    useEffect(() => {
+        if (pendingSwapMessage && !isStreaming && !isThinking) {
+            console.log('[ChatInterface] Sending pending swap message:', pendingSwapMessage);
+            handleSend(pendingSwapMessage);
+            setPendingSwapMessage(null);
+        }
+    }, [pendingSwapMessage, isStreaming, isThinking]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         // Don't send if user is composing text with IME (input method editor)
-        if (e.key === 'Enter' && !e.shiftKey && !isComposing && !(e.nativeEvent as any).isComposing) {
+        // Check BOTH the state and the native event property for maximum compatibility
+        const isCurrentlyComposing = isComposing || (e.nativeEvent as any).isComposing;
+
+        if (e.key === 'Enter' && !e.shiftKey) {
+            // If composing with IME, completely block Enter key and don't proceed
+            if (isCurrentlyComposing) {
+                e.preventDefault();
+                return;
+            }
+            // Prevent sending while thinking, streaming, or stopping
+            if (isThinking || isStreaming || isStopping) {
+                e.preventDefault();
+                console.log('[ChatInterface] Blocked Enter - AI is busy');
+                return;
+            }
             e.preventDefault();
             handleSend();
         }
@@ -391,18 +1593,84 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     };
 
     const handleCompositionEnd = () => {
+        // Clear composition state immediately when IME composition ends
+        // The onKeyDown handler will check the native event's isComposing property anyway
         setIsComposing(false);
     };
+
+    // Auto-resize textarea like ChatGPT/Gemini
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newValue = e.target.value;
+        setInput(newValue);
+        autoResizeTextarea(e.target);
+
+        // Trigger intent detection
+        detectIntent(newValue);
+    };
+
+    const autoResizeTextarea = (textarea: HTMLTextAreaElement) => {
+        // Reset height to auto to get the correct scrollHeight
+        textarea.style.height = 'auto';
+        // Set new height based on content, with min and max limits (5 lines max = ~120px)
+        const newHeight = Math.min(Math.max(textarea.scrollHeight, 24), 120);
+        textarea.style.height = `${newHeight}px`;
+
+        // Update message list padding to ensure content is not hidden behind input
+        // Base padding needs to account for: input area + action buttons (~40px extra)
+        if (scrollContainerRef.current) {
+            const extraHeight = Math.max(0, newHeight - 24);
+            scrollContainerRef.current.style.paddingBottom = `${140 + extraHeight}px`;
+        }
+    };
+
+    // Auto-resize when input is set programmatically (e.g., from AI analyze)
+    useEffect(() => {
+        if (textareaRef.current && input) {
+            autoResizeTextarea(textareaRef.current);
+        }
+        // Reset padding when input is cleared
+        if (!input && scrollContainerRef.current) {
+            scrollContainerRef.current.style.paddingBottom = '140px';
+        }
+    }, [input]);
+
+    // Handle pending AI prompt from other pages
+    useEffect(() => {
+        if (pendingAIPrompt && onAIPromptSet) {
+            setInput(pendingAIPrompt);
+            setHasStarted(true);
+
+            // If it's a new chat (no messages), send it automatically
+            if (messagesRef.current.length === 0) {
+                // We need to wait a tiny bit for the component to be fully ready
+                setTimeout(() => {
+                    handleSend(pendingAIPrompt);
+                }, 500);
+            } else {
+                // Otherwise just pre-fill and focus
+                setTimeout(() => {
+                    if (textareaRef.current) {
+                        autoResizeTextarea(textareaRef.current);
+                    }
+                    scrollToBottom();
+                    textareaRef.current?.focus();
+                }, 100);
+            }
+
+            // Clear the pending prompt
+            onAIPromptSet();
+        }
+    }, [pendingAIPrompt, onAIPromptSet, handleSend]);
 
     const formatDateSeparator = (dateStr: string): string => {
         const date = new Date(dateStr);
         const today = new Date();
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
-        
+
         const dateStrToday = today.toISOString().split('T')[0];
         const dateStrYesterday = yesterday.toISOString().split('T')[0];
-        
+
         if (dateStr === dateStrToday) {
             return 'Today';
         } else if (dateStr === dateStrYesterday) {
@@ -412,20 +1680,21 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     };
 
-    const prompts = [
-        { label: 'Analyze ETH', desc: 'Price, volume, and risk analysis' },
-        { label: 'Gas Price', desc: 'Current gas fees on Ethereum' },
-        { label: 'Top Gainers', desc: 'Tokens with highest 24h change' },
-        { label: 'DeFi Yields', desc: 'Best stablecoin APYs' },
-    ];
+    // const prompts = [ // Unused for now
+    //     { label: 'Analyze ETH', desc: 'Price, volume, and risk analysis' },
+    //     { label: 'Gas Price', desc: 'Current gas fees on Ethereum' },
+    //     { label: 'Top Gainers', desc: 'Tokens with highest 24h change' },
+    //     { label: 'DeFi Yields', desc: 'Best stablecoin APYs' },
+    // ];
 
     return (
-        <div className={styles.chatContainer}>
+        <div className={`${styles.chatContainer} ${styles[resolvedTheme]}`}>
+
+
             {/* Hero / Welcome Content */}
-            <div className={clsx(styles.heroContent, hasStarted && styles.heroContentHidden)}>
-                <div className={styles.welcomeLogo}>K</div>
-                <div className={styles.welcomeTitle}>How can I help you today?</div>
-            </div>
+            {!hasStarted && (
+                <WelcomeScreen onSuggestionClick={handleSend} />
+            )}
 
             {/* Message List */}
             <div
@@ -437,7 +1706,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     const isGrouped = index > 0 && messages[index - 1].role === msg.role;
                     const prevMsg = index > 0 ? messages[index - 1] : null;
                     const showDateSeparator = prevMsg && prevMsg.date && msg.date && prevMsg.date !== msg.date;
-                    
+
                     return (
                         <React.Fragment key={msg.id}>
                             {showDateSeparator && (
@@ -445,114 +1714,254 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     <span>{formatDateSeparator(msg.date!)}</span>
                                 </div>
                             )}
-                            <MessageBubble 
-                                message={msg} 
+                            <MessageBubble
+                                message={msg}
                                 isGrouped={isGrouped}
-                                onContinue={stoppedMessageId === msg.id ? () => {
-                                    const fullText = stoppedMessageContent || msg.content;
-                                    continueGeneration(msg.id, fullText, msg.content);
-                                } : undefined}
-                                canContinue={stoppedMessageId === msg.id && !isStreaming}
+                                thinkingText={msg.role === 'assistant' && msg.id === messages[messages.length - 1]?.id ? thinkingText : undefined}
+                                userAddress={walletAddress}
+                                chainId={chainId}
+                                onCardAction={(action, data) => {
+                                    if (action === 'swap-cancel') {
+                                        // Update transaction status to cancelled
+                                        setMessages(prev => {
+                                            const updated = prev.map(m =>
+                                                m.id === msg.id ? {
+                                                    ...m,
+                                                    transactionStatus: 'cancelled' as const
+                                                } : m
+                                            );
+                                            messagesRef.current = updated;
+                                            if (onMessagesChange && currentConversationIdRef.current) {
+                                                setTimeout(() => {
+                                                    onMessagesChange(updated);
+                                                }, 0);
+                                            }
+                                            return updated;
+                                        });
+                                    } else if (action === 'swap-success') {
+                                        // Update transaction status to success
+                                        const txHash = (data as { txHash: string }).txHash;
+                                        setMessages(prev => {
+                                            const updated = prev.map(m =>
+                                                m.id === msg.id ? {
+                                                    ...m,
+                                                    transactionStatus: 'success' as const,
+                                                    transactionHash: txHash
+                                                } : m
+                                            );
+                                            messagesRef.current = updated;
+                                            if (onMessagesChange && currentConversationIdRef.current) {
+                                                setTimeout(() => onMessagesChange(updated), 0);
+                                            }
+                                            return updated;
+                                        });
+                                    } else if (action === 'swap-error') {
+                                        // Update transaction status to failed
+                                        setMessages(prev => {
+                                            const updated = prev.map(m =>
+                                                m.id === msg.id ? {
+                                                    ...m,
+                                                    transactionStatus: 'failed' as const
+                                                } : m
+                                            );
+                                            messagesRef.current = updated;
+                                            if (onMessagesChange && currentConversationIdRef.current) {
+                                                setTimeout(() => onMessagesChange(updated), 0);
+                                            }
+                                            return updated;
+                                        });
+                                    } else if (action === 'strategy-edit') {
+                                        // Navigate to trade page or open edit modal
+                                    } else if (action === 'strategy-delete') {
+                                        // TODO: Implement delete
+                                    } else if (action === 'strategy-toggle') {
+                                        const strategyId = data;
+                                        toggleStrategyStatus(strategyId);
+
+                                        // Also update the message data locally to reflect the UI change immediately
+                                        setMessages(prev => {
+                                            const updated = prev.map(m => {
+                                                if (m.type === 'strategy-card' && m.data?.id === strategyId) {
+                                                    const newStatus = m.data.status === 'active' ? 'paused' : 'active';
+                                                    return {
+                                                        ...m,
+                                                        data: { ...m.data, status: newStatus }
+                                                    };
+                                                }
+                                                return m;
+                                            });
+                                            messagesRef.current = updated;
+                                            return updated;
+                                        });
+                                    } else if (action === 'strategy-details') {
+                                    }
+                                }}
                             />
-                            {msg.type === 'token-card' && msg.data && !isStreaming && (
-                                <div className={styles.aiRow}>
-                                    <div className={styles.avatarPlaceholder} />
-                                    <div className={styles.messageContentWrapper}>
-                                        <TokenCard {...msg.data} />
-                                    </div>
-                                </div>
-                            )}
+
                         </React.Fragment>
                     );
                 })}
-                {isThinking && (
-                    <div className={styles.aiRow}>
-                        <div className={styles.avatar}>
-                            <div className={styles.aiAvatarIcon} />
-                        </div>
-                        <div className={styles.messageContentWrapper}>
-                            <div className={styles.senderName}>KIKO AI <span className={styles.timestamp}>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>
-                            <div className={clsx(styles.bubble, styles.aiBubble)}>
-                                <div className={styles.thinkingBubble}>
-                                    <div className={styles.dot} />
-                                    <div className={styles.dot} />
-                                    <div className={styles.dot} />
-                                    <span className={styles.thinkingText}>{thinkingText}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+
+                {/* Thinking State indicator is now part of the message itself, no separate bubble needed */}
+
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Jump to Bottom Button */}
-            {showJumpToBottom && (
-                <button
-                    className={styles.jumpToBottom}
-                    onClick={() => scrollToBottom()}
-                >
-                    <ArrowDown size={16} />
-                    <span>Jump to Bottom</span>
-                </button>
-            )}
-
-            {/* Input Area */}
-            <div className={clsx(styles.inputArea, hasStarted ? styles.inputBottom : styles.inputCenter)}>
-                <div className={styles.inputWrapper}>
-                    <div className={styles.strategiesContainer}>
+            {/* Input Area - Only show when conversation has started */}
+            {hasStarted && (
+                <div className={clsx(styles.inputArea, styles.inputBottom)}>
+                    {/* DEBUG: Render check */}
+                    {/* Jump to Bottom Button - positioned at top edge of input */}
+                    {showJumpToBottom && (
                         <button
-                            className={clsx(styles.strategyToggle, showStrategies && styles.strategyToggleActive)}
-                            onClick={() => setShowStrategies(!showStrategies)}
+                            className={styles.jumpToBottom}
+                            onClick={() => scrollToBottom()}
                         >
-                            <Sparkles size={12} />
-                            <span>Strategies</span>
-                            <ChevronDown size={12} className={clsx(styles.chevron, showStrategies && styles.chevronRotated)} />
+                            <ArrowDown size={16} />
                         </button>
-
-                        {showStrategies && (
-                            <div className={styles.strategyDropdown}>
-                                {prompts.map((p, i) => (
-                                    <button
-                                        key={i}
-                                        className={styles.strategyItem}
-                                        onClick={() => {
-                                            handleSend(p.label);
-                                            setShowStrategies(false);
-                                        }}
-                                    >
-                                        <span className={styles.strategyLabel}>{p.label}</span>
-                                        <span className={styles.strategyDesc}>{p.desc}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    <div className={styles.inputRow}>
-                        <button className={styles.attachBtn}>
-                            <Paperclip size={18} />
-                        </button>
-                        <textarea
-                            className={styles.textArea}
-                            placeholder="Ask anything..."
-                            rows={1}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            onFocus={handleInputFocus}
-                            onCompositionStart={handleCompositionStart}
-                            onCompositionEnd={handleCompositionEnd}
+                    )}
+                    <div className={clsx(styles.inputWrapper, showSuggestions && styles.inputWrapperOpen)}>
+                        <ChatInputSuggestions
+                            suggestions={suggestions}
+                            isVisible={showSuggestions}
+                            onSelect={(item) => {
+                                item.action();
+                                setShowSuggestions(false);
+                                setSuggestions([]);
+                                // If action updated input but didn't send (e.g. pre-fill), focus textarea
+                                if (!item.action.toString().includes('handleSend')) {
+                                    textareaRef.current?.focus();
+                                }
+                            }}
                         />
-                        <button
-                            className={clsx(styles.sendBtn, (isThinking || isStreaming) && styles.stopBtn)}
-                            onClick={() => (isThinking || isStreaming) ? stopGeneration() : handleSend()}
-                            disabled={!input.trim() && !isThinking && !isStreaming}
-                        >
-                            {(isThinking || isStreaming) ? <Square size={14} fill="currentColor" /> : <Send size={18} />}
-                        </button>
+                        <div className={styles.textareaContainer}>
+                            <textarea
+                                ref={textareaRef}
+                                className={styles.textArea}
+                                placeholder="Ask anything..."
+                                rows={1}
+                                value={input}
+                                onChange={handleInputChange}
+                                onKeyDown={handleKeyDown}
+                                onFocus={handleInputFocus}
+                                onCompositionStart={handleCompositionStart}
+                                onCompositionEnd={handleCompositionEnd}
+                            />
+
+                            <div className={styles.inputActions}>
+                                <div className={styles.modelSelector} ref={modelSelectorRef}>
+                                    <button
+                                        className={styles.modelButton}
+                                        onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                                    >
+                                        <span className={styles.modelName}>
+                                            {MODEL_OPTIONS.find(m => m.id === selectedModel.id)?.name || selectedModel.name}
+                                        </span>
+                                        <span className={styles.modelMode}>{selectedModel.mode}</span>
+                                        <ChevronDown size={12} className={clsx(styles.chevron, isModelDropdownOpen && styles.chevronOpen)} />
+                                    </button>
+
+                                    {isModelDropdownOpen && (
+                                        <div className={styles.modelDropdown}>
+                                            {MODEL_OPTIONS.map((model) => (
+                                                <button
+                                                    key={model.id}
+                                                    className={clsx(styles.modelOption, selectedModel.id === model.id && styles.modelOptionActive)}
+                                                    onClick={() => {
+                                                        setSelectedModel(model);
+                                                        setIsModelDropdownOpen(false);
+                                                        console.log('[ChatInterface] Model changed to:', model.id);
+                                                    }}
+                                                >
+                                                    <span className={styles.modelOptionName}>{model.name}</span>
+                                                    <span className={styles.modelOptionMode}>{model.mode}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button
+                                    className={styles.settingsButton}
+                                    onClick={() => setIsSettingsOpen(true)}
+                                    title="Customize AI"
+                                >
+                                    <Settings size={18} />
+                                </button>
+                                <button
+                                    className={clsx(
+                                        styles.sendBtn,
+                                        (isThinking || isStreaming) && styles.stopMode,
+                                        !isThinking && !isStreaming && input.trim() && styles.activeMode,
+                                        isStopping && styles.stoppingMode
+                                    )}
+                                    onClick={() => (isThinking || isStreaming) ? stopGeneration() : handleSend()}
+                                    disabled={(!input.trim() && !isThinking && !isStreaming) || isStopping}
+                                    title={(isThinking || isStreaming) ? "Stop generation" : "Send message"}
+                                >
+                                    <div className={clsx(styles.btnIcon, (isThinking || isStreaming) ? styles.iconHidden : styles.iconVisible)}>
+                                        <ArrowUp size={20} strokeWidth={2.5} />
+                                    </div>
+                                    <div className={clsx(styles.btnIcon, (isThinking || isStreaming) ? styles.iconVisible : styles.iconHidden)}>
+                                        <div className={styles.stopIconSquare} />
+                                    </div>
+                                    {(isThinking || isStreaming) && (
+                                        <div className={styles.spinnerRing} />
+                                    )}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
+
+            <CustomAISettingsModal
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
+            />
+
+            {showDelegationModal && (
+                <DelegatedActionRequest
+                    onSuccess={() => {
+                        setShowDelegationModal(false);
+                        if (pendingSwapAction) {
+                            // Re-import and execute
+                            import('../../services/swapService').then(({ executeSwapInstant }) => {
+                                const toastId = toast.loading('Executing instant swap...');
+
+                                // Set local storage flag
+                                if (user?.wallet?.address) {
+                                    localStorage.setItem(`kiko_delegated_${user.wallet.address.toLowerCase()}`, 'true');
+                                }
+
+                                executeSwapInstant({
+                                    tokenIn: pendingSwapAction.tokenIn,
+                                    tokenOut: pendingSwapAction.tokenOut,
+                                    amountIn: pendingSwapAction.amountIn,
+                                    chainId: pendingSwapAction.chainId,
+                                    slippageBps: Math.round((pendingSwapAction.slippage || 0.5) * 100),
+                                })
+                                    .then((result) => {
+                                        if (result.success && result.txHash) {
+                                            toast.success('Swap executed successfully!', { id: toastId });
+                                        } else {
+                                            toast.error(`Swap failed: ${result.error}`, { id: toastId });
+                                        }
+                                    });
+                            });
+                            setPendingSwapAction(null);
+                        }
+                    }}
+                    onCancel={() => {
+                        setShowDelegationModal(false);
+                        setPendingSwapAction(null);
+                        toast.error("Delegation cancelled");
+                    }}
+                />
+            )}
+
+            {/* Toaster for swap notifications */}
+            <Toaster position="top-center" richColors duration={5000} />
         </div>
     );
 };

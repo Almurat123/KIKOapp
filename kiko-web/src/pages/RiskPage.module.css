@@ -1,0 +1,631 @@
+/* RiskPage.module.css */
+
+/* --- Common --- */
+.pageWrapper {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 40px;
+}
+
+.inputWrapper {
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 8px 8px 8px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+    width: 100%;
+}
+
+/* Light mode input wrapper */
+:global(.light) .inputWrapper {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.inputWrapper:focus-within {
+    border-color: var(--accent-color);
+    box-shadow: 0 4px 24px rgba(91, 141, 239, 0.15);
+    transform: translateY(-1px);
+}
+
+.input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #ffffff;
+    font-size: 16px;
+    outline: none;
+    font-family: var(--font-mono);
+}
+
+/* Light mode input */
+:global(.light) .input {
+    color: #18181b;
+}
+
+.scanBtn {
+    background: var(--text-primary);
+    color: var(--bg-page);
+    border: none;
+    border-radius: 12px;
+    padding: 12px 24px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.scanBtn:hover {
+    opacity: 0.9;
+}
+
+.scanBtn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+/* --- Search Section (Static) --- */
+.searchSection {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px 20px;
+    max-width: 1000px;
+    margin: 0 auto;
+    width: 100%;
+    transition: all 0.5s ease;
+}
+
+.heroTitle {
+    font-size: 42px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 16px;
+    letter-spacing: -1px;
+    text-align: center;
+    background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Light mode hero title */
+:global(.light) .heroTitle {
+    background: linear-gradient(135deg, #18181b 0%, #52525b 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.heroSubtitle {
+    color: #a1a1aa;
+    font-size: 18px;
+    margin-bottom: 48px;
+    text-align: center;
+    max-width: 600px;
+    line-height: 1.6;
+}
+
+/* Light mode hero subtitle */
+:global(.light) .heroSubtitle {
+    color: #52525b;
+}
+
+.searchBoxLarge {
+    width: 100%;
+    max-width: 600px;
+    margin-bottom: 60px;
+}
+
+/* --- Recent Scans --- */
+.recentScansSimple {
+    width: 100%;
+    max-width: 800px;
+    animation: fadeIn 0.5s ease-out;
+    margin-bottom: 60px;
+}
+
+.recentTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #a1a1aa;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
+}
+
+/* Light mode recent title */
+:global(.light) .recentTitle {
+    color: #71717a;
+}
+
+.recentGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.recentCard {
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 16px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.recentCard:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Light mode recent card */
+:global(.light) .recentCard {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+:global(.light) .recentCard:hover {
+    border-color: rgba(0, 0, 0, 0.12);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* --- Education Section --- */
+.educationSection {
+    width: 100%;
+    max-width: 1000px;
+    animation: fadeIn 0.6s ease-out;
+}
+
+.educationTitle {
+    font-size: 20px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 24px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+/* Light mode education title */
+:global(.light) .educationTitle {
+    color: #18181b;
+}
+
+.educationGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+
+.educationCard {
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    height: 100%;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.educationCard:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Light mode education card */
+:global(.light) .educationCard {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+:global(.light) .educationCard:hover {
+    border-color: rgba(0, 0, 0, 0.12);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+}
+
+.eduIconWrapper {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    font-size: 24px;
+}
+
+.eduCardTitle {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 8px;
+}
+
+/* Light mode edu card title */
+:global(.light) .eduCardTitle {
+    color: #18181b;
+}
+
+.eduCardDesc {
+    font-size: 13px;
+    color: #a1a1aa;
+    line-height: 1.5;
+}
+
+/* Light mode edu card desc */
+:global(.light) .eduCardDesc {
+    color: #52525b;
+}
+
+/* --- Result View (Dashboard) --- */
+.dashboardContent {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 24px;
+    width: 100%;
+    animation: fadeIn 0.5s ease-out;
+}
+
+.dashboardGrid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 24px;
+}
+
+/* Cards */
+.card {
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Light mode card */
+:global(.light) .card {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.cardHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Light mode card header */
+:global(.light) .cardHeader {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.cardTitle {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Light mode card title */
+:global(.light) .cardTitle {
+    color: #18181b;
+}
+
+/* Specific Sections */
+.identitySection {
+    grid-column: span 8;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Light mode identity section */
+:global(.light) .identitySection {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.tokenIconLarge {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--accent-color), #3861fb);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 24px;
+    font-weight: 700;
+    box-shadow: 0 8px 16px rgba(56, 97, 251, 0.2);
+}
+
+.scoreSection {
+    grid-column: span 4;
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Light mode score section */
+:global(.light) .scoreSection {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.scoreCircle {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.scoreValue {
+    font-size: 32px;
+    font-weight: 800;
+}
+
+.metricsRow {
+    grid-column: span 12;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+}
+
+.metricCard {
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Light mode metric card */
+:global(.light) .metricCard {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.metricLabel {
+    font-size: 12px;
+    color: #a1a1aa;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Light mode metric label */
+:global(.light) .metricLabel {
+    color: #52525b;
+}
+
+.metricValue {
+    font-size: 20px;
+    font-weight: 700;
+    color: #ffffff;
+    font-family: var(--font-mono);
+}
+
+/* Light mode metric value */
+:global(.light) .metricValue {
+    color: #18181b;
+}
+
+.securityGrid {
+    grid-column: span 8;
+}
+
+.holdersGrid {
+    grid-column: span 4;
+}
+
+.flagList {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.flagItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    font-size: 14px;
+    color: #f4f4f5;
+}
+
+/* Light mode flag item */
+:global(.light) .flagItem {
+    background: rgba(0, 0, 0, 0.04);
+    color: #18181b;
+}
+
+.holderRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: #f4f4f5;
+}
+
+.holderRow:last-child {
+    border-bottom: none;
+}
+
+/* Light mode holder row */
+:global(.light) .holderRow {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    color: #18181b;
+}
+
+/* Utilities */
+.textSuccess {
+    color: var(--success-color);
+}
+
+.textWarning {
+    color: #f59e0b;
+}
+
+.textDanger {
+    color: var(--danger-color);
+}
+
+.bgSuccess {
+    background: rgba(22, 199, 132, 0.1);
+    color: var(--success-color);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.bgWarning {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.bgDanger {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Mobile */
+@media (max-width: 1024px) {
+    .dashboardGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .identitySection,
+    .scoreSection,
+    .metricsRow,
+    .securityGrid,
+    .holdersGrid {
+        grid-column: span 1;
+    }
+
+    .metricsRow {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .educationGrid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .educationGrid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* === Inline Style Optimizations === */
+
+/* Flex layout utilities */
+.flexGap4 {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.flexGap8 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.flexGap12 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.flex1 {
+    flex: 1;
+}
+
+.flexColumn {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Spacing utilities */
+.mb24 {
+    margin-bottom: 24px;
+}
+
+.mt12Center {
+    margin-top: 12px;
+    text-align: center;
+}

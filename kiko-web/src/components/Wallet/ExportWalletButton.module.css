@@ -1,0 +1,37 @@
+.recoveryButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 12px 16px;
+    background: #3f3f46;
+    /* Lighter than list bg (#27272a) */
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    color: #f4f4f5;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+:global(.light) .recoveryButton {
+    background: #e4e4e7;
+    /* Darker than list (#f4f4f5) */
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    color: #18181b;
+}
+
+.recoveryButton:hover {
+    background: #52525b;
+    transform: translateY(-1px);
+}
+
+:global(.light) .recoveryButton:hover {
+    background: #d4d4d8;
+    color: #000000;
+}
+
+.recoveryButton:active {
+    transform: scale(0.98);
+}

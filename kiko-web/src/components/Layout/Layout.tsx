@@ -1,9 +1,32 @@
-import React, { useState } from 'react';
-import { Menu, PanelLeftOpen } from 'lucide-react';
+import React, { useState, createContext, useContext } from 'react';
+import { PanelLeftOpen, ArrowLeft } from 'lucide-react';
+import { usePrivy, useWallets, useLinkAccount } from '@privy-io/react-auth';
 import { Sidebar } from './Sidebar';
-import { UserProfileModal } from '../User/UserProfileModal';
+import { useThemeContext } from '../../contexts/ThemeContext';
+
+import { clearWalletData } from '../../utils/privyUtils';
 import styles from './Layout.module.css';
 import type { Conversation } from '../../hooks/useConversations';
+import { PreLoginWarningModal } from '../Privy/PreLoginWarningModal';
+import { useSecureLogin } from '../../hooks/useSecureLogin';
+
+interface SidebarContextType {
+    onOpenSidebar: () => void;
+    isSidebarOpen: boolean;
+    onOpenProfile: () => void;
+    setChatStarted: (started: boolean) => void;
+    chatStarted: boolean;
+    setGeneratingConversationId: (id: string | null) => void;
+    onBackHandler: (() => void) | null;
+    setOnBackHandler: (handler: (() => void) | null) => void;
+}
+
+const SidebarContext = createContext<SidebarContextType | null>(null);
+
+export const useSidebar = () => {
+    const context = useContext(SidebarContext);
+    return context;
+};
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -15,11 +38,16 @@ interface LayoutProps {
     onNewChat?: () => void;
     onConversationRename?: (id: string, newTitle: string) => void;
     onConversationDelete?: (id: string) => void;
+    headerContent?: React.ReactNode; // Optional header content (e.g., search box)
+    onAIAnalyzeComplete?: (prompt: string) => void; // Handler for AI analysis completion
+    generatingConversationId?: string | null;
+    setGeneratingConversationId?: (id: string | null) => void;
+    onBack?: () => void; // Generic back button handler (for TokenDetailPage, etc.)
 }
 
-export const Layout: React.FC<LayoutProps> = ({ 
-    children, 
-    activeTab, 
+export const Layout: React.FC<LayoutProps> = ({
+    children,
+    activeTab,
     onTabChange,
     conversations,
     activeConversationId,
@@ -27,61 +55,190 @@ export const Layout: React.FC<LayoutProps> = ({
     onNewChat,
     onConversationRename,
     onConversationDelete,
+    headerContent,
+    onAIAnalyzeComplete,
+    generatingConversationId,
+    setGeneratingConversationId,
+    onBack,
 }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile
-    const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(false); // Desktop
-    const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+    const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true); // Desktop - default open
+    const [chatStarted, setChatStarted] = useState(false); // Track if chat has started
+    const [onBackHandler, setOnBackHandler] = useState<(() => void) | null>(null); // Generic back handler from child
+    const { resolvedTheme } = useThemeContext();
+    const { user, authenticated, ready } = usePrivy();
+    const { secureLogin, isWarningOpen, closeWarning, confirmLogin } = useSecureLogin();
+    const { wallets } = useWallets();
+    const { linkWallet } = useLinkAccount();
+
+    // Handle profile click - check authentication and wallet connection status
+    const handleProfileClick = () => {
+        if (!ready) return; // Wait for Privy to be ready
+
+        try {
+            if (!authenticated) {
+                // User is not logged in, show login modal
+                secureLogin();
+            } else {
+                // User is logged in, check if they have a wallet connected
+                const hasWallet = wallets.length > 0 && wallets.some(wallet => wallet?.address);
+
+                if (hasWallet) {
+                    // User has wallet connected, navigate to wallet page
+                    onTabChange('wallet');
+                } else {
+                    // User is logged in but no wallet connected
+                    // Clear any stale wallet data first to ensure clean state
+                    clearWalletData();
+                    // Trigger wallet connection
+                    if (linkWallet) {
+                        // Small delay to ensure data is cleared
+                        setTimeout(() => {
+                            linkWallet();
+                        }, 100);
+                    }
+                }
+            }
+        } catch (error) {
+            if (import.meta.env.DEV) {
+                console.error('Error in handleProfileClick:', error);
+            }
+        }
+    };
+
+    // Get user initials for avatar
+    const emailAddress = user?.email && typeof user.email === 'object' && 'address' in user.email
+        ? (user.email as { address: string }).address
+        : (typeof user?.email === 'string' ? user.email : null);
+    const userName = (emailAddress ? emailAddress.split('@')[0] : null) || user?.farcaster?.username || 'User';
+    const userInitials = userName.substring(0, 2).toUpperCase();
 
     return (
-        <div className={styles.layout}>
-            <Sidebar
-                activeTab={activeTab}
-                onTabChange={onTabChange}
-                isOpen={isSidebarOpen}
-                onClose={() => setIsSidebarOpen(false)}
-                isDesktopOpen={isDesktopSidebarOpen}
-                onDesktopClose={() => setIsDesktopSidebarOpen(false)}
-                onProfileClick={() => setIsProfileModalOpen(true)}
-                conversations={conversations}
-                activeConversationId={activeConversationId}
-                onConversationClick={onConversationClick}
-                onNewChat={onNewChat}
-                onConversationRename={onConversationRename}
-                onConversationDelete={onConversationDelete}
+        <SidebarContext.Provider value={{
+            onOpenSidebar: () => setIsDesktopSidebarOpen(true),
+            isSidebarOpen: isDesktopSidebarOpen,
+            onOpenProfile: handleProfileClick,
+            setChatStarted,
+            chatStarted,
+            setGeneratingConversationId: setGeneratingConversationId || (() => { }),
+            onBackHandler,
+            setOnBackHandler,
+        }}>
+            <PreLoginWarningModal
+                isOpen={isWarningOpen}
+                onConfirm={confirmLogin}
+                onCancel={closeWarning}
             />
+            <div className={`${styles.layout} ${styles[resolvedTheme]}`}>
+                <Sidebar
+                    activeTab={activeTab}
+                    onTabChange={onTabChange}
+                    isOpen={isSidebarOpen}
+                    onClose={() => setIsSidebarOpen(false)}
+                    isDesktopOpen={isDesktopSidebarOpen}
+                    onDesktopClose={() => setIsDesktopSidebarOpen(false)}
+                    onProfileClick={handleProfileClick}
+                    conversations={conversations}
+                    activeConversationId={activeConversationId}
+                    onConversationClick={onConversationClick}
+                    onNewChat={onNewChat}
+                    onConversationRename={onConversationRename}
+                    onConversationDelete={onConversationDelete}
+                    generatingConversationId={generatingConversationId}
+                />
 
-            <UserProfileModal
-                isOpen={isProfileModalOpen}
-                onClose={() => setIsProfileModalOpen(false)}
-            />
+                <main className={styles.main}>
+                    {/* Mobile Header */}
+                    <div className={styles.mobileHeader}>
+                        <div className={styles.mobileHeaderLeft}>
+                            <button
+                                className={styles.mobileMenuBtn}
+                                onClick={() => setIsSidebarOpen(true)}
+                                title="Open menu"
+                            >
+                                <PanelLeftOpen size={20} />
+                            </button>
+                            {/* Title / Tab Name */}
+                            <span className={styles.mobileTitle}>
+                                {activeTab === 'chat'
+                                    ? (activeConversationId ? 'Chat' : 'KIKO')
+                                    : (activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('market-', '').replace('-', ' '))}
+                            </span>
+                        </div>
 
-            <main className={styles.main}>
-                {/* Mobile Header */}
-                <div className={styles.mobileHeader}>
-                    <button
-                        className={styles.hamburger}
-                        onClick={() => setIsSidebarOpen(true)}
-                    >
-                        <Menu size={24} />
-                    </button>
-                    <span className={styles.mobileTitle}>KIKO</span>
-                </div>
+                        {/* Middle Content (e.g. search box) */}
+                        {headerContent && (
+                            <div className={styles.mobileHeaderCenter}>
+                                {headerContent}
+                            </div>
+                        )}
 
-                {/* Desktop Trigger Button */}
-                {!isDesktopSidebarOpen && (
-                    <button
-                        className={styles.desktopTrigger}
-                        onClick={() => setIsDesktopSidebarOpen(true)}
-                        title="Open sidebar"
-                    >
-                        <PanelLeftOpen size={20} />
-                    </button>
-                )}
+                        <div className={styles.mobileHeaderRight}>
+                            {/* Generic back button */}
+                            {(onBack || onBackHandler) && (
+                                <button
+                                    className={styles.mobileBackBtn}
+                                    onClick={onBack || onBackHandler || undefined}
+                                    title="Go back"
+                                >
+                                    <ArrowLeft size={18} />
+                                </button>
+                            )}
+                            {/* Profile Button */}
+                            <button
+                                className={styles.mobileProfileBtn}
+                                onClick={handleProfileClick}
+                                title={userName}
+                            >
+                                <span className={styles.profileInitials}>{userInitials}</span>
+                            </button>
+                        </div>
+                    </div>
 
-                <div className={styles.content}>
-                    {children}
-                </div>
-            </main>
-        </div>
+                    {/* Desktop Header - Sidebar trigger + Back button */}
+                    <div className={`${styles.desktopHeader} ${!isDesktopSidebarOpen ? styles.desktopHeaderCollapsed : ''}`}>
+                        {!isDesktopSidebarOpen && (
+                            <button
+                                className={styles.desktopTrigger}
+                                onClick={() => setIsDesktopSidebarOpen(true)}
+                                title="Open sidebar"
+                            >
+                                <PanelLeftOpen size={20} />
+                            </button>
+                        )}
+                        {/* Desktop Back Button - show when there's an active conversation OR chat has started */}
+                        {activeTab === 'chat' && (activeConversationId || chatStarted) && onNewChat && (
+                            <button
+                                className={styles.desktopBackBtn}
+                                onClick={onNewChat}
+                                title="Back to welcome"
+                            >
+                                <ArrowLeft size={20} strokeWidth={2} />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Desktop Top Right Profile */}
+                    <div className={styles.desktopProfileContainer}>
+                        <button
+                            className={styles.desktopProfileBtn}
+                            onClick={handleProfileClick}
+                            title={authenticated ? "Wallet Profile" : "Connect Wallet"}
+                        >
+                            <span className={styles.desktopProfileAvatar}>
+                                {userInitials}
+                            </span>
+                        </button>
+                    </div>
+
+                    <div className={styles.content}>
+                        {children}
+                    </div>
+                </main>
+
+
+            </div>
+        </SidebarContext.Provider>
     );
 };
+

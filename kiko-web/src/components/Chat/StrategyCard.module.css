@@ -1,0 +1,482 @@
+/* Strategy Card Container - Copy Trading Style */
+.strategyCard {
+  position: relative;
+  width: 100%;
+  max-width: 320px; /* Consistently compact */
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  margin: 12px 0;
+}
+
+.strategyCard:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Dark theme */
+.strategyCard.dark {
+  background: #18181b;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Light theme */
+.strategyCard.light {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Header */
+.strategyHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px 10px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.strategyCard.dark .strategyHeader {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.strategyCard.light .strategyHeader {
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+
+.strategyTitleSection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.strategyIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.strategyCard.dark .strategyIcon {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.strategyCard.light .strategyIcon {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.strategyName {
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.strategyCard.dark .strategyName {
+  color: #ffffff;
+}
+
+.strategyCard.light .strategyName {
+  color: #18181b;
+}
+
+.strategyId {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 10px;
+}
+
+.strategyCard.dark .strategyId {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.strategyCard.light .strategyId {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.strategyStatus {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid;
+}
+
+.statusActive {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.strategyCard.dark .statusActive {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.strategyCard.light .statusActive {
+  background: rgba(34, 197, 94, 0.1);
+  color: #10b981;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.statusPaused {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.strategyCard.dark .statusPaused {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.strategyCard.light .statusPaused {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+/* Content */
+.strategyContent {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.strategyBlock,
+.strategyBlockThen {
+  background: rgba(39, 39, 42, 0.4);
+  border-radius: 18px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.strategyCard.dark .strategyBlock,
+.strategyCard.dark .strategyBlockThen {
+  background: rgba(39, 39, 42, 0.4);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.strategyCard.light .strategyBlock,
+.strategyCard.light .strategyBlockThen {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.05);
+}
+
+.strategyBlockThen {
+  background: rgba(39, 39, 42, 0.6);
+}
+
+.strategyCard.dark .strategyBlockThen {
+  background: rgba(39, 39, 42, 0.6);
+}
+
+.strategyCard.light .strategyBlockThen {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.strategyItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px; /* Added gap */
+}
+
+.strategyItemLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0; /* Don't shrink labels */
+}
+
+.strategyCard.dark .strategyItemLabel {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.strategyCard.light .strategyItemLabel {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.strategyItemValue {
+  text-align: right;
+}
+
+.walletAddress {
+  color: rgba(255, 255, 255, 0.8);
+  font-family: monospace;
+  font-size: 12px;
+  background: #18181b;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.strategyCard.dark .walletAddress {
+  background: #18181b;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.strategyCard.light .walletAddress {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.triggerValue {
+  color: #60a5fa;
+  font-weight: 500;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+  display: block;
+}
+
+.strategyCard.dark .triggerValue {
+  color: #60a5fa;
+}
+
+.strategyCard.light .triggerValue {
+  color: #3b82f6;
+}
+
+.strategyType {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.strategyCard.dark .strategyType {
+  background: #18181b;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.strategyCard.light .strategyType {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.strategyDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  width: 100%;
+}
+
+.strategyCard.dark .strategyDivider {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.strategyCard.light .strategyDivider {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.buyAmountLabel {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+.strategyCard.dark .buyAmountLabel {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.strategyCard.light .buyAmountLabel {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.buyAmountValue {
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.strategyCard.dark .buyAmountValue {
+  color: #ffffff;
+}
+
+.strategyCard.light .buyAmountValue {
+  color: #18181b;
+}
+
+/* Footer */
+.strategyFooter {
+  padding: 16px 18px;
+  padding-top: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.strategyInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.strategyInfoItem {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.strategyCard.dark .strategyInfoItem {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.strategyCard.light .strategyInfoItem {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.strategyInfoItem span {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.strategyCard.dark .strategyInfoItem span {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.strategyCard.light .strategyInfoItem span {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.strategyPauseBtn {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 9999px;
+  background: #27272a;
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.strategyCard.dark .strategyPauseBtn {
+  background: #27272a;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.strategyCard.dark .strategyPauseBtn:hover {
+  background: #ffffff;
+  color: #000000;
+  border-color: #ffffff;
+}
+
+.strategyCard.light .strategyPauseBtn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.strategyCard.light .strategyPauseBtn:hover {
+  background: #18181b;
+  color: #ffffff;
+  border-color: #18181b;
+}
+
+/* SL/TP Capsule Style from Trade Page */
+.slTpCapsule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  padding: 6px 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
+  max-width: 160px;
+}
+
+.capsuleItem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.capsuleLabel {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 700;
+}
+
+.capsuleValueGreen {
+  font-size: 11px;
+  font-weight: 700;
+  color: #4ade80;
+}
+
+.capsuleValueRed {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ef4444;
+}
+
+.capsuleDivider {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Responsive Design - Desktop */
+@media (min-width: 769px) {
+  .strategyCard {
+    max-width: 320px;
+    margin: 12px 0;
+  }
+}
+
+/* Responsive Design - Mobile */
+@media (max-width: 768px) {
+  .strategyCard {
+    max-width: 100%;
+    border-radius: 18px;
+  }
+
+  .strategyHeader {
+    padding: 14px 16px 8px 16px;
+  }
+
+  .strategyContent {
+    padding: 8px 10px;
+  }
+
+  .strategyFooter {
+    padding: 14px 16px;
+    padding-top: 4px;
+  }
+}

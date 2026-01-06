@@ -1,0 +1,621 @@
+.container {
+    padding: var(--space-4);
+    padding-bottom: 32px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+/* Desktop: centered max-width */
+@media (min-width: 769px) {
+    .container {
+        max-width: 1200px;
+    }
+}
+
+/* Mobile: remove left/right padding */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 0;
+        padding-right: 0;
+    }
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+/* Mobile: reduce gap and stack cards */
+@media (max-width: 768px) {
+    .grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+}
+
+.card {
+    background: #1f1f23;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
+}
+
+.card:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Light mode card */
+:global(.light) .card {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+:global(.light) .card:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+/* Mobile: edge-to-edge cards */
+@media (max-width: 768px) {
+    .card {
+        border-radius: 8px;
+        padding: 12px;
+    }
+}
+
+.metricLabel {
+    color: #a1a1aa;
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+}
+
+/* Light mode metric label */
+:global(.light) .metricLabel {
+    color: #52525b;
+}
+
+.metricValueRow {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.metricValue {
+    font-size: 20px;
+    font-weight: bold;
+    color: #f4f4f5;
+}
+
+/* Light mode metric value */
+:global(.light) .metricValue {
+    color: #18181b;
+}
+
+.metricChange {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.metricChangeUp {
+    color: #10b981;
+}
+
+.metricChangeDown {
+    color: #e74c3c;
+}
+
+.sectionGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.sectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.sectionTitle {
+    color: #f4f4f5;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 16px;
+}
+
+/* Light mode section title */
+:global(.light) .sectionTitle {
+    color: #18181b;
+}
+
+.viewAllBtn {
+    color: var(--accent-color);
+    font-size: 12px;
+    font-weight: bold;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.viewAllBtn:hover {
+    opacity: 0.7;
+    text-decoration: underline;
+}
+
+.listContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.listItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    padding: 8px;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.listItem:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+/* Light mode list item hover */
+:global(.light) .listItem:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.rank {
+    color: #71717a;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Light mode rank */
+:global(.light) .rank {
+    color: #a1a1aa;
+}
+
+.tokenInfo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tokenName {
+    color: #f4f4f5;
+    font-weight: 500;
+}
+
+/* Light mode token name */
+:global(.light) .tokenName {
+    color: #18181b;
+}
+
+.tokenIcon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.fallbackIcon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+}
+
+.loadingContainer {
+    padding: 16px;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.errorContainer {
+    padding: 16px;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+}
+
+.errorMessage {
+    color: #ea3943;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.retryBtn {
+    padding: 8px 16px;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.retryBtn:hover {
+    background: var(--accent-hover);
+}
+
+/* Macro Indicators Table */
+.macroContainer {
+    background: #1f1f23;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Light mode macro container */
+:global(.light) .macroContainer {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* Mobile: edge-to-edge macro container */
+@media (max-width: 768px) {
+    .macroContainer {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+}
+
+.macroHeader {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Light mode macro header */
+:global(.light) .macroHeader {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.macroTitle {
+    color: #f4f4f5;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    margin: 0;
+}
+
+/* Light mode macro title */
+:global(.light) .macroTitle {
+    color: #18181b;
+}
+
+.tableContainer {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table {
+    width: 100%;
+    min-width: 600px;
+    text-align: left;
+    border-collapse: collapse;
+}
+
+.thead {
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 11px;
+    color: #a1a1aa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+/* Light mode thead */
+:global(.light) .thead {
+    background: rgba(0, 0, 0, 0.03);
+    color: #52525b;
+}
+
+.th {
+    padding: 12px 0;
+    font-size: 10px;
+}
+
+.thFirst {
+    padding-left: 20px;
+    min-width: 180px;
+}
+
+.thLast {
+    padding-right: 20px;
+    text-align: right;
+}
+
+.tbody {
+    font-size: 13px;
+    color: #f4f4f5;
+}
+
+/* Light mode tbody */
+:global(.light) .tbody {
+    color: #18181b;
+}
+
+.tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background 0.2s;
+}
+
+.tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+/* Light mode tr */
+:global(.light) .tr {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+:global(.light) .tr:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.td {
+    padding: 12px 0;
+}
+
+.tdFirst {
+    padding-left: 20px;
+    min-width: 180px;
+}
+
+.tdLast {
+    padding-right: 20px;
+    text-align: right;
+}
+
+.iconWrapper {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+/* Light mode icon wrapper */
+:global(.light) .iconWrapper {
+    background: rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.indicatorName {
+    font-weight: 600;
+    color: #f4f4f5;
+    font-size: 13px;
+    line-height: 1.3;
+}
+
+/* Light mode indicator name */
+:global(.light) .indicatorName {
+    color: #18181b;
+}
+
+.indicatorDesc {
+    font-size: 10px;
+    color: #71717a;
+    margin-top: 2px;
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+/* Light mode indicator desc */
+:global(.light) .indicatorDesc {
+    color: #a1a1aa;
+}
+
+.valueWrapper {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    flex-wrap: wrap;
+}
+
+.value {
+    font-size: 13px;
+    font-weight: 600;
+    color: #f4f4f5;
+    line-height: 1.3;
+}
+
+/* Light mode value */
+:global(.light) .value {
+    color: #18181b;
+}
+
+.unit {
+    font-size: 9px;
+    color: #71717a;
+    font-weight: 500;
+    line-height: 1.3;
+}
+
+/* Light mode unit */
+:global(.light) .unit {
+    color: #a1a1aa;
+}
+
+.statusBadge {
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    display: inline-block;
+    line-height: 1.4;
+}
+
+.rangeLabels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    font-family: monospace;
+    font-weight: 500;
+    color: #71717a;
+    line-height: 1.2;
+}
+
+/* Light mode range labels */
+:global(.light) .rangeLabels {
+    color: #a1a1aa;
+}
+
+.progressBarContainer {
+    height: 8px;
+    width: 100%;
+    background: var(--bg-secondary);
+    border-radius: 9999px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid var(--border-color);
+}
+
+.progressBar {
+    height: 100%;
+    border-radius: 9999px;
+    transition: all 1s ease-out;
+}
+
+/* Mobile Card View */
+.mobileCardContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+}
+
+.mobileCard {
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Light mode mobile card */
+:global(.light) .mobileCard {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Hide trend on mobile */
+.hideMobileTrend {
+    display: none;
+}
+
+/* === Inline Style Optimizations === */
+
+/* Fixed column widths for macro table */
+.colValue {
+    width: 120px;
+    min-width: 100px;
+}
+
+.colStatus {
+    width: 110px;
+    min-width: 90px;
+    padding-right: 16px;
+}
+
+.colTrend {
+    width: 80px;
+    min-width: 60px;
+}
+
+/* SVG container */
+.svgVisible {
+    overflow: visible;
+}
+
+/* Flex layout utilities */
+.flexMinWidth {
+    flex: 1;
+    min-width: 0;
+}
+
+.flexGap4 {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.flexGap8 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.flexGap12 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* Icon wrapper size variants */
+.iconWrapper40 {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+:global(.light) .iconWrapper40 {
+    background: rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}

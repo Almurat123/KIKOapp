@@ -1,0 +1,78 @@
+"""
+KiKo Python Services - Unified FastAPI Application
+Combines: grok-service, moderation-service, rag-service
+Uses sub-app mounting for safer integration.
+"""
+import os
+import logging
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import uvicorn
+
+# Load environment variables
+# First try current directory, then fallback to kiko-api/.env
+load_dotenv()
+if not os.getenv("XAI_API_KEY"):
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "kiko-api", ".env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Create main FastAPI app
+app = FastAPI(
+    title="KiKo Python Services",
+    description="Unified API for Grok AI, Content Moderation, and RAG Knowledge Base",
+    version="1.0.0"
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Health check for the unified service
+@app.get("/health")
+async def main_health():
+    return {"status": "ok", "service": "kiko-python"}
+
+# Mount sub-applications
+# Each service keeps its own FastAPI app, mounted as a sub-app
+
+# Grok Service
+try:
+    from grok.router import app as grok_app
+    app.mount("/grok", grok_app)
+    logger.info("✅ Grok service mounted at /grok")
+except Exception as e:
+    logger.error(f"❌ Failed to mount Grok service: {e}")
+
+# Moderation Service
+try:
+    from moderation.router import app as moderation_app
+    from moderation.models import moderation_models
+    # Explicitly initialize models since sub-app startup events don't auto-trigger
+    moderation_models.initialize()
+    app.mount("/moderation", moderation_app)
+    logger.info("✅ Moderation service mounted at /moderation")
+except Exception as e:
+    logger.error(f"❌ Failed to mount Moderation service: {e}")
+
+# RAG Service
+try:
+    from rag.router import app as rag_app
+    app.mount("/rag", rag_app)
+    logger.info("✅ RAG service mounted at /rag")
+except Exception as e:
+    logger.error(f"❌ Failed to mount RAG service: {e}")
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

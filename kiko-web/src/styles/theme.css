@@ -1,0 +1,102 @@
+/* Global Theme Variables */
+:root {
+  /* Light theme (default) */
+  --theme-bg-card: rgba(255, 255, 255, 0.9);
+  --theme-bg-card-hover: rgba(255, 255, 255, 0.95);
+  --theme-bg-header: rgba(0, 0, 0, 0.02);
+  --theme-text-primary: #1a1a1a;
+  --theme-text-secondary: #6b7280;
+  --theme-text-muted: #9ca3af;
+  --theme-border: rgba(0, 0, 0, 0.08);
+  --theme-border-hover: rgba(0, 0, 0, 0.12);
+  --theme-button-primary: #5B8DEF;
+  --theme-button-secondary: rgba(0, 0, 0, 0.05);
+  --theme-success: #10b981;
+  --theme-success-bg: rgba(16, 185, 129, 0.08);
+  --theme-warning: #f59e0b;
+  --theme-warning-bg: rgba(245, 158, 11, 0.08);
+  --theme-error: #ef4444;
+  --theme-error-bg: rgba(239, 68, 68, 0.08);
+
+  /* Swap Card specific - Light Mode */
+  --card-bg: #ffffff;
+  --border-color: rgba(0, 0, 0, 0.1);
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  --text-secondary-hover: #4b5563;
+  --input-bg: rgba(0, 0, 0, 0.03);
+  --input-hover-bg: rgba(0, 0, 0, 0.05);
+  --hover-bg: rgba(0, 0, 0, 0.05);
+  --overlay-bg: rgba(255, 255, 255, 0.9);
+  --token-button-bg: #f3f4f6;
+  --token-button-hover-bg: #e5e7eb;
+  --button-primary-bg: #1a1a1a;
+  --button-primary-text: #ffffff;
+  --button-primary-hover-bg: #374151;
+  --button-shadow: rgba(0, 0, 0, 0.1);
+  --button-disabled-bg: rgba(0, 0, 0, 0.1);
+  --button-disabled-text: rgba(0, 0, 0, 0.3);
+  --button-secondary-bg: #f3f4f6;
+  --button-secondary-hover-bg: #e5e7eb;
+  --success-color: #059669;
+  --success-bg: rgba(5, 150, 105, 0.1);
+  --error-color: #dc2626;
+  --error-bg: rgba(220, 38, 38, 0.1);
+  --error-border: rgba(220, 38, 38, 0.2);
+  --warning-color: #d97706;
+  --warning-bg: rgba(217, 119, 6, 0.1);
+  --warning-border: rgba(217, 119, 6, 0.2);
+  --modal-bg: #ffffff;
+}
+
+/* Dark theme */
+.dark {
+  --theme-bg-card: rgba(255, 255, 255, 0.8);
+  --theme-bg-card-hover: rgba(255, 255, 255, 0.9);
+  --theme-bg-header: rgba(255, 255, 255, 0.05);
+  --theme-text-primary: #f4f4f5;
+  --theme-text-secondary: #a1a1aa;
+  --theme-text-muted: #71717a;
+  --theme-border: rgba(255, 255, 255, 0.1);
+  --theme-border-hover: rgba(255, 255, 255, 0.2);
+  --theme-button-primary: #5B8DEF;
+  --theme-button-secondary: rgba(255, 255, 255, 0.1);
+  --theme-success: #10b981;
+  --theme-success-bg: rgba(16, 185, 129, 0.1);
+  --theme-warning: #f59e0b;
+  --theme-warning-bg: rgba(245, 158, 11, 0.1);
+  --theme-error: #ef4444;
+  --theme-error-bg: rgba(239, 68, 68, 0.1);
+
+  /* Swap Card specific - Dark Mode */
+  --card-bg: #18181b;
+  --border-color: rgba(255, 255, 255, 0.05);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.4);
+  --text-tertiary: rgba(255, 255, 255, 0.2);
+  --text-secondary-hover: rgba(255, 255, 255, 0.6);
+  --input-bg: rgba(39, 39, 42, 0.4);
+  --input-hover-bg: #27272a;
+  --hover-bg: rgba(255, 255, 255, 0.05);
+  --overlay-bg: rgba(0, 0, 0, 0.6);
+  --token-button-bg: #18181b;
+  --token-button-hover-bg: #3f3f46;
+  --button-primary-bg: #ffffff;
+  --button-primary-text: #000000;
+  --button-primary-hover-bg: rgba(255, 255, 255, 0.9);
+  --button-shadow: rgba(255, 255, 255, 0.3);
+  --button-disabled-bg: rgba(255, 255, 255, 0.5);
+  --button-disabled-text: rgba(0, 0, 0, 0.5);
+  --button-secondary-bg: #27272a;
+  --button-secondary-hover-bg: #3f3f46;
+  --success-color: #4ade80;
+  --success-bg: rgba(74, 222, 128, 0.1);
+  --error-color: #fca5a5;
+  --error-bg: rgba(239, 68, 68, 0.1);
+  --error-border: rgba(239, 68, 68, 0.2);
+  --warning-color: #fbbf24;
+  --warning-bg: rgba(234, 179, 8, 0.1);
+  --warning-border: rgba(234, 179, 8, 0.2);
+  --modal-bg: #18181b;
+}

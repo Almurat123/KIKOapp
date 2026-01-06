@@ -1,0 +1,540 @@
+/* ChainsPage.module.css */
+
+.container {
+    padding: 16px;
+    width: 100%;
+}
+
+/* Desktop: centered container with max-width */
+@media (min-width: 769px) {
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 24px;
+    }
+}
+
+.containerMobile {
+    padding: 8px 0;
+    /* Remove left/right padding on mobile */
+    width: 100%;
+}
+
+.loadingContainer {
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.errorContainer {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    height: 100%;
+}
+
+.errorMessage {
+    color: var(--danger-color);
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.retryBtn {
+    padding: 8px 16px;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.2s ease;
+}
+
+.retryBtn:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+}
+
+.emptyState {
+    padding: 48px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+}
+
+.emptyMessage {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.highlightsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+/* Mobile: reduce gap and adjust layout */
+@media (max-width: 768px) {
+    .highlightsGrid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+
+    .highlightCard {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+}
+
+.highlightCard {
+    background: #1f1f23;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 16px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
+}
+
+.highlightCard:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Light mode highlight card */
+:global(.light) .highlightCard {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+:global(.light) .highlightCard:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+.iconWrapper {
+    padding: 12px;
+    border-radius: 8px;
+}
+
+.label {
+    color: #a1a1aa;
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Light mode label */
+:global(.light) .label {
+    color: #52525b;
+}
+
+.value {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+/* Light mode value */
+:global(.light) .value {
+    color: #18181b;
+}
+
+.changePositive {
+    color: var(--success-color);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.changeNegative {
+    color: var(--danger-color);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.tableCard {
+    background: #1f1f23;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Light mode table card */
+:global(.light) .tableCard {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* Mobile: edge-to-edge table */
+@media (max-width: 768px) {
+    .tableCard {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+}
+
+.tableHeader {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Light mode table header */
+:global(.light) .tableHeader {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.tableTitle {
+    color: #ffffff;
+    font-weight: bold;
+    margin: 0;
+    font-size: 16px;
+}
+
+/* Light mode table title */
+:global(.light) .tableTitle {
+    color: #18181b;
+}
+
+.compareBtn {
+    color: var(--accent-color);
+    font-size: 12px;
+    font-weight: bold;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.compareBtn:hover {
+    opacity: 0.7;
+}
+
+.listContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+    overflow-x: auto;
+}
+
+.listHeader {
+    display: grid;
+    grid-template-columns: minmax(160px, 1.5fr) 1fr 1fr 1fr 1fr;
+    padding: 16px 24px;
+    background: rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+/* Light mode list header */
+:global(.light) .listHeader {
+    background: rgba(0, 0, 0, 0.03);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.headerCell {
+    font-size: 11px;
+    font-weight: 600;
+    color: #a1a1aa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: right;
+}
+
+/* Light mode header cell */
+:global(.light) .headerCell {
+    color: #52525b;
+}
+
+.headerCell:first-child {
+    text-align: left;
+}
+
+.listRow {
+    display: grid;
+    grid-template-columns: minmax(160px, 1.5fr) 1fr 1fr 1fr 1fr;
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    align-items: center;
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+}
+
+.listRow:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.listRow:last-child {
+    border-bottom: none;
+}
+
+/* Light mode list row */
+:global(.light) .listRow {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+:global(.light) .listRow:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.cell {
+    font-size: 13px;
+    color: #f4f4f5;
+    font-family: monospace;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Light mode cell */
+:global(.light) .cell {
+    color: #18181b;
+}
+
+.cellFirst {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    font-family: var(--font-sans);
+}
+
+/* Mobile Layout */
+@media (max-width: 768px) {
+
+    .listHeader,
+    .listRow {
+        grid-template-columns: minmax(100px, 1.2fr) 0.8fr 0.8fr 0.8fr 0.8fr;
+        padding: 12px 12px;
+        gap: 4px;
+    }
+
+    .headerCell {
+        font-size: 9px;
+    }
+
+    .cell {
+        font-size: 11px;
+    }
+
+    .rank {
+        font-size: 10px;
+        width: 18px;
+    }
+
+    .chainIconImg {
+        width: 32px;
+        height: 32px;
+    }
+
+    .chainIcon {
+        width: 32px;
+        height: 32px;
+        font-size: 12px;
+        border-radius: 50%;
+    }
+
+    .chainName {
+        font-size: 12px;
+    }
+
+    .subValue {
+        font-size: 9px;
+    }
+
+    .subLabel {
+        font-size: 7px;
+    }
+
+    .cellFirst {
+        gap: 6px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+
+    .listHeader,
+    .listRow {
+        grid-template-columns: minmax(90px, 1fr) 0.7fr 0.7fr 0.8fr 0.7fr;
+        padding: 10px 8px;
+        gap: 2px;
+    }
+
+    .headerCell {
+        font-size: 8px;
+    }
+
+    .cell {
+        font-size: 10px;
+    }
+
+    .rank {
+        display: none;
+    }
+
+    .chainIconImg {
+        width: 32px;
+        height: 32px;
+    }
+
+    .chainIcon {
+        width: 32px;
+        height: 32px;
+        font-size: 12px;
+    }
+
+    .primaryValue {
+        font-size: 10px;
+    }
+
+    .chainName {
+        font-size: 11px;
+    }
+
+    .subValue {
+        font-size: 8px;
+    }
+}
+
+.rank {
+    color: #71717a;
+    font-size: 12px;
+    font-weight: 500;
+    width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+/* Light mode rank */
+:global(.light) .rank {
+    color: #a1a1aa;
+}
+
+.chainIconImg {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.chainIcon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #5B8DEF, #3861fb);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.chainName {
+    font-weight: 500;
+    color: #f4f4f5;
+    font-size: 14px;
+}
+
+/* Light mode chain name */
+:global(.light) .chainName {
+    color: #18181b;
+}
+
+.secondaryText {
+    font-size: 11px;
+    color: #a1a1aa;
+    margin-top: 2px;
+}
+
+/* Light mode secondary text */
+:global(.light) .secondaryText {
+    color: #71717a;
+}
+
+.changePositive {
+    color: var(--success-color);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.changeNegative {
+    color: var(--danger-color);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Primary value - main data (white in dark mode) */
+.primaryValue {
+    font-size: 11px;
+    color: #ffffff;
+    font-weight: 500;
+}
+
+/* Light mode primary value */
+:global(.light) .primaryValue {
+    color: #18181b;
+}
+
+/* Sub value - secondary data (same color as primary) */
+.subValue {
+    font-size: 11px;
+    color: #ffffff;
+    margin-top: 2px;
+}
+
+/* Light mode sub value */
+:global(.light) .subValue {
+    color: #18181b;
+}
+
+.subLabel {
+    font-size: 9px;
+    color: #71717a;
+    font-weight: 400;
+    margin-left: 2px;
+}
+
+/* Light mode sub label */
+:global(.light) .subLabel {
+    color: #a1a1aa;
+}

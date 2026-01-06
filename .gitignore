@@ -1,0 +1,30 @@
+node_modules/
+dist/
+coverage/
+.cache/
+*.log
+logs/
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.crt
+*.cer
+
+# Build artifacts per packages
+kiko-web/node_modules/
+kiko-web/dist/
+kiko-api/node_modules/
+kiko-api/dist/
+grok-service/venv/
+grok-service/__pycache__/
+__pycache__/
+
+# Editor/OS
+.idea/
+.vscode/
+

@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, AlertTriangle, ArrowRight, ShieldCheck, ExternalLink } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, ArrowRight, ShieldCheck } from 'lucide-react';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 
@@ -9,8 +9,6 @@ interface ExecutionPreviewCardProps {
     slippage: string;
     riskWarnings: string[];
     riskId: string;
-    relatedPages?: Array<{ label: string; href: string }>;
-    onPageClick?: (href: string) => void;
 }
 
 export const ExecutionPreviewCard: React.FC<ExecutionPreviewCardProps> = ({
@@ -18,18 +16,8 @@ export const ExecutionPreviewCard: React.FC<ExecutionPreviewCardProps> = ({
     estimatedOutput,
     slippage,
     riskWarnings,
-    riskId,
-    relatedPages = [],
-    onPageClick
+    riskId
 }) => {
-    const handlePageClick = (href: string) => {
-        if (onPageClick) {
-            onPageClick(href);
-        } else {
-            // Default behavior: navigate or handle routing
-            window.location.href = href;
-        }
-    };
     return (
         <div className={styles.executionCard}>
             <div className={styles.cardHeader}>
@@ -84,24 +72,6 @@ export const ExecutionPreviewCard: React.FC<ExecutionPreviewCardProps> = ({
                     </div>
                 )}
             </div>
-
-            {relatedPages.length > 0 && (
-                <div className={styles.relatedPages}>
-                    <div className={styles.relatedPagesHeader}>Related Pages</div>
-                    <div className={styles.relatedPagesList}>
-                        {relatedPages.map((page, i) => (
-                            <button
-                                key={i}
-                                className={styles.relatedPageLink}
-                                onClick={() => handlePageClick(page.href)}
-                            >
-                                <span>{page.label}</span>
-                                <ExternalLink size={12} />
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
 
             <div className={styles.cardFooter}>
                 <div className={styles.auditBadge}>

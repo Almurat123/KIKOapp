@@ -1,0 +1,17 @@
+.toggle {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.toggle:hover {
+    background-color: rgba(128, 128, 128, 0.1);
+    color: var(--text-primary);
+}

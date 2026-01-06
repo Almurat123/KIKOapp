@@ -1,76 +1,261 @@
-import React from 'react';
-import { TokenCard } from '../components/Chat/TokenCard';
-import { StrategyCard } from '../components/Chat/StrategyCard';
-import { ExecutionPreviewCard } from '../components/Chat/ExecutionPreviewCard';
-import { AIReportCard } from '../components/Market/AIReportCard';
+import React, { useState } from 'react';
+import {
+   Zap,
+   Eye,
+   Clock,
+   Activity,
+   MousePointerClick,
+   Target
+} from 'lucide-react';
+import { PageContainer } from '../components/Layout/PageContainer';
+import styles from './TestCardsPage.module.css';
+import { SwapCardIntegrated } from '../components/Swap/SwapCardIntegrated';
+import { LaunchpadCard } from '../components/Launchpad/LaunchpadCard';
+import { StrategyCard } from '../components/Trade/StrategyCard';
 
-export const TestCardsPage: React.FC = () => {
-    return (
-        <div style={{ padding: '40px', background: 'var(--bg-primary)', minHeight: '100vh' }}>
-            <h1 style={{ marginBottom: '32px', color: 'var(--text-primary)' }}>Component Test Harness</h1>
+// --- 基础容器组件 (Deep Dark Minimal Style) ---
+const CardWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+   <div className={styles.cardWrapper}>
+      {children}
+   </div>
+);
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '32px' }}>
+// --- 1. Swap 卡片 ---
+// --- 1. Swap 卡片 Wrapper (Modified for Debugging) ---
+const SwapCardSection = () => {
+   const [isGenerating, setIsGenerating] = useState(false);
+   const [key, setKey] = useState(0); // Force re-render
 
-                {/* Token Card */}
-                <section>
-                    <h2 style={{ marginBottom: '16px', fontSize: '18px', color: 'var(--text-secondary)' }}>TokenCard</h2>
-                    <TokenCard
-                        symbol="ETH"
-                        name="Ethereum"
-                        price="3,450.25"
-                        change24h={5.2}
-                        riskScore={85}
-                    />
-                </section>
+   const handleRefresh = () => {
+      // setIsGenerating(true); // Removed old loading state
+      setKey(prev => prev + 1);
 
-                {/* Strategy Card */}
-                <section>
-                    <h2 style={{ marginBottom: '16px', fontSize: '18px', color: 'var(--text-secondary)' }}>StrategyCard</h2>
-                    <StrategyCard
-                        type="DCA"
-                        token="ETH"
-                        triggerCondition="Price < $3,200"
-                        executionAmount="$500 USDC"
-                        limits={{
-                            maxUsdPerDay: "2,000",
-                            maxTradesPerDay: 4,
-                            cooldown: "4h"
-                        }}
-                    />
-                </section>
+      // Simulate generation delay
+      // setTimeout(() => {
+      //    setIsGenerating(false);
+      // }, 2500);
+   };
 
-                {/* Execution Preview Card */}
-                <section>
-                    <h2 style={{ marginBottom: '16px', fontSize: '18px', color: 'var(--text-secondary)' }}>ExecutionPreviewCard</h2>
-                    <ExecutionPreviewCard
-                        steps={[
-                            { name: 'Risk Check', status: 'completed' },
-                            { name: 'Approve USDC', status: 'completed' },
-                            { name: 'Swap USDC->ETH', status: 'active' },
-                            { name: 'Confirm', status: 'pending' }
-                        ]}
-                        estimatedOutput="0.145 ETH"
-                        slippage="0.5%"
-                        riskWarnings={['Price impact > 1%', 'Low liquidity pool']}
-                        riskId="R-29384"
-                    />
-                </section>
+   return (
+      <div className="flex flex-col gap-4">
+         <div className="flex justify-between items-center">
+            <span className={styles.sectionLabel}>Execution</span>
+            <button
+               onClick={handleRefresh}
+               className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-md transition-colors flex items-center gap-1"
+            >
+               <Zap size={12} /> Refresh Animation
+            </button>
+         </div>
 
-                {/* AI Report Card */}
-                <section>
-                    <h2 style={{ marginBottom: '16px', fontSize: '18px', color: 'var(--text-secondary)' }}>AIReportCard</h2>
-                    <AIReportCard
-                        title="Market Opportunity"
-                        insight="Ethereum is showing strong accumulation patterns despite recent volatility. Whales are buying the dip."
-                        metrics={[
-                            { label: 'Sentiment', value: 'Bullish', trend: 'up' },
-                            { label: 'Volume', value: '+15%', trend: 'up' },
-                            { label: 'Volatility', value: 'Medium', trend: 'neutral' }
-                        ]}
-                        recommendation="Consider accumulating ETH near support levels."
-                    />
-                </section>
+         {/* Use the actual Integrated Card with Fluid Animation */}
+         <div className="w-full max-w-[320px] flex flex-col items-start">
+            <div key={key} className={styles.animFluid}>
+               <div className={styles.cardContent}>
+                  <SwapCardIntegrated
+                     isGenerating={isGenerating}
+                     initialTokenIn={{ symbol: 'ETH', address: '', decimals: 18, name: 'Ethereum' }}
+                     initialTokenOut={{ symbol: 'USDC', address: '', decimals: 6, name: 'USD Coin' }}
+                     initialAmountIn="1"
+                  />
+               </div>
             </div>
-        </div>
-    );
+         </div>
+
+
+      </div>
+   );
+};
+
+// --- 2. Strategy Card Wrapper ---
+const StrategyCardWrapper = ({ isGenerating = false }: { isGenerating?: boolean }) => {
+   const [showOverlay, setShowOverlay] = useState(isGenerating);
+   const [isClearing, setIsClearing] = useState(false);
+
+   // Mock strategy data
+   const mockStrategy = {
+      id: '8291-AC2',
+      status: 'active' as const,
+      type: 'auto_buy' as const,
+      createdAt: Date.now() - 120000,
+      executionAmount: '0.5',
+      tokenIn: 'ETH',
+      tokenOut: 'ANY',
+      triggerCondition: 'Buys ETH > 0',
+      copyTradeConfig: {
+         targetWallet: '0x7a2...3f91',
+         minTargetValueUsd: 0,
+         buyAmountUsd: 0,
+         takeProfitPct: 0,
+         stopLossPct: 0,
+         mirrorSell: false
+      },
+      executionHistory: []
+   };
+
+   React.useEffect(() => {
+      if (isGenerating) {
+         setShowOverlay(true);
+         setIsClearing(false);
+      } else if (showOverlay) {
+         setIsClearing(true);
+         const timer = setTimeout(() => {
+            setShowOverlay(false);
+            setIsClearing(false);
+         }, 1500);
+         return () => clearTimeout(timer);
+      }
+   }, [isGenerating, showOverlay]);
+
+   return (
+      <div className="relative w-full">
+         {showOverlay && (
+            <div className={`${styles.blurOverlay} ${isClearing ? styles.clearing : ''}`} />
+         )}
+         <StrategyCard
+            strategy={mockStrategy}
+            onEdit={() => { }}
+            onDelete={() => { }}
+            onToggleStatus={() => { }}
+            variant="card"
+         />
+      </div>
+   );
+};
+
+{/* 3. Analytics section removed as ListCard is deprecated */ }
+
+// --- 主演示界面 ---
+export const TestCardsPage: React.FC = () => {
+   const [isGeneratingStrategy, setIsGeneratingStrategy] = useState(false);
+   const [strategyKey, setStrategyKey] = useState(0);
+
+   const handleRefreshStrategy = () => {
+      setStrategyKey(prev => prev + 1);
+   };
+
+   return (
+      <PageContainer>
+         <div className={styles.container}>
+            <header className={styles.header}>
+               <div className={styles.statusBadge}>
+                  <div className={styles.statusDot}></div>
+                  <span>System Online</span>
+               </div>
+               <h1 className={styles.title}>
+                  AI Agent <span className={styles.titleGradient}>Capabilities</span>
+               </h1>
+               <p className={styles.description}>
+                  Modular interface components for automated DeFi operations. Designed for high information density and clarity.
+               </p>
+            </header>
+
+            {/* Grid Layout */}
+            <div className={styles.grid}>
+
+               {/* 1. Execution */}
+               <div className={styles.section}>
+                  <SwapCardSection />
+               </div>
+
+               {/* 2. Automation */}
+               <div className={styles.section}>
+                  <div className="flex justify-between items-center w-full max-w-[320px] mb-4">
+                     <span className={styles.sectionLabel}>Automation</span>
+                     <button
+                        onClick={handleRefreshStrategy}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-md transition-colors flex items-center gap-1"
+                     >
+                        <Zap size={12} /> Refresh
+                     </button>
+                  </div>
+
+                  {/* Fluid Animation Wrapper */}
+                  <div className="w-full max-w-[320px] flex flex-col items-start">
+                     <div key={strategyKey} className={styles.animFluid}>
+                        <div className={styles.cardContent}>
+                           <StrategyCardWrapper isGenerating={isGeneratingStrategy} />
+                        </div>
+                     </div>
+                  </div>
+               </div>
+
+               {/* 3. Launchpad */}
+               <div className={styles.section}>
+                  {/* Zora Section */}
+                  <div className="flex justify-between items-center w-full max-w-[320px] mb-4">
+                     <span className={styles.sectionLabel}>Launchpad (Zora)</span>
+                  </div>
+                  <div className="w-full max-w-[320px] flex flex-col items-start mb-8">
+                     <LaunchpadCard
+                        provider="zora"
+                        tokenAddress="0x9b13358e3a023507e7046c18f508a958cda75f54"
+                        chainId={8453}
+                        platformName="Base"
+                     />
+                  </div>
+
+                  {/* Clanker Section */}
+                  <div className="w-full mt-8">
+                     <span className={`${styles.sectionLabel} block mb-4`}>Launchpad (Clanker)</span>
+                     <div className="w-full max-w-[320px]">
+                        <LaunchpadCard
+                           provider="clanker"
+                           tokenAddress="0x611Cbc29d1a19408b3Ff414c0CF692AD2bfD9B07"
+                           platformName="Base"
+                        />
+                     </div>
+                  </div>
+
+                  {/* Paragraph Section */}
+                  <div className="w-full mt-8">
+                     <span className={`${styles.sectionLabel} block mb-4`}>Launchpad (Paragraph)</span>
+                     <div className="w-full max-w-[320px]">
+                        <LaunchpadCard
+                           provider="paragraph"
+                           tokenAddress="0x06fc3d5d2369561e28f261148576520f5e49d6ea"
+                           platformName="Base"
+                        />
+                     </div>
+                  </div>
+                  {/* Four.meme Section */}
+                  <div className="w-full mt-8">
+                     <span className={`${styles.sectionLabel} block mb-4`}>Launchpad (Four.meme)</span>
+                     <div className="w-full max-w-[320px]">
+                        <LaunchpadCard
+                           provider="fourmeme"
+                           tokenAddress="0x82Ec31D69b3c289E541b50E30681FD1ACAd24444"
+                           platformName="BSC"
+                        />
+                     </div>
+                  </div>
+                  {/* Pump.fun Section */}
+                  <div className="w-full mt-8">
+                     <span className={`${styles.sectionLabel} block mb-4`}>Launchpad (Pump.fun)</span>
+                     <div className="w-full max-w-[320px]">
+                        <LaunchpadCard
+                           provider="pumpfun"
+                           tokenAddress="GJAFwWjJ3vnTsrQVabjBVK2TYB1YtRCQXRDfDgUnpump"
+                           platformName="Solana"
+                        />
+                     </div>
+                  </div>
+                  {/* BonkFun Section */}
+                  <div className="w-full mt-8">
+                     <span className={`${styles.sectionLabel} block mb-4`}>Launchpad (BonkFun)</span>
+                     <div className="w-full max-w-[320px] flex flex-col gap-4">
+                        {/* BonkFun Token (FRANKLIN) */}
+                        <LaunchpadCard
+                           provider="raydium"
+                           tokenAddress="CkfVxeuaZjo9xLBwLKgv42nLZ2ChsuGSCucNeQ1cbonk"
+                           chainId={101}
+                           platformName="Solana"
+                        />
+                     </div>
+                  </div>
+               </div>
+            </div>
+         </div>
+      </PageContainer>
+   );
 };

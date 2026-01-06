@@ -1,0 +1,260 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.9);
+    /* Opaque overlay */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20000;
+    animation: fadeIn 0.1s ease-out;
+}
+
+.modal {
+    background: #18181b;
+    border-radius: 24px;
+    width: 90%;
+    max-width: 400px;
+    padding: 40px 32px;
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    text-align: center;
+    animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:global(.light) .modal {
+    background: #ffffff;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.iconWrapper {
+    width: 64px;
+    height: 64px;
+    /* Neutral or Blue only */
+    background: rgba(0, 122, 255, 0.1);
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+}
+
+.icon {
+    color: #007AFF;
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.title {
+    color: #f4f4f5;
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+:global(.light) .title {
+    color: #1a1a1a;
+}
+
+.description {
+    color: #a1a1aa;
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+:global(.light) .description {
+    color: #666;
+}
+
+.actionArea {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exportWrapper {
+    width: 100%;
+}
+
+/* Force override details to match Apple button style */
+.exportWrapper :global(button) {
+    width: 100% !important;
+    background: #007AFF !important;
+    border: none !important;
+    padding: 16px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    color: #fff !important;
+    border-radius: 14px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2) !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+.exportWrapper :global(button):hover {
+    background: #006ce6 !important;
+    transform: scale(1.01);
+}
+
+.exportWrapper :global(button):active {
+    transform: scale(0.98);
+}
+
+.footer {
+    margin-top: 4px;
+}
+
+.logoutButton {
+    background: none;
+    border: none;
+    font-size: 14px;
+    color: rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+    padding: 8px 16px;
+    border-radius: 8px;
+    transition: color 0.2s;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+:global(.dark) .logoutButton {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.logoutButton:hover {
+    color: rgba(0, 0, 0, 0.8);
+}
+
+:global(.dark) .logoutButton:hover {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes scaleUp {
+    from {
+        opacity: 0;
+        transform: scale(0.9) translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.walletRow {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.confirmBtn {
+    width: 100%;
+    padding: 16px;
+    background: #34C759;
+    color: white;
+    border: none;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(52, 199, 89, 0.2);
+}
+
+.confirmBtn:hover {
+    background: #2FB84E;
+    transform: scale(1.01);
+}
+
+.confirmBtn:active {
+    transform: scale(0.98);
+}
+
+.confirmedBadge {
+    width: 100%;
+    padding: 14px;
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+:global(.dark) .confirmedBadge {
+    background: transparent;
+    border-color: var(--border-color);
+}
+
+.loadingState {
+    width: 100%;
+    padding: 14px;
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+:global(.dark) .loadingState {
+    background: transparent;
+    border-color: var(--border-color);
+}
+
+.spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}

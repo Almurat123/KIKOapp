@@ -1,0 +1,1030 @@
+/* TokensPage.module.css */
+
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Desktop: centered container with max-width */
+@media (min-width: 769px) {
+    .container {
+        align-items: center;
+    }
+}
+
+.content {
+    flex: 1;
+    padding: 16px;
+    width: 100%;
+}
+
+/* Desktop: centered container with max-width ~1200px */
+@media (min-width: 769px) {
+    .content {
+        max-width: 1200px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 0 24px 24px 24px;
+        /* Removed top padding */
+    }
+}
+
+.contentMobile {
+    padding: 8px 0;
+    /* Remove left/right padding on mobile */
+    width: 100%;
+}
+
+/* Control Bar - Filters + Search */
+.controlBar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    margin: -16px -16px 0 -16px;
+    /* Offset parent padding, no bottom margin */
+    /* Light mode */
+    background: #fafafa;
+}
+
+/* Desktop: adjust controlBar margins to match centered container */
+@media (min-width: 769px) {
+    .controlBar {
+        margin: 0;
+        margin-bottom: 0;
+        /* Fused: remove margin */
+        padding: 20px 24px;
+        border-radius: 0;
+        /* Flush top (Square) */
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        /* Separator */
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        /* Subtle shadow */
+    }
+
+    :global(.dark) .controlBar {
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+}
+
+:global(.dark) .controlBar {
+    background: #18181b;
+}
+
+/* Desktop: sticky at top - kept but with new styling */
+@media (min-width: 769px) {
+    .controlBar {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+    }
+}
+
+/* Mobile: normal flow (scrolls with content) */
+@media (max-width: 768px) {
+    .controlBar {
+        margin: -8px 0 0 0;
+        /* Offset mobile padding - no left/right, no bottom margin */
+        padding: 12px 16px;
+        /* Keep horizontal padding for search box */
+    }
+}
+
+/* Spacer not needed anymore */
+.controlBarSpacer {
+    display: none;
+}
+
+.controlBarSidebarCollapsed {
+    /* Not needed */
+}
+
+.filterGroup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filterBtn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    /* Light mode - 非激活状态 */
+    background: transparent;
+    color: #52525b;
+}
+
+.filterBtn:hover {
+    /* Light mode hover */
+    background: rgba(0, 0, 0, 0.05);
+}
+
+/* Dark mode filter button */
+:global(.dark) .filterBtn {
+    background: transparent;
+    color: #a1a1aa;
+}
+
+:global(.dark) .filterBtn:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* 激活状态 - 浅色模式用白色背景 */
+.filterBtnActive {
+    background: #ffffff !important;
+    color: #18181b !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 激活状态 - 深色模式用深色背景 */
+:global(.dark) .filterBtnActive {
+    background: #3f3f46 !important;
+    color: #ffffff !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.filterBtnActive:hover {
+    opacity: 0.95;
+}
+
+.searchWrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.searchIcon {
+    position: absolute;
+    left: 14px;
+    pointer-events: none;
+    /* Light mode */
+    color: #71717a;
+}
+
+:global(.dark) .searchIcon {
+    color: #a1a1aa;
+}
+
+.searchInput {
+    width: 100%;
+    padding: 12px 40px 12px 42px;
+    border-radius: 10px;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    /* Light mode */
+    background: #f4f4f5;
+    border: 1px solid #e4e4e7;
+    color: #18181b;
+}
+
+:global(.dark) .searchInput {
+    background: #27272a;
+    border: 1px solid #3f3f46;
+    color: #fafafa;
+}
+
+.searchInput::placeholder {
+    /* Light mode */
+    color: #a1a1aa;
+}
+
+:global(.dark) .searchInput::placeholder {
+    color: #71717a;
+}
+
+.searchInput:focus {
+    outline: none;
+    /* Light mode focus */
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+:global(.dark) .searchInput:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.clearButton {
+    position: absolute;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    /* Light mode */
+    background: #e4e4e7;
+    color: #71717a;
+}
+
+:global(.dark) .clearButton {
+    background: #3f3f46;
+    color: #a1a1aa;
+}
+
+.clearButton:hover {
+    /* Light mode hover */
+    background: #d4d4d8;
+    color: #18181b;
+}
+
+:global(.dark) .clearButton:hover {
+    background: #52525b;
+    color: #fafafa;
+}
+
+.loadingContainer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--text-secondary);
+}
+
+.spinner {
+    margin-right: 8px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.errorContainer {
+    padding: 20px;
+    margin: 0;
+    background: rgba(231, 76, 60, 0.1);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+    border-radius: 8px;
+    color: #e74c3c;
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+.emptyState {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.emptyStateSub {
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.controlsContainer {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    width: fit-content;
+    /* Light mode */
+    background: #e4e4e7;
+}
+
+/* Dark mode controls container */
+:global(.dark) .controlsContainer {
+    background: #27272a;
+}
+
+.controlsContainerMobile {
+    gap: 2px;
+    padding: 3px;
+    width: auto;
+    max-width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.controlsContainerMobile::-webkit-scrollbar {
+    display: none;
+}
+
+/* Section Title */
+.sectionTitle {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    padding: 0;
+    /* Light mode */
+    color: #18181b;
+}
+
+:global(.dark) .sectionTitle {
+    color: #fafafa;
+}
+
+/* Mobile: add horizontal padding to section title */
+@media (max-width: 768px) {
+    .sectionTitle {
+        padding: 0 16px;
+    }
+}
+
+.tableCard {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 16px;
+    /* Fully rounded corners */
+    overflow: hidden;
+    width: 100%;
+    margin: 0;
+    margin-top: 0;
+    /* Light mode default */
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* Desktop Styles */
+@media (min-width: 769px) {
+    .tableCard {
+        border-radius: 0 0 16px 16px;
+        /* Fused: Bottom rounded only */
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-top: none;
+        /* Merge with controlBar */
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        width: 100%;
+        margin-left: 0;
+        margin-right: 0;
+        margin-top: 0;
+    }
+
+    :global(.dark) .tableCard {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        /* Restore full border except top */
+        border-top: none;
+    }
+}
+
+/* Dark mode table card */
+:global(.dark) .tableCard {
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: none;
+    /* Remove top border to merge with controlBar */
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Desktop: restore top border for dark mode */
+@media (min-width: 769px) {
+    :global(.dark) .tableCard {
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+}
+
+/* Mobile: edge-to-edge table */
+@media (max-width: 768px) {
+    .tableCard {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+}
+
+.tableHeader {
+    padding: 16px 16px 12px 16px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+:global(.dark) .tableHeader {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tableTitle {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    /* Light mode */
+    color: #18181b;
+}
+
+:global(.dark) .tableTitle {
+    color: #fafafa;
+}
+
+/* Chain Selector */
+.chainSelector {
+    position: relative;
+}
+
+.chainSelectorBtn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 120px;
+    /* Fixed width for better alignment */
+    /* Light mode */
+    background: #f4f4f5;
+    border: 1px solid #e4e4e7;
+    color: #18181b;
+}
+
+.chainSelectorBtn:hover {
+    background: #e4e4e7;
+}
+
+:global(.dark) .chainSelectorBtn {
+    background: #27272a;
+    border: 1px solid #3f3f46;
+    color: #fafafa;
+}
+
+:global(.dark) .chainSelectorBtn:hover {
+    background: #3f3f46;
+}
+
+.chainSelectorIcon {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+}
+
+.allChainsIcon {
+    font-size: 14px;
+}
+
+.chainDropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    width: 100%;
+    /* Match parent width */
+    min-width: 120px;
+    border-radius: 10px;
+    z-index: 100;
+    overflow: hidden;
+    /* Light mode */
+    background: #ffffff;
+    border: 1px solid #e4e4e7;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+:global(.dark) .chainDropdown {
+    background: #27272a;
+    border: 1px solid #3f3f46;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.chainOption {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+    /* Light mode */
+    background: transparent;
+    border: none;
+    color: #18181b;
+}
+
+.chainOption:hover {
+    background: #f4f4f5;
+}
+
+:global(.dark) .chainOption {
+    color: #fafafa;
+}
+
+:global(.dark) .chainOption:hover {
+    background: #3f3f46;
+}
+
+.chainOptionActive {
+    background: #e4e4e7;
+}
+
+:global(.dark) .chainOptionActive {
+    background: #3f3f46;
+}
+
+.chainOptionIcon {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+}
+
+@media (max-width: 768px) {
+    .tableHeader {
+        padding: 12px 16px 10px 16px;
+    }
+
+    .tableTitle {
+        font-size: 15px;
+    }
+
+    .chainSelectorBtn {
+        padding: 5px 8px;
+        font-size: 11px;
+    }
+
+    .chainSelectorIcon {
+        width: 14px;
+        height: 14px;
+    }
+
+    .chainDropdown {
+        min-width: 140px;
+    }
+
+    .chainOption {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .chainOptionIcon {
+        width: 16px;
+        height: 16px;
+    }
+}
+
+.table {
+    width: 100%;
+    text-align: left;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.thead {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    /* Light mode default */
+    background: #f4f4f5;
+    color: #71717a;
+}
+
+/* Dark mode thead */
+:global(.dark) .thead {
+    background: rgba(255, 255, 255, 0.04);
+    color: #a1a1aa;
+}
+
+.th {
+    padding: 8px;
+    cursor: pointer;
+}
+
+.thContent {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.thRight {
+    text-align: right;
+}
+
+.thCenter {
+    text-align: center;
+}
+
+.thContentRight {
+    justify-content: flex-end;
+}
+
+.thContentCenter {
+    justify-content: center;
+}
+
+.tbody {
+    font-size: 13px;
+    /* Light mode default */
+    color: #18181b;
+}
+
+/* Dark mode tbody */
+:global(.dark) .tbody {
+    color: #f4f4f5;
+}
+
+.tr {
+    transition: background 0.2s;
+    cursor: pointer;
+    /* Light mode default */
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.tr:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+/* Dark mode tr */
+:global(.dark) .tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+:global(.dark) .tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.td {
+    padding: 8px;
+    vertical-align: middle;
+}
+
+.tdRight {
+    text-align: right;
+}
+
+.tdCenter {
+    text-align: center;
+}
+
+.tokenInfo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    position: relative;
+}
+
+/* Mobile token icon wrapper - needs extra space for badge above */
+.tokenIconWrapperMobile {
+    margin-top: 6px;
+}
+
+/* Badge above avatar */
+.avatarRankBadge {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 8px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    line-height: 1.2;
+    white-space: nowrap;
+    z-index: 2;
+    /* Default style (just number) */
+    background: #3f3f46;
+    color: #fff;
+}
+
+:global(.light) .avatarRankBadge {
+    background: #d4d4d8;
+    color: #18181b;
+}
+
+/* NEW style */
+.avatarRankNew {
+    background: #10b981;
+    color: #fff;
+}
+
+:global(.light) .avatarRankNew {
+    background: #10b981;
+    color: #fff;
+}
+
+/* HOT style */
+.avatarRankHot {
+    background: #ef4444;
+    color: #fff;
+}
+
+:global(.light) .avatarRankHot {
+    background: #ef4444;
+    color: #fff;
+}
+
+.rank {
+    font-size: 11px;
+    width: 18px;
+    text-align: center;
+    font-weight: 500;
+    flex-shrink: 0;
+    /* Light mode default */
+    color: #a1a1aa;
+}
+
+/* Dark mode rank */
+:global(.dark) .rank {
+    color: #71717a;
+}
+
+.tokenIconWrapper {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+}
+
+.tokenIcon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.fallbackIcon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+}
+
+.chainLogo {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1.5px solid var(--bg-primary);
+    background: var(--bg-secondary);
+    object-fit: cover;
+}
+
+.tokenNameCol {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.tokenSymbol {
+    font-weight: 600;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Light mode default */
+    color: #18181b;
+}
+
+/* Dark mode token symbol */
+:global(.dark) .tokenSymbol {
+    color: #ffffff;
+}
+
+.tokenName {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Light mode default */
+    color: #71717a;
+}
+
+/* Dark mode token name */
+:global(.dark) .tokenName {
+    color: #a1a1aa;
+}
+
+
+.price {
+    font-weight: 500;
+    font-size: 13px;
+    text-align: right;
+}
+
+@media (max-width: 768px) {
+    .price {
+        font-size: 12px;
+    }
+}
+
+.volume {
+    font-weight: 500;
+    text-align: right;
+}
+
+.liquidity {
+    font-size: 10px;
+    /* Light mode default */
+    color: #71717a;
+}
+
+/* Dark mode liquidity */
+:global(.dark) .liquidity {
+    color: #a1a1aa;
+}
+
+.changePositive {
+    color: var(--success-color);
+    font-weight: 600;
+}
+
+.changeNegative {
+    color: var(--danger-color);
+    font-weight: 600;
+}
+
+
+.age {
+    font-size: 12px;
+    font-weight: 500;
+    /* Light mode default */
+    color: #71717a;
+}
+
+/* Dark mode age */
+:global(.dark) .age {
+    color: #a1a1aa;
+}
+
+.txns {
+    font-size: 12px;
+    /* Light mode default */
+    color: #52525b;
+}
+
+/* Dark mode txns */
+:global(.dark) .txns {
+    color: #a1a1aa;
+}
+
+.buySellBar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+}
+
+.barContainer {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    display: flex;
+    /* Light mode default */
+    background: rgba(0, 0, 0, 0.06);
+}
+
+/* Dark mode bar container */
+:global(.dark) .barContainer {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.buyBar {
+    height: 100%;
+    background: var(--success-color);
+}
+
+.sellBar {
+    height: 100%;
+    background: var(--danger-color);
+}
+
+.buySellText {
+    font-size: 9px;
+    width: 24px;
+    text-align: right;
+    /* Light mode default */
+    color: #71717a;
+}
+
+/* Dark mode buy sell text */
+:global(.dark) .buySellText {
+    color: #a1a1aa;
+}
+
+/* Skeleton Loading Styles */
+.skeletonContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.skeletonRow {
+    display: grid;
+    grid-template-columns: 28% 14% 20% 12% 8% 18%;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    align-items: center;
+}
+
+.skeletonRowMobile {
+    grid-template-columns: 32% 18% 24% 16% 10%;
+    padding: 10px 8px;
+}
+
+.skeletonCell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.skeletonCellRight {
+    justify-content: flex-end;
+}
+
+.skeletonCellCenter {
+    justify-content: center;
+}
+
+.skeletonAvatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+:global(.dark) .skeletonAvatar {
+    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+    background-size: 200% 100%;
+}
+
+.skeletonText {
+    height: 14px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+:global(.dark) .skeletonText {
+    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+    background-size: 200% 100%;
+}
+
+.skeletonTextShort {
+    width: 40px;
+}
+
+.skeletonTextMedium {
+    width: 60px;
+}
+
+.skeletonTextLong {
+    width: 80px;
+}
+
+.skeletonTextName {
+    width: 100px;
+    height: 12px;
+    margin-top: 4px;
+}
+
+.skeletonBar {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+:global(.dark) .skeletonBar {
+    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+    background-size: 200% 100%;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}

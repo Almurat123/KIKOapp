@@ -1,0 +1,1479 @@
+/* Container */
+.container {
+  width: 100%;
+  min-height: 100vh;
+  background: #18181b;
+  color: #f4f4f5;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  display: flex;
+  flex-direction: column;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Light theme - use white background */
+:global(.light) .container {
+  background: #ffffff;
+  color: #18181b;
+}
+
+/* Connect Wallet Screen */
+/* Connect Wallet Screen */
+/* Connect Wallet Screen */
+.connectWalletContainer {
+  min-height: 80vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.connectWalletCard {
+  background: var(--bg-card);
+  border-radius: 24px;
+  padding: 48px 32px;
+  text-align: center;
+  box-shadow: none;
+  max-width: 360px;
+  width: 100%;
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+.connectWalletIcon {
+  color: #007AFF;
+  background: rgba(0, 122, 255, 0.1);
+  padding: 16px;
+  border-radius: 20px;
+  margin-bottom: 8px;
+  width: 72px !important;
+  height: 72px !important;
+}
+
+.connectWalletTitle {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  color: #1a1a1a;
+  letter-spacing: -0.01em;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+.connectWalletText {
+  color: #666;
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+/* Main Layout */
+.contentWrapper {
+  width: 100%;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: transparent;
+  min-height: 100vh;
+  transition: background-color 0.3s ease;
+}
+
+/* Header Section */
+.headerSection {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pageTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f4f4f5;
+  letter-spacing: -0.3px;
+  transition: color 0.3s ease;
+}
+
+:global(.light) .pageTitle {
+  color: #18181b;
+}
+
+/* Portfolio Layout Redesign V2 (Split Layout) */
+
+.portfolioHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 24px;
+  /* Removed border-bottom and padding-bottom as requested */
+}
+
+/* Top Row: Balance + Network */
+.topRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  /* Move to far right */
+  align-items: flex-end;
+  /* Align bottom */
+  gap: 16px;
+  flex-wrap: nowrap;
+}
+
+/* Mobile: keep separating */
+@media (max-width: 640px) {
+  .topRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .headerLeft {
+    width: 100%;
+  }
+
+  .actionsRow {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .actionButton {
+    flex: 1;
+  }
+}
+
+/* Left Column */
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 1;
+  /* Allow shrinking if needed */
+  min-width: 0;
+  /* Allow text truncation */
+}
+
+.portfolioLabel {
+  font-size: 11px;
+  color: #a1a1aa;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+:global(.light) .portfolioLabel {
+  color: #71717a;
+}
+
+.portfolioValue {
+  font-size: 25px;
+  /* Reduced from 28px (-10%) */
+  font-weight: 700;
+  color: #f4f4f5;
+  letter-spacing: -1px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+:global(.light) .portfolioValue {
+  color: #18181b;
+}
+
+@media (min-width: 640px) {
+  .portfolioLabel {
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+
+  .portfolioValue {
+    font-size: 36px;
+    /* Reduced from 40px (-10%) */
+    margin-bottom: 12px;
+  }
+}
+
+.portfolioChange {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  /* Slightly wider */
+  border-radius: 100px;
+  /* Full pill */
+  width: fit-content;
+  transition: all 0.2s ease;
+  line-height: 1;
+  /* Center text vertically */
+}
+
+/* Positive Change */
+.positive {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+/* Negative Change */
+.negative {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* Hover effects for PnL pill */
+.portfolioChange:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.98);
+}
+
+
+
+
+
+/* Bottom Row: Auth Stats */
+.authRow {
+  display: flex;
+  padding: 0;
+  margin-top: 4px;
+}
+
+/* Auth Card (Unified - Matching Network Card) */
+/* Auth Card - Swap Card Style */
+.authCard {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3);
+  backdrop-filter: none;
+  /* Swap Card doesn't use blur by default usually, but we keep if nice? User said copy swap card. Swap card has no blur in css */
+}
+
+:global(.light) .authCard {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+/* Auth Stats Section (Top Half) */
+.authStatsSection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-card);
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+.compactStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.statLabel {
+  font-size: 10px;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+:global(.light) .statLabel {
+  color: #71717a;
+}
+
+.statValue {
+  font-size: 13px;
+  font-weight: 500;
+  color: #f4f4f5;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+:global(.light) .statValue {
+  color: #18181b;
+}
+
+/* Dividers between stats */
+.statDivider {
+  width: 1px;
+  height: 24px;
+  background: var(--border, rgba(255, 255, 255, 0.08));
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+/* Auth Actions Section (Bottom Half) */
+.authActionsSection {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  /* Fixed height for buttons */
+}
+
+.authBtn {
+  flex: 1;
+  /* 50% width each */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+/* Vertical divider between Authorize and Revoke */
+.authBtn:first-child {
+  border-right: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+/* Button Colors - Sidebar Pattern */
+.authBtnPrimary {
+  background: transparent;
+  color: #60a5fa;
+}
+
+.authBtnRevoke {
+  background: transparent;
+  color: #a1a1aa;
+}
+
+:global(.light) .authBtnPrimary {
+  color: #3b82f6;
+}
+
+:global(.light) .authBtnRevoke {
+  color: #6b7280;
+}
+
+.authBtnPrimary:hover {
+  background: #27272a;
+}
+
+.authBtnRevoke:hover {
+  background: #27272a;
+  color: #ef4444;
+}
+
+:global(.light) .authBtnPrimary:hover {
+  background: #f3f4f6;
+}
+
+:global(.light) .authBtnRevoke:hover {
+  background: #f3f4f6;
+  color: #ef4444;
+}
+
+.authBtn:hover {
+  background: #27272a;
+}
+
+:global(.light) .authBtn:hover {
+  background: #f3f4f6;
+}
+
+/* Mobile Adjustments */
+@media (max-width: 640px) {
+  .portfolioValue {
+    font-size: 32px;
+  }
+
+
+
+  .authRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .authStatsSection {
+    padding: 12px 16px;
+    /* Slightly tighter on mobile */
+  }
+}
+
+/* Assets Section */
+.assetsSection {
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.switchCard {
+  flex: 0 0 180px;
+  min-height: 90px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  background: #18181b;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: center;
+  align-self: flex-start;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+:global(.light) .switchCard {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.switchInfo {
+  min-width: 160px;
+}
+
+.switchLabel {
+  font-size: 12px;
+  color: #a1a1aa;
+  margin-bottom: 2px;
+}
+
+:global(.light) .switchLabel {
+  color: #71717a;
+}
+
+.switchValue {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f4f4f5;
+}
+
+:global(.light) .switchValue {
+  color: #18181b;
+}
+
+.switchActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.cardsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.assetCard {
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.assetCard:last-child {
+  border-bottom: none;
+}
+
+
+.assetTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.assetRow {
+  display: none;
+}
+
+.assetLabel {
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
+:global(.light) .assetLabel {
+  color: #71717a;
+}
+
+.assetValue {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f4f4f5;
+}
+
+:global(.light) .assetValue {
+  color: #18181b;
+}
+
+.assetChange {
+  font-size: 12px;
+  color: var(--theme-success, #10b981);
+}
+
+.assetMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.assetBalance {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f4f4f5;
+  white-space: nowrap;
+}
+
+:global(.light) .assetBalance {
+  color: #18181b;
+}
+
+.assetRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 120px;
+}
+
+.assetValue {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f4f4f5;
+}
+
+/* Note: .assetValue already has light override above */
+
+.assetChange {
+  font-size: 12px;
+  color: var(--theme-success, #10b981);
+  white-space: nowrap;
+}
+
+.tokenLogo {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #f2f4f7;
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+/* History Section */
+.historySection {
+  overflow: hidden;
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.historyItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+  gap: 12px;
+}
+
+.historyLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.historyRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 140px;
+  text-align: right;
+}
+
+:global(.light) .historyRight {
+  color: #18181b;
+}
+
+.historyAmount {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary, #1a1a1a);
+  text-align: right;
+}
+
+.historyValue {
+  font-size: 13px;
+  color: var(--text-primary, #1a1a1a);
+}
+
+:global(.light) .historyValue,
+:global(.light) .historyAmount {
+  color: #18181b;
+}
+
+.historyMethod {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #666);
+  text-transform: capitalize;
+  text-align: right;
+}
+
+.historyDate {
+  font-size: 12px;
+  color: var(--text-secondary, #666);
+  text-align: right;
+}
+
+.sectionHeader {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: border-color 0.3s ease;
+}
+
+.sectionTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #1a1a1a);
+  transition: color 0.3s ease;
+}
+
+:global(.light) .sectionTitle {
+  color: #18181b;
+}
+
+.assetsActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .portfolioSummary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .authorizationCard {
+    width: 100%;
+    max-width: none;
+    border-radius: 20px;
+    padding: 12px 14px;
+  }
+
+  .switchCard {
+    width: 100%;
+    flex: 1;
+    min-height: unset;
+    position: static;
+  }
+
+  .authorizationInfo {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .authMetrics {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .authItem {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .authActions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .primaryButton,
+  .ghostButton {
+    padding: 10px 12px;
+    border-radius: 10px;
+  }
+}
+
+@media (min-width: 480px) {
+  .portfolioSummary {
+    position: relative;
+    padding-right: 200px;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+  }
+
+  .switchCard {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+}
+
+@media (min-width: 769px) {
+  .authorizationInfo {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .authActions {
+    width: auto;
+  }
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 600px;
+  display: table;
+}
+
+.table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 10px;
+  color: var(--text-secondary, #666666);
+  font-weight: 600;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
+  white-space: nowrap;
+  transition: color 0.3s ease, border-color 0.3s ease;
+}
+
+.table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.03));
+  color: var(--text-primary, #1a1a1a);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: color 0.3s ease, border-color 0.3s ease, background-color 0.3s ease;
+}
+
+:global(.light) .table td {
+  color: #18181b;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+:global(.light) .table th {
+  color: #71717a;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background: var(--bg-hover);
+}
+
+.tokenCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tokenIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-secondary, #F3EFED);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary, #1a1a1a);
+  font-size: 12px;
+  flex-shrink: 0;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+.tokenInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tokenName {
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+  font-size: 13px;
+  line-height: 1.3;
+  transition: color 0.3s ease;
+}
+
+:global(.light) .tokenName {
+  color: #18181b;
+}
+
+.tokenSymbol {
+  font-size: 11px;
+  color: var(--text-secondary, #666666);
+  line-height: 1.3;
+  transition: color 0.3s ease;
+}
+
+.textRight {
+  text-align: right;
+}
+
+.balanceValue {
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.balanceSub {
+  font-size: 10px;
+  color: var(--text-secondary, #666666);
+  margin-top: 2px;
+  line-height: 1.3;
+  word-break: break-word;
+  transition: color 0.3s ease;
+}
+
+:global(.light) .balanceValue {
+  color: #18181b;
+}
+
+:global(.light) .balanceSub {
+  color: #71717a;
+}
+
+.loadingState,
+.emptyState {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-secondary, #666666);
+  font-size: 12px;
+  transition: color 0.3s ease;
+}
+
+.loadingSpinner {
+  animation: spin 1s linear infinite;
+  margin-bottom: 8px;
+}
+
+.iconButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary, #999);
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.iconButton:hover {
+  color: var(--text-secondary, #666);
+}
+
+.changeIcon {
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Desktop styles */
+@media (min-width: 768px) {
+  .contentWrapper {
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .headerSection {
+    margin-bottom: 24px;
+  }
+
+  .pageTitle {
+    font-size: 22px;
+  }
+
+  .portfolioSummary {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 24px;
+    margin-bottom: 24px;
+  }
+
+  .portfolioValue {
+    font-size: 36px;
+    margin-bottom: 10px;
+  }
+
+  .portfolioChange {
+    font-size: 13px;
+    padding: 4px 10px;
+  }
+
+  .authorizationInfo {
+    gap: 32px;
+  }
+
+  .authLabel {
+    font-size: 12px;
+  }
+
+  .authValue {
+    font-size: 20px;
+  }
+
+  .assetsSection {
+    margin-bottom: 24px;
+  }
+
+  .tableWrapper {
+    overflow-x: visible;
+  }
+
+  .sectionHeader {
+    padding: 16px 20px;
+  }
+
+  .sectionTitle {
+    font-size: 16px;
+  }
+
+  .table {
+    font-size: 13px;
+    min-width: auto;
+  }
+
+  .table th {
+    padding: 12px 20px;
+    font-size: 11px;
+  }
+
+  .table td {
+    padding: 14px 20px;
+    font-size: 13px;
+  }
+
+  .balanceValue,
+  .balanceSub {
+    white-space: nowrap;
+  }
+
+  .tokenCell {
+    gap: 12px;
+  }
+
+  .tokenIcon {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .tokenName {
+    font-size: 14px;
+  }
+
+  .tokenSymbol {
+    font-size: 12px;
+  }
+
+  .balanceValue {
+    font-size: 13px;
+  }
+
+  .balanceSub {
+    font-size: 11px;
+  }
+
+  .historyType {
+    font-size: 13px;
+  }
+
+  .statusBadge {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .portfolioChange {
+    font-size: 13px;
+  }
+
+  .changeIcon {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .contentWrapper {
+    padding: 32px;
+  }
+
+  .portfolioValue {
+    font-size: 42px;
+  }
+
+  .authValue {
+    font-size: 22px;
+  }
+
+  .sectionHeader {
+    padding: 20px 24px;
+  }
+
+  .table th {
+    padding: 14px 24px;
+  }
+
+  .table td {
+    padding: 16px 24px;
+  }
+}
+
+.disconnectSection {
+  width: 100%;
+}
+
+.exportSection {
+  display: flex;
+  width: 100%;
+  border-top: 1px solid var(--border-color);
+  height: 32px;
+  /* Fixed height for export row */
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+.dividerVertical {
+  width: 1px;
+  background: var(--border-color);
+  height: 100%;
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+/* Ensure disconnect button fills its container */
+.disconnectSection .disconnectBtn {
+  width: 100%;
+  border-radius: 0;
+}
+
+/* Ensure export buttons look consistent */
+.exportSection button {
+  flex: 1;
+  background: transparent;
+  color: var(--text-tertiary, #999);
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 0;
+}
+
+.exportSection button:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+
+.headerRight {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  /* Align bottom to match balance text baseline if needed, or center */
+}
+
+/* On mobile, stack them? */
+@media (max-width: 640px) {
+  .headerRight {
+    flex-direction: column-reverse;
+    /* Put controls above or below? Let's keep side-by-side if possible or stack */
+    align-items: flex-end;
+    gap: 12px;
+  }
+}
+
+/* Recovery Phrase Card (Matching Network Card Style) */
+.recoveryCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--bg-secondary);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0;
+  flex-shrink: 0;
+  min-width: 150px;
+  max-width: 180px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+:global(.light) .recoveryCard {
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.recoveryButtons {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+}
+
+.recoveryBtn {
+  flex: 1;
+  padding: 10px 0;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+  text-align: center;
+  color: #a1a1aa;
+}
+
+:global(.light) .recoveryBtn {
+  color: #6b7280;
+}
+
+/* Add vertical divider between EVM and SOL */
+.recoveryBtn:first-child {
+  border-right: 1px solid #27272a;
+}
+
+:global(.light) .recoveryBtn:first-child {
+  border-right: 1px solid #e5e7eb;
+}
+
+.recoveryBtn:hover {
+  background: #27272a;
+  color: #f4f4f5;
+}
+
+:global(.light) .recoveryBtn:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+/* Settings Button and Dropdown */
+.settingsContainer {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Settings Button - Swap Card Secondary Style */
+/* Settings Button - Filled to Match ChainSwitcher */
+.settingsButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 12px;
+  background: #27272a;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+:global(.light) .settingsButton {
+  background: #f4f4f5;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  /* Light mode border */
+  color: #18181b;
+}
+
+.settingsButton:hover {
+  background: #3f3f46;
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:global(.light) .settingsButton:hover {
+  background: #e4e4e7;
+  color: #000000;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+
+
+.settingsButton:hover {
+  background: #3f3f46;
+  color: #f4f4f5;
+}
+
+:global(.light) .settingsButton:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+.settingsDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1000;
+  min-width: 200px;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.settingsMenu {
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+:global(.light) .settingsMenu {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.settingsMenuItem {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #f4f4f5;
+  gap: 8px;
+}
+
+:global(.light) .settingsMenuItem {
+  color: #18181b;
+}
+
+.settingsMenuItem:hover {
+  background: #27272a;
+}
+
+:global(.light) .settingsMenuItem:hover {
+  background: #f3f4f6;
+}
+
+.chainLabel {
+  font-size: 11px;
+  opacity: 0.6;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* Recovery Card Button (for modal) */
+.recoveryCardBtn {
+  width: 100%;
+  padding: 16px;
+  background: var(--bg-secondary, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+.recoveryCardBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+  box-shadow: var(--card-shadow);
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+.cardContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+.cardChain {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--theme-primary, #3b82f6);
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cardDescription {
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Removed manual overrides - simplified to use vars */
+
+/* Main Actions Row (Send, Receive, Swap) */
+.actionsRow {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  /* Align with balance on the left */
+}
+
+.actionButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+/* Primary Action Style - Swap Card (White BG/Black Text) */
+.actionBtnPrimary {
+  background: #ffffff;
+  color: #000000;
+  border: none;
+  box-shadow: 0 0 15px -5px rgba(255, 255, 255, 0.3);
+}
+
+:global(.light) .actionBtnPrimary {
+  background: #000000;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.actionBtnPrimary:hover {
+  background: rgba(255, 255, 255, 0.9);
+  transform: translateY(-1px);
+}
+
+:global(.light) .actionBtnPrimary:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+/* Secondary Action Style - Swap Card Secondary (#27272a) */
+.actionBtnSecondary {
+  background: #27272a;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  /* Match card border */
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.light) .actionBtnSecondary {
+  background: #f4f4f5;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #18181b;
+}
+
+.actionBtnSecondary:hover {
+  background: #3f3f46;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+:global(.light) .actionBtnSecondary:hover {
+  background: #e4e4e7;
+}

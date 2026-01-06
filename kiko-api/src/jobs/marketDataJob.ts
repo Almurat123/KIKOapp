@@ -1,0 +1,271 @@
+/**
+ * Market Data Refresh Job
+ * Runs daily to fetch and store market data
+ * 
+ * Data Sources:
+ * - CoinGecko: Market cap, volume, BTC dominance
+ * - Etherscan: ETH gas price (free API, high rate limit)
+ * - DeFiLlama: TVL data
+ * - Dune Analytics: Chain metrics (only refreshed every 24h to save credits)
+ * - Alternative.me: Fear & Greed Index
+ * - Binance: Open Interest
+ */
+
+import cron from 'node-cron';
+import { getMarketOverview as fetchMarketOverview, getTrendingTokens as fetchTrendingTokens } from '../services/coingecko.js';
+import { getFearGreedIndex } from '../services/alternative.js';
+import { getChainsData as fetchChainsData, getProtocolsData as fetchProtocolsData, getDerivativesOpenInterest } from '../services/defillama.js';
+import { getChainMetricsFromDune } from '../services/dune.js';
+
+import { getGasLevel } from '../services/gasLevel.js';
+import { getVolatilityIndex } from '../services/volatility.js';
+import { getLiquidityStress } from '../services/liquidityStress.js';
+import { getEthGasPriceFormatted } from '../services/etherscan.js';
+import { saveMarketOverview, getMarketOverview, saveTrends, getLastUpdateTime as getMarketUpdateTime } from '../repositories/marketRepository.js';
+import { saveChainsData, getLastUpdateTime as getChainUpdateTime } from '../repositories/chainRepository.js';
+import { saveProtocolsData, getLastUpdateTime as getProtocolUpdateTime } from '../repositories/protocolRepository.js';
+import { env } from '../config/env.js';
+
+/**
+ * Calculate Altcoin Season Index (simplified)
+ * Altcoin Season = % of top 50 coins outperforming BTC in last 90 days
+ */
+function calculateAltcoinSeasonIndex(bitcoinDominance: number): number {
+  // Simplified calculation: lower BTC dominance = higher altcoin season
+  // 0-25% = BTC Season, 25-75% = Neutral, 75-100% = Alt Season
+  const normalized = ((100 - bitcoinDominance) / 100) * 100;
+  return Math.max(0, Math.min(100, normalized));
+}
+
+const REFRESH_24H_MS = 23.5 * 60 * 60 * 1000; // 23.5 hours to allow for slight timing drift
+const REFRESH_5M_MS = 4.5 * 60 * 1000; // 4.5 minutes 
+
+/**
+ * Refresh market overview data
+ */
+export async function refreshMarketOverview(force = false): Promise<void> {
+  try {
+    // Check if data is already fresh in SQL
+    if (!force) {
+      const lastUpdate = await getMarketUpdateTime('overview');
+      if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_24H_MS) {
+        console.log('[MarketJob] Overview is fresh, skipping API call');
+        return;
+      }
+    }
+    // 1. Fetch ETH gas price first (priority)
+    const etherscanGas = await getEthGasPriceFormatted(env.apiKeys.etherscan).catch(() => undefined);
+
+    // 2. Fetch other market data, passing etherscanGas to getGasLevel
+    const [marketData, fearGreed, openInterest, gasLevel, volatilityIndex, liquidityStress] = await Promise.all([
+      fetchMarketOverview(env.apiKeys.coingecko).catch(() => {
+        return { globalMarketCap: 0, volume24h: 0, bitcoinDominance: 0, activeUsers: undefined, ethGasPrice: undefined };
+      }),
+      getFearGreedIndex().catch(() => {
+        return { value: 50, classification: 'Neutral' };
+      }),
+      getDerivativesOpenInterest().catch(() => {
+        return 0;
+      }),
+      getGasLevel(etherscanGas).catch(() => {
+        return { averageGasLevel: undefined, status: undefined, chains: [] };
+      }),
+      getVolatilityIndex(env.apiKeys.coingecko).catch(() => {
+        return { bvix: undefined, evix: undefined };
+      }),
+      getLiquidityStress().catch(() => {
+        return { stressIndex: undefined, status: undefined, description: '' };
+      }),
+    ]);
+
+    // Priority for ETH gas price: 1) Etherscan, 2) Chains data, 3) CoinGecko
+    let ethGasPrice = etherscanGas;
+    if (!ethGasPrice && gasLevel.chains && gasLevel.chains.length > 0) {
+      const ethChain = gasLevel.chains.find((c: any) =>
+        c.name?.toLowerCase() === 'ethereum' || c.chain?.toLowerCase() === 'ethereum'
+      );
+      if (ethChain && ethChain.gasPrice) {
+        ethGasPrice = ethChain.gasPrice;
+      }
+    }
+    if (!ethGasPrice) {
+      ethGasPrice = marketData.ethGasPrice;
+    }
+
+    const altcoinSeasonIndex = calculateAltcoinSeasonIndex(marketData.bitcoinDominance);
+
+    await saveMarketOverview({
+      globalMarketCap: marketData.globalMarketCap,
+      volume24h: marketData.volume24h,
+      activeUsers: marketData.activeUsers,
+      ethGasPrice,
+      fearGreedIndex: fearGreed.value,
+      fearGreedClassification: fearGreed.classification,
+      bitcoinDominance: marketData.bitcoinDominance,
+      altcoinSeasonIndex,
+      globalOpenInterest: openInterest,
+      gasLevel: gasLevel.averageGasLevel,
+      gasLevelStatus: gasLevel.status,
+      bvix: volatilityIndex.bvix,
+      evix: volatilityIndex.evix,
+      liquidityStressIndex: liquidityStress.stressIndex,
+      liquidityStressStatus: liquidityStress.status,
+    });
+
+    console.log('[MarketJob] ✅ Overview refreshed successfully');
+  } catch (error) {
+    console.error('[MarketJob] ❌ Error in refreshMarketOverview:', error instanceof Error ? error.message : error);
+  }
+}
+
+/**
+ * Refresh chains data
+ */
+export async function refreshChainsData(force = false): Promise<void> {
+  try {
+    // Check if data is already fresh in SQL (PostgreSQL-driven state)
+    if (!force) {
+      const lastUpdate = await getChainUpdateTime();
+      if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_24H_MS) {
+        console.log('[MarketJob] Chains are fresh, skipping Dune/DeFiLlama API calls');
+        return;
+      }
+    }
+    // Fetch Dune metrics if API key and query ID are available
+    let duneMetrics: Map<string, { volume24h?: number; txns24h?: number; activeWallets?: number; gasPrice?: string; contracts24h?: number; contracts7d?: number }> | undefined;
+
+    if (env.apiKeys.dune) {
+      try {
+        // Collect all query IDs to fetch
+        const allQueryIds: number[] = [];
+
+        // Chain metrics query IDs (txns, wallets, gas, volume)
+        if (process.env.DUNE_CHAIN_METRICS_QUERY_ID) {
+          const chainQueryIds = process.env.DUNE_CHAIN_METRICS_QUERY_ID
+            .split(',')
+            .map(id => parseInt(id.trim(), 10))
+            .filter(id => !isNaN(id));
+          allQueryIds.push(...chainQueryIds);
+        }
+
+        // Contracts query ID (new_contracts_24h, new_contracts_7d)
+        if (process.env.DUNE_CONTRACTS_QUERY_ID) {
+          const contractsQueryId = parseInt(process.env.DUNE_CONTRACTS_QUERY_ID.trim(), 10);
+          if (!isNaN(contractsQueryId)) {
+            allQueryIds.push(contractsQueryId);
+          }
+        }
+
+        if (allQueryIds.length > 0) {
+          duneMetrics = await getChainMetricsFromDune(env.apiKeys.dune, allQueryIds);
+        }
+      } catch (error) {
+        // Silently continue without Dune metrics
+      }
+    }
+
+    const chains = await fetchChainsData(duneMetrics);
+    await saveChainsData(chains);
+
+    console.log(`[MarketJob] ✅ Chains refreshed successfully: ${chains.length} chains`);
+  } catch (error) {
+    console.error('[MarketJob] ❌ Error refreshing chains:', error instanceof Error ? error.message : error);
+  }
+}
+
+export async function refreshProtocolsData(force = false): Promise<void> {
+  try {
+    // Check if data is already fresh in SQL
+    if (!force) {
+      const lastUpdate = await getProtocolUpdateTime();
+      if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_24H_MS) {
+        console.log('[MarketJob] Protocols are fresh, skipping API call');
+        return;
+      }
+    }
+    const protocols = await fetchProtocolsData();
+    await saveProtocolsData(protocols);
+
+    console.log(`[MarketJob] ✅ Protocols refreshed successfully: ${protocols.length} protocols`);
+  } catch (error) {
+    console.error('[MarketJob] ❌ Error refreshing protocols:', error instanceof Error ? error.message : error);
+  }
+}
+
+/**
+ * Refresh trending tokens data
+ */
+export async function refreshTrendingTokens(force = false): Promise<void> {
+  try {
+    // Check if data is already fresh in SQL
+    if (!force) {
+      const lastUpdate = await getMarketUpdateTime('trending');
+      if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_5M_MS) {
+        console.log('[MarketJob] Trending tokens are fresh, skipping API call');
+        return;
+      }
+    }
+    const trending = await fetchTrendingTokens(env.apiKeys.coingecko);
+    const coins = trending.coins || [];
+
+    // Transform CoinGecko trending data to our format
+    const tokens = coins.map((item: any, idx: number) => ({
+      chain: 'eth', // Default to eth for CG trending or detect from network
+      address: item.item.id,
+      name: item.item.name,
+      symbol: item.item.symbol,
+      network: item.item.network_slug || 'ethereum',
+      imageUrl: item.item.large || item.item.thumb || item.item.small,
+      price: item.item.data?.price,
+      priceChange24h: item.item.data?.price_change_percentage_24h?.usd,
+      rank: idx + 1
+    }));
+
+
+    await saveTrends(tokens);
+    console.log(`[MarketJob] Trending tokens refreshed: ${tokens.length} tokens`);
+  } catch (error) {
+    console.error('[MarketJob] Error refreshing trending tokens:', error);
+  }
+}
+
+/**
+ * Initialize and start cron jobs
+ */
+export function startMarketDataJobs(): void {
+  // Market overview: Every day at 2:00 AM
+  cron.schedule('0 2 * * *', () => refreshMarketOverview(), {
+    timezone: 'UTC',
+  });
+
+  // Chains data: Every day at 3:00 AM
+  cron.schedule('0 3 * * *', () => refreshChainsData(), {
+    timezone: 'UTC',
+  });
+
+  // Protocols data: Every day at 4:00 AM
+  cron.schedule('0 4 * * *', () => refreshProtocolsData(), {
+    timezone: 'UTC',
+  });
+
+  // Trending tokens: Every 5 minutes
+  cron.schedule('*/5 * * * *', () => refreshTrendingTokens(), {
+    timezone: 'UTC',
+  });
+
+  console.log('[MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)');
+
+  // Run initial refresh on startup only if data is stale in SQL
+  setTimeout(async () => {
+    console.log('[MarketJob] Running startup staleness check...');
+    await refreshMarketOverview();
+    await refreshProtocolsData();
+    await refreshTrendingTokens();
+    // Chains refresh is heavy and uses Dune credits, we only run it if extremely stale (e.g. 24h)
+    const lastChainUpdate = await getChainUpdateTime();
+    if (!lastChainUpdate || (Date.now() - lastChainUpdate.getTime()) > 24 * 60 * 60 * 1000) {
+      await refreshChainsData();
+    }
+  }, 5000); // Wait 5 seconds for services to be ready
+}
+

@@ -1,0 +1,1023 @@
+/**
+ * useSwap Hook - Swap 卡片逻辑管理
+ * 处理代币交换的所有状态、报价更新和执行
+ */
+
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
+import { useWriteContract, useSendTransaction, useSwitchChain, useChainId } from 'wagmi';
+import { formatUnits, erc20Abi, maxUint256 } from 'viem';
+import type { Address } from 'viem';
+import type { Token, SwapState, PriceData, SwapQuote } from '@/types/swap';
+import {
+  getPriceData,
+  checkApproval,
+  getUserBalance,
+  calculatePriceImpact,
+  executeSwapInstant,
+} from '@/services/swapService';
+import {
+  getBestSwapQuote,
+  type SwapQuote as AggregatorQuote,
+} from '@/services/dexAggregatorService';
+import { getTokenData, getCommonTokens, COMMON_TOKENS, type TokenData } from '@/services/tokenDataService';
+import { logger } from '@/utils/logger';
+import { getMEVProtectionConfig, getMEVProtectedRPC, estimateMEVSavings } from '@/config/mevProtection';
+import {
+  calculateDynamicSlippage,
+  determineTokenRisk,
+  slippageToBps,
+  DEFAULT_SLIPPAGE_CONFIG,
+  type SlippageMode,
+  type SlippageConfig,
+} from '@/config/slippageConfig';
+import {
+  getQuoteRefreshInterval,
+  getDegenSlippage,
+  shouldAutoRetry,
+  getRetryDelay,
+  DEFAULT_DEGEN_CONFIG,
+  type DegenModeConfig,
+} from '@/config/degenMode';
+import {
+  validateSwapPrice,
+  type PriceValidationResult,
+} from '@/services/priceValidation';
+
+const DEFAULT_CHAIN_ID = 1;
+const DEFAULT_SLIPPAGE_BPS = 50;
+
+const POPULAR_TOKENS: Record<string, Token> = {
+  ETH: {
+    address: '0x0000000000000000000000000000000000000000',
+    symbol: 'ETH',
+    name: 'Ethereum',
+    decimals: 18,
+    emoji: '🦄',
+  },
+  USDC: {
+    address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    emoji: '💵',
+  },
+  USDT: {
+    address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+    symbol: 'USDT',
+    name: 'Tether USD',
+    decimals: 6,
+    emoji: '💳',
+  },
+  DAI: {
+    address: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+    symbol: 'DAI',
+    name: 'Dai Stablecoin',
+    decimals: 18,
+    emoji: '💰',
+  },
+  WETH: {
+    address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+    symbol: 'WETH',
+    name: 'Wrapped Ether',
+    decimals: 18,
+    emoji: '🦄',
+  },
+  WBTC: {
+    address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+    symbol: 'WBTC',
+    name: 'Wrapped Bitcoin',
+    decimals: 8,
+    emoji: '₿',
+  },
+  UNI: {
+    address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+    symbol: 'UNI',
+    name: 'Uniswap',
+    decimals: 18,
+    emoji: '🦄',
+  },
+};
+
+function tokenDataToToken(tokenData: TokenData): Token {
+  return {
+    address: tokenData.address,
+    symbol: tokenData.symbol,
+    name: tokenData.name,
+    decimals: tokenData.decimals,
+    logoUrl: tokenData.logoURI,
+    chainId: tokenData.chainId, // Preserve chainId to prevent cross-chain confusion
+    emoji:
+      tokenData.symbol === 'ETH' || tokenData.symbol === 'WETH'
+        ? '🦄'
+        : tokenData.symbol === 'USDC'
+          ? '💵'
+          : tokenData.symbol === 'USDT'
+            ? '💳'
+            : tokenData.symbol === 'DAI'
+              ? '💰'
+              : tokenData.symbol === 'WBTC'
+                ? '₿'
+                : tokenData.symbol === 'UNI'
+                  ? '🦄'
+                  : '🪙',
+  };
+}
+
+// AggregatedQuotePayload is now just SwapQuote
+
+function toBaseUnits(value: string, decimals: number): string {
+  const [integerPart = '0', fractionalPart = ''] = value.split('.');
+  const padded = (fractionalPart + '0'.repeat(decimals)).slice(0, decimals);
+  const whole = BigInt(integerPart || '0');
+  const fraction = padded ? BigInt(padded) : 0n;
+  return (whole * 10n ** BigInt(decimals) + fraction).toString();
+}
+
+function fromBaseUnits(value: string, decimals: number): number {
+  const whole = BigInt(value || '0');
+  const base = 10n ** BigInt(decimals);
+  const integer = whole / base;
+  const fraction = whole % base;
+  return Number(integer) + Number(fraction) / Number(base);
+}
+
+function normalizeAggregatorQuote(
+  agg: AggregatorQuote,
+  amountIn: string,
+): SwapQuote {
+  // Type assertion to handle optional fields from aggregator
+  const aggAny = agg as any;
+  return {
+    success: true,
+    dex: agg.dexName || agg.dex || 'aggregated',
+    router: agg.router || aggAny.to || '',
+    amountIn: amountIn,
+    amountOut: agg.amountOut,
+    path: agg.path.length ? agg.path : [],
+    gasEstimate: agg.gasEstimate ?? 0,
+    priceImpact: agg.priceImpact ?? 0,
+    fee: agg.fee ?? 0,
+    data: agg.data || '0x',
+    deadline: agg.deadline || Math.floor(Date.now() / 1000) + 600,
+    minAmountOut: agg.minAmountOut || agg.amountOut,
+    dexName: agg.dexName,
+    to: aggAny.to || agg.router || '',
+    value: aggAny.value || '0',
+    allowanceTarget: aggAny.allowanceTarget,
+  };
+}
+
+export interface UseSwapOptions {
+  chainId?: number;
+  slippageBps?: number;
+  userAddress?: string;
+  initialTokenIn?: Token;
+  initialTokenOut?: Token;
+  maxPriceImpact?: number;
+}
+
+export function useSwap(options: UseSwapOptions = {}) {
+  const {
+    chainId = DEFAULT_CHAIN_ID,
+    slippageBps = DEFAULT_SLIPPAGE_BPS,
+    userAddress,
+    initialTokenIn: optionTokenIn,
+    initialTokenOut: optionTokenOut,
+    maxPriceImpact,
+  } = options;
+
+
+
+  // Wagmi hooks for transaction execution
+  const { writeContractAsync } = useWriteContract();
+  const { sendTransactionAsync } = useSendTransaction();
+  const { switchChainAsync } = useSwitchChain();
+  const currentChainId = useChainId();
+
+  // Use Privy to track authentication state
+  const { authenticated } = usePrivy();
+
+  const commonTokens = useMemo((): Token[] => {
+    const tokens = getCommonTokens(chainId);
+
+    if (tokens && tokens.length >= 2) {
+      const mapped = tokens.map(tokenDataToToken);
+      return mapped;
+    }
+
+    // Fallback: Use COMMON_TOKENS if available
+    const chainCommonTokens = COMMON_TOKENS[chainId];
+    if (chainCommonTokens) {
+      const tokenList = Object.values(chainCommonTokens);
+      if (tokenList.length >= 2) {
+        const mapped = tokenList.map(tokenDataToToken) as Token[];
+        return mapped;
+      }
+    }
+
+    // No fallback to POPULAR_TOKENS - this would cause cross-chain address confusion
+    // Instead, log an error and return empty array
+    console.error('[useSwap] ERROR: No COMMON_TOKENS defined for chainId:', chainId, 'This will cause swap to fail. Please add token definitions for this chain.');
+    return [];
+  }, [chainId]);
+
+  // MEV Protection state
+  const [mevProtectionEnabled, setMevProtectionEnabled] = useState(true);
+
+  // Slippage state
+  const [slippageConfig, setSlippageConfig] = useState<SlippageConfig>(DEFAULT_SLIPPAGE_CONFIG);
+  const [calculatedSlippage, setCalculatedSlippage] = useState<number>(0.5);
+
+  // Degen Mode state
+  const [degenMode, setDegenMode] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  // Price validation state
+  const [priceValidation, setPriceValidation] = useState<PriceValidationResult | null>(null);
+
+  const [state, setState] = useState<SwapState>(() => {
+    // Use provided tokens if available, otherwise use commonTokens defaults
+    // This allows SwapCardIntegrated to set tokens from the start, avoiding race conditions
+    let tokenIn: Token | null = optionTokenIn || null;
+    let tokenOut: Token | null = optionTokenOut || null;
+
+    // If no initial tokens provided, use commonTokens defaults
+    if (!tokenIn || !tokenOut) {
+      if (commonTokens.length < 2) {
+        console.error('[useSwap] Initialization failed: Not enough tokens for chainId', chainId);
+      }
+      const tokens = commonTokens.length >= 2 ? commonTokens : [];
+      tokenIn = tokenIn || tokens[0] || null;
+      tokenOut = tokenOut || tokens[1] || tokens[0] || null;
+    }
+
+    console.log('[useSwap] Initial state tokens:', tokenIn?.symbol, '->', tokenOut?.symbol);
+
+    return {
+      tokenIn,
+      tokenOut,
+      amountIn: '', // Initialize as empty to prevent default '1' quote
+      amountOut: '0',
+      quote: null,
+      isLoading: false,
+      isExecuting: false,
+      error: null,
+      priceImpactUSD: 0,
+      gasCostUSD: 0,
+      isApproved: false,
+    };
+  });
+
+  useEffect(() => {
+    if (!commonTokens.length || commonTokens.length < 2) {
+      console.warn('[useSwap] Not enough tokens for chainId:', chainId, 'Available tokens:', commonTokens.length);
+      // Set error state if no tokens available
+      setState(prev => ({
+        ...prev,
+        error: `No tokens available for chain ${chainId}. Please ensure COMMON_TOKENS is defined for this chain.`,
+        tokenIn: null,
+        tokenOut: null,
+      }));
+      return;
+    }
+
+    // Only reset tokens if they are null or explicitly invalid for this chain
+    // DO NOT force reset to commonTokens[0] and commonTokens[1] - this causes BNB to become ETH
+    setState(prev => {
+      // If tokens are null, initialize with first two common tokens
+      if (!prev.tokenIn || !prev.tokenOut) {
+        return {
+          ...prev,
+          tokenIn: prev.tokenIn || commonTokens[0],
+          tokenOut: prev.tokenOut || (commonTokens[1] || commonTokens[0]),
+          quote: null,
+          amountOut: '0',
+          error: null,
+        };
+      }
+
+      // If tokens exist, keep them - don't force reset
+      // This preserves AI-detected tokens (like BNB) and user selections
+      return prev;
+    });
+  }, [chainId, commonTokens]);
+
+  const [priceData, setPriceData] = useState<PriceData | null>(null);
+  const [userBalance, setUserBalance] = useState<string>('0');
+  const quoteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (quoteTimeoutRef.current) {
+      clearTimeout(quoteTimeoutRef.current);
+    }
+
+    const amountVal = parseFloat(state.amountIn);
+    if (!state.tokenIn || !state.tokenOut || !state.amountIn || isNaN(amountVal) || amountVal <= 0) {
+      setState(prev => ({ ...prev, quote: null, amountOut: '0' }));
+      return;
+    }
+
+    quoteTimeoutRef.current = setTimeout(async () => {
+      // Early return if tokens are the same (prevents invalid API calls)
+      if (state.tokenIn!.address.toLowerCase() === state.tokenOut!.address.toLowerCase()) {
+        console.warn('[useSwap] tokenIn and tokenOut are the same, skipping quote fetch');
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: 'Cannot swap the same token',
+          quote: null,
+          amountOut: '0',
+        }));
+        return;
+      }
+
+      setState(prev => ({ ...prev, isLoading: true, error: null }));
+
+      try {
+        // Calculate dynamic slippage if in auto mode
+        let effectiveSlippageBps = slippageBps;
+
+        if (slippageConfig.mode === 'auto' && priceData) {
+          const amountInNum = parseFloat(state.amountIn);
+          const tokenInPrice = typeof priceData.tokenInPrice === 'number' ? priceData.tokenInPrice : 0;
+          const amountUSD = amountInNum * tokenInPrice;
+
+          // Determine token risk (simplified - can be enhanced with real data)
+          const tokenRisk = determineTokenRisk({
+            liquidityUSD: 100000, // Default, will be updated with real data
+            isVerified: true,
+          });
+
+          // Calculate dynamic slippage
+          const dynamicSlippage = calculateDynamicSlippage({
+            amountUSD,
+            liquidityUSD: 100000, // Will be updated with real pool data
+            priceImpact: 0, // Will be updated after quote
+            tokenRisk,
+          });
+
+          setCalculatedSlippage(dynamicSlippage);
+          effectiveSlippageBps = slippageToBps(dynamicSlippage);
+        } else if (slippageConfig.mode === 'custom') {
+          effectiveSlippageBps = slippageToBps(slippageConfig.customValue);
+        }
+
+        // Pass human-readable amount to getBestSwapQuote
+        // Backend expects amountIn as human-readable (e.g., "1.5"), not base units
+        // TODO: Pass effectiveSlippageBps to backend when API supports it
+        const aggQuoteResult = await getBestSwapQuote(
+          state.tokenIn!.address,
+          state.tokenOut!.address,
+          state.amountIn,
+          chainId,
+          userAddress,
+          effectiveSlippageBps // Pass slippage
+        );
+        logger.swap('quote', {
+          tokenIn: state.tokenIn!.symbol,
+          tokenOut: state.tokenOut!.symbol,
+          amountIn: state.amountIn,
+          dex: aggQuoteResult.best.dexName
+        });
+        const normalizedBest = normalizeAggregatorQuote(aggQuoteResult.best as any, state.amountIn);
+        const normalizedQuotes = (aggQuoteResult.quotes || []).map(q => normalizeAggregatorQuote(q as any, state.amountIn));
+        // Backend returns amountOut as human-readable format, no need to convert
+        const amountOutNum = parseFloat(normalizedBest.amountOut);
+        const formattedAmount = amountOutNum > 0 ? amountOutNum.toFixed(6) : '0';
+
+        setState(prev => ({
+          ...prev,
+          quote: normalizedBest,
+          availableQuotes: normalizedQuotes,
+          selectedDex: normalizedBest.dex || normalizedBest.dexName,
+          amountOut: formattedAmount,
+          isLoading: false,
+          priceImpactUSD: normalizedBest.priceImpact,
+        }));
+
+        if (priceData) {
+          const impact = calculatePriceImpact(state.amountIn, normalizedBest.amountOut, priceData);
+          setState(prev => ({ ...prev, priceImpactUSD: impact }));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch quote';
+
+        // Check if it's a liquidity issue
+        const isLiquidityIssue = message.includes('insufficient liquidity') ||
+          message.includes('not being supported') ||
+          message.includes('no Route matched');
+
+        // Get chain name for better error message
+        const chainName = chainId === 1 ? 'Ethereum' :
+          chainId === 8453 ? 'Base' :
+            chainId === 56 ? 'BSC' :
+              chainId === 137 ? 'Polygon' :
+                chainId === 42161 ? 'Arbitrum' :
+                  `chain ${chainId}`;
+
+        const userMessage = isLiquidityIssue
+          ? `No liquidity for ${state.tokenIn?.symbol} → ${state.tokenOut?.symbol} on ${chainName}. Try: 1) Different tokens 2) Larger amount 3) Switch to Ethereum/Base`
+          : message;
+
+        setState(prev => ({
+          ...prev,
+          error: userMessage,
+          isLoading: false,
+          quote: null,
+          amountOut: '0',
+        }));
+        logger.swap('fail', { error: userMessage });
+      }
+    }, getQuoteRefreshInterval(degenMode)); // Use Degen Mode interval (500ms) or normal (2000ms)
+
+    return () => {
+      if (quoteTimeoutRef.current) {
+        clearTimeout(quoteTimeoutRef.current);
+      }
+    };
+  }, [state.tokenIn?.address, state.tokenOut?.address, state.amountIn, chainId, slippageBps]); // Remove priceData from deps to avoid loop
+
+  const fetchPriceData = useCallback(async () => {
+    if (!state.tokenIn || !state.tokenOut) return;
+
+    try {
+      const data = await getPriceData(state.tokenIn.address, state.tokenOut.address, chainId);
+      if (data) {
+        setPriceData(prev => {
+          // Only update if data actually changed to avoid unnecessary re-renders
+          if (!prev ||
+            prev.tokenInPrice !== data.tokenInPrice ||
+            prev.tokenOutPrice !== data.tokenOutPrice ||
+            prev.nativeTokenPrice !== data.nativeTokenPrice) {
+            return data;
+          }
+          return prev;
+        });
+      }
+    } catch (error) {
+      // Only log non-network errors as errors
+      if (!(error instanceof TypeError && error.message.includes('Failed to fetch'))) {
+        console.error('[useSwap] fetchPriceData failed', error);
+      }
+    }
+  }, [state.tokenIn?.address, state.tokenOut?.address, chainId]); // Only depend on addresses
+
+  const fetchUserBalance = useCallback(async (retryCount = 0) => {
+
+    if (!userAddress || !state.tokenIn) {
+      setUserBalance('0');
+      return;
+    }
+
+    // Store the token address we're fetching for to prevent race conditions
+    const fetchingForToken = state.tokenIn.address;
+
+    try {
+      // Pass token decimals to ensure correct parsing even if API response is missing decimals
+      const balance = await getUserBalance(userAddress, fetchingForToken, chainId, state.tokenIn.decimals);
+
+      // RACE CONDITION FIX: Check if token has changed since we started the fetch
+      // Use the REF (not state) because state is captured at callback creation time (stale closure)
+      if (currentTokenInAddressRef.current !== fetchingForToken) {
+        return; // Token changed during fetch, discard result
+      }
+
+      if (balance) {
+        // balance is a hex string, convert to human-readable
+        const balanceNum = BigInt(balance);
+        const decimals = state.tokenIn.decimals || 18;
+        const formatted = formatUnits(balanceNum, decimals);
+
+        console.log('[useSwap] Balance FULL PRECISION:', {
+          token: state.tokenIn.symbol,
+          hexBalance: balance,
+          bigIntBalance: balanceNum.toString(),
+          decimals,
+          formattedBalance: formatted,
+        });
+
+        setUserBalance(prev => {
+          // Only update if balance actually changed
+          if (prev !== formatted) {
+            return formatted;
+          }
+          return prev;
+        });
+      } else if (retryCount < 3) {
+        // Auth token might not be ready yet, retry after a short delay
+        console.log('[useSwap] Balance returned null, retrying in 1 second...', { retryCount });
+        setTimeout(() => {
+          fetchUserBalance(retryCount + 1);
+        }, 1000);
+      } else {
+        console.warn('[useSwap] Balance fetch failed after 3 retries');
+      }
+    } catch (error) {
+      // Only log non-network errors as errors
+      if (!(error instanceof TypeError && error.message.includes('Failed to fetch'))) {
+        console.error('[useSwap] fetchUserBalance failed', error);
+      }
+      // Don't reset balance to '0' on network errors, keep previous value
+    }
+  }, [userAddress, state.tokenIn?.address, chainId]); // Only depend on address
+
+  const checkUserApproval = useCallback(async () => {
+    if (!userAddress || !state.tokenIn) return;
+
+    // Don't check approval if amount is empty or zero (would cause 400 error)
+    const amountNum = parseFloat(state.amountIn || '0');
+    if (!state.amountIn || isNaN(amountNum) || amountNum <= 0) {
+      return;
+    }
+
+    try {
+      const isApproved = await checkApproval(userAddress, state.tokenIn.address, state.amountIn, chainId);
+      setState(prev => {
+        // Only update if approval status actually changed
+        if (prev.isApproved !== isApproved) {
+          return { ...prev, isApproved };
+        }
+        return prev;
+      });
+    } catch (error) {
+      console.error('[useSwap] checkUserApproval failed', error);
+    }
+  }, [userAddress, state.tokenIn?.address, state.amountIn, chainId]); // Only depend on address
+
+  // Use refs to track if we're already fetching to prevent duplicate requests
+  const fetchingPriceRef = useRef(false);
+  const fetchingBalanceRef = useRef(false);
+  const lastPriceKeyRef = useRef<string>('');
+  const lastBalanceKeyRef = useRef<string>('');
+  // Track current tokenIn address for race condition detection (avoids stale closure)
+  const currentTokenInAddressRef = useRef<string | null>(null);
+
+  // Store function refs to avoid re-triggering useEffect when functions are recreated
+  const fetchPriceDataRef = useRef(fetchPriceData);
+  const fetchUserBalanceRef = useRef(fetchUserBalance);
+  const checkUserApprovalRef = useRef(checkUserApproval);
+
+  // Update refs when functions change
+  useEffect(() => {
+    fetchPriceDataRef.current = fetchPriceData;
+    fetchUserBalanceRef.current = fetchUserBalance;
+    checkUserApprovalRef.current = checkUserApproval;
+  }, [fetchPriceData, fetchUserBalance, checkUserApproval]);
+
+  // Removed independent price fetching - price is fetched as part of quote request
+  // This ensures only ONE request per swap card (the quote request)
+  useEffect(() => {
+    // CRITICAL: Only fetch balance when user is authenticated
+    // This prevents race condition where balance is fetched before token is ready
+    if (!userAddress || !state.tokenIn || !authenticated) {
+      return;
+    }
+
+    // Only fetch balance and approval, not price
+    // Price will be fetched as part of quote request when user enters amount
+    const balanceKey = `${chainId}_${userAddress}_${state.tokenIn.address.toLowerCase()}_${authenticated}`;
+
+    // Only fetch if the key changed and we're not already fetching
+    if (balanceKey !== lastBalanceKeyRef.current && !fetchingBalanceRef.current) {
+      fetchingBalanceRef.current = true;
+      lastBalanceKeyRef.current = balanceKey;
+
+      // CRITICAL: Update the ref BEFORE fetching to prevent race condition
+      currentTokenInAddressRef.current = state.tokenIn.address;
+
+      // Use ref to get latest function without causing re-renders
+      fetchUserBalanceRef.current().finally(() => {
+        fetchingBalanceRef.current = false;
+      });
+
+      // Check approval separately with debounce
+      const approvalTimeout = setTimeout(() => {
+        checkUserApprovalRef.current();
+      }, 1000);
+
+      return () => {
+        clearTimeout(approvalTimeout);
+      };
+    }
+  }, [state.tokenIn?.address, userAddress, chainId, authenticated]);
+
+  // Removed enrichToken effect that caused infinite loops
+  // Token metadata is now loaded by tokenDataService when tokens are selected
+
+
+  const setTokenIn = useCallback((token: Token) => {
+    console.log('[useSwap] setTokenIn CALLED:', token.symbol, token.address);
+
+    // IMMEDIATELY update the ref to prevent race conditions
+    // This happens synchronously before any async operations
+    currentTokenInAddressRef.current = token.address;
+
+    setState(prev => {
+      console.log('[useSwap] setTokenIn setState - prev:', prev.tokenIn?.symbol, '-> new:', token.symbol);
+
+      // Reset user balance to 0 momentarily to prevent showing previous token's balance
+      // while the new balance is being fetched
+      if (prev.tokenIn?.address !== token.address) {
+        setUserBalance('0');
+      }
+
+      return {
+        ...prev,
+        tokenIn: {
+          ...token,
+          // Preserve logoUrl if new token doesn't have one but previous token does
+          logoUrl: token.logoUrl || prev.tokenIn?.logoUrl,
+        },
+        error: null,
+      };
+    });
+  }, []);
+
+  const setTokenOut = useCallback((token: Token) => {
+    console.log('[useSwap] setTokenOut called:', {
+      newToken: token.symbol,
+      newAddress: token.address,
+      hasLogoUrl: !!token.logoUrl,
+    });
+    setState(prev => ({
+      ...prev,
+      tokenOut: {
+        ...token,
+        // Preserve logoUrl if new token doesn't have one but previous token does
+        logoUrl: token.logoUrl || prev.tokenOut?.logoUrl,
+      },
+      error: null,
+    }));
+  }, []);
+
+  const setAmountIn = useCallback((amount: string) => {
+    const sanitized = amount.replace(/[^\d.]/g, '');
+    setState(prev => ({ ...prev, amountIn: sanitized, error: null }));
+  }, []);
+
+  const swapTokens = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      tokenIn: prev.tokenOut,
+      tokenOut: prev.tokenIn,
+      amountIn: prev.amountOut,
+      amountOut: prev.amountIn,
+      error: null,
+    }));
+
+    // Swap price data locally to prevent stale prices during calculation
+    setPriceData(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        tokenInPrice: prev.tokenOutPrice,
+        tokenOutPrice: prev.tokenInPrice,
+      };
+    });
+  }, []);
+
+  const approveToken = useCallback(async () => {
+    if (!state.tokenIn || !state.amountIn || !userAddress || !state.quote?.allowanceTarget) {
+      console.error('Missing prerequisites for approval');
+      return { success: false, error: 'Cannot approve: Missing token or allowance target' };
+    }
+
+    setState(prev => ({ ...prev, isExecuting: true, error: null }));
+
+    try {
+      // Approve just-in-time amount with small buffer (5%) instead of infinite
+      const decimals = state.tokenIn.decimals ?? 18;
+      const amountBaseUnits = toBaseUnits(state.amountIn || '0', decimals);
+      const buffered = BigInt(amountBaseUnits || '0') * 105n / 100n; // +5%
+      const approveAmount = buffered > 0n ? buffered : 0n;
+
+      const approvalTx = await writeContractAsync({
+        address: state.tokenIn.address as Address,
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [state.quote.allowanceTarget as Address, approveAmount],
+        gas: 100000n,
+      });
+
+      logger.swap('approve', { token: state.tokenIn.symbol, tx: approvalTx });
+
+      // Wait for 3s (Should effectively wait for receipt in real app)
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Re-check approval immediately
+      await checkUserApproval();
+
+      setState(prev => ({ ...prev, isExecuting: false, isApproved: true }));
+      return { success: true, txHash: approvalTx };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Approval failed';
+      console.error('[approveToken] failed:', error);
+      setState(prev => ({ ...prev, error: `Approval failed: ${message}`, isExecuting: false }));
+      return { success: false, error: message };
+    }
+  }, [state.tokenIn, state.amountIn, state.quote, userAddress, writeContractAsync, checkUserApproval]);
+
+  const executeSwap = useCallback(async () => {
+    if (!state.quote || !userAddress) {
+      setState(prev => ({ ...prev, error: 'Missing quote or wallet address' }));
+      return { success: false, error: 'Missing quote or wallet address' };
+    }
+
+    if (!state.tokenIn || !state.tokenOut) {
+      setState(prev => ({ ...prev, error: 'Missing token information' }));
+      return { success: false, error: 'Missing token information' };
+    }
+
+    setState(prev => ({ ...prev, isExecuting: true, error: null }));
+    logger.swap('init', {
+      tokenIn: state.tokenIn.symbol,
+      tokenOut: state.tokenOut.symbol,
+      amount: state.amountIn
+    });
+
+    try {
+
+      // INSTANT TRADING: Try backend execution first (no user popup needed)
+      // This works for Privy embedded wallets with server-side signing enabled
+      console.log('[useSwap] Attempting instant swap via backend...');
+      const instantResult = await executeSwapInstant({
+        tokenIn: state.tokenIn.address,
+        tokenOut: state.tokenOut.address,
+        amountIn: state.amountIn,
+        chainId,
+        slippageBps,
+        maxPriceImpact,
+      });
+
+      if (instantResult.success && instantResult.txHash) {
+        console.log('[useSwap] Instant swap successful:', instantResult.txHash);
+        setState(prev => ({ ...prev, isExecuting: false, amountIn: '0', amountOut: '0', quote: null }));
+        await fetchUserBalance();
+        return {
+          success: true,
+          txHash: instantResult.txHash,
+        };
+      }
+
+      // If instant trading failed (e.g., not configured, external wallet), fall back to wagmi
+      console.log('[useSwap] Instant swap failed, falling back to wagmi:', instantResult.error);
+
+      // Check if token approval is needed (for ERC-20 tokens, not native tokens)
+      const isNativeToken = state.tokenIn.address === '0x0000000000000000000000000000000000000000' ||
+        state.tokenIn.address === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' ||
+        !state.tokenIn.address;
+
+      if (!isNativeToken && state.quote.allowanceTarget) {
+        // Check current allowance
+        const currentAllowance = await checkApproval(
+          userAddress,
+          state.tokenIn.address,
+          state.amountIn,
+          chainId
+        );
+
+        if (!currentAllowance) {
+          setState(prev => ({ ...prev, error: 'Token not approved. Please approve first.', isExecuting: false }));
+          return { success: false, error: 'Token not approved. Please approve first.' };
+        }
+      }
+
+      // Execute swap transaction
+      if (!state.quote.data || !state.quote.to) {
+        throw new Error('Quote missing transaction data. Please get a new quote.');
+      }
+
+      // Ensure we're on the correct chain before executing the transaction
+      // This prevents wagmi from displaying the wrong token symbol (e.g., BASE_ETH on BSC)
+      if (currentChainId !== chainId) {
+        if (switchChainAsync) {
+          try {
+            await switchChainAsync({ chainId });
+            // Wait a bit for chain switch to complete
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } catch (switchError) {
+            const message = switchError instanceof Error ? switchError.message : 'Failed to switch chain';
+            const chainNames: Record<number, string> = {
+              1: 'Ethereum', 56: 'BSC', 8453: 'Base', 42161: 'Arbitrum',
+              137: 'Polygon', 10: 'Optimism', 43114: 'Avalanche', 250: 'Fantom',
+            };
+            const targetChain = chainNames[chainId] || `Chain ${chainId}`;
+            const currentChain = chainNames[currentChainId] || `Chain ${currentChainId}`;
+            setState(prev => ({ ...prev, error: `Please switch your wallet from ${currentChain} to ${targetChain}`, isExecuting: false }));
+            return { success: false, error: `Please switch your wallet from ${currentChain} to ${targetChain}` };
+          }
+        } else {
+          const chainNames: Record<number, string> = {
+            1: 'Ethereum', 56: 'BSC', 8453: 'Base', 42161: 'Arbitrum',
+            137: 'Polygon', 10: 'Optimism', 43114: 'Avalanche', 250: 'Fantom',
+          };
+          const targetChain = chainNames[chainId] || `Chain ${chainId}`;
+          setState(prev => ({ ...prev, error: `Please switch your wallet to ${targetChain}`, isExecuting: false }));
+          return { success: false, error: `Please switch your wallet to ${targetChain}` };
+        }
+      }
+
+      // Use wagmi sendTransaction to send the raw transaction
+      // Specify chainId to ensure wagmi uses the correct chain for token symbol display
+      const txHash = await sendTransactionAsync({
+        chainId, // Explicitly specify chainId to prevent wrong token symbol display
+        to: state.quote.to as Address,
+        data: state.quote.data as `0x${string}`,
+        value: state.quote.value ? BigInt(state.quote.value) : 0n,
+        // Pass gas estimate if available to prevent "intrinsic gas too low" errors
+        // Add 20% buffer to the estimate for safety
+        gas: state.quote.gasEstimate ? BigInt(Math.ceil(state.quote.gasEstimate * 1.2)) : undefined,
+      });
+      logger.swap('execute', { txHash });
+
+      // Record transaction to backend (optional)
+      // Note: We already executed the transaction above, so we don't need to call executeSwapService again
+      // which would try to execute the transaction a second time.
+
+      setState(prev => ({ ...prev, isExecuting: false, amountIn: '0', amountOut: '0', quote: null }));
+      await fetchUserBalance();
+      return {
+        success: true,
+        txHash: txHash,
+      };
+    } catch (error) {
+      console.error('[executeSwap] Transaction failed:', error);
+      const message = error instanceof Error ? error.message : 'Failed to execute swap';
+      setState(prev => ({ ...prev, error: message, isExecuting: false }));
+      logger.swap('fail', { error: message });
+      return { success: false, error: message };
+    }
+  }, [state.quote, state.tokenIn, state.tokenOut, state.amountIn, userAddress, chainId, writeContractAsync, sendTransactionAsync, switchChainAsync, currentChainId, fetchUserBalance]);
+
+  const getDisplayInfo = useCallback(() => {
+    // Ensure we have valid token symbols - never show 'UNKNOWN' or empty
+    const tokenInSymbol = (state.tokenIn?.symbol && state.tokenIn.symbol !== 'UNKNOWN')
+      ? state.tokenIn.symbol
+      : 'Select';
+    const tokenOutSymbol = (state.tokenOut?.symbol && state.tokenOut.symbol !== 'UNKNOWN')
+      ? state.tokenOut.symbol
+      : 'Select';
+
+    // Calculate USD values - safely parse and validate all numbers
+    const amountInNum = state.amountIn ? parseFloat(state.amountIn) : 0;
+    const amountOutNum = state.amountOut ? parseFloat(state.amountOut) : 0;
+
+    // Safely get price values and ensure they're numbers
+    const tokenInPrice = (priceData && typeof priceData.tokenInPrice === 'number') ? priceData.tokenInPrice : 0;
+    const tokenOutPrice = (priceData && typeof priceData.tokenOutPrice === 'number') ? priceData.tokenOutPrice : 0;
+    const nativePrice = (priceData && typeof priceData.nativeTokenPrice === 'number') ? priceData.nativeTokenPrice : 0;
+
+    // Calculate USD values with validation
+    const amountInUSD = (amountInNum > 0 && tokenInPrice > 0 && !isNaN(amountInNum) && !isNaN(tokenInPrice))
+      ? (amountInNum * tokenInPrice).toFixed(2)
+      : '0.00';
+
+    const amountOutUSD = (amountOutNum > 0 && tokenOutPrice > 0 && !isNaN(amountOutNum) && !isNaN(tokenOutPrice))
+      ? (amountOutNum * tokenOutPrice).toFixed(2)
+      : '0.00';
+
+    // Format user balance - userBalance is already formatted as string from fetchUserBalance
+    // CRITICAL: DO NOT truncate or round - pass the EXACT value for precision
+    // The userBalance string from formatUnits is already the correct precision
+    const balanceNum = userBalance ? parseFloat(userBalance) : 0;
+    // For display, show meaningful decimals but keep original precision for Max button
+    // formattedBalance is for UI display, rawBalance is for calculations
+    const formattedBalance = userBalance || '0'; // PASS EXACT STRING - no truncation!
+
+    // Check if user has enough balance
+    // CRITICAL: For native tokens (ETH), we must reserve gas fees
+    // Otherwise, swapping the entire balance will fail
+    const isNativeToken = state.tokenIn?.address === '0x0000000000000000000000000000000000000000' ||
+      state.tokenIn?.address === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+
+    let hasEnoughBalance = false;
+    if (isNativeToken) {
+      // For native tokens, reserve 0.001 ETH for gas (conservative estimate)
+      // Base/L2s have lower gas, but 0.001 is safe for all chains
+      const gasBuffer = 0.001;
+      hasEnoughBalance = balanceNum >= (amountInNum + gasBuffer);
+    } else {
+      // For ERC-20 tokens, no gas buffer needed (gas paid in ETH)
+      hasEnoughBalance = balanceNum >= amountInNum;
+    }
+
+    // Calculate gas cost in USD (gasEstimate is in wei, nativeTokenPrice is in USD)
+    const gasEstimate = state.quote?.gasEstimate || 0;
+    const gasCostUSD = (gasEstimate > 0 && nativePrice > 0)
+      ? ((gasEstimate * 21000 / 1e9) * nativePrice).toFixed(4)
+      : '0.00';
+
+    return {
+      tokenInSymbol,
+      tokenOutSymbol,
+      tokenInEmoji: state.tokenIn?.emoji || '🔄',
+      tokenOutEmoji: state.tokenOut?.emoji || '🔄',
+      amountIn: state.amountIn || '0',
+      amountOut: state.amountOut || '0',
+      amountInUSD,
+      amountOutUSD,
+      isLoading: state.isLoading,
+      isExecuting: state.isExecuting,
+      error: state.error,
+      isApproved: state.isApproved,
+      priceImpact: state.quote?.priceImpact || 0,
+      gasEstimate: state.quote?.gasEstimate || 0,
+      gasCostUSD,
+      minAmountOut: state.quote?.minAmountOut || '0',
+      dexName: state.quote?.dex || state.quote?.dexName || 'N/A',
+      userBalance: formattedBalance,
+      hasEnoughBalance,
+      availableQuotes: state.availableQuotes || [],
+      selectedDex: state.selectedDex,
+      // MEV Protection info
+      mevProtection: getMEVProtectionInfo(),
+    };
+  }, [state, priceData, userBalance, chainId, mevProtectionEnabled]);
+
+  // Get MEV protection information
+  const getMEVProtectionInfo = useCallback(() => {
+    const amountInNum = state.amountIn ? parseFloat(state.amountIn) : 0;
+    const tokenInPrice = (priceData && typeof priceData.tokenInPrice === 'number') ? priceData.tokenInPrice : 0;
+    const amountInUSD = amountInNum * tokenInPrice;
+
+    const config = getMEVProtectionConfig(chainId, amountInUSD);
+
+    if (!config) {
+      return {
+        available: false,
+        enabled: false,
+        provider: null,
+        rebatePercentage: 0,
+        estimatedSavings: 0,
+        features: [],
+      };
+    }
+
+    const estimatedSavings = estimateMEVSavings(amountInUSD, chainId);
+
+    return {
+      available: true,
+      enabled: mevProtectionEnabled,
+      provider: config.provider,
+      rebatePercentage: config.rebatePercentage,
+      estimatedSavings,
+      features: config.features,
+    };
+  }, [chainId, state.amountIn, priceData, mevProtectionEnabled]);
+
+  // Get available tokens for the current chain
+  const getAvailableTokens = useCallback((): Token[] => {
+    // Never fallback to POPULAR_TOKENS - always use chain-specific tokens
+    if (commonTokens.length === 0) {
+      console.error('[useSwap] No tokens available for chainId:', chainId);
+    }
+    return commonTokens;
+  }, [commonTokens]);
+
+  const selectQuote = useCallback((dex: string) => {
+    setState(prev => {
+      const found = prev.availableQuotes?.find(q => (q.dex || q.dexName) === dex);
+      if (found) {
+        return {
+          ...prev,
+          quote: found,
+          amountOut: found.amountOut || prev.amountOut,
+          selectedDex: dex,
+        };
+      }
+      return prev;
+    });
+  }, []);
+
+  return {
+    state,
+    displayInfo: getDisplayInfo(),
+    setTokenIn,
+    setTokenOut,
+    setAmountIn,
+    swapTokens,
+    approveToken,
+    executeSwap,
+    getAvailableTokens,
+    selectQuote,
+    mevProtectionEnabled,
+    setMevProtectionEnabled,
+    // Slippage controls
+    slippageConfig,
+    setSlippageConfig,
+    calculatedSlippage,
+    // Degen Mode controls
+    degenMode,
+    setDegenMode,
+    // Price validation
+    priceValidation,
+    validatePrice: async () => {
+      if (!state.tokenOut || !priceData) return null;
+      const tokenPrice = typeof priceData.tokenOutPrice === 'number' ? priceData.tokenOutPrice : 0;
+      const result = await validateSwapPrice(state.tokenOut.address, chainId, tokenPrice);
+      setPriceValidation(result);
+      return result;
+    },
+  };
+}

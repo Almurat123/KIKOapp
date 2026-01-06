@@ -1,0 +1,490 @@
+/* Utility Classes for Common Patterns */
+
+/* === Flexbox Utilities === */
+.flexRow {
+    display: flex;
+    flex-direction: row;
+}
+
+.flexCol {
+    display: flex;
+    flex-direction: column;
+}
+
+.flexCenter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.flexBetween {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.flexStart {
+    display: flex;
+    align-items: flex-start;
+}
+
+.flexEnd {
+    display: flex;
+    align-items: flex-end;
+}
+
+.itemsCenter {
+    align-items: center;
+}
+
+.justifyCenter {
+    justify-content: center;
+}
+
+.justifyBetween {
+    justify-content: space-between;
+}
+
+.justifyEnd {
+    justify-content: flex-end;
+}
+
+.flexWrap {
+    flex-wrap: wrap;
+}
+
+.flex1 {
+    flex: 1;
+}
+
+/* === Gap Utilities === */
+.gapXs {
+    gap: var(--spacing-xs);
+}
+
+.gapSm {
+    gap: var(--spacing-sm);
+}
+
+.gapMd {
+    gap: var(--spacing-md);
+}
+
+.gapLg {
+    gap: var(--spacing-lg);
+}
+
+.gapXl {
+    gap: var(--spacing-xl);
+}
+
+/* === Padding Utilities === */
+.pXs {
+    padding: var(--spacing-xs);
+}
+
+.pSm {
+    padding: var(--spacing-sm);
+}
+
+.pMd {
+    padding: var(--spacing-md);
+}
+
+.pLg {
+    padding: var(--spacing-lg);
+}
+
+.pXl {
+    padding: var(--spacing-xl);
+}
+
+.pxXs {
+    padding-left: var(--spacing-xs);
+    padding-right: var(--spacing-xs);
+}
+
+.pxSm {
+    padding-left: var(--spacing-sm);
+    padding-right: var(--spacing-sm);
+}
+
+.pxMd {
+    padding-left: var(--spacing-md);
+    padding-right: var(--spacing-md);
+}
+
+.pxLg {
+    padding-left: var(--spacing-lg);
+    padding-right: var(--spacing-lg);
+}
+
+.pyXs {
+    padding-top: var(--spacing-xs);
+    padding-bottom: var(--spacing-xs);
+}
+
+.pySm {
+    padding-top: var(--spacing-sm);
+    padding-bottom: var(--spacing-sm);
+}
+
+.pyMd {
+    padding-top: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+}
+
+.pyLg {
+    padding-top: var(--spacing-lg);
+    padding-bottom: var(--spacing-lg);
+}
+
+/* === Margin Utilities === */
+.mXs {
+    margin: var(--spacing-xs);
+}
+
+.mSm {
+    margin: var(--spacing-sm);
+}
+
+.mMd {
+    margin: var(--spacing-md);
+}
+
+.mLg {
+    margin: var(--spacing-lg);
+}
+
+.mXl {
+    margin: var(--spacing-xl);
+}
+
+.mxAuto {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.mtSm {
+    margin-top: var(--spacing-sm);
+}
+
+.mtMd {
+    margin-top: var(--spacing-md);
+}
+
+.mtLg {
+    margin-top: var(--spacing-lg);
+}
+
+.mbSm {
+    margin-bottom: var(--spacing-sm);
+}
+
+.mbMd {
+    margin-bottom: var(--spacing-md);
+}
+
+.mbLg {
+    margin-bottom: var(--spacing-lg);
+}
+
+/* === Border Radius === */
+.roundedSm {
+    border-radius: var(--radius-sm);
+}
+
+.roundedMd {
+    border-radius: var(--radius-md);
+}
+
+.roundedLg {
+    border-radius: var(--radius-lg);
+}
+
+.roundedXl {
+    border-radius: var(--radius-xl);
+}
+
+.roundedFull {
+    border-radius: var(--radius-full);
+}
+
+/* === Common Card Patterns === */
+.card {
+    background: var(--theme-bg-card);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    border: 1px solid var(--theme-border);
+    transition: all var(--transition-normal);
+}
+
+.card:hover {
+    background: var(--theme-bg-card-hover);
+    border-color: var(--theme-border-hover);
+    box-shadow: var(--shadow-md);
+}
+
+.cardCompact {
+    background: var(--theme-bg-card);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-sm);
+    border: 1px solid var(--theme-border);
+    transition: all var(--transition-normal);
+}
+
+.cardLarge {
+    background: var(--theme-bg-card);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    border: 1px solid var(--theme-border);
+    transition: all var(--transition-normal);
+}
+
+/* === Typography === */
+.textXs {
+    font-size: var(--font-size-xs);
+}
+
+.textSm {
+    font-size: var(--font-size-sm);
+}
+
+.textMd {
+    font-size: var(--font-size-md);
+}
+
+.textLg {
+    font-size: var(--font-size-lg);
+}
+
+.textXl {
+    font-size: var(--font-size-xl);
+}
+
+.text2xl {
+    font-size: var(--font-size-2xl);
+}
+
+.fontNormal {
+    font-weight: var(--font-weight-normal);
+}
+
+.fontMedium {
+    font-weight: var(--font-weight-medium);
+}
+
+.fontSemibold {
+    font-weight: var(--font-weight-semibold);
+}
+
+.fontBold {
+    font-weight: var(--font-weight-bold);
+}
+
+.textPrimary {
+    color: var(--theme-text-primary);
+}
+
+.textSecondary {
+    color: var(--theme-text-secondary);
+}
+
+.textMuted {
+    color: var(--theme-text-muted);
+}
+
+.textCenter {
+    text-align: center;
+}
+
+.textRight {
+    text-align: right;
+}
+
+.textLeft {
+    text-align: left;
+}
+
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* === Width & Height === */
+.wFull {
+    width: 100%;
+}
+
+.hFull {
+    height: 100%;
+}
+
+.wAuto {
+    width: auto;
+}
+
+.hAuto {
+    height: auto;
+}
+
+/* === Position === */
+.relative {
+    position: relative;
+}
+
+.absolute {
+    position: absolute;
+}
+
+.fixed {
+    position: fixed;
+}
+
+.sticky {
+    position: sticky;
+}
+
+/* === Overflow === */
+.overflowHidden {
+    overflow: hidden;
+}
+
+.overflowAuto {
+    overflow: auto;
+}
+
+.overflowScroll {
+    overflow: scroll;
+}
+
+/* === Cursor === */
+.cursorPointer {
+    cursor: pointer;
+}
+
+.cursorNotAllowed {
+    cursor: not-allowed;
+}
+
+/* === Opacity === */
+.opacity0 {
+    opacity: 0;
+}
+
+.opacity50 {
+    opacity: 0.5;
+}
+
+.opacity100 {
+    opacity: 1;
+}
+
+/* === Transitions === */
+.transitionFast {
+    transition: all var(--transition-fast);
+}
+
+.transitionNormal {
+    transition: all var(--transition-normal);
+}
+
+.transitionSlow {
+    transition: all var(--transition-slow);
+}
+
+/* === Shadows === */
+.shadowSm {
+    box-shadow: var(--shadow-sm);
+}
+
+.shadowMd {
+    box-shadow: var(--shadow-md);
+}
+
+.shadowLg {
+    box-shadow: var(--shadow-lg);
+}
+
+.shadowXl {
+    box-shadow: var(--shadow-xl);
+}
+
+.shadowNone {
+    box-shadow: none;
+}
+
+/* === Common Button Base === */
+.btnBase {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-weight: var(--font-weight-medium);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    border: none;
+    outline: none;
+}
+
+.btnBase:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.btnPrimary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-weight: var(--font-weight-medium);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    border: none;
+    outline: none;
+    background: var(--theme-button-primary);
+    color: white;
+}
+
+.btnPrimary:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.btnSecondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-weight: var(--font-weight-medium);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    border: none;
+    outline: none;
+    background: var(--theme-button-secondary);
+    color: var(--theme-text-primary);
+}
+
+.btnSecondary:hover:not(:disabled) {
+    background: var(--hover-bg);
+}
+
+/* === Grid === */
+.grid {
+    display: grid;
+}
+
+.gridCols2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.gridCols3 {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.gridCols4 {
+    grid-template-columns: repeat(4, 1fr);
+}

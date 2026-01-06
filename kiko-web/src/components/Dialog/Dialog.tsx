@@ -10,6 +10,7 @@ export interface DialogProps {
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   showCloseButton?: boolean;
+  className?: string;
 }
 
 export const Dialog: React.FC<DialogProps> = ({
@@ -19,6 +20,7 @@ export const Dialog: React.FC<DialogProps> = ({
   children,
   size = 'md',
   showCloseButton = true,
+  className,
 }) => {
   useEffect(() => {
     if (isOpen) {
@@ -46,7 +48,7 @@ export const Dialog: React.FC<DialogProps> = ({
   return (
     <div className={styles.overlay} onClick={onClose}>
       <div
-        className={clsx(styles.dialog, styles[size])}
+        className={clsx(styles.dialog, styles[size], className)}
         onClick={(e) => e.stopPropagation()}
       >
         {(title || showCloseButton) && (

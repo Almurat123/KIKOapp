@@ -12,26 +12,59 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
+    "@metaplex-foundation/umi": "^1.4.1",
+    "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
+    "@paragraph_xyz/sdk": "^0.2.0",
+    "@privy-io/react-auth": "^3.7.0",
+    "@privy-io/wagmi": "^2.0.2",
+    "@raydium-io/raydium-sdk-v2": "0.1.0-alpha",
+    "@sentry/react": "^10.32.1",
+    "@solana-program/memo": "^0.8.0",
+    "@solana-program/system": "^0.8.0",
+    "@solana-program/token": "^0.6.0",
+    "@solana/kit": "^3.0.3",
+    "@solana/spl-token": "^0.4.0",
+    "@solana/web3.js": "^1.98.4",
+    "@tanstack/react-query": "^5.90.10",
+    "@xenova/transformers": "^2.17.2",
     "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "framer-motion": "^12.23.24",
+    "hls.js": "^1.6.15",
+    "lightweight-charts": "^5.0.9",
     "lucide-react": "^0.554.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "react-tradingview-embed": "^3.0.6",
+    "remark-gfm": "^4.0.1",
+    "sonner": "^2.0.7",
+    "viem": "^2.39.3",
+    "wagmi": "^2.19.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@tailwindcss/postcss": "^4.1.17",
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
+    "autoprefixer": "^10.4.22",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "postcss": "^8.5.6",
     "prettier": "^3.2.5",
+    "tailwindcss": "^4.1.17",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.3",
-    "vite": "^7.2.2"
+    "vite": "^7.2.2",
+    "vite-plugin-node-polyfills": "^0.24.0"
+  },
+  "overrides": {
+    "@solana/spl-token": "^0.4.0"
   }
 }

@@ -1,0 +1,388 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.8);
+    /* Darker, more solid overlay */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    animation: fadeIn 0.1s ease-out;
+}
+
+.modal {
+    background: #18181b;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+}
+
+:global(.light) .modal {
+    background: #ffffff;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    /* Light mode border added */
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #f4f4f5;
+}
+
+:global(.light) .header h2 {
+    color: #18181b;
+}
+
+.closeButton {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.closeButton:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.content {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.inputGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.inputGroup label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #a1a1aa;
+    text-transform: uppercase;
+}
+
+:global(.light) .inputGroup label {
+    color: #52525b;
+}
+
+.inputWrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input {
+    width: 100%;
+    background: transparent;
+    border: 1px solid #3f3f46;
+    border-radius: 12px;
+    padding: 12px 16px;
+    color: #f4f4f5;
+    font-size: 16px;
+    font-family: inherit;
+    outline: none;
+    transition: all 0.2s;
+}
+
+:global(.light) .input {
+    border: 1px solid #e5e7eb;
+    color: #18181b;
+}
+
+.input:focus {
+    border-color: #3b82f6;
+    background: #27272a;
+}
+
+:global(.light) .input:focus {
+    border-color: #3b82f6;
+    background: #f3f4f6;
+}
+
+.tokenSuffix {
+    position: absolute;
+    right: 16px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.balanceHint {
+    font-size: 12px;
+    color: #a1a1aa;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+:global(.light) .balanceHint {
+    color: #71717a;
+}
+
+.maxButton {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: none;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.errorMessage {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.primaryButton {
+    background: #ffffff;
+    color: #000000;
+    border: none;
+    width: 100%;
+    padding: 12px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+    box-shadow: 0 0 15px -5px rgba(255, 255, 255, 0.3);
+}
+
+:global(.light) .primaryButton {
+    background: #000000;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.primaryButton:hover {
+    background: rgba(255, 255, 255, 0.9);
+    transform: translateY(-1px);
+}
+
+:global(.light) .primaryButton:hover {
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.primaryButton:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.secondaryButton {
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.7);
+    padding: 12px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    flex: 1;
+}
+
+:global(.light) .secondaryButton {
+    background: #f4f4f5;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #18181b;
+}
+
+.secondaryButton:hover {
+    background: #3f3f46;
+    color: #ffffff;
+    transform: translateY(-1px);
+}
+
+:global(.light) .secondaryButton:hover {
+    background: #e4e4e7;
+}
+
+.confirmState {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.summaryCard {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.summaryRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.summaryRow:last-child {
+    border-bottom: none;
+}
+
+.amountValue {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.addressValue {
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+}
+
+.warningBox {
+    font-size: 13px;
+    color: #eab308;
+    text-align: center;
+    background: rgba(234, 179, 8, 0.1);
+    padding: 10px;
+    border-radius: 8px;
+}
+
+.buttonRow {
+    display: flex;
+    gap: 12px;
+}
+
+.statusState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 20px 0;
+}
+
+.statusIconRaw {
+    color: var(--accent-primary);
+    animation: spin 1s linear infinite;
+    margin-bottom: 16px;
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+.successIcon {
+    width: 60px;
+    height: 60px;
+    background: #4ade80;
+    color: black;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    margin-bottom: 16px;
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.statusState h3 {
+    margin: 0 0 8px 0;
+    color: var(--text-primary);
+}
+
+.statusState p {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 0 0 20px 0;
+}
+
+.explorerLink {
+    color: var(--accent-primary);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 24px;
+    display: block;
+}
+
+.explorerLink:hover {
+    text-decoration: underline;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes popIn {
+    from {
+        transform: scale(0.5);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}

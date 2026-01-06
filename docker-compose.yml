@@ -1,0 +1,144 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: kiko-postgres
+    environment:
+      POSTGRES_USER: almurat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kiko123}
+      POSTGRES_DB: kiko_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U almurat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: kiko-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Grok Service (Python FastAPI)
+  grok-service:
+    build:
+      context: ./grok-service
+      dockerfile: Dockerfile
+    container_name: kiko-grok
+    environment:
+      - XAI_API_KEY=${XAI_API_KEY}
+      - PORT=8001
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Moderation Service (Python FastAPI)
+  moderation-service:
+    build:
+      context: ./moderation-service
+      dockerfile: Dockerfile
+    container_name: kiko-moderation
+    environment:
+      - PORT=8003
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # RAG Service (Python FastAPI)
+  rag-service:
+    build:
+      context: ./rag-service
+      dockerfile: Dockerfile
+    container_name: kiko-rag
+    environment:
+      - PORT=8002
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Main API (Node.js/TypeScript)
+  api:
+    build:
+      context: ./kiko-api
+      dockerfile: Dockerfile
+    container_name: kiko-api
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=postgresql://almurat:${POSTGRES_PASSWORD:-kiko123}@postgres:5432/kiko_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GROK_SERVICE_URL=http://grok-service:8001
+      - MODERATION_SERVICE_URL=http://moderation-service:8003
+      - RAG_SERVICE_URL=http://rag-service:8002
+      # API Keys (从 .env 读取)
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY}
+      - DUNE_API_KEY=${DUNE_API_KEY}
+      - NEYNAR_API_KEY=${NEYNAR_API_KEY}
+      - ZEROX_API_KEY=${ZEROX_API_KEY}
+      - JUPITER_API_KEY=${JUPITER_API_KEY}
+      - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - XAI_API_KEY=${XAI_API_KEY}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      grok-service:
+        condition: service_healthy
+      moderation-service:
+        condition: service_healthy
+      rag-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Frontend (Vite/React)
+  web:
+    build:
+      context: ./kiko-web
+      dockerfile: Dockerfile
+    container_name: kiko-web
+    environment:
+      - VITE_API_URL=http://localhost:3001
+      - VITE_GROK_SERVICE_URL=http://localhost:8001
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

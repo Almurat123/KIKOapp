@@ -1,0 +1,195 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(8px);
+    animation: fadeIn 0.2s ease-out;
+}
+
+.modal {
+    background-color: #1a1b1e;
+    border-radius: 24px;
+    width: 90%;
+    max-width: 480px;
+    padding: 32px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.header {
+    text-align: center;
+}
+
+.warningIcon {
+    font-size: 48px;
+    margin-bottom: 24px;
+    display: block;
+}
+
+.title {
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0 0 12px 0;
+    letter-spacing: -0.02em;
+}
+
+.message {
+    color: #a1a1aa;
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.warningBox {
+    background-color: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.warningList {
+    margin: 0;
+    padding: 0 0 0 20px;
+    color: #ff6b6b;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.warningList li {
+    margin-bottom: 8px;
+}
+
+.warningList li:last-child {
+    margin-bottom: 0;
+}
+
+.checkboxContainer {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    cursor: pointer;
+    padding: 12px;
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.03);
+    transition: background-color 0.2s;
+}
+
+.checkboxContainer:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.checkbox {
+    margin-top: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 2px solid #52525b;
+    appearance: none;
+    background-color: transparent;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.checkbox:checked {
+    background-color: #6366f1;
+    border-color: #6366f1;
+}
+
+.checkbox:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 1px;
+    width: 4px;
+    height: 9px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.checkboxLabel {
+    color: #e4e4e7;
+    font-size: 14px;
+    line-height: 1.4;
+    flex: 1;
+}
+
+.actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.button {
+    flex: 1;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    outline: none;
+}
+
+.cancelButton {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #a1a1aa;
+}
+
+.cancelButton:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.confirmButton {
+    background-color: #6366f1;
+    color: white;
+}
+
+.confirmButton:hover:not(:disabled) {
+    background-color: #4f46e5;
+    transform: translateY(-1px);
+}
+
+.confirmButton:disabled {
+    background-color: #312e81;
+    color: #6366f1;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}

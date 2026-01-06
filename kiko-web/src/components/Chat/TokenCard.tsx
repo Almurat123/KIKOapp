@@ -1,35 +1,17 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, AlertTriangle, DollarSign, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import styles from './Chat.module.css';
 
 interface TokenCardProps {
     symbol: string;
     name: string;
-    price: number | string;
+    price: string;
     change24h: number;
     riskScore: number;
-    liquidity?: string;
-    volume24h?: string;
-    recentTransactions?: Array<{
-        type: 'buy' | 'sell';
-        amount: string;
-        price: string;
-        time: string;
-    }>;
 }
 
-export const TokenCard: React.FC<TokenCardProps> = ({ 
-    symbol, 
-    name, 
-    price, 
-    change24h, 
-    riskScore,
-    liquidity,
-    volume24h,
-    recentTransactions = []
-}) => {
+export const TokenCard: React.FC<TokenCardProps> = ({ symbol, name, price, change24h, riskScore }) => {
     const isPositive = change24h >= 0;
-    const priceStr = typeof price === 'number' ? price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : price;
 
     return (
         <div className={styles.tokenCard}>
@@ -42,31 +24,13 @@ export const TokenCard: React.FC<TokenCardProps> = ({
                     </div>
                 </div>
                 <div className={styles.priceInfo}>
-                    <div className={styles.price}>${priceStr}</div>
+                    <div className={styles.price}>${price}</div>
                     <div className={isPositive ? styles.changePos : styles.changeNeg}>
                         {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                         {Math.abs(change24h)}%
                     </div>
                 </div>
             </div>
-
-            {/* Market Data */}
-            {(liquidity || volume24h) && (
-                <div className={styles.marketDataRow}>
-                    {liquidity && (
-                        <div className={styles.marketDataItem}>
-                            <DollarSign size={12} />
-                            <span>Liquidity: {liquidity}</span>
-                        </div>
-                    )}
-                    {volume24h && (
-                        <div className={styles.marketDataItem}>
-                            <Activity size={12} />
-                            <span>24h Vol: {volume24h}</span>
-                        </div>
-                    )}
-                </div>
-            )}
 
             <div className={styles.chartPlaceholder}>
                 {/* Mock Sparkline */}
@@ -79,23 +43,6 @@ export const TokenCard: React.FC<TokenCardProps> = ({
                     />
                 </svg>
             </div>
-
-            {/* Recent Transactions */}
-            {recentTransactions.length > 0 && (
-                <div className={styles.recentTransactions}>
-                    <div className={styles.transactionsHeader}>Recent Transactions</div>
-                    <div className={styles.transactionsList}>
-                        {recentTransactions.slice(0, 3).map((tx, i) => (
-                            <div key={i} className={styles.transactionItem}>
-                                <span className={styles.transactionType}>{tx.type.toUpperCase()}</span>
-                                <span className={styles.transactionAmount}>{tx.amount}</span>
-                                <span className={styles.transactionPrice}>@ ${tx.price}</span>
-                                <span className={styles.transactionTime}>{tx.time}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
 
             <div className={styles.cardFooter}>
                 <div className={styles.riskBadge}>

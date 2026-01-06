@@ -1,0 +1,873 @@
+/**
+ * Auto Trade Service
+ * Executes copy trades when target wallet swaps are detected
+ */
+
+import { ethers } from 'ethers';
+import prisma, { withRetry } from '../lib/prisma.js';
+import { DecodedSwap } from './txDecoder.js';
+import { onSwapDetected, startWatcher } from './watcherService.js';
+import { executeSwapInstant, executeSellInstant } from './tradeExecutor.js';
+import { detectLaunchpadToken } from './ai/launchpadDetector.js';
+import { zoraSniperService } from './zoraSniperService.js';
+
+import { getChainConfig } from '../config/chainConfig.js';
+
+import { executeSolanaSwap } from './solanaExecutor.js';
+import { SOLANA_CONFIG, getSolanaConnection } from '../config/solanaConfig.js';
+import { onSolanaSwapDetected, startSolanaWatcher } from './solanaWatcher.js';
+import { PublicKey } from '@solana/web3.js';
+import { getSolanaEmbeddedWalletAddress } from './privyWallet.js';
+import { analyzeTradeOpportunity } from './copyTradeAnalysisService.js';
+import { createMessage, createSession } from '../repositories/chatRepository.js';
+import { ChatWebSocketService } from './chatWebSocket.js';
+import { v4 as uuidv4 } from 'uuid';
+import { env } from '../config/env.js';
+
+// ... (previous functions remain)
+
+// ... (previous functions remain)
+
+/**
+ * Handle detected swap from target wallet
+ */
+export async function handleSwapDetected(
+    targetWallet: string,
+    swap: DecodedSwap,
+    chainId: number
+): Promise<void> {
+    console.log('[AutoTrade] ========== SWAP DETECTED ==========');
+    console.log('[AutoTrade] Processing swap from target:', {
+        wallet: targetWallet,
+        tokenIn: swap.tokenIn,
+        tokenOut: swap.tokenOut,
+        amountIn: swap.amountIn,
+        amountOut: swap.amountOut
+    });
+
+    const chainConfig = getChainConfig(chainId);
+
+    // Stablecoin/ETH addresses (what we consider "cash out")
+    const NATIVE_ETH = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
+
+    // Normalize all to lowercase for comparison
+    const CASH_TOKENS = [
+        NATIVE_ETH,
+        ZORA_TOKEN,
+        chainConfig.wrappedNativeAddress,
+        ...chainConfig.stablecoins
+    ].map(s => s.toLowerCase());
+
+    // Determine if this is a BUY or SELL
+    // BUY: tokenOut is NOT cash (buying a token), tokenIn IS cash (paying with stable/eth)
+    // SELL: tokenIn is NOT cash (selling a token), tokenOut IS cash (receiving stable/eth)
+
+    // Check if In/Out are "Cash"
+    const isTokenInCash = CASH_TOKENS.includes(swap.tokenIn.toLowerCase());
+    const isTokenOutCash = CASH_TOKENS.includes(swap.tokenOut.toLowerCase());
+
+    const isBuy = isTokenInCash && !isTokenOutCash;
+    const isSell = !isTokenInCash && isTokenOutCash;
+    const isTokenToToken = !isTokenInCash && !isTokenOutCash;
+
+    console.log('[AutoTrade] Detection result:', {
+        isBuy,
+        isSell,
+        isTokenToToken,
+        tokenInIsCash: isTokenInCash,
+        tokenOutIsCash: isTokenOutCash
+    });
+
+    if (isSell) {
+        console.log('[AutoTrade] 🔴 TARGET IS SELLING - triggering mirror sell');
+        await handleTargetSell(targetWallet, swap, chainId);
+    } else if (isBuy) {
+        console.log('[AutoTrade] 🟢 TARGET IS BUYING - triggering copy trade');
+        await handleTargetBuy(targetWallet, swap, chainId);
+    } else if (isTokenToToken) {
+        // Regular token-to-token (e.g., BRETT -> DEGEN)
+        console.log('[AutoTrade] ⚡ Parallel lightning trigger: SELL and BUY starting simultaneously');
+        await Promise.all([
+            handleTargetSell(targetWallet, swap, chainId).catch(e => console.error('[AutoTrade] Sell error:', e)),
+            handleTargetBuy(targetWallet, swap, chainId).catch(e => console.error('[AutoTrade] Buy error:', e))
+        ]);
+    } else {
+        console.log('[AutoTrade] ⚪ Cash-to-Cash or ignored swap type');
+    }
+}
+
+/**
+ * Handle Target BUYING a token -> We BUY that token
+ */
+async function handleTargetBuy(
+    targetWallet: string,
+    swap: DecodedSwap,
+    chainId: number
+): Promise<void> {
+    // Find all configs watching this wallet
+    // NOTE: Solana addresses are case-sensitive (Base58), only lowercase EVM addresses
+    const isSolana = !targetWallet.startsWith('0x');
+    const normalizedWallet = isSolana ? targetWallet : targetWallet.toLowerCase();
+
+    // I will fix this logic now too: `const tokenToBuy = swap.tokenOut`.
+    const tokenToBuy = swap.tokenOut;
+
+    console.log(`[AutoTrade] ⚡ Fast path start for ${tokenToBuy} from ${targetWallet.slice(0, 8)}...`);
+
+    // 🏎️ PARALLEL PRE-CHECKS: Fetch configs, token info, and launchpad status simultaneously
+    const [configs, tokenInfo, launchpadResult] = await Promise.all([
+        withRetry(() => prisma.copyTradeConfig.findMany({
+            where: {
+                targetWallet: normalizedWallet,
+                chainId,
+                status: 'active',
+            },
+            include: { user: true },
+        })),
+        getTokenInfo(tokenToBuy, chainId),
+        detectLaunchpadToken(tokenToBuy, chainId)
+    ]);
+
+    if (configs.length === 0) {
+        console.log('[AutoTrade] No active configs for this wallet');
+        return;
+    }
+
+    if (!tokenInfo || tokenInfo.price <= 0) {
+        // 🚨 Fallback: If we detected it as a valid Launchpad token (Clanker/Pump/etc), we might trust it blind
+        // because DexScreener is slow to index new pairs.
+        if (launchpadResult && launchpadResult.data) {
+            console.log(`[AutoTrade] ⚠️ ${tokenToBuy} missing DexScreener info, but is valid ${launchpadResult.provider.toUpperCase()} launchpad token. Using fallback info.`);
+
+            // Construct fallback token info
+            const fallbackInfo = {
+                price: 0, // We don't know price yet, will rely on "Buy Amount (ETH)" logic
+                symbol: launchpadResult.data.symbol || 'UNKNOWN',
+                name: launchpadResult.data.name || 'Unknown Token',
+                decimals: launchpadResult.data.decimals || 18,
+                liquidity: 0,
+                volume24h: 0,
+                fdv: 0,
+                marketCap: 0,
+                pairCreatedAt: Date.now(),
+                socials: [],
+                websites: []
+            };
+
+            // Proceed with fallback info
+            // NOTE: We must be careful about price calculations later.
+            // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
+            // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true);
+            return;
+        }
+
+        console.log(`[AutoTrade] ⏭️ Skipping for ${targetWallet.slice(0, 10)}: Could not get valid token info/price for ${tokenToBuy}`);
+        return;
+    }
+
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, tokenInfo, false);
+}
+
+/**
+ * Process the buy execution now that we have (or faked) the token info
+ */
+async function processBuyWithInfo(
+    targetWallet: string,
+    tokenToBuy: string,
+    swap: DecodedSwap,
+    chainId: number,
+    configs: any[],
+    tokenInfo: any,
+    isFallbackMode: boolean
+) {
+    console.log(`[AutoTrade] Found ${configs.length} config(s) for BUY. Price: $${tokenInfo.price} (Fallback: ${isFallbackMode})`);
+
+
+    // Calculate target swap value (buy volume)
+    // Actually, usually we value the trade based on the STABLE/ETH amount (Input).
+    // If user spent 1 ETH ($2500), that's the trade value.
+    // Logic: if tokenIn is cash, use it. Otherwise use tokenOut.
+
+    const chainConfig = getChainConfig(chainId);
+    const CASH_TOKENS = [
+        '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        chainConfig.wrappedNativeAddress,
+        ...chainConfig.stablecoins
+    ].map(s => s.toLowerCase());
+
+    const isTokenInCash = CASH_TOKENS.includes(swap.tokenIn.toLowerCase());
+    let targetSwapValueUsd = 0;
+
+    if (isTokenInCash) {
+        // Use tokenIn for value calculation
+        const isStableIn = chainConfig.stablecoins.map(s => s.toLowerCase()).includes(swap.tokenIn.toLowerCase());
+        const amountInBN = BigInt(swap.amountIn);
+
+        if (isStableIn) {
+            // USDC/USDT have 6 decimals usually
+            const decimalsIn = swap.tokenIn.toLowerCase().includes('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913') ? 6 : 18; // Base USDC is 6
+            targetSwapValueUsd = Number(amountInBN) / Math.pow(10, decimalsIn);
+        } else {
+            // ETH / WETH
+            const nativePrice = await getTokenInfo(chainConfig.wrappedNativeAddress, chainId).then(t => t?.price || 2500);
+            targetSwapValueUsd = (Number(amountInBN) / 1e18) * nativePrice;
+        }
+        console.log(`[AutoTrade] Calculated value from tokenIn (${swap.tokenIn}): $${targetSwapValueUsd.toFixed(2)}`);
+    } else {
+        // Fallback to tokenOut
+        const amountOutBN = BigInt(swap.amountOut);
+        const splitDecimals = tokenInfo.decimals || 18;
+        const formattedAmountOut = Number(amountOutBN) / Math.pow(10, splitDecimals);
+        targetSwapValueUsd = formattedAmountOut * tokenInfo.price;
+        console.log(`[AutoTrade] Calculated value from tokenOut (${swap.tokenOut}): $${targetSwapValueUsd.toFixed(2)}`);
+    }
+
+    // Process each config
+    for (const config of configs) {
+        try {
+            const filterResult = await passesFilters(tokenInfo, config, targetSwapValueUsd);
+
+            if (!filterResult.passed) {
+                console.log(`[AutoTrade] ⏭️ Skipping for user ${config.userId}: ${filterResult.reason}`);
+                continue;
+            }
+
+            // =================================================================
+            // 🆕 AI Analysis Logic
+            // =================================================================
+            if (config.aiAnalysisMode && config.aiAnalysisMode !== 'disabled') {
+                console.log(`[AutoTrade] AI Analysis Triggered (${config.aiAnalysisMode}) for user ${config.userId}`);
+
+                // 1. Perform Analysis
+                const analysis = await analyzeTradeOpportunity(
+                    tokenToBuy,
+                    chainId,
+                    targetWallet,
+                    config.buyAmountUsd  // Pass real user amount for proper L1-L4 risk assessment
+                );
+
+                // 2. Persist Analysis in DB
+                await prisma.copyTradeAnalysis.create({
+                    data: {
+                        configId: config.id,
+                        tokenAddress: tokenToBuy,
+                        tokenSymbol: tokenInfo.symbol || 'UNKNOWN',
+                        aiDecision: analysis.decision,
+                        confidenceScore: analysis.confidence,
+                        analysisJson: JSON.stringify(analysis),
+                    }
+                });
+
+                // 3. Notify User (Chat System)
+                try {
+                    // Create a new chat session for this alert using PostgreSQL (same DB as messages)
+                    const session = await createSession(
+                        config.user.privyDid,
+                        `🤖 AI Trade Analysis: ${tokenInfo.symbol}`,
+                        env.aiModel
+                    );
+                    const sessionId = session.id;
+
+                    // Format message content
+                    const messageContent = `
+🚨 **Copy Trade Opportunity Detected**
+Target Wallet: \`${targetWallet.slice(0, 6)}...${targetWallet.slice(-4)}\`
+Token: **${tokenInfo.symbol}** (\`${tokenToBuy}\`)
+
+🧠 **AI Decision**: ${analysis.decision === 'BUY' ? '✅ BUY' : '❌ SKIP'}
+**Confidence**: ${analysis.confidence}%
+**Reason**: ${analysis.reason}
+
+**Metrics**:
+- 🚀 Launchpad: ${analysis.metrics.launchpad}
+- 📉 5m Change: ${analysis.metrics.priceChange5m.toFixed(2)}%
+- 💧 Liquidity: $${analysis.metrics.liquidity.toLocaleString()}
+- 📊 Market Cap: $${analysis.metrics.marketCap.toLocaleString()}
+- 🐦 Social Score: ${analysis.metrics.socialScore}/100
+
+${analysis.rawAnalysis}
+                    `.trim();
+
+                    // Save message
+                    await createMessage(sessionId, 'assistant', messageContent);
+
+                    // Push via WebSocket
+                    ChatWebSocketService.getInstance().broadcastToUser(config.user.privyDid, {
+                        type: 'content_block',
+                        sessionId,
+                        data: {
+                            text: messageContent,
+                            final: true
+                        }
+                    });
+                    // This is "retrospective" availability, but we can also push a notification event later.
+
+                } catch (chatError) {
+                    console.error('[AutoTrade] Failed to send chat notification:', chatError);
+                }
+
+                // 4. Act on Decision (if auto_decide)
+                if (config.aiAnalysisMode === 'auto_decide') {
+                    if (analysis.decision === 'SKIP') {
+                        console.log(`[AutoTrade] AI STOPPED trade for ${config.userId}. Reason: ${analysis.reason}`);
+                        continue; // SKIP TRADE
+                    }
+
+                    if (analysis.decision === 'BUY') {
+                        // 5. Re-check Price (Safety Check)
+                        console.log('[AutoTrade] AI approved BUY. Re-checking price...');
+                        const latestInfo = await getTokenInfo(tokenToBuy, chainId);
+                        if (latestInfo) {
+                            const priceChangeSinceStart = ((latestInfo.price - tokenInfo.price) / tokenInfo.price) * 100;
+                            // If price pumped more than 10% during analysis (3-8s), ABORT
+                            if (priceChangeSinceStart > 10) {
+                                console.warn(`[AutoTrade] ⚠️ Price pumped ${priceChangeSinceStart.toFixed(2)}% during analysis. Aborting trade.`);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                // If 'analyze_only', we just proceed regardless of decision
+            }
+            // =================================================================
+
+            // Calculate how much to buy in token units
+            const usdAmount = config.buyAmountUsd;
+
+            console.log('[AutoTrade] Would execute BUY:', {
+                user: config.user.walletAddress.slice(0, 10),
+                tokenIn: 'ETH', // Usually buy with ETH
+                // Calculate amountIn (Native) from USD amount
+            });
+            let nativePrice = 2500; // Fallback
+            let txHash = '';
+
+            if (chainId === 900) {
+                // Dynamically fetch Solana wallet from Privy (not from database field)
+                let solAddress: string | null = null;
+                try {
+                    solAddress = await getSolanaEmbeddedWalletAddress(config.user.privyDid);
+                } catch (e) {
+                    console.error(`[AutoTrade] Error fetching Solana wallet for ${config.userId}:`, e);
+                }
+
+                if (!solAddress) {
+                    console.log(`[AutoTrade] Skipping Solana trade for ${config.userId}: No Solana wallet in Privy.`);
+                    continue;
+                }
+
+                // Get SOL Price
+                const solInfo = await getTokenInfo(SOLANA_CONFIG.TOKENS.SOL, 900);
+                if (solInfo) nativePrice = solInfo.price;
+
+                const amountInLamports = Math.floor((usdAmount / nativePrice) * 1e9).toString();
+                const amountInSol = Number(amountInLamports) / 1e9;
+
+                console.log('[AutoTrade] Solana trade calculation:', {
+                    buyAmountUsd: usdAmount,
+                    solPrice: nativePrice,
+                    amountInSol: amountInSol.toFixed(6),
+                    amountInLamports,
+                    tokenToBuy: tokenToBuy.slice(0, 15) + '...',
+                    walletAddress: solAddress.slice(0, 15) + '...'
+                });
+
+                // Jupiter requires minimum trade size
+                // We lowered this to $0.5 per user request, but very small trades might still fail with "Route not found"
+                const MIN_TRADE_USD = 0.5;
+                if (usdAmount < MIN_TRADE_USD) {
+                    console.warn(`[AutoTrade] Trade amount $${usdAmount.toFixed(2)} is below minimum $${MIN_TRADE_USD}. Skipping.`);
+                    continue;
+                }
+
+                txHash = await executeSolanaSwap({
+                    userId: config.user.privyDid,
+                    tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
+                    tokenOutMint: tokenToBuy,
+                    amountIn: amountInLamports,
+                    slippageBps: config.maxSlippageBps
+                });
+
+            } else {
+                const { wrappedNativeAddress } = getChainConfig(chainId);
+                const ethInfo = await getTokenInfo(wrappedNativeAddress, chainId);
+                if (ethInfo) nativePrice = ethInfo.price;
+
+                // SPECIALIZED ZORA INTERACTION - Parallelize checks for speed
+                const [launchpad, userSettings] = await Promise.all([
+                    detectLaunchpadToken(tokenToBuy, chainId),
+                    config.user.id ? prisma.userSettings.findUnique({ where: { userId: config.user.id } }) : Promise.resolve(null)
+                ]);
+                const isFastExecutionEnabled = userSettings?.fastSwapMode === true;
+
+                if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
+                    console.log(`[AutoTrade] ⚡ Zora token detected and Fast Execution ON for user ${config.userId}. Using specialized Zora interaction.`);
+                    txHash = await zoraSniperService.fastSwap({
+                        userId: config.user.privyDid,
+                        accessToken: '', // Privy server-side doesn't need token if configured
+                        walletAddress: config.user.walletAddress,
+                        tokenOut: tokenToBuy,
+                        amountIn: (usdAmount / nativePrice).toFixed(6),
+                        slippage: (config.maxSlippageBps || 50) / 100
+                    });
+                } else {
+                    if (launchpad && launchpad.provider === 'zora' && !isFastExecutionEnabled) {
+                        console.log(`[AutoTrade] Zora token detected but Fast Execution is OFF for user ${config.userId}. Using standard 0x swap.`);
+                    }
+                    txHash = await executeSwapInstant({
+                        userId: config.user.privyDid,
+                        walletAddress: config.user.walletAddress,
+                        tokenIn: 'ETH',
+                        tokenOut: tokenToBuy,
+                        amountIn: (usdAmount / nativePrice).toFixed(6), // ETH amount
+                        chainId,
+                        slippageBps: config.maxSlippageBps,
+                    });
+                }
+            }
+
+            // Create position record
+            await prisma.position.create({
+                data: {
+                    userId: config.userId,
+                    configId: config.id,
+                    tokenAddress: tokenToBuy,
+                    tokenSymbol: tokenInfo.symbol,
+                    chainId,
+                    entryPrice: tokenInfo.price,
+                    entryAmount: (usdAmount / nativePrice).toFixed(6), // Native amount spent
+                    entryTxHash: txHash,
+                    entryUsdValue: usdAmount,
+                    status: 'open',
+                },
+            });
+
+            console.log(`[AutoTrade] Position created for user ${config.userId}`);
+        } catch (error) {
+            console.error(`[AutoTrade] Error processing config ${config.id}:`, error);
+        }
+    }
+}
+
+/**
+ * Handle Target SELLING a token -> We SELL if we have a position and mirrorSell is ON
+ * Logic upgraded to handle multiple open positions safely (Sell total balance once)
+ */
+async function handleTargetSell(
+    targetWallet: string,
+    swap: DecodedSwap,
+    chainId: number
+): Promise<void> {
+    // FIX: tokenIn is what the target SENT (sold), tokenOut is what they RECEIVED
+    const tokenToSell = swap.tokenIn; // The token leaving the target wallet (what they sold)
+
+    // Find configs with mirrorSell enabled
+    // NOTE: Solana addresses are case-sensitive (Base58), only lowercase EVM addresses
+    const isSolana = !targetWallet.startsWith('0x');
+    const normalizedWallet = isSolana ? targetWallet : targetWallet.toLowerCase();
+
+    const configs = await withRetry(() => prisma.copyTradeConfig.findMany({
+        where: {
+            targetWallet: normalizedWallet,
+            chainId,
+            status: 'active',
+            mirrorSell: true,
+        },
+        include: { user: true },
+    }));
+
+    if (configs.length === 0) return;
+
+    console.log(`[AutoTrade] ⚡ Fast path sell: Found ${configs.length} config(s) for SELL of ${tokenToSell}`);
+
+    // Process each config in parallel if they are independent
+    await Promise.all(configs.map(async (config) => {
+        try {
+            // 🏎️ PARALLEL POSITION & TOKEN CHECK
+            const [positions, tokenInfo] = await Promise.all([
+                prisma.position.findMany({
+                    where: {
+                        userId: config.userId,
+                        tokenAddress: tokenToSell,
+                        status: 'open',
+                    },
+                }),
+                getTokenInfo(tokenToSell, chainId)
+            ]);
+
+            if (positions.length === 0) {
+                console.log(`[AutoTrade] ⏭️ No open positions found for user ${config.userId} and token ${tokenToSell}. Skipping mirror sell.`);
+                return;
+            }
+            if (!tokenInfo) {
+                console.log(`[AutoTrade] ⚠️ Could not get token info for sell: ${tokenToSell}`);
+                return;
+            }
+
+            console.log(`[AutoTrade] Closing ${positions.length} position(s) for user ${config.userId}`);
+
+
+            // 1. Get user's TOTAL balance of the token AND decimals
+            let balance = 0n;
+            let decimals = 18;
+            let txHash = '';
+
+            if (chainId === 900) {
+                // SOLANA Logic - Dynamically fetch Solana wallet from Privy
+                let solAddress: string | null = null;
+                try {
+                    solAddress = await getSolanaEmbeddedWalletAddress(config.user.privyDid);
+                } catch (e) {
+                    console.error(`[AutoTrade] Error fetching Solana wallet for sell ${config.userId}:`, e);
+                }
+
+                if (!solAddress) {
+                    console.log(`[AutoTrade] Skipping Solana sell for ${config.userId}: No Solana wallet.`);
+                    return;
+                }
+
+                const connection = getSolanaConnection();
+                const accounts = await connection.getParsedTokenAccountsByOwner(
+                    new PublicKey(solAddress),
+                    { mint: new PublicKey(tokenToSell) }
+                );
+
+                // Sum all accounts (rare to have multiple for same mint, but possible)
+                for (const acc of accounts.value) {
+                    const amount = BigInt(acc.account.data.parsed.info.tokenAmount.amount);
+                    balance += amount;
+                    decimals = acc.account.data.parsed.info.tokenAmount.decimals;
+                }
+
+                if (balance <= 0n) {
+                    console.log(`[AutoTrade] User has 0 balance of ${tokenToSell} (Solana), cannot sell.`);
+                    await prisma.position.updateMany({
+                        where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
+                        data: { status: 'closed', exitReason: 'balance_empty' }
+                    });
+                    return;
+                }
+
+                console.log(`[AutoTrade] Selling ${balance.toString()} of ${tokenToSell} on Solana`);
+
+                // Execute Solana Sell (Swap to SOL)
+                txHash = await executeSolanaSwap({
+                    userId: config.user.privyDid,
+                    tokenInMint: tokenToSell,
+                    tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
+                    amountIn: balance.toString(),
+                    slippageBps: config.maxSlippageBps
+                });
+
+            } else {
+                // EVM Logic
+                const contract = new ethers.Contract(tokenToSell, [
+                    'function balanceOf(address) view returns (uint256)',
+                    'function decimals() view returns (uint8)'
+                ], provider); // Global 'provider' is Base hardcoded currently (line 357). 
+                // TODO: Should use getChainConfig(chainId).rpcUrl
+                // But for now keeping legacy or fixing it? I should fix passing the correct provider.
+                // But let's stick to adding Solana support first.
+                // Re-using the logic, but I'll fix the provider issue later if needed.
+                // Actually, I can't use 'provider' for BSC.
+                // I should quick-fix the provider usage too.
+                const chainConfig = getChainConfig(chainId);
+                const evmProvider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+                const contractDynamic = new ethers.Contract(tokenToSell, [
+                    'function balanceOf(address) view returns (uint256)',
+                    'function decimals() view returns (uint8)'
+                ], evmProvider);
+
+                const [bal, dec] = await Promise.all([
+                    contractDynamic.balanceOf(config.user.walletAddress),
+                    contractDynamic.decimals()
+                ]);
+                balance = bal;
+                decimals = Number(dec);
+
+                if (balance <= 0n) {
+                    // ... same empty check ...
+                    console.log(`[AutoTrade] User has 0 balance of ${tokenToSell}, cannot sell.`);
+                    await prisma.position.updateMany({
+                        where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
+                        data: { status: 'closed', exitReason: 'balance_empty' }
+                    });
+                    return;
+                }
+
+                // Execute EVM Sell
+                console.log(`[AutoTrade] Selling ${balance.toString()} of ${tokenToSell} (decimals: ${decimals})`);
+
+                try {
+                    // NOTE: Zora specialized Sell disabled temporarily due to permit signature requirements
+                    // directly using high-performance aggregators (0x/Kyber)
+                    console.log(`[AutoTrade] Attempting to sell 100% balance: ${balance.toString()}`);
+                    txHash = await executeSellInstant({
+                        userId: config.user.privyDid,
+                        walletAddress: config.user.walletAddress,
+                        tokenToSell: tokenToSell,
+                        amountToSell: balance.toString(),
+                        chainId: chainId,
+                        slippageBps: config.maxSlippageBps,
+                        tokenDecimals: Number(decimals)
+                    });
+                } catch (e: any) {
+                    console.warn(`[AutoTrade] Sell 100% failed (${e.message}). Retrying with 99% balance...`);
+                    // Retry logic...
+                    try {
+                        const safeBalance = (balance * 99n) / 100n;
+                        // For the retry, we increase slippage to ensure the trade goes through
+                        const retrySlippage = Math.max((config.maxSlippageBps || 50) * 2, 500);
+                        console.log(`[AutoTrade] Retrying sell with 99% balance and increased slippage: ${retrySlippage} bps`);
+
+                        txHash = await executeSellInstant({
+                            userId: config.user.privyDid,
+                            walletAddress: config.user.walletAddress,
+                            tokenToSell: tokenToSell,
+                            amountToSell: safeBalance.toString(),
+                            chainId: chainId,
+                            slippageBps: retrySlippage,
+                            tokenDecimals: Number(decimals)
+                        });
+                    } catch (retryError) {
+                        console.error(`[AutoTrade] Failed to execute mirror sell: ${retryError}`);
+                        return;
+                    }
+                }
+            }
+
+            // 3. Update ALL positions to closed
+            await prisma.position.updateMany({
+                where: {
+                    userId: config.userId,
+                    tokenAddress: tokenToSell,
+                    status: 'open',
+                },
+                data: {
+                    status: 'closed',
+                    exitTxHash: txHash,
+                    exitReason: 'mirror_sell',
+                    closedAt: new Date(),
+                },
+            });
+
+            console.log(`[AutoTrade] Closed positions with tx ${txHash}`);
+
+        } catch (error) {
+            console.error(`[AutoTrade] Error processing mirror sell for ${config.id}:`, error);
+        }
+    }));
+}
+
+
+// Quick RPC provider for Balance checks (Base)
+const RPC_URL = 'https://mainnet.base.org';
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+
+/**
+ * Initialize the auto trade service
+ */
+// ... imports ...
+
+/**
+ * Initialize the auto trade service
+ */
+export function initAutoTradeService(): void {
+    console.log('[AutoTrade] Initializing auto trade service...');
+
+    // Register swap callbacks
+    onSwapDetected(handleSwapDetected);
+    onSolanaSwapDetected(handleSwapDetected);
+
+    // NOTE: EVM watcher disabled - using Alchemy webhooks for real-time push notifications
+    // startWatcher(); // Disabled - webhook is faster and more efficient
+    startSolanaWatcher(); // Keep Solana watcher (no webhook alternative)
+
+    console.log('[AutoTrade] Auto trade service initialized (Solana watcher + EVM webhook)');
+}
+
+/**
+ * Check and execute take profit / stop loss for open positions
+ */
+export async function checkPositionsForExits(): Promise<void> {
+    const positions = await prisma.position.findMany({
+        where: { status: 'open' },
+        include: {
+            user: true,
+        },
+    });
+
+    for (const position of positions) {
+        try {
+            // Get current price
+            const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId);
+            if (!tokenInfo) continue;
+
+            const currentPrice = tokenInfo.price;
+            const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+
+            // Update position with current price
+            await prisma.position.update({
+                where: { id: position.id },
+                data: {
+                    currentPrice,
+                    profitLossPct,
+                },
+            });
+
+            // Get config for TP/SL settings
+            const config = await prisma.copyTradeConfig.findUnique({
+                where: { id: position.configId },
+            });
+
+            if (!config) continue;
+
+            // Check take profit
+            if (config.takeProfitPct && profitLossPct >= config.takeProfitPct) {
+                console.log(`[AutoTrade] Take profit triggered for position ${position.id}: ${profitLossPct.toFixed(2)}%`);
+
+                // TODO: Execute sell
+                // await executeSell(position);
+
+                await prisma.position.update({
+                    where: { id: position.id },
+                    data: {
+                        status: 'closed',
+                        exitReason: 'take_profit',
+                        closedAt: new Date(),
+                    },
+                });
+            }
+
+            // Check stop loss
+            if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
+                console.log(`[AutoTrade] Stop loss triggered for position ${position.id}: ${profitLossPct.toFixed(2)}%`);
+
+                // TODO: Execute sell
+                // await executeSell(position);
+
+                await prisma.position.update({
+                    where: { id: position.id },
+                    data: {
+                        status: 'closed',
+                        exitReason: 'stop_loss',
+                        closedAt: new Date(),
+                    },
+                });
+            }
+        } catch (error) {
+            console.error(`[AutoTrade] Error checking position ${position.id}:`, error);
+        }
+    }
+}
+
+// ================= HELPERS (Restored) =================
+
+function getChainSlug(chainId: number) {
+    const chains: Record<number, { dexScreener: string; geckoTerminal: string }> = {
+        8453: { dexScreener: 'base', geckoTerminal: 'base' },
+        1: { dexScreener: 'ethereum', geckoTerminal: 'eth' },
+        56: { dexScreener: 'bsc', geckoTerminal: 'bsc' },
+        900: { dexScreener: 'solana', geckoTerminal: 'solana' },
+    };
+    return chains[chainId] || chains[8453];
+}
+
+/**
+ * Get token information from external API
+ */
+async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any> {
+    const slug = getChainSlug(chainId).dexScreener;
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+
+    console.log(`[AutoTrade] getTokenInfo: Fetching ${tokenAddress} on ${slug} (chainId: ${chainId})`);
+
+    // Retry logic for network errors (ECONNRESET, etc.)
+    const MAX_RETRIES = 3;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            const res = await fetch(url, {
+                headers: { 'Connection': 'close' },
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            const data = await res.json() as any;
+
+            if (!data.pairs || data.pairs.length === 0) {
+                console.warn(`[AutoTrade] getTokenInfo: No pairs returned for ${tokenAddress}`);
+                return null;
+            }
+
+            console.log(`[AutoTrade] getTokenInfo: Found ${data.pairs.length} pairs for ${tokenAddress}`);
+
+            // Filter for correct chain if needed
+            const pair = data.pairs.find((p: any) => p.chainId === slug) || data.pairs[0];
+
+            const result = {
+                price: parseFloat(pair.priceUsd),
+                symbol: pair.baseToken.symbol,
+                name: pair.baseToken.name,
+                decimals: 18, // DexScreener doesn't always give decimals. Fallback.
+                liquidity: pair.liquidity?.usd || 0,
+                volume24h: pair.volume?.h24 || 0,
+                fdv: pair.fdv || 0,
+                marketCap: pair.fdv || 0, // Approx
+                pairCreatedAt: pair.pairCreatedAt, // Pool creation timestamp
+                socials: pair.info?.socials || [], // Twitter, Discord, etc.
+                websites: pair.info?.websites || [], // Official websites
+            };
+
+            console.log(`[AutoTrade] getTokenInfo: Success - ${result.symbol} price: $${result.price}, liq: $${result.liquidity}`);
+            return result;
+
+        } catch (e: any) {
+            lastError = e;
+            if (e.name === 'AbortError') {
+                console.warn(`[AutoTrade] getTokenInfo attempt ${attempt}/${MAX_RETRIES} timeout for ${tokenAddress}`);
+            } else {
+                console.warn(`[AutoTrade] getTokenInfo attempt ${attempt}/${MAX_RETRIES} failed:`, e.message);
+            }
+
+            // Exponential backoff before retry
+            if (attempt < MAX_RETRIES) {
+                await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+            }
+        }
+    }
+
+    console.error('[AutoTrade] getTokenInfo failed after retries:', lastError?.message);
+    return null;
+}
+
+async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: number) {
+    if (!tokenInfo) return { passed: false, reason: 'No token info' };
+
+    // 1. Min Target Buy Value (Copy trade filter)
+    // If target bought only $5 worth, and min is $100 -> Skip.
+    // Assuming config has minTargetValueUsd (user requested this previously).
+    if (config.minTargetValueUsd && targetSwapValueUsd < config.minTargetValueUsd) {
+        return { passed: false, reason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min $${config.minTargetValueUsd}` };
+    }
+
+    // 2. Market Cap / FDV
+    if (config.minMarketCap && tokenInfo.marketCap < config.minMarketCap) {
+        return { passed: false, reason: `MCap $${tokenInfo.marketCap} < min $${config.minMarketCap}` };
+    }
+    if (config.maxMarketCap && tokenInfo.marketCap > config.maxMarketCap) {
+        return { passed: false, reason: `MCap $${tokenInfo.marketCap} > max $${config.maxMarketCap}` };
+    }
+
+    // 3. Volume
+    // ... logic ...
+
+    return { passed: true };
+}

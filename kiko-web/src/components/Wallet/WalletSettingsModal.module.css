@@ -1,0 +1,127 @@
+.modal {
+    padding: 24px;
+    background: #18181b;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: #f4f4f5;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+:global(.light) .modal {
+    background: #ffffff;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #18181b;
+}
+
+/* Grouped Layout Styles */
+.group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.groupTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #a1a1aa;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 4px 4px;
+}
+
+:global(.light) .groupTitle {
+    color: #71717a;
+}
+
+.groupList {
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+:global(.light) .groupList {
+    background: #f4f4f5;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    /* Light mode list bg */
+}
+
+.groupItem {
+    padding: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+:global(.light) .groupItem {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.groupItem:last-child {
+    border-bottom: none;
+}
+
+.itemHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.itemTitle {
+    font-size: 15px;
+    font-weight: 600;
+    color: #f4f4f5;
+}
+
+:global(.light) .itemTitle {
+    color: #18181b;
+}
+
+.itemDescription {
+    font-size: 13px;
+    color: #a1a1aa;
+    margin: 0;
+    line-height: 1.4;
+}
+
+:global(.light) .itemDescription {
+    color: #71717a;
+}
+
+.recoveryButtons {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+/* Danger Zone */
+.dangerZone {
+    margin-top: 8px;
+}
+
+.disconnectButton {
+    width: 100%;
+    padding: 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.disconnectButton:hover {
+    background: rgba(239, 68, 68, 0.15);
+    transform: translateY(-1px);
+}
+
+.disconnectButton:active {
+    transform: scale(0.98);
+}
