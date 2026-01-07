@@ -189,7 +189,6 @@ export default function WalletPage() {
   const [holdings, setHoldings] = useState<TokenHolding[]>([]);
   const [cachedHoldings, setCachedHoldings] = useState<TokenHolding[]>([]);
   const [loading, setLoading] = useState(true);
-  const [testMode, setTestMode] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
   const [solanaBalance, setSolanaBalance] = useState<bigint>(BigInt(0));
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
@@ -416,10 +415,10 @@ export default function WalletPage() {
   // Use Wagmi's useChainId for the actual connected chain, not our custom context
   const wagmiChainId = useChainId();
   const { data: ethBalance } = useBalance({
-    address: (testMode || isSolana ? undefined : walletAddress) as Address | undefined,
-    chainId: testMode || isSolana ? undefined : wagmiChainId,  // Use actual Wagmi chainId
+    address: (isSolana ? undefined : walletAddress) as Address | undefined,
+    chainId: isSolana ? undefined : wagmiChainId,  // Use actual Wagmi chainId
     query: {
-      enabled: !testMode && !isSolana && !!walletAddress,
+      enabled: !isSolana && !!walletAddress,
     },
   });
 
@@ -467,17 +466,10 @@ export default function WalletPage() {
       walletAddress,
       chainId,
       isSolana,
-      testMode,
     });
 
     if (!ready) {
       setLoading(true);
-      return;
-    }
-
-    if (testMode) {
-      setHoldings([]);
-      setLoading(false);
       return;
     }
 
@@ -901,18 +893,12 @@ export default function WalletPage() {
     // Note: nativeBalance is NOT in deps - we use it inside the effect but don't want to refetch when it changes
     // We only refetch when chain/wallet/connection state changes
     // IMPORTANT: chainId is in deps to trigger refetch when network switches
-  }, [ready, authenticated, isConnected, walletAddress, chainId, isSolana, testMode]);
+  }, [ready, authenticated, isConnected, walletAddress, chainId, isSolana]);
 
   // Fetch transaction history
   useEffect(() => {
     if (!ready) {
       setTransactionsLoading(true);
-      return;
-    }
-
-    if (testMode) {
-      setTransactions([]);
-      setTransactionsLoading(false);
       return;
     }
 
@@ -974,7 +960,7 @@ export default function WalletPage() {
     return () => {
       cancelled = true;
     };
-  }, [ready, authenticated, isConnected, walletAddress, chainId, testMode]);
+  }, [ready, authenticated, isConnected, walletAddress, chainId]);
 
   // Calculate total balance and PnL
   const portfolioStats = useMemo(() => {
@@ -1001,7 +987,7 @@ export default function WalletPage() {
   }, [displayHoldings]);
 
   // Skip wallet check if in test mode
-  if (!testMode && !authenticated) {
+  if (!authenticated) {
     return (
       <div className={styles.connectWalletContainer}>
         <div className={styles.connectWalletCard}>

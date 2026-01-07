@@ -1,5 +1,5 @@
 import { tokenApi } from '../services/api';
-import type { SwapCardData } from '../components/Chat/SwapCard';
+import type { SwapCardData } from '../components/Chat/SwapCardChat';
 
 /**
  * Network mapping from chain names/IDs to API network format

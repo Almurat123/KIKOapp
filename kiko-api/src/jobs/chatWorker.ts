@@ -1793,6 +1793,13 @@ ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperC
 `;
             }
 
+            // Build enriched content with context
+            let enrichedContent = promptOrchestrator.buildPrompt(
+                lastMsg.content,
+                userContext,
+                intent
+            );
+
             // Add balance info if pre-fetched (Grok)
             const balanceKey = `get_wallet_portfolio:${JSON.stringify({
                 address: task.toolContext?.walletAddress,
@@ -1805,17 +1812,6 @@ ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperC
 User Wallet: ${task.toolContext?.walletAddress}
 ${balanceData.tokens ? `Portfolio Assets:\n${balanceData.tokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
 `;
-            }
-
-            // Build enriched content with context
-            let enrichedContent = promptOrchestrator.buildPrompt(
-                lastMsg.content,
-                userContext,
-                intent
-            );
-
-            if (tokenContextBlock) {
-                enrichedContent += tokenContextBlock;
             }
 
             if (tokenContextBlock) {

@@ -248,7 +248,7 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
             const { getCredentials, getPolymarketWallet } = await import('../services/polymarketCredService.js');
             const creds = await getCredentials(privyDid);
 
-            let walletAddress = creds?.walletAddress;
+            let walletAddress: string | undefined = creds?.walletAddress;
             if (!walletAddress) {
                 walletAddress = await getPolymarketWallet(privyDid);
             }
@@ -291,7 +291,7 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
             const { getCredentials, getPolymarketWallet } = await import('../services/polymarketCredService.js');
             const creds = await getCredentials(privyDid);
 
-            let walletAddress = creds?.walletAddress;
+            let walletAddress: string | undefined = creds?.walletAddress;
             if (!walletAddress) {
                 walletAddress = await getPolymarketWallet(privyDid);
             }
@@ -333,7 +333,7 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
             const { getCredentials, getPolymarketWallet } = await import('../services/polymarketCredService.js');
             const creds = await getCredentials(privyDid);
 
-            let walletAddress = creds?.walletAddress;
+            let walletAddress: string | undefined = creds?.walletAddress;
             if (!walletAddress) {
                 walletAddress = await getPolymarketWallet(privyDid);
             }

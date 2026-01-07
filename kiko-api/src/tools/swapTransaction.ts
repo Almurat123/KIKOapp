@@ -90,8 +90,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     const tokenData = await getTokenDetails(args.chain_id.toString(), args.token_out);
 
                     if (tokenData) {
-                        const liquidity = parseFloat(tokenData.liquidity?.usd || '0');
-                        const fdv = parseFloat(tokenData.fdv || '0');
+                        const liquidity = parseFloat(String(tokenData.liquidity || '0'));
+                        const fdv = parseFloat(String(tokenData.fdv || '0'));
 
                         // Rule: Block if Liquidity is extremely low compared to trade size or absolute minimum
                         if (liquidity < 1000) {
