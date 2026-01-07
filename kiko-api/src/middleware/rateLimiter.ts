@@ -18,6 +18,11 @@ export async function rateLimiterMiddleware(
         return;
     }
 
+    // Skip if Redis is not available
+    if (!redis || !redis.isOpen) {
+        return;
+    }
+
     const ip = request.ip;
     const key = `ratelimit:${ip}`;
 
