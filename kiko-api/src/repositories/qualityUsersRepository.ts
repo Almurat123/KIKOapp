@@ -129,13 +129,21 @@ export async function updateUserCoinStatus(
   coinAddress?: string
 ): Promise<void> {
   try {
-    await withRetry(() => prisma.qualityFarcasterUser.update({
+    await withRetry(() => prisma.qualityFarcasterUser.upsert({
       where: { fid },
-      data: {
+      update: {
         hasCreatorCoin: hasCoin,
         creatorCoinAddress: coinAddress || null,
         lastCoinCheck: new Date(),
         updatedAt: new Date(),
+      },
+      create: {
+        fid,
+        hasCreatorCoin: hasCoin,
+        creatorCoinAddress: coinAddress || null,
+        lastCoinCheck: new Date(),
+        isActive: true,
+        source: 'coin_check',
       }
     }));
   } catch (error) {

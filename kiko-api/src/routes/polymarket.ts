@@ -250,7 +250,7 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
 
             let walletAddress: string | undefined = creds?.walletAddress;
             if (!walletAddress) {
-                walletAddress = await getPolymarketWallet(privyDid);
+                walletAddress = await getPolymarketWallet(privyDid) ?? undefined;
             }
 
             if (!walletAddress) {
@@ -293,7 +293,7 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
 
             let walletAddress: string | undefined = creds?.walletAddress;
             if (!walletAddress) {
-                walletAddress = await getPolymarketWallet(privyDid);
+                walletAddress = await getPolymarketWallet(privyDid) ?? undefined;
             }
 
             if (!walletAddress) {
@@ -335,7 +335,7 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
 
             let walletAddress: string | undefined = creds?.walletAddress;
             if (!walletAddress) {
-                walletAddress = await getPolymarketWallet(privyDid);
+                walletAddress = await getPolymarketWallet(privyDid) ?? undefined;
             }
 
             if (!walletAddress) {
