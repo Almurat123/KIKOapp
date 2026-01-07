@@ -365,7 +365,10 @@ export async function securityRoutes(fastify: FastifyInstance) {
         throw new AppError(400, 'Contract address is required', 'VALIDATION_ERROR');
       }
 
-      const normalizedAddress = validateAddress(address, 'address');
+      if (!validateAddress(address, 'address')) {
+        throw new AppError(400, 'Invalid contract address format', 'VALIDATION_ERROR');
+      }
+      const normalizedAddress = address.toLowerCase().trim();
       const cacheKey = `security:scan:${normalizedAddress}:${chain}`;
       const cached = await get(cacheKey);
       if (cached) {
