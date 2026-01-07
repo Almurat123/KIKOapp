@@ -6,10 +6,21 @@
 import { FastifyInstance } from 'fastify';
 import { get, set } from '../cache/redis.js';
 import { validateLimit } from '../utils/validation.js';
-import { createParagraphAPI } from '@paragraph_xyz/sdk';
 
-// Initialize SDK
-const api = createParagraphAPI();
+// Lazy-loaded Paragraph API (to avoid startup crash from broken doppler-router)
+let paragraphApi: any = null;
+async function getParagraphApi() {
+  if (!paragraphApi) {
+    try {
+      const { createParagraphAPI } = await import('@paragraph_xyz/sdk');
+      paragraphApi = createParagraphAPI();
+    } catch (e) {
+      console.error('[News] Failed to load Paragraph SDK:', e);
+      return null;
+    }
+  }
+  return paragraphApi;
+}
 
 const NEWS_CACHE_TTL = 3600; // 1 hour cache
 
@@ -72,6 +83,8 @@ async function getPublicationIdAndMeta(slug: string): Promise<{ id: string, meta
   }
 
   try {
+    const api = await getParagraphApi();
+    if (!api) return null;
     const pub = await api.getPublicationBySlug(cleanSlug);
     if (!pub || !pub.id) return null;
 
@@ -89,6 +102,9 @@ async function getPublicationIdAndMeta(slug: string): Promise<{ id: string, meta
  */
 async function fetchArticlesFromPublication(slug: string, limit: number = 5): Promise<Article[]> {
   try {
+    const api = await getParagraphApi();
+    if (!api) return [];
+
     const pubData = await getPublicationIdAndMeta(slug);
     if (!pubData) return [];
 

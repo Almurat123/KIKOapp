@@ -3,6 +3,30 @@ import { get, set, del } from '../cache/redis.js';
 import { TrendingCast } from '../types/social.js';
 import { Decimal } from 'decimal.js';
 
+/**
+ * Parse formatted coin value strings like "$2.1K", "$1.5M" into raw numbers
+ */
+function parseCoinValue(value: string | number | undefined | null): number | null {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'number') return value;
+
+    // Remove $ and commas
+    let cleaned = String(value).replace(/[$,]/g, '').trim();
+    if (!cleaned) return null;
+
+    // Handle K (thousands) and M (millions) suffixes
+    const multipliers: Record<string, number> = { 'K': 1000, 'M': 1000000, 'B': 1000000000 };
+    const suffix = cleaned.slice(-1).toUpperCase();
+
+    if (multipliers[suffix]) {
+        const num = parseFloat(cleaned.slice(0, -1));
+        return isNaN(num) ? null : num * multipliers[suffix];
+    }
+
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? null : num;
+}
+
 export async function getLastUpdateTime(): Promise<Date | null> {
     try {
         const result = await prisma.trendingCast.aggregate({
@@ -64,7 +88,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             rank: i + 1,
                             isBaseAppCoin: cast.isBaseAppCoin || false,
                             baseAppCoinMetadata: cast.baseAppCoinMetadata || null,
-                            coinValue: cast.coinValue ? new Decimal(cast.coinValue) : null,
+                            coinValue: parseCoinValue(cast.coinValue) !== null ? new Decimal(parseCoinValue(cast.coinValue)!) : null,
                             authorBio: cast.author.bio || null,
                             mentions: cast.mentions || [],
                             authorCreatorCoin: cast.author.creatorCoin ? JSON.stringify(cast.author.creatorCoin) : null,
@@ -90,7 +114,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             rank: i + 1,
                             isBaseAppCoin: cast.isBaseAppCoin || false,
                             baseAppCoinMetadata: cast.baseAppCoinMetadata || null,
-                            coinValue: cast.coinValue ? new Decimal(cast.coinValue) : null,
+                            coinValue: parseCoinValue(cast.coinValue) !== null ? new Decimal(parseCoinValue(cast.coinValue)!) : null,
                             authorBio: cast.author.bio || null,
                             mentions: cast.mentions || [],
                             authorCreatorCoin: cast.author.creatorCoin ? JSON.stringify(cast.author.creatorCoin) : null,

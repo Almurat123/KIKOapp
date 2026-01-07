@@ -1,4 +1,4 @@
-import { ParagraphAPI } from '@paragraph_xyz/sdk';
+// ParagraphAPI imported dynamically to avoid startup crash from broken doppler-router
 
 // Initialize SDK
 // API Key should be in process.env.PARAGRAPH_API_KEY
@@ -17,6 +17,9 @@ export async function publishToParagraph(
     }
 
     try {
+        // Dynamic import to avoid startup crash from broken doppler-router sub-dependency
+        const { ParagraphAPI } = await import('@paragraph_xyz/sdk');
+
         // SDK might differ based on version, checking usage from docs provided
         // Doc said: import { ParagraphAPI } from "@paragraph-com/sdk"
         // But package is @paragraph_xyz/sdk. Proceeding with best guess for installed package.

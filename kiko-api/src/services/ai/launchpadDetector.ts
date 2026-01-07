@@ -5,7 +5,7 @@
  */
 
 import { zoraService } from '../zoraService.js';
-import { ParagraphAPI } from '@paragraph_xyz/sdk';
+// ParagraphAPI imported dynamically to avoid startup crash from broken doppler-router
 import { getChainConfig } from '../../config/chainConfig.js';
 import { env } from '../../config/env.js';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -95,8 +95,19 @@ async function getClankerToken(address: string): Promise<any | null> {
  */
 export async function getParagraphToken(address: string): Promise<any | null> {
     const paragraphApiKey = (env.apiKeys as any).paragraph || process.env.PARAGRAPH_API_KEY || '';
+
+    // Dynamic import to avoid startup crash from broken doppler-router sub-dependency
+    let ParagraphAPI: any;
+    try {
+        const sdk = await import('@paragraph_xyz/sdk');
+        ParagraphAPI = sdk.ParagraphAPI;
+    } catch (e) {
+        console.warn('[LaunchpadDetector] Failed to load Paragraph SDK:', e);
+        return null;
+    }
+
     // Use SDK with empty key if not provided, or fallback to public API
-    const api = new (ParagraphAPI as any)(paragraphApiKey ? { apiKey: paragraphApiKey } : {});
+    const api = new ParagraphAPI(paragraphApiKey ? { apiKey: paragraphApiKey } : {});
 
     try {
         const coinBasic = await (api as any).getCoinByContract(address);
