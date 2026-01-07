@@ -139,7 +139,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
                   setIsWalletCopied(true);
                   setTimeout(() => setIsWalletCopied(false), 2000);
                 }}
-                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                className={styles.walletAddressButton}
               >
                 {isWalletCopied && <Check size={10} color="#4ade80" />}
                 {formatWalletAddress(targetWallet)}

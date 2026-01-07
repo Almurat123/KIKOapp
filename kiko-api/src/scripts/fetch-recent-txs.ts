@@ -3,7 +3,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 async function getRecentTxs() {
-    const address = "0xd1aa4aed47a5453dc917f2b30eb0ecca8ecbf241".toLowerCase();
+    const args = process.argv.slice(2);
+    const address = (args[0] || "0xd1aa4aed47a5453dc917f2b30eb0ecca8ecbf241").toLowerCase();
     const chainId = 8453;
     const config = getChainConfig(chainId);
 

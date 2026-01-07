@@ -12,7 +12,6 @@ import { TestCardsPage } from './pages/TestCardsPage';
 import { TradePage } from './pages/TradePage';
 import WalletPage from './pages/WalletPage';
 import NewsPage from './pages/NewsPage';
-import { SearchBox } from './components/SearchBox';
 import { useConversations } from './hooks/useConversations';
 import type { Message } from './hooks/useConversations';
 import { chatWSClient, type ChatEvent } from './utils/chatWebSocket';
@@ -24,7 +23,6 @@ function App() {
   const { authenticated, ready, logout, getAccessToken } = usePrivy();
   const { wallets } = useWallets();
   const [activeTab, setActiveTab] = useState('chat');
-  const [tokensSearchQuery, setTokensSearchQuery] = useState('');
   const [pendingAIPrompt, setPendingAIPrompt] = useState<string | null>(null);
   const [generatingConversationId, setGeneratingConversationId] = useState<string | null>(null);
   const [activeTask, setActiveTask] = useState<any | null>(null);
@@ -364,23 +362,6 @@ function App() {
 
   const activeConv = getActiveConversation();
 
-  // Determine header content based on active tab
-  // All pages should have a header (even if empty) to avoid hamburger menu conflicts
-  const getHeaderContent = () => {
-    switch (activeTab) {
-      case 'market-tokens':
-        return (
-          <SearchBox
-            value={tokensSearchQuery}
-            onChange={setTokensSearchQuery}
-            placeholder="Search tokens by name, symbol, or chain..."
-          />
-        );
-      default:
-        // Return empty div for pages without search to ensure header exists
-        return <div />;
-    }
-  };
 
   return (
     <ThemeProvider>
@@ -394,7 +375,6 @@ function App() {
         onNewChat={handleNewChat}
         onConversationRename={handleConversationRename}
         onConversationDelete={handleConversationDelete}
-        headerContent={getHeaderContent()}
         onAIAnalyzeComplete={handleAIAnalyzeComplete}
         generatingConversationId={generatingConversationId}
         setGeneratingConversationId={setGeneratingConversationId}
@@ -418,10 +398,7 @@ function App() {
         )}
         {activeTab === 'market-overview' && <OverviewPage />}
         {activeTab === 'market-tokens' && (
-          <TokensPage
-            searchQuery={tokensSearchQuery}
-            onSearchChange={setTokensSearchQuery}
-          />
+          <TokensPage />
         )}
         {activeTab === 'market-chains' && <ChainsPage />}
         {activeTab.startsWith('defi') && <SuperDefiPage />}

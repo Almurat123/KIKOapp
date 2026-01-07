@@ -29,10 +29,7 @@ export interface TrendingCast {
     rank: number;
     baseAppCoinMetadata?: any;
     coinValue?: string;
-    authorBio?: string;
     mentions?: any;
-    authorCreatorCoin?: string;
-    authorTwitter?: string;
     isBaseAppCoin?: boolean;
 }
 

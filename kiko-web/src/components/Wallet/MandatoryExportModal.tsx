@@ -48,7 +48,9 @@ export const MandatoryExportModal: React.FC = () => {
                 exportedAddresses = exports.map(e => e.walletAddress.toLowerCase());
             }
         } catch (err) {
-            console.warn('[MandatoryExport] Failed to fetch exports, assuming none:', err);
+            if (import.meta.env.DEV) {
+                console.warn('[MandatoryExport] Failed to fetch exports, assuming none:', err);
+            }
         }
 
         // Build wallet states
@@ -72,7 +74,9 @@ export const MandatoryExportModal: React.FC = () => {
 
     // Called when user completes the export flow (after ExportWalletButton's confirmation)
     const handleExportComplete = async (wallet: WalletWithMetadata) => {
-        console.log('[MandatoryExport] Export complete for:', wallet.address);
+        if (import.meta.env.DEV) {
+            console.log('[MandatoryExport] Export complete for:', wallet.address);
+        }
 
         // Mark as loading
         setWalletStates(prev => prev.map(ws =>
@@ -84,9 +88,13 @@ export const MandatoryExportModal: React.FC = () => {
         try {
             // Record in database
             await walletExportApi.recordExport(wallet.address, wallet.chainType || 'ethereum');
-            console.log('[MandatoryExport] Recorded to database');
+            if (import.meta.env.DEV) {
+                console.log('[MandatoryExport] Recorded to database');
+            }
         } catch (error) {
-            console.error('[MandatoryExport] Failed to record to DB:', error);
+            if (import.meta.env.DEV) {
+                console.error('[MandatoryExport] Failed to record to DB:', error);
+            }
             // Continue anyway - don't block user forever
         }
 

@@ -116,7 +116,7 @@ export const TradePage: React.FC = () => {
           <Dialog
             isOpen={!!editingStrategy}
             onClose={() => setEditingStrategy(null)}
-            title="编辑策略"
+            title="Edit Strategy"
           >
             <StrategyEditForm
               config={editingStrategy.copyTradeConfig}

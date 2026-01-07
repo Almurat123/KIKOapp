@@ -10,11 +10,11 @@
 
 import { FastifyInstance } from 'fastify';
 import { getTrendingCasts, searchCasts, hybridSearchCasts } from '../repositories/socialRepository.js';
+import { getQualityUsersStats } from '../repositories/qualityUsersRepository.js';
 import { env } from '../config/env.js';
 import snapchainService from '../services/snapchainService.js';
 import { ogpService } from '../services/ogpService.js';
-import { AppError, handleDatabaseError, handleExternalApiError } from '../middleware/errorHandler.js';
-import { validateLimit } from '../utils/validation.js';
+import { handleDatabaseError, handleExternalApiError } from '../middleware/errorHandler.js';
 
 export async function socialRoutes(fastify: FastifyInstance) {
   // GET /api/social/trending
@@ -246,92 +246,11 @@ export async function socialRoutes(fastify: FastifyInstance) {
   // Get statistics about quality users (followers distribution)
   fastify.get('/quality-users/stats', async (request, reply) => {
     try {
-      const { pool } = await import('../db/connection.js');
-
-      // Get total count
-      const totalResult = await pool.query(`
-        SELECT COUNT(*) as total
-        FROM quality_farcaster_users
-        WHERE is_active = TRUE
-      `);
-      const total = parseInt(totalResult.rows[0].total);
-
-      // Count users with followers >= 5K
-      const over5kResult = await pool.query(`
-        SELECT COUNT(*) as count
-        FROM quality_farcaster_users
-        WHERE is_active = TRUE 
-          AND followers >= 5000
-      `);
-      const over5k = parseInt(over5kResult.rows[0].count);
-
-      // Count users with followers >= 8K
-      const over8kResult = await pool.query(`
-        SELECT COUNT(*) as count
-        FROM quality_farcaster_users
-        WHERE is_active = TRUE 
-          AND followers >= 8000
-      `);
-      const over8k = parseInt(over8kResult.rows[0].count);
-
-      // Get distribution by followers ranges
-      const distributionResult = await pool.query(`
-        SELECT 
-          CASE 
-            WHEN followers >= 10000 THEN '10K+'
-            WHEN followers >= 8000 THEN '8K-10K'
-            WHEN followers >= 5000 THEN '5K-8K'
-            WHEN followers >= 1000 THEN '1K-5K'
-            WHEN followers >= 100 THEN '100-1K'
-            WHEN followers >= 10 THEN '10-100'
-            ELSE '<10'
-          END as range,
-          COUNT(*) as count
-        FROM quality_farcaster_users
-        WHERE is_active = TRUE
-        GROUP BY 
-          CASE 
-            WHEN followers >= 10000 THEN '10K+'
-            WHEN followers >= 8000 THEN '8K-10K'
-            WHEN followers >= 5000 THEN '5K-8K'
-            WHEN followers >= 1000 THEN '1K-5K'
-            WHEN followers >= 100 THEN '100-1K'
-            WHEN followers >= 10 THEN '10-100'
-            ELSE '<10'
-          END
-      `);
-
-      // Sort distribution in application layer
-      const rangeOrder: { [key: string]: number } = {
-        '10K+': 1,
-        '8K-10K': 2,
-        '5K-8K': 3,
-        '1K-5K': 4,
-        '100-1K': 5,
-        '10-100': 6,
-        '<10': 7,
-      };
-
-      const distribution = distributionResult.rows
-        .map((row: any) => ({
-          range: row.range,
-          count: parseInt(row.count),
-          percentage: total > 0 ? ((parseInt(row.count) / total) * 100).toFixed(1) : '0.0',
-        }))
-        .sort((a, b) => (rangeOrder[a.range] || 99) - (rangeOrder[b.range] || 99));
+      const stats = await getQualityUsersStats();
 
       return reply.send({
         success: true,
-        data: {
-          total,
-          over5k,
-          over8k,
-          percentages: {
-            over5k: total > 0 ? ((over5k / total) * 100).toFixed(1) : '0.0',
-            over8k: total > 0 ? ((over8k / total) * 100).toFixed(1) : '0.0',
-          },
-          distribution,
-        },
+        data: stats,
       });
     } catch (error: any) {
       console.error('[SocialRoute] Error getting quality users stats:', error);

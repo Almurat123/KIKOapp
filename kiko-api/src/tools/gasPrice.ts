@@ -55,21 +55,52 @@ export const GetGasPriceTool: Tool = {
             console.log(`[GetGasPrice] Falling back to Etherscan/Blockscan for ${chain}`);
             const gasData = await etherscan.getGasPrice(chain);
 
-            if (!gasData) {
-                return { error: `Failed to fetch gas price for ${chain}.` };
+            if (gasData) {
+                return {
+                    source: 'Etherscan/Blockscan',
+                    chain: chain,
+                    safe: `${gasData.safeGasPrice} Gwei`,
+                    standard: `${gasData.proposeGasPrice} Gwei`,
+                    fast: `${gasData.fastGasPrice} Gwei`,
+                    baseFee: `${gasData.suggestBaseFee} Gwei`
+                };
             }
 
-            return {
-                source: 'Etherscan/Blockscan',
-                chain: chain,
-                safe: `${gasData.safeGasPrice} Gwei`,
-                standard: `${gasData.proposeGasPrice} Gwei`,
-                fast: `${gasData.fastGasPrice} Gwei`,
-                baseFee: `${gasData.suggestBaseFee} Gwei`
-            };
+            // 3. Fallback to RPC
+            console.log(`[GetGasPrice] Etherscan failed, trying RPC fallback for ${chain}`);
+            try {
+                const { getGasPrice } = await import('../services/rpcManager.js');
+                const gasPriceWei = await getGasPrice(chain);
+                const gasPriceGwei = (parseInt(gasPriceWei) / 1e9).toFixed(2);
+
+                return {
+                    source: 'Public RPC',
+                    chain: chain,
+                    standard: `${gasPriceGwei} Gwei`,
+                    note: 'Estimated from current network gas price.'
+                };
+            } catch (rpcError: any) {
+                console.error('[GetGasPrice] RPC fallback failed:', rpcError.message);
+
+                // 4. Final Fallback (Hardcoded estimation to prevent tool failure)
+                console.log(`[GetGasPrice] Using hardcoded fallback for ${chain}`);
+                return {
+                    source: 'Estimation (Fallback)',
+                    chain: chain,
+                    standard: '20.00 Gwei',
+                    note: 'Could not fetch real-time data. This is a conservative estimate.'
+                };
+            }
+
         } catch (error: any) {
             console.error('[GetGasPrice] Error:', error);
-            return { error: 'Failed to fetch gas price' };
+            // Even in outer catch, return something safe
+            return {
+                source: 'Emergency Fallback',
+                chain: args.chain || 'eth',
+                standard: 'Unknown',
+                error: 'Service temporarily unavailable'
+            };
         }
     }
 };

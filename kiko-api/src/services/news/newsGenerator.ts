@@ -1,4 +1,4 @@
-import { prisma } from '../../lib/prisma.js';
+import { prisma } from '../../db/prisma.js';
 import { collectTrendingTokens } from './trendingCollector.js';
 import { generateCoverImage } from './coverImageGenerator.js';
 import { reviewContent } from './contentReviewer.js';

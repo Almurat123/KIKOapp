@@ -57,11 +57,11 @@ export const CHAINS: Record<number, ChainConfig> = {
         },
         apiUrl: process.env.ALCHEMY_BASE_URL // Reuse existing env var for Alchemy
     },
-    // Binance Smart Chain (BNB)
+    // BNB Smart Chain
     56: {
         id: 56,
         name: 'BNB Smart Chain',
-        rpcUrl: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+        rpcUrl: process.env.BSC_RPC_URL || 'https://binance.llamarpc.com',
         nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
         wrappedNativeAddress: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', // WBNB
         stablecoins: [

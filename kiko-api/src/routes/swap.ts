@@ -22,6 +22,7 @@ import {
     getSolanaPrice,
     normalizeSolanaTokenAddress,
     type SolanaQuote,
+    type SolanaPrice,
 } from '../services/solanaSwap.js';
 import { getBestQuote } from '../services/quoteService.js';
 import { getSolanaTokenMetadata } from '../utils/solanaToken.js';
@@ -242,7 +243,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
             }
 
             // 验证金额和链ID
-            validateAmount(amountIn, 'amountIn');
+            validateAmount(amountIn);
             const validatedChainId = validateChainId(chainId);
 
             // Handle Solana (chainId 900) separately - skip EVM address validation
@@ -863,7 +864,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     }
                 }
 
-                validateAmount(resolvedAmountIn, 'amountIn');
+                validateAmount(resolvedAmountIn);
 
                 // Handle Solana separately using launchpad service
                 if (validatedChainId === 900) {
@@ -900,7 +901,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     console.log('[Swap Execute Instant] Standard Solana token, using Jupiter aggregator...');
 
                     const { executeSolanaSwap } = await import('../services/solanaExecutor.js');
-                    const { getSolanaTokenMetadata } = await import('../services/solanaSwap.js');
+                    const { getSolanaTokenMetadata } = await import('../utils/solanaToken.js');
 
                     // Get metadata to determine decimals (Jupiter quote needs atomic units)
                     const metadata = await getSolanaTokenMetadata(tokenOut);
@@ -1368,7 +1369,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
             if (tokenOut !== '0x0000000000000000000000000000000000000000') {
                 validateAddress(tokenOut, 'tokenOut');
             }
-            validateAmount(amountIn, 'amountIn');
+            validateAmount(amountIn);
             validateChainId(chainId);
 
             // 生成交易 ID
@@ -1523,7 +1524,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
             // 验证地址格式
             validateAddress(userAddress, 'userAddress');
             validateAddress(tokenAddress, 'tokenAddress');
-            validateAmount(requiredAmount, 'requiredAmount');
+            validateAmount(requiredAmount);
             validateChainId(chainId);
 
             // TODO: 实际应该查询区块链合约的 allowance

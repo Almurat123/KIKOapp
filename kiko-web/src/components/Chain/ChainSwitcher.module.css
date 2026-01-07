@@ -1,19 +1,29 @@
 .container {
     position: relative;
     z-index: 50;
+    min-width: 180px;
+    /* Set consistent width for the whole component */
 }
 
 .trigger {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    /* Ensure content spans width */
+    width: 100%;
+    /* Fill container */
     gap: 8px;
-    padding: 8px 12px;
+    padding: 0 12px;
+    height: 40px;
+    /* Enforce consistent height */
     background: #27272a;
     border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
+    border-radius: 12px;
+    /* Match Settings button radius if needed */
     cursor: pointer;
     color: #f4f4f5;
-    font-size: 13px;
+    font-size: 14px;
+    /* Slightly larger font */
     font-weight: 500;
     transition: all 0.2s;
 }
@@ -62,7 +72,8 @@
     top: 100%;
     right: 0;
     margin-top: 6px;
-    width: 200px;
+    width: 100%;
+    /* Match container width */
     background: #18181b;
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 12px;
@@ -84,6 +95,7 @@
     justify-content: space-between;
     width: 100%;
     padding: 10px 12px;
+    /* Extra compact padding */
     background: transparent;
     border: none;
     cursor: pointer;
@@ -110,8 +122,14 @@
 }
 
 .selected {
-    background: var(--text-primary);
-    color: var(--bg-primary);
+    /* Persistent hover style for selected items */
+    background: #27272a;
+    color: #f4f4f5;
+}
+
+:global(.light) .selected {
+    background: #f3f4f6;
+    color: #18181b;
 }
 
 .optionContent {
@@ -121,7 +139,8 @@
 }
 
 .check {
-    color: var(--accent-primary, #3b82f6);
+    /* Reverse logic: Use text color (white/black) instead of accent color */
+    color: inherit;
 }
 
 @keyframes fadeIn {

@@ -4,6 +4,8 @@ import { usePrivy } from '@privy-io/react-auth';
 import { Dialog } from '../Dialog/Dialog';
 import { CustomSelect } from './CustomSelect';
 import { getUserSettings, saveUserSettings } from '../../services/userSettingsApi';
+import { logger } from '../../utils/logger';
+import clsx from 'clsx';
 import styles from './CustomAISettingsModal.module.css';
 
 export interface CustomAISettings {
@@ -47,15 +49,6 @@ const DEFAULT_SETTINGS: CustomAISettings = {
     fastSwapMode: false,
 };
 
-const AI_ROLE_OPTIONS = [
-    { value: 'default', label: 'Default' },
-    { value: 'crypto_analyst', label: 'Crypto Analyst' },
-    { value: 'defi_expert', label: 'DeFi Expert' },
-    { value: 'nft_collector', label: 'NFT Collector' },
-    { value: 'auditor', label: 'Smart Contract Auditor' },
-    { value: 'auditor', label: 'Smart Contract Auditor' },
-];
-
 const USER_ROLE_OPTIONS = [
     { value: 'default', label: 'Default' },
     { value: 'beginner', label: 'Beginner' },
@@ -91,15 +84,12 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
 }) => {
     const { getAccessToken, authenticated } = usePrivy();
     const [settings, setSettings] = useState<CustomAISettings>(DEFAULT_SETTINGS);
-    const [loading, setLoading] = useState(false);
-    const [saving, setSaving] = useState(false);
 
 
     // Load settings from API on mount
     useEffect(() => {
         if (isOpen && authenticated) {
             const loadSettings = async () => {
-                setLoading(true);
                 try {
                     const token = await getAccessToken();
                     if (token) {
@@ -109,7 +99,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                         }
                     }
                 } catch (e) {
-                    console.warn('Failed to load custom AI settings:', e);
+                    logger.warn('Failed to load custom AI settings:', e);
                     // Fallback to localStorage for backwards compatibility
                     try {
                         const saved = localStorage.getItem('kiko-custom-ai-settings');
@@ -117,8 +107,6 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                             setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(saved) });
                         }
                     } catch { /* ignore */ }
-                } finally {
-                    setLoading(false);
                 }
             };
             loadSettings();
@@ -130,13 +118,12 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(saved) });
                 }
             } catch (e) {
-                console.warn('Failed to load custom AI settings:', e);
+                logger.warn('Failed to load custom AI settings:', e);
             }
         }
     }, [isOpen, authenticated, getAccessToken]);
 
     const handleSave = async () => {
-        setSaving(true);
         try {
             if (authenticated) {
                 const token = await getAccessToken();
@@ -150,9 +137,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
             window.dispatchEvent(new CustomEvent('kiko-custom-ai-changed', { detail: settings }));
             onClose();
         } catch (e) {
-            console.error('Failed to save custom AI settings:', e);
-        } finally {
-            setSaving(false);
+            logger.error('Failed to save custom AI settings:', e);
         }
     };
 
@@ -195,9 +180,9 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                 <div className={styles.section}>
                     <div className={styles.sectionTitle}>⚡ Fast Swap Mode</div>
                     <div className={styles.headerRow}>
-                        <div className={styles.headerTitle} style={{ color: settings.fastSwapMode ? '#facc15' : 'inherit' }}>
+                        <div className={clsx(styles.headerTitle, settings.fastSwapMode && styles.headerTitleActive)}>
                             Enable Fast Execution
-                            {settings.fastSwapMode && <span style={{ marginLeft: '8px', fontSize: '10px', background: 'rgba(250, 204, 21, 0.2)', color: '#facc15', padding: '2px 6px', borderRadius: '4px' }}>ON</span>}
+                            {settings.fastSwapMode && <span className={styles.onBadge}>ON</span>}
                         </div>
                         <label className={styles.toggleSwitch}>
                             <input
@@ -263,7 +248,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                             <span className={styles.slider}></span>
                         </label>
                     </div>
-                    <p className={styles.headerDesc} style={{ marginBottom: '16px' }}>
+                    <p className={clsx(styles.headerDesc, styles.headerDescWithMargin)}>
                         Let AI check token risk before swap
                     </p>
 
@@ -283,14 +268,14 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     </p>
 
                     {/* Copy Trade AI Analysis */}
-                    <div className={styles.inputGroup} style={{ marginTop: '16px' }}>
+                    <div className={clsx(styles.inputGroup, styles.inputGroupWithMargin)}>
                         <label className={styles.label}>🤖 跟单 AI 分析</label>
                         <CustomSelect
                             value={settings.copyTradeAIMode}
                             onChange={val => setSettings(prev => ({ ...prev, copyTradeAIMode: val as 'disabled' | 'analyze_only' | 'auto_decide' }))}
                             options={COPY_TRADE_AI_OPTIONS}
                         />
-                        <p className={styles.headerDesc} style={{ marginTop: '8px' }}>
+                        <p className={clsx(styles.headerDesc, styles.headerDescWithTopMargin)}>
                             {settings.copyTradeAIMode === 'disabled' && '跟单时不进行AI分析，直接执行交易'}
                             {settings.copyTradeAIMode === 'analyze_only' && 'AI分析代币风险并在Chat中通知，但不阻止交易'}
                             {settings.copyTradeAIMode === 'auto_decide' && 'AI分析后自动决定是否执行交易（安全优先）'}
@@ -311,10 +296,10 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                             options={SLIPPAGE_MODE_OPTIONS}
                         />
                         {settings.slippageMode === 'custom' && (
-                            <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div className={styles.slippageInputRow}>
                                 <input
                                     type="number"
-                                    className={styles.input}
+                                    className={clsx(styles.input, styles.slippageInput)}
                                     placeholder="0.5"
                                     step="0.1"
                                     min="0.1"
@@ -327,12 +312,11 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                                             customSlippage: val === '' ? '' : Number(val)
                                         }));
                                     }}
-                                    style={{ flex: 1 }}
                                 />
-                                <span style={{ color: 'var(--text-secondary)' }}>%</span>
+                                <span className={styles.slippagePercent}>%</span>
                             </div>
                         )}
-                        <p className={styles.headerDesc} style={{ marginTop: '8px' }}>
+                        <p className={clsx(styles.headerDesc, styles.headerDescWithTopMargin)}>
                             {settings.slippageMode === 'auto'
                                 ? 'Auto-adjusts based on liquidity, volatility, and trade size (0.1% - 5%)'
                                 : `Custom slippage: ${settings.customSlippage}%`
@@ -341,7 +325,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     </div>
 
                     {/* MEV Protection */}
-                    <div className={styles.headerRow} style={{ marginTop: '12px' }}>
+                    <div className={clsx(styles.headerRow, styles.headerRowWithMargin)}>
                         <div className={styles.headerTitle}>🛡️ MEV Protection</div>
                         <label className={styles.toggleSwitch}>
                             <input
@@ -357,7 +341,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     </p>
 
                     {/* Price Deviation Check */}
-                    <div className={styles.headerRow} style={{ marginTop: '12px' }}>
+                    <div className={clsx(styles.headerRow, styles.headerRowWithMargin)}>
                         <div className={styles.headerTitle}>📊 Price Deviation Check</div>
                         <label className={styles.toggleSwitch}>
                             <input

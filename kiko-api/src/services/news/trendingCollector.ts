@@ -2,7 +2,7 @@ import { scrapeDexScreenerTrending } from '../dexscreenerScraper.js';
 import * as dexScreener from '../dexscreener.js';
 
 // Configuration
-const CHAINS = ['base', 'solana', 'bsc'];  // Removed ETH (less "fun" tokens)
+const CHAINS = ['base', 'solana', 'bnb smart chain'];  // Removed ETH (less "fun" tokens)
 const TOKENS_PER_CHAIN = 3;  // 3 tokens per chain = 9 total
 const DURATION = '1h';  // 1h trending
 

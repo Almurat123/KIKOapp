@@ -17,9 +17,11 @@ export function validateChainId(chainId: any): number {
     return val;
 }
 
-export function validateAmount(amount: any, label?: string): string {
+export function validateAmount(amount: any): string {
     if (!amount) return '0';
-    return String(amount);
+    const val = parseFloat(amount);
+    if (isNaN(val) || val < 0) return '0';
+    return String(val);
 }
 
 export function validateNetwork(network: any, allowed: string[] = []): string {

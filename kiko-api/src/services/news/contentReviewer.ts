@@ -47,9 +47,18 @@ export function reviewContent(content: string): ReviewResult {
     // Check for prohibited content
     for (const pattern of PROHIBITED_PATTERNS) {
         if (pattern.test(content)) {
-            // Context check: If it says "Avoid scams", that's fine. 
-            // But simple keyword match first.
-            // For now, strict match.
+            // Context check: If it says "not financial advice" or "no financial advice", it's a disclaimer, not advice.
+            if (pattern.source.includes('financial advice') &&
+                (/(not|no|not intended as)\s+financial advice/i.test(content))) {
+                continue;
+            }
+
+            // Context check: If it says "Avoid scams" or "scam alerts", that's a warning, not a scam.
+            if (pattern.source === 'scam' &&
+                (/(avoid|beware of|alert|warning|report)\s+scams?/i.test(content))) {
+                continue;
+            }
+
             flagged.push(pattern.source);
         }
     }
@@ -64,8 +73,20 @@ export function reviewContent(content: string): ReviewResult {
 
     // Check for required risk disclosure
     // We expect the AI to generate "This is not financial advice" or similar
-    // Simple check: does it mention "advice"?
-    // Actually, let's just approve if no bad words for now.
+    let compliancePassed = false;
+    for (const pattern of COMPLIANCE_CHECK_PATTERNS) {
+        if (pattern.test(content)) {
+            compliancePassed = true;
+            break;
+        }
+    }
+
+    if (!compliancePassed) {
+        return {
+            approved: false,
+            reason: "Missing mandatory risk disclosure (not financial advice)"
+        };
+    }
 
     return {
         approved: true

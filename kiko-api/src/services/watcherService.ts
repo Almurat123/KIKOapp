@@ -3,7 +3,7 @@
  * Monitors tracked wallets and triggers copy trades when swaps are detected
  */
 
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
 
 // Alchemy API for Base

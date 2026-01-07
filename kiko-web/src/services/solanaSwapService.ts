@@ -6,8 +6,7 @@
 import { VersionedTransaction } from '@solana/web3.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const ALCHEMY_API_KEY = import.meta.env.VITE_ALCHEMY_API_KEY || 'demo';
-const SOLANA_RPC_URL = `https://solana-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`;
+const SOLANA_RPC_URL = `${API_BASE_URL}/api/rpc/solana`;
 
 export interface SolanaSwapParams {
   tokenIn: string;
@@ -108,11 +107,7 @@ export async function executeSolanaSwap(
     // Solana blockhashes expire after ~60-90 seconds
     try {
       const { Connection } = await import('@solana/web3.js');
-      const ALCHEMY_API_KEY = import.meta.env.VITE_ALCHEMY_API_KEY || 'demo';
-      const connection = new Connection(
-        `https://solana-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-        'confirmed'
-      );
+      const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
 
       const { blockhash } = await connection.getLatestBlockhash('finalized');
       transaction.message.recentBlockhash = blockhash;

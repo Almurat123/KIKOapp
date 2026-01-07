@@ -54,7 +54,9 @@ export const HlsVideoPlayer: React.FC<HlsVideoPlayerProps> = ({
 
             hls.on(Hls.Events.ERROR, (_, data) => {
                 if (data.fatal) {
-                    console.error('[HlsVideoPlayer] Fatal error:', data.type, data.details);
+                    if (import.meta.env.DEV) {
+                        console.error('[HlsVideoPlayer] Fatal error:', data.type, data.details);
+                    }
                     setHasError(true);
                     onError?.();
                     hls.destroy();
@@ -79,7 +81,9 @@ export const HlsVideoPlayer: React.FC<HlsVideoPlayerProps> = ({
     }, [src, onError]);
 
     const handleNativeError = () => {
-        console.error('[HlsVideoPlayer] Native video error:', src);
+        if (import.meta.env.DEV) {
+            console.error('[HlsVideoPlayer] Native video error:', src);
+        }
         setHasError(true);
         onError?.();
     };

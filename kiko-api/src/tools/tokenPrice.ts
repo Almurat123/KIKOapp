@@ -1,16 +1,16 @@
 import { Tool } from './registry.js';
-import * as binance from '../services/binance.js';
+import * as coinbase from '../services/coinbase.js';
 
 export const GetTokenPriceTool: Tool = {
     definition: {
         name: 'get_token_price',
-        description: 'Get real-time price for mainstream cryptocurrencies (BTC, ETH, SOL, BNB, etc.). Uses Binance with CoinGecko fallback.',
+        description: 'Get real-time price for mainstream cryptocurrencies (BTC, ETH, SOL, USDC, etc.). Uses Coinbase with CoinGecko fallback.',
         parameters: {
             type: 'object',
             properties: {
                 symbol: {
                     type: 'string',
-                    description: 'Token symbol (e.g., BTC, ETH, SOL, BNB, DOGE). Case insensitive.',
+                    description: 'Token symbol (e.g., BTC, ETH) or contract address (0x..., Solana mint). Case insensitive.',
                 }
             },
             required: ['symbol']
@@ -19,30 +19,46 @@ export const GetTokenPriceTool: Tool = {
     handler: async (args) => {
         try {
             const { symbol } = args;
-            console.log(`[GetTokenPrice] Fetching price for ${symbol}...`);
+            const isAddress = (symbol.startsWith('0x') && symbol.length === 42) || (symbol.length > 40 && !symbol.startsWith('0x'));
 
-            // 1. Try Binance
+            console.log(`[GetTokenPrice] Fetching price for ${symbol} (isAddress: ${isAddress})...`);
+
+            if (isAddress) {
+                const { findTokenOnAnyChain } = await import('../services/ai/tokenDetector.js');
+                const tokenInfo = await findTokenOnAnyChain(symbol);
+                if (tokenInfo && tokenInfo.price) {
+                    return {
+                        symbol: tokenInfo.symbol,
+                        name: tokenInfo.name,
+                        address: tokenInfo.address,
+                        chain: tokenInfo.chainName,
+                        price: `$${tokenInfo.price < 0.01 ? tokenInfo.price.toFixed(8) : tokenInfo.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`,
+                        priceRaw: tokenInfo.price,
+                        marketCap: tokenInfo.marketCap ? `$${tokenInfo.marketCap.toLocaleString()}` : undefined,
+                        source: 'On-Chain (DexScreener/Gecko)',
+                        timestamp: new Date().toISOString()
+                    };
+                }
+                return { error: `Could not find price for address ${symbol}` };
+            }
+
+            // 1. Try Coinbase (Symbols only)
             try {
-                const result = await binance.searchTokenPrice(symbol);
+                const result = await coinbase.searchCoinbasePrice(symbol);
                 if (result) {
                     return {
                         symbol: result.symbol,
                         price: `$${result.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`,
                         priceRaw: result.price,
-                        source: 'Binance Spot',
+                        source: 'Coinbase',
                         timestamp: new Date().toISOString()
                     };
                 }
             } catch (e) {
-                console.warn('[GetTokenPrice] Binance failed:', e);
+                console.warn('[GetTokenPrice] Coinbase failed:', e);
             }
 
-            // 2. Fallback: CoinGecko Simple Price (Mock/Fetch)
-            // Ideally we use a service wrapper, but for now we fallback to a simple fetch if possible, 
-            // or just use DexScreener if we can guess the address. 
-            // Since we only have symbol, standard CoinGecko search is needed.
-
-            // For now, let's try a simple fetch to CoinGecko public API
+            // 2. Fallback: CoinGecko
             try {
                 console.log('[GetTokenPrice] Fallback to CoinGecko...');
                 const coinListRes = await fetch(`https://api.coingecko.com/api/v3/search?query=${symbol}`);
@@ -56,7 +72,7 @@ export const GetTokenPriceTool: Tool = {
                     if (priceData[coinId]?.usd) {
                         return {
                             symbol: symbol.toUpperCase(),
-                            price: `$${priceData[coinId].usd}`,
+                            price: `$${priceData[coinId].usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`,
                             priceRaw: priceData[coinId].usd,
                             source: 'CoinGecko',
                             timestamp: new Date().toISOString()
@@ -68,7 +84,7 @@ export const GetTokenPriceTool: Tool = {
             }
 
             return {
-                error: `Could not find price for ${symbol} on Binance or CoinGecko.`
+                error: `Could not find price for ${symbol} on Coinbase or CoinGecko.`
             };
         } catch (error: any) {
             console.error('[GetTokenPrice] Error:', error);

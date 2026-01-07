@@ -3,33 +3,8 @@
  * Database operations for chat sessions, messages, and AI tasks
  */
 
-import prisma from '../lib/prisma.js';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import prisma, { withRetry } from '../db/prisma.js';
 
-// =============================================
-// Retry Logic for DB Reliability
-// =============================================
-
-/**
- * Retries a database operation if it fails with specific connection-related errors.
- * Handles P1017 (Connection closed) and P1001 (Can't reach server).
- */
-async function withRetry<T>(operation: () => Promise<T>, retries = 3, delay = 100): Promise<T> {
-    try {
-        return await operation();
-    } catch (error: any) {
-        if (
-            retries > 0 &&
-            error instanceof PrismaClientKnownRequestError &&
-            (error.code === 'P1017' || error.code === 'P1001')
-        ) {
-            console.warn(`[ChatRepo] DB connection error (${error.code}), retrying in ${delay}ms... (${retries} attempts left)`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return withRetry(operation, retries - 1, delay * 2);
-        }
-        throw error;
-    }
-}
 
 // Types (re-exported from Prisma or defined locally if needed)
 export interface ChatSession {
@@ -176,7 +151,7 @@ export async function createMessage(
             sessionId,
             role,
             content,
-            reasoningContent: options.reasoning_content || options.reasoningContent,
+            reasoningContent: options.reasoning_content,
             citations: options.citations ? JSON.stringify(options.citations) : null,
             usage: options.usage ? JSON.stringify(options.usage) : null,
             toolCalls: options.tool_calls ? JSON.stringify(options.tool_calls) : null,
@@ -222,7 +197,6 @@ export async function updateMessage(
     const data: any = {};
     if (updates.content !== undefined) data.content = updates.content;
     if (updates.reasoning_content !== undefined) data.reasoningContent = updates.reasoning_content;
-    if (updates.reasoningContent !== undefined) data.reasoningContent = updates.reasoningContent;
     if (updates.citations !== undefined) data.citations = JSON.stringify(updates.citations);
     if (updates.usage !== undefined) data.usage = JSON.stringify(updates.usage);
     if (updates.tool_calls !== undefined) data.toolCalls = JSON.stringify(updates.tool_calls);
@@ -317,11 +291,9 @@ export async function updateTaskStatus(
     if (['done', 'error', 'cancelled'].includes(status)) data.completedAt = new Date();
     if (errorMessage) data.errorMessage = errorMessage;
 
-    const task = await withRetry(async () => {
-        return prisma.aITask.update({
-            where: { id: taskId },
-            data
-        });
+    const task = await prisma.aITask.update({
+        where: { id: taskId },
+        data
     });
     return mapPrismaTask(task);
 }
@@ -365,8 +337,8 @@ export async function createChunk(
     reasoningContent?: string,
     metadata?: any
 ): Promise<any> {
-    const chunk: any = await withRetry(async () => {
-        return prisma.messageChunk.upsert({
+    return withRetry(async () => {
+        const chunk = await prisma.messageChunk.upsert({
             where: {
                 messageId_chunkIndex: {
                     messageId,
@@ -448,17 +420,15 @@ export async function createModerationLog(
     model: string | null = null
 ): Promise<void> {
     try {
-        await withRetry(async () => {
-            return prisma.moderationLog.create({
-                data: {
-                    userId,
-                    sessionId: sessionId || undefined, // Prisma often prefers undefined over null for optional relations
-                    model: model || undefined,
-                    channel,
-                    content: content.slice(0, 500), // Truncate for storage
-                    result: result
-                }
-            });
+        await prisma.moderationLog.create({
+            data: {
+                userId,
+                sessionId,
+                model,
+                channel,
+                content: content.slice(0, 500), // Truncate for storage
+                result: result
+            }
         });
     } catch (error) {
         console.error('Failed to log moderation event:', error);

@@ -8,6 +8,7 @@ import {
     getTrendingMarkets,
     searchEvents
 } from '../services/polymarket.js';
+import { requireAuth } from '../middleware/auth.js';
 
 export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
     /**
@@ -87,15 +88,16 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
      * Check if user is ready to trade on Polymarket
      * Requires: JWT auth
      */
-    fastify.get('/trading/readiness', async (request, reply) => {
+    fastify.get('/trading/readiness', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const user = (request as any).user;
-            if (!user?.privyDid) {
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
                 return reply.status(401).send({ success: false, error: 'Authentication required' });
             }
 
             const { checkTradingReadiness } = await import('../services/polymarketApprovalService.js');
-            const readiness = await checkTradingReadiness(user.privyDid);
+            const readiness = await checkTradingReadiness(privyDid);
 
             return {
                 success: true,
@@ -112,15 +114,16 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
      * Generate or retrieve API credentials for the user
      * Requires: JWT auth
      */
-    fastify.post('/trading/credentials', async (request, reply) => {
+    fastify.post('/trading/credentials', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const user = (request as any).user;
-            if (!user?.privyDid) {
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
                 return reply.status(401).send({ success: false, error: 'Authentication required' });
             }
 
             const { createOrDeriveCredentials } = await import('../services/polymarketCredService.js');
-            const result = await createOrDeriveCredentials(user.privyDid);
+            const result = await createOrDeriveCredentials(privyDid);
 
             if (!result.success) {
                 return reply.status(400).send({ success: false, error: result.error });
@@ -144,17 +147,18 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
      * Get required approval transactions for the user
      * Requires: JWT auth
      */
-    fastify.get('/trading/approvals', async (request, reply) => {
+    fastify.get('/trading/approvals', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const user = (request as any).user;
-            if (!user?.privyDid) {
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
                 return reply.status(401).send({ success: false, error: 'Authentication required' });
             }
 
             const { getCredentials } = await import('../services/polymarketCredService.js');
             const { getRequiredApprovals, POLYMARKET_CONTRACTS } = await import('../services/polymarketApprovalService.js');
 
-            const creds = await getCredentials(user.privyDid);
+            const creds = await getCredentials(privyDid);
             if (!creds) {
                 return reply.status(400).send({
                     success: false,
@@ -190,15 +194,16 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
      * Get user's Polymarket wallet address (their Privy wallet)
      * Requires: JWT auth
      */
-    fastify.get('/trading/wallet', async (request, reply) => {
+    fastify.get('/trading/wallet', { preHandler: requireAuth }, async (request, reply) => {
         try {
             const user = (request as any).user;
-            if (!user?.privyDid) {
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
                 return reply.status(401).send({ success: false, error: 'Authentication required' });
             }
 
             const { getCredentials } = await import('../services/polymarketCredService.js');
-            const creds = await getCredentials(user.privyDid);
+            const creds = await getCredentials(privyDid);
 
             if (creds) {
                 return {
@@ -212,7 +217,7 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
 
             // No credentials yet, get wallet from Privy
             const { getPolymarketWallet } = await import('../services/polymarketCredService.js');
-            const wallet = await getPolymarketWallet(user.privyDid);
+            const wallet = await getPolymarketWallet(privyDid);
 
             return {
                 success: true,
@@ -223,6 +228,205 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
             };
         } catch (error: any) {
             console.error('[Polymarket] Error getting wallet:', error);
+            return reply.status(500).send({ success: false, error: error.message });
+        }
+    });
+    /**
+     * GET /api/polymarket/trading/positions
+     * Get user's open positions on Polymarket
+     * Requires: JWT auth
+     */
+    fastify.get('/trading/positions', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            // Get wallet address (either from creds or direct from Privy)
+            const { getCredentials, getPolymarketWallet } = await import('../services/polymarketCredService.js');
+            const creds = await getCredentials(privyDid);
+
+            let walletAddress = creds?.walletAddress;
+            if (!walletAddress) {
+                walletAddress = await getPolymarketWallet(privyDid);
+            }
+
+            if (!walletAddress) {
+                return reply.status(400).send({ success: false, error: 'Could not resolve Polymarket wallet address' });
+            }
+
+            const { getWalletPositions } = await import('../services/polymarketDataService.js');
+            const positions = await getWalletPositions(walletAddress);
+
+            return {
+                success: true,
+                data: positions
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error fetching positions:', error);
+            return reply.status(500).send({
+                success: false,
+                error: error.message || 'Internal server error',
+                path: '/trading/positions'
+            });
+        }
+    });
+
+    /**
+     * GET /api/polymarket/trading/history
+     * Get user's trade history on Polymarket
+     * Requires: JWT auth
+     */
+    fastify.get('/trading/history', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            // Get wallet address (either from creds or direct from Privy)
+            const { getCredentials, getPolymarketWallet } = await import('../services/polymarketCredService.js');
+            const creds = await getCredentials(privyDid);
+
+            let walletAddress = creds?.walletAddress;
+            if (!walletAddress) {
+                walletAddress = await getPolymarketWallet(privyDid);
+            }
+
+            if (!walletAddress) {
+                return reply.status(400).send({ success: false, error: 'Could not resolve Polymarket wallet address' });
+            }
+
+            const { getWalletTrades } = await import('../services/polymarketDataService.js');
+            const trades = await getWalletTrades(walletAddress);
+
+            return {
+                success: true,
+                data: trades
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error fetching history:', error);
+            return reply.status(500).send({
+                success: false,
+                error: error.message || 'Internal server error',
+                path: '/trading/history'
+            });
+        }
+    });
+
+    /**
+     * GET /api/polymarket/trading/orders
+     * Get user's open limit orders on Polymarket
+     * Requires: JWT auth
+     */
+    fastify.get('/trading/orders', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const { getCredentials, getPolymarketWallet } = await import('../services/polymarketCredService.js');
+            const creds = await getCredentials(privyDid);
+
+            let walletAddress = creds?.walletAddress;
+            if (!walletAddress) {
+                walletAddress = await getPolymarketWallet(privyDid);
+            }
+
+            if (!walletAddress) {
+                return reply.status(400).send({ success: false, error: 'Could not resolve Polymarket wallet address' });
+            }
+
+            const { getOpenOrders } = await import('../services/polymarketDataService.js');
+            const orders = await getOpenOrders(walletAddress);
+
+            return {
+                success: true,
+                data: orders
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error fetching open orders:', error);
+            return reply.status(500).send({
+                success: false,
+                error: error.message || 'Internal server error',
+                path: '/trading/orders'
+            });
+        }
+    });
+
+    /**
+     * POST /api/polymarket/trading/order/cancel
+     * Cancel an open limit order
+     * Requires: JWT auth
+     */
+    fastify.post('/trading/order/cancel', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const { orderId } = request.body as { orderId: string };
+            if (!orderId) {
+                return reply.status(400).send({ success: false, error: 'orderId is required' });
+            }
+
+            const { cancelOrder } = await import('../services/polymarketExecutor.js');
+            const result = await cancelOrder({ orderId, userId: privyDid });
+
+            return {
+                success: result.success,
+                error: result.error
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error canceling order:', error);
+            return reply.status(500).send({ success: false, error: error.message });
+        }
+    });
+
+    /**
+     * POST /api/polymarket/trading/position/close
+     * Close (sell) an active position
+     * Requires: JWT auth
+     */
+    fastify.post('/trading/position/close', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const { positionId, currentPrice, shares } = request.body as {
+                positionId: string;
+                currentPrice?: number;
+                shares?: number;
+            };
+            if (!positionId) {
+                return reply.status(400).send({ success: false, error: 'positionId is required' });
+            }
+
+            const { closePosition } = await import('../services/polymarketExecutor.js');
+            const result = await closePosition({
+                userId: privyDid,
+                positionId,
+                currentPrice,
+                shares
+            });
+
+            return {
+                success: result.success,
+                orderId: result.orderId,
+                error: result.error
+            };
+        } catch (error: any) {
+            console.error('[Polymarket] Error closing position:', error);
             return reply.status(500).send({ success: false, error: error.message });
         }
     });

@@ -1,19 +1,15 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Check, RotateCcw, ThumbsUp, ThumbsDown, MoreHorizontal, RefreshCw, X as XIcon, ExternalLink, Zap, ChevronUp, ChevronDown } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Copy, Check, RotateCcw, ThumbsDown, MoreHorizontal, X as XIcon, ExternalLink, Zap, ChevronUp, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { SwapCardChat } from './SwapCardChat';
-// import { ListCard } from './ListCard'; // Removed
-import { StrategyCard } from './StrategyCard';
+import { StrategyCard } from '../Trade/StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { LaunchpadCard } from '../Launchpad/LaunchpadCard';
-// import { TokenCard } from './TokenCard'; // Removed
-import { useCitationPreviews, CitationRenderer } from './CitationRenderer';
-import { CitationBadge } from './CitationBadge';
+import { CitationRenderer } from './CitationRenderer';
 import { getSourceLogoProps, getSourceTitle } from '../../utils/sourceUtils';
+import { logger } from '../../utils/logger';
 import styles from './Chat.module.css';
 import type { Message } from '../../hooks/useConversations';
 
@@ -40,15 +36,7 @@ const MarkdownComponents = {
         return (
             <img
                 {...props}
-                className={styles.markdownImage}
-                style={{
-                    maxWidth: '100%',
-                    borderRadius: '8px',
-                    marginTop: '10px',
-                    marginBottom: '10px',
-                    display: 'block',
-                    cursor: 'pointer'
-                }}
+                className={clsx(styles.markdownImage, styles.markdownImageInline)}
                 onClick={() => {
                     if (props.src) {
                         window.open(props.src, '_blank');
@@ -66,15 +54,7 @@ const MarkdownComponents = {
                 <img
                     src={props.href}
                     alt={props.children?.[0] || 'Image'}
-                    className={styles.markdownImage}
-                    style={{
-                        maxWidth: '100%',
-                        borderRadius: '8px',
-                        marginTop: '10px',
-                        marginBottom: '10px',
-                        display: 'block',
-                        cursor: 'pointer'
-                    }}
+                    className={clsx(styles.markdownImage, styles.markdownImageInline)}
                     onClick={(e) => {
                         e.preventDefault();
                         window.open(props.href, '_blank');
@@ -89,8 +69,6 @@ const MarkdownComponents = {
     }
 };
 
-const REMARK_PLUGINS = [remarkGfm];
-
 // Memoized MessageBubble to prevent re-renders during streaming
 const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction, userAddress, chainId, thinkingText }) => {
     const isUser = message.role === 'user';
@@ -98,7 +76,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
     const [showCitations, setShowCitations] = useState(false);
     const [showReasoning, setShowReasoning] = useState(true); // 默认展开状态
     const { resolvedTheme } = useThemeContext();
-    const citationPreviews = useCitationPreviews(message.citations || []);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(message.content);
@@ -132,8 +109,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                         </div>
                     </div>
                 );
-            // case 'list-card': removed as per user request
-
             case 'strategy-card':
                 return (
                     <div className={styles.inlineCard}>
@@ -185,7 +160,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                 }
                 return null;
 
-            // case 'token-card': removed as per clean-up request
             default:
                 return null;
         }
@@ -219,10 +193,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                 ) : (
                                     // 思考完成：显示可展开的Thinking按钮
                                     <button
-                                        className={styles.reasoningToggle}
+                                        className={clsx(styles.reasoningToggle, styles.reasoningToggleButton)}
                                         onClick={() => setShowReasoning(!showReasoning)}
                                         title={showReasoning ? 'Collapse thinking' : 'Expand thinking'}
-                                        style={{ marginLeft: '8px', padding: 0, background: 'transparent', border: 'none', cursor: 'pointer' }}
                                     >
                                         <span className={styles.reasoningLabel}>
                                             Thinking
@@ -263,14 +236,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                             )}
                             {message.content && (
                                 <div
-                                    className={styles.markdownContent}
-                                    style={{
-                                        userSelect: 'text',
-                                        WebkitUserSelect: 'text',
-                                        MozUserSelect: 'text',
-                                        msUserSelect: 'text',
-                                        cursor: 'text'
-                                    }}
+                                    className={clsx(styles.markdownContent, styles.markdownContentSelectable)}
                                     onMouseDown={(e) => {
                                         // Allow text selection by not preventing default
                                         e.stopPropagation();
@@ -387,7 +353,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                         return (
                                             <div
                                                 key={index}
-                                                className={styles.sourceIconCircle}
+                                                className={clsx(styles.sourceIconCircle, styles.sourceIconZIndex)}
                                                 style={{ zIndex: 3 - index }}
                                             >
                                                 {logoProps.avatarUrl ? (
@@ -473,7 +439,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                         // Try to find a description/snippet
                                         const description = parsedCitation.snippet || parsedCitation.content || parsedCitation.description;
 
-                                        console.log('[MessageBubble] Sidebar citation', index, ':', {
+                                        logger.debug('[MessageBubble] Sidebar citation', index, ':', {
                                             original: citation,
                                             parsed: parsedCitation,
                                             url: validUrl,
@@ -497,7 +463,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                                     if (validUrl && validUrl.startsWith('http')) {
                                                         window.open(validUrl, '_blank', 'noopener,noreferrer');
                                                     } else {
-                                                        console.error('[MessageBubble] Invalid URL for window.open:', validUrl);
+                                                        logger.error('[MessageBubble] Invalid URL for window.open:', validUrl);
                                                     }
                                                 }}
                                             >

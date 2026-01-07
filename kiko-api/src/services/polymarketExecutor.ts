@@ -8,7 +8,7 @@
  */
 
 import { ClobClient } from '@polymarket/clob-client';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 import { PolymarketUserPosition } from './polymarketDataService.js';
 import { createLimitOrderData, buildSignedOrder, SignedOrder, getUserWalletAddress } from './polymarketOrderBuilder.js';
 import { getEmbeddedWalletInfo } from './privyWallet.js';
@@ -147,7 +147,8 @@ export interface BuyOrderParams {
 
 export interface SellOrderParams {
     userId: string;
-    positionId: string;
+    positionId?: string; // DB ID
+    assetId?: string;    // Direct asset token ID
     shares: number;
     minPrice: number;
 }
@@ -255,6 +256,7 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
 export async function placeSellOrder(params: SellOrderParams): Promise<{ success: boolean; orderId?: string; error?: string }> {
     console.log('[PolymarketExecutor] Placing SELL order:', {
         positionId: params.positionId,
+        assetId: params.assetId,
         shares: params.shares
     });
 
@@ -265,19 +267,31 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
             return { success: false, error: 'User has no Polymarket API credentials' };
         }
 
-        const position = await prisma.polymarketPosition.findUnique({
-            where: { id: params.positionId },
-            include: { user: true }
-        });
+        let assetId = params.assetId;
 
-        if (!position) {
-            return { success: false, error: 'Position not found' };
+        // If positionId provided, try to find assetId in DB
+        if (params.positionId && !assetId) {
+            // Check if positionId itself looks like an assetId
+            if (params.positionId.length > 50) {
+                assetId = params.positionId;
+            } else {
+                const position = await prisma.polymarketPosition.findUnique({
+                    where: { id: params.positionId }
+                });
+                if (position) {
+                    assetId = position.assetId;
+                }
+            }
+        }
+
+        if (!assetId) {
+            return { success: false, error: 'Asset ID or Position ID required' };
         }
 
         // Build sell order
         const orderData = createLimitOrderData({
             makerAddress: creds.walletAddress,
-            tokenId: position.assetId,
+            tokenId: assetId,
             side: 'SELL',
             price: params.minPrice > 0 ? params.minPrice : 0.01,
             size: params.shares
@@ -289,15 +303,21 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
         // Post to CLOB
         const result = await postSignedOrder(signedOrder, creds);
 
-        // Update position
-        await prisma.polymarketPosition.update({
-            where: { id: params.positionId },
-            data: {
-                status: 'closed',
-                exitReason: result.success ? 'mirror_sell' : `sell_failed: ${result.error?.slice(0, 100)}`,
-                closedAt: new Date()
+        // Update position in DB if it exists
+        if (params.positionId && params.positionId.length < 50) {
+            try {
+                await prisma.polymarketPosition.update({
+                    where: { id: params.positionId },
+                    data: {
+                        status: 'closed',
+                        exitReason: result.success ? 'manual_sell' : `sell_failed: ${result.error?.slice(0, 100)}`,
+                        closedAt: new Date()
+                    }
+                });
+            } catch (e) {
+                // Ignore update errors if not in DB
             }
-        });
+        }
 
         return result;
 
@@ -419,5 +439,155 @@ export async function handlePositionChange(
         }
     } catch (error: any) {
         console.error('[PolymarketExecutor] Error handling position change:', error);
+    }
+}
+
+/**
+ * Close Position Parameters
+ */
+export interface ClosePositionParams {
+    userId: string;
+    positionId: string;    // Could be DB ID or assetId
+    shares?: number;       // Optional, if not provided will fetch or use DB
+    currentPrice?: number; // Optional, for calculating exit value
+}
+
+/**
+ * Cancel Order Parameters
+ */
+export interface CancelOrderParams {
+    userId: string;
+    orderId: string;
+}
+
+/**
+ * Close a Polymarket position by selling all shares
+ */
+export async function closePosition(params: ClosePositionParams): Promise<{
+    success: boolean;
+    orderId?: string;
+    error?: string;
+}> {
+    console.log('[PolymarketExecutor] Closing position request:', params.positionId);
+
+    try {
+        let assetId = '';
+        let shares = params.shares || 0;
+        let dbPosition: any = null;
+
+        // 1. Try to find as a DB UUID (length is 36 for standard UUIDs)
+        if (params.positionId.length === 36 || params.positionId.includes('-')) {
+            dbPosition = await prisma.polymarketPosition.findUnique({
+                where: { id: params.positionId },
+                include: { user: true }
+            });
+
+            if (dbPosition) {
+                assetId = dbPosition.assetId;
+                if (shares <= 0) shares = dbPosition.shares;
+            }
+        }
+
+        // 2. If not found in DB or positionId IS the assetId (very long string)
+        if (!assetId) {
+            // Assume positionId is actually the assetId
+            assetId = params.positionId;
+
+            // If shares not provided, we need to fetch them from the API if possible,
+            // or return an error requiring shares.
+            if (shares <= 0) {
+                console.log('[PolymarketExecutor] Shares not provided for assetId, fetching current balance...');
+                const creds = await getUserApiCreds(params.userId);
+                if (creds) {
+                    const { getWalletPositions } = await import('./polymarketDataService.js');
+                    const positions = await getWalletPositions(creds.walletAddress);
+                    const pos = positions.find(p => p.assetId === assetId);
+                    if (pos) {
+                        shares = pos.size;
+                        console.log(`[PolymarketExecutor] Found ${shares} shares for ${assetId}`);
+                    }
+                }
+            }
+        }
+
+        if (!assetId || shares <= 0) {
+            return {
+                success: false,
+                error: !assetId ? 'Position/Asset not found' : 'No shares to sell (shares parameter required if not in DB)'
+            };
+        }
+
+        // 3. Place sell order
+        const result = await placeSellOrder({
+            userId: params.userId,
+            positionId: dbPosition ? dbPosition.id : assetId, // This field in placeSellOrder actually expects a DB ID, but we need to fix it too if it's missing
+            shares: shares,
+            minPrice: params.currentPrice || 0.01
+        });
+
+        return result;
+
+    } catch (error: any) {
+        console.error('[PolymarketExecutor] Close position failed:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Cancel a pending Polymarket order
+ */
+export async function cancelOrder(params: CancelOrderParams): Promise<{
+    success: boolean;
+    error?: string;
+}> {
+    console.log('[PolymarketExecutor] Cancelling order:', params.orderId);
+
+    try {
+        // Get user's API credentials
+        const creds = await getUserApiCreds(params.userId);
+        if (!creds) {
+            return { success: false, error: 'User has no Polymarket API credentials' };
+        }
+
+        // Build DELETE request
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const method = 'DELETE';
+        const requestPath = `/order/${params.orderId}`;
+
+        // Generate L2 HMAC signature
+        const signature = generateHmacSignature(
+            creds.apiSecret,
+            timestamp,
+            method,
+            requestPath,
+            '' // No body for DELETE
+        );
+
+        // Send cancellation request
+        const response = await fetch(`${CLOB_API}${requestPath}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+                'POLY_ADDRESS': creds.walletAddress,
+                'POLY_API_KEY': creds.apiKey,
+                'POLY_PASSPHRASE': creds.passphrase,
+                'POLY_TIMESTAMP': timestamp,
+                'POLY_SIGNATURE': signature
+            }
+        });
+
+        const result = await response.json() as { error?: string; message?: string; success?: boolean };
+
+        if (!response.ok) {
+            console.error('[PolymarketExecutor] Order cancellation failed:', result);
+            return { success: false, error: result.error || result.message || 'Cancellation failed' };
+        }
+
+        console.log('[PolymarketExecutor] Order cancelled successfully');
+        return { success: true };
+
+    } catch (error: any) {
+        console.error('[PolymarketExecutor] Cancel order failed:', error);
+        return { success: false, error: error.message };
     }
 }

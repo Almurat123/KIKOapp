@@ -129,7 +129,7 @@
     background: none;
     border: none;
     font-size: 14px;
-    color: rgba(0, 0, 0, 0.4);
+    color: #a1a1aa;
     cursor: pointer;
     padding: 8px 16px;
     border-radius: 8px;
@@ -137,16 +137,24 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
+:global(.light) .logoutButton {
+    color: #666;
+}
+
 :global(.dark) .logoutButton {
-    color: rgba(255, 255, 255, 0.4);
+    color: #a1a1aa;
 }
 
 .logoutButton:hover {
-    color: rgba(0, 0, 0, 0.8);
+    color: #f4f4f5;
+}
+
+:global(.light) .logoutButton:hover {
+    color: #1a1a1a;
 }
 
 :global(.dark) .logoutButton:hover {
-    color: rgba(255, 255, 255, 0.8);
+    color: #f4f4f5;
 }
 
 @keyframes fadeIn {

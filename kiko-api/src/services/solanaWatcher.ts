@@ -1,5 +1,5 @@
 import { Connection, PublicKey, ParsedTransactionWithMeta } from '@solana/web3.js';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 import { getSolanaConnection, SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { DecodedSwap } from './txDecoder.js';
 

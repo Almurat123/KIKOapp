@@ -35,7 +35,7 @@ export async function publishToParagraph(
         // @ts-ignore
         const post = await api.posts.create({
             title: title,
-            subtitle: 'Powered by KIKO(Grok4-1-reasoning)', // Fixed subtitle for branding
+            subtitle: process.env.PARAGRAPH_SUBTITLE || 'Powered by KIKO Intelligence', // Configurable subtitle
             markdown: markdownContent,
             publishedAt: new Date(), // Publish immediately
             sendNewsletter: false, // Don't spam while testing

@@ -1,4 +1,4 @@
-import prisma from '../lib/prisma.js';
+import prisma, { withRetry } from '../db/prisma.js';
 
 export interface FavoriteToken {
     id?: string;
@@ -27,33 +27,34 @@ export async function addFavorite(userId: string, chain: string, address: string
     try {
         // Ensure user exists first (to satisfy foreign key)
         // This handles 'demo-user' or other cases where user record might be missing
-        await prisma.user.upsert({
-            where: { id: userId },
-            update: {},
-            create: {
-                id: userId,
-                privyDid: `did:privy:${userId}`, // Dummy DID
-                // Use a pseudo-random or deterministic dummy address to avoid collision if multiple unknown users
-                walletAddress: userId === 'demo-user'
-                    ? '0x000000000000000000000000000000000000dEaD'
-                    : `0x${userId.substring(0, 40).padEnd(40, '0')}`
-            }
-        });
+        await withRetry(async () => {
+            await prisma.user.upsert({
+                where: { id: userId },
+                update: {},
+                create: {
+                    id: userId,
+                    privyDid: `did:privy:${userId}`,
+                    walletAddress: userId === 'demo-user'
+                        ? '0x000000000000000000000000000000000000dEaD'
+                        : `0x${userId.substring(0, 40).padEnd(40, '0')}`
+                }
+            });
 
-        await prisma.favoriteToken.upsert({
-            where: {
-                userId_chain_address: {
+            await prisma.favoriteToken.upsert({
+                where: {
+                    userId_chain_address: {
+                        userId,
+                        chain,
+                        address
+                    }
+                },
+                update: {},
+                create: {
                     userId,
                     chain,
                     address
                 }
-            },
-            update: {},
-            create: {
-                userId,
-                chain,
-                address
-            }
+            });
         });
         return true;
     } catch (error) {
@@ -74,13 +75,13 @@ export async function removeFavorite(userId: string, chain: string, address: str
         // Better approach: standardized input before calling this function in controller.
         // Assuming inputs are already normalized (lowercase usually).
 
-        await prisma.favoriteToken.deleteMany({
+        await withRetry(() => prisma.favoriteToken.deleteMany({
             where: {
                 userId,
                 chain: { equals: chain, mode: 'insensitive' },
                 address: { equals: address, mode: 'insensitive' }
             }
-        });
+        }));
         return true;
     } catch (error) {
         console.error('Error removing favorite:', error);
@@ -139,58 +140,53 @@ export async function isFavorite(userId: string, chain: string, address: string)
  * But wait, previous code used `pool`. If we remove `pool`, we break this.
  * Let's keep `pool` import for legacy/unmigrated tables if necessary.
  */
-import { pool } from '../db/connection.js';
 
 export async function addTokenRule(rule: TokenRule): Promise<TokenRule | null> {
-    try {
-        const result = await pool.query(
-            `INSERT INTO token_rules (user_id, chain, address, rule_type, condition_value, action, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING *`,
-            [rule.userId, rule.chain, rule.address, rule.ruleType, rule.conditionValue, rule.action, rule.isActive]
-        );
+    return withRetry(async () => {
+        const row = await prisma.tokenRule.create({
+            data: {
+                userId: rule.userId,
+                chain: rule.chain,
+                address: rule.address,
+                ruleType: rule.ruleType,
+                conditionValue: rule.conditionValue,
+                action: rule.action,
+                isActive: rule.isActive
+            }
+        });
 
-        const row = result.rows[0];
         return {
             id: row.id,
-            userId: row.user_id,
+            userId: row.userId,
             chain: row.chain,
             address: row.address,
-            ruleType: row.rule_type,
-            conditionValue: parseFloat(row.condition_value),
+            ruleType: row.ruleType,
+            conditionValue: Number(row.conditionValue),
             action: row.action,
-            isActive: row.is_active,
-            createdAt: row.created_at
+            isActive: row.isActive,
+            createdAt: row.createdAt
         };
-    } catch (error) {
-        console.error('Error adding rule:', error);
-        return null;
-    }
+    });
 }
 
 /**
  * Get rules for a user
  */
 export async function getUserRules(userId: string): Promise<TokenRule[]> {
-    try {
-        const result = await pool.query(
-            `SELECT * FROM token_rules WHERE user_id = $1 ORDER BY created_at DESC`,
-            [userId]
-        );
+    const result = await prisma.tokenRule.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' }
+    });
 
-        return result.rows.map(row => ({
-            id: row.id,
-            userId: row.user_id,
-            chain: row.chain,
-            address: row.address,
-            ruleType: row.rule_type,
-            conditionValue: parseFloat(row.condition_value),
-            action: row.action,
-            isActive: row.is_active,
-            createdAt: row.created_at
-        }));
-    } catch (error) {
-        console.error('Error getting rules:', error);
-        return [];
-    }
+    return result.map(row => ({
+        id: row.id,
+        userId: row.userId,
+        chain: row.chain,
+        address: row.address,
+        ruleType: row.ruleType,
+        conditionValue: Number(row.conditionValue),
+        action: row.action,
+        isActive: row.isActive,
+        createdAt: row.createdAt
+    }));
 }

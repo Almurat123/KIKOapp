@@ -2,7 +2,7 @@ import { fetchTransaction, fetchTransactionReceipt } from "../services/watcherSe
 import { parseSwapTransaction } from "../services/txDecoder.js";
 import { getTokenInfo } from "../services/ai/tokenDetector.js";
 import { getChainConfig } from "../config/chainConfig.js";
-import { prisma } from "../lib/prisma.js";
+import { prisma } from "../db/prisma.js";
 import { detectLaunchpadToken } from "../services/ai/launchpadDetector.js";
 import dotenv from "dotenv";
 dotenv.config();

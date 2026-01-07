@@ -4,7 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 import { fetchTransaction, fetchTransactionReceipt, isTxProcessed, markTxAsProcessed } from '../services/watcherService.js';
 import { parseSwapTransaction } from '../services/txDecoder.js';
 

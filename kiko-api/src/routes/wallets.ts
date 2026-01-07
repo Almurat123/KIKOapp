@@ -11,7 +11,7 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/', async (request: any, reply) => {
         try {
-            const userId = request.user.id;
+            const userId = request.user.sub || request.user.id;
             const wallets = await walletService.getMonitoredWallets(userId);
 
             return reply.send({
@@ -33,7 +33,7 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.post('/', async (request: any, reply) => {
         try {
-            const userId = request.user.id;
+            const userId = request.user.sub || request.user.id;
             const { address, alias, labels, chain } = request.body as any;
 
             if (!address) {
@@ -46,9 +46,9 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
             const wallet = await walletService.monitorWallet({
                 userId,
                 address,
-                alias,
-                labels,
-                chain
+                alias: alias || address.substring(0, 6),
+                labels: labels || [],
+                chain: chain || 'eth'
             });
 
             return reply.status(201).send({
@@ -69,7 +69,7 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.delete('/:id', async (request: any, reply) => {
         try {
-            const userId = request.user.id;
+            const userId = request.user.sub || request.user.id;
             const { id } = request.params as any;
 
             const success = await walletService.stopMonitoring(parseInt(id), userId);
@@ -99,7 +99,7 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/history', async (request: any, reply) => {
         try {
-            const userId = request.user.id;
+            const userId = request.user.sub || request.user.id;
             const { limit } = request.query as any;
 
             const history = await walletService.getHistory(userId, limit ? parseInt(limit) : 50);
@@ -122,7 +122,7 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/:address', async (request: any, reply) => {
         try {
-            const userId = request.user.id;
+            const userId = request.user.sub || request.user.id;
             const { address } = request.params as any;
 
             const details = await walletService.getWalletDetails(userId, address);

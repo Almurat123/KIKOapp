@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { marketApi } from '../services/api';
 import { PageContainer } from '../components/Layout/PageContainer';
+import { Skeleton } from '../components/Skeleton';
 import styles from './OverviewPage.module.css';
 import type { MarketOverview } from '../services/api';
 
@@ -543,9 +544,60 @@ export const OverviewPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className={styles.loadingContainer}>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Loading market data...</div>
-      </div>
+      <PageContainer>
+        <div className={styles.container}>
+          {/* Global Metrics Cards Skeleton */}
+          <div className={styles.grid}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className={styles.card}>
+                <Skeleton variant="text" width={120} height={16} />
+                <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', marginTop: 8 }}>
+                  <Skeleton variant="text" width={100} height={28} />
+                  <Skeleton variant="text" width={60} height={18} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Market Highlights Row Skeleton */}
+          <div className={styles.sectionGrid}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className={styles.card}>
+                <div className={styles.sectionHeader}>
+                  <Skeleton variant="text" width={120} height={20} />
+                  <Skeleton variant="rectangular" width={70} height={24} />
+                </div>
+                <div className={styles.listContainer}>
+                  {Array.from({ length: 3 }).map((_, j) => (
+                    <div key={j} className={styles.listItem} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <Skeleton variant="circular" width={20} height={20} />
+                        <Skeleton variant="circular" width={28} height={28} />
+                        <Skeleton variant="text" width={100} height={16} />
+                      </div>
+                      <Skeleton variant="text" width={60} height={16} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Macro Indicators Skeleton */}
+          <div className={styles.sectionGrid}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className={styles.card}>
+                <div className={styles.sectionHeader}>
+                  <Skeleton variant="text" width={150} height={20} />
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <Skeleton variant="text" width="100%" height={200} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </PageContainer>
     );
   }
 

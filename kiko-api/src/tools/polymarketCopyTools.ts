@@ -4,7 +4,7 @@
  */
 
 import { Tool } from './registry.js';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 import { getWalletPositions, getWalletStats } from '../services/polymarketDataService.js';
 
 /**
@@ -35,6 +35,8 @@ export const CreatePolymarketCopyConfigTool: Tool = {
     },
     handler: async (args: { target_wallet: string; bet_size_usd?: number; mirror_sell?: boolean }, context) => {
         const userId = context?.userId;
+        const walletAddress = context?.walletAddress;
+
         if (!userId) {
             throw new Error('User authentication required');
         }
@@ -43,9 +45,24 @@ export const CreatePolymarketCopyConfigTool: Tool = {
         const betSizeUsd = args.bet_size_usd || 10;
         const mirrorSell = args.mirror_sell !== false;
 
+        // Ensure user exists and get internal ID
+        let user = await prisma.user.findUnique({
+            where: { privyDid: userId },
+        });
+
+        if (!user) {
+            console.log(`[Tool] User ${userId} not found, creating new user record...`);
+            user = await prisma.user.create({
+                data: {
+                    privyDid: userId,
+                    walletAddress: walletAddress || `simulated-${Date.now()}`, // Fallback if missing
+                }
+            });
+        }
+
         // Check if config already exists
         const existingConfig = await prisma.polymarketCopyConfig.findFirst({
-            where: { userId, targetWallet }
+            where: { userId: user.id, targetWallet }
         });
 
         if (existingConfig) {
@@ -62,12 +79,17 @@ export const CreatePolymarketCopyConfigTool: Tool = {
         }
 
         // Get target's current positions for display
-        const positions = await getWalletPositions(targetWallet);
+        let positions: any[] = [];
+        try {
+            positions = await getWalletPositions(targetWallet);
+        } catch (e) {
+            console.warn('Failed to fetch target positions:', e);
+        }
 
         // Create config
         const config = await prisma.polymarketCopyConfig.create({
             data: {
-                userId,
+                userId: user.id,
                 targetWallet,
                 betSizeUsd,
                 mirrorSell,
@@ -123,11 +145,19 @@ export const ListPolymarketPositionsTool: Tool = {
             throw new Error('User authentication required');
         }
 
+        const user = await prisma.user.findUnique({
+            where: { privyDid: userId },
+        });
+
+        if (!user) {
+            return { message: "User not found within system." };
+        }
+
         const statusFilter = args.status || 'open';
 
         const positions = await prisma.polymarketPosition.findMany({
             where: {
-                userId,
+                userId: user.id, // Use internal ID
                 ...(statusFilter !== 'all' ? { status: statusFilter } : {})
             },
             orderBy: { createdAt: 'desc' },
@@ -179,29 +209,39 @@ export const GetPolymarketTraderStatsTool: Tool = {
     handler: async (args: { wallet: string }) => {
         const wallet = args.wallet.toLowerCase();
 
-        const [positions, stats] = await Promise.all([
-            getWalletPositions(wallet),
-            getWalletStats(wallet)
-        ]);
+        try {
+            const [positions, stats] = await Promise.all([
+                getWalletPositions(wallet),
+                getWalletStats(wallet)
+            ]);
 
-        // Calculate some derived stats from positions
-        const openPositions = positions.filter(p => p.size > 0);
-        const totalValue = positions.reduce((sum, p) => sum + p.currentValue, 0);
-        const totalPnl = positions.reduce((sum, p) => sum + p.pnl, 0);
+            // Calculate some derived stats from positions
+            const openPositions = positions.filter(p => p.size > 0);
+            const totalValue = positions.reduce((sum, p) => sum + p.currentValue, 0);
+            const totalPnl = positions.reduce((sum, p) => sum + p.pnl, 0);
 
-        return {
-            wallet: wallet.slice(0, 10) + '...',
-            open_positions: openPositions.length,
-            total_value: `$${totalValue.toLocaleString()}`,
-            total_pnl: `$${totalPnl.toLocaleString()}`,
-            top_positions: openPositions.slice(0, 5).map(p => ({
-                market: p.title.slice(0, 50),
-                outcome: p.outcome,
-                size: Math.floor(p.size).toLocaleString(),
-                entry: `$${p.avgPrice.toFixed(2)}`,
-                pnl: `$${p.pnl.toFixed(0)}`
-            }))
-        };
+            return {
+                wallet: wallet.slice(0, 10) + '...',
+                open_positions: openPositions.length,
+                total_value: `$${totalValue.toLocaleString()}`,
+                total_pnl: `$${totalPnl.toLocaleString()}`,
+                top_positions: openPositions.slice(0, 5).map(p => ({
+                    market: p.title.slice(0, 50),
+                    outcome: p.outcome,
+                    size: Math.floor(p.size).toLocaleString(),
+                    entry: `$${p.avgPrice.toFixed(2)}`,
+                    pnl: `$${p.pnl.toFixed(0)}`
+                }))
+            };
+        } catch (error: any) {
+            console.warn('[GetPolymarketTraderStats] Error:', error.message);
+            // Return empty/warning instead of throwing hard error for tool usage
+            return {
+                wallet: wallet,
+                note: 'Could not fetch detailed stats (API limit or invalid wallet).',
+                error: error.message
+            };
+        }
     },
     permissions: 'public'
 };

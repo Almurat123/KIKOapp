@@ -14,6 +14,7 @@ import {
     StageLayer,
     TokenIntelligenceLayer,
 } from '../../types/judgeTypes.js';
+import { isUserSizeCompatible } from './userSizeLayer.js';
 
 export interface FinalDecisionInput {
     userSizeLayer: UserSizeLayer;
@@ -84,7 +85,7 @@ export function makeFinalDecision(input: FinalDecisionInput): FinalDecisionOutpu
         input.tokenIntelligenceLayer.token_intelligence_score * 0.20
     );
 
-    const userSizeCompatibility = checkUserSizeCompatibility(
+    const userSizeCompatibility = isUserSizeCompatible(
         input.userSizeLayer,
         overallProjectRisk,
         input.liquidityLayer.slippage_estimate
@@ -169,37 +170,3 @@ export function makeFinalDecision(input: FinalDecisionInput): FinalDecisionOutpu
     };
 }
 
-/**
- * Check user size compatibility with risk
- */
-function checkUserSizeCompatibility(
-    userSizeLayer: UserSizeLayer,
-    projectRiskScore: number,
-    slippageEstimate: number
-): { compatible: boolean; warnings: string[] } {
-    const warnings: string[] = [];
-    let compatible = true;
-
-    // Check slippage tolerance
-    if (slippageEstimate > userSizeLayer.max_slippage_allowed) {
-        warnings.push(
-            `滑点 (${(slippageEstimate * 100).toFixed(1)}%) 超过容忍度 (${(userSizeLayer.max_slippage_allowed * 100).toFixed(1)}%)`
-        );
-        if (userSizeLayer.user_size_level === 'L4') {
-            compatible = false;
-        }
-    }
-
-    // Check risk tolerance
-    const projectRisk = 1 - projectRiskScore;
-    if (projectRisk > userSizeLayer.max_risk_allowed) {
-        warnings.push(
-            `项目风险 (${(projectRisk * 100).toFixed(0)}%) 超过容忍度 (${(userSizeLayer.max_risk_allowed * 100).toFixed(0)}%)`
-        );
-        if (userSizeLayer.user_size_level === 'L3' || userSizeLayer.user_size_level === 'L4') {
-            compatible = false;
-        }
-    }
-
-    return { compatible, warnings };
-}

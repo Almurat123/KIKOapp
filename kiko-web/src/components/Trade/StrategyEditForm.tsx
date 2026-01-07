@@ -11,9 +11,9 @@ interface StrategyEditFormProps {
 }
 
 const AI_ANALYSIS_OPTIONS = [
-    { value: 'disabled', label: '禁用 (最快)' },
-    { value: 'analyze_only', label: '仅分析 (Chat通知)' },
-    { value: 'auto_decide', label: 'AI自动决策' },
+    { value: 'disabled', label: 'Disabled (Fastest)' },
+    { value: 'analyze_only', label: 'Analyze Only (Chat Notify)' },
+    { value: 'auto_decide', label: 'AI Auto Decide' },
 ];
 
 export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave, onCancel }) => {
@@ -46,7 +46,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
             {/* Target Wallet - Read Only */}
             <div className={styles.section}>
                 <div className={styles.inputGroup}>
-                    <label className={styles.label}>目标钱包</label>
+                    <label className={styles.label}>Target Wallet</label>
                     <input
                         type="text"
                         value={formData.targetWallet}
@@ -60,16 +60,16 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
             {/* AI Analysis Mode */}
             <div className={styles.section}>
                 <div className={styles.inputGroup}>
-                    <label className={`${styles.label} ${styles.labelAi}`}>🤖 AI 智能分析</label>
+                    <label className={`${styles.label} ${styles.labelAi}`}>🤖 AI Analysis</label>
                     <CustomSelect
                         value={formData.aiAnalysisMode || 'disabled'}
                         onChange={(val: string) => setFormData({ ...formData, aiAnalysisMode: val as any })}
                         options={AI_ANALYSIS_OPTIONS}
                     />
                     <p className={`${styles.helperText} ${styles.helperTextAi}`}>
-                        {formData.aiAnalysisMode === 'auto_decide' && "AI将自动分析代币安全、流动性和社区情绪，然后决定是否跟单。"}
-                        {formData.aiAnalysisMode === 'analyze_only' && "AI仅分析代币风险并在聊天中发送报告，不会阻止自动跟单。"}
-                        {formData.aiAnalysisMode === 'disabled' && "不进行AI分析，监测到交易立即跟单 (速度最快)。"}
+                        {formData.aiAnalysisMode === 'auto_decide' && "AI will analyze token security, liquidity, and community sentiment, then decide whether to copy trade."}
+                        {formData.aiAnalysisMode === 'analyze_only' && "AI only analyzes token risk and sends a report in chat, won't block automatic copy trading."}
+                        {formData.aiAnalysisMode === 'disabled' && "No AI analysis, copy trade immediately upon detection (fastest)."}
                     </p>
                 </div>
             </div>
@@ -78,7 +78,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                 <div className={styles.grid}>
                     {/* Trigger Value */}
                     <div className={styles.inputGroup}>
-                        <label className={styles.label}>最小跟单金额 ($)</label>
+                        <label className={styles.label}>Min Follow Amount ($)</label>
                         <input
                             type="number"
                             value={formData.minTargetValueUsd ?? 0}
@@ -90,7 +90,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
 
                     {/* Buy Amount */}
                     <div className={styles.inputGroup}>
-                        <label className={styles.label}>我的买入金额 ($)</label>
+                        <label className={styles.label}>My Buy Amount ($)</label>
                         <input
                             type="number"
                             value={formData.buyAmountUsd}
@@ -106,7 +106,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
             <div className={styles.section}>
                 <div className={styles.grid}>
                     <div className={styles.inputGroup}>
-                        <label className={`${styles.label} ${styles.labelTp}`}>止盈 Take Profit (%)</label>
+                        <label className={`${styles.label} ${styles.labelTp}`}>TAKE PROFIT (%)</label>
                         <input
                             type="number"
                             value={formData.takeProfitPct ?? ''}
@@ -136,14 +136,14 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     className={styles.cancelBtn}
                     disabled={isSaving}
                 >
-                    取消
+                    Cancel
                 </button>
                 <button
                     type="submit"
                     className={styles.saveBtn}
                     disabled={isSaving}
                 >
-                    {isSaving ? '保存中...' : '保存修改'}
+                    {isSaving ? 'Saving...' : 'Save Changes'}
                 </button>
             </div>
         </form>

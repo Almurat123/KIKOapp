@@ -21,6 +21,7 @@ interface SendModalProps {
 export const SendModal: React.FC<SendModalProps> = ({
     isOpen,
     onClose,
+    chainId,
     tokenSymbol = 'ETH',
     tokenBalance = '0.00',
     isNative = true,
@@ -70,7 +71,44 @@ export const SendModal: React.FC<SendModalProps> = ({
         }
     }, [isOpen]);
 
+    // Handle body scroll lock and ESC key
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden';
+            
+            const handleEscape = (e: KeyboardEvent) => {
+                if (e.key === 'Escape' && step !== 'processing') {
+                    onClose();
+                }
+            };
+            
+            document.addEventListener('keydown', handleEscape);
+            return () => {
+                document.body.style.overflow = '';
+                document.removeEventListener('keydown', handleEscape);
+            };
+        }
+    }, [isOpen, onClose, step]);
+
     if (!isOpen) return null;
+
+    // Get explorer URL based on chainId
+    const getExplorerUrl = (txHash: string): string => {
+        if (isSolana) {
+            return `https://solscan.io/tx/${txHash}`;
+        }
+        if (chainId === 8453) {
+            return `https://basescan.org/tx/${txHash}`;
+        }
+        if (chainId === 56) {
+            return `https://bscscan.com/tx/${txHash}`;
+        }
+        if (chainId === 7777777) {
+            return `https://explorer.zora.energy/tx/${txHash}`;
+        }
+        // Default to Ethereum mainnet
+        return `https://etherscan.io/tx/${txHash}`;
+    };
 
     const handleNext = () => {
         setError(null);
@@ -237,7 +275,7 @@ export const SendModal: React.FC<SendModalProps> = ({
 
                             {txHash && (
                                 <a
-                                    href={`https://etherscan.io/tx/${txHash}`} // Naive explorer link
+                                    href={getExplorerUrl(txHash)}
                                     target="_blank"
                                     rel="noreferrer"
                                     className={styles.explorerLink}

@@ -13,6 +13,12 @@
  */
 
 import { env } from '../config/env.js';
+import {
+  getAssociatedTokenAddress,
+  getSolanaTokenMetadata,
+  type SolanaTokenMetadata
+} from '../utils/solanaToken.js';
+import { PublicKey } from '@solana/web3.js';
 
 export interface SolanaQuote {
   inputMint: string;
@@ -33,14 +39,6 @@ export interface SolanaPrice {
   inAmount: string;
   outAmount: string;
   priceImpact?: string;
-}
-
-export interface SolanaTokenMetadata {
-  address: string;
-  symbol: string;
-  name: string;
-  decimals: number;
-  logoURI?: string;
 }
 
 // Jupiter Ultra Swap API base URLs
@@ -368,9 +366,6 @@ async function getRaydiumSwapTransaction(
     // Otherwise it returns REQ_INPUT_ACCOUT_ERROR
     if (quote.inputMint !== 'So11111111111111111111111111111111111111112' && quote.inputMint !== 'SOL') {
       try {
-        const { PublicKey } = await import('@solana/web3.js');
-        const { getAssociatedTokenAddress } = await import('../utils/solanaToken.js');
-
         const mint = new PublicKey(quote.inputMint);
         const owner = new PublicKey(userPublicKey);
         const ata = await getAssociatedTokenAddress(mint, owner);
@@ -556,76 +551,6 @@ export async function getSolanaPrice(
   }
 }
 
-/**
- * Get token metadata from Jupiter Token List
- */
-export async function getSolanaTokenMetadata(
-  tokenAddress: string
-): Promise<SolanaTokenMetadata | null> {
-  const TOKENLIST_URLS = [
-    process.env.SOLANA_TOKENLIST_URL, // optional override
-    'https://tokens.jup.ag/tokens?tags=verified', // official
-    'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json', // CDN fallback
-    'https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json', // raw fallback
-  ].filter(Boolean) as string[];
-
-  for (const url of TOKENLIST_URLS) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        console.warn(`[Solana Token Metadata] Request failed ${url}: ${response.status}`);
-        continue;
-      }
-
-      const payload = await response.json();
-      const tokens = Array.isArray(payload) ? payload : (payload as any)?.tokens || [];
-      if (!Array.isArray(tokens)) {
-        console.warn(`[Solana Token Metadata] Unexpected token list shape from ${url}`);
-        continue;
-      }
-
-      const token = tokens.find((t: any) => t?.address?.toLowerCase() === tokenAddress.toLowerCase());
-      if (!token) {
-        console.warn(`[Solana Token Metadata] Token not in list ${url}: ${tokenAddress}`);
-        continue;
-      }
-
-      const decimals = typeof token.decimals === 'number' ? token.decimals : 6;
-
-      console.log(`[Solana Token Metadata] ✓ Found token ${token.symbol} via ${url}`);
-      return {
-        address: token.address,
-        symbol: token.symbol,
-        name: token.name,
-        decimals,
-        logoURI: token.logoURI,
-      };
-    } catch (error) {
-      console.warn('[Solana Token Metadata] Source failed, trying next:', url, error);
-      continue;
-    }
-  }
-
-  console.error(`[Solana Token Metadata] No metadata found for token: ${tokenAddress}`);
-  // Fallback minimal metadata to keep flows working even without token list
-  return {
-    address: tokenAddress,
-    symbol: 'UNKNOWN',
-    name: 'Unknown Token',
-    decimals: 6,
-    logoURI: undefined,
-  };
-}
 
 /**
  * Common Solana token addresses

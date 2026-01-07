@@ -543,13 +543,14 @@ function parseDetailedIntentHeuristic(
     let tokenIn: string | undefined;
     let tokenOut: string | undefined;
     let amount: string | undefined;
+    let isSellOperation = false;
 
     // Detect swap
     if (hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
         action = 'swap';
 
         // Detect if this is a SELL operation (selling the contract address token)
-        const isSellOperation = /\b(sell|卖)\b/i.test(userMessage) && contractAddress;
+        isSellOperation = /\b(sell|卖)\b/i.test(userMessage) && !!contractAddress;
 
         // Detect native token based on chain
         const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56;
@@ -557,7 +558,7 @@ function parseDetailedIntentHeuristic(
 
         if (isSellOperation) {
             // Selling: contract address is tokenIn, native token is tokenOut
-            tokenIn = contractAddress;
+            tokenIn = contractAddress || undefined;
             tokenOut = tokenSymbols.tokenOut || nativeToken;
         } else {
             // Buying: native token is tokenIn, contract address is tokenOut
@@ -699,7 +700,7 @@ function parseDetailedIntentHeuristic(
         token_in: tokenIn,
         token_out: tokenOut,
         amount,
-        amount_asset: amount ? 'USDC' : undefined,
+        amount_asset: amount ? (isSellOperation ? tokenIn : (tokenOut || 'USDC')) : undefined,
     };
 }
 

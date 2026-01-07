@@ -1,23 +1,24 @@
 .container {
-    /* No background/padding to merge seamlessly with Dialog */
     overflow: hidden;
     color: #ffffff;
 }
 
-.header {
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.title {
-    font-size: 18px;
-    font-weight: 600;
-    color: #ffffff;
+:global(.light) .container {
+    color: #1a1a1a;
 }
 
 .section {
     margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+:global(.light) .section {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.section:last-child {
+    border-bottom: none;
 }
 
 .grid {
@@ -34,33 +35,45 @@
 }
 
 .label {
-    font-size: 12px;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.5);
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
+    font-size: 13px;
+    font-weight: 600;
+    color: #f4f4f5;
+    letter-spacing: -0.01em;
+}
+
+:global(.light) .label {
+    color: #1a1a1a;
 }
 
 .labelAi {
     color: #a78bfa;
-    /* text-purple-400 */
+}
+
+:global(.light) .labelAi {
+    color: #7c3aed;
 }
 
 .labelTp {
     color: #4ade80;
-    /* text-green-400 */
+}
+
+:global(.light) .labelTp {
+    color: #16a34a;
 }
 
 .labelSl {
     color: #ef4444;
-    /* text-red-400 */
+}
+
+:global(.light) .labelSl {
+    color: #dc2626;
 }
 
 .input {
-    background: #27272a;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
     font-size: 14px;
     color: #ffffff;
     outline: none;
@@ -68,82 +81,111 @@
     width: 100%;
 }
 
+:global(.light) .input {
+    background: #f4f4f5;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #000000;
+}
+
 .input:focus {
-    border-color: rgba(59, 130, 246, 0.5);
-    background: #27272a;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    border-color: #646cff;
+    box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.15);
 }
 
 .input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-    background: rgba(39, 39, 42, 0.5);
+}
+
+:global(.light) .input:disabled {
+    background: #f4f4f5;
+    color: #9ca3af;
 }
 
 .helperText {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
-    line-height: 1.4;
+    font-size: 13px;
+    color: #71717a;
+    line-height: 1.5;
     margin-top: 4px;
 }
 
+:global(.light) .helperText {
+    color: #52525b;
+}
+
 .helperTextAi {
-    color: rgba(167, 139, 250, 0.6);
+    color: rgba(167, 139, 250, 0.8);
+}
+
+:global(.light) .helperTextAi {
+    color: #7c3aed;
 }
 
 .actions {
     display: flex;
     justify-content: flex-end;
     gap: 12px;
-    margin-top: 32px;
+    margin-top: 24px;
     padding-top: 20px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+:global(.light) .actions {
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
 .cancelBtn {
-    padding: 8px 20px;
-    border-radius: 8px;
-    font-size: 14px;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-size: 13px;
     font-weight: 500;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.05);
     width: auto;
     min-width: 80px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #a1a1aa;
     transition: all 0.2s;
     cursor: pointer;
+}
+
+:global(.light) .cancelBtn {
+    background: #ffffff;
+    border-color: rgba(0, 0, 0, 0.08);
+    color: #52525b;
 }
 
 .cancelBtn:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.1);
     color: #ffffff;
-    border-color: rgba(255, 255, 255, 0.2);
+}
+
+:global(.light) .cancelBtn:hover {
+    background: #f4f4f5;
+    color: #1a1a1a;
 }
 
 .saveBtn {
-    padding: 8px 24px;
-    border-radius: 8px;
+    padding: 10px 24px;
+    border-radius: 10px;
     width: auto;
-    min-width: 100px;
-    font-size: 14px;
-    font-weight: 500;
-    background: #3b82f6;
-    border: 1px solid #3b82f6;
+    min-width: 120px;
+    font-size: 13px;
+    font-weight: 600;
+    background: linear-gradient(180deg, #2563eb 0%, #1a4fc7 100%);
+    border: none;
     color: #ffffff;
     transition: all 0.2s;
     cursor: pointer;
+    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.35);
 }
 
 .saveBtn:hover {
-    background: #2563eb;
-    border-color: #2563eb;
+    background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
 }
 
 .saveBtn:disabled {
     opacity: 0.7;
     cursor: wait;
 }
-
-/* Custom Select styling override if needed, or rely on CustomSelect component styles */

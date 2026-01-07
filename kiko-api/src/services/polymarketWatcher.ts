@@ -5,7 +5,7 @@
 
 import { getWalletPositions, PolymarketUserPosition, diffPositions } from './polymarketDataService.js';
 import { handlePositionChange } from './polymarketExecutor.js';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 
 // In-memory cache of target wallet positions
 const positionCache = new Map<string, PolymarketUserPosition[]>();

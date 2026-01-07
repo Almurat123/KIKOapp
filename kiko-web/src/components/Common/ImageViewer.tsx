@@ -1,8 +1,9 @@
-
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import clsx from 'clsx';
+import styles from './ImageViewer.module.css';
 
 interface ImageViewerProps {
     isOpen: boolean;
@@ -78,27 +79,11 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2 }}
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        zIndex: 99999,
-                        backgroundColor: 'rgba(0, 0, 0, 0.95)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backdropFilter: 'blur(10px)',
-                    }}
+                    className={styles.overlay}
                     onClick={onClose}
                 >
                     {/* Controls */}
-                    <div style={{
-                        position: 'absolute',
-                        top: 20,
-                        right: 20,
-                        display: 'flex',
-                        gap: 16,
-                        zIndex: 100000,
-                    }}>
+                    <div className={styles.controls}>
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -109,20 +94,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                                 link.target = '_blank';
                                 link.click();
                             }}
-                            style={{
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                border: 'none',
-                                borderRadius: '50%',
-                                width: 44,
-                                height: 44,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: 'white',
-                                cursor: 'pointer',
-                                transition: 'background 0.2s',
-                            }}
-                            className="hover:bg-white/20"
+                            className={styles.controlButton}
                         >
                             <Download size={20} />
                         </button>
@@ -131,20 +103,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                                 e.stopPropagation();
                                 onClose();
                             }}
-                            style={{
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                border: 'none',
-                                borderRadius: '50%',
-                                width: 44,
-                                height: 44,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: 'white',
-                                cursor: 'pointer',
-                                transition: 'background 0.2s',
-                            }}
-                            className="hover:bg-white/20"
+                            className={styles.controlButton}
                         >
                             <X size={24} />
                         </button>
@@ -154,25 +113,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                     {currentIndex > 0 && (
                         <button
                             onClick={handlePrev}
-                            style={{
-                                position: 'absolute',
-                                left: 20,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                border: 'none',
-                                borderRadius: '50%',
-                                width: 56,
-                                height: 56,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: 'white',
-                                cursor: 'pointer',
-                                zIndex: 100,
-                                transition: 'background 0.2s',
-                            }}
-                            className="hover:bg-white/20"
+                            className={clsx(styles.navButton, styles.navButtonLeft)}
                         >
                             <ChevronLeft size={32} />
                         </button>
@@ -180,14 +121,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
                     {/* Image Container */}
                     <div
-                        style={{
-                            width: '100%',
-                            height: '100%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: 40,
-                        }}
+                        className={styles.imageContainer}
                         onClick={(e) => e.stopPropagation()}
                     >
                         <motion.img
@@ -203,13 +137,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                                 // Swipe down to close logic
                                 if (info.offset.y > 100) onClose();
                             }}
-                            style={{
-                                maxWidth: '100%',
-                                maxHeight: '100%',
-                                objectFit: 'contain',
-                                cursor: 'grab',
-                                userSelect: 'none',
-                            }}
+                            className={styles.image}
                         />
                     </div>
 
@@ -217,25 +145,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                     {currentIndex < images.length - 1 && (
                         <button
                             onClick={handleNext}
-                            style={{
-                                position: 'absolute',
-                                right: 20,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                border: 'none',
-                                borderRadius: '50%',
-                                width: 56,
-                                height: 56,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: 'white',
-                                cursor: 'pointer',
-                                zIndex: 100,
-                                transition: 'background 0.2s',
-                            }}
-                            className="hover:bg-white/20"
+                            className={clsx(styles.navButton, styles.navButtonRight)}
                         >
                             <ChevronRight size={32} />
                         </button>
@@ -243,18 +153,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
                     {/* Counter */}
                     {images.length > 1 && (
-                        <div style={{
-                            position: 'absolute',
-                            bottom: 30,
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            background: 'rgba(0, 0, 0, 0.5)',
-                            padding: '6px 16px',
-                            borderRadius: 20,
-                            color: 'white',
-                            fontSize: 14,
-                            fontWeight: 500,
-                        }}>
+                        <div className={styles.counter}>
                             {currentIndex + 1} / {images.length}
                         </div>
                     )}

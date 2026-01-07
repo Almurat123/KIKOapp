@@ -89,10 +89,10 @@
     gap: 8px;
 }
 
-.logoIcon {
-    width: 24px;
-    height: 24px;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+.logoImage {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
     border-radius: 6px;
 }
 

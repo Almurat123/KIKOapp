@@ -13,13 +13,9 @@
 
 import cron from 'node-cron';
 import { getMarketOverview as fetchMarketOverview, getTrendingTokens as fetchTrendingTokens } from '../services/coingecko.js';
-import { getFearGreedIndex } from '../services/alternative.js';
 import { getChainsData as fetchChainsData, getProtocolsData as fetchProtocolsData, getDerivativesOpenInterest } from '../services/defillama.js';
-import { getChainMetricsFromDune } from '../services/dune.js';
 
 import { getGasLevel } from '../services/gasLevel.js';
-import { getVolatilityIndex } from '../services/volatility.js';
-import { getLiquidityStress } from '../services/liquidityStress.js';
 import { getEthGasPriceFormatted } from '../services/etherscan.js';
 import { saveMarketOverview, getMarketOverview, saveTrends, getLastUpdateTime as getMarketUpdateTime } from '../repositories/marketRepository.js';
 import { saveChainsData, getLastUpdateTime as getChainUpdateTime } from '../repositories/chainRepository.js';
@@ -57,24 +53,16 @@ export async function refreshMarketOverview(force = false): Promise<void> {
     const etherscanGas = await getEthGasPriceFormatted(env.apiKeys.etherscan).catch(() => undefined);
 
     // 2. Fetch other market data, passing etherscanGas to getGasLevel
-    const [marketData, fearGreed, openInterest, gasLevel, volatilityIndex, liquidityStress] = await Promise.all([
+    const [marketData, fearGreed, openInterest, gasLevel] = await Promise.all([
       fetchMarketOverview(env.apiKeys.coingecko).catch(() => {
         return { globalMarketCap: 0, volume24h: 0, bitcoinDominance: 0, activeUsers: undefined, ethGasPrice: undefined };
       }),
-      getFearGreedIndex().catch(() => {
-        return { value: 50, classification: 'Neutral' };
-      }),
+      Promise.resolve({ value: 50, classification: 'Neutral' }),
       getDerivativesOpenInterest().catch(() => {
         return 0;
       }),
       getGasLevel(etherscanGas).catch(() => {
         return { averageGasLevel: undefined, status: undefined, chains: [] };
-      }),
-      getVolatilityIndex(env.apiKeys.coingecko).catch(() => {
-        return { bvix: undefined, evix: undefined };
-      }),
-      getLiquidityStress().catch(() => {
-        return { stressIndex: undefined, status: undefined, description: '' };
       }),
     ]);
 
@@ -106,10 +94,6 @@ export async function refreshMarketOverview(force = false): Promise<void> {
       globalOpenInterest: openInterest,
       gasLevel: gasLevel.averageGasLevel,
       gasLevelStatus: gasLevel.status,
-      bvix: volatilityIndex.bvix,
-      evix: volatilityIndex.evix,
-      liquidityStressIndex: liquidityStress.stressIndex,
-      liquidityStressStatus: liquidityStress.status,
     });
 
     console.log('[MarketJob] ✅ Overview refreshed successfully');
@@ -124,47 +108,7 @@ export async function refreshMarketOverview(force = false): Promise<void> {
 export async function refreshChainsData(force = false): Promise<void> {
   try {
     // Check if data is already fresh in SQL (PostgreSQL-driven state)
-    if (!force) {
-      const lastUpdate = await getChainUpdateTime();
-      if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_24H_MS) {
-        console.log('[MarketJob] Chains are fresh, skipping Dune/DeFiLlama API calls');
-        return;
-      }
-    }
-    // Fetch Dune metrics if API key and query ID are available
-    let duneMetrics: Map<string, { volume24h?: number; txns24h?: number; activeWallets?: number; gasPrice?: string; contracts24h?: number; contracts7d?: number }> | undefined;
-
-    if (env.apiKeys.dune) {
-      try {
-        // Collect all query IDs to fetch
-        const allQueryIds: number[] = [];
-
-        // Chain metrics query IDs (txns, wallets, gas, volume)
-        if (process.env.DUNE_CHAIN_METRICS_QUERY_ID) {
-          const chainQueryIds = process.env.DUNE_CHAIN_METRICS_QUERY_ID
-            .split(',')
-            .map(id => parseInt(id.trim(), 10))
-            .filter(id => !isNaN(id));
-          allQueryIds.push(...chainQueryIds);
-        }
-
-        // Contracts query ID (new_contracts_24h, new_contracts_7d)
-        if (process.env.DUNE_CONTRACTS_QUERY_ID) {
-          const contractsQueryId = parseInt(process.env.DUNE_CONTRACTS_QUERY_ID.trim(), 10);
-          if (!isNaN(contractsQueryId)) {
-            allQueryIds.push(contractsQueryId);
-          }
-        }
-
-        if (allQueryIds.length > 0) {
-          duneMetrics = await getChainMetricsFromDune(env.apiKeys.dune, allQueryIds);
-        }
-      } catch (error) {
-        // Silently continue without Dune metrics
-      }
-    }
-
-    const chains = await fetchChainsData(duneMetrics);
+    const chains = await fetchChainsData();
     await saveChainsData(chains);
 
     console.log(`[MarketJob] ✅ Chains refreshed successfully: ${chains.length} chains`);

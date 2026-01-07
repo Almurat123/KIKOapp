@@ -36,6 +36,8 @@ export interface TokenSecurity {
         canDisableTrade: boolean;
         isBlacklisted: boolean;
     };
+    isProxy: boolean;
+    lpLocked: boolean;
     source: string;
     offlineSignals?: {
         alerts?: any[];
@@ -426,6 +428,8 @@ function convertRugcheckToTokenSecurity(rugcheck: Awaited<ReturnType<typeof fetc
             canDisableTrade: rugcheck.risks.some(r => r.name.toLowerCase().includes('freeze')),
             isBlacklisted: false,
         },
+        isProxy: false, // Solana programs rarely proxies in the EVM sense
+        lpLocked: rugcheck.risks.every(r => !r.name.toLowerCase().includes('liquidity')), // Crude approximation
         source: 'Rugcheck.xyz',
     };
 }
@@ -530,7 +534,7 @@ async function performLocalScan(address: string, chain: string): Promise<{
 /**
  * Parse GoPlus result into structured warnings
  */
-function analyzeRisks(data: any): { warnings: string[]; positives: string[]; riskScore: number } {
+function analyzeRisks(data: any): { warnings: string[]; positives: string[]; riskScore: number; isProxy: boolean; lpLocked: boolean } {
     const warnings: string[] = [];
     const positives: string[] = [];
     let riskScore = 0;
@@ -679,6 +683,8 @@ function analyzeRisks(data: any): { warnings: string[]; positives: string[]; ris
     return {
         warnings,
         positives,
+        isProxy: data.is_proxy === '1',
+        lpLocked: (data.lp_holders && Array.isArray(data.lp_holders)) ? data.lp_holders.some((lh: any) => lh.is_locked === 1) : false,
         riskScore: Math.max(0, Math.min(100, riskScore)),
     };
 }
@@ -914,6 +920,8 @@ export async function checkTokenSecurity(address: string, chainId: number | stri
                         canDisableTrade: false,
                         isBlacklisted: false,
                     },
+                    isProxy: false,
+                    lpLocked: false,
                     source: 'Unknown (no data)',
                 };
             }
@@ -977,6 +985,8 @@ export async function checkTokenSecurity(address: string, chainId: number | stri
                 canDisableTrade: goplusData.can_disable_trade === '1',
                 isBlacklisted: goplusData.is_blacklisted === '1',
             },
+            isProxy: goplusAnalysis.isProxy,
+            lpLocked: goplusAnalysis.lpLocked,
             source: 'GoPlus + KiKo Hybrid Scanner',
             offlineSignals: offline.offline,
             localScan: localScanResult ? {

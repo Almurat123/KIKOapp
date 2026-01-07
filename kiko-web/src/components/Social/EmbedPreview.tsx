@@ -37,7 +37,9 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                     }
                 }
             } catch (e) {
-                console.error("Failed to fetch preview", e);
+                if (import.meta.env.DEV) {
+                    console.error("Failed to fetch preview", e);
+                }
             } finally {
                 setLoading(false);
             }

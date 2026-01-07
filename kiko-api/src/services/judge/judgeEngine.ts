@@ -5,7 +5,7 @@
  * Replaces the simple copyTradeAnalysisService logic with structured multi-layer evaluation
  */
 
-import { prisma } from '../../lib/prisma.js';
+import { prisma } from '../../db/prisma.js';
 import * as dexScreener from '../dexscreener.js';
 import * as geckoTerminal from '../geckoTerminal.js';
 import { checkTokenSecurity } from '../../tools/tokenRisk.js';
@@ -201,8 +201,8 @@ async function gatherTokenData(
     const safeSecurityData: SecurityData = securityData ? {
         ...securityData,
         isMintable: securityData.details?.isMintable ?? false,
-        isProxy: false, // Default if not in TokenSecurity
-        lpLocked: false, // Default or derived elsewhere
+        isProxy: securityData.isProxy ?? false, // Now available at top level
+        lpLocked: securityData.lpLocked ?? false, // Now available at top level
     } : {
         status: 'Unknown',
         riskScore: 50,
@@ -219,7 +219,8 @@ async function gatherTokenData(
             hasRenouncedOwner: false,
             isMintable: false,
             canDisableTrade: false,
-            isBlacklisted: false
+            isBlacklisted: false,
+            // isProxy removed from details interface matching judgeTypes.ts
         },
         source: 'Unknown',
         lpLocked: false
@@ -378,7 +379,7 @@ function getChainSlug(chainId: number) {
 function getChainName(chainId: number): string {
     const names: Record<number, string> = {
         1: 'Ethereum',
-        56: 'BSC',
+        56: 'BNB Smart Chain',
         8453: 'Base',
         137: 'Polygon',
         42161: 'Arbitrum',

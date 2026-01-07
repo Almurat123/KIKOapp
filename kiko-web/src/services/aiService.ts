@@ -6,13 +6,10 @@
 import { chatCompletion, streamChatCompletion, getModelName, type DeepSeekMessage } from './deepseek';
 import { streamChatCompletion as xaiStreamChatCompletion, getXaiModelName, getRecommendedMaxTokens as getXaiRecommendedMaxTokens, type XaiMessage, type ToolConfig } from './xai';
 import { parseIntent, type Intent, type IntentType } from './intentParser';
-import { FULL_SYSTEM_PROMPT, buildContextPrompt, SAFETY_PROMPT } from '../config/aiPrompts';
+import { FULL_SYSTEM_PROMPT, buildContextPrompt, SAFETY_PROMPT, GROK_CORE_PROMPT, DEEPSEEK_CORE_PROMPT } from '../config/aiPrompts';
 import { AIApiService } from './aiApiService';
 import { AIExtendedIntentParser } from './aiExtendedIntentParser';
 import { logger } from '../utils/logger';
-
-const typesWithOwnHandlersInApi = ['TOKEN_SECURITY', 'RISK_ASSESSMENT', 'SWAP', 'CHECK_PRICE', 'TOKEN_DETAIL', 'TOKEN_CHART'];
-
 export interface StreamResponse {
   content: string;
   intent?: Intent;
@@ -60,12 +57,12 @@ export async function generateAIResponse(
     const intent = await parseIntent(userMessage, conversationId, userContext);
     logger.intent('result', { action: intent.action });
 
-    // Build system prompt with user context ONLY
-    // We do NOT inject FULL_SYSTEM_PROMPT or SAFETY_PROMPT here anymore.
-    // The backend (kiko-api) automatically injects the correct System Prompt & Safety Rules.
-    let systemPrompt = '';
+    // Build system prompt with user context
+    // Default to DeepSeek prompt for generateAIResponse as it doesn't take modelId yet
+    let systemPrompt = DEEPSEEK_CORE_PROMPT;
     if (userContext) {
-      systemPrompt = buildContextPrompt(userContext);
+      const contextPrompt = buildContextPrompt(userContext);
+      systemPrompt += contextPrompt;
     }
 
     // Build conversation context
@@ -221,7 +218,7 @@ export interface CustomAISettings {
 
 export async function* streamAIResponse(
   userMessage: string,
-  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+  conversationHistory: Array<{ role: 'user' | 'ai'; content: string }> = [],
   conversationId?: string,
   signal?: AbortSignal,
   userContext?: UserContext,
@@ -261,11 +258,24 @@ export async function* streamAIResponse(
       }
     }
 
-    // Build system prompt
-    // We send empty base string for both DeepSeek (backend proxy) and Grok (Python service).
-    // Both backends automatically inject their respective System Prompts & Safety Rules.
-    let systemPrompt = '';
+    // Check for "thinking" or Grok models to determine prompt
     const isGrokModel = (modelId ?? '').startsWith('grok-');
+
+    // Select correct system prompt based on model
+    // This resolves the "thinking mistake" issue by strictly separating personas
+    const BASE_SYSTEM_PROMPT = isGrokModel ? GROK_CORE_PROMPT : DEEPSEEK_CORE_PROMPT;
+
+    // Build system prompt with user context
+    // Note: SAFETY_PROMPT is already included in CORE_PROMPT definitions now, 
+    // but FULL_SYSTEM_PROMPT legacy usage might rely on it. 
+    // Since we are using specific CORE prompts which include SAFETY, we don't need to append it again 
+    // UNLESS we want to be doubly sure or if the CORE definitions change.
+    // Looking at aiPrompts.ts:
+    // DEEPSEEK_CORE_PROMPT = IDENTITY + SAFETY + RULES
+    // GROK_CORE_PROMPT = IDENTITY + SAFETY + RULES
+    // so we just use the BASE_SYSTEM_PROMPT.
+
+    let systemPrompt = BASE_SYSTEM_PROMPT;
 
     // Add Grok thinking mode instructions if using reasoning/thinking mode
     console.log('[aiService] Model ID:', modelId, 'Mode:', mode);

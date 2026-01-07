@@ -5,9 +5,19 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { SwapCardIntegrated } from '../Swap/SwapCardIntegrated';
-import type { SwapCardData } from './SwapCard';
+
 import { getCommonTokens } from '../../services/tokenDataService';
 import type { Token } from '../../types/swap';
+import { logger } from '../../utils/logger';
+
+export interface SwapCardData {
+  tokenIn?: any;
+  tokenOut?: any;
+  quote?: any;
+  rate?: string;
+  slippage?: any;
+  [key: string]: any;
+}
 
 interface SwapCardChatProps {
   initialData?: SwapCardData; // AI 解析的数据
@@ -126,7 +136,7 @@ function swapDataToToken(
   tokenData: SwapCardData['tokenIn'] | SwapCardData['tokenOut'],
   chainId: number
 ): Token | null {
-  console.log('[swapDataToToken] Input:', {
+  logger.debug('[swapDataToToken] Input:', {
     symbol: tokenData.symbol,
     address: tokenData.address,
     chainId,
@@ -164,7 +174,7 @@ function swapDataToToken(
       return t.symbol.toLowerCase() === tokenData.symbol.toLowerCase();
     });
 
-    console.log('[swapDataToToken] Found token:', foundToken?.symbol);
+    logger.debug('[swapDataToToken] Found token:', foundToken?.symbol);
 
     // 如果有地址，直接使用（但先规范化）
     if (tokenData.address) {
@@ -178,7 +188,7 @@ function swapDataToToken(
         logoUrl: foundToken?.logoURI, // Use logo from COMMON_TOKENS if available
         emoji: getTokenEmoji(tokenData.symbol),
       };
-      console.log('[swapDataToToken] Returning (with address):', result.symbol);
+      logger.debug('[swapDataToToken] Returning (with address):', result.symbol);
       return result;
     }
 
@@ -192,15 +202,15 @@ function swapDataToToken(
         logoUrl: foundToken.logoURI,
         emoji: getTokenEmoji(foundToken.symbol),
       };
-      console.log('[swapDataToToken] Returning (from foundToken):', result.symbol);
+      logger.debug('[swapDataToToken] Returning (from foundToken):', result.symbol);
       return result;
     }
 
     // 如果找不到，返回 null（SwapCardIntegrated 会处理）
-    console.warn('[swapDataToToken] No token found, returning null');
+    logger.warn('[swapDataToToken] No token found, returning null');
     return null;
   } catch (error) {
-    console.error('[SwapCardChat] Error converting swap data to token:', error);
+    logger.error('[SwapCardChat] Error converting swap data to token:', error);
     return null;
   }
 }
@@ -248,7 +258,7 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
     if (propChainId) return propChainId;
     // Priority 3: propChainId should always be provided from ChatInterface
     // This fallback should rarely be hit, but use propChainId or log a warning
-    console.warn('[SwapCardChat] No chainId provided in props, this should not happen');
+    logger.warn('[SwapCardChat] No chainId provided in props, this should not happen');
     return propChainId || 1; // Keep final fallback to prevent crash
   }, [initialData?.network, initialData?.tokenIn?.symbol, initialData?.tokenOut?.symbol, propChainId]);
 
@@ -322,7 +332,7 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
               if (!tokenData || tokenData.symbol === 'UNKNOWN') {
                 const globalToken = await findTokenOnAnyChain(contractAddr!);
                 if (globalToken) {
-                  console.log(`[SwapCardChat] Found token ${globalToken.symbol} on chain ${globalToken.chainId}`);
+                  logger.debug(`[SwapCardChat] Found token ${globalToken.symbol} on chain ${globalToken.chainId}`);
                   tokenData = globalToken;
                   // DON'T call setActiveChainId here - will do it after both tokens are resolved
                 }
@@ -338,7 +348,7 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
                 emoji: getTokenEmoji(tokenData.symbol),
               };
             } catch (e) {
-              console.warn('[SwapCardChat] Failed to fetch token data:', e);
+              logger.warn('[SwapCardChat] Failed to fetch token data:', e);
               // Fallback to basic info
               return {
                 address: contractAddr!,
@@ -371,11 +381,11 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
 
           setInitialTokens({ tokenIn, tokenOut, amountIn });
         } else {
-          console.warn('[SwapCardChat] Failed to convert tokens:', { tokenIn, tokenOut });
+          logger.warn('[SwapCardChat] Failed to convert tokens:', { tokenIn, tokenOut });
           setInitialTokens(null);
         }
       } catch (error) {
-        console.error('[SwapCardChat] Error initializing tokens:', error);
+        logger.error('[SwapCardChat] Error initializing tokens:', error);
         setInitialTokens(null);
       }
     };

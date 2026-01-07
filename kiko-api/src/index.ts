@@ -20,7 +20,7 @@ import { tokenRoutes } from './routes/tokens.js';
 
 import { socialRoutes } from './routes/social.js';
 import { securityRoutes } from './routes/security.js';
-import { walletRoutes } from './routes/wallet.js';
+import walletRoutes from './routes/wallets.js';
 import { swapRoutes } from './routes/swap.js';
 import { favoriteRoutes } from './routes/favorites.js';
 import copyTradeRoutes from './routes/copyTrade.js';
@@ -28,8 +28,8 @@ import webhookRoutes from './routes/webhook.js';
 import { newsRoutes } from './routes/news.js';
 import { polymarketRoutes } from './routes/polymarket.js';
 import { zoraRoutes } from './routes/zora.js';
-import testJudgeRoutes from './routes/testJudge.js';
-import { initNewsScheduler } from './cron/newsScheduler.js';
+import { rpcRoutes } from './routes/rpc.js';
+import { zoraProxyRoutes } from './routes/zora-proxy.js';
 import { initAutoTradeService } from './services/autoTradeService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
 import { isPrivyConfigured } from './services/privyWallet.js';
@@ -113,7 +113,8 @@ fastify.register(async (fastify) => {
     fastify.register(newsRoutes, { prefix: '/api/news' });
     fastify.register(polymarketRoutes, { prefix: '/api/polymarket' });
     fastify.register(zoraRoutes, { prefix: '/api/zora' });
-    fastify.register(testJudgeRoutes, { prefix: '/api/test-judge' }); // Judge Engine test routes
+    fastify.register(rpcRoutes, { prefix: '/api/rpc' });
+    fastify.register(zoraProxyRoutes, { prefix: '/api/zora-proxy' });
     registerUserRoutes(fastify); // User settings routes
 });
 
@@ -185,15 +186,6 @@ async function start() {
             console.log('✅ Chat worker started');
         } catch (chatWorkerError) {
             console.warn('⚠️  Chat worker failed to start:', chatWorkerError);
-        }
-
-        // Start News Scheduler
-        console.log('Starting news scheduler...');
-        try {
-            initNewsScheduler();
-            console.log('✅ News scheduler started');
-        } catch (newsError) {
-            console.warn('⚠️  News scheduler failed to start:', newsError);
         }
 
         // Start server

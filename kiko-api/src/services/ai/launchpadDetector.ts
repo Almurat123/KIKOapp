@@ -35,7 +35,7 @@ async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
 }
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'raydium' | 'bonkfun';
+    provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'bonkfun';
     data: any;
     chainId: number;
 }
@@ -83,46 +83,7 @@ async function getClankerToken(address: string): Promise<any | null> {
             }
         }
 
-        // 2. Fallback: On-Chain Check (Viem)
-        console.log(`[LaunchpadDetector] Clanker API missed ${address}, checking on-chain...`);
-        const baseConfig = getChainConfig(8453);
-        const client = createPublicClient({
-            chain: base,
-            transport: http(baseConfig.rpcUrl, {
-                timeout: 1500 // 1.5s timeout for RPC
-            })
-        });
-
-        // Check if Factory emitted event for this token
-        // We look for Topic2 (token address) matching our address
-        // Note: In my log analysis, Token Address was in Topic?
-        // Log 36: Topics[2] = 0xfc53... (Token)
-        // Let's assume index 2 is token address based on typical ERC721/Launcher patterns
-        // Wepad address to 32 bytes
-        const paddedAddress = address.toLowerCase().replace('0x', '0x000000000000000000000000');
-
-        const currentBlock = await client.getBlockNumber();
-        const logs = await client.getLogs({
-            address: CLANKER_FACTORY as `0x${string}`,
-            topics: [
-                CLANKER_TOPIC as `0x${string}`,
-                null, // deployer?
-                paddedAddress as `0x${string}` // token?
-            ],
-            fromBlock: currentBlock - 5000n // Only last ~5000 blocks for fallback
-        } as any);
-
-        if (logs.length > 0) {
-            console.log(`[LaunchpadDetector] ✅ Confirmed Clanker token on-chain: ${address}`);
-            return {
-                contract_address: address,
-                name: 'Clanker Token (Unindexed)',
-                symbol: 'CLANKER',
-                type: 'clanker_v4'
-            };
-        }
-
-        return null; // Not found
+        return null; // Stick to API for now to avoid false positives
     } catch (error: any) {
         console.warn(`[LaunchpadDetector] Clanker check failed for ${address}:`, error.message);
         return null;
@@ -134,11 +95,10 @@ async function getClankerToken(address: string): Promise<any | null> {
  */
 export async function getParagraphToken(address: string): Promise<any | null> {
     const paragraphApiKey = (env.apiKeys as any).paragraph || process.env.PARAGRAPH_API_KEY || '';
-    // ParagraphAPI might not have a proper constructor for types, using any cast to bypass
+    // Use SDK with empty key if not provided, or fallback to public API
     const api = new (ParagraphAPI as any)(paragraphApiKey ? { apiKey: paragraphApiKey } : {});
 
     try {
-        // @ts-ignore - SDK expects string, but types might be outdated or missing
         const coinBasic = await (api as any).getCoinByContract(address);
         if (!coinBasic || !coinBasic.id) {
             return null;
@@ -174,12 +134,10 @@ export async function getParagraphToken(address: string): Promise<any | null> {
     } catch (error: any) {
         const statusCode = error?.response?.status || error?.status || error?.statusCode;
 
-        // Return null for 404 (not found)
         if (statusCode === 404) {
             return null;
         }
 
-        // Log other errors
         console.error(`[LaunchpadDetector] Paragraph fetch failed for ${address}:`, {
             message: error?.message || error?.toString(),
             status: statusCode,
@@ -232,28 +190,60 @@ async function getFourMemeToken(address: string): Promise<any | null> {
  */
 async function getPumpFunToken(mintAddress: string): Promise<any | null> {
     try {
-        const url = `https://frontend-api-v3.pump.fun/coins/${mintAddress}`;
+        // 1. Try Official API (might be unstable)
+        const url = `https://frontend-api.pump.fun/coins/${mintAddress}`;
         const response = await fetch(
             url,
             {
-                signal: AbortSignal.timeout(10000),
+                signal: AbortSignal.timeout(3000),
                 headers: {
                     'Accept': 'application/json',
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Referer': 'https://pump.fun/',
-                    'Origin': 'https://pump.fun'
                 }
             }
         ).catch(() => null);
 
         if (response && response.ok) {
-            const text = await response.text();
-            if (text && text.trim() !== '') {
-                try {
-                    const data = JSON.parse(text);
-                    if (data && data.mint) return data;
-                } catch (e) { }
+            const data = await response.json() as any;
+            if (data && data.mint) return data;
+        }
+
+        // 2b. Try Core Frontend API v3 (POST /coins/mints) - Good for batch or stable lookup
+        try {
+            const batchUrl = 'https://frontend-api.pump.fun/coins/mints';
+            const batchRes = await fetch(batchUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                },
+                body: JSON.stringify([mintAddress]),
+                signal: AbortSignal.timeout(3000)
+            }).catch(() => null);
+
+            if (batchRes && batchRes.ok) {
+                const batchData = await batchRes.json() as any[];
+                if (batchData && batchData.length > 0 && batchData[0].mint === mintAddress) {
+                    return batchData[0];
+                }
             }
+        } catch (e) {
+            // Silently fail to next fallback
+        }
+
+        // 3. Fallback: PumpPortal.fun (Often more stable)
+        const portalUrl = `https://pumpportal.fun/api/data/token-info?ca=${mintAddress}`;
+        const portalRes = await fetch(portalUrl, {
+            signal: AbortSignal.timeout(3000)
+        }).catch(() => null);
+
+        if (portalRes && portalRes.ok) {
+            const portalData = await portalRes.json() as any;
+            if (portalData && (portalData.mint || portalData.address)) {
+                return portalData;
+            }
+        } else {
+            console.log(`[LaunchpadDetector] PumpPortal fallback failed with status ${portalRes?.status}`);
         }
 
         // Fallback: Official Raydium V3 API - Often has Pump.fun tokens indexed too
@@ -279,6 +269,17 @@ async function getPumpFunToken(mintAddress: string): Promise<any | null> {
                 }
                 console.log(`[LaunchpadDetector] Raydium fallback found token ${mintAddress} but Program ID ${token.programId} mismatch (expected Pump.fun). Ignoring.`);
             }
+        }
+
+        // 3. Suffix Heuristic fallback
+        if (mintAddress.toLowerCase().endsWith('pump')) {
+            console.log(`[LaunchpadDetector] Detected Pump.fun token via suffix: ${mintAddress}`);
+            return {
+                mint: mintAddress,
+                symbol: 'PUMP',
+                name: 'Pump.fun Token',
+                isPumpFun: true
+            };
         }
 
         return null;
@@ -315,8 +316,9 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
 
                     const isLaunchLabProgram = t.programId === 'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj';
                     const hasPlatformId = !!t.platformId || !!t.platform || (t.extensions && (t.extensions.platform === 'launchlab' || t.extensions.platform === 'bonkfun'));
+                    const hasBonkSuffix = mintAddress.toLowerCase().endsWith('bonk');
 
-                    if (isLaunchLabProgram || hasPlatformId) {
+                    if (isLaunchLabProgram || hasPlatformId || hasBonkSuffix) {
                         return {
                             mint: mintAddress, // Use input mint as canonical
                             name: t.name,
@@ -436,11 +438,10 @@ async function handleDetection(
             return { provider: 'pumpfun', data: pumpResult, chainId: 101 };
         }
 
-        // Priority 2: Raydium / BonkFun
+        // Priority 2: BonkFun (LaunchLab tokens on Raydium)
         if (rayResult) {
-            const provider = rayResult.isBonkFun ? 'bonkfun' : 'raydium';
-            DETECTION_CACHE.set(cacheKey, { result: { provider: provider, data: rayResult, chainId: 101 }, expiry: Date.now() + CACHE_TTL });
-            return { provider: provider, data: rayResult, chainId: 101 };
+            DETECTION_CACHE.set(cacheKey, { result: { provider: 'bonkfun', data: rayResult, chainId: 101 }, expiry: Date.now() + CACHE_TTL });
+            return { provider: 'bonkfun', data: rayResult, chainId: 101 };
         }
 
         return null; // Not found on either

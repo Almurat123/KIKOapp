@@ -15,11 +15,11 @@ export interface RaydiumToken {
     creator?: string;    // Mint Authority or Creator
 }
 
-const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY;
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const FALLBACK_RPCS = [
+    `${API_BASE_URL}/api/rpc/solana`,                 // Backend Solana Proxy
     'https://solana-rpc.publicnode.com',              // PublicNode (free, CORS enabled)
     'https://solana.drpc.org',                        // DRPC (free, CORS enabled)
-    HELIUS_API_KEY ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : null,
 ].filter(Boolean) as string[];
 
 // Helper to fetch data from DexScreener

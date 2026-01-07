@@ -280,10 +280,8 @@ export function useSolanaSwap({
 
       try {
         const { Connection, PublicKey } = await import('@solana/web3.js');
-        const ALCHEMY_API_KEY = import.meta.env.VITE_ALCHEMY_API_KEY;
-        const rpcUrl = ALCHEMY_API_KEY
-          ? `https://solana-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`
-          : 'https://solana-mainnet.g.alchemy.com/v2/jNbkJ6-19TQA4BESX2vmy';
+        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        const rpcUrl = `${API_BASE_URL}/api/rpc/solana`;
 
         const connection = new Connection(rpcUrl, 'confirmed');
 
@@ -540,10 +538,8 @@ export function useSolanaSwap({
               const { Connection } = await import('@solana/web3.js');
               // Use Alchemy Solana API for better reliability
               // Use Alchemy Solana API for better reliability or fallback to public RPC
-              const ALCHEMY_API_KEY = import.meta.env.VITE_ALCHEMY_API_KEY;
-              const rpcUrl = ALCHEMY_API_KEY
-                ? `https://solana-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`
-                : 'https://solana-mainnet.g.alchemy.com/v2/jNbkJ6-19TQA4BESX2vmy';
+              const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+              const rpcUrl = `${API_BASE_URL}/api/rpc/solana`;
 
               const connection = new Connection(rpcUrl, 'confirmed');
 

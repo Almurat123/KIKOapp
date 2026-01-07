@@ -7,92 +7,61 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 10px;
-    border: 1px solid;
-    border-radius: 6px;
+    padding: 10px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
     cursor: pointer;
     transition: all 0.2s ease;
     user-select: none;
-    font-size: 12px;
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #ffffff;
 }
 
-/* 深色模式 Trigger */
-.triggerDark {
-    background: #27272a;
-    border-color: rgba(255, 255, 255, 0.05);
-}
-
-/* 浅色模式 Trigger */
-.triggerLight {
+:global(.light) .trigger {
     background: #ffffff;
-    border-color: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+    color: #000000;
 }
 
 .trigger:hover {
-    border-color: var(--text-secondary);
+    border-color: #646cff;
+    background: rgba(255, 255, 255, 0.08);
 }
 
-.triggerDark:hover {
-    border-color: #a1a1aa;
-    background: #3f3f46;
-}
-
-.triggerLight:hover {
-    border-color: #52525b;
+:global(.light) .trigger:hover {
     background: #f4f4f5;
 }
 
 .triggerOpen {
     border-color: #646cff;
-    box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.2);
+    box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.15);
 }
 
 .value {
-    font-size: 12px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-/* 深色模式 Value */
-.valueDark {
-    color: #f4f4f5;
-}
-
-/* 浅色模式 Value */
-.valueLight {
-    color: #18181b;
-}
-
 .placeholder {
-    /* 占位符颜色在value中设置 */
+    color: #71717a;
 }
 
-/* 深色模式 Placeholder */
-.placeholderDark {
-    color: #a1a1aa;
-}
-
-/* 浅色模式 Placeholder */
-.placeholderLight {
+:global(.light) .placeholder {
     color: #52525b;
 }
 
 .icon {
     transition: transform 0.2s ease;
     flex-shrink: 0;
-    margin-left: 6px;
-    width: 12px;
-    height: 12px;
-}
-
-/* 深色模式 Icon */
-.iconDark {
+    margin-left: 8px;
+    width: 14px;
+    height: 14px;
     color: #a1a1aa;
 }
 
-/* 浅色模式 Icon */
-.iconLight {
+:global(.light) .icon {
     color: #52525b;
 }
 
@@ -103,70 +72,81 @@
 
 .dropdown {
     position: absolute;
-    top: calc(100% + 4px);
+    top: calc(100% + 6px);
     left: 0;
     right: 0;
-    border: 1px solid;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: rgba(39, 39, 42, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
     z-index: 100;
-    max-height: 180px;
+    max-height: 200px;
     overflow-y: auto;
-    padding: 3px;
+    padding: 6px;
 }
 
-/* 深色模式 Dropdown */
-.dropdownDark {
-    background: #27272a;
-    border-color: #3f3f46;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-/* 浅色模式 Dropdown */
-.dropdownLight {
+:global(.light) .dropdown {
     background: #ffffff;
-    border-color: #e4e4e7;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.05),
+        0 12px 24px rgba(0, 0, 0, 0.08);
 }
 
 .option {
-    padding: 6px 10px;
-    font-size: 12px;
+    padding: 10px 12px;
+    font-size: 14px;
     cursor: pointer;
-    border-radius: 4px;
-    transition: background 0.15s ease;
-}
-
-/* 深色模式 Option */
-.optionDark {
+    border-radius: 8px;
+    transition: all 0.15s ease;
     color: #f4f4f5;
-    background: transparent;
 }
 
-/* 浅色模式 Option */
-.optionLight {
-    color: #18181b;
-    background: transparent;
+:global(.light) .option {
+    color: #1a1a1a;
 }
 
-.optionDark:hover {
-    background: #3f3f46;
+.option:hover {
+    background: rgba(255, 255, 255, 0.08);
 }
 
-.optionLight:hover {
+:global(.light) .option:hover {
     background: #f4f4f5;
 }
 
 .optionSelected {
-    font-weight: 500;
-}
-
-.optionDark.optionSelected {
     background: rgba(100, 108, 255, 0.15);
     color: #818cf8;
+    font-weight: 600;
 }
 
-.optionLight.optionSelected {
+:global(.light) .optionSelected {
     background: rgba(100, 108, 255, 0.1);
     color: #646cff;
+}
+
+/* Scrollbar styling */
+.dropdown::-webkit-scrollbar {
+    width: 6px;
+}
+
+.dropdown::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.dropdown::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+:global(.light) .dropdown::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.dropdown::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+:global(.light) .dropdown::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.2);
 }

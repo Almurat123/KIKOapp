@@ -239,6 +239,22 @@ export async function getTransactionReceipt(
 }
 
 /**
+ * Get current gas price in wei
+ */
+export async function getGasPrice(chainIdOrName: number | string): Promise<string> {
+    const chainName = typeof chainIdOrName === 'number'
+        ? CHAIN_ID_TO_NAME[chainIdOrName]
+        : chainIdOrName;
+
+    if (chainName === 'solana') {
+        return '0';
+    } else {
+        const hex = await callRpc<string>(chainIdOrName, 'eth_gasPrice', []);
+        return parseInt(hex, 16).toString();
+    }
+}
+
+/**
  * Get available RPC endpoints for a chain
  */
 export function getRpcEndpoints(chainIdOrName: number | string): string[] {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Dialog } from '../Dialog/Dialog';
 import styles from './ConfirmationModal.module.css';
 
 interface ConfirmationModalProps {
@@ -22,12 +23,15 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
     cancelText = 'Cancel',
     confirmVariant = 'primary',
 }) => {
-    if (!isOpen) return null;
-
     return (
-        <div className={styles.overlay} onClick={onClose}>
-            <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-                <h3 className={styles.title}>{title}</h3>
+        <Dialog
+            isOpen={isOpen}
+            onClose={onClose}
+            title={title}
+            size="sm"
+            showCloseButton={true}
+        >
+            <div className={styles.contentWrapper}>
                 <p className={styles.message}>{message}</p>
                 <div className={styles.buttons}>
                     <button className={styles.cancelBtn} onClick={onClose}>
@@ -41,7 +45,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </Dialog>
     );
 };
 

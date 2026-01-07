@@ -35,3 +35,146 @@
 .recoveryButton:active {
     transform: scale(0.98);
 }
+
+/* Warning Modal Styles */
+.warningModalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.warningModal {
+    background: #18181b;
+    border-radius: 24px;
+    padding: 24px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3);
+    color: #f4f4f5;
+}
+
+:global(.light) .warningModal {
+    background: #ffffff;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #1a1a1a;
+}
+
+.warningIcon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.warningTitle {
+    color: #f4f4f5;
+    margin: 0 0 12px 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+:global(.light) .warningTitle {
+    color: #1a1a1a;
+}
+
+.warningMessage {
+    color: #a1a1aa;
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+    font-size: 14px;
+}
+
+:global(.light) .warningMessage {
+    color: #666;
+}
+
+.warningInputContainer {
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.warningInputLabel {
+    font-size: 12px;
+    color: #a1a1aa;
+    display: block;
+    margin-bottom: 6px;
+}
+
+:global(.light) .warningInputLabel {
+    color: #666;
+}
+
+.warningInput {
+    width: 100%;
+    padding: 12px;
+    margin: 0;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    color: #f4f4f5;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+:global(.light) .warningInput {
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    color: #1a1a1a;
+}
+
+.warningInput:focus {
+    border-color: #6366f1;
+}
+
+:global(.light) .warningInput:focus {
+    border-color: #6366f1;
+}
+
+.warningActions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.warningButton {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    flex: 1;
+    transition: all 0.2s;
+}
+
+.warningButtonCancel {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.warningButtonCancel:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.warningButtonExport {
+    background: rgba(239, 68, 68, 0.3);
+    color: rgba(255, 255, 255, 0.5);
+    cursor: not-allowed;
+}
+
+.warningButtonExportEnabled {
+    background: #ef4444;
+    color: #fff;
+    cursor: pointer;
+}
+
+.warningButtonExportEnabled:hover {
+    background: #dc2626;
+}

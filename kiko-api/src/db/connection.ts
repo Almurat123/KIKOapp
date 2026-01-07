@@ -1,6 +1,5 @@
 import { Pool } from 'pg';
-import { checkPositionsForExits } from '../services/autoTradeService.js';
-import prisma from '../lib/prisma.js';
+import prisma from './prisma.js';
 
 // PostgreSQL pool for legacy repositories (SocialJob, MarketJob, etc.)
 const postgresUrl = process.env.POSTGRES_URL || 'postgresql://almurat@localhost:5432/kiko_db';

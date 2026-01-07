@@ -8,7 +8,9 @@ import {
   Search,
   Send,
   ArrowDownLeft,
-  ArrowRightLeft
+  ArrowRightLeft,
+  MoreHorizontal,
+  ExternalLink
 } from 'lucide-react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useAccount, useBalance, useDisconnect, useChainId } from 'wagmi';
@@ -25,6 +27,7 @@ import { SwapCardIntegrated } from '../components/Swap/SwapCardIntegrated';
 import { createPortal } from 'react-dom';
 import { Settings } from 'lucide-react';
 import { getTokensData } from '../services/tokenDataService';
+import { Skeleton } from '../components/Skeleton';
 import styles from './WalletPage.module.css';
 
 // Common token addresses for different chains (Mock data for demo)
@@ -138,7 +141,7 @@ const TokenIcon = ({ src, alt, symbol, className, fallbackClassName }: { src?: s
 };
 
 export default function WalletPage() {
-  const { authenticated, ready, logout, user } = usePrivy();
+  const { authenticated, ready, logout, user, getAccessToken } = usePrivy();
   const { wallets } = useWallets();
   const { address: evmAddress, isConnected: wagmiIsConnected } = useAccount();
   const { disconnect: wagmiDisconnect } = useDisconnect();
@@ -191,16 +194,162 @@ export default function WalletPage() {
   const [solanaBalance, setSolanaBalance] = useState<bigint>(BigInt(0));
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [cachedTransactions, setCachedTransactions] = useState<WalletTransaction[]>([]);
-  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsLoading, setTransactionsLoading] = useState(true);
+
+  // New state for Assets/Orders Toggle
+  const [viewMode, setViewMode] = useState<'assets' | 'orders'>('assets');
+  const [orders, setOrders] = useState<any[]>([]); // These are actually POSITIONS
+  const [pendingOrders, setPendingOrders] = useState<any[]>([]); // These are open limit orders
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [orderHistory, setOrderHistory] = useState<any[]>([]);
+  const [orderHistoryLoading, setOrderHistoryLoading] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const balanceReqId = useRef(0);
   const txReqId = useRef(0);
+  const ordersReqId = useRef(0);
 
+  // Fetch Polymarket Orders
+  useEffect(() => {
+    if (viewMode !== 'orders' || !authenticated) return;
+
+    let cancelled = false;
+    const reqId = ++ordersReqId.current;
+
+    const fetchOrdersAndHistory = async () => {
+      setOrdersLoading(true);
+      setOrderHistoryLoading(true);
+      try {
+        const token = await getAccessToken();
+        if (!token) {
+          console.warn('No access token available');
+          return;
+        }
+
+        const headers = { 'Authorization': `Bearer ${token}` };
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+        // 1. Fetch Positions
+        console.log(`[WalletPage] Fetching positions from ${apiUrl}/api/polymarket/trading/positions`);
+        const posResponse = await fetch(`${apiUrl}/api/polymarket/trading/positions`, { headers });
+        console.log(`[WalletPage] Positions status: ${posResponse.status}`);
+        if (posResponse.ok) {
+          const res = await posResponse.json();
+          if (res.success && !cancelled && reqId === ordersReqId.current) {
+            setOrders(res.data);
+          }
+        } else {
+          const errText = await posResponse.text();
+          console.error(`[WalletPage] Positions fetch failed: ${posResponse.status}`, errText);
+        }
+
+        // 2. Fetch Pending Orders
+        console.log(`[WalletPage] Fetching pending orders from ${apiUrl}/api/polymarket/trading/orders`);
+        const pendingResponse = await fetch(`${apiUrl}/api/polymarket/trading/orders`, { headers });
+        console.log(`[WalletPage] Pending orders status: ${pendingResponse.status}`);
+        if (pendingResponse.ok) {
+          const res = await pendingResponse.json();
+          if (res.success && !cancelled && reqId === ordersReqId.current) {
+            setPendingOrders(res.data);
+          }
+        } else {
+          const errText = await pendingResponse.text();
+          console.error(`[WalletPage] Pending orders fetch failed: ${pendingResponse.status}`, errText);
+        }
+
+        // 3. Fetch History
+        console.log(`[WalletPage] Fetching history from ${apiUrl}/api/polymarket/trading/history`);
+        const histResponse = await fetch(`${apiUrl}/api/polymarket/trading/history`, { headers });
+        console.log(`[WalletPage] History status: ${histResponse.status}`);
+        if (histResponse.ok) {
+          const res = await histResponse.json();
+          if (res.success && !cancelled && reqId === ordersReqId.current) {
+            setOrderHistory(res.data);
+          }
+        } else {
+          const errText = await histResponse.text();
+          console.error(`[WalletPage] History fetch failed: ${histResponse.status}`, errText);
+        }
+
+      } catch (err) {
+        console.error('Failed to fetch Polymarket data', err);
+      } finally {
+        if (reqId === ordersReqId.current) {
+          setOrdersLoading(false);
+          setOrderHistoryLoading(false);
+        }
+      }
+    };
+
+    fetchOrdersAndHistory();
+
+    return () => { cancelled = true; };
+  }, [viewMode, authenticated, getAccessToken]);
+
+  const handleCancelOrder = async (orderId: string) => {
+    try {
+      const token = await getAccessToken();
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const response = await fetch(`${apiUrl}/api/polymarket/trading/order/cancel`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ orderId })
+      });
+      const res = await response.json();
+      if (res.success) {
+        // Refresh orders
+        setPendingOrders(prev => prev.filter(o => o.id !== orderId));
+      } else {
+        alert(`Failed to cancel: ${res.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error('Cancel failed', e);
+    }
+  };
+
+  const handleClosePosition = async (order: any) => {
+    try {
+      if (!confirm(`Are you sure you want to sell your ${order.size} shares of "${order.title}"?`)) return;
+
+      const token = await getAccessToken();
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const response = await fetch(`${apiUrl}/api/polymarket/trading/position/close`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          positionId: order.assetId,
+          currentPrice: order.currentPrice,
+          shares: order.size
+        })
+      });
+      const res = await response.json();
+      if (res.success) {
+        alert('Position close order submitted successfully!');
+        // Refresh positions
+        setOrders(prev => prev.filter(o => o.assetId !== order.assetId));
+      } else {
+        alert(`Failed to close position: ${res.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error('Close position failed', e);
+    }
+  };
 
 
   // During loading, show empty to trigger skeleton; otherwise show holdings or cached
   const displayHoldings = loading ? [] : (holdings.length ? holdings : cachedHoldings);
-  const displayTransactions = transactionsLoading ? [] : (transactions.length ? transactions : cachedTransactions);
+  const displayTransactions = useMemo(() => {
+    if (transactionsLoading) return [];
+    if (Array.isArray(transactions) && transactions.length > 0) return transactions;
+    if (Array.isArray(cachedTransactions)) return cachedTransactions;
+    return [];
+  }, [transactionsLoading, transactions, cachedTransactions]);
 
 
 
@@ -229,11 +378,11 @@ export default function WalletPage() {
         const { Connection, PublicKey } = await import('@solana/web3.js');
 
         // Try multiple RPCs (free public nodes with CORS support)
-        const HELIUS_KEY = import.meta.env.VITE_HELIUS_API_KEY;
+        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
         const endpoints = [
-          'https://solana-rpc.publicnode.com',              // PublicNode (free, CORS enabled)
-          'https://solana.drpc.org',                        // DRPC (free, CORS enabled)
-          HELIUS_KEY ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}` : null,
+          `${API_BASE_URL}/api/rpc/solana`,                 // Backend Solana Proxy
+          'https://solana-rpc.publicnode.com',              // PublicNode fallback
+          'https://solana.drpc.org',                        // DRPC fallback
         ].filter(Boolean) as string[];
 
         let balance = 0;
@@ -877,7 +1026,7 @@ export default function WalletPage() {
           <div className={styles.headerLeft}>
             <div className={styles.portfolioLabel}>Total Balance</div>
             {loading ? (
-              <div className={`${styles.skeleton} ${styles.skeletonText}`} />
+              <Skeleton variant="text" width={150} height={32} />
             ) : (
               <div className={styles.portfolioValue}>{portfolioStats.totalValue}</div>
             )}
@@ -945,15 +1094,25 @@ export default function WalletPage() {
 
         </div>
 
-        {/* Assets List */}
+        {/* Assets/Orders Section */}
         <div className={styles.assetsSection}>
           <div className={styles.sectionHeader}>
-            <div className={styles.sectionTitle}>Assets</div>
-            <div className={styles.assetsActions}>
-              <button className={styles.iconButton}>
-                <Search size={16} />
+            <div className={styles.toggleContainer}>
+              <button
+                className={`${styles.toggleButton} ${viewMode === 'assets' ? styles.active : ''}`}
+                onClick={() => setViewMode('assets')}
+              >
+                Assets
               </button>
-              {displayHoldings.length > 10 && (
+              <button
+                className={`${styles.toggleButton} ${viewMode === 'orders' ? styles.active : ''}`}
+                onClick={() => setViewMode('orders')}
+              >
+                Orders
+              </button>
+            </div>
+            <div className={styles.assetsActions}>
+              {viewMode === 'assets' && displayHoldings.length > 10 && (
                 <button
                   className={styles.ghostButton}
                   onClick={() => setShowAllAssets(prev => !prev)}
@@ -964,172 +1123,189 @@ export default function WalletPage() {
             </div>
           </div>
 
-          {error && (
+          {error && viewMode === 'assets' && (
             <div className={styles.emptyState} style={{ color: '#ef4444' }}>
               {error}
             </div>
           )}
-          {loading ? (
-            <div className={styles.cardsGrid}>
-              {/* Skeleton placeholders during loading */}
-              {[1, 2].map((i) => (
-                <div key={i} className={styles.assetCard} style={{ opacity: 0.5 }}>
-                  <div className={`${styles.skeleton} ${styles.skeletonCard}`} />
+
+          {viewMode === 'orders' ? (
+            /* Orders View (Position Cards) */
+            <div className={styles.ordersContainer}>
+              {ordersLoading ? (
+                <div className={styles.horizontalScroll}>
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className={styles.orderCard} style={{ opacity: 0.6 }}>
+                      <Skeleton variant="text" width="100%" height={80} />
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <style>{``}</style>
-            </div>
-          ) : error ? null : displayHoldings.length === 0 ? (
-            <div className={styles.emptyState}>
-              No assets found on this chain.
-            </div>
-          ) : (
-            <div className={styles.cardsGrid}>
-              {(showAllAssets ? displayHoldings : displayHoldings.slice(0, 10)).map((asset, index) => (
-                <div
-                  className={styles.assetCard}
-                  key={`${asset.address || 'asset'}-${index}`}
-                >
-                  <div className={styles.assetTop}>
-                    <div className={styles.tokenCell}>
-                      <TokenIcon
-                        src={asset.logo && asset.logo.startsWith('http') ? asset.logo : undefined}
-                        alt={asset.symbol}
-                        symbol={asset.symbol}
-                        className={styles.tokenLogo}
-                        fallbackClassName={styles.tokenIcon}
-                      />
-                      <div className={styles.tokenInfo}>
-                        <div className={styles.tokenName}>{asset.name}</div>
-                        <div className={styles.tokenSymbol}>{asset.symbol}</div>
-                        <div className={styles.assetBalance}>{parseFloat(asset.balance).toFixed(6)} {asset.symbol}</div>
+              ) : orders.length === 0 && pendingOrders.length === 0 ? (
+                <div className={styles.emptyState}>
+                  No active Polymarket positions.
+                </div>
+              ) : (
+                <>
+                  {orders.length > 0 && (
+                    <div className={styles.horizontalScroll}>
+                      {orders.map((order, index) => (
+                        <PolymarketOrderCard
+                          key={`${order.market}-${index}`}
+                          order={order}
+                          styles={styles}
+                          onSell={() => handleClosePosition(order)}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {pendingOrders.length > 0 && (
+                    <div className={styles.pendingOrdersSection}>
+                      <h4 className={styles.sectionTitleSmall}>Pending Orders</h4>
+                      <div className={styles.historyList}>
+                        {pendingOrders.map((pending, idx) => (
+                          <div key={idx} className={styles.historyItemNew}>
+                            <div className={styles.historyContent}>
+                              <div className={styles.historyTitle}>{pending.title}</div>
+                              <div className={styles.historyBadges}>
+                                <span className={styles.badgePending}>PENDING</span>
+                                <span className={styles.statusBadge}>{pending.side} {pending.outcome} @ ${pending.price}</span>
+                              </div>
+                            </div>
+                            <button
+                              className={styles.cancelButton}
+                              onClick={() => handleCancelOrder(pending.id)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                  <div className={styles.assetRight}>
-                    <div className={styles.assetValue}>{asset.value}</div>
-                    <div className={styles.assetChange}>{asset.change}</div>
-                  </div>
-                </div>
-              ))}
+                  )}
+                </>
+              )}
             </div>
+          ) : (
+            /* Assets View */
+            loading ? (
+              <div className={styles.cardsGrid}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className={styles.assetCard}>
+                    <div className={styles.assetTop}>
+                      <div className={styles.tokenCell}>
+                        <Skeleton variant="circular" width={40} height={40} />
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <Skeleton variant="text" width="70%" height={16} />
+                          <Skeleton variant="text" width="50%" height={14} />
+                          <Skeleton variant="text" width="60%" height={12} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.assetRight}>
+                      <Skeleton variant="text" width={90} height={18} />
+                      <Skeleton variant="text" width={70} height={14} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : error ? null : displayHoldings.length === 0 ? (
+              <div className={styles.emptyState}>
+                No assets found on this chain.
+              </div>
+            ) : (
+              <div className={styles.cardsGrid}>
+                {(showAllAssets ? displayHoldings : displayHoldings.slice(0, 10)).map((asset, index) => (
+                  <div
+                    className={styles.assetCard}
+                    key={`${asset.address || 'asset'}-${index}`}
+                  >
+                    <div className={styles.assetTop}>
+                      <div className={styles.tokenCell}>
+                        <TokenIcon
+                          src={asset.logo && asset.logo.startsWith('http') ? asset.logo : undefined}
+                          alt={asset.symbol}
+                          symbol={asset.symbol}
+                          className={styles.tokenLogo}
+                          fallbackClassName={styles.tokenIcon}
+                        />
+                        <div className={styles.tokenInfo}>
+                          <div className={styles.tokenName}>{asset.name}</div>
+                          <div className={styles.tokenSymbol}>{asset.symbol}</div>
+                          <div className={styles.assetBalance}>{parseFloat(asset.balance).toFixed(6)} {asset.symbol}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.assetRight}>
+                      <div className={styles.assetValue}>{asset.value}</div>
+                      <div className={styles.assetChange}>{asset.change}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
 
-        {/* Transaction History */}
         <div className={styles.historySection}>
           <div className={styles.sectionHeader}>
-            <div className={styles.sectionTitle}>Transaction History</div>
+            <div className={styles.sectionTitle}>
+              {viewMode === 'orders' ? 'Order History' : 'Transaction History'}
+            </div>
           </div>
-          {transactionsLoading ? (
-            <div className={styles.historyList}>
-              {[1, 2].map((i) => (
-                <div key={i} className={styles.historyItem} style={{ opacity: 0.5 }}>
-                  <div className={`${styles.skeleton} ${styles.skeletonCard}`} />
-                </div>
-              ))}
-            </div>
-          ) : displayTransactions.length === 0 ? (
-            <div className={styles.emptyState}>
-              No transactions found.
-            </div>
-          ) : (
-            <div className={styles.historyList}>
-              {displayTransactions.map((tx, index) => {
-                const displaySymbol = tx.tokenSymbol || tx.tokenInSymbol || tx.tokenOutSymbol || 'Unknown';
-                const displayAmount = tx.amount || '0';
-                const txDate = new Date(tx.blockTimestamp);
-                const formattedDate = txDate.toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                });
 
-                // Determine transaction type display and method
-                let txDisplay = displaySymbol;
-                let methodDisplay = '';
-
-                if (tx.txType === 'SWAP') {
-                  const inSym = tx.tokenInSymbol || '?';
-                  const outSym = tx.tokenOutSymbol || '?';
-                  txDisplay = `${inSym} → ${outSym}`;
-                  methodDisplay = 'Swap';
-                } else if (tx.txType === 'BUY') {
-                  txDisplay = displaySymbol;
-                  methodDisplay = 'Buy';
-                } else if (tx.txType === 'SELL') {
-                  txDisplay = displaySymbol;
-                  methodDisplay = 'Sell';
-                } else if (tx.txType === 'TRANSFER_IN') {
-                  txDisplay = displaySymbol;
-                  methodDisplay = 'Receive';
-                } else if (tx.txType === 'TRANSFER_OUT') {
-                  txDisplay = displaySymbol;
-                  methodDisplay = 'Sent';
-                } else {
-                  // Fallback: proper Title Case for unknown types (e.g. APPROVE -> Approve)
-                  methodDisplay = tx.txType
-                    ? (tx.txType as string).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase())
-                    : 'Transfer';
-                }
-
-                // Calculate Value if missing (Fallback logic)
-                let valueUsdDisplay = '-';
-                if (tx.valueUsd !== null && tx.valueUsd !== undefined) {
-                  valueUsdDisplay = `$${tx.valueUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                } else if (displayAmount && displaySymbol) {
-                  // Fallback: estimate value for common tokens if API didn't return it
-                  const amount = parseFloat(displayAmount);
-                  let price = 0;
-
-                  // Hardcoded fallbacks for common tokens to ensure UI isn't empty
-                  const sym = displaySymbol.toUpperCase();
-                  if (['USDC', 'USDT', 'DAI'].includes(sym)) {
-                    price = 1;
-                  } else if (sym === 'ETH' || sym === 'WETH') {
-                    price = 2500; // Rough estimate if missing
-                  } else if (sym === 'SOL') {
-                    price = 150; // Rough estimate if missing
-                  } else if (sym === 'WBTC') {
-                    price = 45000;
-                  }
-
-                  if (price > 0) {
-                    const val = amount * price;
-                    valueUsdDisplay = `~$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                  }
-                }
-
-                const txLogo = getTokenLogoUrl(tx.tokenAddress || undefined, chainId);
-
-                return (
-                  <div className={styles.historyItem} key={`${tx.txHash || 'tx'}-${index}`}>
-                    <div className={styles.historyLeft}>
-                      <TokenIcon
-                        src={txLogo}
-                        alt={displaySymbol}
-                        symbol={displaySymbol}
-                        className={styles.tokenLogo}
-                        fallbackClassName={styles.tokenIcon}
-                      />
-                      <div className={styles.historyText}>
-                        <div className={styles.tokenName}>{txDisplay}</div>
-                        <div className={styles.historyValue}>{valueUsdDisplay}</div>
-                      </div>
-                    </div>
-                    <div className={styles.historyRight}>
-                      <div className={styles.historyAmount}>
-                        {parseFloat(displayAmount).toLocaleString('en-US', {
-                          maximumFractionDigits: 6,
-                        })} {displaySymbol}
-                      </div>
-                      <div className={styles.historyMethod}>{methodDisplay}</div>
-                      <div className={styles.historyDate}>{formattedDate}</div>
-                    </div>
+          {viewMode === 'orders' ? (
+            /* polymarket order history */
+            orderHistoryLoading ? (
+              <div className={styles.historyList}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className={styles.historyItemNew} style={{ opacity: 0.6 }}>
+                    <Skeleton variant="rectangular" width="100%" height={60} borderRadius={20} />
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            ) : orderHistory.length === 0 ? (
+              <div className={styles.emptyState}>
+                No past orders found.
+              </div>
+            ) : (
+              <div className={styles.historyList}>
+                {orderHistory.map((trade, index) => (
+                  <PolymarketHistoryItem
+                    key={index}
+                    trade={trade}
+                    styles={styles}
+                  />
+                ))}
+              </div>
+            )
+          ) : (
+            /* regular transaction history */
+            transactionsLoading ? (
+              <div className={styles.historyList}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className={styles.historyItemNew} style={{ opacity: 0.6 }}>
+                    <Skeleton variant="rectangular" width="100%" height={60} borderRadius={20} />
+                  </div>
+                ))}
+              </div>
+            ) : displayTransactions.length === 0 ? (
+              <div className={styles.emptyState}>
+                No transactions found.
+              </div>
+            ) : (
+              <div className={styles.historyList}>
+                {displayTransactions.map((tx, index) => (
+                  <TradingHistoryItem
+                    key={index}
+                    tx={tx}
+                    styles={styles}
+                    getTokenLogoUrl={getTokenLogoUrl}
+                    chainId={chainId}
+                  />
+                ))}
+              </div>
+            )
           )}
         </div>
 
@@ -1225,5 +1401,132 @@ export default function WalletPage() {
     </div>
   );
 }
+
+// Sub-components for Polymarket Orders
+const PolymarketOrderCard = ({ order, styles, onSell }: { order: any; styles: any; onSell: () => void }) => {
+  const isYes = order.outcome === 'Yes';
+  return (
+    <div className={styles.orderCard}>
+      <div className={styles.orderCardTop}>
+        <span className={`${styles.badge} ${isYes ? styles.badgeYes : styles.badgeNo}`}>
+          {order.outcome}
+        </span>
+        <button
+          className={styles.moreButton}
+          onClick={() => window.open(`https://polymarket.com/event/${order.market}`, '_blank')}
+          title="View on Polymarket"
+        >
+          <ExternalLink size={14} />
+        </button>
+      </div>
+      <h3 className={styles.orderCardTitle}>{order.title}</h3>
+      <div className={styles.orderCardStats}>
+        <div className={styles.statRow}>
+          <span className={styles.statKey}>Value</span>
+          <span className={styles.statVal}>${(order.currentValue || 0).toFixed(2)}</span>
+        </div>
+        <div className={styles.statRow}>
+          <span className={styles.statKey}>Avg</span>
+          <span className={styles.statVal}>${(order.avgPrice || 0).toFixed(3)}</span>
+        </div>
+      </div>
+      <div className={styles.orderCardFooter}>
+        <div className={styles.currentPrice}>${(order.currentPrice || 0).toFixed(2)}</div>
+        <div className={`${styles.pnlPercent} ${order.pnl >= 0 ? styles.positive : styles.negative}`}>
+          {order.pnl >= 0 ? '+' : ''}{(order.pnlPercent || 0).toFixed(1)}%
+        </div>
+        <button
+          className={styles.sellButton}
+          onClick={onSell}
+        >
+          Sell
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const PolymarketHistoryItem = ({ trade, styles }: { trade: any; styles: any }) => {
+  const date = new Date(trade.timestamp);
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  const day = date.getDate();
+  const isProfit = trade.side === 'SELL' || (trade.status === 'WON');
+  const isNeutral = !trade.status;
+
+  const badgeClass = isNeutral ? styles.dateBadgeNeutral : (isProfit ? styles.dateBadge : styles.dateBadgeLoss);
+  const statusBadgeClass = isNeutral ? "" : (isProfit ? styles.statusBadgeWin : styles.statusBadgeLoss);
+
+  return (
+    <div className={styles.historyItemNew}>
+      <div className={`${styles.dateBadge} ${badgeClass}`}>
+        <span className={styles.dateMonth}>{month}</span>
+        <span className={styles.dateDay}>{day < 10 ? `0${day}` : day}</span>
+      </div>
+      <div className={styles.historyContent}>
+        <div className={styles.historyTitle}>{trade.title}</div>
+        <div className={styles.historyBadges}>
+          {trade.status && (
+            <span className={`${styles.statusBadge} ${statusBadgeClass}`}>
+              {trade.status}
+            </span>
+          )}
+          {trade.status && <div className={styles.dot} />}
+          <span className={styles.statusBadge}>
+            {trade.side} {trade.outcome}
+          </span>
+        </div>
+      </div>
+      <div className={styles.historyResult}>
+        <div className={`${styles.resultAmount} ${isNeutral ? '' : (isProfit ? styles.positive : styles.negative)}`} style={{ background: 'none', border: 'none', padding: 0 }}>
+          {isNeutral ? '' : (isProfit ? '+' : '-')}${(trade.size * trade.price).toFixed(2)}
+        </div>
+        <button
+          className={styles.externalLink}
+          onClick={() => window.open(`https://polymarket.com/event/${trade.market}`, '_blank')}
+        >
+          <ExternalLink size={14} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const TradingHistoryItem = ({ tx, styles, getTokenLogoUrl, chainId }: { tx: any; styles: any; getTokenLogoUrl: any; chainId: number }) => {
+  const date = new Date(tx.timestamp || Date.now());
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  const day = date.getDate();
+
+  const displaySymbol = tx.tokenSymbol || tx.tokenInSymbol || tx.tokenOutSymbol || 'Unknown';
+  const displayAmount = tx.amount || '0';
+  const isReceived = tx.method?.toLowerCase() === 'receive' || tx.type?.toLowerCase() === 'receive';
+  const isProfit = isReceived;
+
+  return (
+    <div className={styles.historyItemNew}>
+      <div className={`${styles.dateBadge} ${styles.dateBadgeNeutral}`}>
+        <span className={styles.dateMonth}>{month}</span>
+        <span className={styles.dateDay}>{day < 10 ? `0${day}` : day}</span>
+      </div>
+      <div className={styles.historyContent}>
+        <div className={styles.historyTitle}>{tx.method || tx.type || 'Transaction'} {displaySymbol}</div>
+        <div className={styles.historyBadges}>
+          <span className={styles.statusBadge}>
+            {tx.status?.toUpperCase() || 'SUCCESS'}
+          </span>
+          <div className={styles.dot} />
+          <span className={styles.statusBadge}>
+            {tx.txHash ? `${tx.txHash.slice(0, 6)}...${tx.txHash.slice(-4)}` : 'Internal'}
+          </span>
+        </div>
+      </div>
+      <div className={styles.historyResult}>
+        <div className={`${styles.resultAmount} ${isProfit ? styles.positive : styles.negative}`} style={{ background: 'none', border: 'none', padding: 0 }}>
+          {isProfit ? '+' : '-'}{parseFloat(displayAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+        </div>
+        <div className={styles.statusBadge}>{displaySymbol}</div>
+      </div>
+    </div>
+  );
+};
 
 

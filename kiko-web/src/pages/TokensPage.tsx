@@ -1102,10 +1102,35 @@ export const TokensPage: React.FC<TokensPageProps> = ({
             </div>
           )}
 
-          {/* Error State */}
-          {error && !loading && !initialLoading && (
+          {/* Error State - Only show if no data available */}
+          {error && !loading && !initialLoading && allTokens.length === 0 && (
             <div className={styles.errorContainer}>
-              {error}
+              <div className={styles.errorMessage}>
+                {error.includes('request limit') || error.includes('429') ? (
+                  <>
+                    <div>⚠️ API Rate Limit Exceeded</div>
+                    <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.8 }}>
+                      Please wait a moment and try again, or refresh the page
+                    </div>
+                  </>
+                ) : (
+                  error
+                )}
+              </div>
+              {(error.includes('request limit') || error.includes('429')) && (
+                <button
+                  onClick={() => {
+                    setError(null);
+                    setTimeout(() => {
+                      // Reload the page to retry
+                      window.location.reload();
+                    }, 5000);
+                  }}
+                  className={styles.retryBtn}
+                >
+                  Auto refresh in 5s
+                </button>
+              )}
             </div>
           )}
 

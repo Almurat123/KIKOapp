@@ -3,7 +3,7 @@
  * Saves Judge Engine v3.5 decisions to database for ML/DL training
  */
 
-import { prisma } from '../lib/prisma.js';
+import { prisma, withRetry } from '../db/prisma.js';
 import { DecisionEngineOutput } from '../types/judgeTypes.js';
 
 /**
@@ -15,7 +15,7 @@ export async function saveJudgeDecision(
 ): Promise<string> {
     const engine = judgeOutput.decision_engine;
 
-    const decision = await prisma.judgeDecision.create({
+    const decision = await withRetry(() => prisma.judgeDecision.create({
         data: {
             // Input
             tokenAddress: engine.input.token_address,
@@ -50,7 +50,7 @@ export async function saveJudgeDecision(
             // Metadata
             analysisTimeMs,
         },
-    });
+    }));
 
     console.log(`[Judge Repository] Saved decision ${decision.id} for ${engine.input.token_address}`);
 
@@ -69,7 +69,7 @@ export async function updateJudgeOutcome(
         outcomeNotes?: string;
     }
 ): Promise<void> {
-    await prisma.judgeDecision.update({
+    await withRetry(() => prisma.judgeDecision.update({
         where: { id: decisionId },
         data: {
             actualExecuted: outcome.actualExecuted,
@@ -78,7 +78,7 @@ export async function updateJudgeOutcome(
             outcomeNotes: outcome.outcomeNotes,
             outcomeUpdatedAt: new Date(),
         },
-    });
+    }));
 
     console.log(`[Judge Repository] Updated outcome for decision ${decisionId}: ${outcome.actualOutcome}`);
 }

@@ -163,6 +163,11 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
                     throw new Error('Backend server is not available. Please ensure the backend is running.');
                 }
 
+                // Handle rate limiting (429)
+                if (response.status === 429) {
+                    throw new Error('You have exceeded the request limit. Please try again later.');
+                }
+
                 throw new Error(errorMessage);
             }
 

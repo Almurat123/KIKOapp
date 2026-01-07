@@ -222,54 +222,33 @@ export async function detectLaunchpadType(
     poolAddress?: string,
     chain?: string
 ): Promise<string> {
-    // Pump.fun detection (Solana)
+    // Standardize chain to match launchpadDetector expectations
+    const normalizedChain = chain?.toLowerCase() === 'bnb smart chain' ? 'bsc' : chain?.toLowerCase();
+
+    // Use the unified launchpad detector
+    // Map chain string to ID for detector
+    let chainId = 1; // Default ETH
+    switch (normalizedChain) {
+        case 'base': chainId = 8453; break;
+        case 'solana': chainId = 101; break; // Custom ID for Solana
+        case 'bsc': chainId = 56; break;
+        case 'arbitrum': chainId = 42161; break;
+        case 'optimism': chainId = 10; break;
+    }
+
+    const detected = await detectLaunchpadToken(tokenAddress, chainId);
+
+    if (detected) {
+        return detected.provider.toLowerCase();
+    }
+
+    // Fallback to simple heuristics if detector fails
     if (tokenAddress.endsWith('pump')) {
         return 'pump.fun';
     }
 
-    // Chain-based detection
-    if (chain) {
-        const lowerChain = chain.toLowerCase();
-
-        // Base Chain Detection
-        if (lowerChain === 'base' || lowerChain === 'zora') {
-            // Check Zora (using service with cache)
-            try {
-                const zoraCoin = await zoraService.getCoinByAddress(tokenAddress);
-                if (zoraCoin) {
-                    return 'zora';
-                }
-            } catch (e) {
-                // Ignore Zora error
-            }
-
-            // Check Clanker (via API)
-            try {
-                // Use a short timeout for Clanker check
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 3000);
-
-                const res = await fetch(`https://www.clanker.world/api/tokens?q=${tokenAddress}`, {
-                    signal: controller.signal
-                });
-                clearTimeout(timeout);
-
-                if (res.ok) {
-                    const data = await res.json() as any;
-                    if (data && data.data) {
-                        const match = data.data.find((t: any) => t.contract_address.toLowerCase() === tokenAddress.toLowerCase());
-                        if (match) return 'clanker';
-                    }
-                }
-            } catch (e) {
-                // Ignore Clanker error
-            }
-
-            // Fallback to pool address heuristic
-            if (lowerChain === 'base' && poolAddress?.includes('uniswap')) {
-                return 'uniswap';
-            }
-        }
+    if (normalizedChain === 'base' && poolAddress?.includes('uniswap')) {
+        return 'uniswap';
     }
 
     return 'unknown';

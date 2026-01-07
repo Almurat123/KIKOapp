@@ -2,7 +2,7 @@
  * Market Data Repository
  * Handles database operations for market data using Prisma
  */
-import { prisma, withRetry } from '../lib/prisma.js';
+import { prisma, withRetry } from '../db/prisma.js';
 import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { Decimal } from 'decimal.js';
 
@@ -130,43 +130,44 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
   }
 }
 
-/**
- * Save trending tokens to database or update existing ones
- */
 export async function saveTrends(tokens: TrendingTokenData[]): Promise<void> {
   try {
-    for (const token of tokens) {
-      await prisma.trendingToken.upsert({
-        where: {
-          chain_address: {
+    await withRetry(async () => {
+      // Use individual upserts protected by withRetry if needed, 
+      // or wrap the whole loop if it's a small set.
+      for (const token of tokens) {
+        await prisma.trendingToken.upsert({
+          where: {
+            chain_address: {
+              chain: token.chain,
+              address: token.address
+            }
+          },
+          update: {
+            name: token.name,
+            symbol: token.symbol,
+            network: token.network,
+            imageUrl: token.imageUrl || null,
+            price: token.price ? new Decimal(token.price) : null,
+            priceChange24h: token.priceChange24h ? new Decimal(token.priceChange24h) : null,
+            rank: token.rank,
+            updatedAt: new Date()
+          },
+          create: {
             chain: token.chain,
-            address: token.address
+            address: token.address,
+            name: token.name,
+            symbol: token.symbol,
+            network: token.network,
+            imageUrl: token.imageUrl || null,
+            price: token.price ? new Decimal(token.price) : null,
+            priceChange24h: token.priceChange24h ? new Decimal(token.priceChange24h) : null,
+            rank: token.rank
           }
-        },
-        update: {
-          name: token.name,
-          symbol: token.symbol,
-          network: token.network,
-          imageUrl: token.imageUrl || null,
-          price: token.price ? new Decimal(token.price) : null,
-          priceChange24h: token.priceChange24h ? new Decimal(token.priceChange24h) : null,
-          rank: token.rank,
-          updatedAt: new Date()
-        },
-        create: {
-          chain: token.chain,
-          address: token.address,
-          name: token.name,
-          symbol: token.symbol,
-          network: token.network,
-          imageUrl: token.imageUrl || null,
-          price: token.price ? new Decimal(token.price) : null,
-          priceChange24h: token.priceChange24h ? new Decimal(token.priceChange24h) : null,
-          rank: token.rank
-        }
-      });
-    }
-    console.log(`Saved ${tokens.length} trending tokens to database via Prisma`);
+        });
+      }
+    });
+    console.log(`Saved ${tokens.length} trending tokens to database via Prisma with retry protection`);
   } catch (error) {
     console.error('Error saving trending tokens:', error);
   }

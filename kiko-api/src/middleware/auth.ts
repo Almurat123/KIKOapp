@@ -71,7 +71,9 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   }
 
   const auth = request.headers.authorization || '';
-  const [, token] = auth.split(' ');
+  const token = auth.toLowerCase().startsWith('bearer ')
+    ? auth.substring(7).trim()
+    : auth.trim();
 
   if (!token) {
     throw new AppError(401, 'Missing Authorization Bearer token', 'UNAUTHORIZED');

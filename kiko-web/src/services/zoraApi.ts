@@ -2,11 +2,12 @@
 // Documentation: https://docs.zora.co/coins/sdk/public-rest-api
 // API Docs: https://api-sdk.zora.engineering/docs
 
-const ZORA_API_BASE = 'https://api-sdk.zora.engineering';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const ZORA_PROXY_URL = `${API_BASE_URL}/api/zora-proxy/coin`;
 
-// Helper to get API key from env
+// Helper to get API key from env (Deprecated in frontend)
 const getApiKey = () => {
-    return import.meta.env.VITE_ZORA_API_KEY || '';
+    return '';
 };
 
 export interface ZoraToken {
@@ -52,20 +53,13 @@ export async function getZoraToken(
     chainId: number = 8453
 ): Promise<ZoraToken | null> {
     try {
-        const url = `${ZORA_API_BASE}/coin?address=${address}&chain=${chainId}`;
-        const apiKey = getApiKey();
-
-        const headers: HeadersInit = {
-            'Content-Type': 'application/json',
-        };
-
-        if (apiKey) {
-            headers['api-key'] = apiKey; // Standard header for Zora API
-        }
+        const url = `${ZORA_PROXY_URL}?address=${address}&chain=${chainId}`;
 
         const response = await fetch(url, {
             method: 'GET',
-            headers,
+            headers: {
+                'Content-Type': 'application/json',
+            },
         });
 
         if (!response.ok) {

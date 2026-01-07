@@ -16,7 +16,6 @@ import { TrendingCast } from '../types/social.js';
 import { saveTrendingCasts, getLastUpdateTime } from '../repositories/socialRepository.js';
 import { env } from '../config/env.js';
 import snapchainService, { QUALITY_FIDS } from '../services/snapchainService.js';
-import duneFarcasterService from '../services/duneFarcasterService.js';
 import { baseAppService } from '../services/baseAppService.js';
 import { zoraService } from '../services/zoraService.js';
 import qualityUsersRepo from '../repositories/qualityUsersRepository.js';
@@ -32,8 +31,6 @@ function resolveRealHotUsersPath(): string {
     path.resolve(__dirname, '../../../test/Farcaste/real_hot_users.json'),
     // 2. Relative to process.cwd() (usually kiko-api root) -> ../test
     path.resolve(process.cwd(), '../test/Farcaste/real_hot_users.json'),
-    // 3. Absolute path (fallback for specific machine)
-    '/Users/almurat/KiKo/test/Farcaste/real_hot_users.json'
   ];
 
   for (const p of candidates) {
@@ -48,18 +45,6 @@ function resolveRealHotUsersPath(): string {
 }
 
 const REAL_HOT_USERS_PATH = resolveRealHotUsersPath();
-
-/**
- * Refresh quality users
- * 
- * NOTE: Dune API is deprecated. All quality user data now comes from local JSON file.
- * See getRealHotUserFids() which reads from real_hot_users.json
- */
-export async function refreshQualityUsers(): Promise<void> {
-  console.log('[Job] refreshQualityUsers: Dune deprecated, using local JSON (real_hot_users.json)');
-  // No-op: Quality users are now loaded from local JSON file
-  // See getRealHotUserFids() in this file
-}
 
 /**
  * Get real hot users FIDs from analysis JSON file

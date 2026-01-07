@@ -26,6 +26,25 @@ export const ReceiveModal: React.FC<ReceiveModalProps> = ({
         }
     }, [copied]);
 
+    // Handle body scroll lock and ESC key
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden';
+            
+            const handleEscape = (e: KeyboardEvent) => {
+                if (e.key === 'Escape') {
+                    onClose();
+                }
+            };
+            
+            document.addEventListener('keydown', handleEscape);
+            return () => {
+                document.body.style.overflow = '';
+                document.removeEventListener('keydown', handleEscape);
+            };
+        }
+    }, [isOpen, onClose]);
+
     if (!isOpen) return null;
 
     const handleCopy = () => {

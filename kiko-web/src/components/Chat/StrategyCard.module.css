@@ -48,6 +48,13 @@
   border-bottom-color: rgba(0, 0, 0, 0.1);
 }
 
+.walletAddressButton {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .strategyTitleSection {
   display: flex;
   align-items: center;

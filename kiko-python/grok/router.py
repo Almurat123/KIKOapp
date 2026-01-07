@@ -2426,7 +2426,7 @@ async def write_news(request: NewsRequest):
     Now with FULL TOOL ACCESS for enhanced analysis
     """
     try:
-        from prompts import NEWS_WRITER_PROMPT, TOOL_DEFINITIONS
+        from grok.prompts import NEWS_WRITER_PROMPT, TOOL_DEFINITIONS
 
         tokens = request.tokens
         if not tokens:
@@ -2462,7 +2462,7 @@ async def write_news(request: NewsRequest):
 ---
 ## 🚨 运行时执行规则 (Prime Directive):
 1. **STRICTLY ENGLISH OUTPUT**: 无论上述指令使用的是什么语言，最终生成的新闻文章必须 100% 使用英语。
-2. **X SEARCH MANDATE**: 你必须为提供的每一个代币根据适当的情况调用 `x_search` 工具，以获取其实时社交叙事和热度原因。
+2. **X SEARCH MANDATE**: 你必须利用你的 **X (Twitter) 实时搜索能力**，查询每一个代币的最新社交叙事和热度原因。
 3. **DEPTH**: 利用主指令中的“中文脑子”进行深度思考和分析，但请用流利、Crypto Native 的英语表达出来。
 ---
 """

@@ -38,7 +38,6 @@ interface LayoutProps {
     onNewChat?: () => void;
     onConversationRename?: (id: string, newTitle: string) => void;
     onConversationDelete?: (id: string) => void;
-    headerContent?: React.ReactNode; // Optional header content (e.g., search box)
     onAIAnalyzeComplete?: (prompt: string) => void; // Handler for AI analysis completion
     generatingConversationId?: string | null;
     setGeneratingConversationId?: (id: string | null) => void;
@@ -55,7 +54,6 @@ export const Layout: React.FC<LayoutProps> = ({
     onNewChat,
     onConversationRename,
     onConversationDelete,
-    headerContent,
     onAIAnalyzeComplete,
     generatingConversationId,
     setGeneratingConversationId,
@@ -158,20 +156,7 @@ export const Layout: React.FC<LayoutProps> = ({
                             >
                                 <PanelLeftOpen size={20} />
                             </button>
-                            {/* Title / Tab Name */}
-                            <span className={styles.mobileTitle}>
-                                {activeTab === 'chat'
-                                    ? (activeConversationId ? 'Chat' : 'KIKO')
-                                    : (activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('market-', '').replace('-', ' '))}
-                            </span>
                         </div>
-
-                        {/* Middle Content (e.g. search box) */}
-                        {headerContent && (
-                            <div className={styles.mobileHeaderCenter}>
-                                {headerContent}
-                            </div>
-                        )}
 
                         <div className={styles.mobileHeaderRight}>
                             {/* Generic back button */}

@@ -175,10 +175,14 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
     // Only set tokens if they are different from current tokens
     // This prevents resetting BNB to ETH when amount is entered
-    console.log('[SwapCard] Initialization Effect Triggered', { initKey, isSolana, hasSolanaSwap: !!solanaSwap, hasEvmSwap: !!evmSwap });
+    if (import.meta.env.DEV) {
+      console.log('[SwapCard] Initialization Effect Triggered', { initKey, isSolana, hasSolanaSwap: !!solanaSwap, hasEvmSwap: !!evmSwap });
+    }
 
     if (initialTokenIn && currentTokenIn?.address !== initialTokenIn.address) {
-      console.log('[SwapCard] Setting Token IN', initialTokenIn.symbol);
+      if (import.meta.env.DEV) {
+        console.log('[SwapCard] Setting Token IN', initialTokenIn.symbol);
+      }
       if (isSolana && solanaSwap) {
         solanaSwap.setTokenIn(initialTokenIn);
       } else if (evmSwap) {
@@ -186,7 +190,9 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       }
     }
     if (initialTokenOut && currentTokenOut?.address !== initialTokenOut.address) {
-      console.log('[SwapCard] Setting Token OUT', initialTokenOut.symbol);
+      if (import.meta.env.DEV) {
+        console.log('[SwapCard] Setting Token OUT', initialTokenOut.symbol);
+      }
       if (isSolana && solanaSwap) {
         solanaSwap.setTokenOut(initialTokenOut);
       } else if (evmSwap) {
@@ -231,10 +237,13 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
     // ⚡ FAST SWAP MODE Check (Base Chain Only for now)
     if (fastSwapMode && chainId === 8453 && !isSolana) {
-      console.log('[SwapCard] ⚡ Fast Swap Mode Executing...');
+      if (import.meta.env.DEV) {
+        console.log('[SwapCard] ⚡ Fast Swap Mode Executing...');
+      }
       try {
         const token = await getAccessToken();
-        const res = await fetch('http://localhost:3001/api/zora/swap', {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        const res = await fetch(`${apiUrl}/api/zora/swap`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -254,10 +263,14 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           setConfirmReady(false);
           return;
         } else {
-          console.warn('[FastSwap] Failed, falling back to standard execution:', data.error);
+          if (import.meta.env.DEV) {
+            console.warn('[FastSwap] Failed, falling back to standard execution:', data.error);
+          }
         }
       } catch (e) {
-        console.error('[FastSwap] Error:', e);
+        if (import.meta.env.DEV) {
+          console.error('[FastSwap] Error:', e);
+        }
       }
     }
 
@@ -315,7 +328,6 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       return;
     }
 
-    // Enforce upfront confirmation showing spender / chain / amount for SWAPS
     // Enforce upfront confirmation showing spender / chain / amount for SWAPS
     const spender = !isSolana
       ? (swapState?.quote as any)?.allowanceTarget || (swapState?.quote as any)?.to || ''
@@ -390,7 +402,9 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       // Special handling for approval
       // SKIP if using server execution
       if (!useServerExecution && needsApproval && evmSwapTyped?.approveToken) {
-        console.log('[SwapCard] Auto-triggering approval...');
+        if (import.meta.env.DEV) {
+          console.log('[SwapCard] Auto-triggering approval...');
+        }
         hasAutoExecutedRef.current = true; // Prevent loop
         evmSwapTyped.approveToken().then((res: any) => {
           if (!res?.error) {
@@ -401,12 +415,14 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
         return;
       }
 
-      console.log('[SwapCard] Auto-executing swap...');
+      if (import.meta.env.DEV) {
+        console.log('[SwapCard] Auto-executing swap...');
+      }
       hasAutoExecutedRef.current = true;
       // Bypassing confirmation modal for auto execution
       executeSwapNow();
     }
-  }, [autoExecute, canExecute, isExecuting, isLoading, needsApproval]);
+  }, [autoExecute, canExecute, isExecuting, isLoading, needsApproval, useServerExecution, evmSwapTyped]);
 
   // Normalize Solana native token addresses (both So11111111111111111111111111111111111111111 and So11111111111111111111111111111111111111112 represent SOL)
   const normalizeAddress = React.useCallback((address: string): string => {
@@ -515,13 +531,17 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       token.symbol.toLowerCase().includes(query) ||
       token.name.toLowerCase().includes(query)
     );
-    console.log('[SwapCard] Filtered tokens:', filtered.length, 'for query:', searchQuery);
+    if (import.meta.env.DEV) {
+      console.log('[SwapCard] Filtered tokens:', filtered.length, 'for query:', searchQuery);
+    }
     return filtered;
   }, [availableTokens, searchQuery]);
 
   // Handle token selection
   const handleTokenSelect = (token: Token, type: 'in' | 'out') => {
-    console.log('[SwapCard] Selecting token:', token.symbol, 'for', type);
+    if (import.meta.env.DEV) {
+      console.log('[SwapCard] Selecting token:', token.symbol, 'for', type);
+    }
     if (type === 'in') {
       if (isSolana && solanaSwapTyped) {
         solanaSwapTyped.setTokenIn(token);
@@ -580,11 +600,15 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
     // Check if we expect a token but current state doesn't match yet
     if (initialTokenIn && currentIn?.toLowerCase() !== initialTokenIn.address.toLowerCase()) {
-      console.log('[SwapCard] Initializing mismatch IN:', { expected: initialTokenIn.address, actual: currentIn });
+      if (import.meta.env.DEV) {
+        console.log('[SwapCard] Initializing mismatch IN:', { expected: initialTokenIn.address, actual: currentIn });
+      }
       initializing = true;
     }
     if (initialTokenOut && currentOut?.toLowerCase() !== initialTokenOut.address.toLowerCase()) {
-      console.log('[SwapCard] Initializing mismatch OUT:', { expected: initialTokenOut.address, actual: currentOut });
+      if (import.meta.env.DEV) {
+        console.log('[SwapCard] Initializing mismatch OUT:', { expected: initialTokenOut.address, actual: currentOut });
+      }
       initializing = true;
     }
 

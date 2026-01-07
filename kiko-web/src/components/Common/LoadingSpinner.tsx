@@ -1,4 +1,6 @@
 import React from 'react';
+import clsx from 'clsx';
+import styles from './LoadingSpinner.module.css';
 
 interface LoadingSpinnerProps {
     size?: number;
@@ -14,33 +16,16 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
     color = 'currentColor',
 }) => {
     return (
-        <div
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '100%',
-                height: '100%',
-                minHeight: '200px',
-                padding: '40px',
-            }}
-        >
+        <div className={styles.container}>
             <div
+                className={clsx(styles.spinner, size !== 32 && styles.spinnerCustom)}
                 style={{
                     width: size,
                     height: size,
-                    border: `3px solid ${color}`,
+                    borderColor: color,
                     borderTopColor: 'transparent',
-                    borderRadius: '50%',
-                    animation: 'spin 0.8s linear infinite',
-                    opacity: 0.6,
                 }}
             />
-            <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
         </div>
     );
 };

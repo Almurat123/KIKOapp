@@ -29,7 +29,7 @@ const SUPPORTED_DURATIONS: TrendingDuration[] = ['5m', '1h', '6h', '24h'];
 const SUPPORTED_CHAINS_INFO = [
   { id: 'eth', name: 'Ethereum', network: 'eth' },
   { id: 'base', name: 'Base', network: 'base' },
-  { id: 'bsc', name: 'BSC', network: 'bsc' },
+  { id: 'bsc', name: 'BNB Smart Chain', network: 'bsc' },
   { id: 'arbitrum', name: 'Arbitrum', network: 'arbitrum' },
 ];
 

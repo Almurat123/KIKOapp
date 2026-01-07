@@ -19,6 +19,13 @@
   gap: 20px;
 }
 
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
 .shapeContainer {
   width: 100%;
   position: relative;

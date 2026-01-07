@@ -1,66 +1,49 @@
-/* CustomAISettingsModal - 缩小50%版本 */
-
 .container {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 0 8px 4px 8px;
+    gap: 20px;
+    padding: 4px 0;
     width: 100%;
     height: 100%;
 }
 
-/* Section Styling - 缩小50% */
 .section {
-    border-radius: 0;
-    padding: 8px 0;
-    box-shadow: none;
-    width: 100%;
-    background: transparent;
-    border: none;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-/* 深色模式 Section */
-.dark .section {
-    background: transparent;
-    border: none;
+:global(.light) .section {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-/* 浅色模式 Section */
-.light .section {
-    background: transparent;
-    border: none;
+.section:last-child {
+    border-bottom: none;
 }
 
 .sectionTitle {
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 8px;
-    margin-top: 0;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 12px;
     display: flex;
     align-items: center;
-    gap: 6px;
-}
-
-/* 深色模式 Section Title */
-.dark .sectionTitle {
+    gap: 8px;
     color: #f4f4f5;
+    letter-spacing: -0.01em;
 }
 
-/* 浅色模式 Section Title */
-.light .sectionTitle {
-    color: #18181b;
+:global(.light) .sectionTitle {
+    color: #000000;
 }
 
 .sectionTitle::before {
     content: '';
     display: block;
     width: 3px;
-    height: 14px;
+    height: 16px;
     background: #646cff;
     border-radius: 2px;
 }
 
-/* Header Row */
 .headerRow {
     display: flex;
     justify-content: space-between;
@@ -69,41 +52,89 @@
 }
 
 .headerTitle {
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
 }
 
-/* 深色模式 Header Title */
-.dark .headerTitle {
-    color: #f4f4f5;
+:global(.light) .headerTitle {
+    color: #1a1a1a;
 }
 
-/* 浅色模式 Header Title */
-.light .headerTitle {
-    color: #18181b;
+.headerTitleActive {
+    color: #facc15;
+}
+
+.onBadge {
+    margin-left: 8px;
+    font-size: 10px;
+    background: rgba(250, 204, 21, 0.2);
+    color: #facc15;
+    padding: 2px 6px;
+    border-radius: 4px;
 }
 
 .headerDesc {
-    font-size: 11px;
-    line-height: 1.4;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #71717a;
 }
 
-/* 深色模式 Header Desc */
-.dark .headerDesc {
-    color: #a1a1aa;
-}
-
-/* 浅色模式 Header Desc */
-.light .headerDesc {
+:global(.light) .headerDesc {
     color: #52525b;
 }
 
-/* Toggle Switch - 缩小版本 */
+.inputGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #f4f4f5;
+}
+
+:global(.light) .label {
+    color: #1a1a1a;
+}
+
+.amountRow {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 14px;
+    color: #ffffff;
+    transition: all 0.2s ease;
+}
+
+:global(.light) .input {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #000000;
+}
+
+.input:focus {
+    outline: none;
+    border-color: #646cff;
+    box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.15);
+}
+
 .toggleSwitch {
     position: relative;
     display: inline-block;
-    width: 40px;
-    height: 22px;
+    width: 44px;
+    height: 24px;
     flex-shrink: 0;
 }
 
@@ -120,337 +151,145 @@
     left: 0;
     right: 0;
     bottom: 0;
-    border-radius: 22px;
-    border: none;
-    box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.1);
-    /* Subtle default instead of currentColor */
-    transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background-color: rgba(255, 255, 255, 0.1);
+    transition: .3s;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* 深色模式 - 关闭状态 */
-.dark .slider {
-    background-color: #3f3f46;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-    /* reduced from 0.08 */
-}
-
-/* 浅色模式 - 关闭状态 */
-.light .slider {
-    background-color: #e5e7eb;
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
-    /* very subtle border */
+:global(.light) .slider {
+    background-color: rgba(0, 0, 0, 0.08);
+    border-color: rgba(0, 0, 0, 0.08);
 }
 
 .slider:before {
     position: absolute;
     content: "";
-    height: 16px;
-    width: 16px;
+    height: 18px;
+    width: 18px;
     left: 2px;
-    top: 3px;
-    border-radius: 50%;
-    background-color: #ffffff;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* 深色模式 - 关闭状态滑块 */
-.dark .slider:before {
+    bottom: 2px;
     background-color: #a1a1aa;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
-}
-
-/* 浅色模式 - 关闭状态滑块 */
-.light .slider:before {
-    background-color: #6b7280;
+    transition: .3s;
+    border-radius: 50%;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-/* 开启状态 */
+:global(.light) .slider:before {
+    background-color: #6b7280;
+}
+
 input:checked+.slider {
     background-color: #646cff;
-    box-shadow: inset 0 0 0 1px rgba(100, 108, 255, 0);
-    /* completely remove border or make irrelevant */
+    border-color: #646cff;
 }
 
 input:checked+.slider:before {
-    transform: translateX(18px);
+    transform: translateX(20px);
     background-color: #ffffff;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-/* Grid Layout */
-.rolesContainer {
-    display: flex;
-    align-items: flex-end;
-    gap: 12px;
-    margin-bottom: 20px;
-}
-
-.roleCard {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    background: var(--bg-secondary);
-    padding: 12px;
-    border-radius: 12px;
-    border: 1px solid rgba(128, 128, 128, 0.05);
-    /* very subtle */
-}
-
-.roleHeader {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 2px;
-}
-
-.roleIcon {
-    font-size: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background: var(--bg-primary);
-    border-radius: 6px;
-    border: 1px solid rgba(128, 128, 128, 0.05);
-    /* very subtle */
-}
-
-.roleConnector {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding-bottom: 22px;
-    /* Align with input height center roughly or just visual center */
-    color: var(--text-tertiary);
-    flex-shrink: 0;
-}
-
-.gridRow {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-bottom: 10px;
-}
-
-.inputGroup {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 12px;
-}
-
-.inputGroup:last-child {
-    margin-bottom: 0;
-}
-
-.label {
-    font-size: 11px;
-    font-weight: 500;
-}
-
-/* 深色模式 Label */
-.dark .label {
-    color: #a1a1aa;
-}
-
-/* 浅色模式 Label */
-.light .label {
-    color: #52525b;
-}
-
-.amountRow {
-    display: flex;
-    gap: 8px;
-    align-items: stretch;
-}
-
-.amountRow .input {
-    flex: 1;
-    min-width: 0;
-}
-
-.unitSelect {
-    flex: 1;
-    min-width: 0;
-}
-
-.input,
-.textarea {
-    width: 100%;
-    padding: 6px 10px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-family: inherit;
-    border: none;
-    box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.05);
-    min-height: 28px;
-    box-sizing: border-box;
-    transition: box-shadow 0.2s ease;
-}
-
-/* 确保input可以显示完整内容 */
-.input[type="number"] {
-    min-width: 120px;
-    width: 100%;
-    appearance: textfield;
-    -moz-appearance: textfield;
-}
-
-.input[type="number"]::-webkit-outer-spin-button,
-.input[type="number"]::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-
-/* 深色模式 Input/Textarea */
-.dark .input,
-.dark .textarea {
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-    /* 更淡的边框 */
-    background: #27272a;
-    color: #f4f4f5;
-}
-
-.dark .input:focus,
-.dark .textarea:focus {
-    box-shadow: inset 0 0 0 1px #646cff, 0 0 0 1px rgba(100, 108, 255, 0.1);
-    outline: none;
-}
-
-/* 浅色模式 Input/Textarea */
-.light .input,
-.light .textarea {
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
-    /* 更淡的边框 */
-    background: #ffffff;
-    color: #18181b;
-}
-
-.light .input:focus,
-.light .textarea:focus {
-    box-shadow: inset 0 0 0 1px #646cff, 0 0 0 1px rgba(100, 108, 255, 0.1);
-    outline: none;
-}
-
-.textarea {
-    resize: vertical;
-    min-height: 60px;
-    line-height: 1.5;
-}
-
-/* Actions */
 .actions {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-top: 4px;
+    gap: 12px;
+    margin-top: 20px;
 }
 
 .applyButton {
     width: 100%;
-    padding: 10px;
-    background: #646cff;
+    background: linear-gradient(180deg, #2563eb 0%, #1a4fc7 100%);
     color: white;
     border: none;
-    border-radius: 10px;
-    font-size: 14px;
+    padding: 14px;
+    border-radius: 12px;
     font-weight: 600;
+    font-size: 15px;
     cursor: pointer;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.dark .applyButton {
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-}
-
-.light .applyButton {
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.35);
 }
 
 .applyButton:hover {
-    background: #535bf2;
-}
-
-.dark .applyButton:hover {
-    box-shadow: 0 6px 8px rgba(0, 0, 0, 0.4);
-}
-
-.light .applyButton:hover {
-    box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+    background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
 }
 
 .secondaryActions {
     display: flex;
-    gap: 8px;
+    gap: 10px;
 }
 
 .cancelButton,
 .resetButton {
     flex: 1;
-    padding: 8px;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.05);
+    color: #a1a1aa;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 10px;
     border-radius: 10px;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    border: none;
-    box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.05);
     transition: all 0.2s ease;
 }
 
-/* 深色模式 Cancel/Reset Button */
-.dark .cancelButton,
-.dark .resetButton {
-    color: #a1a1aa;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-    /* very subtle */
-}
-
-/* 浅色模式 Cancel/Reset Button */
-.light .cancelButton,
-.light .resetButton {
+:global(.light) .cancelButton,
+:global(.light) .resetButton {
+    background: #ffffff;
     color: #52525b;
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
-    /* very subtle */
+    border-color: rgba(0, 0, 0, 0.08);
 }
 
-.dark .cancelButton:hover,
-.dark .resetButton:hover {
-    background: #27272a;
-    color: #f4f4f5;
+.cancelButton:hover,
+.resetButton:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
 }
 
-.light .cancelButton:hover,
-.light .resetButton:hover {
+:global(.light) .cancelButton:hover,
+:global(.light) .resetButton:hover {
     background: #f4f4f5;
-    color: #18181b;
+    color: #1a1a1a;
 }
 
-/* Scrollbar styling for textarea */
-.textarea::-webkit-scrollbar {
-    width: 6px;
+.unitSelect {
+    flex: 1;
 }
 
-.textarea::-webkit-scrollbar-track {
-    background: transparent;
+.slippageInputRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
 }
 
-.textarea::-webkit-scrollbar-thumb {
-    border-radius: 3px;
+.slippageInput {
+    flex: 1;
 }
 
-.dark .textarea::-webkit-scrollbar-thumb {
-    background-color: #3f3f46;
+.slippagePercent {
+    color: #71717a;
+    font-weight: 500;
 }
 
-.light .textarea::-webkit-scrollbar-thumb {
-    background-color: #e4e4e7;
+:global(.light) .slippagePercent {
+    color: #52525b;
 }
 
-.textarea::-webkit-scrollbar-thumb:hover {
-    background-color: var(--text-secondary);
+.headerDescWithMargin {
+    margin-bottom: 12px;
+}
+
+.headerDescWithTopMargin {
+    margin-top: 6px;
+}
+
+.inputGroupWithMargin {
+    margin-top: 16px;
+}
+
+.headerRowWithMargin {
+    margin-top: 12px;
 }

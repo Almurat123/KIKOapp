@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Sun, Moon, Laptop } from 'lucide-react';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import styles from './ThemeToggle.module.css';
@@ -6,30 +6,28 @@ import styles from './ThemeToggle.module.css';
 export const ThemeToggle: React.FC = () => {
     const { theme, toggleTheme } = useThemeContext();
 
-    const getIcon = () => {
+    const { icon, label } = useMemo(() => {
         switch (theme) {
-            case 'light': return <Sun size={18} />;
-            case 'dark': return <Moon size={18} />;
-            case 'system': return <Laptop size={18} />;
+            case 'light':
+                return { icon: <Sun size={18} />, label: 'Light Mode' };
+            case 'dark':
+                return { icon: <Moon size={18} />, label: 'Dark Mode' };
+            case 'system':
+                return { icon: <Laptop size={18} />, label: 'System Theme' };
+            default:
+                // TypeScript exhaustive check - should never reach here
+                return { icon: <Laptop size={18} />, label: 'System Theme' };
         }
-    };
-
-    const getLabel = () => {
-        switch (theme) {
-            case 'light': return 'Light Mode';
-            case 'dark': return 'Dark Mode';
-            case 'system': return 'System Theme';
-        }
-    };
+    }, [theme]);
 
     return (
         <button
             className={styles.toggle}
             onClick={toggleTheme}
-            aria-label={`Current theme: ${getLabel()}`}
-            title={`Theme: ${getLabel()} (Click to cycle)`}
+            aria-label={`Current theme: ${label}`}
+            title={`Theme: ${label} (Click to cycle)`}
         >
-            {getIcon()}
+            {icon}
         </button>
     );
 };

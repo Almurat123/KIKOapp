@@ -6,7 +6,7 @@
  */
 
 import { ethers } from 'ethers';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 
 // Contract addresses on Polygon (chainId: 137)
 const POLYGON_CONTRACTS = {

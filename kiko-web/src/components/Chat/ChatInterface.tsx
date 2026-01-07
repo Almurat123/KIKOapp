@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ArrowDown, ChevronDown, Settings, ArrowUp } from 'lucide-react';
-import { usePrivy, useWallets, useSessionSigners } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { DelegatedActionRequest } from '../Privy/DelegatedActionRequest';
-import { useChainId, useAccount, useBalance } from 'wagmi';
+import { useAccount, useBalance } from 'wagmi';
 import { toast, Toaster } from 'sonner';
 import { MessageBubble } from './MessageBubble';
 import { WelcomeScreen } from './WelcomeScreen';
@@ -16,15 +16,13 @@ import { useThemeContext } from '../../contexts/ThemeContext';
 import { useChain } from '../../contexts/ChainContext';
 import { extractStrategiesFromMessages } from '../../utils/strategyExtractor';
 import { useStrategies } from '../../hooks/useStrategies';
-import { getUserBalance } from '../../services/swapService';
-import type { UserContext } from '../../services/aiService';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 import { chatApi } from '../../services/api';
 import { chatWSClient, type ChatEvent } from '../../utils/chatWebSocket';
 import type { Message } from '../../hooks/useConversations';
 import { moderationService } from '../../services/moderation';
-import { ChatInput } from './ChatInput';
+import { logger } from '../../utils/logger';
 
 // Model options
 // DeepSeek models:
@@ -82,8 +80,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     initialMessages = [],
     onMessagesChange,
     onNewConversation,
-    conversationTitle: _conversationTitle,
-    onNewChat: _onNewChat,
+    conversationTitle,
+    onNewChat,
     pendingAIPrompt,
     onAIPromptSet,
     activeTask: propActiveTask,
@@ -92,7 +90,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const sidebar = useSidebar();
     const { resolvedTheme } = useThemeContext();
-    const { createStrategy, strategies, toggleStrategyStatus } = useStrategies();
+    const { createStrategy, strategies, toggleStrategyStatus, deleteStrategy } = useStrategies();
     const { user, authenticated } = usePrivy();
     const { wallets } = useWallets();
     // Use global chain context instead of Wagmi's useChainId
@@ -159,7 +157,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // State for user balances (common tokens)
     const [userBalances, setUserBalances] = useState<Record<string, string>>({});
-    const [_isLoadingBalances, setIsLoadingBalances] = useState(false);
     const processedStrategyIdsRef = useRef<Set<string>>(new Set());
     const [input, setInput] = useState('');
     const [isThinking, setIsThinking] = useState(false);
@@ -184,19 +181,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const getInitialModel = () => {
         try {
             const saved = localStorage.getItem('kiko-selected-model');
-            console.log('[ChatInterface] Loading model from localStorage:', saved);
+            logger.debug('Loading model from localStorage:', saved);
             if (saved) {
                 const parsed = JSON.parse(saved);
                 const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
                 if (found) {
-                    console.log('[ChatInterface] Found saved model:', found.id);
+                    logger.debug('Found saved model:', found.id);
                     return found;
                 }
             }
         } catch (e) {
-            console.warn('[ChatInterface] Failed to load saved model from localStorage:', e);
+            logger.warn('Failed to load saved model from localStorage:', e);
         }
-        console.log('[ChatInterface] Using default model:', MODEL_OPTIONS[0].id);
+        logger.debug('Using default model:', MODEL_OPTIONS[0].id);
         return MODEL_OPTIONS[0];
     };
 
@@ -208,7 +205,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Intent Detection Logic
     const detectIntent = useCallback((text: string) => {
-        console.log('[ChatInterface] detectIntent called with:', text);
+        logger.debug('detectIntent called with:', text);
         if (!text || text.trim().length === 0) {
             setSuggestions([]);
             setShowSuggestions(false);
@@ -216,7 +213,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
 
         const lowerText = text.toLowerCase().trim();
-        console.log('[ChatInterface] Processing text:', lowerText);
+        logger.debug('Processing text:', lowerText);
         const newSuggestions: SuggestionItem[] = [];
 
         // 1. Address Detection (EVM or Solana)
@@ -332,7 +329,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
         // Limit to 5 suggestions max
         const limitedSuggestions = newSuggestions.slice(0, 5);
-        console.log('[ChatInterface] Suggestions found:', limitedSuggestions.length);
+        logger.debug('Suggestions found:', limitedSuggestions.length);
         setSuggestions(limitedSuggestions);
         setShowSuggestions(limitedSuggestions.length > 0);
     }, []);
@@ -354,7 +351,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     setCustomSettings(JSON.parse(saved));
                 }
             } catch (e) {
-                console.warn('[ChatInterface] Failed to load custom settings:', e);
+                logger.warn('Failed to load custom settings:', e);
             }
         };
 
@@ -376,7 +373,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     useEffect(() => {
         if (!conversationId) return;
 
-        console.log(`[ChatInterface] Subscribing to conversation ${conversationId}`);
+        logger.debug(`Subscribing to conversation ${conversationId}`);
         // DO NOT call chatWSClient.connect() here - App.tsx manages connections
         // to ensure generating conversation is not overridden
 
@@ -387,7 +384,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 case 'chunk':
                     // Defensive check against malformed payloads
                     if (!event.data) {
-                        console.warn('[ChatInterface] Received chunk without data:', event);
+                        logger.warn('Received chunk without data:', event);
                         break;
                     }
 
@@ -400,7 +397,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                         // DEBUG: Log chunk info
                         if (hasReasoning) {
-                            console.log('[ChatInterface DEBUG] Got reasoning chunk:', event.data.reasoning_content.substring(0, 30));
+                            logger.debug('Got reasoning chunk:', event.data.reasoning_content.substring(0, 30));
                         }
 
                         if (!chunkMessageId) return prev;
@@ -414,7 +411,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 }
                                 : m);
                         } else {
-                            console.log('[ChatInterface DEBUG] Chunk mismatch! Expected:', lastMsg?.id, 'Got:', chunkMessageId);
+                            logger.debug('Chunk mismatch! Expected:', lastMsg?.id, 'Got:', chunkMessageId);
                         }
                         return prev;
                     });
@@ -482,7 +479,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     }
                     break;
                 case 'usage':
-                    console.log('[ChatInterface DEBUG] Received usage event:', event.data);
+                    logger.debug('Received usage event:', event.data);
                     // Update message with token usage data
                     setMessages(prev => prev.map(m =>
                         m.id === event.data.message_id
@@ -491,7 +488,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     ));
                     break;
                 case 'citations':
-                    console.log('[ChatInterface DEBUG] Received citations event:', event.data);
+                    logger.debug('Received citations event:', event.data);
                     // Update message with citation data
                     setMessages(prev => prev.map(m =>
                         m.id === event.data.message_id
@@ -504,12 +501,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     // This fixes the race condition where chunks are dropped because the message doesn't exist yet
                     {
                         const msgId = event.data.messageId || event.data.message_id;
-                        console.log('[ChatInterface] message_start received, creating placeholder for:', msgId);
+                        logger.debug('message_start received, creating placeholder for:', msgId);
                         setMessages(prev => {
                             // Check if message already exists (e.g., from initial load)
                             const exists = prev.some(m => m.id === msgId);
                             if (exists) {
-                                console.log('[ChatInterface] Message already exists, skipping placeholder creation');
+                                logger.debug('Message already exists, skipping placeholder creation');
                                 return prev;
                             }
                             // Create new placeholder message
@@ -537,7 +534,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     }
                     break;
                 case 'client_action':
-                    console.log('[ChatInterface] Received client action:', event.data.action);
+                    logger.debug('Received client action:', event.data.action);
 
                     if (event.data.action.type === 'execute_swap_instant') {
                         // DIRECT SERVER EXECUTION - NO UI CARD
@@ -578,7 +575,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const slippageBps = actionData.slippageBps || actionData.slippage_bps ||
                             (actionData.slippage ? Math.round(actionData.slippage * 100) : 50);
 
-                        console.log('[ChatInterface] Executing instant swap:', {
+                        logger.debug('Executing instant swap:', {
                             tokenIn: tokenInAddress,
                             tokenOut: tokenOutAddress,
                             amountIn,
@@ -795,7 +792,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     if (found) {
                         setSelectedModel(current => {
                             if (found.id !== current.id) {
-                                console.log('[ChatInterface] Syncing model from localStorage:', found.id);
+                                logger.debug('Syncing model from localStorage:', found.id);
                                 return found;
                             }
                             return current;
@@ -803,7 +800,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     }
                 }
             } catch (e) {
-                console.warn('[ChatInterface] Failed to sync model from localStorage:', e);
+                logger.warn('Failed to sync model from localStorage:', e);
             }
         };
 
@@ -817,7 +814,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (found) {
                 setSelectedModel(current => {
                     if (found.id !== current.id) {
-                        console.log('[ChatInterface] Model changed via event:', found.id);
+                        logger.debug('Model changed via event:', found.id);
                         return found;
                     }
                     return current;
@@ -840,9 +837,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     useEffect(() => {
         try {
             localStorage.setItem('kiko-selected-model', JSON.stringify(selectedModel));
-            console.log('[ChatInterface] Saved model selection to localStorage:', selectedModel.id);
+            logger.debug('Saved model selection to localStorage:', selectedModel.id);
         } catch (e) {
-            console.warn('[ChatInterface] Failed to save model selection to localStorage:', e);
+            logger.warn('Failed to save model selection to localStorage:', e);
         }
     }, [selectedModel]);
 
@@ -859,7 +856,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             provider: string;
         }>) => {
             const { tokenSymbol, tokenAddress, chainId } = e.detail;
-            console.log('[ChatInterface] Swap request received:', e.detail);
+            logger.debug('Swap request received:', e.detail);
 
             // Store token info for swap context (will be used by AI)
             localStorage.setItem('kiko-pending-swap', JSON.stringify({
@@ -939,11 +936,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
         // Case 1: Conversation ID changed
         if (conversationIdChanged) {
-            console.log('[ChatInterface] ⚠️ CONVERSATION CHANGED:', { prevId, newId });
+            logger.debug('⚠️ CONVERSATION CHANGED:', { prevId, newId });
 
             // If we're actively sending a message (creating new conversation), don't interrupt
             if (isSendingRef.current) {
-                console.log('[ChatInterface] Skipping stopGeneration - active send in progress');
+                logger.debug('Skipping stopGeneration - active send in progress');
                 currentConversationIdRef.current = newId || null;
                 return;
             }
@@ -951,14 +948,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             // IMPORTANT: Do NOT cancel backend task when switching conversations!
             // The generation should continue in the background.
             // We only reset local UI state here.
-            console.log('[ChatInterface] Resetting UI states (backend continues generating)...');
+            logger.debug('Resetting UI states (backend continues generating)...');
 
             // CRITICAL: Force reset all UI states immediately (but don't cancel backend!)
             setIsThinking(false);
             setIsStreaming(false);
             setThinkingText('Thinking');
             setInput('');
-            console.log('[ChatInterface] UI states reset, loading new messages:', initialMessages.length);
+            logger.debug('UI states reset, loading new messages:', initialMessages.length);
 
             // Always load the new conversation's messages when ID changes
             setMessages(initialMessages);
@@ -981,7 +978,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             // Set flag to skip auto-send on next render cycle
             justSwitchedConversationRef.current = true;
-            console.log('[ChatInterface] Conversation switch complete. New ID:', newId, 'Marked', initialMessages.length, 'messages as processed');
+            logger.debug('Conversation switch complete. New ID:', newId, 'Marked', initialMessages.length, 'messages as processed');
         } else if (initialMessages.length > 0) {
             // Case 2: Conversation ID is same, check for background updates from App.tsx
             // This can happen when:
@@ -991,7 +988,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             // CRITICAL: If our local messages are empty but initialMessages arrived, always sync
             // This fixes the "welcome screen appears instead of conversation" bug
             if (messages.length === 0 && initialMessages.length > 0) {
-                console.log('[ChatInterface] Syncing - local empty but props has messages');
+                logger.debug('Syncing - local empty but props has messages');
                 setMessages(initialMessages);
                 messagesRef.current = initialMessages;
                 setHasStarted(true);
@@ -1014,7 +1011,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     ));
 
                 if (hasSubstantialDiff) {
-                    console.log('[ChatInterface] Syncing messages from props - background update detected');
+                    logger.debug('Syncing messages from props - background update detected');
                     setMessages(initialMessages);
                     messagesRef.current = initialMessages;
                     setHasStarted(initialMessages.length > 0);
@@ -1041,7 +1038,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             // If task is still running, restore UI state
             if (task.status === 'queued' || task.status === 'running') {
-                console.log('[ChatInterface] Restoring UI state for active task:', task.id, task.status);
+                logger.debug('Restoring UI state for active task:', task.id, task.status);
 
                 // Set active task ID
                 setActiveTaskId(task.id);
@@ -1055,13 +1052,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     if (lastMessage.status === 'streaming') {
                         setIsThinking(false);
                         setIsStreaming(true);
-                        console.log('[ChatInterface] Task is streaming (message status is streaming)');
+                        logger.debug('Task is streaming (message status is streaming)');
                     } else if (lastMessage.status === 'complete') {
                         // If message is complete but task is running, AI is likely between turns (e.g. tool calling)
                         // so we should be in thinking state, not streaming
                         setIsThinking(true);
                         setIsStreaming(false);
-                        console.log('[ChatInterface] Task is thinking (last message complete, but task running)');
+                        logger.debug('Task is thinking (last message complete, but task running)');
                     } else {
                         // Fallback: if message has NO status but has content, assume it finished if we don't know otherwise
                         // BUT since task is running, we assume it's still doing something
@@ -1072,7 +1069,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     // No assistant message yet, assume thinking
                     setIsThinking(true);
                     setIsStreaming(false);
-                    console.log('[ChatInterface] Task is thinking (no assistant message yet)');
+                    logger.debug('Task is thinking (no assistant message yet)');
                 }
             } else {
                 // Task is done/failed/cancelled, clear UI state
@@ -1080,7 +1077,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 setActiveTaskId(null);
                 setIsThinking(false);
                 setIsStreaming(false);
-                console.log('[ChatInterface] Task is complete, clearing UI state:', task.id, task.status);
+                logger.debug('Task is complete, clearing UI state:', task.id, task.status);
             }
         } else {
             // No active task, ensure UI state is cleared
@@ -1097,7 +1094,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (!walletAddress || !authenticated || chainId === 0) return;
 
         const fetchBalances = async () => {
-            setIsLoadingBalances(true);
+            // Loading state handled internally
             try {
                 // Dynamically import to avoid circular dependencies if any
                 const { getWalletPortfolio } = await import('../../services/swapService');
@@ -1148,9 +1145,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 // Ensure Common Tokens and Context Tokens have entries (even if 0)
                 // This helps AI know that we CHECKED and found 0, vs unknown
                 const commonTokens = COMMON_TOKENS[chainId] || [];
-                const contextAddresses = messages
-                    .slice(-10)
-                    .flatMap(msg => extractAddresses(msg.content));
+                // Only process last 10 messages for performance
+                const recentMessages = messages.slice(-10);
+                const contextAddresses = recentMessages.flatMap(msg => extractAddresses(msg.content));
 
                 // Set of addresses to ensure we have coverage for
                 const targetAddresses = new Set([
@@ -1178,9 +1175,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                 setUserBalances(balances);
             } catch (error) {
-                console.error('[ChatInterface] Error fetching balances:', error);
-            } finally {
-                setIsLoadingBalances(false);
+                logger.error('Error fetching balances:', error);
             }
         };
 
@@ -1220,7 +1215,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     useEffect(() => {
         // Skip if just switched conversation - prevents firing API calls for loaded history
         if (justSwitchedConversationRef.current) {
-            console.log('[ChatInterface] Skipping auto-send - just switched conversation');
+            logger.debug('Skipping auto-send - just switched conversation');
             justSwitchedConversationRef.current = false;
             return;
         }
@@ -1257,7 +1252,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }, [messages, conversationId, isThinking, isStreaming]);
 
     // Auto-save messages whenever they change (debounced)
-    // Auto-save messages whenever they change (debounced)
     useEffect(() => {
         if (onMessagesChange && messages.length > 0 && currentConversationIdRef.current) {
             const timeoutId = setTimeout(() => {
@@ -1274,7 +1268,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     useEffect(() => {
         return () => {
             if (onMessagesChange && messagesRef.current.length > 0 && currentConversationIdRef.current) {
-                console.log('[ChatInterface] Saving messages on unmount');
+                logger.debug('Saving messages on unmount');
                 onMessagesChange(messagesRef.current);
             }
         };
@@ -1391,7 +1385,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 await chatApi.stopTask(activeTaskId);
                 setActiveTaskId(null);
             } catch (err) {
-                console.error('[ChatInterface] Failed to stop task:', err);
+                logger.error('Failed to stop task:', err);
             }
         }
 
@@ -1421,11 +1415,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             isSendingRef.current = true;
 
             // LOGGING: Log the chain context before sending
-            console.log(`[ChatInterface] Sending message on chain: ${currentChain.name} (${currentChain.id})`);
+            logger.debug(`Sending message on chain: ${currentChain.name} (${currentChain.id})`);
 
             // Prevent sending new messages while stopping
             if (isStopping) {
-                console.log('[ChatInterface] Blocked send - currently stopping');
+                logger.debug('Blocked send - currently stopping');
                 return;
             }
 
@@ -1444,7 +1438,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     }
                 }
             } catch (e) {
-                console.warn('[ChatInterface] Failed to read model from localStorage:', e);
+                logger.warn('Failed to read model from localStorage:', e);
             }
 
             // 1. Ensure conversation exists
@@ -1483,7 +1477,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 textareaRef.current.style.height = 'auto';
             }
 
-            console.log('[ChatInterface DEBUG] Setting isThinking=true');
+            logger.debug('Setting isThinking=true');
             setIsThinking(true);
             setThinkingText('Thinking');
             userScrolledUpRef.current = false;
@@ -1495,7 +1489,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             // checks are handled by handleGlobalChatEvent
 
             // 4. Call backend API
-            console.log('[ChatInterface DEBUG] Sending message with walletAddress:', walletAddress, 'chainId:', chainId);
+            logger.debug('Sending message with walletAddress:', walletAddress, 'chainId:', chainId);
             const resp = await chatApi.sendMessage(currentConvId, text, {
                 model: modelToUse.id,
                 walletAddress: walletAddress,
@@ -1526,7 +1520,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 };
 
                 setMessages(prev => [...prev, aiMsg]);
-                console.log('[ChatInterface DEBUG] Added AI message placeholder, id:', aiMsg.id);
+                logger.debug('Added AI message placeholder, id:', aiMsg.id);
                 setActiveTaskId(task.id);
 
                 // Update task state in parent component
@@ -1539,7 +1533,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 throw new Error(resp.error || 'Failed to send message');
             }
         } catch (error: any) {
-            console.error('[ChatInterface] Error sending message:', error);
+            logger.error('Error sending message:', error);
             setIsThinking(false);
             const errorMsg: Message = {
                 id: Date.now().toString(),
@@ -1560,7 +1554,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Process pending swap message from LaunchpadCard
     useEffect(() => {
         if (pendingSwapMessage && !isStreaming && !isThinking) {
-            console.log('[ChatInterface] Sending pending swap message:', pendingSwapMessage);
+            logger.debug('Sending pending swap message:', pendingSwapMessage);
             handleSend(pendingSwapMessage);
             setPendingSwapMessage(null);
         }
@@ -1580,7 +1574,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             // Prevent sending while thinking, streaming, or stopping
             if (isThinking || isStreaming || isStopping) {
                 e.preventDefault();
-                console.log('[ChatInterface] Blocked Enter - AI is busy');
+                logger.debug('Blocked Enter - AI is busy');
                 return;
             }
             e.preventDefault();
@@ -1773,7 +1767,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     } else if (action === 'strategy-edit') {
                                         // Navigate to trade page or open edit modal
                                     } else if (action === 'strategy-delete') {
-                                        // TODO: Implement delete
+                                        const strategyId = data;
+                                        deleteStrategy(strategyId);
+                                        // Remove strategy card from message
+                                        setMessages(prev => {
+                                            const updated = prev.map(m => {
+                                                if (m.type === 'strategy-card' && m.data?.id === strategyId) {
+                                                    return {
+                                                        ...m,
+                                                        type: 'text' as const,
+                                                        data: undefined
+                                                    };
+                                                }
+                                                return m;
+                                            });
+                                            messagesRef.current = updated;
+                                            if (onMessagesChange && currentConversationIdRef.current) {
+                                                setTimeout(() => onMessagesChange(updated), 0);
+                                            }
+                                            return updated;
+                                        });
                                     } else if (action === 'strategy-toggle') {
                                         const strategyId = data;
                                         toggleStrategyStatus(strategyId);
@@ -1870,7 +1883,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                                     onClick={() => {
                                                         setSelectedModel(model);
                                                         setIsModelDropdownOpen(false);
-                                                        console.log('[ChatInterface] Model changed to:', model.id);
+                                                        logger.debug('Model changed to:', model.id);
                                                     }}
                                                 >
                                                     <span className={styles.modelOptionName}>{model.name}</span>

@@ -9,9 +9,7 @@ import { getMarketOverview } from '../repositories/marketRepository.js';
 import { getChainsData } from '../repositories/chainRepository.js';
 import { getProtocolsData } from '../repositories/protocolRepository.js';
 import { getTrendingTokens, getTopGainers } from '../services/coingecko.js';
-import { getChainMetricsFromDune } from '../services/dune.js';
 import { getChainsData as fetchChainsData, getProtocolHistoricalTvl, getProtocolDetails } from '../services/defillama.js';
-import { getKeyMarketIndicators } from '../services/yahooFinance.js';
 import { env } from '../config/env.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 import { validateLimit } from '../utils/validation.js';
@@ -157,116 +155,20 @@ export async function marketRoutes(fastify: FastifyInstance) {
   });
 
   // GET /api/market/indicators
-  // Returns VIX, DXY, Gold, Oil, EUR/USD from Yahoo Finance
+  // Returns VIX, DXY, Gold, Oil, EUR/USD
+  // Previously used Yahoo Finance stub, now returns empty or cached market overview data if available
   fastify.get('/indicators', async (request, reply) => {
     try {
-      const cacheKey = 'market:indicators';
-      const CACHE_TTL = 300; // 5 minutes cache
-
-      // Check cache
-      const cached = await get(cacheKey);
-      if (cached) {
-        return reply.send({
-          success: true,
-          data: JSON.parse(cached),
-          cached: true,
-        });
-      }
-
-      // Fetch from Yahoo Finance
-      const indicators = await getKeyMarketIndicators();
-
-      // Transform to frontend format
-      const formattedIndicators = [];
-
-      if (indicators.vix) {
-        formattedIndicators.push({
-          id: 'VIX',
-          name: 'VIX',
-          fullName: 'CBOE Volatility Index',
-          value: indicators.vix.regularMarketPrice,
-          change: indicators.vix.regularMarketChange,
-          changePercent: indicators.vix.regularMarketChangePercent,
-          previousClose: indicators.vix.regularMarketPreviousClose,
-          timestamp: new Date(indicators.vix.regularMarketTime * 1000).toISOString(),
-          source: 'Yahoo Finance',
-          category: 'volatility',
-        });
-      }
-
-      if (indicators.dxy) {
-        formattedIndicators.push({
-          id: 'DXY',
-          name: 'DXY',
-          fullName: 'US Dollar Index',
-          value: indicators.dxy.regularMarketPrice,
-          change: indicators.dxy.regularMarketChange,
-          changePercent: indicators.dxy.regularMarketChangePercent,
-          previousClose: indicators.dxy.regularMarketPreviousClose,
-          timestamp: new Date(indicators.dxy.regularMarketTime * 1000).toISOString(),
-          source: 'Yahoo Finance',
-          category: 'currency',
-        });
-      }
-
-      if (indicators.gold) {
-        formattedIndicators.push({
-          id: 'GOLD',
-          name: 'Gold',
-          fullName: 'Gold Futures',
-          value: indicators.gold.regularMarketPrice,
-          change: indicators.gold.regularMarketChange,
-          changePercent: indicators.gold.regularMarketChangePercent,
-          previousClose: indicators.gold.regularMarketPreviousClose,
-          timestamp: new Date(indicators.gold.regularMarketTime * 1000).toISOString(),
-          source: 'Yahoo Finance',
-          category: 'commodity',
-        });
-      }
-
-      if (indicators.oil) {
-        formattedIndicators.push({
-          id: 'OIL',
-          name: 'Crude Oil',
-          fullName: 'WTI Crude Oil Futures',
-          value: indicators.oil.regularMarketPrice,
-          change: indicators.oil.regularMarketChange,
-          changePercent: indicators.oil.regularMarketChangePercent,
-          previousClose: indicators.oil.regularMarketPreviousClose,
-          timestamp: new Date(indicators.oil.regularMarketTime * 1000).toISOString(),
-          source: 'Yahoo Finance',
-          category: 'commodity',
-        });
-      }
-
-      if (indicators.eurusd) {
-        formattedIndicators.push({
-          id: 'EURUSD',
-          name: 'EUR/USD',
-          fullName: 'Euro / US Dollar',
-          value: indicators.eurusd.regularMarketPrice,
-          change: indicators.eurusd.regularMarketChange,
-          changePercent: indicators.eurusd.regularMarketChangePercent,
-          previousClose: indicators.eurusd.regularMarketPreviousClose,
-          timestamp: new Date(indicators.eurusd.regularMarketTime * 1000).toISOString(),
-          source: 'Yahoo Finance',
-          category: 'currency',
-        });
-      }
-
-      // Cache the result
-      if (formattedIndicators.length > 0) {
-        await set(cacheKey, JSON.stringify(formattedIndicators), CACHE_TTL);
-      }
-
+      // Logic removed as yahooFinance.ts service was deleted. 
+      // Market overview tool handles this in a better way if needed.
+      // For now, return empty data to prevent errors if frontend calls it.
       return reply.send({
         success: true,
-        data: formattedIndicators,
-        cached: false,
+        data: [],
+        message: 'Market indicators service is currently disabled.'
       });
     } catch (error) {
-      console.error('[Market] Error fetching indicators:', error);
-      throw handleExternalApiError(error as Error, 'Yahoo Finance');
+      throw handleExternalApiError(error as Error, 'Market Indicators');
     }
   });
 

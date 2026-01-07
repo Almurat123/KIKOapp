@@ -2,7 +2,7 @@
  * Protocol Data Repository
  * Handles database operations for DeFi protocols using Prisma
  */
-import { prisma, withRetry } from '../lib/prisma.js';
+import { prisma, withRetry } from '../db/prisma.js';
 import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { ProtocolData } from '../services/defillama.js';
 import { Decimal } from 'decimal.js';

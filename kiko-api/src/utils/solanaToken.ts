@@ -26,12 +26,81 @@ export async function getTokenAccountAmount(connection: Connection, ata: PublicK
   return amountStr ? BigInt(amountStr) : 0n;
 }
 
-export async function getSolanaTokenMetadata(mint: string): Promise<any> {
-  // Placeholder implementation
+export interface SolanaTokenMetadata {
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  logoURI?: string;
+}
+
+/**
+ * Get token metadata from Jupiter Token List
+ */
+export async function getSolanaTokenMetadata(
+  tokenAddress: string
+): Promise<SolanaTokenMetadata | null> {
+  const TOKENLIST_URLS = [
+    process.env.SOLANA_TOKENLIST_URL, // optional override
+    'https://tokens.jup.ag/tokens?tags=verified', // official
+    'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json', // CDN fallback
+    'https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json', // raw fallback
+  ].filter(Boolean) as string[];
+
+  for (const url of TOKENLIST_URLS) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.warn(`[Solana Token Metadata] Request failed ${url}: ${response.status}`);
+        continue;
+      }
+
+      const payload = await response.json();
+      const tokens = Array.isArray(payload) ? payload : (payload as any)?.tokens || [];
+      if (!Array.isArray(tokens)) {
+        console.warn(`[Solana Token Metadata] Unexpected token list shape from ${url}`);
+        continue;
+      }
+
+      const token = tokens.find((t: any) => t?.address?.toLowerCase() === tokenAddress.toLowerCase());
+      if (!token) {
+        console.warn(`[Solana Token Metadata] Token not in list ${url}: ${tokenAddress}`);
+        continue;
+      }
+
+      const decimals = typeof token.decimals === 'number' ? token.decimals : 6;
+
+      console.log(`[Solana Token Metadata] ✓ Found token ${token.symbol} via ${url}`);
+      return {
+        address: token.address,
+        symbol: token.symbol,
+        name: token.name,
+        decimals,
+        logoURI: token.logoURI,
+      };
+    } catch (error) {
+      console.warn('[Solana Token Metadata] Source failed, trying next:', url, error);
+      continue;
+    }
+  }
+
+  console.error(`[Solana Token Metadata] No metadata found for token: ${tokenAddress}`);
+  // Fallback minimal metadata to keep flows working even without token list
   return {
-    address: mint,
+    address: tokenAddress,
     symbol: 'UNKNOWN',
     name: 'Unknown Token',
-    decimals: 9
+    decimals: 6,
+    logoURI: undefined,
   };
 }

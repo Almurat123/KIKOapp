@@ -11,7 +11,7 @@ import {
 } from '../../types/judgeTypes.js';
 
 
-const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8000/grok';
+const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
 const MAX_RETRIES = 2;
 const TIMEOUT_MS = 120000; // 120 seconds
 

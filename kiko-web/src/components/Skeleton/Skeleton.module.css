@@ -1,6 +1,12 @@
 .skeleton {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(0, 0, 0, 0.08);
   border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+:global(.dark) .skeleton {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .text {
@@ -26,11 +32,20 @@
   background: linear-gradient(
     90deg,
     rgba(0, 0, 0, 0.05) 0%,
-    rgba(0, 0, 0, 0.1) 50%,
+    rgba(0, 0, 0, 0.12) 50%,
     rgba(0, 0, 0, 0.05) 100%
   );
   background-size: 200% 100%;
   animation: wave 1.5s ease-in-out infinite;
+}
+
+:global(.dark) .wave {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
 }
 
 @keyframes pulse {

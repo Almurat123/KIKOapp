@@ -734,6 +734,13 @@ export class ChatWorker {
                 } // end else (amountIn !== 'all')
             } // end if (fastSwapMode && isSwapIntent && hasSwapTarget)
 
+            // Wait for early pre-fetch to complete before building enrichment
+            if (earlyPreFetchPromise) {
+                console.log('[ChatWorker] Waiting for early pre-fetch to complete');
+                await earlyPreFetchPromise;
+                earlyPreFetchPromise = null;
+            }
+
             // Detect and resolve contract address if present
             let detectedChainId = task.toolContext?.chainId;
             let detectedChainName: string | undefined;
@@ -742,74 +749,45 @@ export class ChatWorker {
             if (parsedIntent.contractAddress) {
                 console.log(`[ChatWorker] Detected contract address: ${parsedIntent.contractAddress}`);
 
-                // Try to find token on any chain
-                if (task.sessionId) {
-                    this.ws.broadcastToUser(userId!, {
-                        type: 'task_status',
-                        sessionId: task.sessionId,
-                        data: { status: 'running', message: 'Scanning tokens' }
-                    });
+                // Check cache first for token info
+                const tokenKey = `get_token_info:${JSON.stringify({
+                    address: parsedIntent.contractAddress,
+                    chainId: detectedChainId || task.toolContext?.chainId
+                })}`;
+
+                if (toolResultsCache.has(tokenKey)) {
+                    tokenInfo = toolResultsCache.get(tokenKey);
+                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_token_info for ${parsedIntent.contractAddress}`);
                 }
-                const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
-                if (globalTokenInfo) {
-                    detectedChainId = globalTokenInfo.chainId;
-                    detectedChainName = globalTokenInfo.chainName;
-                    tokenInfo = globalTokenInfo;
-                    console.log(`[ChatWorker] Found token ${globalTokenInfo.symbol} on ${globalTokenInfo.chainName} (${globalTokenInfo.chainId})`);
 
-                    // Log launchpad info if detected
-                    if (globalTokenInfo.launchpad) {
-                        console.log(`[ChatWorker] Token is from launchpad: ${globalTokenInfo.launchpad.provider}`);
+                if (!tokenInfo) {
+                    // Try to find token on any chain
+                    if (task.sessionId) {
+                        this.ws.broadcastToUser(userId!, {
+                            type: 'task_status',
+                            sessionId: task.sessionId,
+                            data: { status: 'running', message: 'Scanning tokens' }
+                        });
                     }
-                } else if (detectedChainId) {
-                    // Fallback: try specific chain
-                    const specificTokenInfo = await getTokenInfo(parsedIntent.contractAddress, detectedChainId);
-                    if (specificTokenInfo) {
-                        tokenInfo = specificTokenInfo;
-                        detectedChainName = specificTokenInfo.chainName;
-
-                        // Log launchpad info if detected
-                        if (specificTokenInfo.launchpad) {
-                            console.log(`[ChatWorker] Token is from launchpad: ${specificTokenInfo.launchpad.provider}`);
-
-                            // AUTO-TRIGGER CARD: If it's a launchpad token, show card immediately
-                            this.ws.broadcastToUser(userId!, {
-                                type: 'client_action',
-                                sessionId: task.sessionId,
-                                data: {
-                                    message_id: assistantMessageId,
-                                    action: {
-                                        type: 'show_launchpad_card',
-                                        data: {
-                                            chainId: specificTokenInfo.chainId,
-                                            provider: specificTokenInfo.launchpad.provider,
-                                            data: {
-                                                ...specificTokenInfo.launchpad.data,
-                                                address: specificTokenInfo.address // Ensure address is present
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-
-                            // PERSIST: Save launchpad card meta to DB
-                            await this.repo.updateMessage(assistantMessageId, {
-                                type: 'launchpad-card',
-                                data: {
-                                    chainId: specificTokenInfo.chainId,
-                                    provider: specificTokenInfo.launchpad.provider,
-                                    data: {
-                                        ...specificTokenInfo.launchpad.data,
-                                        address: specificTokenInfo.address
-                                    }
-                                }
-                            });
+                    const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
+                    if (globalTokenInfo) {
+                        detectedChainId = globalTokenInfo.chainId;
+                        detectedChainName = globalTokenInfo.chainName;
+                        tokenInfo = globalTokenInfo;
+                        console.log(`[ChatWorker] Found token ${globalTokenInfo.symbol} on ${globalTokenInfo.chainName} (${globalTokenInfo.chainId})`);
+                    } else if (detectedChainId) {
+                        // Fallback: try specific chain
+                        const specificTokenInfo = await getTokenInfo(parsedIntent.contractAddress, detectedChainId);
+                        if (specificTokenInfo) {
+                            tokenInfo = specificTokenInfo;
+                            detectedChainName = specificTokenInfo.chainName;
                         }
                     }
                 }
 
-                // If token was found from findTokenOnAnyChain, also check for launchpad
+                // Show launchpad card if detected
                 if (tokenInfo && tokenInfo.launchpad) {
+                    console.log(`[ChatWorker] Token is from launchpad: ${tokenInfo.launchpad.provider}`);
                     this.ws.broadcastToUser(userId!, {
                         type: 'client_action',
                         sessionId: task.sessionId,
@@ -822,9 +800,22 @@ export class ChatWorker {
                                     provider: tokenInfo.launchpad.provider,
                                     data: {
                                         ...tokenInfo.launchpad.data,
-                                        address: tokenInfo.address // Ensure address is present
+                                        address: tokenInfo.address
                                     }
                                 }
+                            }
+                        }
+                    });
+
+                    // Persist: Save launchpad card meta to DB
+                    await this.repo.updateMessage(assistantMessageId, {
+                        type: 'launchpad-card',
+                        data: {
+                            chainId: tokenInfo.chainId,
+                            provider: tokenInfo.launchpad.provider,
+                            data: {
+                                ...tokenInfo.launchpad.data,
+                                address: tokenInfo.address
                             }
                         }
                     });
@@ -837,6 +828,13 @@ export class ChatWorker {
             const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intent);
 
             // Prepare User Context with detected information
+
+            // Fallback: If chain name not detected from token, try to resolve from chainId
+            if (!detectedChainName && (detectedChainId || task.toolContext?.chainId)) {
+                const chainIdToResolve = detectedChainId || task.toolContext?.chainId;
+                detectedChainName = CHAIN_ID_MAP[chainIdToResolve!] || 'Unknown Chain';
+            }
+
             const userContext: UserContext = {
                 userAddress: task.toolContext?.walletAddress,
                 chainId: detectedChainId || task.toolContext?.chainId,
@@ -867,6 +865,33 @@ ${tokenInfo.volume24h ? `24h Volume: $${tokenInfo.volume24h.toLocaleString()}` :
 ${tokenInfo.marketCap ? `Market Cap: $${tokenInfo.marketCap.toLocaleString()}` : ''}
 ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperCase()} - This token was launched on a launchpad platform.` : ''}
 `;
+                }
+
+                // Add balance info if pre-fetched
+                const balanceKey = `get_wallet_portfolio:${JSON.stringify({
+                    address: task.toolContext?.walletAddress,
+                    chainId: task.toolContext?.chainId
+                })}`;
+                if (toolResultsCache.has(balanceKey)) {
+                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_wallet_portfolio`);
+                    const balanceData = toolResultsCache.get(balanceKey);
+                    tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
+User Wallet: ${task.toolContext?.walletAddress}
+${balanceData.tokens ? `Portfolio Assets:\n${balanceData.tokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
+`;
+                }
+
+                // Add social info if pre-fetched
+                const socialKey = `get_trending_casts:${JSON.stringify({})}`;
+                if (toolResultsCache.has(socialKey)) {
+                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_trending_casts`);
+                    const socialData = toolResultsCache.get(socialKey);
+                    if (socialData && Array.isArray(socialData)) {
+                        tokenContextBlock += `\n\n[FARCASTER_TRENDING_CONTEXT]
+Recent Hot Casts:
+${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.slice(0, 100)}...`).join('\n')}
+`;
+                    }
                 }
 
                 // Use Orchestrator to build the full prompt with context and anti-override
@@ -1379,6 +1404,42 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 console.warn(`[ChatWorker] Early pre-fetch failed for ${toolName}:`, err);
             }
         }
+
+        // 🚀 PROACTIVE MULTI-INTENT PRE-FETCH (Keyword based)
+        // If main action didn't match balance/social, but keywords are present, pre-fetch anyway
+        const lastUserMessage = parsedIntent.detailed.query || ''; // Get message from intent
+        const lowerMsg = lastUserMessage.toLowerCase();
+
+        // Proactive Balance
+        if (action !== 'wallet_balance' && action !== 'wallet_info' && /\b(balance|portfolio|余额|钱包|资|持有)\b/i.test(lowerMsg)) {
+            const balanceKey = `get_wallet_portfolio:${JSON.stringify({
+                address: task.toolContext?.walletAddress,
+                chainId: task.toolContext?.chainId
+            })}`;
+
+            if (!resultsMap.has(balanceKey)) {
+                console.log(`[ChatWorker] 🚀 Proactive pre-fetching get_wallet_portfolio based on keywords`);
+                toolRegistry.execute('get_wallet_portfolio', {
+                    address: task.toolContext?.walletAddress,
+                    chainId: task.toolContext?.chainId
+                }, task.toolContext).then(res => {
+                    resultsMap.set(balanceKey, res);
+                    console.log(`[ChatWorker] ✅ Proactive balance pre-fetch stored`);
+                }).catch(err => console.warn('[ChatWorker] Proactive balance pre-fetch failed:', err));
+            }
+        }
+
+        // Proactive Social
+        if (action !== 'social_trending' && /\b(trending|social|farcaster|twitter|hot|sentiment|what.*people|大家|在聊|热门)\b/i.test(lowerMsg)) {
+            const socialKey = `get_trending_casts:${JSON.stringify({})}`;
+            if (!resultsMap.has(socialKey)) {
+                console.log(`[ChatWorker] 🚀 Proactive pre-fetching get_trending_casts based on keywords`);
+                toolRegistry.execute('get_trending_casts', {}, task.toolContext).then(res => {
+                    resultsMap.set(socialKey, res);
+                    console.log(`[ChatWorker] ✅ Proactive social pre-fetch stored`);
+                }).catch(err => console.warn('[ChatWorker] Proactive social pre-fetch failed:', err));
+            }
+        }
     }
 
     /**
@@ -1418,7 +1479,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 // Check cache first (Phase 5)
                 const cacheKey = `${tc.function.name}:${tc.function.arguments}`;
                 if (cache && cache.has(cacheKey)) {
-                    console.log(`[ChatWorker] ⚡ Using pre-fetched result for ${tc.function.name}`);
+                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: Using pre-fetched result for ${tc.function.name}`);
                     const cachedResult = cache.get(cacheKey);
                     results.push({
                         role: 'tool',
@@ -1715,7 +1776,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 })}`;
                 if (toolResultsCache.has(tokenKey)) {
                     tokenInfo = toolResultsCache.get(tokenKey);
-                    console.log('[ChatWorker] Grok: Used pre-fetched token info');
+                    console.log('[ChatWorker] ⚡ [CACHE HIT]: Grok get_token_info');
                 }
             }
 
@@ -1729,6 +1790,20 @@ ${tokenInfo.priceChange24h !== undefined ? `24h Change: ${tokenInfo.priceChange2
 ${tokenInfo.volume24h ? `24h Volume: $${tokenInfo.volume24h.toLocaleString()}` : ''}
 ${tokenInfo.marketCap ? `Market Cap: $${tokenInfo.marketCap.toLocaleString()}` : ''}
 ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperCase()} - This token was launched on a launchpad platform.` : ''}
+`;
+            }
+
+            // Add balance info if pre-fetched (Grok)
+            const balanceKey = `get_wallet_portfolio:${JSON.stringify({
+                address: task.toolContext?.walletAddress,
+                chainId: task.toolContext?.chainId
+            })}`;
+            if (toolResultsCache.has(balanceKey)) {
+                console.log(`[ChatWorker] ⚡ [CACHE HIT]: Grok get_wallet_portfolio`);
+                const balanceData = toolResultsCache.get(balanceKey);
+                enrichedContent += `\n\n[USER_BALANCE_CONTEXT]
+User Wallet: ${task.toolContext?.walletAddress}
+${balanceData.tokens ? `Portfolio Assets:\n${balanceData.tokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
 `;
             }
 
@@ -1764,7 +1839,7 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
 
 ⚠️ IMPORTANT: Present this data in a clean table format. DO NOT invent additional casts.`;
                         enrichedContent += farcasterDataBlock;
-                        console.log(`[ChatWorker] Farcaster: Injected ${trendingCasts.length} real casts into context`);
+                        console.log(`[ChatWorker] ⚡ [CACHE HIT]: Grok get_trending_casts`);
                     }
                 } catch (farcasterError) {
                     console.error('[ChatWorker] Farcaster: Failed to pre-fetch trending casts:', farcasterError);

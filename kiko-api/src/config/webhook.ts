@@ -4,7 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 import { handleSwapDetected } from '../services/autoTradeService.js';
 import { DecodedSwap } from '../services/txDecoder.js';
 import { checkPositionsForExits } from '../services/autoTradeService.js';

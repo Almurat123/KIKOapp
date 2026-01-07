@@ -5,7 +5,7 @@
  * Uses L1 authentication (EIP-712 signature) to create API credentials.
  */
 
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 import { signTypedData, getEmbeddedWalletInfo } from './privyWallet.js';
 
 const CLOB_API = 'https://clob.polymarket.com';

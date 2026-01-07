@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../services/alchemyWebhookService.js';
 

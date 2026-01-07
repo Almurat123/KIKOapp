@@ -97,7 +97,6 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
                 } else if (provider === 'paragraph') {
                     try {
                         const result = await tokenApi.detectParagraphToken(tokenAddress!);
-                        console.log('[LaunchpadCard] Paragraph detection result:', result);
                         if (result && result.provider === 'paragraph' && result.data) {
                             setParagraphToken(result.data);
                         } else {
@@ -164,12 +163,6 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
     };
 
     const tokenAvatar = getTokenAvatar(token);
-
-
-
-
-
-
 
     // For Solana launchpads (Pump.fun, Raydium), set SOL as the sell token
     const isSolanaLaunchpad = provider === 'pumpfun' || provider === 'raydium' || provider === 'bonkfun';
@@ -276,9 +269,6 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         if (pumpFunToken.created_timestamp) {
             try { displayDate = new Date(pumpFunToken.created_timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
         }
-        if (pumpFunToken.created_timestamp) {
-            try { displayDate = new Date(pumpFunToken.created_timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
-        }
     } else if ((provider === 'raydium' || provider === 'bonkfun') && raydiumToken) {
         safeSymbol = raydiumToken.symbol;
         safeName = raydiumToken.name;
@@ -292,8 +282,6 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
     // Prepare Token Object for SwapCard (Unified for all providers)
     const scanToken: Token | undefined = useMemo(() => safeAddress ? {
         address: safeAddress,
-        symbol: safeSymbol,
-        name: safeName,
         symbol: safeSymbol,
         name: safeName,
         decimals: (provider === 'pumpfun' || provider === 'raydium' || provider === 'bonkfun') ? 6 : 18, // Default decimals

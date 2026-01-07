@@ -12,6 +12,7 @@ import { chatApi } from '../../services/api';
 import { getAuthToken } from '../../utils/authToken';
 import { useSmartSuggestions } from './useSmartSuggestions';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
+import { logger } from '../../utils/logger';
 
 // Model options
 // According to DeepSeek API docs: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
@@ -42,7 +43,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
         if (found) return found;
       }
     } catch (e) {
-      console.warn('Failed to load saved model from localStorage:', e);
+      logger.warn('Failed to load saved model from localStorage:', e);
     }
     return MODEL_OPTIONS[0];
   };
@@ -55,11 +56,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
   useEffect(() => {
     try {
       localStorage.setItem('kiko-selected-model', JSON.stringify(selectedModel));
-      console.log('[WelcomeScreen] Saved model selection:', selectedModel.id);
+      logger.debug('[WelcomeScreen] Saved model selection:', selectedModel.id);
       // Dispatch custom event to notify other components
       window.dispatchEvent(new CustomEvent('kiko-model-changed', { detail: selectedModel }));
     } catch (e) {
-      console.warn('Failed to save model selection to localStorage:', e);
+      logger.warn('Failed to save model selection to localStorage:', e);
     }
   }, [selectedModel]);
   const { resolvedTheme } = useThemeContext();
@@ -192,7 +193,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
                           onClick={() => {
                             setSelectedModel(model);
                             setIsModelDropdownOpen(false);
-                            console.log('[WelcomeScreen] Model changed to:', model.id);
+                            logger.debug('[WelcomeScreen] Model changed to:', model.id);
                           }}
                         >
                           <span className={styles.modelOptionName}>{model.name}</span>

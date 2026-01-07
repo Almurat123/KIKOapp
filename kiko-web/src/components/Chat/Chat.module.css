@@ -1974,6 +1974,36 @@
     transition: transform 0.2s ease;
 }
 
+/* Inline image styles - moved from inline styles */
+.markdownImageInline {
+    max-width: 100%;
+    border-radius: 8px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    display: block;
+    cursor: pointer;
+}
+
+.reasoningToggleButton {
+    margin-left: 8px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.markdownContentSelectable {
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    cursor: text;
+}
+
+.sourceIconZIndex {
+    position: relative;
+}
+
 .markdownImage:hover {
     transform: scale(1.01);
 }

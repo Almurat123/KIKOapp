@@ -6,8 +6,7 @@
 
 import { apiCache } from '../utils/apiCache';
 const DEXSCREENER_API = 'https://api.dexscreener.com/latest/dex';
-const ALCHEMY_API_KEY = import.meta.env.VITE_ALCHEMY_API_KEY || '';
-const ZEROX_API_KEY = import.meta.env.VITE_ZEROX_API_KEY || '';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export interface TokenInfo {
   symbol: string;
@@ -222,10 +221,14 @@ async function fetchFromRPC(tokenAddress: string, chainId: number): Promise<Toke
 
     const responses = await Promise.all(
       calls.map(call =>
-        fetch(rpcUrl, {
+        fetch(`${API_BASE_URL}/api/rpc/evm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(call),
+          body: JSON.stringify({
+            chainId,
+            method: call.method,
+            params: call.params,
+          }),
         }).then(r => r.json())
       )
     );
@@ -283,18 +286,10 @@ function decodeDecimals(hexString: string): number {
 }
 
 /**
- * 获取 RPC URL
+ * RPC URL helper (Deprecated in frontend, use backend proxy)
  */
-function getRPCUrl(chainId: number): string {
-  const rpcMap: Record<number, string> = {
-    1: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-    8453: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-    42161: `https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-    56: `https://bsc-dataseed.bnbchain.org`,
-    137: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-    10: `https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`, // Optimism
-  };
-  return rpcMap[chainId] || '';
+function getRPCUrl(_chainId: number): string {
+  return '';
 }
 
 /**

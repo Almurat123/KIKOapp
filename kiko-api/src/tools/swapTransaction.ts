@@ -69,6 +69,77 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                 return { error: 'Invalid amount. Please provide a positive number.' };
             }
 
+            // 2. CODE-LEVEL SAFETY GATE (MANDATORY - Cannot be bypassed by LLM)
+            // Check if token_out is a known safe token (whitelist)
+            const SAFE_TOKENS = [
+                'eth', 'weth', 'usdc', 'usdt', 'dai', 'sol', 'btc', 'wbtc',
+                '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH
+                '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // USDC
+                '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT
+            ];
+
+            const tokenOutLower = args.token_out.toLowerCase();
+            const isSafeToken = SAFE_TOKENS.some(safe => tokenOutLower.includes(safe.toLowerCase()));
+
+            if (!isSafeToken) {
+                console.log('[PrepareSwapTransaction] Non-safe token detected, running MANDATORY Market Structure check...');
+
+                try {
+                    // 1. FAST MARKET STRUCTURE CHECK (Liquidity / FDV)
+                    const { getTokenDetails } = await import('../services/geckoTerminal.js');
+                    const tokenData = await getTokenDetails(args.chain_id.toString(), args.token_out);
+
+                    if (tokenData) {
+                        const liquidity = parseFloat(tokenData.liquidity?.usd || '0');
+                        const fdv = parseFloat(tokenData.fdv || '0');
+
+                        // Rule: Block if Liquidity is extremely low compared to trade size or absolute minimum
+                        if (liquidity < 1000) {
+                            return {
+                                error: `🚨 SECURITY BLOCK: Extremely low liquidity ($${liquidity.toFixed(0)}). Buying this token would likely result in 100% loss.`,
+                                riskDetails: { liquidity, fdv, status: 'Extremely Illiquid' }
+                            };
+                        }
+                    }
+
+                    // 2. SIMULATION CHECK (Price Impact)
+                    const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
+                    const accessToken = context?.accessToken;
+
+                    const quoteResponse = await fetch(`${API_BASE}/api/swap/quote`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${accessToken}`
+                        },
+                        body: JSON.stringify({
+                            tokenIn: args.token_in,
+                            tokenOut: args.token_out,
+                            amountIn: args.amount_in,
+                            chainId: args.chain_id,
+                            slippageBps: 100 // 1% for simulation
+                        })
+                    });
+
+                    if (quoteResponse.ok) {
+                        const quoteData = await quoteResponse.json() as any;
+                        const impact = parseFloat(quoteData.quote?.priceImpact || '0');
+
+                        if (impact > 20) {
+                            return {
+                                error: `🚨 SECURITY BLOCK: Price Impact is too high (${impact}%). You would lose significantly on this trade.`,
+                                riskDetails: { priceImpact: impact, status: 'High Slippage' }
+                            };
+                        }
+                    }
+                } catch (safetyError: any) {
+                    console.error('[PrepareSwapTransaction] Safety check error:', safetyError.message);
+                    // Fallback to allowing preparation if safety check fails (avoid blocking valid trades due to API issues)
+                }
+            }
+
+
+
             // Check if instant execution is requested (default: true) AND user approves auto-execution
             // via custom settings "allowance" mode.
             // If settings are missing or not 'allowance', fallback to safe 'show_swap_card' mode.

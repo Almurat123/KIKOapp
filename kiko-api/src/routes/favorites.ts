@@ -8,26 +8,33 @@ import {
     getUserRules,
     TokenRule
 } from '../repositories/favoriteRepository.js';
+import { requireAuth } from '../middleware/auth.js';
+import { AppError } from '../middleware/errorHandler.js';
 
 export async function favoriteRoutes(fastify: FastifyInstance) {
 
     // GET /api/favorites - Get all favorites for the user
-    fastify.get('/', async (request, reply) => {
-        // In a real implementation with auth middleware, we'd get user from request.user
-        // For now, we'll accept a userId query param or header for testing
-        const userId = (request.query as any).userId || request.headers['x-user-id'] || 'demo-user';
+    fastify.get('/', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            throw new AppError(401, 'Unauthorized', 'UNAUTHORIZED');
+        }
 
         const favorites = await getUserFavorites(userId);
         return { success: true, data: favorites };
     });
 
     // POST /api/favorites - Add a favorite
-    fastify.post('/', async (request, reply) => {
+    fastify.post('/', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            throw new AppError(401, 'Unauthorized', 'UNAUTHORIZED');
+        }
+
         const { chain = 'eth', address } = request.body as { chain: string; address: string };
-        const userId = (request.query as any).userId || request.headers['x-user-id'] || 'demo-user';
 
         if (!address) {
-            return reply.code(400).send({ success: false, error: 'Address is required' });
+            throw new AppError(400, 'Address is required', 'VALIDATION_ERROR');
         }
 
         const result = await addFavorite(userId, chain, address);
@@ -35,22 +42,30 @@ export async function favoriteRoutes(fastify: FastifyInstance) {
     });
 
     // DELETE /api/favorites/:address - Remove a favorite
-    fastify.delete('/:address', async (request, reply) => {
+    fastify.delete('/:address', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            throw new AppError(401, 'Unauthorized', 'UNAUTHORIZED');
+        }
+
         const { address } = request.params as { address: string };
         const { chain = 'eth' } = request.query as { chain: string };
-        const userId = (request.query as any).userId || request.headers['x-user-id'] || 'demo-user';
 
         const result = await removeFavorite(userId, chain, address);
         return { success: result };
     });
 
     // GET /api/favorites/check - Check if specific token is favorite
-    fastify.get('/check', async (request, reply) => {
+    fastify.get('/check', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            throw new AppError(401, 'Unauthorized', 'UNAUTHORIZED');
+        }
+
         const { chain = 'eth', address } = request.query as { chain: string; address: string };
-        const userId = (request.query as any).userId || request.headers['x-user-id'] || 'demo-user';
 
         if (!address) {
-            return reply.code(400).send({ success: false, error: 'Address is required' });
+            throw new AppError(400, 'Address is required', 'VALIDATION_ERROR');
         }
 
         const isFav = await isFavorite(userId, chain, address);
@@ -61,15 +76,23 @@ export async function favoriteRoutes(fastify: FastifyInstance) {
     // --- Rules ---
 
     // GET /api/favorites/rules - Get all rules
-    fastify.get('/rules', async (request, reply) => {
-        const userId = (request.query as any).userId || request.headers['x-user-id'] || 'demo-user';
+    fastify.get('/rules', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            throw new AppError(401, 'Unauthorized', 'UNAUTHORIZED');
+        }
+
         const rules = await getUserRules(userId);
         return { success: true, data: rules };
     });
 
     // POST /api/favorites/rules - Add a new rule
-    fastify.post('/rules', async (request, reply) => {
-        const userId = (request.query as any).userId || request.headers['x-user-id'] || 'demo-user';
+    fastify.post('/rules', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        if (!userId) {
+            throw new AppError(401, 'Unauthorized', 'UNAUTHORIZED');
+        }
+
         const body = request.body as any;
 
         const rule: TokenRule = {
@@ -83,7 +106,7 @@ export async function favoriteRoutes(fastify: FastifyInstance) {
         };
 
         if (!rule.address || !rule.ruleType || rule.conditionValue === undefined) {
-            return reply.code(400).send({ success: false, error: 'Missing required fields' });
+            throw new AppError(400, 'Missing required fields', 'VALIDATION_ERROR');
         }
 
         const newRule = await addTokenRule(rule);

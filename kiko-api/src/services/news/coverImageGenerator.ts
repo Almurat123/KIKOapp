@@ -4,15 +4,15 @@ import fs from 'fs';
 import { NewsTrendingData } from './trendingCollector.js';
 
 // Configuration
-const OUTPUT_DIR = '/Users/almurat/KiKo/kiko-web/public/news-covers';
-const LOGO_PATH = '/Users/almurat/KiKo/kiko-web/public/kiko-logo.png';
+const OUTPUT_DIR = path.resolve(process.cwd(), '../kiko-web/public/news-covers');
+const LOGO_PATH = path.resolve(process.cwd(), '../kiko-web/public/kiko-logo.png');
 
 // Chain Logo Map (using high quality CDN images)
 const CHAIN_LOGOS: Record<string, string> = {
     'eth': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
     'base': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png',
     'solana': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png',
-    'bsc': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png'
+    'bnb smart chain': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png'
 };
 
 // Updated HTML Template - Single Column Row Layout with Base.org Blue Style

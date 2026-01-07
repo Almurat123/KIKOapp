@@ -11,6 +11,7 @@ interface StrategyCardProps {
   onEdit: (strategy: TradingStrategy) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string) => void;
+  onViewDetails?: (strategy: TradingStrategy) => void;
   variant?: 'card' | 'row';
 }
 
@@ -19,6 +20,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   onEdit,
   onDelete,
   onToggleStatus,
+  onViewDetails,
   variant = 'card',
 }) => {
   const { resolvedTheme } = useThemeContext();
@@ -36,7 +38,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 
   const isActive = strategy.status === 'active';
   const statusLabel = strategy.status.toUpperCase();
-  const statusClass = isActive ? styles.statusActive : strategy.status === 'paused' ? styles.statusPaused : styles.statusPaused;
+  const statusClass = isActive ? styles.statusActive : styles.statusPaused;
   const executionCount = strategy.executionHistory.length;
 
   // --- ROW VARIANT (Single Line) ---
@@ -126,7 +128,6 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   }
 
   // --- CARD VARIANT (Original) ---
-  const actionLabel = "Market Order";
   return (
     <div className={clsx(styles.card, styles.copyCard, resolvedTheme)}>
       {/* Header: Title & Status */}

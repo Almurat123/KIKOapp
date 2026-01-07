@@ -19,7 +19,7 @@ export interface TokenInfo {
     marketCap?: number;
     volume24h?: number;
     launchpad?: {
-        provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'raydium' | 'bonkfun';
+        provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'bonkfun';
         data: any;
     };
 }

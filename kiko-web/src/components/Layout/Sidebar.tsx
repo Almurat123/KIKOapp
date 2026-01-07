@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Newspaper, BarChart2, Layers, Plus, X, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, FlaskConical, TrendingUp } from 'lucide-react';
+import { MessageSquare, Newspaper, BarChart2, Layers, Plus, X, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, FlaskConical, TrendingUp, Coins, Network } from 'lucide-react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import clsx from 'clsx';
+import kikoLogo from '../../assets/images/kiko-logo.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import styles from './Sidebar.module.css';
@@ -100,22 +101,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Social',
     },
     {
-      id: 'market',
+      id: 'market-overview',
       icon: BarChart2,
-      label: 'MarketData',
-      subItems: [
-        { id: 'market-overview', label: 'Overview' },
-        { id: 'market-chains', label: 'Chains' },
-        { id: 'market-tokens', label: 'Tokens' },
-      ]
+      label: 'Overview',
+    },
+    {
+      id: 'market-chains',
+      icon: Network,
+      label: 'Chains',
+    },
+    {
+      id: 'market-tokens',
+      icon: Coins,
+      label: 'Tokens',
     },
     {
       id: 'defi',
       icon: Layers,
       label: 'SuperDefi',
-      subItems: [
-        { id: 'defi-overview', label: 'Overview' },
-      ]
     },
     {
       id: 'test',
@@ -153,9 +156,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
         !isDesktopOpen && styles.sidebarHidden,
         styles[resolvedTheme]
       )}>
+
         <div className={styles.header}>
-          <div className={styles.logo}>
-            <div className={styles.logoIcon} />
+          <div
+            className={styles.logo}
+            onClick={() => {
+              if (onNewChat) onNewChat();
+              onTabChange('chat');
+              if (isMobile) onClose();
+            }}
+            style={{ cursor: 'pointer' }}
+          >
+            <img src={kikoLogo} alt="KIKO" className={styles.logoImage} />
             <span className={styles.logoText}>KIKO</span>
             <ThemeToggle />
           </div>

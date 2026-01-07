@@ -4,7 +4,7 @@
  */
 
 import { ethers } from 'ethers';
-import prisma, { withRetry } from '../lib/prisma.js';
+import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected, startWatcher } from './watcherService.js';
 import { executeSwapInstant, executeSellInstant } from './tradeExecutor.js';

@@ -437,9 +437,12 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(401).send({ error: 'Unauthorized' });
                 }
 
-                // Import dynamically to avoid circular dependencies if any, or just import at top
-                const { generateSuggestions } = await import('../services/suggestionService.js');
-                const suggestions = await generateSuggestions(userId);
+                // Inline suggestion logic (Service stub removed)
+                const suggestions = [
+                    { text: "What's trending in crypto today?", category: 'market', priority: 1 },
+                    { text: "Show me my wallet balance", category: 'wallet', priority: 2 },
+                    { text: "What are the top gainers?", category: 'market', priority: 3 },
+                ];
 
                 return reply.send({
                     success: true,

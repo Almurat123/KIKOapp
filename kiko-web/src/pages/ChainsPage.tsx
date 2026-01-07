@@ -3,6 +3,7 @@ import { Layers, Zap, Globe } from 'lucide-react';
 import { PageContainer } from '../components/Layout/PageContainer';
 import { marketApi } from '../services/api';
 import type { ChainData } from '../services/api';
+import { Skeleton } from '../components/Skeleton';
 import styles from './ChainsPage.module.css';
 
 // --- Chain name to DeFiLlama icon slug mapping ---
@@ -165,23 +166,110 @@ export const ChainsPage: React.FC = () => {
   if (loading) {
     return (
       <PageContainer>
-        <div className={styles.loadingContainer}>
-          <div>Loading chains data...</div>
+        <div className={isMobile ? styles.containerMobile : styles.container}>
+          {/* Chain Highlights Skeleton */}
+          <div className={styles.highlightsGrid}>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className={styles.highlightCard}>
+                <Skeleton variant="circular" width={48} height={48} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <Skeleton variant="text" width={100} height={16} />
+                  <Skeleton variant="text" width={120} height={24} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Chain List Skeleton */}
+          <div className={styles.tableCard}>
+            <div className={styles.tableHeader}>
+              <Skeleton variant="text" width={200} height={24} />
+              <Skeleton variant="rectangular" width={120} height={36} />
+            </div>
+            <div className={styles.listContainer}>
+              <div className={styles.listHeader}>
+                <div className={styles.headerCell}>Chain</div>
+                <div className={styles.headerCell}>TVL</div>
+                <div className={styles.headerCell}>Vol / Txns</div>
+                <div className={styles.headerCell}>Contracts</div>
+                <div className={styles.headerCell}>Users / Gas</div>
+              </div>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className={styles.listRow}>
+                  <div className={`${styles.cell} ${styles.cellFirst}`}>
+                    <Skeleton variant="circular" width={20} height={20} />
+                    <Skeleton variant="circular" width={32} height={32} />
+                    <Skeleton variant="text" width={120} height={18} />
+                  </div>
+                  <div className={styles.cell}>
+                    <Skeleton variant="text" width={80} height={16} />
+                    <Skeleton variant="text" width={60} height={14} />
+                  </div>
+                  <div className={styles.cell}>
+                    <Skeleton variant="text" width={80} height={16} />
+                    <Skeleton variant="text" width={70} height={14} />
+                  </div>
+                  <div className={styles.cell}>
+                    <Skeleton variant="text" width={70} height={16} />
+                    <Skeleton variant="text" width={70} height={14} />
+                  </div>
+                  <div className={styles.cell}>
+                    <Skeleton variant="text" width={60} height={16} />
+                    <Skeleton variant="text" width={50} height={14} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </PageContainer>
     );
   }
 
   if (error) {
+    const isRateLimit = error.includes('request limit') || error.includes('429');
     return (
       <PageContainer>
         <div className={styles.errorContainer}>
-          <div className={styles.errorMessage}>{error}</div>
+          <div className={styles.errorMessage}>
+            {isRateLimit ? (
+              <>
+                <div>⚠️ API Rate Limit Exceeded</div>
+                <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.8 }}>
+                  Please wait a moment and try again, or refresh the page
+                </div>
+              </>
+            ) : (
+              error
+            )}
+          </div>
           <button
-            onClick={loadChainsData}
+            onClick={(e) => {
+              // Add delay for rate limit errors
+              if (isRateLimit) {
+                // Disable button and show countdown
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                let countdown = 5;
+                btn.textContent = `Retry in ${countdown}s`;
+                const interval = setInterval(() => {
+                  countdown--;
+                  if (countdown > 0) {
+                    btn.textContent = `Retry in ${countdown}s`;
+                  } else {
+                    clearInterval(interval);
+                    btn.disabled = false;
+                    btn.textContent = 'Retry';
+                    loadChainsData();
+                  }
+                }, 1000);
+              } else {
+                loadChainsData();
+              }
+            }}
             className={styles.retryBtn}
           >
-            Retry
+            {isRateLimit ? 'Retry in 5s' : 'Retry'}
           </button>
         </div>
       </PageContainer>

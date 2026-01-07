@@ -31,7 +31,6 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
     return (
         <div
             className={clsx(styles.suggestionBox, styles[resolvedTheme])}
-            style={{ zIndex: 9999, border: '2px solid red', display: 'flex' }} // DEBUG: Force visibility
         >
             <div className={styles.suggestionHeader}>
                 <Sparkles size={14} className={styles.suggestionHeaderIcon} />

@@ -1,4 +1,4 @@
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 
 /**
  * Get item from PostgreSQL Cache

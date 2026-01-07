@@ -1,5 +1,5 @@
 import { pool } from '../db/connection.js';
-import prisma from '../lib/prisma.js';
+import prisma from '../db/prisma.js';
 
 export const query = (text: string, params?: any[]) => pool.query(text, params);
 
@@ -49,7 +49,7 @@ export async function addWatchedWallet(wallet: {
 }): Promise<MonitoredWallet> {
     const { userId, address, alias, labels = [], chain = 'eth' } = wallet;
 
-    return await (prisma as any).watchedWallet.upsert({
+    return await prisma.watchedWallet.upsert({
         where: {
             userId_address: {
                 userId,
@@ -76,7 +76,7 @@ export async function addWatchedWallet(wallet: {
  */
 export async function getWatchedWallets(userId: string): Promise<MonitoredWallet[]> {
     try {
-        return await (prisma as any).watchedWallet.findMany({
+        return await prisma.watchedWallet.findMany({
             where: { userId },
             orderBy: { createdAt: 'desc' }
         });
@@ -125,7 +125,7 @@ export async function getTransactionFeed(userId: string, options: { limit?: numb
  */
 export async function updateWatchedWallet(id: number, data: { alias?: string; labels?: string[]; chain?: string }) {
     try {
-        return await (prisma as any).watchedWallet.update({
+        return await prisma.watchedWallet.update({
             where: { id },
             data
         });
@@ -140,7 +140,7 @@ export async function updateWatchedWallet(id: number, data: { alias?: string; la
  */
 export async function removeWatchedWallet(id: number, userId: string) {
     try {
-        const result = await (prisma as any).watchedWallet.deleteMany({
+        const result = await prisma.watchedWallet.deleteMany({
             where: { id, userId }
         });
         return result.count > 0;

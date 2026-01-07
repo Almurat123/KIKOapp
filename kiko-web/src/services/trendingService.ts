@@ -1,5 +1,4 @@
 import type { TokenSearchResult } from './api';
-import ormiApi from './ormiApi';
 
 // Constants for weighting
 const WEIGHTS = {
@@ -138,52 +137,5 @@ export function sortTokensByTrending(tokens: TokenSearchResult[]): TokenSearchRe
     });
 }
 
-/**
- * Enhance token data with Ormi API (Holders, etc.)
- * This should be called for specific tokens, not the whole list at once to save API calls
- */
-export async function enrichTokenWithOrmi(token: TokenSearchResult): Promise<TokenSearchResult> {
-    // Map network string to chainId (simple mapping)
-    const chainMap: Record<string, number> = {
-        'eth': 1, 'ethereum': 1,
-        'bsc': 56,
-        'polygon': 137,
-        'base': 8453,
-        'arbitrum': 42161,
-        'optimism': 10,
-        'solana': 900
-    };
 
-    const chainId = chainMap[token.network?.toLowerCase() || ''];
-    if (!chainId || !token.address) return token;
-
-    try {
-        // Fetch holder count from Ormi
-        const holdersData = await ormiApi.getHolders(chainId, token.address, 1);
-        const holderCount = holdersData.totalHolders || 0;
-
-        // Recalculate score with new data
-        const newScore = calculateTrendingScore({
-            volume24h: token.volume24h || 0,
-            txns24h: token.txns24h || 0,
-            priceChange24h: token.priceChange24h || 0,
-            liquidity: Number(token.liquidity) || 0,
-            makers: (token.txns24h || 0) / 2,
-            uniqueHolders: holderCount
-        });
-
-        return {
-            ...token,
-            // Store holder count in a custom field if TokenSearchResult allows, or just use it for score
-            // For now we just update the score implied? 
-            // TokenSearchResult doesn't have trendingScore field, it's added in the UI layer (Token interface).
-            // We pass the raw data back?
-            // Actually TokenSearchResult is the API response type. 
-            // We should probably return an object with the enrichment data.
-        };
-    } catch (e) {
-        console.warn('[Trending] Ormi enrichment failed', e);
-        return token;
-    }
-}
 

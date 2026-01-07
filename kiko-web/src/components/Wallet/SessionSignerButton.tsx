@@ -54,7 +54,9 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                     setAuthKeyId(data.authKeyId);
                 }
             } catch (error) {
-                console.error('Failed to fetch auth key ID:', error);
+                if (import.meta.env.DEV) {
+                    console.error('Failed to fetch auth key ID:', error);
+                }
             }
         };
         fetchAuthKeyId();
@@ -75,7 +77,9 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
             setIsDelegated(true);
             onSuccess?.();
         } catch (error) {
-            console.error('Failed to authorize session signer:', error);
+            if (import.meta.env.DEV) {
+                console.error('Failed to authorize session signer:', error);
+            }
             onError?.(error as Error);
         } finally {
             setIsLoading(false);
@@ -108,7 +112,9 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
             setIsDelegated(false);
             onSuccess?.();
         } catch (error) {
-            console.error('Failed to revoke session signer:', error);
+            if (import.meta.env.DEV) {
+                console.error('Failed to revoke session signer:', error);
+            }
             onError?.(error as Error);
         } finally {
             setIsLoading(false);
@@ -190,7 +196,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
 
             {!authKeyId && (
                 <p className={styles.error}>
-                    无法获取授权配置，请稍后重试
+                    Unable to fetch authorization configuration. Please try again later.
                 </p>
             )}
 
