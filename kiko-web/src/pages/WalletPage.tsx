@@ -1,11 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  ArrowUpRight,
-  TrendingUp,
-  TrendingDown,
   Shield,
   Loader2,
-  Search,
   Send,
   ArrowDownLeft,
   ArrowRightLeft,

@@ -132,14 +132,13 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             </div>
             <div className={styles.strategyItemValue}>
               <div
-                className={styles.walletAddress}
+                className={clsx(styles.walletAddress, styles.walletAddressButton)}
                 onClick={(e) => {
                   e.stopPropagation();
                   navigator.clipboard.writeText(targetWallet);
                   setIsWalletCopied(true);
                   setTimeout(() => setIsWalletCopied(false), 2000);
                 }}
-                className={styles.walletAddressButton}
               >
                 {isWalletCopied && <Check size={10} color="#4ade80" />}
                 {formatWalletAddress(targetWallet)}

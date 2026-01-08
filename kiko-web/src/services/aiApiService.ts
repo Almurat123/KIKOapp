@@ -27,7 +27,7 @@ export class AIApiService {
   static async callApiByIntent(intent: ExtendedUserIntent): Promise<ApiResponse> {
     // Some types like TOKEN_SECURITY have their own handlers and don't need apiEndpoint
     const typesWithOwnHandlers = ['TOKEN_SECURITY', 'RISK_ASSESSMENT'];
-    if (!intent.apiEndpoint && !typesWithOwnHandlers.includes(intent.type)) {
+    if (!intent.apiEndpoint && !typesWithOwnHandlers.includes(intent.type || intent.action)) {
       return {
         success: false,
         error: 'Unable to determine which API to call',
@@ -35,24 +35,24 @@ export class AIApiService {
     }
 
     try {
-      switch (intent.type) {
+      switch (intent.type || intent.action) {
         // 交易 API
         case 'SWAP':
         case 'CHECK_PRICE':
           return await this.handleSwapIntent(intent);
 
         case 'VIEW_TRADE_HISTORY':
-          return await this.callGetApi('/api/swap/history', intent.parameters);
+          return await this.callGetApi('/api/swap/history', intent.parameters || {});
 
         case 'GET_TRADE_STATS':
-          return await this.callGetApi('/api/swap/stats', intent.parameters);
+          return await this.callGetApi('/api/swap/stats', intent.parameters || {});
 
         // 新闻 API
         case 'NEWS_FLASH':
           return await this.callGetApi('/api/news/flash');
 
         case 'NEWS_ARTICLES':
-          return await this.callGetApi('/api/news/articles', intent.parameters);
+          return await this.callGetApi('/api/news/articles', intent.parameters || {});
 
         case 'NEWS_FEATURED':
           return await this.callGetApi('/api/news/featured');
@@ -62,7 +62,7 @@ export class AIApiService {
           return await this.callGetApi('/api/social/trending');
 
         case 'SOCIAL_USER_INFO':
-          if (!intent.parameters.fid) {
+          if (!intent.parameters?.fid) {
             return { success: false, error: 'Missing user ID' };
           }
           return await this.callGetApi(
@@ -86,10 +86,10 @@ export class AIApiService {
           return await this.callGetApi('/api/market/trending');
 
         case 'MARKET_GAINERS':
-          return await this.callGetApi('/api/market/gainers', intent.parameters);
+          return await this.callGetApi('/api/market/gainers', intent.parameters || {});
 
         case 'MARKET_PROTOCOL_HISTORY':
-          if (!intent.parameters.protocolName) {
+          if (!intent.parameters?.protocolName) {
             return { success: false, error: 'Missing protocol name' };
           }
           return await this.callGetApi(
@@ -99,7 +99,7 @@ export class AIApiService {
 
         // 代币 API
         case 'TOKEN_SEARCH':
-          return await this.callGetApi('/api/tokens/search', intent.parameters);
+          return await this.callGetApi('/api/tokens/search', intent.parameters || {});
 
         case 'TOKEN_DETAIL':
           return await this.handleTokenDetail(intent);
@@ -108,17 +108,17 @@ export class AIApiService {
           return await this.handleTokenChart(intent);
 
         case 'TOKEN_TRENDING':
-          return await this.callGetApi('/api/tokens/trending', intent.parameters);
+          return await this.callGetApi('/api/tokens/trending', intent.parameters || {});
 
         // 钱包 API
         case 'WALLET_LIST':
           return await this.callGetApi('/api/wallets');
 
         case 'WALLET_FEED':
-          return await this.callGetApi('/api/wallets/feed', intent.parameters);
+          return await this.callGetApi('/api/wallets/feed', intent.parameters || {});
 
         case 'WALLET_BALANCE':
-          if (!intent.parameters.address) {
+          if (!intent.parameters?.address) {
             return { success: false, error: 'Missing wallet address' };
           }
           return await this.callGetApi(
@@ -126,7 +126,7 @@ export class AIApiService {
           );
 
         case 'WALLET_TRANSACTIONS':
-          if (!intent.parameters.address) {
+          if (!intent.parameters?.address) {
             return { success: false, error: 'Missing wallet address' };
           }
           return await this.callGetApi(
@@ -142,7 +142,7 @@ export class AIApiService {
         default:
           return {
             success: false,
-            error: `Unsupported intent type: ${intent.type}`,
+            error: `Unsupported intent type: ${intent.type || intent.action}`,
           };
       }
     } catch (error) {
@@ -298,8 +298,8 @@ export class AIApiService {
    * 处理代币详情请求
    */
   private static async handleTokenDetail(intent: ExtendedUserIntent): Promise<ApiResponse> {
-    const symbol = intent.parameters.symbol as string;
-    const network = (intent.parameters.network as string) || 'ethereum';
+    const symbol = intent.parameters?.symbol as string;
+    const network = (intent.parameters?.network as string) || 'ethereum';
 
     // 首先搜索代币获取地址
     const searchResult = await this.callGetApi('/api/tokens/search', {
@@ -333,9 +333,9 @@ export class AIApiService {
    * 处理代币图表请求
    */
   private static async handleTokenChart(intent: ExtendedUserIntent): Promise<ApiResponse> {
-    const symbol = intent.parameters.symbol as string;
-    const network = (intent.parameters.network as string) || 'ethereum';
-    const timeframe = (intent.parameters.timeframe as string) || '24h';
+    const symbol = intent.parameters?.symbol as string;
+    const network = (intent.parameters?.network as string) || 'ethereum';
+    const timeframe = (intent.parameters?.timeframe as string) || '24h';
 
     // 首先搜索代币获取地址
     const searchResult = await this.callGetApi('/api/tokens/search', {
@@ -371,9 +371,9 @@ export class AIApiService {
    * 处理安全扫描请求
    */
   private static async handleSecurityScan(intent: ExtendedUserIntent): Promise<ApiResponse> {
-    const address = intent.parameters.address as string;
-    const chain = (intent.parameters.chain as string) || 'ethereum';
-    const dex = (intent.parameters.dex as string) || 'uniswap';
+    const address = intent.parameters?.address as string;
+    const chain = (intent.parameters?.chain as string) || 'ethereum';
+    const dex = (intent.parameters?.dex as string) || 'uniswap';
 
     if (!address) {
       return {

@@ -64,6 +64,14 @@ export interface Intent {
   // General
   query?: string;
   parameters?: Record<string, any>;
+  apiEndpoint?: string;
+  type?: string; // Some services use 'type' as an alias for 'action'
+  tradeIntent?: {
+    tokenIn: { address: string; symbol: string; amount: string };
+    tokenOut: { address: string; symbol: string };
+    chainId: number;
+    slippageBps?: number;
+  };
 }
 
 const INTENT_SYSTEM_PROMPT = `You are an AI assistant that helps users interact with Web3 DeFi protocols. Your job is to understand user intent and convert it to structured JSON.

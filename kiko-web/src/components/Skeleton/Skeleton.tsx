@@ -7,6 +7,7 @@ export interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {
   width?: string | number;
   height?: string | number;
   animation?: 'pulse' | 'wave' | 'none';
+  borderRadius?: string | number;
 }
 
 export const Skeleton: React.FC<SkeletonProps> = ({
@@ -29,6 +30,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
       style={{
         width,
         height,
+        borderRadius,
         ...style,
       }}
       {...props}

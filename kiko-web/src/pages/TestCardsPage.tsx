@@ -1,17 +1,13 @@
 import React, { useState } from 'react';
 import {
-   Zap,
-   Eye,
-   Clock,
-   Activity,
-   MousePointerClick,
-   Target
+   Zap
 } from 'lucide-react';
 import { PageContainer } from '../components/Layout/PageContainer';
 import styles from './TestCardsPage.module.css';
 import { SwapCardIntegrated } from '../components/Swap/SwapCardIntegrated';
 import { LaunchpadCard } from '../components/Launchpad/LaunchpadCard';
 import { StrategyCard } from '../components/Trade/StrategyCard';
+import type { TradingStrategy } from '../hooks/useStrategies';
 
 // --- 基础容器组件 (Deep Dark Minimal Style) ---
 const CardWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -73,15 +69,25 @@ const StrategyCardWrapper = ({ isGenerating = false }: { isGenerating?: boolean 
    const [isClearing, setIsClearing] = useState(false);
 
    // Mock strategy data
-   const mockStrategy = {
+   const mockStrategy: TradingStrategy = {
       id: '8291-AC2',
+      name: 'Mock Strategy',
       status: 'active' as const,
       type: 'auto_buy' as const,
       createdAt: Date.now() - 120000,
+      updatedAt: Date.now() - 120000,
       executionAmount: '0.5',
       tokenIn: 'ETH',
       tokenOut: 'ANY',
+      chain: 'base',
+      chainId: 8453,
+      amountAsset: 'ETH',
       triggerCondition: 'Buys ETH > 0',
+      limits: {
+         maxUsdPerDay: '1000',
+         maxTradesPerDay: 10,
+         cooldown: '1h'
+      },
       copyTradeConfig: {
          targetWallet: '0x7a2...3f91',
          minTargetValueUsd: 0,

@@ -22,7 +22,7 @@ import {
 } from '@/services/dexAggregatorService';
 import { getTokenData, getCommonTokens, COMMON_TOKENS, type TokenData } from '@/services/tokenDataService';
 import { logger } from '@/utils/logger';
-import { getMEVProtectionConfig, getMEVProtectedRPC, estimateMEVSavings } from '@/config/mevProtection';
+import { getMEVProtectionConfig, estimateMEVSavings } from '@/config/mevProtection';
 import {
   calculateDynamicSlippage,
   determineTokenRisk,
@@ -132,14 +132,6 @@ function toBaseUnits(value: string, decimals: number): string {
   const whole = BigInt(integerPart || '0');
   const fraction = padded ? BigInt(padded) : 0n;
   return (whole * 10n ** BigInt(decimals) + fraction).toString();
-}
-
-function fromBaseUnits(value: string, decimals: number): number {
-  const whole = BigInt(value || '0');
-  const base = 10n ** BigInt(decimals);
-  const integer = whole / base;
-  const fraction = whole % base;
-  return Number(integer) + Number(fraction) / Number(base);
 }
 
 function normalizeAggregatorQuote(

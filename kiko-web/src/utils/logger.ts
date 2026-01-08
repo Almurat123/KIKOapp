@@ -22,4 +22,9 @@ export const logger = {
             console.log('[DEBUG]', ...args);
         }
     },
+    swap: (type: string, data: any) => {
+        if (isDevelopment) {
+            console.log(`[SWAP:${type.toUpperCase()}]`, data);
+        }
+    }
 };
