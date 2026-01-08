@@ -18,7 +18,12 @@ export async function rateLimiterMiddleware(
         return;
     }
 
-    // Skip if Redis is not available
+    // Skip rate limiting for health checks
+    if (request.url === '/health' || request.url === '/api/health') {
+        return;
+    }
+
+    // Skip if Redis is not available or connection failed
     if (!redis || !redis.isOpen) {
         return;
     }
