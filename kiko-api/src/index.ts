@@ -67,12 +67,19 @@ fastify.addHook('onRequest', rateLimiter);
 
 import fastifyStatic from '@fastify/static';
 import path from 'path';
+import fs from 'fs';
 
-// Register static file serving for public folder (news covers)
-fastify.register(fastifyStatic, {
-    root: path.join(process.cwd(), 'public'),
-    prefix: '/', // effectively serves /public/news-covers as /news-covers
-});
+// Register static file serving for public folder (news covers) - only if it exists
+const publicPath = path.join(process.cwd(), 'public');
+if (fs.existsSync(publicPath)) {
+    fastify.register(fastifyStatic, {
+        root: publicPath,
+        prefix: '/', // effectively serves /public/news-covers as /news-covers
+    });
+    console.log('[Static] Serving static files from:', publicPath);
+} else {
+    console.log('[Static] Public folder not found at:', publicPath, '- skipping static file serving');
+}
 
 // Register WebSocket plugin
 fastify.register(websocket);
