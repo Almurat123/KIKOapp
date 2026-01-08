@@ -118,26 +118,27 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     fastify.post('/alchemy', async (request, reply) => {
         const payload = request.body as any;
 
-        // Debug: Log full payload structure (first 2000 chars)
-        console.log(`[Webhook] Alchemy payload:`, JSON.stringify(payload, null, 2).slice(0, 2000));
+        // Debug: Log full payload as single-line JSON (Railway splits multi-line)
+        console.log(`[Webhook] Alchemy payload: ${JSON.stringify(payload)}`);
 
         // Respond immediately with 200 (Alchemy expects this)
         reply.send({ success: true });
 
+        // Handle Alchemy test ping (no event data)
+        if (!payload?.event || payload?.type === 'GRAPHQL') {
+            console.log(`[Webhook] Alchemy test ping or non-activity webhook, ignoring`);
+            return;
+        }
+
         // Process activities asynchronously
         try {
-            // Alchemy webhook structure can vary - check multiple paths
-            // Standard Address Activity: payload.event.network
-            // Some versions: payload.network
-            // Activity level: payload.event.activity[0].network
-            const network = payload?.event?.network
-                || payload?.network
-                || payload?.event?.activity?.[0]?.network;
-
+            // Alchemy Address Activity webhook structure:
+            // payload.event.network = "ETH_MAINNET", "BASE_MAINNET", etc.
+            const network = payload?.event?.network;
             const chainId = NETWORK_TO_CHAIN_ID[network];
 
             if (!chainId) {
-                console.warn(`[Webhook] Unknown network: ${network}, tried paths: event.network, network, event.activity[0].network`);
+                console.warn(`[Webhook] Unknown network: ${network}`);
                 return;
             }
 
