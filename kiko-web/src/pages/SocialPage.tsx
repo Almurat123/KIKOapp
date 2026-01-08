@@ -804,14 +804,14 @@ export const SocialPage: React.FC = () => {
 
   if (loading && feedItems.length === 0) {
     return (
-      <PageContainer className="fullWidth">
+      <PageContainer fullWidth>
         <LoadingSpinner color={colors.textSecondary} />
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer className="fullWidth">
+    <PageContainer fullWidth>
       <div style={{
         paddingBottom: '80px',
       }}>

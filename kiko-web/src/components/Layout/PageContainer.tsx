@@ -7,6 +7,7 @@ interface PageContainerProps {
     subtitle?: string;
     className?: string;
     actions?: ReactNode;
+    fullWidth?: boolean; // Mobile full-width mode
 }
 
 export const PageContainer: React.FC<PageContainerProps> = ({
@@ -14,10 +15,15 @@ export const PageContainer: React.FC<PageContainerProps> = ({
     title,
     subtitle,
     className = '',
-    actions
+    actions,
+    fullWidth = false,
 }) => {
+    const containerClass = fullWidth
+        ? `${styles.container} ${styles.fullWidth} ${className}`.trim()
+        : `${styles.container} ${className}`.trim();
+
     return (
-        <div className={`${styles.container} ${className}`}>
+        <div className={containerClass}>
             {(title || actions) && (
                 <div className={styles.header}>
                     <div className={styles.titleSection}>

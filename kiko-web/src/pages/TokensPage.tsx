@@ -967,7 +967,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const getChangeColumn = () => 'c5m';
 
   return (
-    <PageContainer className="fullWidth">
+    <PageContainer fullWidth>
       <div className={styles.container}>
         {/* Token Table */}
         <div className={`${styles.content} ${isMobile ? styles.contentMobile : ''}`}>
