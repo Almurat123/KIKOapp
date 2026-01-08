@@ -17,6 +17,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   animation = 'pulse',
   className,
   style,
+  borderRadius,
   ...props
 }) => {
   return (

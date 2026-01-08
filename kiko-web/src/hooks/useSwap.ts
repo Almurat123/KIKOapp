@@ -538,9 +538,7 @@ export function useSwap(options: UseSwapOptions = {}) {
   }, [userAddress, state.tokenIn?.address, state.amountIn, chainId]); // Only depend on address
 
   // Use refs to track if we're already fetching to prevent duplicate requests
-  const fetchingPriceRef = useRef(false);
   const fetchingBalanceRef = useRef(false);
-  const lastPriceKeyRef = useRef<string>('');
   const lastBalanceKeyRef = useRef<string>('');
   // Track current tokenIn address for race condition detection (avoids stale closure)
   const currentTokenInAddressRef = useRef<string | null>(null);

@@ -609,7 +609,7 @@ export default function WalletPage() {
         const wrappedNativeAddress = WRAPPED_NATIVE_ADDRESSES[chainId];
 
         if (balanceData.tokens) {
-          const nativeInTokens = balanceData.tokens.find(t => isNativeTokenEntry(t));
+          const nativeInTokens = balanceData.tokens.find((t: any) => isNativeTokenEntry(t));
           if (nativeInTokens) {
             // Will be processed after token meta fetch
           }
@@ -619,8 +619,8 @@ export default function WalletPage() {
         let tokenMetaMap: Record<string, { price?: number; logo?: string }> = {};
         if (balanceData.tokens && balanceData.tokens.length > 0) {
           const addresses = balanceData.tokens
-            .filter(t => t.contractAddress)
-            .map(t => t.contractAddress!);
+            .filter((t: any) => t.contractAddress)
+            .map((t: any) => t.contractAddress!);
 
           // Include wrapped native token for dynamic price lookup
           if (wrappedNativeAddress && !addresses.includes(wrappedNativeAddress)) {
@@ -674,7 +674,7 @@ export default function WalletPage() {
         // Usually native tokens in lists have specific addresses like 0xeeee... or So111...
         // If not, we rely on the symbol check.
         if (balanceData.tokens) {
-          const nativeInTokens = balanceData.tokens.find(t => isNativeTokenEntry(t));
+          const nativeInTokens = balanceData.tokens.find((t: any) => isNativeTokenEntry(t));
           if (nativeInTokens && nativeInTokens.contractAddress) {
             const meta = tokenMetaMap[nativeInTokens.contractAddress.toLowerCase()];
             if (meta && meta.price) {
@@ -740,7 +740,7 @@ export default function WalletPage() {
         if (balanceData.tokens && balanceData.tokens.length > 0) {
           // Meta map already fetched above
 
-          balanceData.tokens.forEach((token) => {
+          balanceData.tokens.forEach((token: any) => {
             if (!token.contractAddress) return;
 
             // DEDUPLICATION: Skip if this token is actually the native token we already added
@@ -788,7 +788,7 @@ export default function WalletPage() {
 
         // Filter out dust < $1 and unknown price tokens (potential spam/scam)
         // This protects users from seeing scam tokens that have no legitimate price data
-        const filtered = tokenHoldings.filter(h => {
+        const filtered = tokenHoldings.filter((h: any) => {
           if (h.isNative) return true;
           // Filter out unknown prices to hide scams/spam
           if (h.usdValueNum === undefined) return false;
@@ -796,7 +796,7 @@ export default function WalletPage() {
         });
 
         // Sort by value desc (unknown price at bottom)
-        filtered.sort((a, b) => {
+        filtered.sort((a: any, b: any) => {
           const va = a.usdValueNum;
           const vb = b.usdValueNum;
           if (va === undefined && vb === undefined) return 0;

@@ -89,12 +89,22 @@ const StrategyCardWrapper = ({ isGenerating = false }: { isGenerating?: boolean 
          cooldown: '1h'
       },
       copyTradeConfig: {
+         id: 'mock-config-id',
+         userId: 'mock-user-id',
          targetWallet: '0x7a2...3f91',
-         minTargetValueUsd: 0,
-         buyAmountUsd: 0,
-         takeProfitPct: 0,
-         stopLossPct: 0,
-         mirrorSell: false
+         chainId: 8453,
+         buyAmountUsd: 100,
+         maxSlippageBps: 100,
+         minMarketCapUsd: null,
+         minLiquidityUsd: null,
+         minTargetValueUsd: null,
+         takeProfitPct: null,
+         stopLossPct: null,
+         mirrorSell: false,
+         status: 'active',
+         aiAnalysisMode: 'disabled',
+         createdAt: new Date().toISOString(),
+         updatedAt: new Date().toISOString()
       },
       executionHistory: []
    };

@@ -26,5 +26,15 @@ export const logger = {
         if (isDevelopment) {
             console.log(`[SWAP:${type.toUpperCase()}]`, data);
         }
+    },
+    intent: (...args: any[]) => {
+        if (isDevelopment) {
+            console.log('[INTENT]', ...args);
+        }
+    },
+    ai: (...args: any[]) => {
+        if (isDevelopment) {
+            console.log('[AI]', ...args);
+        }
     }
 };

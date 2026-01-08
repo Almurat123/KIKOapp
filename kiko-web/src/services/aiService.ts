@@ -10,6 +10,9 @@ import { FULL_SYSTEM_PROMPT, buildContextPrompt, SAFETY_PROMPT, GROK_CORE_PROMPT
 import { AIApiService } from './aiApiService';
 import { AIExtendedIntentParser } from './aiExtendedIntentParser';
 import { logger } from '../utils/logger';
+
+// Types that have their own API handlers in AIApiService
+const typesWithOwnHandlersInApi = ['TOKEN_SECURITY', 'RISK_ASSESSMENT'];
 export interface StreamResponse {
   content: string;
   intent?: Intent;
