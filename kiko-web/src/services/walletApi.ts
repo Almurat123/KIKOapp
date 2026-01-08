@@ -34,7 +34,7 @@ export interface MonitoredWallet {
 
 export interface WalletTransaction {
     txHash: string;
-    txType: 'BUY' | 'SELL' | 'SWAP' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+    txType: 'BUY' | 'SELL' | 'SWAP' | 'APPROVE' | 'TRANSFER_IN' | 'TRANSFER_OUT';
     fromAddress: string;
     toAddress: string;
     tokenSymbol: string | null;
@@ -48,10 +48,16 @@ export interface WalletTransaction {
     chain: string;
 }
 
+export interface WalletBalance {
+    ethBalance: string;
+    ethBalanceFormatted: number;
+    tokens: any[];
+}
+
 /**
  * Get real-time balance for a specific wallet
  */
-export async function getWalletBalance(address: string, chain: string = 'eth'): Promise<any> {
+export async function getWalletBalance(address: string, chain: string = 'eth'): Promise<WalletBalance | null> {
     try {
         const url = `${API_URL}/${address}/balance?chain=${chain}`;
         const headers = await getAuthHeaders();
@@ -64,9 +70,35 @@ export async function getWalletBalance(address: string, chain: string = 'eth'): 
         }
 
         const json = await response.json();
-        return json;
+        return json.success ? json.data : null;
     } catch (error) {
         console.error('[WalletApi] Error fetching balance:', error);
+        return null;
+    }
+}
+
+/**
+ * Fetch wallet balance for all supported chains
+ */
+export async function getAllChainBalances(address: string, solanaAddress?: string): Promise<Record<string, WalletBalance> | null> {
+    try {
+        let url = `${API_URL}/${address}/all-balances`;
+        if (solanaAddress) {
+            url += `?solanaAddress=${solanaAddress}`;
+        }
+        const headers = await getAuthHeaders();
+        const response = await fetch(url, { method: 'GET', headers });
+
+        if (!response.ok) {
+            const err = await response.text();
+            console.error('[WalletApi] All Balances API error:', err);
+            return null;
+        }
+
+        const json = await response.json();
+        return json.success ? json.data : null;
+    } catch (error) {
+        console.error('[WalletApi] Error fetching all-chain balances:', error);
         return null;
     }
 }
@@ -91,7 +123,7 @@ export async function getWalletTransactions(address: string, options: { chain?: 
         }
 
         const json = await response.json();
-        return json;
+        return json.success && Array.isArray(json.data) ? json.data : [];
     } catch (error) {
         console.error('[WalletApi] Error fetching transactions:', error);
         return [];
@@ -103,7 +135,7 @@ export const walletApi = {
         const headers = await getAuthHeaders();
         const response = await fetch(API_URL, { headers });
         const json = await response.json();
-        return json;
+        return json.data || [];
     },
 
     addWallet: async (params: { address: string; alias?: string; labels?: string[]; chain?: string }): Promise<MonitoredWallet> => {
@@ -114,7 +146,7 @@ export const walletApi = {
             body: JSON.stringify(params)
         });
         const json = await response.json();
-        return json;
+        return json.data;
     },
 
     removeWallet: async (id: number): Promise<void> => {
@@ -129,11 +161,12 @@ export const walletApi = {
         const headers = await getAuthHeaders();
         const response = await fetch(`${API_URL}/${address}`, { headers });
         const json = await response.json();
-        return json;
+        return json.data;
     },
 
     getWalletTransactions,
-    getWalletBalance
+    getWalletBalance,
+    getAllChainBalances
 };
 
 export default walletApi;

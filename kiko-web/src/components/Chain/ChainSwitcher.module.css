@@ -1,7 +1,7 @@
 .container {
     position: relative;
     z-index: 50;
-    min-width: 180px;
+    min-width: 60px;
     /* Set consistent width for the whole component */
 }
 

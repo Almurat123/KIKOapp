@@ -36,35 +36,23 @@
 }
 
 .groupList {
-    background: #27272a;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 16px;
-    overflow: hidden;
     display: flex;
     flex-direction: column;
+    gap: 16px;
+    /* Added gap since items are now separate */
 }
 
-:global(.light) .groupList {
-    background: #f4f4f5;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    /* Light mode list bg */
-}
+/* Removed background/border from global light groupList */
 
 .groupItem {
-    padding: 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     display: flex;
     flex-direction: column;
     gap: 12px;
+    padding: 0;
+    /* Remove padding since no longer in a box */
 }
 
-:global(.light) .groupItem {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.groupItem:last-child {
-    border-bottom: none;
-}
+/* Removed border-bottom from groupItem */
 
 .itemHeader {
     display: flex;

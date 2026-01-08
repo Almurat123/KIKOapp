@@ -257,7 +257,7 @@ const TrendingCastItem: React.FC<{
                 alignItems: 'center',
                 gap: '8px',
               }}>
-                <FarcasterIcon size={14} />
+                {data.isBaseAppCoin ? <BaseIcon size={14} /> : <FarcasterIcon size={14} />}
                 <span style={{
                   color: colors.textMuted,
                   fontSize: '12px',
@@ -1031,7 +1031,6 @@ export const SocialPage: React.FC = () => {
 
           {/* Feed Stream */}
           <div style={{
-            marginTop: '20px',
             display: 'flex',
             flexDirection: 'column',
           }}>

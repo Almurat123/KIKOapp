@@ -17,6 +17,7 @@
     .container {
         padding-left: 0;
         padding-right: 0;
+        /* PageContainer handles top padding for floating buttons */
     }
 }
 

@@ -171,6 +171,29 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
     });
 
     /**
+     * Get real-time balance for all supported chains
+     */
+    fastify.get('/:address/all-balances', async (request: any, reply) => {
+        try {
+            const { address } = request.params as any;
+            const { solanaAddress } = request.query as any;
+
+            const balances = await walletService.getAllChainBalances(address, solanaAddress);
+
+            return reply.send({
+                success: true,
+                data: balances
+            });
+        } catch (error: any) {
+            fastify.log.error(error);
+            return reply.status(500).send({
+                success: false,
+                message: 'Failed to fetch all-chain balances'
+            });
+        }
+    });
+
+    /**
      * Get real-time transactions for a specific wallet
      */
     fastify.get('/:address/transactions', async (request: any, reply) => {
@@ -182,6 +205,8 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
                 chain,
                 limit: parseInt(limit)
             });
+
+            console.log(`[WalletRoutes] Returning ${transactions.length} transactions for ${address}`);
 
             return reply.send({
                 success: true,

@@ -97,7 +97,7 @@ export interface AssetTransfer {
 
 export interface WalletTransaction {
   txHash: string;
-  txType: 'BUY' | 'SELL' | 'SWAP' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+  txType: 'BUY' | 'SELL' | 'SWAP' | 'APPROVE' | 'TRANSFER_IN' | 'TRANSFER_OUT';
   fromAddress: string;
   toAddress: string;
   tokenSymbol: string | null;
@@ -118,6 +118,7 @@ export interface TokenBalance {
   name?: string;
   decimals?: number;
   logo?: string;
+  price?: number;
 }
 
 export interface WalletBalance {
@@ -476,174 +477,8 @@ export function convertToWalletTransactions(
   });
 }
 
-/**
- * Get ETH/Native balance for an address
- */
-export async function getEthBalance(
-  address: string,
-  chain: string = 'eth'
-): Promise<string> {
-  try {
-    // Use RPC Manager with automatic failover
-    return await rpcManager.getNativeBalance(address, chain);
-  } catch (error: any) {
-    console.error(`[Balance] Error fetching ${chain} balance:`, error.message);
-    const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
-    return isSolana ? '0' : '0x0';
-  }
-}
 
-/**
- * Get token metadata (symbol, decimals, name, logo)
- */
-export async function getTokenMetadata(
-  contractAddress: string,
-  chain: string = 'eth'
-): Promise<{ symbol: string; name: string; decimals: number; logo: string } | null> {
-  try {
-    const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
-    if (isSolana) {
-      // Alchemy doesn't have partial token metadata endpoint for Solana via standard RPC easily
-      // We might need to use getAccountInfo and parse header or use a token list
-      // For now return basic default
-      return { symbol: 'SOL-Token', name: 'Unknown Solana Token', decimals: 9, logo: '' };
-    }
 
-    const url = getAlchemyUrl(chain);
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: '2.0',
-        method: 'alchemy_getTokenMetadata',
-        params: [contractAddress],
-      }),
-    });
-
-    if (!response.ok) return null;
-    const data = await response.json() as { result?: { symbol: string; name: string; decimals: number; logo: string } };
-    const result = data.result;
-    if (!result) return null;
-
-    return {
-      symbol: result.symbol || 'UNK',
-      name: result.name || 'Unknown Token',
-      decimals: result.decimals || 18,
-      logo: result.logo || '',
-    };
-  } catch (error) {
-    return null;
-  }
-}
-
-/**
- * Get token balances for an address
- */
-export async function getTokenBalances(
-  address: string,
-  chain: string = 'eth'
-): Promise<TokenBalance[]> {
-  try {
-    const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
-
-    if (isSolana) {
-      // Use public RPCs (Helius or PublicNode) via manual fetch or RPC manager
-      // We can't use rpcManager here easily without exposing a raw call method?
-      // Actually rpcManager has callRpc. Let's use it.
-
-      const result = await rpcManager.callRpc('solana', 'getTokenAccountsByOwner', [
-        address,
-        { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
-        { encoding: 'jsonParsed' }
-      ]);
-
-      if (!result) return [];
-      const data = result as { value: Array<{ account: { data: { parsed: { info: any } } } }> };
-      const accounts = data.value || [];
-
-      return accounts.map((acc: any) => {
-        const info = acc.account.data.parsed.info;
-        const mint = info.mint;
-        const decimals = info.tokenAmount.decimals;
-        const uiAmount = info.tokenAmount.uiAmountString;
-
-        return {
-          contractAddress: mint,
-          tokenBalance: uiAmount,
-          symbol: 'SPL',
-          name: 'Solana Token',
-          decimals: decimals,
-          logo: '' // Will be populated by frontend token list
-        };
-      });
-    }
-
-    // EVM: Fetch using Alchemy API
-    const url = getAlchemyUrl(chain);
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: '2.0',
-        method: 'alchemy_getTokenBalances',
-        params: [address]
-      }),
-    });
-
-    if (!response.ok) return [];
-
-    const data = await response.json() as { result?: { tokenBalances: Array<{ contractAddress: string; tokenBalance: string }> } };
-    const balances = data.result?.tokenBalances || [];
-
-    // Filter out zero balances
-    const nonZeroBalances = balances.filter(b => {
-      // hex string check
-      return b.tokenBalance !== '0x' &&
-        b.tokenBalance !== '0x0' &&
-        BigInt(b.tokenBalance) > 0;
-    });
-
-    // Fetch metadata for each token (parallel)
-    // Limit to top 10 to avoid rate limits if user has many
-    // Or we could use alchemy_getTokenMetadata for each.
-    // However, calling metadata for 50 tokens is slow.
-    // Alchemy has specific constraints.
-    // For now, let's limit to top 20 tokens by balance? We don't know value yet.
-    // Let's just process first 20.
-    const limitedBalances = nonZeroBalances.slice(0, 20);
-
-    const tokenDetails = await Promise.all(limitedBalances.map(async (b) => {
-      const metadata = await getTokenMetadata(b.contractAddress, chain);
-      const decimals = metadata?.decimals || 18;
-      const rawBalance = BigInt(b.tokenBalance);
-      // Format balance string (simple)
-      const balanceStr = (Number(rawBalance) / (10 ** decimals)).toString();
-
-      return {
-        contractAddress: b.contractAddress,
-        tokenBalance: balanceStr, // Store formatted balance for consistency, or raw?
-        // WalletInfo expects formatted in one place, raw in others?
-        // Wait, WalletInfo Step 506 line 113 uses: t.balance || t.tokenBalance.
-        // And line 110 uses tokens.map...
-        // Step 506 has complex mapping if coming from QuickNode, but for Alchemy result...
-        // Let's look at walletInfo again.
-        // It returns result.tokens = balanceData.tokens.map(...)
-
-        symbol: metadata?.symbol || 'UNK',
-        name: metadata?.name || 'Unknown Token',
-        decimals: decimals,
-        logo: metadata?.logo || ''
-      };
-    }));
-
-    return tokenDetails;
-  } catch (error: any) {
-    console.error(`[Alchemy] Error fetching token balances:`, error.message);
-    return [];
-  }
-}
 
 /**
  * Get balance for a specific Solana SPL token by mint address
@@ -716,38 +551,6 @@ export async function resolveENSAddress(ensName: string): Promise<string | null>
   }
 }
 
-/**
- * Get complete wallet balance (ETH + tokens)
- */
-export async function getWalletBalance(
-  address: string,
-  chain: string = 'eth'
-): Promise<WalletBalance> {
-  const [ethBalanceHex, tokens] = await Promise.all([
-    getEthBalance(address, chain),
-    getTokenBalances(address, chain),
-  ]);
-
-  const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
-  let ethBalanceFormatted = 0;
-
-  if (isSolana) {
-    // Solana balance is lamports (integer string)
-    // 1 SOL = 1e9 Lamports
-    ethBalanceFormatted = Number(ethBalanceHex) / 1e9;
-  } else {
-    // EVM balance is Wei (hex string)
-    // 1 ETH = 1e18 Wei
-    const ethBalanceWei = BigInt(ethBalanceHex);
-    ethBalanceFormatted = Number(ethBalanceWei) / 1e18;
-  }
-
-  return {
-    ethBalance: ethBalanceHex,
-    ethBalanceFormatted,
-    tokens,
-  };
-}
 
 /**
  * Get Solana transaction history using Helius API
@@ -1059,10 +862,13 @@ export async function getWalletTransactions(
     chain = chainOrOptions;
   }
 
+  console.log(`[Alchemy] getWalletTransactions starting for ${address} on ${chain}, limit: ${limit}`);
   const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
 
   if (isSolana) {
-    return getSolanaTransactions(address, limit);
+    const solTxs = await getSolanaTransactions(address, limit);
+    console.log(`[Alchemy] getSolanaTransactions returned ${solTxs.length} txs`);
+    return solTxs;
   }
 
   // Use Scan API for EVM chains (Etherscan/RouteScan/Blockscout)
@@ -1195,4 +1001,375 @@ export async function getMultiWalletTransactions(
     b.blockTimestamp.getTime() - a.blockTimestamp.getTime()
   );
   return allTransactions;
+}
+
+/**
+ * Get token metadata (name, symbol, decimals, logo)
+ */
+export async function getTokenMetadata(chain: string, address: string): Promise<any> {
+  const url = getAlchemyUrl(chain);
+  const body = {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'alchemy_getTokenMetadata',
+    params: [address]
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (response.ok) {
+      const json = await response.json();
+      return json.result;
+    }
+  } catch (e) {
+    console.error(`[Alchemy] Error fetching metadata for ${address} on ${chain}:`, e);
+  }
+  return null;
+}
+
+/**
+ * Get portfolio balances for a wallet across multiple networks using Alchemy Portfolio API
+ */
+/**
+ * Fetch prices from Coinbase API for major native tokens
+ */
+async function fetchCoinbasePrices(): Promise<Partial<Record<string, number>>> {
+  const mapping: Record<string, string> = {
+    'ETH': 'eth',
+    'SOL': 'solana',
+    'BNB': 'bsc',
+    'MATIC': 'polygon'
+  };
+
+  const results: Partial<Record<string, number>> = {};
+
+  await Promise.allSettled(Object.keys(mapping).map(async (symbol) => {
+    try {
+      const res = await fetch(`https://api.coinbase.com/v2/prices/${symbol}-USD/spot`);
+      if (res.ok) {
+        const json = await res.json();
+        const price = parseFloat(json.data.amount);
+        const chainKey = mapping[symbol];
+        results[chainKey] = price;
+
+        // Map ETH price to L2s
+        if (symbol === 'ETH') {
+          results['base'] = price;
+          results['arbitrum'] = price;
+          results['optimism'] = price;
+        }
+      }
+    } catch (e) {
+      console.warn(`[Alchemy] Failed to fetch Coinbase price for ${symbol}`, e);
+    }
+  }));
+
+  return results;
+}
+
+/**
+ * Fetch accurate prices for native tokens using DexScreener as fallback
+ */
+async function getNativePrices(): Promise<Record<string, number>> {
+  const wrappers: Record<string, string> = {
+    'eth': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    'base': '0x4200000000000000000000000000000000000006',
+    'arbitrum': '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
+    'optimism': '0x4200000000000000000000000000000000000006',
+    'polygon': '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270', // WMATIC
+    'bsc': '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
+    'solana': 'So11111111111111111111111111111111111111112'
+  };
+
+  const prices: Record<string, number> = {
+    'eth': 3400,
+    'base': 3400,
+    'arbitrum': 3400,
+    'optimism': 3400,
+    'polygon': 0.13,
+    'bsc': 650,
+    'solana': 250
+  };
+
+  try {
+    const addresses = Object.values(wrappers).join(',');
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${addresses}`;
+    const response = await fetch(url);
+    if (response.ok) {
+      const data = await response.json();
+      if (data.pairs && Array.isArray(data.pairs)) {
+        for (const [key, addr] of Object.entries(wrappers)) {
+          const pair = data.pairs.find((p: any) => p.baseToken?.address?.toLowerCase() === addr.toLowerCase());
+          if (pair && pair.priceUsd) {
+            prices[key] = parseFloat(pair.priceUsd);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Alchemy] Failed to fetch native prices from DexScreener, using fallbacks', e);
+  }
+
+  // Overwrite with Coinbase prices (more reliable for native assets)
+  const coinbasePrices = await fetchCoinbasePrices();
+  return { ...prices, ...coinbasePrices } as Record<string, number>;
+}
+
+export async function getPortfolio(
+  address: string,
+  chains: string[] = ['eth', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc', 'solana'],
+  solanaAddress?: string
+): Promise<Record<string, WalletBalance>> {
+  try {
+    const apiKey = getAlchemyApiKey();
+    if (!apiKey) {
+      throw new Error('Alchemy API key missing');
+    }
+
+    const networkMap: Record<string, string> = {
+      'eth': 'eth-mainnet',
+      'base': 'base-mainnet',
+      'arbitrum': 'arb-mainnet',
+      'optimism': 'opt-mainnet',
+      'polygon': 'polygon-mainnet',
+      'matic-mainnet': 'polygon-mainnet',
+      'bsc': 'bnb-mainnet',
+      'solana': 'solana-mainnet',
+    };
+
+    const NATIVE_PRICES = await getNativePrices();
+
+    const targetNetworks = chains.map(c => networkMap[c.toLowerCase()]).filter(Boolean);
+    const evmNetworks = targetNetworks.filter(n => n !== 'solana-mainnet');
+    const results: Record<string, WalletBalance> = {};
+
+    // 1. Fetch EVM Portfolio
+    if (evmNetworks.length > 0) {
+      const url = `https://api.g.alchemy.com/data/v1/${apiKey}/assets/tokens/balances/by-address`;
+      const body = {
+        addresses: [{ address, networks: evmNetworks }],
+        withMetadata: true,
+        withPrices: true,
+        includeNativeTokens: true
+      };
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (response.ok) {
+        const json = await response.json();
+
+        if (json.data && Array.isArray(json.data.tokens)) {
+          const networkGroups: Record<string, any[]> = {};
+          json.data.tokens.forEach((t: any) => {
+            if (!networkGroups[t.network]) networkGroups[t.network] = [];
+            networkGroups[t.network].push(t);
+          });
+
+          for (const network of Object.keys(networkGroups)) {
+            // Map matic-mainnet or others back to our standard keys
+            let chainKey = Object.keys(networkMap).find(key => networkMap[key] === network) || network;
+            if (network === 'matic-mainnet') chainKey = 'polygon';
+
+            let ethBalance = '0';
+            let ethBalanceFormatted = 0;
+            let ethPrice = NATIVE_PRICES[chainKey] || 0;
+            const tokens: TokenBalance[] = [];
+            const tokensToEnrich: any[] = [];
+
+            networkGroups[network].forEach((t: any) => {
+              const isNative = t.tokenAddress === null;
+              const hexBalance = t.tokenBalance || '0x0';
+              const balanceBigInt = BigInt(hexBalance);
+
+              if (balanceBigInt === 0n) return;
+
+              if (isNative) {
+                ethBalance = hexBalance;
+                const decimals = t.decimals || 18;
+                ethBalanceFormatted = Number(balanceBigInt) / (10 ** decimals);
+                ethPrice = t.price || NATIVE_PRICES[chainKey] || 0;
+              } else {
+                const tempToken = {
+                  contractAddress: t.tokenAddress,
+                  tokenBalance: hexBalance,
+                  symbol: t.symbol || 'UNKNOWN',
+                  name: t.name || 'Unknown Token',
+                  decimals: t.decimals || 18,
+                  logo: t.metadata?.logo || ''
+                };
+                tokens.push(tempToken);
+                tokensToEnrich.push(tempToken);
+              }
+            });
+
+            results[chainKey] = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
+
+            // Enrich metadata for top 10 tokens per chain
+            if (tokensToEnrich.length > 0) {
+              const chainName = chainKey;
+              await Promise.allSettled(
+                tokensToEnrich.slice(0, 10).map(async (token) => {
+                  try {
+                    const details = await dexscreener.getTokenDetails(chainName, token.contractAddress);
+                    if (details) {
+                      token.symbol = details.symbol || token.symbol;
+                      token.name = details.name || token.name;
+                      token.decimals = details.decimals || token.decimals;
+                      token.logo = details.imageUrl || token.logo;
+                      token.price = details.price; // Store price from DexScreener
+                      (token as any)._enriched = true;
+                    }
+                    // Recalculate balance with possibly new decimals
+                    const balBigInt = BigInt(token.tokenBalance.startsWith('0x') ? token.tokenBalance : '0x0');
+                    token.tokenBalance = (Number(balBigInt) / (10 ** token.decimals)).toString();
+                  } catch (e) { }
+                })
+              );
+
+              // SPAM FILTER: Discard tokens without price data AND no Alchemy metadata/enrichment
+              results[chainKey].tokens = results[chainKey].tokens.filter(tk => {
+                const hasPrice = tk.price && parseFloat(tk.price.toString()) > 0;
+                const hasMeta = tk.symbol !== 'UNKNOWN';
+                const enriched = (tk as any)._enriched;
+
+                // Keep if it has price OR is legitimate metadata + low value/new (maybe?)
+                // User said: "those without price should be filtered out"
+                return hasPrice;
+              });
+            }
+          }
+        }
+      } else {
+        console.error(`[Alchemy Portfolio] EVM API Error: ${response.status}`);
+      }
+    }
+
+    // 2. Fetch Solana Portfolio
+    const solAddr = solanaAddress || (!address.startsWith('0x') ? address : null);
+    if (chains.includes('solana') && !results.solana && solAddr) {
+      try {
+        const url = `https://api.g.alchemy.com/data/v1/${apiKey}/assets/tokens/balances/by-address`;
+        const body = {
+          addresses: [{ address: solAddr, networks: ['solana-mainnet'] }],
+          withMetadata: true,
+          withPrices: true,
+          includeNativeTokens: true
+        };
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify(body)
+        });
+        if (response.ok) {
+          const json = await response.json();
+          if (json.data && Array.isArray(json.data.tokens)) {
+            let ethBalance = '0';
+            let ethBalanceFormatted = 0;
+            let ethPrice = NATIVE_PRICES.solana || 0;
+            const tokens: TokenBalance[] = [];
+            const tokensToEnrich: any[] = [];
+
+            json.data.tokens.forEach((t: any) => {
+              const isNative = t.tokenAddress === null;
+              const hexBalance = t.tokenBalance || '0x0';
+              const balanceBigInt = BigInt(hexBalance);
+
+              if (balanceBigInt === 0n) return;
+
+              if (isNative) {
+                ethBalance = hexBalance;
+                ethBalanceFormatted = Number(balanceBigInt) / (10 ** (t.decimals || 9));
+                ethPrice = t.price || NATIVE_PRICES.solana || 0;
+              } else {
+                const tempToken = {
+                  contractAddress: t.tokenAddress,
+                  tokenBalance: hexBalance,
+                  symbol: t.symbol || 'UNKNOWN',
+                  name: t.name || 'Unknown Token',
+                  decimals: t.decimals || 9,
+                  logo: t.metadata?.logo || ''
+                };
+                tokens.push(tempToken);
+                tokensToEnrich.push(tempToken);
+              }
+            });
+            results.solana = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
+
+            // Enrich metadata for top 10 tokens per chain
+            if (tokensToEnrich.length > 0) {
+              await Promise.allSettled(
+                tokensToEnrich.slice(0, 10).map(async (token) => {
+                  try {
+                    const details = await dexscreener.getTokenDetails('solana', token.contractAddress);
+                    if (details) {
+                      token.symbol = details.symbol || token.symbol;
+                      token.name = details.name || token.name;
+                      token.decimals = details.decimals || token.decimals;
+                      token.logo = details.imageUrl || token.logo;
+                      (token as any)._enriched = true;
+                    }
+                    // Recalculate balance with possibly new decimals
+                    const balBigInt = BigInt(token.tokenBalance.startsWith('0x') ? token.tokenBalance : '0x0');
+                    token.tokenBalance = (Number(balBigInt) / (10 ** token.decimals)).toString();
+                  } catch (e) { }
+                })
+              );
+
+              // SPAM FILTER: Solana
+              results.solana.tokens = results.solana.tokens.filter(tk => {
+                const hasMeta = tk.symbol !== 'UNKNOWN';
+                const enriched = (tk as any)._enriched;
+                return hasMeta || enriched;
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[Alchemy Portfolio] Solana fetch failed:', e);
+      }
+    }
+
+    // Ensure all requested chains have at least empty values
+    chains.forEach(c => {
+      if (!results[c]) {
+        const defaultPrice = NATIVE_PRICES[c.toLowerCase()] || 0;
+        results[c] = { ethBalance: '0', ethBalanceFormatted: 0, ethPrice: defaultPrice, tokens: [] } as any;
+      }
+    });
+
+    return results;
+  } catch (error) {
+    console.error('[Alchemy Portfolio] Critical Error:', error);
+    throw error;
+  }
+}
+
+export async function getEthBalance(address: string, chain: string = 'eth'): Promise<string> {
+  const portfolio = await getPortfolio(address, [chain]);
+  return portfolio[chain]?.ethBalance || '0';
+}
+
+export async function getTokenBalances(address: string, chain: string = 'eth'): Promise<TokenBalance[]> {
+  const portfolio = await getPortfolio(address, [chain]);
+  return portfolio[chain]?.tokens || [];
+}
+
+export async function getWalletBalance(address: string, chain: string = 'eth'): Promise<WalletBalance> {
+  const portfolio = await getPortfolio(address, [chain]);
+  return portfolio[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
 }

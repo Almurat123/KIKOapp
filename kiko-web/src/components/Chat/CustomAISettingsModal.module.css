@@ -4,12 +4,29 @@
     gap: 20px;
     padding: 4px 0;
     width: 100%;
-    height: 100%;
+    /* Removed explicit height constraints to fix nested scrolling issues. 
+       Dialog component handles the scrolling. */
+}
+
+@media (max-width: 768px) {
+    .container {
+        gap: 8px;
+        /* Reduced from 12px */
+        padding: 0;
+    }
 }
 
 .section {
-    padding: 16px 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+@media (max-width: 768px) {
+    .section {
+        padding: 8px 0;
+        /* Further reduced from 12px */
+        border-bottom-width: 0.5px;
+        /* Thinner border */
+    }
 }
 
 :global(.light) .section {
@@ -31,6 +48,15 @@
     letter-spacing: -0.01em;
 }
 
+@media (max-width: 768px) {
+    .sectionTitle {
+        font-size: 13px;
+        /* Smaller title */
+        margin-bottom: 4px;
+        /* Reduced from 6px */
+    }
+}
+
 :global(.light) .sectionTitle {
     color: #000000;
 }
@@ -49,6 +75,13 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 6px;
+}
+
+@media (max-width: 768px) {
+    .headerRow {
+        margin-bottom: 4px;
+        /* Reduced header row spacing */
+    }
 }
 
 .headerTitle {
@@ -80,6 +113,14 @@
     color: #71717a;
 }
 
+@media (max-width: 768px) {
+    .headerDesc {
+        font-size: 11px;
+        /* Smaller desc */
+        line-height: 1.3;
+    }
+}
+
 :global(.light) .headerDesc {
     color: #52525b;
 }
@@ -89,6 +130,18 @@
     flex-direction: column;
     gap: 8px;
     margin-bottom: 16px;
+}
+
+@media (max-width: 768px) {
+    .inputGroup {
+        gap: 4px;
+        margin-bottom: 10px;
+    }
+
+    .label {
+        font-size: 12px;
+        margin-bottom: 0;
+    }
 }
 
 .label {
@@ -118,6 +171,16 @@
     transition: all 0.2s ease;
 }
 
+@media (max-width: 768px) {
+    .input {
+        padding: 6px 10px;
+        /* Reduced padding */
+        font-size: 12px;
+        /* Smaller input font */
+        border-radius: 8px;
+    }
+}
+
 :global(.light) .input {
     background: #ffffff;
     border: 1px solid rgba(0, 0, 0, 0.08);
@@ -142,6 +205,15 @@
     opacity: 0;
     width: 0;
     height: 0;
+}
+
+@media (max-width: 768px) {
+    .toggleSwitch {
+        width: 36px;
+        /* Smaller switch width */
+        height: 20px;
+        /* Smaller switch height */
+    }
 }
 
 .slider {
@@ -175,6 +247,17 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+@media (max-width: 768px) {
+    .slider:before {
+        height: 16px;
+        /* Smaller knob */
+        width: 16px;
+        left: 2px;
+        bottom: 1px;
+        /* Center adjustment */
+    }
+}
+
 :global(.light) .slider:before {
     background-color: #6b7280;
 }
@@ -189,70 +272,14 @@ input:checked+.slider:before {
     background-color: #ffffff;
 }
 
-.actions {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-top: 20px;
+@media (max-width: 768px) {
+    input:checked+.slider:before {
+        transform: translateX(16px);
+        /* Adjust travel distance */
+    }
 }
 
-.applyButton {
-    width: 100%;
-    background: linear-gradient(180deg, #2563eb 0%, #1a4fc7 100%);
-    color: white;
-    border: none;
-    padding: 14px;
-    border-radius: 12px;
-    font-weight: 600;
-    font-size: 15px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.35);
-}
-
-.applyButton:hover {
-    background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
-}
-
-.secondaryActions {
-    display: flex;
-    gap: 10px;
-}
-
-.cancelButton,
-.resetButton {
-    flex: 1;
-    background: rgba(255, 255, 255, 0.05);
-    color: #a1a1aa;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 10px;
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-:global(.light) .cancelButton,
-:global(.light) .resetButton {
-    background: #ffffff;
-    color: #52525b;
-    border-color: rgba(0, 0, 0, 0.08);
-}
-
-.cancelButton:hover,
-.resetButton:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
-}
-
-:global(.light) .cancelButton:hover,
-:global(.light) .resetButton:hover {
-    background: #f4f4f5;
-    color: #1a1a1a;
-}
+/* Action styles removed */
 
 .unitSelect {
     flex: 1;
@@ -280,6 +307,24 @@ input:checked+.slider:before {
 
 .headerDescWithMargin {
     margin-bottom: 12px;
+}
+
+@media (max-width: 768px) {
+    .headerDescWithMargin {
+        margin-bottom: 8px;
+    }
+
+    .headerDescWithTopMargin {
+        margin-top: 4px;
+    }
+
+    .inputGroupWithMargin {
+        margin-top: 10px;
+    }
+
+    .headerRowWithMargin {
+        margin-top: 8px;
+    }
 }
 
 .headerDescWithTopMargin {

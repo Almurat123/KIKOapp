@@ -9,6 +9,13 @@
     padding-bottom: 40px;
 }
 
+/* Mobile: add top padding for floating header buttons */
+@media (max-width: 768px) {
+    .container {
+        padding-top: 60px;
+    }
+}
+
 :global(.dark) .container {
     background-color: #18181b;
     /* Global dark bg */
@@ -89,6 +96,12 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 24px;
+}
+
+@media (max-width: 768px) {
+    .tokenTitleRow {
+        padding: 0 16px;
+    }
 }
 
 .tokenIdentity {
@@ -282,6 +295,12 @@
     width: 100%;
 }
 
+@media (max-width: 768px) {
+    .tokenInfoSection {
+        padding: 0 16px;
+    }
+}
+
 .tokenInfoRow {
     display: flex;
     align-items: center;
@@ -317,7 +336,7 @@
     border: 1px solid rgba(0, 0, 0, 0.06);
     border-radius: 8px;
     padding: 0 12px;
-    height: 38px;
+    height: 36px;
     box-sizing: border-box;
     max-width: fit-content;
     flex-shrink: 0;
@@ -628,7 +647,7 @@
 
 @media (max-width: 768px) {
     .mainContent {
-        padding: 0 0 40px 0;
+        padding: 0 16px 40px 16px;
     }
 }
 
@@ -651,8 +670,8 @@
     display: flex;
     gap: 6px;
     align-items: center;
-    flex-wrap: wrap;
-    /* Allow wrapping if absolutely needed */
+    flex-wrap: nowrap;
+    /* Force single line */
 }
 
 @media (min-width: 769px) {
@@ -664,14 +683,13 @@
 .socialBtn {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     background-color: #ffffff;
     border: 1px solid rgba(0, 0, 0, 0.06);
-    border-radius: 6px;
-    padding: 0 8px;
+    border-radius: 8px;
+    padding: 0 12px;
     text-decoration: none;
-    transition: all 0.2s ease;
-    height: 32px;
+    height: 36px;
     box-sizing: border-box;
 }
 
@@ -717,7 +735,6 @@
 /* Hover effects */
 .socialBtn:hover {
     border-color: rgba(0, 0, 0, 0.15);
-    transform: translateY(-1px);
 }
 
 :global(.dark) .socialBtn:hover {
@@ -725,19 +742,11 @@
     border-color: rgba(255, 255, 255, 0.15);
 }
 
-/* Brand colors on hover */
-.socialBtn[title="Website"]:hover .socialText {
-    color: #10b981;
+/* Brand colors on hover - REMOVED for monochrome */
+.socialBtn:hover .socialText {
+    color: #1a1a1a;
 }
 
-.socialBtn[title="Twitter"]:hover .socialText {
-    color: #1da1f2;
-}
-
-.socialBtn[title="Telegram"]:hover .socialText {
-    color: #0088cc;
-}
-
-.socialBtn[title="Discord"]:hover .socialText {
-    color: #5865f2;
+:global(.dark) .socialBtn:hover .socialText {
+    color: #ffffff;
 }

@@ -23,7 +23,10 @@ export const ThemeToggle: React.FC = () => {
     return (
         <button
             className={styles.toggle}
-            onClick={toggleTheme}
+            onClick={(e) => {
+                e.stopPropagation();
+                toggleTheme();
+            }}
             aria-label={`Current theme: ${label}`}
             title={`Theme: ${label} (Click to cycle)`}
         >

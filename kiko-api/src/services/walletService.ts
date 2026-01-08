@@ -1,5 +1,5 @@
 import { walletRepository, MonitoredWallet, WalletStats, WalletTransaction } from '../repositories/walletRepository.js';
-import { getWalletBalance as fetchAlchemyBalance, getWalletTransactions as fetchAlchemyTransactions, WalletBalance } from './alchemy.js';
+import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio } from './alchemy.js';
 
 // Mock data generator for simulation
 const generateMockStats = (address: string): WalletStats => ({
@@ -89,7 +89,16 @@ export const walletService = {
      * Get real-time balance for an address
      */
     async getWalletBalance(address: string, chain: string = 'eth'): Promise<WalletBalance> {
-        return await fetchAlchemyBalance(address, chain);
+        const results = await getPortfolio(address, [chain]);
+        return results[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
+    },
+
+    /**
+     * Get real-time balance for all supported chains
+     */
+    async getAllChainBalances(address: string, solanaAddress?: string): Promise<Record<string, WalletBalance>> {
+        const chains = ['eth', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc', 'solana'];
+        return await getPortfolio(address, chains, solanaAddress);
     },
 
     /**

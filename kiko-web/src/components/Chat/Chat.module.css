@@ -843,8 +843,8 @@
 
 /* When suggestions are visible, input is already expanded - no visual change needed */
 .inputWrapperOpen {
-    /* Suggestions are now INSIDE, so no border/radius changes needed */
-    /* Keep class for potential future styling */
+    display: block;
+    /* Added property to avoid empty ruleset */
 }
 
 .light .inputWrapper {
@@ -2883,6 +2883,7 @@
     line-height: 1.4;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }

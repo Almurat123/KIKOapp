@@ -8,8 +8,8 @@
 /* Mobile: remove horizontal padding */
 @media (max-width: 768px) {
     .container {
-        padding: 16px 0;
-        /* Vertical padding only */
+        padding: 60px 0 16px 0;
+        /* Add top padding for floating buttons */
     }
 }
 

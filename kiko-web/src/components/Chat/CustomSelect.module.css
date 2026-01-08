@@ -18,6 +18,18 @@
     color: #ffffff;
 }
 
+@media (max-width: 768px) {
+    .trigger {
+        padding: 6px 10px;
+        /* Reduced padding */
+        font-size: 12px;
+        /* Smaller font */
+        border-radius: 8px;
+        height: 32px;
+        /* Explicit height control */
+    }
+}
+
 :global(.light) .trigger {
     background: #ffffff;
     border-color: rgba(0, 0, 0, 0.08);
@@ -100,6 +112,14 @@
     border-radius: 8px;
     transition: all 0.15s ease;
     color: #f4f4f5;
+}
+
+@media (max-width: 768px) {
+    .option {
+        padding: 8px 10px;
+        /* Reduced padding */
+        font-size: 12px;
+    }
 }
 
 :global(.light) .option {

@@ -949,16 +949,19 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     }
   };
 
+  // useCallback to prevent infinite render loops when passed to child components affecting Layout state
+  const handleBack = useCallback(() => {
+    // Refresh favorites when returning from detail page (user may have toggled)
+    refreshFavorites();
+    setSelectedToken(null);
+    setDetailToken(null);
+  }, [refreshFavorites]);
+
   if (selectedToken && detailToken) {
     return (
       <TokenDetailPage
         token={detailToken}
-        onBack={() => {
-          // Refresh favorites when returning from detail page (user may have toggled)
-          refreshFavorites();
-          setSelectedToken(null);
-          setDetailToken(null);
-        }}
+        onBack={handleBack}
       />
     );
   }

@@ -90,8 +90,8 @@
 /* Mobile: Remove horizontal padding for full-width */
 @media (max-width: 768px) {
   .contentWrapper {
-    padding: 16px 0;
-    /* Vertical padding only */
+    padding: 60px 12px 16px 12px;
+    /* Add top padding for floating buttons */
   }
 }
 
@@ -587,7 +587,7 @@
 .tokenLogo {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: 50%;
   object-fit: cover;
   background: #f2f4f7;
 }
@@ -666,7 +666,7 @@
 }
 
 .sectionHeader {
-  padding: 12px 16px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
   display: flex;
   display: flex;
@@ -1394,7 +1394,9 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   width: 100%;
-  margin-right: 12px;
+  flex: 1;
+  /* Make it fill the container */
+  margin-right: 0;
 }
 
 :global(.light) .toggleContainer {
@@ -1416,6 +1418,7 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
+  width: 100%;
 }
 
 .toggleButton:hover {
@@ -1481,7 +1484,9 @@
   display: flex;
   gap: 12px;
   align-items: flex-end;
-  /* Align with balance on the left */
+  width: 100%;
+  /* Ensure full width */
+  /* justify-content: space-between; Removed to align left */
 }
 
 .actionButton {
@@ -1688,29 +1693,38 @@
 }
 
 /* History Redesign */
+
 .historyItemNew {
-  background: #27272a;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 20px;
-  padding: 16px;
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: 12px;
+  padding: 6px 0;
+  /* Ultra reduced padding */
+  border-bottom: 1px solid var(--border-color);
   transition: all 0.2s ease;
 }
 
 :global(.light) .historyItemNew {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+:global(.light) .dateBadge {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.historyItemNew:last-child {
+  border-bottom: none;
 }
 
 .dateBadge {
-  width: 54px;
-  height: 54px;
-  background: rgba(16, 185, 129, 0.1);
-  border-radius: 16px;
+  width: 28px;
+  /* Reduced to ~half of original 54px */
+  height: 28px;
+  background: rgba(255, 255, 255, 0.05);
+  /* Neutral background restored */
+  border-radius: 50%;
+  /* Circular */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1719,24 +1733,28 @@
 }
 
 .dateBadgeLoss {
-  background: rgba(239, 68, 68, 0.1);
+  background: transparent;
 }
 
 .dateBadgeNeutral {
-  background: rgba(161, 161, 170, 0.1);
+  background: transparent;
 }
 
 .dateMonth {
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 8px;
+  /* Reduced font */
+  font-weight: 700;
   text-transform: uppercase;
   color: #10b981;
+  line-height: 1;
 }
 
 .dateDay {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 13px;
+  /* Reduced font */
+  font-weight: 700;
   color: #10b981;
+  line-height: 1;
 }
 
 .dateBadgeLoss .dateMonth,
@@ -1778,6 +1796,23 @@
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.tokenBadge {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+:global(.light) .tokenBadge {
+  background: transparent;
+  border: none;
+  color: #71717a;
 }
 
 .statusBadgeWin {

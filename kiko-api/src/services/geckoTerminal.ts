@@ -123,6 +123,8 @@ export interface TokenSearchResult {
   symbol: string;
   network: string;
   imageUrl?: string;        // Token logo/avatar URL
+  socials?: Array<{ type: string; url: string }>; // Twitter, Discord, etc.
+  websites?: Array<{ url: string; label?: string }>; // Official websites
   poolCreatedAt?: string;   // Pool creation timestamp (ISO string)
   poolAddress?: string;     // Pool address for chart data
   poolId?: string;          // Full pool ID (network_address)
@@ -137,9 +139,8 @@ export interface TokenSearchResult {
   sells24h?: number;        // 24h sell count
   marketCap?: number;
   liquidity?: number;
-  socials?: any[];
-  websites?: any[];
   fdv?: number;
+  decimals?: number;
 }
 
 /**

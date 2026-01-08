@@ -132,7 +132,10 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   // Register back handler with global mobile header
   useEffect(() => {
     if (sidebar?.setOnBackHandler) {
-      sidebar.setOnBackHandler(() => onBack());
+      // IMPORTANT: Since setOnBackHandler is a useState setter, passing a function directly
+      // is treated as a functional update (prev => newValue).
+      // We must wrap our function in another function to store the function itself.
+      sidebar.setOnBackHandler(() => onBack);
     }
     return () => {
       if (sidebar?.setOnBackHandler) {
@@ -338,25 +341,25 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
             {token.socialLinks && (
               <div className={styles.socialLinks}>
                 {token.socialLinks.website && (
-                  <a href={token.socialLinks.website} target="_blank" rel="noopener noreferrer" className={styles.socialBtn} title="Website">
+                  <a href={token.socialLinks.website} target="_blank" rel="noopener noreferrer" className={styles.socialBtn}>
                     <Globe size={14} className={styles.socialIcon} />
                     <span className={styles.socialText}>{getHostname(token.socialLinks.website)}</span>
                   </a>
                 )}
                 {token.socialLinks.twitter && (
-                  <a href={token.socialLinks.twitter} target="_blank" rel="noopener noreferrer" className={styles.socialBtn} title="Twitter">
-                    <TwitterIcon />
+                  <a href={token.socialLinks.twitter} target="_blank" rel="noopener noreferrer" className={styles.socialBtn}>
+                    <div className={styles.socialIcon}><TwitterIcon /></div>
                     <span className={styles.socialText}>Twitter</span>
                   </a>
                 )}
                 {token.socialLinks.telegram && (
-                  <a href={token.socialLinks.telegram} target="_blank" rel="noopener noreferrer" className={styles.socialBtn} title="Telegram">
+                  <a href={token.socialLinks.telegram} target="_blank" rel="noopener noreferrer" className={styles.socialBtn}>
                     <Send size={14} className={styles.socialIcon} />
                     <span className={styles.socialText}>Telegram</span>
                   </a>
                 )}
                 {token.socialLinks.discord && (
-                  <a href={token.socialLinks.discord} target="_blank" rel="noopener noreferrer" className={styles.socialBtn} title="Discord">
+                  <a href={token.socialLinks.discord} target="_blank" rel="noopener noreferrer" className={styles.socialBtn}>
                     <MessageSquare size={14} className={styles.socialIcon} />
                     <span className={styles.socialText}>Discord</span>
                   </a>

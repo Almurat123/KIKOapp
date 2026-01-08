@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield,
   Send,
+  ArrowUpRight,
   ArrowDownLeft,
   ArrowRightLeft,
   ExternalLink
@@ -10,10 +11,10 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useAccount, useBalance, useDisconnect, useChainId } from 'wagmi';
 import { useChain } from '../contexts/ChainContext';
 import { ChainSwitcher } from '../components/Chain/ChainSwitcher';
-import { formatUnits, getAddress } from 'viem';
+import { getAddress } from 'viem';
 import type { Address } from 'viem';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
-import { getWalletBalance, getWalletTransactions, type WalletTransaction } from '../services/walletApi';
+import { getAllChainBalances, getWalletTransactions, type WalletTransaction } from '../services/walletApi';
 import { WalletSettingsModal } from '../components/Wallet/WalletSettingsModal';
 import { ReceiveModal } from '../components/Wallet/ReceiveModal';
 import { SendModal } from '../components/Wallet/SendModal';
@@ -36,17 +37,33 @@ interface TokenHolding {
   change: string;
   decimals: number;
   logo?: string;
-  usdValueNum?: number; // numeric USD value for sorting/filtering; undefined means unknown price
+  usdValueNum?: number;
   isNative?: boolean;
+  chainId?: number;
 }
 
+// Local icons mapping
+const LOCAL_ICONS: Record<string, string> = {
+  'ETH': '/assets/tokens/eth.png',
+  'SOL': '/assets/tokens/sol.png',
+  'BNB': '/assets/tokens/bsc.png',
+  'MATIC': '/assets/tokens/polygon.png',
+  'USDC': '/assets/tokens/usdc.png',
+  'USDT': '/assets/tokens/usdt.png',
+  'BASE': '/assets/tokens/base.png',
+  'ARB': '/assets/tokens/arbitrum.png',
+  'OP': '/assets/tokens/optimism.png',
+};
+
 // Fallback logo from TrustWallet assets if API did not return one
-const getTokenLogoUrl = (address?: string, chainId?: number): string | undefined => {
+const getTokenLogoUrl = (address?: string, chainId?: number, symbol?: string): string | undefined => {
+  if (symbol && LOCAL_ICONS[symbol.toUpperCase()]) {
+    return LOCAL_ICONS[symbol.toUpperCase()];
+  }
+
   if (!address || !chainId) return undefined;
 
   // Handle Native Tokens
-  // For Solana, both So11111111111111111111111111111111111111111 and So11111111111111111111111111111111111111112 represent native SOL
-  // We normalize to So11111111111111111111111111111111111111112 (Wrapped SOL address) for consistency
   const isNative = address === '0x0000000000000000000000000000000000000000' ||
     address === 'So11111111111111111111111111111111111111111' ||
     address === 'So11111111111111111111111111111111111111112';
@@ -68,8 +85,14 @@ const getTokenLogoUrl = (address?: string, chainId?: number): string | undefined
 
   // NATIVE TOKEN LOGOS
   if (isNative) {
-    if (chainId === 900) return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png';
-    if (chainId === 1) return 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png';
+    if (chainId === 900) return '/assets/tokens/sol.png';
+    if (chainId === 1) return '/assets/tokens/eth.png';
+    if (chainId === 56) return '/assets/tokens/bsc.png';
+    if (chainId === 137) return '/assets/tokens/polygon.png';
+    if (chainId === 8453) return '/assets/tokens/base.png';
+    if (chainId === 42161) return '/assets/tokens/arbitrum.png';
+    if (chainId === 10) return '/assets/tokens/optimism.png';
+
     return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${twChain}/info/logo.png`;
   }
 
@@ -455,17 +478,13 @@ export default function WalletPage() {
     const reqId = ++balanceReqId.current;
 
     const fetchBalances = async () => {
-      // Don't reset state here - handled by chain change effect
-      // setLoading(true) is redundant if chain changed, but harmless if just refetching
       setLoading(true);
       setError(null);
 
       try {
-        const chainName = getChainName(chainId);
-        console.log('[WalletPage] Fetching balances for chain:', chainName, 'chainId:', chainId, 'walletAddress:', walletAddress);
+        console.log('[WalletPage] Fetching all-chain balances for:', walletAddress);
 
         if (!walletAddress) {
-          console.warn('[WalletPage] No wallet address available, skipping balance fetch');
           if (!cancelled) {
             setHoldings([]);
             setLoading(false);
@@ -473,378 +492,115 @@ export default function WalletPage() {
           return;
         }
 
-        const balanceData = await getWalletBalance(walletAddress, chainName);
-        console.log('[WalletPage] Balance API response:', balanceData ? 'Success' : 'Null/Empty');
-
-        // Note: We DON'T early-exit here to allow processing to complete even for slightly stale requests
-        // The final state update check (reqId === balanceReqId.current) ensures only the latest data is applied
-
-        if (!balanceData) {
-          console.warn('[WalletPage] No balance data returned from API');
+        const allBalances = await getAllChainBalances(walletAddress, solanaWallet?.address);
+        if (!allBalances) {
           if (!cancelled) {
             setHoldings([]);
             setLoading(false);
-            setError('Failed to fetch balance data. Please check your wallet connection and try again.');
+            setError('Failed to fetch balance data.');
           }
           return;
         }
 
-        const tokenHoldings: TokenHolding[] = [];
-        const minUsd = 1; // hide tiny dust positions
-
-        // Add native token
-        // Always use backend ethBalance as primary source (more reliable)
-        // Only use wagmi nativeBalance if backend data is missing
-        const currentNativeBalance = nativeBalanceRef.current;
-        console.log('[WalletPage] Balance data:', {
-          ethBalance: balanceData.ethBalance,
-          ethBalanceFormatted: balanceData.ethBalanceFormatted,
-          tokensCount: balanceData.tokens?.length || 0,
-          tokens: balanceData.tokens, // Log full tokens array for debugging
-          nativeBalance: currentNativeBalance ? {
-            value: currentNativeBalance.value?.toString(),
-            symbol: currentNativeBalance.symbol,
-            decimals: currentNativeBalance.decimals,
-          } : null,
-        });
-
-        // Build backend native balance from API response
-        const backendNative = (() => {
-          // backend provides ethBalance (hex) and ethBalanceFormatted (number)
-          if (!balanceData.ethBalance && balanceData.ethBalanceFormatted === undefined) return null;
-          try {
-            if (isSolana) {
-              const lamports = balanceData.ethBalance
-                ? BigInt(balanceData.ethBalance)
-                : BigInt(Math.floor((balanceData.ethBalanceFormatted || 0) * 1e9));
-              return {
-                value: lamports,
-                decimals: 9,
-                symbol: 'SOL',
-              };
-            }
-            const wei = balanceData.ethBalance
-              ? BigInt(balanceData.ethBalance)
-              : BigInt(Math.floor((balanceData.ethBalanceFormatted || 0) * 1e18));
-            return {
-              value: wei,
-              decimals: 18,
-              symbol: 'ETH',
-            };
-          } catch (e) {
-            console.error('[WalletPage] Error parsing backend native balance:', e);
-            return null;
-          }
-        })();
-
-        // Use backend native balance if available, otherwise fallback to wagmi
-        // Backend data is more reliable and always available when API succeeds
-        // Use backend native balance if available, otherwise fallback to wagmi
-        const effectiveNative = backendNative || currentNativeBalance;
-
-        // Helper: Is this a native token in the token list? (e.g. 0xeeee... or matching symbol)
-        const isNativeTokenEntry = (t: any) => {
-          if (isSolana && t.symbol === 'SOL') return true;
-          if (!isSolana && t.symbol === 'ETH') return true;
-          if (!isSolana && t.symbol === 'BNB') return true; // generic check
-          return false;
+        const chainNameToId: Record<string, number> = {
+          'eth': 1,
+          'base': 8453,
+          'arbitrum': 42161,
+          'optimism': 10,
+          'polygon': 137,
+          'bsc': 56,
+          'solana': 900,
         };
 
-        // Chain-specific native token fallback prices (updated Dec 2024)
-        const NATIVE_PRICE_FALLBACKS: Record<number, number> = {
-          1: 3300,      // ETH
-          8453: 3300,   // ETH on Base
-          10: 3300,     // ETH on Optimism
-          42161: 3300,  // ETH on Arbitrum
-          56: 700,      // BNB
-          137: 0.5,     // MATIC
-          43114: 35,    // AVAX
-          250: 0.5,     // FTM
-          900: 200,     // SOL
-        };
-        let nativePrice = NATIVE_PRICE_FALLBACKS[chainId] || (isSolana ? 200 : 3300);
-        let nativeLogo = undefined;
+        const allTokenHoldings: TokenHolding[] = [];
+        const minUsd = 0.5; // hide dust
 
-        // Wrapped native token addresses per chain for price lookup
-        const WRAPPED_NATIVE_ADDRESSES: Record<number, string> = {
-          1: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',     // WETH
-          8453: '0x4200000000000000000000000000000000000006',   // WETH on Base
-          10: '0x4200000000000000000000000000000000000006',     // WETH on Optimism
-          42161: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', // WETH on Arbitrum
-          56: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',    // WBNB
-          137: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',   // WMATIC
-          900: 'So11111111111111111111111111111111111111112',  // WSOL
-        };
-        const wrappedNativeAddress = WRAPPED_NATIVE_ADDRESSES[chainId];
+        // Process each chain
+        for (const [chainName, balanceData] of Object.entries(allBalances)) {
+          const chainId = chainNameToId[chainName] || 1;
+          const isSol = chainName === 'solana';
 
-        if (balanceData.tokens) {
-          const nativeInTokens = balanceData.tokens.find((t: any) => isNativeTokenEntry(t));
-          if (nativeInTokens) {
-            // Will be processed after token meta fetch
-          }
-        }
+          // 1. Process Native Token
+          let nativeValueFormatted = balanceData.ethBalanceFormatted || 0;
+          let nativePrice = (balanceData as any).ethPrice ||
+            (isSol ? 250 : (chainName === 'bsc' ? 650 : (chainName === 'polygon' ? 0.13 : 3400)));
+          const nativeUsdValue = nativeValueFormatted * nativePrice;
 
-        // Collect all token addresses for metadata fetch
-        let tokenMetaMap: Record<string, { price?: number; logo?: string }> = {};
-        if (balanceData.tokens && balanceData.tokens.length > 0) {
-          const addresses = balanceData.tokens
-            .filter((t: any) => t.contractAddress)
-            .map((t: any) => t.contractAddress!);
+          if (nativeValueFormatted > 0) {
+            const nativeSymbol = isSol ? 'SOL' : (chainName === 'bsc' ? 'BNB' : (chainName === 'polygon' ? 'POL' : 'ETH'));
+            const chainLabel = chainName.charAt(0).toUpperCase() + chainName.slice(1);
 
-          // Include wrapped native token for dynamic price lookup
-          if (wrappedNativeAddress && !addresses.includes(wrappedNativeAddress)) {
-            addresses.push(wrappedNativeAddress);
-          }
-
-          // Pre-fetch logic - getTokensData already uses Promise.allSettled internally
-          try {
-            const metaList = await getTokensData(addresses, chainId);
-
-
-            // Note: Don't early-exit here; final state update check handles staleness
-            tokenMetaMap = metaList.reduce((acc, m) => {
-              if (m && m.address) {
-                acc[m.address.toLowerCase()] = {
-                  price: m.price,
-                  logo: m.logoURI,
-                };
-              }
-              return acc;
-            }, {} as Record<string, { price?: number; logo?: string }>);
-
-            // Try to get native price from wrapped native token
-            if (wrappedNativeAddress) {
-              const nativeMeta = tokenMetaMap[wrappedNativeAddress.toLowerCase()];
-              if (nativeMeta && nativeMeta.price && nativeMeta.price > 0) {
-                nativePrice = nativeMeta.price;
-                nativeLogo = nativeMeta.logo;
-                console.log(`[WalletPage] Got dynamic native price for chain ${chainId}: $${nativePrice}`);
-              }
-            }
-          } catch (e) {
-            console.warn('[WalletPage] token meta fetch failed (non-critical, continuing anyway):', e);
-            // Continue anyway - we'll show tokens without prices
-          }
-        } else if (wrappedNativeAddress) {
-          // No tokens but still try to fetch native price
-          try {
-            const [nativeMeta] = await getTokensData([wrappedNativeAddress], chainId);
-            if (nativeMeta && nativeMeta.price && nativeMeta.price > 0) {
-              nativePrice = nativeMeta.price;
-              nativeLogo = nativeMeta.logoURI;
-              console.log(`[WalletPage] Got dynamic native price for chain ${chainId}: $${nativePrice}`);
-            }
-          } catch (e) {
-            console.warn('[WalletPage] native price fetch failed:', e);
-          }
-        }
-
-        // Now refine Native Price using the fetched map if we can find a matching entry
-        // Usually native tokens in lists have specific addresses like 0xeeee... or So111...
-        // If not, we rely on the symbol check.
-        if (balanceData.tokens) {
-          const nativeInTokens = balanceData.tokens.find((t: any) => isNativeTokenEntry(t));
-          if (nativeInTokens && nativeInTokens.contractAddress) {
-            const meta = tokenMetaMap[nativeInTokens.contractAddress.toLowerCase()];
-            if (meta && meta.price) {
-              nativePrice = meta.price;
-              nativeLogo = meta.logo;
-            }
-          }
-        }
-
-        if (effectiveNative) {
-          let balanceValue: string;
-          let usdValue: number;
-
-          if (isSolana) {
-            const solBalanceNum = Number(effectiveNative.value) / 1e9;
-            balanceValue = solBalanceNum.toFixed(4);
-            usdValue = solBalanceNum * nativePrice;
-
-            tokenHoldings.push({
-              address: 'So11111111111111111111111111111111111111112' as Address, // Use Wrapped SOL address for consistency
-              symbol: 'SOL',
-              name: 'Solana',
-              decimals: 9,
-              balance: balanceValue,
-              value: '$' + usdValue.toFixed(2),
-              usdValueNum: usdValue,
+            allTokenHoldings.push({
+              address: (isSol ? 'So11111111111111111111111111111111111111112' : '0x0000000000000000000000000000000000000000') as Address,
+              symbol: nativeSymbol,
+              name: `${isSol ? 'Solana' : (chainName === 'bsc' ? 'BNB' : (chainName === 'polygon' ? 'Polygon' : 'Ethereum'))} (${chainLabel})`,
+              decimals: isSol ? 9 : 18,
+              balance: nativeValueFormatted.toFixed(6),
+              value: nativePrice ? `$${nativeUsdValue.toFixed(2)}` : 'Price N/A',
+              usdValueNum: nativeUsdValue,
               change: '+0.00%',
               isNative: true,
-              logo: nativeLogo || getTokenLogoUrl('So11111111111111111111111111111111111111112', 900) || 'https://assets.coingecko.com/coins/images/4128/large/solana.png'
-            });
-          } else {
-            balanceValue = formatUnits(effectiveNative.value, effectiveNative.decimals);
-            usdValue = parseFloat(balanceValue) * nativePrice;
-
-            // Chain-specific native token names
-            const NATIVE_NAMES: Record<number, string> = {
-              1: 'Ether',
-              8453: 'Ether',
-              10: 'Ether',
-              42161: 'Ether',
-              56: 'BNB',
-              137: 'MATIC',
-              43114: 'AVAX',
-              250: 'FTM',
-            };
-
-            tokenHoldings.push({
-              address: '0x0000000000000000000000000000000000000000' as Address,
-              symbol: effectiveNative.symbol,
-              name: NATIVE_NAMES[chainId] || effectiveNative.symbol,
-              decimals: effectiveNative.decimals,
-              balance: balanceValue,
-              value: '$' + usdValue.toFixed(2),
-              usdValueNum: usdValue,
-              change: '+0.00%',
-              isNative: true,
-              logo: nativeLogo
+              chainId,
+              logo: getTokenLogoUrl(isSol ? 'So11111111111111111111111111111111111111112' : '0x0000000000000000000000000000000000000000', chainId, nativeSymbol)
             });
           }
-        }
 
-        // Add token balances from API
-        if (balanceData.tokens && balanceData.tokens.length > 0) {
-          // Meta map already fetched above
+          // 2. Process ERC20/SPL Tokens
+          if (balanceData.tokens && balanceData.tokens.length > 0) {
+            const tokenAddresses = balanceData.tokens
+              .filter((t: any) => t.contractAddress)
+              .map((t: any) => t.contractAddress!);
 
-          balanceData.tokens.forEach((token: any) => {
-            if (!token.contractAddress) return;
+            if (tokenAddresses.length > 0) {
+              try {
+                const metaData = await getTokensData(tokenAddresses, chainId);
+                const metaMap = (metaData || []).reduce((acc: any, t: any) => {
+                  acc[t.address.toLowerCase()] = t;
+                  return acc;
+                }, {});
 
-            // DEDUPLICATION: Skip if this token is actually the native token we already added
-            if (isNativeTokenEntry(token)) {
-              console.log('[WalletPage] Skipping duplicate native token from list:', token.symbol);
-              return;
-            }
+                balanceData.tokens.forEach((token: any) => {
+                  if (!token.contractAddress) return;
+                  const meta = metaMap[token.contractAddress.toLowerCase()];
+                  const balance = parseFloat(token.tokenBalance || '0');
+                  const price = meta?.price || token.price || 0;
+                  const usdValueNum = balance * price;
 
-            const balance = parseFloat(token.tokenBalance || '0');
-
-            if (balance > 0) {
-              const meta = tokenMetaMap[token.contractAddress.toLowerCase()] || {};
-              let price = meta.price;
-
-              // Fallback: For common stablecoins, use default price of $1 if API failed
-              // This ensures legitimate tokens are not filtered out due to API issues
-              if (!price) {
-                const symbol = (token.symbol || '').toUpperCase();
-                const isStablecoin = ['USDC', 'USDT', 'DAI', 'BUSD', 'FRAX', 'USDP', 'TUSD'].includes(symbol);
-                if (isStablecoin) {
-                  price = 1.0; // Default stablecoin price
-                  console.log(`[WalletPage] Using fallback price $1.00 for stablecoin: ${symbol}`);
-                }
+                  if (usdValueNum >= minUsd || (balance > 0 && !price)) {
+                    allTokenHoldings.push({
+                      address: token.contractAddress as Address,
+                      symbol: token.symbol || 'Unknown',
+                      name: token.name || 'Unknown Token',
+                      decimals: token.decimals || 18,
+                      balance: balance.toFixed(6),
+                      value: price ? `$${usdValueNum.toFixed(2)}` : 'Price N/A',
+                      usdValueNum: price ? usdValueNum : undefined,
+                      change: meta?.change_24h ? `${meta.change_24h > 0 ? '+' : ''}${meta.change_24h.toFixed(2)}%` : '+0.00%',
+                      logo: token.logo || meta?.logo || getTokenLogoUrl(token.contractAddress, chainId, token.symbol),
+                      chainId
+                    });
+                  }
+                });
+              } catch (e) {
+                console.error(`[WalletPage] Error fetching metadata for ${chainName}:`, e);
               }
-
-              const usdValue = price ? balance * price : undefined;
-
-              tokenHoldings.push({
-                address: token.contractAddress as Address,
-                symbol: token.symbol || 'UNK',
-                // ... rest of logic
-                name: token.name || 'Unknown Token',
-                decimals: token.decimals || 18,
-                balance: balance.toFixed(6),
-                value: usdValue !== undefined ? '$' + usdValue.toFixed(2) : '—',
-                usdValueNum: usdValue,
-                change: '+0.00%',
-                logo: token.logo || meta.logo || getTokenLogoUrl(token.contractAddress, chainId),
-              });
             }
-          });
-        }
-
-        console.log('[WalletPage] Total token holdings after processing:', tokenHoldings.length);
-
-        // Filter out dust < $1 and unknown price tokens (potential spam/scam)
-        // This protects users from seeing scam tokens that have no legitimate price data
-        const filtered = tokenHoldings.filter((h: any) => {
-          if (h.isNative) return true;
-          // Filter out unknown prices to hide scams/spam
-          if (h.usdValueNum === undefined) return false;
-          return h.usdValueNum >= minUsd;
-        });
-
-        // Sort by value desc (unknown price at bottom)
-        filtered.sort((a: any, b: any) => {
-          const va = a.usdValueNum;
-          const vb = b.usdValueNum;
-          if (va === undefined && vb === undefined) return 0;
-          if (va === undefined) return 1;
-          if (vb === undefined) return -1;
-          return vb - va;
-        });
-
-        // Absolute fallback: ensure native shows even if filtered empty but backend had balance
-        if (!filtered.length && (balanceData.ethBalance || balanceData.ethBalanceFormatted !== undefined)) {
-          try {
-            const isSol = isSolana;
-            const decimals = isSol ? 9 : 18;
-            const raw = balanceData.ethBalance
-              ? BigInt(balanceData.ethBalance)
-              : BigInt(Math.floor((balanceData.ethBalanceFormatted || 0) * (isSol ? 1e9 : 1e18)));
-            const formatted = isSol
-              ? Number(raw) / 1e9
-              : Number(raw) / 1e18;
-            const usdEstimate = isSol ? formatted * 150 : formatted * 2000;
-            filtered.push({
-              address: isSol
-                ? ('So11111111111111111111111111111111111111112' as Address) // Use Wrapped SOL address for consistency
-                : ('0x0000000000000000000000000000000000000000' as Address),
-              symbol: isSol ? 'SOL' : 'ETH',
-              name: isSol ? 'Solana' : 'ETH',
-              decimals,
-              balance: formatted.toFixed(6),
-              value: `$${usdEstimate.toFixed(2)}`,
-              usdValueNum: usdEstimate,
-              change: '+0.00%',
-              isNative: true,
-            });
-            console.log('[WalletPage] Added fallback native asset:', {
-              symbol: isSol ? 'SOL' : 'ETH',
-              balance: formatted.toFixed(6),
-              usdValue: usdEstimate,
-            });
-          } catch (e) {
-            console.error('[WalletPage] Fallback native asset error:', e);
           }
         }
 
-        console.log('[WalletPage] Final holdings:', {
-          count: filtered.length,
-          holdings: filtered.map(h => ({
-            symbol: h.symbol,
-            balance: h.balance,
-            value: h.value,
-            isNative: h.isNative,
-          })),
-          reqId,
-          currentReqId: balanceReqId.current,
-          cancelled,
-        });
+        // Sort by value DESC
+        allTokenHoldings.sort((a, b) => (b.usdValueNum || 0) - (a.usdValueNum || 0));
 
-        // Update state if this is the latest request, even if cancelled flag is set
-        // The cancelled flag is set when useEffect cleanup runs, but if this request
-        // is still the latest one, we should update the state
         if (reqId === balanceReqId.current) {
-          setHoldings(filtered);
-          setCachedHoldings(filtered);
-          console.log('[WalletPage] Holdings updated, count:', filtered.length);
-        } else {
-          console.warn('[WalletPage] Request stale (newer request exists), ignoring update', {
-            cancelled,
-            reqId,
-            currentReqId: balanceReqId.current,
-          });
+          setHoldings(allTokenHoldings);
+          setCachedHoldings(allTokenHoldings);
         }
       } catch (err) {
-        console.error('[WalletPage] Error fetching balances:', err);
-        // Only set error if this is still the latest request
+        console.error('[WalletPage] Error in fetchBalances:', err);
         if (reqId === balanceReqId.current) {
-          setError('Failed to load token balances. Please try again.');
-          // Don't clear holdings on error - keep cached data
+          setError('Failed to load assets.');
         }
       } finally {
-        // Only update loading state if this is still the latest request
         if (reqId === balanceReqId.current) {
           setLoading(false);
         }
@@ -939,7 +695,7 @@ export default function WalletPage() {
 
     let totalVal = 0;
     list.forEach(h => {
-      const val = h.usdValueNum ?? parseFloat(h.value.replace('$', '').replace(',', '') || '0');
+      const val = h.usdValueNum || 0;
       totalVal += val;
     });
 
@@ -1174,7 +930,7 @@ export default function WalletPage() {
                     <div className={styles.assetTop}>
                       <div className={styles.tokenCell}>
                         <TokenIcon
-                          src={asset.logo && asset.logo.startsWith('http') ? asset.logo : undefined}
+                          src={asset.logo && (asset.logo.startsWith('http') || asset.logo.startsWith('/assets')) ? asset.logo : undefined}
                           alt={asset.symbol}
                           symbol={asset.symbol}
                           className={styles.tokenLogo}
@@ -1182,7 +938,9 @@ export default function WalletPage() {
                         />
                         <div className={styles.tokenInfo}>
                           <div className={styles.tokenName}>{asset.name}</div>
-                          <div className={styles.tokenSymbol}>{asset.symbol}</div>
+                          <div className={styles.tokenSymbol}>
+                            <span className={styles.tokenBadge}>{asset.symbol}</span>
+                          </div>
                           <div className={styles.assetBalance}>{parseFloat(asset.balance).toFixed(6)} {asset.symbol}</div>
                         </div>
                       </div>
@@ -1251,6 +1009,7 @@ export default function WalletPage() {
                     key={index}
                     tx={tx}
                     styles={styles}
+                    walletAddress={walletAddress || ''}
                   />
                 ))}
               </div>
@@ -1289,65 +1048,67 @@ export default function WalletPage() {
       />
 
       {/* Swap Card Modal */}
-      {isSwapOpen && typeof document !== 'undefined' && createPortal(
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            backdropFilter: 'blur(4px)',
-            padding: '20px',
-          }}
-          onClick={() => setIsSwapOpen(false)}
-        >
+      {
+        isSwapOpen && typeof document !== 'undefined' && createPortal(
           <div
-            onClick={(e) => e.stopPropagation()}
             style={{
-              width: '100%',
-              maxWidth: '500px',
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
               display: 'flex',
-              justifyContent: 'center',
               alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+              backdropFilter: 'blur(4px)',
+              padding: '20px',
             }}
+            onClick={() => setIsSwapOpen(false)}
           >
-            <SwapCardIntegrated
-              userAddress={walletAddress || undefined}
-              chainId={chainId}
-              onSwapSuccess={(txHash) => {
-                console.log('Swap successful:', txHash);
-                // Refresh holdings after successful swap
-                setTimeout(() => {
-                  setIsSwapOpen(false);
-                }, 2000);
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '500px',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
               }}
-              onSwapError={(error) => {
-                console.error('Swap error:', error);
-              }}
-              onClose={() => setIsSwapOpen(false)}
-              userHoldings={displayHoldings.map(h => ({
-                address: h.address,
-                symbol: h.symbol,
-                name: h.name,
-                balance: h.balance,
-                value: h.value,
-                decimals: h.decimals,
-                logo: h.logo,
-                usdValueNum: h.usdValueNum,
-                isNative: h.isNative,
-              }))}
-            />
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
+            >
+              <SwapCardIntegrated
+                userAddress={walletAddress || undefined}
+                chainId={chainId}
+                onSwapSuccess={(txHash) => {
+                  console.log('Swap successful:', txHash);
+                  // Refresh holdings after successful swap
+                  setTimeout(() => {
+                    setIsSwapOpen(false);
+                  }, 2000);
+                }}
+                onSwapError={(error) => {
+                  console.error('Swap error:', error);
+                }}
+                onClose={() => setIsSwapOpen(false)}
+                userHoldings={displayHoldings.map(h => ({
+                  address: h.address,
+                  symbol: h.symbol,
+                  name: h.name,
+                  balance: h.balance,
+                  value: h.value,
+                  decimals: h.decimals,
+                  logo: h.logo,
+                  usdValueNum: h.usdValueNum,
+                  isNative: h.isNative,
+                }))}
+              />
+            </div>
+          </div>,
+          document.body
+        )
+      }
+    </div >
   );
 }
 
@@ -1440,42 +1201,87 @@ const PolymarketHistoryItem = ({ trade, styles }: { trade: any; styles: any }) =
   );
 };
 
-const TradingHistoryItem = ({ tx, styles }: { tx: any; styles: any }) => {
+const TradingHistoryItem = ({ tx, styles, walletAddress }: { tx: any; styles: any; walletAddress: string }) => {
   const date = new Date(tx.timestamp || Date.now());
   const month = date.toLocaleString('en-US', { month: 'short' });
   const day = date.getDate();
+  const time = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
-  const displaySymbol = tx.tokenSymbol || tx.tokenInSymbol || tx.tokenOutSymbol || 'Unknown';
-  const displayAmount = tx.amount || '0';
-  const isReceived = tx.method?.toLowerCase() === 'receive' || tx.type?.toLowerCase() === 'receive';
-  const isProfit = isReceived;
+  const displaySymbol = tx.asset || tx.tokenSymbol || tx.tokenInSymbol || tx.tokenOutSymbol || 'Unknown';
+  const displayAmount = tx.amount || tx.value || '0';
+
+  // Determine transaction type and visuals
+  const type = tx.txType || 'TRANSFER_OUT';
+  const isSwap = type === 'SWAP';
+  const isApprove = type === 'APPROVE';
+  const isIncoming = type === 'TRANSFER_IN' || type === 'BUY' || (!type && tx.to?.toLowerCase() === walletAddress?.toLowerCase());
+
+  // Icon & Style Logic - MONOCHROME / COLORLESS
+  let Icon = ArrowUpRight;
+  let title = 'Sent';
+
+  if (isSwap) {
+    Icon = ArrowRightLeft;
+    title = 'Swap';
+  } else if (isApprove) {
+    Icon = Shield;
+    title = 'Approve';
+  } else if (isIncoming) {
+    Icon = ArrowDownLeft;
+    title = 'Received';
+  }
+
+  // Address shortening helper
+  const shortenAddress = (addr: string) => {
+    if (!addr) return '';
+    if (addr.length < 10) return addr;
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  };
+
+  const counterparty = isSwap ? tx.to : (isIncoming ? tx.from : tx.to);
+  const label = isSwap ? 'Router' : (isIncoming ? 'From' : 'To');
 
   return (
     <div className={styles.historyItemNew}>
-      <div className={`${styles.dateBadge} ${styles.dateBadgeNeutral}`}>
-        <span className={styles.dateMonth}>{month}</span>
-        <span className={styles.dateDay}>{day < 10 ? `0${day}` : day}</span>
+      <div className={styles.dateBadge}>
+        <Icon size={14} style={{ color: '#a1a1aa' }} />
       </div>
+
       <div className={styles.historyContent}>
-        <div className={styles.historyTitle}>{tx.method || tx.type || 'Transaction'} {displaySymbol}</div>
+        <div className={styles.historyTitle}>
+          {title} {displayAmount} {displaySymbol}
+        </div>
         <div className={styles.historyBadges}>
           <span className={styles.statusBadge}>
-            {tx.status?.toUpperCase() || 'SUCCESS'}
+            {label}: {shortenAddress(counterparty)}
           </span>
           <div className={styles.dot} />
-          <span className={styles.statusBadge}>
-            {tx.txHash ? `${tx.txHash.slice(0, 6)}...${tx.txHash.slice(-4)}` : 'Internal'}
-          </span>
+          <span className={styles.statusBadge}>{month} {day}, {time}</span>
         </div>
       </div>
+
       <div className={styles.historyResult}>
-        <div className={`${styles.resultAmount} ${isProfit ? styles.positive : styles.negative}`} style={{ background: 'none', border: 'none', padding: 0 }}>
-          {isProfit ? '+' : '-'}{parseFloat(displayAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+        <div className={styles.resultAmount} style={{ fontSize: 14 }}>
+          {isIncoming ? '+' : '-'}{parseFloat(displayAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })}
         </div>
-        <div className={styles.statusBadge}>{displaySymbol}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className={styles.tokenBadge}>{displaySymbol}</span>
+          {tx.hash && (
+            <button
+              className={styles.externalLink}
+              onClick={() => {
+                const baseUrl = tx.from?.startsWith('0x')
+                  ? 'https://etherscan.io/tx/'
+                  : 'https://solscan.io/tx/';
+                window.open(`${baseUrl}${tx.hash}`, '_blank');
+              }}
+            >
+              <ExternalLink size={12} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 };
-
 

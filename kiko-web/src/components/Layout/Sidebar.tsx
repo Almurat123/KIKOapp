@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Newspaper, BarChart2, Layers, Plus, X, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, FlaskConical, TrendingUp, Coins, Network } from 'lucide-react';
+import { MessageSquare, Newspaper, BarChart2, Layers, Plus, X, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, RefreshCw, Coins, Network } from 'lucide-react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import clsx from 'clsx';
 import kikoLogo from '../../assets/images/kiko-logo.png';
@@ -120,14 +120,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Layers,
       label: 'SuperDefi',
     },
-    {
-      id: 'test',
-      icon: FlaskConical,
-      label: 'Test Cards',
-    },
+
     {
       id: 'trade',
-      icon: TrendingUp,
+      icon: RefreshCw,
       label: 'Trade',
     },
   ];

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { Dialog } from '../Dialog/Dialog';
 import { CustomSelect } from './CustomSelect';
@@ -84,7 +84,37 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
 }) => {
     const { getAccessToken, authenticated } = usePrivy();
     const [settings, setSettings] = useState<CustomAISettings>(DEFAULT_SETTINGS);
+    const settingsRef = useRef(settings); // Keep track of latest settings for sync access
 
+    // Update ref whenever settings change
+    useEffect(() => {
+        settingsRef.current = settings;
+    }, [settings]);
+
+    const saveSettingsToApi = async (currentSettings: CustomAISettings) => {
+        try {
+            // Persist to localStorage immediately
+            localStorage.setItem('kiko-custom-ai-settings', JSON.stringify(currentSettings));
+            // Notify other components
+            window.dispatchEvent(new CustomEvent('kiko-custom-ai-changed', { detail: currentSettings }));
+
+            if (authenticated) {
+                const token = await getAccessToken();
+                if (token) {
+                    await saveUserSettings(token, currentSettings);
+                }
+            }
+            logger.log('Settings saved successfully');
+        } catch (e) {
+            logger.error('Failed to save settings:', e);
+        }
+    };
+
+    // Wrapper for onClose to ensure save happens on explicit close
+    const handleClose = () => {
+        saveSettingsToApi(settingsRef.current);
+        onClose();
+    };
 
     // Load settings from API on mount
     useEffect(() => {
@@ -123,40 +153,34 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
         }
     }, [isOpen, authenticated, getAccessToken]);
 
-    const handleSave = async () => {
-        try {
-            if (authenticated) {
-                const token = await getAccessToken();
-                if (token) {
-                    await saveUserSettings(token, settings);
-                }
-            }
-            // Always save to localStorage as backup
-            localStorage.setItem('kiko-custom-ai-settings', JSON.stringify(settings));
-            // Dispatch event to notify other components
-            window.dispatchEvent(new CustomEvent('kiko-custom-ai-changed', { detail: settings }));
-            onClose();
-        } catch (e) {
-            logger.error('Failed to save custom AI settings:', e);
-        }
-    };
+    // Auto-save logic (Debounced for inputs)
+    useEffect(() => {
+        if (!isOpen) return;
+        const timer = setTimeout(() => {
+            saveSettingsToApi(settings);
+        }, 800);
+        return () => clearTimeout(timer);
+    }, [settings, isOpen]);
 
-    const handleReset = () => {
-        if (window.confirm('Are you sure you want to reset all custom settings?')) {
-            setSettings(DEFAULT_SETTINGS);
-        }
-    };
+    // Final save on unmount/close (backup)
+    useEffect(() => {
+        return () => {
+            if (isOpen) {
+                // Only necessary if component unmounts without handleClose
+                // We just dump to localStorage to be safe
+                localStorage.setItem('kiko-custom-ai-settings', JSON.stringify(settingsRef.current));
+            }
+        };
+    }, []);
 
     const toggleFastSwapMode = () => {
-        // Just toggle the setting locally.
-        // Persistence is handled by handleSave
         setSettings(prev => ({ ...prev, fastSwapMode: !prev.fastSwapMode }));
     };
 
     return (
         <Dialog
             isOpen={isOpen}
-            onClose={onClose}
+            onClose={handleClose}
             title="Custom Reply"
             size="md"
             showCloseButton={false}
@@ -167,7 +191,6 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     <div className={styles.sectionTitle}>User Role</div>
 
                     <div className={styles.inputGroup}>
-                        <label className={styles.label}>Your Role</label>
                         <CustomSelect
                             value={settings.userRole}
                             onChange={val => setSettings(prev => ({ ...prev, userRole: val }))}
@@ -178,11 +201,10 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
 
                 {/* Fast Swap Section */}
                 <div className={styles.section}>
-                    <div className={styles.sectionTitle}>⚡ Fast Swap Mode</div>
+                    <div className={styles.sectionTitle}>Fast Swap Mode</div>
                     <div className={styles.headerRow}>
-                        <div className={clsx(styles.headerTitle, settings.fastSwapMode && styles.headerTitleActive)}>
+                        <div className={styles.headerTitle}>
                             Enable Fast Execution
-                            {settings.fastSwapMode && <span className={styles.onBadge}>ON</span>}
                         </div>
                         <label className={styles.toggleSwitch}>
                             <input
@@ -269,23 +291,23 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
 
                     {/* Copy Trade AI Analysis */}
                     <div className={clsx(styles.inputGroup, styles.inputGroupWithMargin)}>
-                        <label className={styles.label}>🤖 跟单 AI 分析</label>
+                        <label className={styles.label}>Copy Trade AI Analysis</label>
                         <CustomSelect
                             value={settings.copyTradeAIMode}
                             onChange={val => setSettings(prev => ({ ...prev, copyTradeAIMode: val as 'disabled' | 'analyze_only' | 'auto_decide' }))}
                             options={COPY_TRADE_AI_OPTIONS}
                         />
                         <p className={clsx(styles.headerDesc, styles.headerDescWithTopMargin)}>
-                            {settings.copyTradeAIMode === 'disabled' && '跟单时不进行AI分析，直接执行交易'}
-                            {settings.copyTradeAIMode === 'analyze_only' && 'AI分析代币风险并在Chat中通知，但不阻止交易'}
-                            {settings.copyTradeAIMode === 'auto_decide' && 'AI分析后自动决定是否执行交易（安全优先）'}
+                            {settings.copyTradeAIMode === 'disabled' && 'Executes trade directly without AI analysis'}
+                            {settings.copyTradeAIMode === 'analyze_only' && 'AI analyzes token risks and notifies in Chat, but does not block trades'}
+                            {settings.copyTradeAIMode === 'auto_decide' && 'AI automatically decides whether to execute the trade based on analysis (Safety Mode)'}
                         </p>
                     </div>
                 </div>
 
                 {/* Swap Protection Section */}
                 <div className={styles.section}>
-                    <div className={styles.sectionTitle}>⚡ Swap Protection</div>
+                    <div className={styles.sectionTitle}>Swap Protection</div>
 
                     {/* Slippage */}
                     <div className={styles.inputGroup}>
@@ -326,7 +348,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
 
                     {/* MEV Protection */}
                     <div className={clsx(styles.headerRow, styles.headerRowWithMargin)}>
-                        <div className={styles.headerTitle}>🛡️ MEV Protection</div>
+                        <div className={styles.headerTitle}>MEV Protection</div>
                         <label className={styles.toggleSwitch}>
                             <input
                                 type="checkbox"
@@ -342,7 +364,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
 
                     {/* Price Deviation Check */}
                     <div className={clsx(styles.headerRow, styles.headerRowWithMargin)}>
-                        <div className={styles.headerTitle}>📊 Price Deviation Check</div>
+                        <div className={styles.headerTitle}>Price Deviation Check</div>
                         <label className={styles.toggleSwitch}>
                             <input
                                 type="checkbox"
@@ -358,20 +380,8 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                 </div>
 
 
-                {/* Action Buttons */}
-                <div className={styles.actions}>
-                    <button className={styles.applyButton} onClick={handleSave}>
-                        Apply
-                    </button>
-                    <div className={styles.secondaryActions}>
-                        <button className={styles.cancelButton} onClick={onClose}>
-                            Cancel
-                        </button>
-                        <button className={styles.resetButton} onClick={handleReset}>
-                            Reset
-                        </button>
-                    </div>
-                </div>
+                {/* Action Buttons Removed - Auto-save enabled */}
+
             </div>
         </Dialog>
     );

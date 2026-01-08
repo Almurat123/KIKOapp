@@ -100,6 +100,7 @@ function getAvailableProviders(chain: string): Array<{ name: string; url: string
         }
     }
 
+    console.log(`[ScanAPI] Available providers for ${chainLower}:`, providers.map(p => p.name));
     return providers;
 }
 
@@ -164,14 +165,21 @@ export async function getEvmTransactions(
 
                 // Determine transaction type
                 let txType: WalletTransaction['txType'] = 'TRANSFER_OUT';
-                if (tx.to && tx.to.toLowerCase() === address.toLowerCase()) {
-                    txType = 'TRANSFER_IN';
-                }
+                // Advanced type detection
+                const methodId = tx.methodId || (tx.input && tx.input.length >= 10 ? tx.input.slice(0, 10) : null);
+                const funcName = (tx.functionName || '').toLowerCase();
 
-                // Basic mapping - more complex logic for SWAP detection is done in decoder services
-                if (tx.input && tx.input !== '0x') {
-                    // Could be swap, approve, etc.
-                    // For now, keep as transfer/interaction
+                if (methodId === '0x095ea7b3' || funcName.includes('approve')) {
+                    txType = 'APPROVE';
+                } else if (
+                    funcName.includes('swap') ||
+                    methodId === '0x7ff36ab5' || // swapExactETHForTokens
+                    methodId === '0x18cbafe5' || // swapExactTokensForETH
+                    methodId === '0x38ed1739' || // swapExactTokensForTokens
+                    methodId === '0x12aa3caf' || // swapExactTokensForTokensSupportingFeeOnTransferTokens
+                    methodId === '0x5c11d795'    // swapExactTokensForETHSupportingFeeOnTransferTokens
+                ) {
+                    txType = 'SWAP';
                 }
 
                 // Find chain config by name if possible, or fallback manually

@@ -1,4 +1,4 @@
-import React, { useState, createContext, useContext } from 'react';
+import React, { useState, createContext, useContext, useCallback } from 'react';
 import { PanelLeftOpen, ArrowLeft } from 'lucide-react';
 import { usePrivy, useWallets, useLinkAccount } from '@privy-io/react-auth';
 import { Sidebar } from './Sidebar';
@@ -68,7 +68,7 @@ export const Layout: React.FC<LayoutProps> = ({
     const { linkWallet } = useLinkAccount();
 
     // Handle profile click - check authentication and wallet connection status
-    const handleProfileClick = () => {
+    const handleProfileClick = useCallback(() => {
         if (!ready) return; // Wait for Privy to be ready
 
         try {
@@ -100,7 +100,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 console.error('Error in handleProfileClick:', error);
             }
         }
-    };
+    }, [ready, authenticated, secureLogin, wallets, onTabChange, linkWallet]);
 
     // Get user initials for avatar
     const emailAddress = user?.email && typeof user.email === 'object' && 'address' in user.email
@@ -109,17 +109,20 @@ export const Layout: React.FC<LayoutProps> = ({
     const userName = (emailAddress ? emailAddress.split('@')[0] : null) || user?.farcaster?.username || 'User';
     const userInitials = userName.substring(0, 2).toUpperCase();
 
+    // Memoize the context value to prevent unnecessary re-renders in consumers
+    const sidebarContextValue = React.useMemo(() => ({
+        onOpenSidebar: () => setIsDesktopSidebarOpen(true),
+        isSidebarOpen: isDesktopSidebarOpen,
+        onOpenProfile: handleProfileClick,
+        setChatStarted,
+        chatStarted,
+        setGeneratingConversationId: setGeneratingConversationId || (() => { }),
+        onBackHandler,
+        setOnBackHandler,
+    }), [isDesktopSidebarOpen, handleProfileClick, chatStarted, setGeneratingConversationId, onBackHandler]);
+
     return (
-        <SidebarContext.Provider value={{
-            onOpenSidebar: () => setIsDesktopSidebarOpen(true),
-            isSidebarOpen: isDesktopSidebarOpen,
-            onOpenProfile: handleProfileClick,
-            setChatStarted,
-            chatStarted,
-            setGeneratingConversationId: setGeneratingConversationId || (() => { }),
-            onBackHandler,
-            setOnBackHandler,
-        }}>
+        <SidebarContext.Provider value={sidebarContextValue}>
             <PreLoginWarningModal
                 isOpen={isWarningOpen}
                 onConfirm={confirmLogin}
@@ -144,9 +147,17 @@ export const Layout: React.FC<LayoutProps> = ({
                 />
 
                 <main className={styles.main}>
-                    {/* Mobile Header */}
-                    <div className={styles.mobileHeader}>
-                        <div className={styles.mobileHeaderLeft}>
+                    {/* Mobile Floating Buttons (no header container) */}
+                    <div className={styles.mobileFloatingLeft}>
+                        {(onBack || onBackHandler) || (activeTab === 'chat' && (activeConversationId || chatStarted) && onNewChat) ? (
+                            <button
+                                className={styles.mobileBackBtn}
+                                onClick={onBack || onBackHandler || onNewChat}
+                                title="Go back"
+                            >
+                                <ArrowLeft size={18} />
+                            </button>
+                        ) : (
                             <button
                                 className={styles.mobileMenuBtn}
                                 onClick={() => setIsSidebarOpen(true)}
@@ -154,38 +165,17 @@ export const Layout: React.FC<LayoutProps> = ({
                             >
                                 <PanelLeftOpen size={20} />
                             </button>
-                        </div>
+                        )}
+                    </div>
 
-                        <div className={styles.mobileHeaderRight}>
-                            {/* Generic back button */}
-                            {(onBack || onBackHandler) && (
-                                <button
-                                    className={styles.mobileBackBtn}
-                                    onClick={onBack || onBackHandler || undefined}
-                                    title="Go back"
-                                >
-                                    <ArrowLeft size={18} />
-                                </button>
-                            )}
-                            {/* Chat back button - return to welcome/history */}
-                            {activeTab === 'chat' && (activeConversationId || chatStarted) && onNewChat && !onBack && !onBackHandler && (
-                                <button
-                                    className={styles.mobileBackBtn}
-                                    onClick={onNewChat}
-                                    title="Back to chat list"
-                                >
-                                    <ArrowLeft size={18} />
-                                </button>
-                            )}
-                            {/* Profile Button */}
-                            <button
-                                className={styles.mobileProfileBtn}
-                                onClick={handleProfileClick}
-                                title={userName}
-                            >
-                                <span className={styles.profileInitials}>{userInitials}</span>
-                            </button>
-                        </div>
+                    <div className={styles.mobileFloatingRight}>
+                        <button
+                            className={styles.mobileProfileBtn}
+                            onClick={handleProfileClick}
+                            title={userName}
+                        >
+                            <span className={styles.profileInitials}>{userInitials}</span>
+                        </button>
                     </div>
 
                     {/* Desktop Header - Sidebar trigger + Back button */}

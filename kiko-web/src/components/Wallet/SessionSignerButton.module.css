@@ -28,7 +28,7 @@
     padding: 2px 8px;
     border-radius: 4px;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: none;
     color: #a1a1aa;
     font-weight: 500;
 }

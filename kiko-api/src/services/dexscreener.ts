@@ -30,6 +30,7 @@ export interface DexScreenerToken {
   imageUrl?: string; // Token logo
   socials?: Array<{ type: string; url: string }>; // Twitter, Discord, etc.
   websites?: Array<{ url: string; label?: string }>; // Official websites
+  decimals?: number;
 }
 
 /**

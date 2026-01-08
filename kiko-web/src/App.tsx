@@ -8,7 +8,7 @@ import { OverviewPage } from './pages/OverviewPage';
 import { TokensPage } from './pages/TokensPage';
 import { ChainsPage } from './pages/ChainsPage';
 import { SuperDefiPage } from './pages/SuperDefiPage';
-import { TestCardsPage } from './pages/TestCardsPage';
+
 import { TradePage } from './pages/TradePage';
 import WalletPage from './pages/WalletPage';
 import NewsPage from './pages/NewsPage';
@@ -401,7 +401,7 @@ function App() {
         {activeTab === 'social' && <SocialPage />}
         {activeTab === 'kol' && <WalletPage />}
         {activeTab === 'wallet' && <WalletPage />}
-        {activeTab === 'test' && <TestCardsPage />}
+
         {activeTab === 'trade' && <TradePage />}
       </Layout>
     </ThemeProvider>
