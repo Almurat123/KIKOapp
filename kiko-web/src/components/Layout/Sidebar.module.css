@@ -345,6 +345,13 @@
     opacity: 1;
 }
 
+/* Mobile: Always show action buttons (no hover on touch devices) */
+@media (max-width: 768px) {
+    .subItemActions {
+        opacity: 1;
+    }
+}
+
 .actionBtn {
     padding: 4px;
     color: #71717a;

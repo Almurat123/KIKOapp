@@ -14,7 +14,8 @@
 
 @media (max-width: 768px) {
   .tradePage {
-    padding: 16px;
+    padding: 16px 0;
+    /* Remove horizontal padding */
   }
 
   .container {

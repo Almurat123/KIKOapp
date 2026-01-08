@@ -74,6 +74,12 @@
     background-color: #FAF7F2;
 }
 
+@media (max-width: 768px) {
+    .headerSection {
+        padding: 16px 0;
+    }
+}
+
 :global(.dark) .headerSection {
     background-color: #18181b;
 }
@@ -418,6 +424,12 @@
     align-items: center;
 }
 
+@media (max-width: 768px) {
+    .sectionHeader {
+        padding: 0 0 12px 0;
+    }
+}
+
 .sectionHeader h3 {
     font-size: 11px;
     font-weight: 700;
@@ -461,6 +473,15 @@
     border: 1px solid rgba(0, 0, 0, 0.06);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     overflow: hidden;
+}
+
+@media (max-width: 768px) {
+    .securityCard {
+        margin: 0 0 32px 0;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
 }
 
 :global(.dark) .securityCard {
@@ -536,7 +557,6 @@
     color: #10b981;
 }
 
-/* Holders Card */
 .holdersCard {
     margin: 0 24px 32px 24px;
     background-color: #ffffff;
@@ -544,6 +564,15 @@
     padding: 20px;
     border: 1px solid rgba(0, 0, 0, 0.06);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+@media (max-width: 768px) {
+    .holdersCard {
+        margin: 0 0 32px 0;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
 }
 
 :global(.dark) .holdersCard {
@@ -595,6 +624,12 @@
 /* Main Content (Chart) */
 .mainContent {
     padding: 0 24px 40px 24px;
+}
+
+@media (max-width: 768px) {
+    .mainContent {
+        padding: 0 0 40px 0;
+    }
 }
 
 .chartCard {

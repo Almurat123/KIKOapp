@@ -167,6 +167,16 @@ export const Layout: React.FC<LayoutProps> = ({
                                     <ArrowLeft size={18} />
                                 </button>
                             )}
+                            {/* Chat back button - return to welcome/history */}
+                            {activeTab === 'chat' && (activeConversationId || chatStarted) && onNewChat && !onBack && !onBackHandler && (
+                                <button
+                                    className={styles.mobileBackBtn}
+                                    onClick={onNewChat}
+                                    title="Back to chat list"
+                                >
+                                    <ArrowLeft size={18} />
+                                </button>
+                            )}
                             {/* Profile Button */}
                             <button
                                 className={styles.mobileProfileBtn}

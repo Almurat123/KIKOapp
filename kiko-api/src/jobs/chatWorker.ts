@@ -1861,11 +1861,12 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
         });
 
         // Call grok-service
+        const accessToken = task.toolContext?.accessToken;
         const response = await fetch(`${GROK_SERVICE_URL}/v1/chat/completions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                // Skip auth for internal service call
+                ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
             },
             body: JSON.stringify({
                 model: task.model,

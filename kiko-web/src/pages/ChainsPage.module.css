@@ -5,6 +5,14 @@
     width: 100%;
 }
 
+/* Mobile: remove horizontal padding */
+@media (max-width: 768px) {
+    .container {
+        padding: 16px 0;
+        /* Vertical padding only */
+    }
+}
+
 /* Desktop: centered container with max-width */
 @media (min-width: 769px) {
     .container {

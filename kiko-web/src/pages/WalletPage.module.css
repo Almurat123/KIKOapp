@@ -87,6 +87,14 @@
   transition: background-color 0.3s ease;
 }
 
+/* Mobile: Remove horizontal padding for full-width */
+@media (max-width: 768px) {
+  .contentWrapper {
+    padding: 16px 0;
+    /* Vertical padding only */
+  }
+}
+
 /* Header Section */
 .headerSection {
   display: flex;
