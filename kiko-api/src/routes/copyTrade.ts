@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../services/alchemyWebhookService.js';
+import { sendTradeNotification } from '../services/emailService.js';
+import { PrivyClient } from '@privy-io/server-auth';
 
 // Helper to normalize wallet address
 // EVM addresses (0x...) are case-insensitive, so lowercase them
@@ -97,13 +99,32 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             });
 
             if (!user) {
+                // Try to fetch email from Privy first
+                let email: string | undefined;
+                try {
+                    const privyClient = new PrivyClient(process.env.PRIVY_APP_ID || '', process.env.PRIVY_APP_SECRET || '');
+                    const privyUser = await privyClient.getUser(userId);
+                    email = privyUser.linkedAccounts?.find(a => a.type === 'email')?.address;
+                } catch (privyError) {
+                    console.error('[CopyTrade] Failed to fetch email from Privy for new user:', privyError);
+                }
+
                 user = await prisma.user.create({
                     data: {
                         privyDid: userId,
                         walletAddress: walletAddress.toLowerCase(),
+                        email: email, // Cache email if found
                     },
                 });
-                console.log('[CopyTrade] Created new user:', user.id);
+                console.log('[CopyTrade] Created new user:', user.id, email ? `with email ${email}` : 'without email');
+
+                // 📧 Send Welcome Email
+                if (email) {
+                    sendTradeNotification(email, {
+                        type: 'welcome',
+                        userName: 'KIKO Trader' // Or try to get display name from Privy
+                    }).catch(e => console.error('[CopyTrade] Failed to send welcome email:', e));
+                }
             }
 
             // Create config

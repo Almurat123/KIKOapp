@@ -23,6 +23,8 @@ import { createMessage, createSession } from '../repositories/chatRepository.js'
 import { ChatWebSocketService } from './chatWebSocket.js';
 import { v4 as uuidv4 } from 'uuid';
 import { env } from '../config/env.js';
+import { sendTradeNotification } from './emailService.js';
+import { PrivyClient } from '@privy-io/server-auth';
 
 // ... (previous functions remain)
 
@@ -197,18 +199,25 @@ async function processBuyWithInfo(
         ...chainConfig.stablecoins
     ].map(s => s.toLowerCase());
 
+    const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
     const isTokenInCash = CASH_TOKENS.includes(swap.tokenIn.toLowerCase());
     let targetSwapValueUsd = 0;
 
     if (isTokenInCash) {
         // Use tokenIn for value calculation
         const isStableIn = chainConfig.stablecoins.map(s => s.toLowerCase()).includes(swap.tokenIn.toLowerCase());
+        const isZoraIn = swap.tokenIn.toLowerCase() === ZORA_TOKEN.toLowerCase();
         const amountInBN = BigInt(swap.amountIn);
 
         if (isStableIn) {
             // USDC/USDT have 6 decimals usually
             const decimalsIn = swap.tokenIn.toLowerCase().includes('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913') ? 6 : 18; // Base USDC is 6
             targetSwapValueUsd = Number(amountInBN) / Math.pow(10, decimalsIn);
+        } else if (isZoraIn) {
+            // ZORA Token price
+            const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId);
+            const zoraPrice = zoraInfo?.price || 0.0006; // Fallback price for ZORA
+            targetSwapValueUsd = (Number(amountInBN) / 1e18) * zoraPrice;
         } else {
             // ETH / WETH
             const nativePrice = await getTokenInfo(chainConfig.wrappedNativeAddress, chainId).then(t => t?.price || 2500);
@@ -445,8 +454,60 @@ ${analysis.rawAnalysis}
             });
 
             console.log(`[AutoTrade] Position created for user ${config.userId}`);
-        } catch (error) {
+
+            // =================================================================
+            // 📧 Send Email Notification (Success)
+            // =================================================================
+            try {
+                let userEmail = config.user.email;
+                if (!userEmail) {
+                    console.log(`[AutoTrade] Fetching email from Privy for user ${config.userId}...`);
+                    const privyClient = new PrivyClient(process.env.PRIVY_APP_ID || '', process.env.PRIVY_APP_SECRET || '');
+                    const privyUser = await privyClient.getUser(config.user.privyDid);
+                    userEmail = privyUser.linkedAccounts?.find(a => a.type === 'email')?.address;
+
+                    if (userEmail) {
+                        await prisma.user.update({
+                            where: { id: config.user.id },
+                            data: { email: userEmail }
+                        });
+                    }
+                }
+
+                if (userEmail) {
+                    await sendTradeNotification(userEmail, {
+                        type: 'success',
+                        tokenSymbol: tokenInfo.symbol,
+                        tokenAddress: tokenToBuy,
+                        amount: (usdAmount / nativePrice).toFixed(6),
+                        usdValue: usdAmount.toFixed(2),
+                        txHash: txHash,
+                        targetWallet: targetWallet,
+                        chainId: chainId
+                    });
+                }
+            } catch (emailError) {
+                console.error('[AutoTrade] Failed to send success email:', emailError);
+            }
+
+        } catch (error: any) {
             console.error(`[AutoTrade] Error processing config ${config.id}:`, error);
+
+            // 📧 Send Email Notification (Failure)
+            try {
+                if (config.user.email) {
+                    await sendTradeNotification(config.user.email, {
+                        type: 'failure',
+                        tokenSymbol: tokenInfo.symbol || 'Unknown',
+                        tokenAddress: tokenToBuy,
+                        error: error.message || 'Unknown error during execution',
+                        targetWallet: targetWallet,
+                        chainId: chainId
+                    });
+                }
+            } catch (emailError) {
+                console.error('[AutoTrade] Failed to send failure email:', emailError);
+            }
         }
     }
 }

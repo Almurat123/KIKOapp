@@ -44,6 +44,7 @@ export interface EnvConfig {
         coinbaseCdpKeyId?: string; // Coinbase CDP API Key ID
         coinbaseCdpKeySecret?: string; // Coinbase CDP API Key Secret
         paragraph?: string; // Paragraph API Key
+        resendApiKey?: string; // Resend API Key for notifications
     };
     xai: {
         apiKey: string;
@@ -128,6 +129,7 @@ function validateEnv(): EnvConfig {
             coinbaseCdpKeyId: process.env.COINBASE_CDP_API_KEY_ID, // Coinbase CDP API Key ID
             coinbaseCdpKeySecret: process.env.COINBASE_CDP_API_KEY_SECRET, // Coinbase CDP API Key Secret
             paragraph: process.env.PARAGRAPH_API_KEY, // Paragraph API Key
+            resendApiKey: process.env.RESEND_API_KEY, // Resend API Key
         },
         xai: {
             apiKey: process.env.XAI_API_KEY || '',

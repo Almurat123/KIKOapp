@@ -16,6 +16,7 @@ model User {
   id            String            @id @default(cuid())
   privyDid      String            @unique
   walletAddress String            @unique // Primary EVM address
+  email         String?           @unique // Optional cached email from Privy
   solanaWalletAddress String?     // Optional Solana address
   createdAt     DateTime          @default(now())
   configs       CopyTradeConfig[]
