@@ -201,7 +201,6 @@ export async function searchTokens(query: string, network?: string): Promise<Tok
     for (const item of data.data) {
       const attributes = item.attributes || {};
       const baseToken = attributes.base_token || {};
-      const quoteToken = attributes.quote_token || {};
 
       // Use base token address as key to avoid duplicates
       const tokenAddress = baseToken.address;
@@ -262,7 +261,7 @@ export async function searchTokens(query: string, network?: string): Promise<Tok
  * First try to get token info, then get pool data for price/volume
  */
 export async function getTokenDetails(network: string, address: string): Promise<TokenSearchResult | null> {
-  const startTime = Date.now();
+
 
   try {
     // Map network names to Gecko Terminal format
@@ -430,8 +429,6 @@ export async function getTokenDetails(network: string, address: string): Promise
     } else {
     }
 
-    const duration = Date.now() - startTime;
-
     return {
       address: address,
       name: baseToken.name || '',
@@ -449,7 +446,6 @@ export async function getTokenDetails(network: string, address: string): Promise
       fdv: attributes.fdv_usd,
     };
   } catch (error: any) {
-    const duration = Date.now() - startTime;
     return null;
   }
 }

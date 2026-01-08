@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Copy, Check, QrCode } from 'lucide-react';
+import { X, Copy, Check } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import styles from './ReceiveModal.module.css';
 
@@ -30,13 +30,13 @@ export const ReceiveModal: React.FC<ReceiveModalProps> = ({
     useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden';
-            
+
             const handleEscape = (e: KeyboardEvent) => {
                 if (e.key === 'Escape') {
                     onClose();
                 }
             };
-            
+
             document.addEventListener('keydown', handleEscape);
             return () => {
                 document.body.style.overflow = '';

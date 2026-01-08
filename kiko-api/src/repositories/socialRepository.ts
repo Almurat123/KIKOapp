@@ -129,7 +129,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                 await tx.trendingCast.deleteMany({
                     where: {
                         OR: [
-                            { AND: [{ timestamp: { lt: cutoff } }, { likes: { lte: 15 } }] },
+                            { AND: [{ timestamp: { lt: cutoff } }, { likes: { lte: 5 } }] },
                             { timestamp: { lt: longTermCutoff } }
                         ],
                         isBaseAppCoin: false
@@ -177,7 +177,7 @@ export async function getTrendingCasts(
             where = {
                 OR: [
                     { timestamp: { gte: cutoff } },
-                    { likes: { gt: 15 } }
+                    { likes: { gt: 5 } }
                 ],
                 timestamp: { gt: Jan1_2021 }
             };

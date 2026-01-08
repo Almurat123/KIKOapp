@@ -9,17 +9,10 @@ import { LaunchpadCard } from '../components/Launchpad/LaunchpadCard';
 import { StrategyCard } from '../components/Trade/StrategyCard';
 import type { TradingStrategy } from '../hooks/useStrategies';
 
-// --- 基础容器组件 (Deep Dark Minimal Style) ---
-const CardWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-   <div className={styles.cardWrapper}>
-      {children}
-   </div>
-);
-
 // --- 1. Swap 卡片 ---
 // --- 1. Swap 卡片 Wrapper (Modified for Debugging) ---
 const SwapCardSection = () => {
-   const [isGenerating, setIsGenerating] = useState(false);
+   const isGenerating = false;
    const [key, setKey] = useState(0); // Force re-render
 
    const handleRefresh = () => {
@@ -143,7 +136,7 @@ const StrategyCardWrapper = ({ isGenerating = false }: { isGenerating?: boolean 
 
 // --- 主演示界面 ---
 export const TestCardsPage: React.FC = () => {
-   const [isGeneratingStrategy, setIsGeneratingStrategy] = useState(false);
+   const isGeneratingStrategy = false;
    const [strategyKey, setStrategyKey] = useState(0);
 
    const handleRefreshStrategy = () => {

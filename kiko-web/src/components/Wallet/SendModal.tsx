@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ArrowRight, Wallet, AlertCircle, Loader2 } from 'lucide-react';
+import { X, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, isAddress } from 'viem';
 import styles from './SendModal.module.css';
@@ -36,7 +36,7 @@ export const SendModal: React.FC<SendModalProps> = ({
     const { sendTransaction, isPending: isSending, error: sendError, data: hash } = useSendTransaction();
 
     // For EVM confirmation
-    const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+    const { isLoading: _isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
         hash: hash,
     });
 
@@ -75,13 +75,13 @@ export const SendModal: React.FC<SendModalProps> = ({
     useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden';
-            
+
             const handleEscape = (e: KeyboardEvent) => {
                 if (e.key === 'Escape' && step !== 'processing') {
                     onClose();
                 }
             };
-            
+
             document.addEventListener('keydown', handleEscape);
             return () => {
                 document.body.style.overflow = '';

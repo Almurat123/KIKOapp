@@ -5,7 +5,17 @@
 
 const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
 
-export const logger = {
+export interface Logger {
+    log: (...args: any[]) => void;
+    warn: (...args: any[]) => void;
+    error: (...args: any[]) => void;
+    debug: (...args: any[]) => void;
+    swap: (type: string, data: any) => void;
+    intent: (...args: any[]) => void;
+    ai: (...args: any[]) => void;
+}
+
+export const logger: Logger = {
     log: (...args: any[]) => {
         if (isDevelopment) {
             console.log(...args);

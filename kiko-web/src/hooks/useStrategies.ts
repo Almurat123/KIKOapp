@@ -48,39 +48,10 @@ export interface TradingStrategy {
 }
 
 const STORAGE_KEY = 'kiko-strategies-v2';
-const MAX_STRATEGIES = 200;
+
 
 // Helper function to create demo strategies
-const createDemoStrategies = (): TradingStrategy[] => [
-  {
-    id: 'demo-1',
-    name: 'Auto Buy DEGEN',
-    type: 'auto_buy',
-    tokenIn: 'USDC',
-    tokenOut: 'DEGEN',
-    chain: 'base',
-    chainId: 8453,
-    triggerCondition: 'Price drops 30%',
-    executionAmount: '100',
-    amountAsset: 'USDC',
-    limits: {
-      maxUsdPerDay: '500',
-      maxTradesPerDay: 5,
-      cooldown: '1h',
-    },
-    status: 'active',
-    createdAt: Date.now() - 86400000,
-    updatedAt: Date.now() - 86400000,
-    conversationId: 'demo-conv-1',
-    executionHistory: [],
-    trigger: {
-      type: 'price_drop_pct',
-      value: 30,
-      window_s: 300,
-    },
-    slippage_bps: 50,
-  },
-];
+
 
 export const useStrategies = () => {
   const [strategies, setStrategies] = useState<TradingStrategy[]>([]);
@@ -268,7 +239,7 @@ export const useStrategies = () => {
     }
   }, [strategies]);
 
-  const addExecutionRecord = useCallback((id: string, record: Omit<ExecutionRecord, 'id'>) => {
+  const addExecutionRecord = useCallback(() => {
     // Local only
   }, []);
 

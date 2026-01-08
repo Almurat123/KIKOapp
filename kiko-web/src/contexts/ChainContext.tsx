@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useChainId, useSwitchChain } from 'wagmi';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
 import { mainnet, base, arbitrum, bsc, optimism, polygon } from 'viem/chains';
 
 export interface ChainInfo {
@@ -87,8 +87,7 @@ interface ChainProviderProps {
 export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
   const chainId = useChainId();
   const { switchChain: wagmiSwitchChain } = useSwitchChain();
-  const { wallets } = useWallets(); // Get all connected wallets (EVM & Solana)
-  const { connectWallet, authenticated, user } = usePrivy();
+  const { connectWallet, authenticated } = usePrivy();
 
   // Load initial chain from localStorage or default to first supported chain
   const [currentChain, setCurrentChain] = useState<ChainInfo>(() => {

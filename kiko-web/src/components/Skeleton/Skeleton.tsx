@@ -31,7 +31,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
       style={{
         width,
         height,
-        borderRadius,
+        borderRadius: borderRadius,
         ...style,
       }}
       {...props}

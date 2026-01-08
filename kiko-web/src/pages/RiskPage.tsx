@@ -13,7 +13,7 @@ const SecurityFlag: React.FC<{
   isWarning?: boolean;
   isGood?: boolean;
   reason?: string;
-}> = ({ label, value, isDanger, isWarning, isGood, reason }) => {
+}> = ({ label, value, isDanger, isWarning, isGood }) => {
   if (value === undefined) return null;
 
   const getFlagStyle = () => {

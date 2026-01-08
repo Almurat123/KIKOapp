@@ -1,14 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield,
-  Loader2,
   Send,
   ArrowDownLeft,
   ArrowRightLeft,
-  MoreHorizontal,
   ExternalLink
 } from 'lucide-react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
 import { useAccount, useBalance, useDisconnect, useChainId } from 'wagmi';
 import { useChain } from '../contexts/ChainContext';
 import { ChainSwitcher } from '../components/Chain/ChainSwitcher';
@@ -27,34 +25,7 @@ import { Skeleton } from '../components/Skeleton';
 import styles from './WalletPage.module.css';
 
 // Common token addresses for different chains (Mock data for demo)
-const COMMON_TOKENS: Record<number, Array<{ address: Address; symbol: string; name: string; decimals: number }>> = {
-  1: [ // Ethereum Mainnet
-    { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as Address, symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-    { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' as Address, symbol: 'USDT', name: 'Tether', decimals: 6 },
-    { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as Address, symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
-  ],
-  8453: [ // Base
-    { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as Address, symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-    { address: '0x4200000000000000000000000000000000000006' as Address, symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
-  ],
-  42161: [ // Arbitrum
-    { address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' as Address, symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-    { address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1' as Address, symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
-  ],
-  10: [ // Optimism
-    { address: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85' as Address, symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-    { address: '0x4200000000000000000000000000000000000006' as Address, symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
-  ],
-  41: [ // Polygon
-    { address: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174' as Address, symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-    { address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619' as Address, symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
-  ],
-  900: [ // Solana
-    { address: 'So11111111111111111111111111111111111111112' as Address, symbol: 'SOL', name: 'Solana', decimals: 9 },
-    { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' as Address, symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-    { address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' as Address, symbol: 'USDT', name: 'Tether', decimals: 6 },
-  ]
-};
+
 
 interface TokenHolding {
   address: Address;
@@ -138,16 +109,14 @@ const TokenIcon = ({ src, alt, symbol, className, fallbackClassName }: { src?: s
 
 export default function WalletPage() {
   const { authenticated, ready, logout, user, getAccessToken } = usePrivy();
-  const { wallets } = useWallets();
-  const { address: evmAddress, isConnected: wagmiIsConnected } = useAccount();
+  const { address: evmAddress } = useAccount();
   const { disconnect: wagmiDisconnect } = useDisconnect();
-  const { currentChain, switchChain } = useChain();
+  const { currentChain } = useChain();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [selectedToken, setSelectedToken] = useState<TokenHolding | null>(null);
-  const settingsRef = useRef<HTMLDivElement>(null);
 
   // Unified disconnect: logout Privy session AND disconnect Wagmi
   const handleDisconnect = async () => {
@@ -1282,8 +1251,6 @@ export default function WalletPage() {
                     key={index}
                     tx={tx}
                     styles={styles}
-                    getTokenLogoUrl={getTokenLogoUrl}
-                    chainId={chainId}
                   />
                 ))}
               </div>
@@ -1473,7 +1440,7 @@ const PolymarketHistoryItem = ({ trade, styles }: { trade: any; styles: any }) =
   );
 };
 
-const TradingHistoryItem = ({ tx, styles, getTokenLogoUrl, chainId }: { tx: any; styles: any; getTokenLogoUrl: any; chainId: number }) => {
+const TradingHistoryItem = ({ tx, styles }: { tx: any; styles: any }) => {
   const date = new Date(tx.timestamp || Date.now());
   const month = date.toLocaleString('en-US', { month: 'short' });
   const day = date.getDate();

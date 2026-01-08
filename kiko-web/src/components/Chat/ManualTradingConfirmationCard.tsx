@@ -30,7 +30,7 @@ export const ManualTradingConfirmationCard: React.FC<ManualTradingConfirmationCa
     onConfirm,
     onCancel,
 }) => {
-    const [step, setStep] = useState<'chain' | 'token' | 'amount' | 'slippage' | 'confirm'>('confirm');
+    const [step] = useState<'chain' | 'token' | 'amount' | 'slippage' | 'confirm'>('confirm');
 
     const steps = [
         { id: 'chain', label: 'Chain', value: chain },

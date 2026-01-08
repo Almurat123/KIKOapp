@@ -6,7 +6,7 @@
 import { chatCompletion, streamChatCompletion, getModelName, type DeepSeekMessage } from './deepseek';
 import { streamChatCompletion as xaiStreamChatCompletion, getXaiModelName, getRecommendedMaxTokens as getXaiRecommendedMaxTokens, type XaiMessage, type ToolConfig } from './xai';
 import { parseIntent, type Intent, type IntentType } from './intentParser';
-import { FULL_SYSTEM_PROMPT, buildContextPrompt, SAFETY_PROMPT, GROK_CORE_PROMPT, DEEPSEEK_CORE_PROMPT } from '../config/aiPrompts';
+import { buildContextPrompt, GROK_CORE_PROMPT, DEEPSEEK_CORE_PROMPT } from '../config/aiPrompts';
 import { AIApiService } from './aiApiService';
 import { AIExtendedIntentParser } from './aiExtendedIntentParser';
 import { logger } from '../utils/logger';

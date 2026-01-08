@@ -7,7 +7,6 @@ import { PageContainer } from '../components/Layout/PageContainer';
 import styles from './TokensPage.module.css';
 import { usePageVisibility, useTabVisibility } from '../hooks/usePageVisibility';
 import { requestManager } from '../utils/requestManager';
-import type { TrendingMetrics } from '../services/trendingService';
 import {
   calculateTrendingScore,
   loadFromCache,
@@ -399,15 +398,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
       try {
 
-        // Helper to parse liquidity value
-        const parseLiquidity = (liq: string) => {
-          if (!liq || liq === '$0') return 0;
-          const num = parseFloat(liq.replace(/[$,]/g, ''));
-          if (liq.includes('B')) return num * 1e9;
-          if (liq.includes('M')) return num * 1e6;
-          if (liq.includes('K')) return num * 1e3;
-          return num;
-        };
+
 
         // Keep track of all loaded tokens
         let currentTokens: Token[] = [];
@@ -509,15 +500,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     const pollData = async () => {
       if (!mountedRef.current || !isPageActive) return;
 
-      // Helper to parse liquidity value
-      const parseLiquidity = (liq: string) => {
-        if (!liq || liq === '$0') return 0;
-        const num = parseFloat(liq.replace(/[$,]/g, ''));
-        if (liq.includes('B')) return num * 1e9;
-        if (liq.includes('M')) return num * 1e6;
-        if (liq.includes('K')) return num * 1e3;
-        return num;
-      };
+
 
       let freshTokens: Token[] = [];
       let freshTokenId = 1;
@@ -912,11 +895,11 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   };
 
   const [detailToken, setDetailToken] = useState<any>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+
 
   const handleTokenClick = async (token: Token) => {
     console.log('[TokensPage] Clicked token:', token.symbol, token.address);
-    setLoadingDetail(true);
+    console.log('[TokensPage] Clicked token:', token.symbol, token.address);
 
     try {
       // Convert to detail format
@@ -962,7 +945,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       setDetailToken(fallbackDetail);
       setSelectedToken(token);
     } finally {
-      setLoadingDetail(false);
+
     }
   };
 

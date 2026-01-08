@@ -1,0 +1,4798 @@
+[
+    {
+        "fid": 1566681,
+        "username": "pixybase",
+        "displayName": "PIXY",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 10000,
+            "totalRecasts": 10000,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 99,
+        "username": "jesse.base.eth",
+        "displayName": "Jesse Pollak",
+        "stats": {
+            "castCount": 20,
+            "totalLikes": 9493,
+            "totalRecasts": 1919,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 1353274,
+        "username": "based-karma.eth",
+        "displayName": "BASED-KARMA",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 9308,
+            "totalRecasts": 2404,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 1041585,
+        "username": "qrcoindotfun",
+        "displayName": "qrcoin.fun",
+        "stats": {
+            "castCount": 16,
+            "totalLikes": 7717,
+            "totalRecasts": 1402,
+            "maxHeatScore": 903
+        }
+    },
+    {
+        "fid": 5650,
+        "username": "vitalik.eth",
+        "displayName": "Vitalik Buterin",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 5570,
+            "totalRecasts": 1296,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 1020,
+        "username": "jake",
+        "displayName": "JAKE",
+        "stats": {
+            "castCount": 37,
+            "totalLikes": 4694,
+            "totalRecasts": 478,
+            "maxHeatScore": 969
+        }
+    },
+    {
+        "fid": 309857,
+        "username": "baseapp.base.eth",
+        "displayName": "Base App",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 4568,
+            "totalRecasts": 1056,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 1046430,
+        "username": "inflynce",
+        "displayName": "Inflynce Protocol 🟧",
+        "stats": {
+            "castCount": 30,
+            "totalLikes": 4141,
+            "totalRecasts": 2337,
+            "maxHeatScore": 864
+        }
+    },
+    {
+        "fid": 315558,
+        "username": "jito",
+        "displayName": "jito",
+        "stats": {
+            "castCount": 21,
+            "totalLikes": 3972,
+            "totalRecasts": 608,
+            "maxHeatScore": 242
+        }
+    },
+    {
+        "fid": 3642,
+        "username": "toadyhawk.eth",
+        "displayName": "Toady Hawk",
+        "stats": {
+            "castCount": 57,
+            "totalLikes": 3971,
+            "totalRecasts": 698,
+            "maxHeatScore": 290
+        }
+    },
+    {
+        "fid": 247143,
+        "username": "kylepatrick.eth",
+        "displayName": "Kyle Patrick",
+        "stats": {
+            "castCount": 18,
+            "totalLikes": 3858,
+            "totalRecasts": 425,
+            "maxHeatScore": 812
+        }
+    },
+    {
+        "fid": 12142,
+        "username": "base.base.eth",
+        "displayName": "Base",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 3721,
+            "totalRecasts": 896,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 1591373,
+        "username": "beartap",
+        "displayName": "BEAR TAP 🐾",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 3523,
+            "totalRecasts": 2954,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 1559934,
+        "username": "xmasgift.eth",
+        "displayName": "Farcaster Christmas",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 3240,
+            "totalRecasts": 2460,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 9856,
+        "username": "0xluo.eth",
+        "displayName": "0xLuo",
+        "stats": {
+            "castCount": 12,
+            "totalLikes": 3162,
+            "totalRecasts": 316,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 20,
+        "username": "barmstrong",
+        "displayName": "Brian Armstrong",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 3037,
+            "totalRecasts": 537,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 129,
+        "username": "phil",
+        "displayName": "phil",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 3031,
+            "totalRecasts": 399,
+            "maxHeatScore": 615
+        }
+    },
+    {
+        "fid": 3,
+        "username": "dwr",
+        "displayName": "Dan Romero",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 2776,
+            "totalRecasts": 443,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 12,
+        "username": "linda",
+        "displayName": "Linda Xie (OOO until Jan 5)",
+        "stats": {
+            "castCount": 12,
+            "totalLikes": 2734,
+            "totalRecasts": 441,
+            "maxHeatScore": 684
+        }
+    },
+    {
+        "fid": 5774,
+        "username": "tldr",
+        "displayName": "tldr (tim reilly)",
+        "stats": {
+            "castCount": 29,
+            "totalLikes": 2579,
+            "totalRecasts": 241,
+            "maxHeatScore": 250
+        }
+    },
+    {
+        "fid": 221578,
+        "username": "apex777.eth",
+        "displayName": "Apex777.eth",
+        "stats": {
+            "castCount": 21,
+            "totalLikes": 2520,
+            "totalRecasts": 252,
+            "maxHeatScore": 630
+        }
+    },
+    {
+        "fid": 206,
+        "username": "coopahtroopa.eth",
+        "displayName": "Coop",
+        "stats": {
+            "castCount": 20,
+            "totalLikes": 2486,
+            "totalRecasts": 294,
+            "maxHeatScore": 614
+        }
+    },
+    {
+        "fid": 347,
+        "username": "greg",
+        "displayName": "Greg",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 2478,
+            "totalRecasts": 293,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 15983,
+        "username": "jacek",
+        "displayName": "Jacek.degen.eth 🎩",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 2465,
+            "totalRecasts": 471,
+            "maxHeatScore": 572
+        }
+    },
+    {
+        "fid": 1084543,
+        "username": "omofolaranmi",
+        "displayName": "Fólárànmì",
+        "stats": {
+            "castCount": 38,
+            "totalLikes": 2456,
+            "totalRecasts": 715,
+            "maxHeatScore": 138
+        }
+    },
+    {
+        "fid": 4482,
+        "username": "deployer",
+        "displayName": "Deployer",
+        "stats": {
+            "castCount": 12,
+            "totalLikes": 2432,
+            "totalRecasts": 322,
+            "maxHeatScore": 606
+        }
+    },
+    {
+        "fid": 528,
+        "username": "0xen",
+        "displayName": "0xen",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 2208,
+            "totalRecasts": 227,
+            "maxHeatScore": 793
+        }
+    },
+    {
+        "fid": 270504,
+        "username": "proxystudio",
+        "displayName": "slaterg",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 1991,
+            "totalRecasts": 222,
+            "maxHeatScore": 594
+        }
+    },
+    {
+        "fid": 1,
+        "username": "farcaster",
+        "displayName": "Farcaster",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 1985,
+            "totalRecasts": 512,
+            "maxHeatScore": 999.99
+        }
+    },
+    {
+        "fid": 1439819,
+        "username": "beeper",
+        "displayName": "Beeper",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 1963,
+            "totalRecasts": 425,
+            "maxHeatScore": 370
+        }
+    },
+    {
+        "fid": 239,
+        "username": "ted",
+        "displayName": "ted (not lasso)",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 1957,
+            "totalRecasts": 229,
+            "maxHeatScore": 580
+        }
+    },
+    {
+        "fid": 3621,
+        "username": "horsefacts.eth",
+        "displayName": "horsefacts",
+        "stats": {
+            "castCount": 26,
+            "totalLikes": 1929,
+            "totalRecasts": 251,
+            "maxHeatScore": 417
+        }
+    },
+    {
+        "fid": 20919,
+        "username": "rainbow",
+        "displayName": "Rainbow",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 1875,
+            "totalRecasts": 281,
+            "maxHeatScore": 555
+        }
+    },
+    {
+        "fid": 267104,
+        "username": "femmie",
+        "displayName": "FeMMie",
+        "stats": {
+            "castCount": 34,
+            "totalLikes": 1851,
+            "totalRecasts": 254,
+            "maxHeatScore": 129
+        }
+    },
+    {
+        "fid": 2210,
+        "username": "kenny",
+        "displayName": "kenny 🎩",
+        "stats": {
+            "castCount": 41,
+            "totalLikes": 1839,
+            "totalRecasts": 164,
+            "maxHeatScore": 254
+        }
+    },
+    {
+        "fid": 18085,
+        "username": "mleejr",
+        "displayName": "mleejr",
+        "stats": {
+            "castCount": 20,
+            "totalLikes": 1767,
+            "totalRecasts": 412,
+            "maxHeatScore": 181
+        }
+    },
+    {
+        "fid": 1467344,
+        "username": "surgelabs",
+        "displayName": "Surge",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 1737,
+            "totalRecasts": 302,
+            "maxHeatScore": 395
+        }
+    },
+    {
+        "fid": 1325,
+        "username": "cassie",
+        "displayName": "Cassie Heart",
+        "stats": {
+            "castCount": 16,
+            "totalLikes": 1731,
+            "totalRecasts": 259,
+            "maxHeatScore": 703
+        }
+    },
+    {
+        "fid": 1725,
+        "username": "sayangel",
+        "displayName": "Angel",
+        "stats": {
+            "castCount": 22,
+            "totalLikes": 1728,
+            "totalRecasts": 160,
+            "maxHeatScore": 301
+        }
+    },
+    {
+        "fid": 1531904,
+        "username": "onchainid",
+        "displayName": "Onchain identity",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 1714,
+            "totalRecasts": 443,
+            "maxHeatScore": 391
+        }
+    },
+    {
+        "fid": 2,
+        "username": "v",
+        "displayName": "Varun Srinivasan",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 1664,
+            "totalRecasts": 294,
+            "maxHeatScore": 849
+        }
+    },
+    {
+        "fid": 864405,
+        "username": "bertwurst.eth",
+        "displayName": "bertwurst",
+        "stats": {
+            "castCount": 23,
+            "totalLikes": 1662,
+            "totalRecasts": 232,
+            "maxHeatScore": 380
+        }
+    },
+    {
+        "fid": 309710,
+        "username": "nomadicframe",
+        "displayName": "nomadicframe 🙏",
+        "stats": {
+            "castCount": 26,
+            "totalLikes": 1626,
+            "totalRecasts": 2152,
+            "maxHeatScore": 373
+        }
+    },
+    {
+        "fid": 1078524,
+        "username": "lollipop001.base.eth",
+        "displayName": "Ødogwu ❤️🪐",
+        "stats": {
+            "castCount": 26,
+            "totalLikes": 1608,
+            "totalRecasts": 290,
+            "maxHeatScore": 136
+        }
+    },
+    {
+        "fid": 12239,
+        "username": "alitiknazoglu",
+        "displayName": "alitiknazoglu.base.eth 🟧",
+        "stats": {
+            "castCount": 26,
+            "totalLikes": 1538,
+            "totalRecasts": 459,
+            "maxHeatScore": 535
+        }
+    },
+    {
+        "fid": 385736,
+        "username": "mrnoah",
+        "displayName": "Mr Noah 🎩",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 1523,
+            "totalRecasts": 492,
+            "maxHeatScore": 231
+        }
+    },
+    {
+        "fid": 557,
+        "username": "pugson",
+        "displayName": "pugson",
+        "stats": {
+            "castCount": 19,
+            "totalLikes": 1519,
+            "totalRecasts": 186,
+            "maxHeatScore": 286
+        }
+    },
+    {
+        "fid": 15211,
+        "username": "statuette",
+        "displayName": "statuette",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 1446,
+            "totalRecasts": 178,
+            "maxHeatScore": 441
+        }
+    },
+    {
+        "fid": 203751,
+        "username": "thosmur",
+        "displayName": "thosmur",
+        "stats": {
+            "castCount": 31,
+            "totalLikes": 1364,
+            "totalRecasts": 95,
+            "maxHeatScore": 272
+        }
+    },
+    {
+        "fid": 548932,
+        "username": "shabnampo",
+        "displayName": "shabnampo 🧬",
+        "stats": {
+            "castCount": 35,
+            "totalLikes": 1357,
+            "totalRecasts": 190,
+            "maxHeatScore": 216
+        }
+    },
+    {
+        "fid": 535036,
+        "username": "shamimarshad",
+        "displayName": "Shamim Hoon base.eth",
+        "stats": {
+            "castCount": 44,
+            "totalLikes": 1340,
+            "totalRecasts": 190,
+            "maxHeatScore": 108
+        }
+    },
+    {
+        "fid": 9933,
+        "username": "m00npapi.eth",
+        "displayName": "m00npapi.eth",
+        "stats": {
+            "castCount": 16,
+            "totalLikes": 1329,
+            "totalRecasts": 103,
+            "maxHeatScore": 302
+        }
+    },
+    {
+        "fid": 602,
+        "username": "betashop.eth",
+        "displayName": "Jason Goldberg",
+        "stats": {
+            "castCount": 22,
+            "totalLikes": 1313,
+            "totalRecasts": 156,
+            "maxHeatScore": 215
+        }
+    },
+    {
+        "fid": 2433,
+        "username": "seneca",
+        "displayName": "seneca",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 1311,
+            "totalRecasts": 105,
+            "maxHeatScore": 721
+        }
+    },
+    {
+        "fid": 4327,
+        "username": "cojo.eth",
+        "displayName": "Cojo 💭",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 1303,
+            "totalRecasts": 204,
+            "maxHeatScore": 411
+        }
+    },
+    {
+        "fid": 4167,
+        "username": "nounishprof",
+        "displayName": "Nounish Prof ⌐◧-◧🎩",
+        "stats": {
+            "castCount": 24,
+            "totalLikes": 1282,
+            "totalRecasts": 136,
+            "maxHeatScore": 295
+        }
+    },
+    {
+        "fid": 539,
+        "username": "ace",
+        "displayName": "Ace",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 1276,
+            "totalRecasts": 111,
+            "maxHeatScore": 289
+        }
+    },
+    {
+        "fid": 4407,
+        "username": "keccers.eth",
+        "displayName": "keccers",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 1265,
+            "totalRecasts": 119,
+            "maxHeatScore": 228
+        }
+    },
+    {
+        "fid": 194,
+        "username": "rish",
+        "displayName": "rish",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 1264,
+            "totalRecasts": 189,
+            "maxHeatScore": 529
+        }
+    },
+    {
+        "fid": 2007,
+        "username": "jacopo.eth",
+        "displayName": "jacopo.eth",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 1223,
+            "totalRecasts": 124,
+            "maxHeatScore": 514
+        }
+    },
+    {
+        "fid": 814451,
+        "username": "milanasomi",
+        "displayName": "Milana somi",
+        "stats": {
+            "castCount": 26,
+            "totalLikes": 1203,
+            "totalRecasts": 109,
+            "maxHeatScore": 114
+        }
+    },
+    {
+        "fid": 6373,
+        "username": "priyanka",
+        "displayName": "priyanka🦉",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 1180,
+            "totalRecasts": 103,
+            "maxHeatScore": 239
+        }
+    },
+    {
+        "fid": 339009,
+        "username": "nazii-kn",
+        "displayName": "Nazanin 🦄🎀",
+        "stats": {
+            "castCount": 27,
+            "totalLikes": 1174,
+            "totalRecasts": 353,
+            "maxHeatScore": 188
+        }
+    },
+    {
+        "fid": 4528,
+        "username": "geoffgolberg",
+        "displayName": "Geoff Golberg",
+        "stats": {
+            "castCount": 18,
+            "totalLikes": 1149,
+            "totalRecasts": 165,
+            "maxHeatScore": 205
+        }
+    },
+    {
+        "fid": 534,
+        "username": "mikedemarais.eth",
+        "displayName": "mike rainbow (rainbow mike) ↑",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 1095,
+            "totalRecasts": 99,
+            "maxHeatScore": 261
+        }
+    },
+    {
+        "fid": 1371361,
+        "username": "frustration",
+        "displayName": "frust.base.eth",
+        "stats": {
+            "castCount": 55,
+            "totalLikes": 1087,
+            "totalRecasts": 67,
+            "maxHeatScore": 83
+        }
+    },
+    {
+        "fid": 899923,
+        "username": "shawmakesmagic",
+        "displayName": "Shaw",
+        "stats": {
+            "castCount": 15,
+            "totalLikes": 1078,
+            "totalRecasts": 128,
+            "maxHeatScore": 205
+        }
+    },
+    {
+        "fid": 1426445,
+        "username": "olaedo",
+        "displayName": "olaedo",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 1073,
+            "totalRecasts": 476,
+            "maxHeatScore": 949
+        }
+    },
+    {
+        "fid": 12921,
+        "username": "jessyjeanne",
+        "displayName": "princess jessyfries",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 1067,
+            "totalRecasts": 141,
+            "maxHeatScore": 272
+        }
+    },
+    {
+        "fid": 421661,
+        "username": "primenode.eth",
+        "displayName": "PRIME",
+        "stats": {
+            "castCount": 35,
+            "totalLikes": 1047,
+            "totalRecasts": 112,
+            "maxHeatScore": 94
+        }
+    },
+    {
+        "fid": 9135,
+        "username": "kugusha.eth",
+        "displayName": "kugusha 🦋",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 1037,
+            "totalRecasts": 76,
+            "maxHeatScore": 463
+        }
+    },
+    {
+        "fid": 1606,
+        "username": "samantha",
+        "displayName": "Sam (crazy candle person) ✦",
+        "stats": {
+            "castCount": 20,
+            "totalLikes": 1010,
+            "totalRecasts": 102,
+            "maxHeatScore": 138
+        }
+    },
+    {
+        "fid": 5818,
+        "username": "adrienne",
+        "displayName": "adrienne",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 1009,
+            "totalRecasts": 86,
+            "maxHeatScore": 292
+        }
+    },
+    {
+        "fid": 310124,
+        "username": "eggman.eth",
+        "displayName": "eggman 🔵",
+        "stats": {
+            "castCount": 22,
+            "totalLikes": 994,
+            "totalRecasts": 112,
+            "maxHeatScore": 159
+        }
+    },
+    {
+        "fid": 431,
+        "username": "j4ck.eth",
+        "displayName": "↑ j4ck 🥶 icebreaker.xyz ↑",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 978,
+            "totalRecasts": 96,
+            "maxHeatScore": 507
+        }
+    },
+    {
+        "fid": 430484,
+        "username": "vito4ka.eth",
+        "displayName": "Viktoria.base.eth",
+        "stats": {
+            "castCount": 22,
+            "totalLikes": 968,
+            "totalRecasts": 263,
+            "maxHeatScore": 142
+        }
+    },
+    {
+        "fid": 243300,
+        "username": "yonfrula",
+        "displayName": "🌈 YON",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 965,
+            "totalRecasts": 98,
+            "maxHeatScore": 222
+        }
+    },
+    {
+        "fid": 537378,
+        "username": "gmonchain.eth",
+        "displayName": "GMonchain.base.eth",
+        "stats": {
+            "castCount": 15,
+            "totalLikes": 964,
+            "totalRecasts": 110,
+            "maxHeatScore": 143
+        }
+    },
+    {
+        "fid": 10420,
+        "username": "lefteris.eth",
+        "displayName": "Lefteris Karapetsas",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 955,
+            "totalRecasts": 92,
+            "maxHeatScore": 171
+        }
+    },
+    {
+        "fid": 473,
+        "username": "matthew",
+        "displayName": "matthew",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 954,
+            "totalRecasts": 120,
+            "maxHeatScore": 328
+        }
+    },
+    {
+        "fid": 1323461,
+        "username": "shikhare.base.eth",
+        "displayName": "art",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 950,
+            "totalRecasts": 105,
+            "maxHeatScore": 153
+        }
+    },
+    {
+        "fid": 3449,
+        "username": "cherdougie",
+        "displayName": "Cheryl Douglass",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 943,
+            "totalRecasts": 162,
+            "maxHeatScore": 441
+        }
+    },
+    {
+        "fid": 472680,
+        "username": "maryamm13",
+        "displayName": "Maryam",
+        "stats": {
+            "castCount": 32,
+            "totalLikes": 931,
+            "totalRecasts": 215,
+            "maxHeatScore": 171
+        }
+    },
+    {
+        "fid": 1049461,
+        "username": "ucho",
+        "displayName": "Uchospiff.base.eth",
+        "stats": {
+            "castCount": 18,
+            "totalLikes": 925,
+            "totalRecasts": 178,
+            "maxHeatScore": 108
+        }
+    },
+    {
+        "fid": 315654,
+        "username": "ismaile007.eth",
+        "displayName": "MD ISMAIL HOSSAIN🎩Ⓜ️ 🧬",
+        "stats": {
+            "castCount": 28,
+            "totalLikes": 899,
+            "totalRecasts": 112,
+            "maxHeatScore": 74
+        }
+    },
+    {
+        "fid": 1104918,
+        "username": "drdeeks",
+        "displayName": "DrDeeks",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 876,
+            "totalRecasts": 690,
+            "maxHeatScore": 255
+        }
+    },
+    {
+        "fid": 2802,
+        "username": "garrett",
+        "displayName": "Garrett",
+        "stats": {
+            "castCount": 18,
+            "totalLikes": 861,
+            "totalRecasts": 95,
+            "maxHeatScore": 240
+        }
+    },
+    {
+        "fid": 252549,
+        "username": "iiccii",
+        "displayName": "iiccii",
+        "stats": {
+            "castCount": 21,
+            "totalLikes": 849,
+            "totalRecasts": 440,
+            "maxHeatScore": 402
+        }
+    },
+    {
+        "fid": 1125364,
+        "username": "cleber.base.eth",
+        "displayName": "$CLEKE",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 848,
+            "totalRecasts": 181,
+            "maxHeatScore": 272
+        }
+    },
+    {
+        "fid": 369,
+        "username": "robin",
+        "displayName": "robin (◕‿◕ ✿)",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 843,
+            "totalRecasts": 111,
+            "maxHeatScore": 271
+        }
+    },
+    {
+        "fid": 348569,
+        "username": "nabulines.eth",
+        "displayName": "nabu.base.eth",
+        "stats": {
+            "castCount": 12,
+            "totalLikes": 826,
+            "totalRecasts": 387,
+            "maxHeatScore": 171
+        }
+    },
+    {
+        "fid": 4163,
+        "username": "kmacb.eth",
+        "displayName": "KMac",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 821,
+            "totalRecasts": 105,
+            "maxHeatScore": 396
+        }
+    },
+    {
+        "fid": 1045817,
+        "username": "tipn",
+        "displayName": "Tip ‘n Earn",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 818,
+            "totalRecasts": 214,
+            "maxHeatScore": 173
+        }
+    },
+    {
+        "fid": 1050528,
+        "username": "fid1050528",
+        "displayName": "Buckyball 🔵🟠🙏",
+        "stats": {
+            "castCount": 32,
+            "totalLikes": 795,
+            "totalRecasts": 586,
+            "maxHeatScore": 331
+        }
+    },
+    {
+        "fid": 1192389,
+        "username": "jdferguson.base.eth",
+        "displayName": "🟦 JDFerguson.Base.Eth 🧬",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 789,
+            "totalRecasts": 637,
+            "maxHeatScore": 326
+        }
+    },
+    {
+        "fid": 1436662,
+        "username": "silentaddy.base.eth",
+        "displayName": "ADDY MEMER",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 766,
+            "totalRecasts": 67,
+            "maxHeatScore": 126
+        }
+    },
+    {
+        "fid": 758919,
+        "username": "mazmhussain",
+        "displayName": "Murtaza Hussain",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 762,
+            "totalRecasts": 136,
+            "maxHeatScore": 192
+        }
+    },
+    {
+        "fid": 738574,
+        "username": "kokocodes",
+        "displayName": "kokocodes.base.eth 🌳",
+        "stats": {
+            "castCount": 27,
+            "totalLikes": 754,
+            "totalRecasts": 96,
+            "maxHeatScore": 130
+        }
+    },
+    {
+        "fid": 372614,
+        "username": "tashacrypt.eth",
+        "displayName": "Natalia🎩💜💙 🧬",
+        "stats": {
+            "castCount": 15,
+            "totalLikes": 726,
+            "totalRecasts": 122,
+            "maxHeatScore": 102
+        }
+    },
+    {
+        "fid": 1103648,
+        "username": "iamecomex",
+        "displayName": "Ecomex",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 721,
+            "totalRecasts": 319,
+            "maxHeatScore": 150
+        }
+    },
+    {
+        "fid": 1015735,
+        "username": "theneetguy.eth",
+        "displayName": "The Neet Guy 🍩",
+        "stats": {
+            "castCount": 22,
+            "totalLikes": 719,
+            "totalRecasts": 143,
+            "maxHeatScore": 146
+        }
+    },
+    {
+        "fid": 517425,
+        "username": "shahbazbaaz",
+        "displayName": "Muhammad Shahbaz 💎Ⓜ️👽",
+        "stats": {
+            "castCount": 37,
+            "totalLikes": 710,
+            "totalRecasts": 94,
+            "maxHeatScore": 61
+        }
+    },
+    {
+        "fid": 517994,
+        "username": "hana75",
+        "displayName": "hana75",
+        "stats": {
+            "castCount": 16,
+            "totalLikes": 710,
+            "totalRecasts": 320,
+            "maxHeatScore": 99
+        }
+    },
+    {
+        "fid": 7732,
+        "username": "aneri.base.eth",
+        "displayName": "aneri",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 704,
+            "totalRecasts": 69,
+            "maxHeatScore": 447
+        }
+    },
+    {
+        "fid": 544859,
+        "username": "kakashi007.eth",
+        "displayName": "Kakashi",
+        "stats": {
+            "castCount": 24,
+            "totalLikes": 696,
+            "totalRecasts": 53,
+            "maxHeatScore": 78
+        }
+    },
+    {
+        "fid": 8004,
+        "username": "ahn.eth",
+        "displayName": "justin.ahn.eth",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 689,
+            "totalRecasts": 66,
+            "maxHeatScore": 203
+        }
+    },
+    {
+        "fid": 14890,
+        "username": "lun404",
+        "displayName": "Lun.jesse.farcast.base.degen.eth",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 686,
+            "totalRecasts": 633,
+            "maxHeatScore": 697
+        }
+    },
+    {
+        "fid": 475488,
+        "username": "hankmoody",
+        "displayName": "HankMoody",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 669,
+            "totalRecasts": 583,
+            "maxHeatScore": 269
+        }
+    },
+    {
+        "fid": 1134,
+        "username": "levy",
+        "displayName": "levy.eth",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 653,
+            "totalRecasts": 53,
+            "maxHeatScore": 297
+        }
+    },
+    {
+        "fid": 303,
+        "username": "kyle",
+        "displayName": "mcclick",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 653,
+            "totalRecasts": 69,
+            "maxHeatScore": 344
+        }
+    },
+    {
+        "fid": 1406368,
+        "username": "adrsteph.base.eth",
+        "displayName": "tabledadrian",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 646,
+            "totalRecasts": 611,
+            "maxHeatScore": 560
+        }
+    },
+    {
+        "fid": 7237,
+        "username": "aviationdoctor.eth",
+        "displayName": "Thomas",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 641,
+            "totalRecasts": 81,
+            "maxHeatScore": 154
+        }
+    },
+    {
+        "fid": 822718,
+        "username": "kittyy",
+        "displayName": "Griselda",
+        "stats": {
+            "castCount": 22,
+            "totalLikes": 640,
+            "totalRecasts": 112,
+            "maxHeatScore": 94
+        }
+    },
+    {
+        "fid": 359,
+        "username": "pushix",
+        "displayName": "Nicholas Charriere",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 637,
+            "totalRecasts": 52,
+            "maxHeatScore": 361
+        }
+    },
+    {
+        "fid": 507194,
+        "username": "adebayo01",
+        "displayName": "Adebayo01 🔄🎩🎭⚡",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 636,
+            "totalRecasts": 236,
+            "maxHeatScore": 137
+        }
+    },
+    {
+        "fid": 1118370,
+        "username": "protardio",
+        "displayName": "Protardio",
+        "stats": {
+            "castCount": 19,
+            "totalLikes": 633,
+            "totalRecasts": 67,
+            "maxHeatScore": 74
+        }
+    },
+    {
+        "fid": 1110131,
+        "username": "dau",
+        "displayName": "DAILY ACTIVE USER",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 622,
+            "totalRecasts": 348,
+            "maxHeatScore": 356
+        }
+    },
+    {
+        "fid": 393855,
+        "username": "panah",
+        "displayName": "Panah🟧🟦",
+        "stats": {
+            "castCount": 20,
+            "totalLikes": 615,
+            "totalRecasts": 127,
+            "maxHeatScore": 74
+        }
+    },
+    {
+        "fid": 8,
+        "username": "jacob",
+        "displayName": "$jacob",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 615,
+            "totalRecasts": 73,
+            "maxHeatScore": 460
+        }
+    },
+    {
+        "fid": 427349,
+        "username": "dosir",
+        "displayName": "Dosir",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 613,
+            "totalRecasts": 230,
+            "maxHeatScore": 162
+        }
+    },
+    {
+        "fid": 1287,
+        "username": "july",
+        "displayName": "July",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 610,
+            "totalRecasts": 72,
+            "maxHeatScore": 175
+        }
+    },
+    {
+        "fid": 217248,
+        "username": "myk",
+        "displayName": "myk.eth",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 608,
+            "totalRecasts": 100,
+            "maxHeatScore": 97
+        }
+    },
+    {
+        "fid": 490435,
+        "username": "farhouse",
+        "displayName": "House (previously FarHouse)",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 603,
+            "totalRecasts": 70,
+            "maxHeatScore": 156
+        }
+    },
+    {
+        "fid": 592677,
+        "username": "builders-garden",
+        "displayName": "Builders Garden 🌳",
+        "stats": {
+            "castCount": 15,
+            "totalLikes": 602,
+            "totalRecasts": 111,
+            "maxHeatScore": 76
+        }
+    },
+    {
+        "fid": 427204,
+        "username": "zahrash",
+        "displayName": "0xZahra 🦄",
+        "stats": {
+            "castCount": 19,
+            "totalLikes": 600,
+            "totalRecasts": 158,
+            "maxHeatScore": 185
+        }
+    },
+    {
+        "fid": 403455,
+        "username": "ratmubaba",
+        "displayName": "ratmubaba.eth",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 581,
+            "totalRecasts": 194,
+            "maxHeatScore": 140
+        }
+    },
+    {
+        "fid": 20910,
+        "username": "zora",
+        "displayName": "Zora",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 581,
+            "totalRecasts": 95,
+            "maxHeatScore": 482
+        }
+    },
+    {
+        "fid": 487460,
+        "username": "calistomango",
+        "displayName": "Calisto Mango",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 579,
+            "totalRecasts": 236,
+            "maxHeatScore": 153
+        }
+    },
+    {
+        "fid": 516359,
+        "username": "nothing11",
+        "displayName": "NOTHING 🦉",
+        "stats": {
+            "castCount": 15,
+            "totalLikes": 577,
+            "totalRecasts": 81,
+            "maxHeatScore": 190
+        }
+    },
+    {
+        "fid": 513816,
+        "username": "vishnu5103",
+        "displayName": "Vishnuram 🥷🏻",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 573,
+            "totalRecasts": 508,
+            "maxHeatScore": 448
+        }
+    },
+    {
+        "fid": 357897,
+        "username": "bizarrebeast",
+        "displayName": "BizarreBeasts",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 572,
+            "totalRecasts": 508,
+            "maxHeatScore": 928
+        }
+    },
+    {
+        "fid": 72,
+        "username": "garrytan",
+        "displayName": "Garry Tan",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 572,
+            "totalRecasts": 94,
+            "maxHeatScore": 666
+        }
+    },
+    {
+        "fid": 1078524,
+        "username": "lollipop001.base.eth",
+        "displayName": "Ødogwu 🐋",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 557,
+            "totalRecasts": 71,
+            "maxHeatScore": 97
+        }
+    },
+    {
+        "fid": 12239,
+        "username": "alitiknazoglu",
+        "displayName": "ali.base.eth 🟧",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 556,
+            "totalRecasts": 140,
+            "maxHeatScore": 448
+        }
+    },
+    {
+        "fid": 270504,
+        "username": "proxystudio",
+        "displayName": "slaterg [HAS NO CREATOR COIN]",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 552,
+            "totalRecasts": 54,
+            "maxHeatScore": 160
+        }
+    },
+    {
+        "fid": 742,
+        "username": "wilsoncusack",
+        "displayName": "Wilson Cusack",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 542,
+            "totalRecasts": 38,
+            "maxHeatScore": 147
+        }
+    },
+    {
+        "fid": 1041749,
+        "username": "cryptowizardg",
+        "displayName": "GIA HUY HUYNH",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 538,
+            "totalRecasts": 54,
+            "maxHeatScore": 105
+        }
+    },
+    {
+        "fid": 15351,
+        "username": "0ffline",
+        "displayName": "0ffline.xo 👽🪐✨",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 529,
+            "totalRecasts": 110,
+            "maxHeatScore": 140
+        }
+    },
+    {
+        "fid": 1041894,
+        "username": "dee1301",
+        "displayName": "Dee💕",
+        "stats": {
+            "castCount": 16,
+            "totalLikes": 526,
+            "totalRecasts": 188,
+            "maxHeatScore": 106
+        }
+    },
+    {
+        "fid": 2689,
+        "username": "binji",
+        "displayName": "binji",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 515,
+            "totalRecasts": 82,
+            "maxHeatScore": 373
+        }
+    },
+    {
+        "fid": 3973,
+        "username": "seb",
+        "displayName": "seb",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 509,
+            "totalRecasts": 63,
+            "maxHeatScore": 345
+        }
+    },
+    {
+        "fid": 9218,
+        "username": "tinyrainboot",
+        "displayName": "tiny",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 503,
+            "totalRecasts": 76,
+            "maxHeatScore": 172
+        }
+    },
+    {
+        "fid": 4031,
+        "username": "patryk",
+        "displayName": "Patryk",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 502,
+            "totalRecasts": 80,
+            "maxHeatScore": 314
+        }
+    },
+    {
+        "fid": 17714,
+        "username": "igoryuzo.eth",
+        "displayName": "Igor Yuzovitskiy",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 492,
+            "totalRecasts": 71,
+            "maxHeatScore": 180
+        }
+    },
+    {
+        "fid": 1552715,
+        "username": "checkpointex",
+        "displayName": "Checkpoint Exchange",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 488,
+            "totalRecasts": 136,
+            "maxHeatScore": 325
+        }
+    },
+    {
+        "fid": 245497,
+        "username": "d2kind.eth",
+        "displayName": "D 2 K",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 488,
+            "totalRecasts": 435,
+            "maxHeatScore": 474
+        }
+    },
+    {
+        "fid": 481945,
+        "username": "mohammadkhan",
+        "displayName": "Mohammad 🎩",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 479,
+            "totalRecasts": 466,
+            "maxHeatScore": 945
+        }
+    },
+    {
+        "fid": 506,
+        "username": "benjitaylor.base.eth",
+        "displayName": "Benji Taylor",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 476,
+            "totalRecasts": 77,
+            "maxHeatScore": 252
+        }
+    },
+    {
+        "fid": 20384,
+        "username": "itsbasil",
+        "displayName": "basil",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 475,
+            "totalRecasts": 67,
+            "maxHeatScore": 227
+        }
+    },
+    {
+        "fid": 621261,
+        "username": "pixahead.eth",
+        "displayName": "pixahead",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 469,
+            "totalRecasts": 155,
+            "maxHeatScore": 195
+        }
+    },
+    {
+        "fid": 272109,
+        "username": "heesh",
+        "displayName": "Heeshilio Frost",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 468,
+            "totalRecasts": 54,
+            "maxHeatScore": 59
+        }
+    },
+    {
+        "fid": 169,
+        "username": "fredwilson.eth",
+        "displayName": "fredwilson",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 468,
+            "totalRecasts": 74,
+            "maxHeatScore": 167
+        }
+    },
+    {
+        "fid": 375747,
+        "username": "ngoan",
+        "displayName": "Ngoan 🎩",
+        "stats": {
+            "castCount": 18,
+            "totalLikes": 467,
+            "totalRecasts": 122,
+            "maxHeatScore": 70
+        }
+    },
+    {
+        "fid": 10174,
+        "username": "cryptowenmoon.eth",
+        "displayName": "Ray F. 🎩",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 466,
+            "totalRecasts": 27,
+            "maxHeatScore": 168
+        }
+    },
+    {
+        "fid": 1377953,
+        "username": "bigbroc",
+        "displayName": "Pinky Glazer ドーナツ",
+        "stats": {
+            "castCount": 18,
+            "totalLikes": 460,
+            "totalRecasts": 59,
+            "maxHeatScore": 50
+        }
+    },
+    {
+        "fid": 1057350,
+        "username": "duotech",
+        "displayName": "0xNomad",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 458,
+            "totalRecasts": 117,
+            "maxHeatScore": 91
+        }
+    },
+    {
+        "fid": 11244,
+        "username": "bfg",
+        "displayName": "BrightFutureGuy 🎩↑",
+        "stats": {
+            "castCount": 20,
+            "totalLikes": 454,
+            "totalRecasts": 84,
+            "maxHeatScore": 104
+        }
+    },
+    {
+        "fid": 7418,
+        "username": "flexasaurusrex",
+        "displayName": "FlexasaurusRex -◨-◨",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 449,
+            "totalRecasts": 40,
+            "maxHeatScore": 183
+        }
+    },
+    {
+        "fid": 342433,
+        "username": "ireside.eth",
+        "displayName": "reside",
+        "stats": {
+            "castCount": 17,
+            "totalLikes": 448,
+            "totalRecasts": 150,
+            "maxHeatScore": 123
+        }
+    },
+    {
+        "fid": 472,
+        "username": "ccarella.eth",
+        "displayName": "Chris Carella",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 447,
+            "totalRecasts": 80,
+            "maxHeatScore": 122
+        }
+    },
+    {
+        "fid": 441956,
+        "username": "arrotu",
+        "displayName": "Arrotu",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 440,
+            "totalRecasts": 329,
+            "maxHeatScore": 259
+        }
+    },
+    {
+        "fid": 214447,
+        "username": "yes2crypto.eth",
+        "displayName": "YES2Crypto 🎩 🟪🟡",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 439,
+            "totalRecasts": 41,
+            "maxHeatScore": 113
+        }
+    },
+    {
+        "fid": 533,
+        "username": "shoni.eth",
+        "displayName": "shoni.eth",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 438,
+            "totalRecasts": 48,
+            "maxHeatScore": 96
+        }
+    },
+    {
+        "fid": 447786,
+        "username": "alareefbillah001",
+        "displayName": "Alareefbillah001🔄🎩🎭📄",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 437,
+            "totalRecasts": 168,
+            "maxHeatScore": 135
+        }
+    },
+    {
+        "fid": 1125364,
+        "username": "cleber.base.eth",
+        "displayName": "CLEKE",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 434,
+            "totalRecasts": 98,
+            "maxHeatScore": 240
+        }
+    },
+    {
+        "fid": 300833,
+        "username": "gu43ko",
+        "displayName": "OhMyGes",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 434,
+            "totalRecasts": 391,
+            "maxHeatScore": 427
+        }
+    },
+    {
+        "fid": 2904,
+        "username": "wake",
+        "displayName": "wake",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 426,
+            "totalRecasts": 53,
+            "maxHeatScore": 282
+        }
+    },
+    {
+        "fid": 301815,
+        "username": "cristinaspinei",
+        "displayName": "Cristina Spinei",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 423,
+            "totalRecasts": 32,
+            "maxHeatScore": 116
+        }
+    },
+    {
+        "fid": 1574,
+        "username": "treegirl",
+        "displayName": "tree girl 🌲",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 420,
+            "totalRecasts": 72,
+            "maxHeatScore": 259
+        }
+    },
+    {
+        "fid": 844637,
+        "username": "shamkangenwd",
+        "displayName": "Sham. 🧬",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 415,
+            "totalRecasts": 19,
+            "maxHeatScore": 124
+        }
+    },
+    {
+        "fid": 1045847,
+        "username": "jeff-xyz",
+        "displayName": "Jeff",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 404,
+            "totalRecasts": 52,
+            "maxHeatScore": 129
+        }
+    },
+    {
+        "fid": 1268915,
+        "username": "imagineclub",
+        "displayName": "Imagine",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 396,
+            "totalRecasts": 547,
+            "maxHeatScore": 361
+        }
+    },
+    {
+        "fid": 892902,
+        "username": "liadavid",
+        "displayName": "Monaa.base.eth 🧬",
+        "stats": {
+            "castCount": 19,
+            "totalLikes": 390,
+            "totalRecasts": 47,
+            "maxHeatScore": 61
+        }
+    },
+    {
+        "fid": 606589,
+        "username": "naqmehmjd",
+        "displayName": "NaQmeh 🧬",
+        "stats": {
+            "castCount": 16,
+            "totalLikes": 390,
+            "totalRecasts": 79,
+            "maxHeatScore": 67
+        }
+    },
+    {
+        "fid": 8152,
+        "username": "undefined",
+        "displayName": "undefined",
+        "stats": {
+            "castCount": 12,
+            "totalLikes": 385,
+            "totalRecasts": 37,
+            "maxHeatScore": 82
+        }
+    },
+    {
+        "fid": 6806,
+        "username": "dawufi",
+        "displayName": "dawufi",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 377,
+            "totalRecasts": 32,
+            "maxHeatScore": 138
+        }
+    },
+    {
+        "fid": 292642,
+        "username": "ceej",
+        "displayName": "ceej",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 367,
+            "totalRecasts": 26,
+            "maxHeatScore": 109
+        }
+    },
+    {
+        "fid": 225,
+        "username": "goose",
+        "displayName": "Nicky Goose🪿⛳️",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 366,
+            "totalRecasts": 96,
+            "maxHeatScore": 337
+        }
+    },
+    {
+        "fid": 616,
+        "username": "dylsteck.eth",
+        "displayName": "dylan",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 365,
+            "totalRecasts": 43,
+            "maxHeatScore": 100
+        }
+    },
+    {
+        "fid": 8004,
+        "username": "crabfacts.eth",
+        "displayName": "justin.ahn.eth",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 365,
+            "totalRecasts": 20,
+            "maxHeatScore": 181
+        }
+    },
+    {
+        "fid": 1351067,
+        "username": "russls.base.eth",
+        "displayName": "Ruslan 🎩💎",
+        "stats": {
+            "castCount": 20,
+            "totalLikes": 361,
+            "totalRecasts": 72,
+            "maxHeatScore": 89
+        }
+    },
+    {
+        "fid": 295484,
+        "username": "masahiro",
+        "displayName": "Masahiro_base.eth 🟦",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 357,
+            "totalRecasts": 230,
+            "maxHeatScore": 468
+        }
+    },
+    {
+        "fid": 19343,
+        "username": "erfan",
+        "displayName": "𝐞𝐫𝐟𝐚𝐧",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 357,
+            "totalRecasts": 14,
+            "maxHeatScore": 71
+        }
+    },
+    {
+        "fid": 8939,
+        "username": "annelisa",
+        "displayName": "annelisa",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 356,
+            "totalRecasts": 47,
+            "maxHeatScore": 257
+        }
+    },
+    {
+        "fid": 1605445,
+        "username": "proofofhand",
+        "displayName": "proof of hand",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 354,
+            "totalRecasts": 338,
+            "maxHeatScore": 692
+        }
+    },
+    {
+        "fid": 18069,
+        "username": "setya",
+        "displayName": "Setya Mickala ",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 351,
+            "totalRecasts": 61,
+            "maxHeatScore": 199
+        }
+    },
+    {
+        "fid": 1048,
+        "username": "macbudkowski",
+        "displayName": "Mac Budkowski",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 345,
+            "totalRecasts": 31,
+            "maxHeatScore": 241
+        }
+    },
+    {
+        "fid": 8942,
+        "username": "to",
+        "displayName": "to",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 341,
+            "totalRecasts": 42,
+            "maxHeatScore": 106
+        }
+    },
+    {
+        "fid": 194519,
+        "username": "polak.eth",
+        "displayName": "rob.base.eth",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 338,
+            "totalRecasts": 29,
+            "maxHeatScore": 145
+        }
+    },
+    {
+        "fid": 415872,
+        "username": "boothtempleton.eth",
+        "displayName": "Booth Templeton",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 335,
+            "totalRecasts": 30,
+            "maxHeatScore": 184
+        }
+    },
+    {
+        "fid": 816839,
+        "username": "julianmia",
+        "displayName": "Julian",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 332,
+            "totalRecasts": 55,
+            "maxHeatScore": 61
+        }
+    },
+    {
+        "fid": 190218,
+        "username": "icetoad.eth",
+        "displayName": "Icetoad 🍕 🎩 🐈",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 328,
+            "totalRecasts": 22,
+            "maxHeatScore": 43
+        }
+    },
+    {
+        "fid": 1547128,
+        "username": "blockx",
+        "displayName": "BLOCKX",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 325,
+            "totalRecasts": 325,
+            "maxHeatScore": 214
+        }
+    },
+    {
+        "fid": 5406,
+        "username": "bradq",
+        "displayName": "bradq",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 321,
+            "totalRecasts": 41,
+            "maxHeatScore": 71
+        }
+    },
+    {
+        "fid": 844637,
+        "username": "shamkangenwd",
+        "displayName": "Sham🟦🧬",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 319,
+            "totalRecasts": 24,
+            "maxHeatScore": 131
+        }
+    },
+    {
+        "fid": 1214,
+        "username": "df",
+        "displayName": "David Furlong",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 318,
+            "totalRecasts": 54,
+            "maxHeatScore": 176
+        }
+    },
+    {
+        "fid": 213222,
+        "username": "hendrazk",
+        "displayName": "Hendrazlk.eth",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 308,
+            "totalRecasts": 58,
+            "maxHeatScore": 89
+        }
+    },
+    {
+        "fid": 976,
+        "username": "ba",
+        "displayName": "Ben Adamsky 💭",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 302,
+            "totalRecasts": 44,
+            "maxHeatScore": 207
+        }
+    },
+    {
+        "fid": 1041988,
+        "username": "chainhuntert",
+        "displayName": "Marco Rossi",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 301,
+            "totalRecasts": 102,
+            "maxHeatScore": 214
+        }
+    },
+    {
+        "fid": 12,
+        "username": "linda",
+        "displayName": "Linda Xie",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 298,
+            "totalRecasts": 38,
+            "maxHeatScore": 237
+        }
+    },
+    {
+        "fid": 347050,
+        "username": "trupty",
+        "displayName": "Trupty Somaiah 🦉",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 295,
+            "totalRecasts": 40,
+            "maxHeatScore": 69
+        }
+    },
+    {
+        "fid": 187888,
+        "username": "drakss",
+        "displayName": "Fly Up 🟦",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 288,
+            "totalRecasts": 168,
+            "maxHeatScore": 201
+        }
+    },
+    {
+        "fid": 16333,
+        "username": "m--",
+        "displayName": "Maximus",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 288,
+            "totalRecasts": 203,
+            "maxHeatScore": 408
+        }
+    },
+    {
+        "fid": 1526706,
+        "username": "alevenox",
+        "displayName": "alevenox.base.eth",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 287,
+            "totalRecasts": 231,
+            "maxHeatScore": 299
+        }
+    },
+    {
+        "fid": 1106125,
+        "username": "natasya-bob",
+        "displayName": "Ms Puiyi",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 278,
+            "totalRecasts": 223,
+            "maxHeatScore": 455
+        }
+    },
+    {
+        "fid": 217261,
+        "username": "duckfacts.eth",
+        "displayName": "Duxander.base.eth |🟦",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 276,
+            "totalRecasts": 198,
+            "maxHeatScore": 376
+        }
+    },
+    {
+        "fid": 5698,
+        "username": "0xcaso",
+        "displayName": "caso",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 274,
+            "totalRecasts": 29,
+            "maxHeatScore": 95
+        }
+    },
+    {
+        "fid": 1106125,
+        "username": "natasya-bob",
+        "displayName": "Natasya🎩",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 271,
+            "totalRecasts": 215,
+            "maxHeatScore": 433
+        }
+    },
+    {
+        "fid": 1023760,
+        "username": "jhibrahim",
+        "displayName": "~Iʙʀᴀʜɪᴍ  🧬",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 266,
+            "totalRecasts": 68,
+            "maxHeatScore": 67
+        }
+    },
+    {
+        "fid": 15776,
+        "username": "claireujma",
+        "displayName": "Claireujma 🎩🔵",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 266,
+            "totalRecasts": 59,
+            "maxHeatScore": 67
+        }
+    },
+    {
+        "fid": 296687,
+        "username": "jonathancolton",
+        "displayName": "JC",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 266,
+            "totalRecasts": 47,
+            "maxHeatScore": 109
+        }
+    },
+    {
+        "fid": 1046627,
+        "username": "stormwanderer",
+        "displayName": "Luis Vargas",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 266,
+            "totalRecasts": 21,
+            "maxHeatScore": 262
+        }
+    },
+    {
+        "fid": 299923,
+        "username": "trippy",
+        "displayName": "Trippy",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 265,
+            "totalRecasts": 187,
+            "maxHeatScore": 452
+        }
+    },
+    {
+        "fid": 1403593,
+        "username": "girldog",
+        "displayName": "girldog",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 263,
+            "totalRecasts": 208,
+            "maxHeatScore": 467
+        }
+    },
+    {
+        "fid": 1566860,
+        "username": "levfv.eth",
+        "displayName": "levfv",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 262,
+            "totalRecasts": 202,
+            "maxHeatScore": 435
+        }
+    },
+    {
+        "fid": 9816,
+        "username": "camilleroux",
+        "displayName": "Camille Roux",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 259,
+            "totalRecasts": 38,
+            "maxHeatScore": 171
+        }
+    },
+    {
+        "fid": 1043108,
+        "username": "decentralizedvis",
+        "displayName": "Aiko Tanaka",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 258,
+            "totalRecasts": 58,
+            "maxHeatScore": 198
+        }
+    },
+    {
+        "fid": 371981,
+        "username": "olenakarp.eth",
+        "displayName": "OLENA 🎩 🧬",
+        "stats": {
+            "castCount": 13,
+            "totalLikes": 254,
+            "totalRecasts": 48,
+            "maxHeatScore": 49
+        }
+    },
+    {
+        "fid": 302168,
+        "username": "0x0ephieth",
+        "displayName": "OephiETH😶‍🌫️",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 253,
+            "totalRecasts": 216,
+            "maxHeatScore": 463
+        }
+    },
+    {
+        "fid": 282672,
+        "username": "alinaferry",
+        "displayName": "Alina Ferry",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 252,
+            "totalRecasts": 37,
+            "maxHeatScore": 72
+        }
+    },
+    {
+        "fid": 17635,
+        "username": "hamdi",
+        "displayName": "hamdi",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 252,
+            "totalRecasts": 63,
+            "maxHeatScore": 200
+        }
+    },
+    {
+        "fid": 1046878,
+        "username": "bellabuilds",
+        "displayName": "Bella Nguyen",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 250,
+            "totalRecasts": 7,
+            "maxHeatScore": 218
+        }
+    },
+    {
+        "fid": 1046537,
+        "username": "bitwisenomad",
+        "displayName": "Henry Caldwell",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 249,
+            "totalRecasts": 76,
+            "maxHeatScore": 268
+        }
+    },
+    {
+        "fid": 2417,
+        "username": "robot",
+        "displayName": "robot",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 248,
+            "totalRecasts": 18,
+            "maxHeatScore": 97
+        }
+    },
+    {
+        "fid": 922,
+        "username": "segall",
+        "displayName": "Max",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 246,
+            "totalRecasts": 56,
+            "maxHeatScore": 253
+        }
+    },
+    {
+        "fid": 617,
+        "username": "cameron",
+        "displayName": "Cameron Armstrong",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 244,
+            "totalRecasts": 55,
+            "maxHeatScore": 186
+        }
+    },
+    {
+        "fid": 1587853,
+        "username": "basemember",
+        "displayName": "basemember",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 241,
+            "totalRecasts": 207,
+            "maxHeatScore": 448
+        }
+    },
+    {
+        "fid": 251596,
+        "username": "nmercy",
+        "displayName": "NMercy 🟧🟦 🧬",
+        "stats": {
+            "castCount": 12,
+            "totalLikes": 240,
+            "totalRecasts": 21,
+            "maxHeatScore": 84
+        }
+    },
+    {
+        "fid": 1251798,
+        "username": "charmsgg",
+        "displayName": "Charms",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 240,
+            "totalRecasts": 78,
+            "maxHeatScore": 216
+        }
+    },
+    {
+        "fid": 1046861,
+        "username": "cryptonomad88",
+        "displayName": "Lucas Tran",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 239,
+            "totalRecasts": 12,
+            "maxHeatScore": 213
+        }
+    },
+    {
+        "fid": 482872,
+        "username": "niloofarmd",
+        "displayName": "Niloofar 🪷🧬",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 238,
+            "totalRecasts": 54,
+            "maxHeatScore": 70
+        }
+    },
+    {
+        "fid": 12224,
+        "username": "benroy",
+        "displayName": "Ben Roy",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 237,
+            "totalRecasts": 72,
+            "maxHeatScore": 181
+        }
+    },
+    {
+        "fid": 1108951,
+        "username": "brnd",
+        "displayName": "BRND",
+        "stats": {
+            "castCount": 9,
+            "totalLikes": 236,
+            "totalRecasts": 61,
+            "maxHeatScore": 55
+        }
+    },
+    {
+        "fid": 312,
+        "username": "fid312",
+        "displayName": "User 312",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 235,
+            "totalRecasts": 18,
+            "maxHeatScore": 253
+        }
+    },
+    {
+        "fid": 263574,
+        "username": "tonyminh",
+        "displayName": "TonyMinh",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 234,
+            "totalRecasts": 43,
+            "maxHeatScore": 69
+        }
+    },
+    {
+        "fid": 1046439,
+        "username": "tokyotracks",
+        "displayName": "Daichi Nakamura",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 234,
+            "totalRecasts": 59,
+            "maxHeatScore": 171
+        }
+    },
+    {
+        "fid": 1042406,
+        "username": "vortexbyte",
+        "displayName": "Thao Pham",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 233,
+            "totalRecasts": 31,
+            "maxHeatScore": 214
+        }
+    },
+    {
+        "fid": 204214,
+        "username": "looking4ward.eth",
+        "displayName": "looking4ward.base.eth 🎩",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 233,
+            "totalRecasts": 166,
+            "maxHeatScore": 399
+        }
+    },
+    {
+        "fid": 943967,
+        "username": "solrobert",
+        "displayName": "S0lRobert.eth",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 232,
+            "totalRecasts": 13,
+            "maxHeatScore": 34
+        }
+    },
+    {
+        "fid": 1043085,
+        "username": "defimasterr",
+        "displayName": "Rahul Kapoor",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 230,
+            "totalRecasts": 41,
+            "maxHeatScore": 169
+        }
+    },
+    {
+        "fid": 1046867,
+        "username": "zayninchainz",
+        "displayName": "Zayn Al-Masri",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 230,
+            "totalRecasts": 4,
+            "maxHeatScore": 195
+        }
+    },
+    {
+        "fid": 1047519,
+        "username": "orbitindexer",
+        "displayName": "Sofia Flores",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 229,
+            "totalRecasts": 31,
+            "maxHeatScore": 227
+        }
+    },
+    {
+        "fid": 15549,
+        "username": "dish",
+        "displayName": "Jack Dishman",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 228,
+            "totalRecasts": 10,
+            "maxHeatScore": 81
+        }
+    },
+    {
+        "fid": 329645,
+        "username": "a0x",
+        "displayName": "A0X",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 227,
+            "totalRecasts": 191,
+            "maxHeatScore": 380
+        }
+    },
+    {
+        "fid": 1594462,
+        "username": "primeevil",
+        "displayName": "primeevil",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 226,
+            "totalRecasts": 194,
+            "maxHeatScore": 265
+        }
+    },
+    {
+        "fid": 1041955,
+        "username": "etherdrift",
+        "displayName": "Bao Tran",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 223,
+            "totalRecasts": 31,
+            "maxHeatScore": 229
+        }
+    },
+    {
+        "fid": 306689,
+        "username": "raacun",
+        "displayName": "Raacun",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 221,
+            "totalRecasts": 107,
+            "maxHeatScore": 321
+        }
+    },
+    {
+        "fid": 1048194,
+        "username": "sergeixyz",
+        "displayName": "Sergei Ivanov",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 221,
+            "totalRecasts": 6,
+            "maxHeatScore": 192
+        }
+    },
+    {
+        "fid": 1042306,
+        "username": "memelordo",
+        "displayName": "Ethan Miller",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 216,
+            "totalRecasts": 58,
+            "maxHeatScore": 255
+        }
+    },
+    {
+        "fid": 319141,
+        "username": "leopadra",
+        "displayName": "leopadra 🎩",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 216,
+            "totalRecasts": 107,
+            "maxHeatScore": 322
+        }
+    },
+    {
+        "fid": 1048190,
+        "username": "nguyeneth",
+        "displayName": "Nguyễn Phúc",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 216,
+            "totalRecasts": 9,
+            "maxHeatScore": 198
+        }
+    },
+    {
+        "fid": 1047791,
+        "username": "loopmuse",
+        "displayName": "Talia Cohen",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 211,
+            "totalRecasts": 26,
+            "maxHeatScore": 182
+        }
+    },
+    {
+        "fid": 15732,
+        "username": "kompreni",
+        "displayName": "kompreni 🚂",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 210,
+            "totalRecasts": 34,
+            "maxHeatScore": 83
+        }
+    },
+    {
+        "fid": 1042055,
+        "username": "solanakingf",
+        "displayName": "Pedro Ramirez",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 204,
+            "totalRecasts": 61,
+            "maxHeatScore": 219
+        }
+    },
+    {
+        "fid": 1047779,
+        "username": "silkwallet",
+        "displayName": "Thùy Dương",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 203,
+            "totalRecasts": 29,
+            "maxHeatScore": 185
+        }
+    },
+    {
+        "fid": 844615,
+        "username": "kimken",
+        "displayName": "kimken 🧬",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 201,
+            "totalRecasts": 77,
+            "maxHeatScore": 101
+        }
+    },
+    {
+        "fid": 1610165,
+        "username": "passapp",
+        "displayName": "Pass App",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 201,
+            "totalRecasts": 150,
+            "maxHeatScore": 216
+        }
+    },
+    {
+        "fid": 279246,
+        "username": "hubdegame",
+        "displayName": "Phoenix",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 200,
+            "totalRecasts": 175,
+            "maxHeatScore": 121
+        }
+    },
+    {
+        "fid": 1046864,
+        "username": "elenacodes",
+        "displayName": "Elena Ruiz",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 198,
+            "totalRecasts": 2,
+            "maxHeatScore": 167
+        }
+    },
+    {
+        "fid": 1046451,
+        "username": "wanderverse",
+        "displayName": "Felix Baumann",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 198,
+            "totalRecasts": 25,
+            "maxHeatScore": 177
+        }
+    },
+    {
+        "fid": 1575,
+        "username": "pl",
+        "displayName": "Patrick | Megapot",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 197,
+            "totalRecasts": 44,
+            "maxHeatScore": 214
+        }
+    },
+    {
+        "fid": 733,
+        "username": "fiveoutofnine.eth",
+        "displayName": "5/9",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 196,
+            "totalRecasts": 39,
+            "maxHeatScore": 203
+        }
+    },
+    {
+        "fid": 1047811,
+        "username": "zenbitspace",
+        "displayName": "Việt Hoàng",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 195,
+            "totalRecasts": 14,
+            "maxHeatScore": 176
+        }
+    },
+    {
+        "fid": 1322716,
+        "username": "skycastle",
+        "displayName": "SKYCASTLE",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 194,
+            "totalRecasts": 45,
+            "maxHeatScore": 151
+        }
+    },
+    {
+        "fid": 801019,
+        "username": "dathito",
+        "displayName": "Wow-Boy",
+        "stats": {
+            "castCount": 11,
+            "totalLikes": 191,
+            "totalRecasts": 101,
+            "maxHeatScore": 35
+        }
+    },
+    {
+        "fid": 1046836,
+        "username": "etherdrifteryoen",
+        "displayName": "Khoa Tran",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 191,
+            "totalRecasts": 26,
+            "maxHeatScore": 165
+        }
+    },
+    {
+        "fid": 1047800,
+        "username": "fireflicker",
+        "displayName": "Luca Ricci",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 191,
+            "totalRecasts": 23,
+            "maxHeatScore": 183
+        }
+    },
+    {
+        "fid": 1046877,
+        "username": "anikaweb3",
+        "displayName": "Anika Mehta",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 188,
+            "totalRecasts": 3,
+            "maxHeatScore": 163
+        }
+    },
+    {
+        "fid": 1046829,
+        "username": "novawandererwon",
+        "displayName": "Aisyah Putri",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 187,
+            "totalRecasts": 12,
+            "maxHeatScore": 164
+        }
+    },
+    {
+        "fid": 1042510,
+        "username": "crystalhash",
+        "displayName": "Sofia Nilsson",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 186,
+            "totalRecasts": 15,
+            "maxHeatScore": 177
+        }
+    },
+    {
+        "fid": 522467,
+        "username": "aylinhanim",
+        "displayName": "Aylinhanim💜",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 185,
+            "totalRecasts": 39,
+            "maxHeatScore": 111
+        }
+    },
+    {
+        "fid": 1042891,
+        "username": "nftcreator9",
+        "displayName": "Trần Quang Hòa",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 184,
+            "totalRecasts": 21,
+            "maxHeatScore": 167
+        }
+    },
+    {
+        "fid": 1048291,
+        "username": "dawnbyte",
+        "displayName": "Khánh An",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 184,
+            "totalRecasts": 17,
+            "maxHeatScore": 158
+        }
+    },
+    {
+        "fid": 1047863,
+        "username": "zkonboarder",
+        "displayName": "Sarah Yeoh",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 184,
+            "totalRecasts": 62,
+            "maxHeatScore": 212
+        }
+    },
+    {
+        "fid": 1043099,
+        "username": "decentralizednom",
+        "displayName": "Mai Quỳnh Lan",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 183,
+            "totalRecasts": 25,
+            "maxHeatScore": 165
+        }
+    },
+    {
+        "fid": 4373,
+        "username": "maxp.eth",
+        "displayName": "max",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 182,
+            "totalRecasts": 44,
+            "maxHeatScore": 106
+        }
+    },
+    {
+        "fid": 1046823,
+        "username": "sapphirewander",
+        "displayName": "Lan Nguyen",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 182,
+            "totalRecasts": 26,
+            "maxHeatScore": 165
+        }
+    },
+    {
+        "fid": 1047629,
+        "username": "airdropslinger",
+        "displayName": "Ngo Minh Chau",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 181,
+            "totalRecasts": 58,
+            "maxHeatScore": 178
+        }
+    },
+    {
+        "fid": 1043673,
+        "username": "nftinnovator",
+        "displayName": "Samuel Lee",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 177,
+            "totalRecasts": 31,
+            "maxHeatScore": 168
+        }
+    },
+    {
+        "fid": 375831,
+        "username": "milibooo",
+        "displayName": "Milibooo 👻🎩🙏",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 176,
+            "totalRecasts": 124,
+            "maxHeatScore": 110
+        }
+    },
+    {
+        "fid": 349030,
+        "username": "bottodao",
+        "displayName": "BottoDAO",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 173,
+            "totalRecasts": 66,
+            "maxHeatScore": 166
+        }
+    },
+    {
+        "fid": 1042266,
+        "username": "zkresearcher",
+        "displayName": "Aleksei Ivanov",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 172,
+            "totalRecasts": 81,
+            "maxHeatScore": 198
+        }
+    },
+    {
+        "fid": 1047264,
+        "username": "wardenofdust",
+        "displayName": "Mateo Morales",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 172,
+            "totalRecasts": 37,
+            "maxHeatScore": 155
+        }
+    },
+    {
+        "fid": 1042925,
+        "username": "yieldfarmerpro",
+        "displayName": "Lucas Chang",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 171,
+            "totalRecasts": 83,
+            "maxHeatScore": 180
+        }
+    },
+    {
+        "fid": 1041878,
+        "username": "bytestorm",
+        "displayName": "Zuri Ndiaye",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 171,
+            "totalRecasts": 43,
+            "maxHeatScore": 193
+        }
+    },
+    {
+        "fid": 1046523,
+        "username": "stakersensei",
+        "displayName": "Chan Ka Long",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 170,
+            "totalRecasts": 39,
+            "maxHeatScore": 180
+        }
+    },
+    {
+        "fid": 1042827,
+        "username": "metaversebuilder",
+        "displayName": "John Walker",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 169,
+            "totalRecasts": 25,
+            "maxHeatScore": 166
+        }
+    },
+    {
+        "fid": 378,
+        "username": "colin",
+        "displayName": "Colin",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 167,
+            "totalRecasts": 30,
+            "maxHeatScore": 126
+        }
+    },
+    {
+        "fid": 439610,
+        "username": "rosekeyes",
+        "displayName": "Rose",
+        "stats": {
+            "castCount": 14,
+            "totalLikes": 165,
+            "totalRecasts": 71,
+            "maxHeatScore": 43
+        }
+    },
+    {
+        "fid": 473136,
+        "username": "thebestpizza.eth",
+        "displayName": "pizza.base.eth",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 165,
+            "totalRecasts": 49,
+            "maxHeatScore": 50
+        }
+    },
+    {
+        "fid": 1042316,
+        "username": "realestatechain",
+        "displayName": "Alberto Conti",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 165,
+            "totalRecasts": 65,
+            "maxHeatScore": 180
+        }
+    },
+    {
+        "fid": 2341,
+        "username": "tanishq",
+        "displayName": "tani",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 164,
+            "totalRecasts": 11,
+            "maxHeatScore": 51
+        }
+    },
+    {
+        "fid": 1098768,
+        "username": "blightcliff14",
+        "displayName": "Nathan Turner",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 162,
+            "totalRecasts": 0,
+            "maxHeatScore": 162
+        }
+    },
+    {
+        "fid": 1042823,
+        "username": "cryptoanalytic",
+        "displayName": "Pedro Silva",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 160,
+            "totalRecasts": 28,
+            "maxHeatScore": 155
+        }
+    },
+    {
+        "fid": 1443396,
+        "username": "almontasir.base.eth",
+        "displayName": "zack163",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 159,
+            "totalRecasts": 124,
+            "maxHeatScore": 262
+        }
+    },
+    {
+        "fid": 312,
+        "username": "les",
+        "displayName": "Les Greys",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 158,
+            "totalRecasts": 14,
+            "maxHeatScore": 59
+        }
+    },
+    {
+        "fid": 1356,
+        "username": "farcasteradmin.eth",
+        "displayName": "borodutch",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 158,
+            "totalRecasts": 18,
+            "maxHeatScore": 161
+        }
+    },
+    {
+        "fid": 1098769,
+        "username": "mottlesprig89",
+        "displayName": "Leo Martinez",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 154,
+            "totalRecasts": 0,
+            "maxHeatScore": 154
+        }
+    },
+    {
+        "fid": 789995,
+        "username": "ochuko",
+        "displayName": "Charles",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 149,
+            "totalRecasts": 58,
+            "maxHeatScore": 111
+        }
+    },
+    {
+        "fid": 1098794,
+        "username": "wisphearth30",
+        "displayName": "Adrian Murphy",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 149,
+            "totalRecasts": 0,
+            "maxHeatScore": 149
+        }
+    },
+    {
+        "fid": 535179,
+        "username": "evelynyap17",
+        "displayName": "Evelyn Yap",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 147,
+            "totalRecasts": 30,
+            "maxHeatScore": 156
+        }
+    },
+    {
+        "fid": 8942,
+        "username": "tonylip.eth",
+        "displayName": "to",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 146,
+            "totalRecasts": 16,
+            "maxHeatScore": 57
+        }
+    },
+    {
+        "fid": 1606759,
+        "username": "cogni",
+        "displayName": "COGNI FDN",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 142,
+            "totalRecasts": 117,
+            "maxHeatScore": 160
+        }
+    },
+    {
+        "fid": 1042364,
+        "username": "pulsespinner",
+        "displayName": "Javier Lopez",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 142,
+            "totalRecasts": 38,
+            "maxHeatScore": 160
+        }
+    },
+    {
+        "fid": 503338,
+        "username": "esab1.base.eth",
+        "displayName": "Nks base.eth",
+        "stats": {
+            "castCount": 19,
+            "totalLikes": 141,
+            "totalRecasts": 40,
+            "maxHeatScore": 75
+        }
+    },
+    {
+        "fid": 233390,
+        "username": "parishilton",
+        "displayName": "Burkay",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 137,
+            "totalRecasts": 24,
+            "maxHeatScore": 38
+        }
+    },
+    {
+        "fid": 440747,
+        "username": "arob1000",
+        "displayName": "arob.base.eth 🎩",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 135,
+            "totalRecasts": 7,
+            "maxHeatScore": 35
+        }
+    },
+    {
+        "fid": 238425,
+        "username": "rocketman",
+        "displayName": "rocketman",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 135,
+            "totalRecasts": 17,
+            "maxHeatScore": 59
+        }
+    },
+    {
+        "fid": 963478,
+        "username": "jselmani.base.eth",
+        "displayName": "Jiel Selmani",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 134,
+            "totalRecasts": 50,
+            "maxHeatScore": 184
+        }
+    },
+    {
+        "fid": 20264,
+        "username": "lobstermindset.eth",
+        "displayName": "lily",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 127,
+            "totalRecasts": 15,
+            "maxHeatScore": 60
+        }
+    },
+    {
+        "fid": 1047950,
+        "username": "thunderforge",
+        "displayName": "Mateo Alvarez",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 125,
+            "totalRecasts": 28,
+            "maxHeatScore": 131
+        }
+    },
+    {
+        "fid": 850271,
+        "username": "notadog",
+        "displayName": "Not A Dog",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 125,
+            "totalRecasts": 29,
+            "maxHeatScore": 154
+        }
+    },
+    {
+        "fid": 1047050,
+        "username": "bridgesage",
+        "displayName": "Diana Yoon",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 124,
+            "totalRecasts": 22,
+            "maxHeatScore": 43
+        }
+    },
+    {
+        "fid": 1047623,
+        "username": "flashloanhawk",
+        "displayName": "Ethan Ruiz",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 124,
+            "totalRecasts": 67,
+            "maxHeatScore": 142
+        }
+    },
+    {
+        "fid": 1047653,
+        "username": "memeticpriest",
+        "displayName": "Natalia Costa",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 119,
+            "totalRecasts": 41,
+            "maxHeatScore": 138
+        }
+    },
+    {
+        "fid": 16342,
+        "username": "pug",
+        "displayName": "The Pugfather",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 119,
+            "totalRecasts": 25,
+            "maxHeatScore": 144
+        }
+    },
+    {
+        "fid": 1386932,
+        "username": "genuinerealmoe",
+        "displayName": "genuinerealmoe",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 116,
+            "totalRecasts": 50,
+            "maxHeatScore": 59
+        }
+    },
+    {
+        "fid": 1048126,
+        "username": "zerodropzen",
+        "displayName": "Dang Quoc Huy",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 115,
+            "totalRecasts": 21,
+            "maxHeatScore": 60
+        }
+    },
+    {
+        "fid": 1071795,
+        "username": "doritraaa",
+        "displayName": "Doritra Aprian",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 115,
+            "totalRecasts": 53,
+            "maxHeatScore": 168
+        }
+    },
+    {
+        "fid": 273384,
+        "username": "gmfarcaster",
+        "displayName": "GM Farcaster",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 112,
+            "totalRecasts": 23,
+            "maxHeatScore": 46
+        }
+    },
+    {
+        "fid": 375,
+        "username": "shanemac.eth",
+        "displayName": "Shane Mac",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 108,
+            "totalRecasts": 15,
+            "maxHeatScore": 81
+        }
+    },
+    {
+        "fid": 1042372,
+        "username": "dextrader",
+        "displayName": "Fernando Silva",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 107,
+            "totalRecasts": 36,
+            "maxHeatScore": 102
+        }
+    },
+    {
+        "fid": 1046592,
+        "username": "dunewandererhy",
+        "displayName": "Omar Al-Farsi",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 105,
+            "totalRecasts": 23,
+            "maxHeatScore": 111
+        }
+    },
+    {
+        "fid": 196957,
+        "username": "baseddesigner.eth",
+        "displayName": "max",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 103,
+            "totalRecasts": 10,
+            "maxHeatScore": 89
+        }
+    },
+    {
+        "fid": 326306,
+        "username": "based-bren",
+        "displayName": "Bren",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 102,
+            "totalRecasts": 26,
+            "maxHeatScore": 128
+        }
+    },
+    {
+        "fid": 1689,
+        "username": "stephancill",
+        "displayName": "Stephan",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 97,
+            "totalRecasts": 11,
+            "maxHeatScore": 44
+        }
+    },
+    {
+        "fid": 190096,
+        "username": "298",
+        "displayName": "Burning Art",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 96,
+            "totalRecasts": 35,
+            "maxHeatScore": 99
+        }
+    },
+    {
+        "fid": 1477667,
+        "username": "hlp",
+        "displayName": "Flwy…!",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 93,
+            "totalRecasts": 54,
+            "maxHeatScore": 147
+        }
+    },
+    {
+        "fid": 1020251,
+        "username": "trenchverse",
+        "displayName": "Trenchy",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 92,
+            "totalRecasts": 19,
+            "maxHeatScore": 43
+        }
+    },
+    {
+        "fid": 1048128,
+        "username": "daochancellor",
+        "displayName": "Luca Greco",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 91,
+            "totalRecasts": 11,
+            "maxHeatScore": 44
+        }
+    },
+    {
+        "fid": 1025567,
+        "username": "ruby111",
+        "displayName": "ruby111.base.eth 🧬",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 89,
+            "totalRecasts": 20,
+            "maxHeatScore": 31
+        }
+    },
+    {
+        "fid": 1045817,
+        "username": "fid1045817",
+        "displayName": "User 1045817",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 87,
+            "totalRecasts": 23,
+            "maxHeatScore": 110
+        }
+    },
+    {
+        "fid": 684627,
+        "username": "hollycrypto",
+        "displayName": "Holly Curly",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 85,
+            "totalRecasts": 25,
+            "maxHeatScore": 41
+        }
+    },
+    {
+        "fid": 1046832,
+        "username": "shadownovakill",
+        "displayName": "Mika Salo",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 78,
+            "totalRecasts": 0,
+            "maxHeatScore": 45
+        }
+    },
+    {
+        "fid": 1005654,
+        "username": "6arky66",
+        "displayName": "Nick Shushurikhin",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 78,
+            "totalRecasts": 107,
+            "maxHeatScore": 185
+        }
+    },
+    {
+        "fid": 1040937,
+        "username": "jarwosamidi",
+        "displayName": "tinasha",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 77,
+            "totalRecasts": 64,
+            "maxHeatScore": 48
+        }
+    },
+    {
+        "fid": 675150,
+        "username": "maxplay.base.eth",
+        "displayName": "Maxplay1666",
+        "stats": {
+            "castCount": 16,
+            "totalLikes": 75,
+            "totalRecasts": 21,
+            "maxHeatScore": 12
+        }
+    },
+    {
+        "fid": 1047432,
+        "username": "dreamcircuit",
+        "displayName": "Thao Le",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 74,
+            "totalRecasts": 0,
+            "maxHeatScore": 42
+        }
+    },
+    {
+        "fid": 1042549,
+        "username": "etherpulsel",
+        "displayName": "Hung Pham",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 74,
+            "totalRecasts": 3,
+            "maxHeatScore": 41
+        }
+    },
+    {
+        "fid": 1046519,
+        "username": "defiflow",
+        "displayName": "Adrian Brooks",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 70,
+            "totalRecasts": 35,
+            "maxHeatScore": 79
+        }
+    },
+    {
+        "fid": 1049120,
+        "username": "nodemerch",
+        "displayName": "NodeMerch",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 68,
+            "totalRecasts": 15,
+            "maxHeatScore": 83
+        }
+    },
+    {
+        "fid": 17360,
+        "username": "toobimoobi",
+        "displayName": "T🍒b!",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 66,
+            "totalRecasts": 9,
+            "maxHeatScore": 28
+        }
+    },
+    {
+        "fid": 373904,
+        "username": "anacarolina.eth",
+        "displayName": "ac",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 66,
+            "totalRecasts": 14,
+            "maxHeatScore": 34
+        }
+    },
+    {
+        "fid": 1046660,
+        "username": "solarwanderer",
+        "displayName": "Hassan Benali",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 66,
+            "totalRecasts": 6,
+            "maxHeatScore": 43
+        }
+    },
+    {
+        "fid": 1047663,
+        "username": "stakingsensei",
+        "displayName": "Emma Tan",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 65,
+            "totalRecasts": 21,
+            "maxHeatScore": 46
+        }
+    },
+    {
+        "fid": 1046538,
+        "username": "nftoracle",
+        "displayName": "Julia Nguyen",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 64,
+            "totalRecasts": 37,
+            "maxHeatScore": 101
+        }
+    },
+    {
+        "fid": 1046542,
+        "username": "deficrafter",
+        "displayName": "Isabelle Fontaine",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 63,
+            "totalRecasts": 21,
+            "maxHeatScore": 47
+        }
+    },
+    {
+        "fid": 1041753,
+        "username": "moonshotlisa",
+        "displayName": "Lisa Cheng",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 61,
+            "totalRecasts": 27,
+            "maxHeatScore": 47
+        }
+    },
+    {
+        "fid": 1047227,
+        "username": "onchainsleuth",
+        "displayName": "Selina Park",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 60,
+            "totalRecasts": 29,
+            "maxHeatScore": 51
+        }
+    },
+    {
+        "fid": 1042041,
+        "username": "bitcoinknight",
+        "displayName": "Henry Thompson",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 59,
+            "totalRecasts": 28,
+            "maxHeatScore": 39
+        }
+    },
+    {
+        "fid": 1251798,
+        "username": "charmsai",
+        "displayName": "Charms",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 59,
+            "totalRecasts": 15,
+            "maxHeatScore": 38
+        }
+    },
+    {
+        "fid": 780900,
+        "username": "afrochicks",
+        "displayName": "Naomi",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 59,
+            "totalRecasts": 8,
+            "maxHeatScore": 47
+        }
+    },
+    {
+        "fid": 1047259,
+        "username": "vaultengineer",
+        "displayName": "Luca Ferrari",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 59,
+            "totalRecasts": 14,
+            "maxHeatScore": 38
+        }
+    },
+    {
+        "fid": 14890,
+        "username": "lun404",
+        "displayName": "Lun404",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 56,
+            "totalRecasts": 49,
+            "maxHeatScore": 100
+        }
+    },
+    {
+        "fid": 1078524,
+        "username": "fid1078524",
+        "displayName": "User 1078524",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 56,
+            "totalRecasts": 1,
+            "maxHeatScore": 57
+        }
+    },
+    {
+        "fid": 1600217,
+        "username": "lilmiquela.base.eth",
+        "displayName": "lilMiquela",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 56,
+            "totalRecasts": 6,
+            "maxHeatScore": 62
+        }
+    },
+    {
+        "fid": 1613354,
+        "username": "minting",
+        "displayName": "Minting",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 55,
+            "totalRecasts": 55,
+            "maxHeatScore": 60
+        }
+    },
+    {
+        "fid": 1046667,
+        "username": "codenova",
+        "displayName": "Pablo Lopez",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 55,
+            "totalRecasts": 3,
+            "maxHeatScore": 35
+        }
+    },
+    {
+        "fid": 277644,
+        "username": "redphone",
+        "displayName": "Redphone",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 54,
+            "totalRecasts": 5,
+            "maxHeatScore": 13
+        }
+    },
+    {
+        "fid": 1046571,
+        "username": "frostvoyagerli",
+        "displayName": "Sofia Volkov",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 54,
+            "totalRecasts": 2,
+            "maxHeatScore": 32
+        }
+    },
+    {
+        "fid": 548932,
+        "username": "fid548932",
+        "displayName": "User 548932",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 54,
+            "totalRecasts": 13,
+            "maxHeatScore": 67
+        }
+    },
+    {
+        "fid": 14890,
+        "username": "lun404",
+        "displayName": "Lun404.jesse.eth",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 53,
+            "totalRecasts": 59,
+            "maxHeatScore": 112
+        }
+    },
+    {
+        "fid": 1046655,
+        "username": "stellarforgege",
+        "displayName": "Sofia Ortiz",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 52,
+            "totalRecasts": 2,
+            "maxHeatScore": 28
+        }
+    },
+    {
+        "fid": 1042252,
+        "username": "web3builder",
+        "displayName": "Elias Wagner",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 51,
+            "totalRecasts": 27,
+            "maxHeatScore": 61
+        }
+    },
+    {
+        "fid": 1118023,
+        "username": "mf0io.base.eth",
+        "displayName": "Mr. Freeman",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 51,
+            "totalRecasts": 4,
+            "maxHeatScore": 32
+        }
+    },
+    {
+        "fid": 5643,
+        "username": "errorgardener",
+        "displayName": "errorgardener",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 50,
+            "totalRecasts": 8,
+            "maxHeatScore": 49
+        }
+    },
+    {
+        "fid": 473,
+        "username": "fid473",
+        "displayName": "User 473",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 50,
+            "totalRecasts": 5,
+            "maxHeatScore": 36
+        }
+    },
+    {
+        "fid": 1046668,
+        "username": "prismwanderer",
+        "displayName": "Nour Hassan",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 50,
+            "totalRecasts": 3,
+            "maxHeatScore": 29
+        }
+    },
+    {
+        "fid": 1042350,
+        "username": "echobytecon",
+        "displayName": "Liam Walsh",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 49,
+            "totalRecasts": 2,
+            "maxHeatScore": 29
+        }
+    },
+    {
+        "fid": 1041974,
+        "username": "socialfivn",
+        "displayName": "Bảo Trần",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 48,
+            "totalRecasts": 15,
+            "maxHeatScore": 54
+        }
+    },
+    {
+        "fid": 199866,
+        "username": "silverchronos.eth",
+        "displayName": "Silverchronos",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 48,
+            "totalRecasts": 104,
+            "maxHeatScore": 104
+        }
+    },
+    {
+        "fid": 675268,
+        "username": "paint27.base.eth",
+        "displayName": "pumpuy",
+        "stats": {
+            "castCount": 8,
+            "totalLikes": 47,
+            "totalRecasts": 5,
+            "maxHeatScore": 30
+        }
+    },
+    {
+        "fid": 1047806,
+        "username": "web3cartographer",
+        "displayName": "Aria Bloom",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 47,
+            "totalRecasts": 20,
+            "maxHeatScore": 41
+        }
+    },
+    {
+        "fid": 15549,
+        "username": "dish",
+        "displayName": "dish is OOO, back Jan 10",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 47,
+            "totalRecasts": 4,
+            "maxHeatScore": 51
+        }
+    },
+    {
+        "fid": 20286,
+        "username": "oxb",
+        "displayName": "Ox Bid",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 45,
+            "totalRecasts": 5,
+            "maxHeatScore": 20
+        }
+    },
+    {
+        "fid": 8152,
+        "username": "undefined",
+        "displayName": "⠀",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 45,
+            "totalRecasts": 1,
+            "maxHeatScore": 30
+        }
+    },
+    {
+        "fid": 1046639,
+        "username": "pulsenova",
+        "displayName": "Javier Torres",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 45,
+            "totalRecasts": 1,
+            "maxHeatScore": 28
+        }
+    },
+    {
+        "fid": 1046652,
+        "username": "moonvoyagerlk",
+        "displayName": "Tuan Le",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 44,
+            "totalRecasts": 1,
+            "maxHeatScore": 25
+        }
+    },
+    {
+        "fid": 1047628,
+        "username": "rwaconnector",
+        "displayName": "Dante Russo",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 44,
+            "totalRecasts": 29,
+            "maxHeatScore": 73
+        }
+    },
+    {
+        "fid": 1047435,
+        "username": "tokentailor",
+        "displayName": "Pham Tien Dat",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 44,
+            "totalRecasts": 28,
+            "maxHeatScore": 72
+        }
+    },
+    {
+        "fid": 1395961,
+        "username": "poopybuttho1e",
+        "displayName": "Mr.poopybuttho1e",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 43,
+            "totalRecasts": 6,
+            "maxHeatScore": 26
+        }
+    },
+    {
+        "fid": 1041845,
+        "username": "stellarvault",
+        "displayName": "Freja Larsen",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 43,
+            "totalRecasts": 1,
+            "maxHeatScore": 44
+        }
+    },
+    {
+        "fid": 15776,
+        "username": "fid15776",
+        "displayName": "User 15776",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 43,
+            "totalRecasts": 6,
+            "maxHeatScore": 49
+        }
+    },
+    {
+        "fid": 718134,
+        "username": "henryadewole",
+        "displayName": "Henry Adewole 👾",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 42,
+            "totalRecasts": 4,
+            "maxHeatScore": 20
+        }
+    },
+    {
+        "fid": 1042319,
+        "username": "metafashion",
+        "displayName": "Ava Johnson",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 42,
+            "totalRecasts": 21,
+            "maxHeatScore": 34
+        }
+    },
+    {
+        "fid": 1046566,
+        "username": "nftmuse",
+        "displayName": "Ngo Thi Mai",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 42,
+            "totalRecasts": 15,
+            "maxHeatScore": 34
+        }
+    },
+    {
+        "fid": 1046827,
+        "username": "roguedrifter",
+        "displayName": "Rafael Costa",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 41,
+            "totalRecasts": 0,
+            "maxHeatScore": 24
+        }
+    },
+    {
+        "fid": 1042542,
+        "username": "cryptopsych",
+        "displayName": "Isabelle Moreau",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 40,
+            "totalRecasts": 17,
+            "maxHeatScore": 42
+        }
+    },
+    {
+        "fid": 1611628,
+        "username": "roomme",
+        "displayName": "RoomMe",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 40,
+            "totalRecasts": 25,
+            "maxHeatScore": 65
+        }
+    },
+    {
+        "fid": 3189,
+        "username": "duaneking",
+        "displayName": "kingd.eth",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 39,
+            "totalRecasts": 3,
+            "maxHeatScore": 20
+        }
+    },
+    {
+        "fid": 1042953,
+        "username": "socialfinerd",
+        "displayName": "Lê Minh",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 38,
+            "totalRecasts": 17,
+            "maxHeatScore": 43
+        }
+    },
+    {
+        "fid": 1046569,
+        "username": "cosmiccipher",
+        "displayName": "Rishi Kapoor",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 38,
+            "totalRecasts": 0,
+            "maxHeatScore": 20
+        }
+    },
+    {
+        "fid": 1046658,
+        "username": "frostnovava",
+        "displayName": "Elena Smirnova",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 37,
+            "totalRecasts": 0,
+            "maxHeatScore": 19
+        }
+    },
+    {
+        "fid": 1041982,
+        "username": "defiwarrior",
+        "displayName": "Ethan Carter",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 35,
+            "totalRecasts": 23,
+            "maxHeatScore": 29
+        }
+    },
+    {
+        "fid": 457339,
+        "username": "pris",
+        "displayName": "pris",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 35,
+            "totalRecasts": 4,
+            "maxHeatScore": 39
+        }
+    },
+    {
+        "fid": 1047027,
+        "username": "tokenthief",
+        "displayName": "Ha Van Phuc",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 34,
+            "totalRecasts": 11,
+            "maxHeatScore": 45
+        }
+    },
+    {
+        "fid": 1042034,
+        "username": "farmking",
+        "displayName": "Nguyễn Văn Hòa",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 31,
+            "totalRecasts": 16,
+            "maxHeatScore": 37
+        }
+    },
+    {
+        "fid": 1042547,
+        "username": "nftphotographer",
+        "displayName": "Daniel Cho",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 30,
+            "totalRecasts": 18,
+            "maxHeatScore": 37
+        }
+    },
+    {
+        "fid": 251285,
+        "username": "qwertydoji.eth",
+        "displayName": "qwertydoji.eth",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 30,
+            "totalRecasts": 7,
+            "maxHeatScore": 37
+        }
+    },
+    {
+        "fid": 1047044,
+        "username": "degenbard",
+        "displayName": "Oliver Gray",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 29,
+            "totalRecasts": 5,
+            "maxHeatScore": 34
+        }
+    },
+    {
+        "fid": 1047132,
+        "username": "gassavermax",
+        "displayName": "Marcus Lee",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 28,
+            "totalRecasts": 13,
+            "maxHeatScore": 41
+        }
+    },
+    {
+        "fid": 1048117,
+        "username": "soulboundsage",
+        "displayName": "Grace Nakamura",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 26,
+            "totalRecasts": 9,
+            "maxHeatScore": 35
+        }
+    },
+    {
+        "fid": 190218,
+        "username": "fid190218",
+        "displayName": "User 190218",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 26,
+            "totalRecasts": 0,
+            "maxHeatScore": 26
+        }
+    },
+    {
+        "fid": 1048127,
+        "username": "memeloom",
+        "displayName": "Tran Thi Hanh",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 26,
+            "totalRecasts": 14,
+            "maxHeatScore": 40
+        }
+    },
+    {
+        "fid": 260090,
+        "username": "lamboless.eth",
+        "displayName": "lamboless.base.eth",
+        "stats": {
+            "castCount": 10,
+            "totalLikes": 25,
+            "totalRecasts": 0,
+            "maxHeatScore": 4
+        }
+    },
+    {
+        "fid": 1042715,
+        "username": "web3innovator",
+        "displayName": "Liam Brown",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 25,
+            "totalRecasts": 14,
+            "maxHeatScore": 28
+        }
+    },
+    {
+        "fid": 13901,
+        "username": "marissaposner",
+        "displayName": "Marissa",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 25,
+            "totalRecasts": 3,
+            "maxHeatScore": 28
+        }
+    },
+    {
+        "fid": 233390,
+        "username": "parishilton",
+        "displayName": "parishiltonn",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 24,
+            "totalRecasts": 6,
+            "maxHeatScore": 20
+        }
+    },
+    {
+        "fid": 1046574,
+        "username": "lpdragon",
+        "displayName": "Victor Chen",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 24,
+            "totalRecasts": 7,
+            "maxHeatScore": 31
+        }
+    },
+    {
+        "fid": 1047032,
+        "username": "defioraclew",
+        "displayName": "Maria Lu",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 24,
+            "totalRecasts": 9,
+            "maxHeatScore": 33
+        }
+    },
+    {
+        "fid": 1047353,
+        "username": "nftpathfinder",
+        "displayName": "Le Van Long",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 24,
+            "totalRecasts": 13,
+            "maxHeatScore": 37
+        }
+    },
+    {
+        "fid": 1071216,
+        "username": "fattylazyboy",
+        "displayName": "Danang",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 21,
+            "totalRecasts": 11,
+            "maxHeatScore": 22
+        }
+    },
+    {
+        "fid": 1047656,
+        "username": "chainchefx",
+        "displayName": "Isabella Rivera",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 21,
+            "totalRecasts": 11,
+            "maxHeatScore": 32
+        }
+    },
+    {
+        "fid": 1046394,
+        "username": "pixelforgeo",
+        "displayName": "Isabella Cruz",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 21,
+            "totalRecasts": 8,
+            "maxHeatScore": 29
+        }
+    },
+    {
+        "fid": 299712,
+        "username": "numerijez",
+        "displayName": "Numerijez",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 20,
+            "totalRecasts": 12,
+            "maxHeatScore": 32
+        }
+    },
+    {
+        "fid": 1188162,
+        "username": "cb91waverider",
+        "displayName": "Cornbread",
+        "stats": {
+            "castCount": 6,
+            "totalLikes": 19,
+            "totalRecasts": 0,
+            "maxHeatScore": 6
+        }
+    },
+    {
+        "fid": 1047427,
+        "username": "daoarbiter",
+        "displayName": "Carmen Zhao",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 18,
+            "totalRecasts": 17,
+            "maxHeatScore": 35
+        }
+    },
+    {
+        "fid": 369863,
+        "username": "diviflyy",
+        "displayName": "DiviFlyy 🏛️",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 18,
+            "totalRecasts": 4,
+            "maxHeatScore": 22
+        }
+    },
+    {
+        "fid": 8685,
+        "username": "markcarey",
+        "displayName": "Mark Carey 🎩🫂",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 17,
+            "totalRecasts": 1,
+            "maxHeatScore": 16
+        }
+    },
+    {
+        "fid": 1047048,
+        "username": "web3notary",
+        "displayName": "Nguyen Hoai Nam",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 17,
+            "totalRecasts": 12,
+            "maxHeatScore": 29
+        }
+    },
+    {
+        "fid": 378813,
+        "username": "zenshortz",
+        "displayName": "Zenshortz",
+        "stats": {
+            "castCount": 5,
+            "totalLikes": 16,
+            "totalRecasts": 4,
+            "maxHeatScore": 7
+        }
+    },
+    {
+        "fid": 279528,
+        "username": "fahim12",
+        "displayName": "FAHIM MORSHED",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 16,
+            "totalRecasts": 3,
+            "maxHeatScore": 7
+        }
+    },
+    {
+        "fid": 1046538,
+        "username": "fid1046538",
+        "displayName": "User 1046538",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 16,
+            "totalRecasts": 8,
+            "maxHeatScore": 24
+        }
+    },
+    {
+        "fid": 1389562,
+        "username": "taxc9",
+        "displayName": "Dr Tax",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 16,
+            "totalRecasts": 14,
+            "maxHeatScore": 30
+        }
+    },
+    {
+        "fid": 1077510,
+        "username": "gon0x.eth",
+        "displayName": "Gon",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 16,
+            "totalRecasts": 4,
+            "maxHeatScore": 20
+        }
+    },
+    {
+        "fid": 1050528,
+        "username": "fid1050528",
+        "displayName": "User 1050528",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 15,
+            "totalRecasts": 5,
+            "maxHeatScore": 20
+        }
+    },
+    {
+        "fid": 1371361,
+        "username": "fid1371361",
+        "displayName": "User 1371361",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 13,
+            "totalRecasts": 2,
+            "maxHeatScore": 15
+        }
+    },
+    {
+        "fid": 336103,
+        "username": "derekhoiem",
+        "displayName": "derekhoiem.base.eth",
+        "stats": {
+            "castCount": 4,
+            "totalLikes": 11,
+            "totalRecasts": 3,
+            "maxHeatScore": 8
+        }
+    },
+    {
+        "fid": 239965,
+        "username": "avalynnn",
+        "displayName": "avalynnn.base.eth",
+        "stats": {
+            "castCount": 2,
+            "totalLikes": 11,
+            "totalRecasts": 4,
+            "maxHeatScore": 8
+        }
+    },
+    {
+        "fid": 232855,
+        "username": "jrcart-tez",
+        "displayName": "jrcart.base.eth",
+        "stats": {
+            "castCount": 7,
+            "totalLikes": 10,
+            "totalRecasts": 1,
+            "maxHeatScore": 3
+        }
+    },
+    {
+        "fid": 1188162,
+        "username": "fid1188162",
+        "displayName": "User 1188162",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 9,
+            "totalRecasts": 1,
+            "maxHeatScore": 10
+        }
+    },
+    {
+        "fid": 248665,
+        "username": "takemoney.eth",
+        "displayName": "takemoney",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 8,
+            "totalRecasts": 1,
+            "maxHeatScore": 9
+        }
+    },
+    {
+        "fid": 1107243,
+        "username": "mahria",
+        "displayName": "Somzy",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 7,
+            "totalRecasts": 0,
+            "maxHeatScore": 4
+        }
+    },
+    {
+        "fid": 633,
+        "username": "cxy",
+        "displayName": "C.Y. Lee",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 7,
+            "totalRecasts": 0,
+            "maxHeatScore": 7
+        }
+    },
+    {
+        "fid": 248665,
+        "username": "tofuapp",
+        "displayName": "mfer tofu",
+        "stats": {
+            "castCount": 3,
+            "totalLikes": 5,
+            "totalRecasts": 0,
+            "maxHeatScore": 3
+        }
+    },
+    {
+        "fid": 11241,
+        "username": "drvalidator.eth",
+        "displayName": "Dr-Validator",
+        "stats": {
+            "castCount": 1,
+            "totalLikes": 1,
+            "totalRecasts": 0,
+            "maxHeatScore": 1
+        }
+    }
+]

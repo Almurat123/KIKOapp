@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Command, Wallet, Search, ArrowRight, Zap } from 'lucide-react';
+import { Sparkles, Command, ArrowRight } from 'lucide-react';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';

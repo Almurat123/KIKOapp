@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
-import { useThemeContext } from '../../contexts/ThemeContext';
+
 
 // Theme colors helper (copied from SocialPage or could be shared)
 const getThemeColors = (isDark: boolean) => ({

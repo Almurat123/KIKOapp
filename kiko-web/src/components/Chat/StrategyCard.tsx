@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Zap, Target, Eye, MousePointerClick, Clock, Activity, Check, RefreshCw } from 'lucide-react';
+import React from 'react';
+import { Zap, Target, Eye, MousePointerClick, Clock, Activity, Check } from 'lucide-react';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import type { TradingStrategy } from '../../hooks/useStrategies';
 import styles from './StrategyCard.module.css';
@@ -15,10 +15,7 @@ interface StrategyCardProps {
 
 export const StrategyCard: React.FC<StrategyCardProps> = ({
   strategy,
-  onEdit,
-  onDelete,
   onToggleStatus,
-  onViewDetails,
 }) => {
   const { resolvedTheme } = useThemeContext();
   const [isActive, setIsActive] = React.useState(strategy.status === 'active');

@@ -4,12 +4,9 @@ import {
   Repeat2,
   Heart,
   BadgeCheck,
-  ArrowUpRight,
-  RefreshCw,
   Calendar,
   ChevronDown,
   Check,
-  Filter
 } from 'lucide-react';
 import { socialApi } from '../services/api';
 import { PageContainer } from '../components/Layout/PageContainer';
@@ -40,102 +37,7 @@ const getThemeColors = (isDark: boolean) => ({
 
 // --- Mock Data ---
 
-const TRENDING_FEED: FeedItem[] = [
-  {
-    id: 1,
-    rank: 1,
-    heatScore: '98.5',
-    type: 'frame',
-    author: {
-      name: 'Base Protocol',
-      handle: '@base',
-      avatar: 'https://placehold.co/100/0052ff/ffffff?text=B',
-      isVerified: true
-    },
-    time: '2h',
-    content: "Onchain Summer is officially live! 🟡🔵 \n\nMint the commemorative 'Builder Pass' below to unlock exclusive perks across the ecosystem. Let's build the future together.",
-    frame: {
-      image: 'https://placehold.co/600x300/0052ff/ffffff?text=Onchain+Summer+Live',
-      buttons: ['Mint Free', 'Check Eligibility']
-    },
-    stats: { replies: '2.1k', recasts: '15.4k', likes: '42k' }
-  },
-  {
-    id: 2,
-    rank: 2,
-    heatScore: '95.2',
-    type: 'text',
-    author: {
-      name: 'Vitalik Buterin',
-      handle: '@vitalik.eth',
-      avatar: 'https://placehold.co/100/6366f1/ffffff?text=V',
-      isVerified: true
-    },
-    time: '5h',
-    content: "The most underrated property of crypto is not decentralization of money, but decentralization of trust. \n\nWe are building systems that can survive without a central point of failure. This is why scaling via L2s matters more than ever.",
-    stats: { replies: '890', recasts: '5.2k', likes: '21k' }
-  },
-  {
-    id: 3,
-    rank: 3,
-    heatScore: '92.8',
-    type: 'image',
-    author: {
-      name: 'Zora',
-      handle: '@ourZORA',
-      avatar: 'https://placehold.co/100/111111/ffffff?text=Z',
-      isVerified: true
-    },
-    time: '4h',
-    content: "Imagine. Create. Mint. \n\nThe new creator toolkit is now available for everyone. No code required.",
-    images: [
-      'https://placehold.co/600x400/1e1e1e/333333?text=Creator+Toolkit'
-    ],
-    stats: { replies: '450', recasts: '3.1k', likes: '12k' }
-  },
-  {
-    id: 'suggestion_break',
-    type: 'suggestions'
-  },
-  {
-    id: 4,
-    rank: 4,
-    heatScore: '88.4',
-    type: 'poll',
-    author: {
-      name: 'Degen News',
-      handle: '@degennews',
-      avatar: 'https://placehold.co/100/f0932b/ffffff?text=D',
-      isVerified: true
-    },
-    time: '8h',
-    content: "Community Pulse Check: Which narrative dominates Q3 2025?",
-    frame: {
-      isPoll: true,
-      options: [
-        { label: 'AI Agents', percent: 52 },
-        { label: 'SocialFi', percent: 28 },
-        { label: 'RWA', percent: 20 }
-      ]
-    },
-    stats: { replies: '1.2k', recasts: '890', likes: '5.6k' }
-  },
-  {
-    id: 5,
-    rank: 5,
-    heatScore: '85.1',
-    type: 'text',
-    author: {
-      name: 'Brian Armstrong',
-      handle: '@brian_armstrong',
-      avatar: 'https://placehold.co/100/0052ff/ffffff?text=BA',
-      isVerified: true
-    },
-    time: '12h',
-    content: "Regulatory clarity is coming. The builders who stayed focused during the bear market are about to be rewarded.",
-    stats: { replies: '670', recasts: '2.4k', likes: '8.9k' }
-  }
-];
+
 
 // --- Components ---
 
@@ -185,8 +87,16 @@ const formatText = (text: string) => {
 // --- Icons ---
 const BaseIcon = ({ size = 16, style = {} }: { size?: number, style?: React.CSSProperties }) => (
   <img
-    src="/Base_square_blue.png"
+    src="/baselogo.webp"
     alt="Base"
+    style={{ ...style, width: size, height: size, borderRadius: '2px' }}
+  />
+);
+
+const FarcasterIcon = ({ size = 16, style = {} }: { size?: number, style?: React.CSSProperties }) => (
+  <img
+    src="/farcasterlogo.webp"
+    alt="Farcaster"
     style={{ ...style, width: size, height: size, borderRadius: '2px' }}
   />
 );
@@ -200,23 +110,10 @@ const TrendingCastItem: React.FC<{
 }> = ({ data, isDark, onClick, onAvatarClick, onImageClick }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [is3DOpen, setIs3DOpen] = useState(false);
-  const [selectedCast, setSelectedCast] = useState<FeedItem | null>(null);
+  const [selectedCast] = useState<FeedItem | null>(null);
   const [cardMode, setCardMode] = useState<'cast' | 'profile'>('cast');
   const colors = getThemeColors(isDark);
-
-  // Check if content is long (more than ~15 lines or 400 chars)
-  const MAX_CHARS = 400;
-  const contentIsLong = (data.content?.length || 0) > MAX_CHARS;
-  const displayContent = contentIsLong && !isExpanded
-    ? data.content?.substring(0, MAX_CHARS) + '...'
-    : data.content;
-
-  // Extract Twitter/X links from embeds or content
-  const twitterLinks = [
-    ...(data.content?.match(/https?:\/\/(twitter\.com|x\.com)\/\w+\/status\/\d+/g) || []),
-  ];
 
   useEffect(() => {
     const checkScreenSize = () => {
@@ -229,14 +126,7 @@ const TrendingCastItem: React.FC<{
 
   if (!data.author || !data.stats) return null;
 
-  const handleClick = () => {
-    onClick(data);
-  };
 
-  const handleExpandClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsExpanded(!isExpanded);
-  };
 
   return (
     <>
@@ -367,6 +257,7 @@ const TrendingCastItem: React.FC<{
                 alignItems: 'center',
                 gap: '8px',
               }}>
+                <FarcasterIcon size={14} />
                 <span style={{
                   color: colors.textMuted,
                   fontSize: '12px',
@@ -429,7 +320,7 @@ const TrendingCastItem: React.FC<{
               <div style={{ marginTop: '8px' }}>
                 <HlsVideoPlayer
                   src={data.videos[0]}
-                  maxWidth={isMobile ? '100%' : '320px'}
+                  maxWidth={'100%'}
                   maxHeight="400px"
                 />
               </div>
@@ -440,7 +331,7 @@ const TrendingCastItem: React.FC<{
                 display: 'grid',
                 gap: '4px',
                 gridTemplateColumns: data.images.length > 1 ? 'repeat(2, 1fr)' : '1fr',
-                maxWidth: isMobile ? '100%' : '320px', // Reduced to ~2/3 size
+                maxWidth: '320px', // Reduced to ~2/3 size
               }}>
                 {data.images!.map((img: string, idx: number) => (
                   <div
@@ -483,7 +374,7 @@ const TrendingCastItem: React.FC<{
 
             {/* Links Preview - Moved below Images */}
             {data.embeds && data.embeds.length > 0 && (
-              <div style={{ marginTop: '8px', maxWidth: isMobile ? '100%' : '380px' }}>
+              <div style={{ marginTop: '8px', maxWidth: '380px' }}>
                 {data.embeds.filter((e: any) => e.url && !isImageUrl(e.url) && !isVideoUrl(e.url) && !e.castId).map((e: any, i: number) => {
                   if (e.url.startsWith('zoraCoin:') || e.url.startsWith('ethereum:')) return null;
                   return (
@@ -500,8 +391,8 @@ const TrendingCastItem: React.FC<{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              marginTop: isMobile ? '10px' : '6px',
-              paddingTop: isMobile ? '8px' : '6px',
+              marginTop: '6px',
+              paddingTop: '6px',
               borderTop: 'none',
             }}>
               <div style={{
@@ -520,7 +411,7 @@ const TrendingCastItem: React.FC<{
                   <span style={{
                     fontSize: '12px',
                     fontWeight: '500',
-                  }}>{data.stats.replies}</span>
+                  }}>{data.stats?.replies}</span>
                 </div>
                 <div style={{
                   display: 'flex',
@@ -533,7 +424,7 @@ const TrendingCastItem: React.FC<{
                   <span style={{
                     fontSize: '12px',
                     fontWeight: '500',
-                  }}>{data.stats.recasts}</span>
+                  }}>{data.stats?.recasts}</span>
                 </div>
                 <div style={{
                   display: 'flex',
@@ -546,7 +437,7 @@ const TrendingCastItem: React.FC<{
                   <span style={{
                     fontSize: '12px',
                     fontWeight: '500',
-                  }}>{data.stats.likes}</span>
+                  }}>{data.stats?.likes}</span>
                 </div>
 
                 {/* Coin Value Display in Stats Row */}
@@ -846,8 +737,8 @@ export const SocialPage: React.FC = () => {
           const MIN_VALID_TIMESTAMP = 1577836800000; // Jan 1, 2020 in ms
           const items = casts
             .filter((cast) => {
-              // Must have 15+ likes
-              if (cast.stats.likes < 15) return false;
+              // Must have 5+ likes (lowered from 15)
+              if (cast.stats.likes < 5) return false;
 
               // Parse timestamp
               let ts = typeof cast.timestamp === 'number' ? cast.timestamp : Number(cast.timestamp) || 0;

@@ -38,7 +38,6 @@ interface LayoutProps {
     onNewChat?: () => void;
     onConversationRename?: (id: string, newTitle: string) => void;
     onConversationDelete?: (id: string) => void;
-    onAIAnalyzeComplete?: (prompt: string) => void; // Handler for AI analysis completion
     generatingConversationId?: string | null;
     setGeneratingConversationId?: (id: string | null) => void;
     onBack?: () => void; // Generic back button handler (for TokenDetailPage, etc.)
@@ -54,7 +53,6 @@ export const Layout: React.FC<LayoutProps> = ({
     onNewChat,
     onConversationRename,
     onConversationDelete,
-    onAIAnalyzeComplete,
     generatingConversationId,
     setGeneratingConversationId,
     onBack,

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, Suspense } from 'react';
 import { Search } from 'lucide-react';
-import type { Token } from '@/types/swap';
+
 const UnifiedChartCardLazy = React.lazy(() =>
     import('../Chart/UnifiedChartCard').then((mod) => ({ default: mod.UnifiedChartCard }))
 );
@@ -13,7 +13,7 @@ import snakeLogo from '../../assets/images/gecko-terminal.png';
 import owlLogo from '../../assets/images/dex-screener.png';
 import zorbLogo from '../../assets/images/Zorb.svg';
 import bonkFunLogo from '../../assets/images/BonkFun.png';
-import raydiumLogo from '../../assets/images/Raydium.png';
+
 import clankerLogo from '../../assets/images/ClankerOG.png';
 import fourMemeLogo from '../../assets/images/FourMeme.png';
 import pumpFunLogo from '../../assets/images/PumpFun.png';
@@ -175,36 +175,9 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
             || (isSolanaLaunchpad ? 900 : (isBscLaunchpad ? 56 : (isBaseLaunchpad ? 8453 : 1)));
     }, [chainId, isBaseLaunchpad, isBscLaunchpad, isSolanaLaunchpad]);
 
-    let nativeToken: Token | undefined;
 
-    if (isSolanaLaunchpad) {
-        nativeToken = {
-            address: 'So11111111111111111111111111111111111111112', // Native SOL address
-            symbol: 'SOL',
-            name: 'Solana',
-            decimals: 9,
-            chainId: 900,
-            logoUrl: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png'
-        };
-    } else if (isBscLaunchpad) {
-        nativeToken = {
-            address: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', // WBNB address (used for swaps)
-            symbol: 'BNB',
-            name: 'BNB',
-            decimals: 18,
-            chainId: 56,
-            logoUrl: 'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png'
-        };
-    } else if (isBaseLaunchpad) {
-        nativeToken = {
-            address: '0x4200000000000000000000000000000000000006', // WETH on Base
-            symbol: 'ETH',
-            name: 'Ethereum',
-            decimals: 18,
-            chainId: 8453,
-            logoUrl: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png'
-        };
-    }
+
+
 
 
     // --- Renders ---
@@ -222,14 +195,14 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
     let safeSymbol = 'TOKEN';
     let safeName = 'Unknown Token';
     let safeAddress: string | undefined;
-    let safeCreator: string | undefined;
+
     let displayDate = 'Recently';
 
     if (provider === 'zora' && token) {
         safeSymbol = token.symbol;
         safeName = token.name;
         safeAddress = token.address;
-        safeCreator = token.creatorAddress;
+
         if (token.createdAt) {
             try { displayDate = new Date(token.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
         }
@@ -237,7 +210,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeSymbol = clankerToken.symbol;
         safeName = clankerToken.name;
         safeAddress = clankerToken.contract_address;
-        safeCreator = clankerToken.msg_sender;
+
         if (clankerToken.deployed_at) {
             try { displayDate = new Date(clankerToken.deployed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
         }
@@ -245,7 +218,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeSymbol = paragraphToken.symbol;
         safeName = paragraphToken.name || paragraphToken.symbol;
         safeAddress = paragraphToken.contractAddress;
-        safeCreator = undefined; // Paragraph doesn't provide creator in the API response
+
         if (paragraphToken.createdAt) {
             try { displayDate = new Date(paragraphToken.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
         } else {
@@ -255,7 +228,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeSymbol = fourMemeToken.shortName; // Using shortName as symbol for Four.meme
         safeName = fourMemeToken.name;
         safeAddress = fourMemeToken.address;
-        safeCreator = fourMemeToken.userAddress;
+
         // The API returns createDate, but our backend maps it to createdAt as well for consistency
         const mTime = fourMemeToken.createdAt || (fourMemeToken as any).createDate;
         if (mTime) {
@@ -265,7 +238,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeSymbol = pumpFunToken.symbol;
         safeName = pumpFunToken.name;
         safeAddress = pumpFunToken.mint;
-        safeCreator = pumpFunToken.creator;
+
         if (pumpFunToken.created_timestamp) {
             try { displayDate = new Date(pumpFunToken.created_timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
         }
@@ -273,21 +246,13 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeSymbol = raydiumToken.symbol;
         safeName = raydiumToken.name;
         safeAddress = raydiumToken.mint;
-        safeCreator = raydiumToken.creator || 'Unknown';
+
         if (raydiumToken.created_at) {
             try { displayDate = new Date(raydiumToken.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
         }
     }
 
-    // Prepare Token Object for SwapCard (Unified for all providers)
-    const scanToken: Token | undefined = useMemo(() => safeAddress ? {
-        address: safeAddress,
-        symbol: safeSymbol,
-        name: safeName,
-        decimals: (provider === 'pumpfun' || provider === 'raydium' || provider === 'bonkfun') ? 6 : 18, // Default decimals
-        chainId: chainId || (provider === 'pumpfun' || provider === 'raydium' || provider === 'bonkfun' ? 900 : (provider === 'fourmeme' ? 56 : 8453)),
-        logoUrl: avatar
-    } : undefined, [avatar, chainId, provider, safeAddress, safeName, safeSymbol]);
+
 
     // Chart rendering guard to avoid heavy iframe load when address missing or quickly toggled
     useEffect(() => {

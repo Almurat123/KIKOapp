@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useWallets, usePrivy } from '@privy-io/react-auth';
-import { useWallets as useSolanaWallets, useSignTransaction } from '@privy-io/react-auth/solana';
+import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
 // Note: VersionedTransaction type will be provided by Privy wallet
 // We'll use 'any' type for now until @solana/web3.js is installed
 type VersionedTransaction = any;
@@ -65,7 +65,7 @@ export function useSolanaSwap({
 
   // Get Privy embedded Solana wallets using the Solana-specific hook
   const { wallets: embeddedSolanaWallets } = useSolanaWallets();
-  const { signTransaction } = useSignTransaction();
+
 
   // Get all wallets from both useWallets() and user.linkedAccounts
   // Privy stores Solana wallets in linkedAccounts, not in the wallets array
@@ -294,8 +294,6 @@ export function useSolanaSwap({
 
         // Fetch SPL token balances using parsed RPC method (no @solana/spl-token needed)
         try {
-          const { PublicKey } = await import('@solana/web3.js');
-
           // Hardcode TOKEN_PROGRAM_ID to avoid importing @solana/spl-token (which causes Buffer issues)
           const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 

@@ -6,11 +6,10 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useWriteContract, useSendTransaction, useSwitchChain, useChainId } from 'wagmi';
-import { formatUnits, erc20Abi, maxUint256 } from 'viem';
+import { formatUnits, erc20Abi } from 'viem';
 import type { Address } from 'viem';
 import type { Token, SwapState, PriceData, SwapQuote } from '@/types/swap';
 import {
-  getPriceData,
   checkApproval,
   getUserBalance,
   calculatePriceImpact,
@@ -20,7 +19,7 @@ import {
   getBestSwapQuote,
   type SwapQuote as AggregatorQuote,
 } from '@/services/dexAggregatorService';
-import { getTokenData, getCommonTokens, COMMON_TOKENS, type TokenData } from '@/services/tokenDataService';
+import { getCommonTokens, COMMON_TOKENS, type TokenData } from '@/services/tokenDataService';
 import { logger } from '@/utils/logger';
 import { getMEVProtectionConfig, estimateMEVSavings } from '@/config/mevProtection';
 import {
@@ -28,16 +27,10 @@ import {
   determineTokenRisk,
   slippageToBps,
   DEFAULT_SLIPPAGE_CONFIG,
-  type SlippageMode,
   type SlippageConfig,
 } from '@/config/slippageConfig';
 import {
   getQuoteRefreshInterval,
-  getDegenSlippage,
-  shouldAutoRetry,
-  getRetryDelay,
-  DEFAULT_DEGEN_CONFIG,
-  type DegenModeConfig,
 } from '@/config/degenMode';
 import {
   validateSwapPrice,
@@ -47,57 +40,7 @@ import {
 const DEFAULT_CHAIN_ID = 1;
 const DEFAULT_SLIPPAGE_BPS = 50;
 
-const POPULAR_TOKENS: Record<string, Token> = {
-  ETH: {
-    address: '0x0000000000000000000000000000000000000000',
-    symbol: 'ETH',
-    name: 'Ethereum',
-    decimals: 18,
-    emoji: '🦄',
-  },
-  USDC: {
-    address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    symbol: 'USDC',
-    name: 'USD Coin',
-    decimals: 6,
-    emoji: '💵',
-  },
-  USDT: {
-    address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-    symbol: 'USDT',
-    name: 'Tether USD',
-    decimals: 6,
-    emoji: '💳',
-  },
-  DAI: {
-    address: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
-    symbol: 'DAI',
-    name: 'Dai Stablecoin',
-    decimals: 18,
-    emoji: '💰',
-  },
-  WETH: {
-    address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-    symbol: 'WETH',
-    name: 'Wrapped Ether',
-    decimals: 18,
-    emoji: '🦄',
-  },
-  WBTC: {
-    address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
-    symbol: 'WBTC',
-    name: 'Wrapped Bitcoin',
-    decimals: 8,
-    emoji: '₿',
-  },
-  UNI: {
-    address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-    symbol: 'UNI',
-    name: 'Uniswap',
-    decimals: 18,
-    emoji: '🦄',
-  },
-};
+
 
 function tokenDataToToken(tokenData: TokenData): Token {
   return {
@@ -223,7 +166,7 @@ export function useSwap(options: UseSwapOptions = {}) {
 
   // Degen Mode state
   const [degenMode, setDegenMode] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
+
 
   // Price validation state
   const [priceValidation, setPriceValidation] = useState<PriceValidationResult | null>(null);
@@ -430,30 +373,7 @@ export function useSwap(options: UseSwapOptions = {}) {
     };
   }, [state.tokenIn?.address, state.tokenOut?.address, state.amountIn, chainId, slippageBps]); // Remove priceData from deps to avoid loop
 
-  const fetchPriceData = useCallback(async () => {
-    if (!state.tokenIn || !state.tokenOut) return;
 
-    try {
-      const data = await getPriceData(state.tokenIn.address, state.tokenOut.address, chainId);
-      if (data) {
-        setPriceData(prev => {
-          // Only update if data actually changed to avoid unnecessary re-renders
-          if (!prev ||
-            prev.tokenInPrice !== data.tokenInPrice ||
-            prev.tokenOutPrice !== data.tokenOutPrice ||
-            prev.nativeTokenPrice !== data.nativeTokenPrice) {
-            return data;
-          }
-          return prev;
-        });
-      }
-    } catch (error) {
-      // Only log non-network errors as errors
-      if (!(error instanceof TypeError && error.message.includes('Failed to fetch'))) {
-        console.error('[useSwap] fetchPriceData failed', error);
-      }
-    }
-  }, [state.tokenIn?.address, state.tokenOut?.address, chainId]); // Only depend on addresses
 
   const fetchUserBalance = useCallback(async (retryCount = 0) => {
 
@@ -544,16 +464,15 @@ export function useSwap(options: UseSwapOptions = {}) {
   const currentTokenInAddressRef = useRef<string | null>(null);
 
   // Store function refs to avoid re-triggering useEffect when functions are recreated
-  const fetchPriceDataRef = useRef(fetchPriceData);
+
   const fetchUserBalanceRef = useRef(fetchUserBalance);
   const checkUserApprovalRef = useRef(checkUserApproval);
 
   // Update refs when functions change
   useEffect(() => {
-    fetchPriceDataRef.current = fetchPriceData;
     fetchUserBalanceRef.current = fetchUserBalance;
     checkUserApprovalRef.current = checkUserApproval;
-  }, [fetchPriceData, fetchUserBalance, checkUserApproval]);
+  }, [fetchUserBalance, checkUserApproval]);
 
   // Removed independent price fetching - price is fetched as part of quote request
   // This ensures only ONE request per swap card (the quote request)
@@ -787,15 +706,15 @@ export function useSwap(options: UseSwapOptions = {}) {
             // Wait a bit for chain switch to complete
             await new Promise(resolve => setTimeout(resolve, 1000));
           } catch (switchError) {
-            const message = switchError instanceof Error ? switchError.message : 'Failed to switch chain';
+            const switchMsg = switchError instanceof Error ? switchError.message : 'Failed to switch chain';
             const chainNames: Record<number, string> = {
               1: 'Ethereum', 56: 'BSC', 8453: 'Base', 42161: 'Arbitrum',
               137: 'Polygon', 10: 'Optimism', 43114: 'Avalanche', 250: 'Fantom',
             };
             const targetChain = chainNames[chainId] || `Chain ${chainId}`;
             const currentChain = chainNames[currentChainId] || `Chain ${currentChainId}`;
-            setState(prev => ({ ...prev, error: `Please switch your wallet from ${currentChain} to ${targetChain}`, isExecuting: false }));
-            return { success: false, error: `Please switch your wallet from ${currentChain} to ${targetChain}` };
+            setState(prev => ({ ...prev, error: `Please switch your wallet from ${currentChain} to ${targetChain}. ${switchMsg}`, isExecuting: false }));
+            return { success: false, error: `Please switch your wallet from ${currentChain} to ${targetChain}. ${switchMsg}` };
           }
         } else {
           const chainNames: Record<number, string> = {

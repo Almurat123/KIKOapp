@@ -27,10 +27,14 @@ const __dirname = path.dirname(__filename);
 // Helper to reliably find the real_hot_users.json file across different environments (ts-node, build, etc.)
 function resolveRealHotUsersPath(): string {
   const candidates = [
-    // 1. Standard relative path from src/jobs (kiko-api/src/jobs -> KiKo/test)
+    // 1. New internal data directory in kiko-api
+    path.resolve(__dirname, '../../data/real_hot_users.json'),
+    // 2. Standard relative path from src/jobs (kiko-api/src/jobs -> KiKo/test)
     path.resolve(__dirname, '../../../test/Farcaste/real_hot_users.json'),
-    // 2. Relative to process.cwd() (usually kiko-api root) -> ../test
+    // 3. Relative to process.cwd() (usually kiko-api root) -> ../test
     path.resolve(process.cwd(), '../test/Farcaste/real_hot_users.json'),
+    // 4. Local data directory in kiko-api root
+    path.resolve(process.cwd(), 'data/real_hot_users.json'),
   ];
 
   for (const p of candidates) {

@@ -13,8 +13,8 @@ export interface LaunchpadResult {
 
 export const detectLaunchpadToken = async (
     address: string,
-    chainId: number, // Context chainId, but we might need to search others if address format matches
-    userMessage?: string
+    _chainId: number, // Context chainId, but we might need to search others if address format matches
+    _userMessage?: string
 ): Promise<LaunchpadResult | null> => {
     // 1. Determine address type (EVM vs Solana)
     const isSolana = address.length > 40 && !address.startsWith('0x');

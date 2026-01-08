@@ -351,10 +351,7 @@ function App() {
     }
   };
 
-  const handleAIAnalyzeComplete = (prompt: string) => {
-    setPendingAIPrompt(prompt);
-    setActiveTab('chat');
-  };
+
 
   const handleAIPromptSet = () => {
     setPendingAIPrompt(null);
@@ -375,7 +372,6 @@ function App() {
         onNewChat={handleNewChat}
         onConversationRename={handleConversationRename}
         onConversationDelete={handleConversationDelete}
-        onAIAnalyzeComplete={handleAIAnalyzeComplete}
         generatingConversationId={generatingConversationId}
         setGeneratingConversationId={setGeneratingConversationId}
       >

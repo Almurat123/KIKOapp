@@ -3,7 +3,7 @@
  */
 
 import type { SwapParams, SwapQuote, TradeExecutionResult, PriceData } from '@/types/swap';
-import { priceRateLimiter, quoteRateLimiter, balanceRateLimiter } from '@/utils/apiRateLimiter';
+import { priceRateLimiter, balanceRateLimiter } from '@/utils/apiRateLimiter';
 import { getAuthToken } from '../utils/authToken';
 import { parseUnits } from 'viem';
 

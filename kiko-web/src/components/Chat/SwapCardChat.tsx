@@ -75,59 +75,9 @@ function networkToChainId(network: string): number {
   return networkMap[network.toLowerCase()] || 1;
 }
 
-/**
- * Check if a contract address is valid (EVM or Solana)
- */
-function isValidContractAddress(address: string): boolean {
-  if (!address) return false;
 
-  // EVM address: 0x + 40 hex characters
-  // Exclude ETH placeholder (0xEee...EEeE)
-  if (address.startsWith('0x') && address.length === 42) {
-    if (address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
-      return false; // ETH placeholder, not a real contract
-    }
-    return /^0x[a-fA-F0-9]{40}$/.test(address);
-  }
 
-  // Solana address: base58, 32-44 chars
-  if (address.length >= 32 && address.length <= 44) {
-    return /^[1-9A-HJ-NP-Za-km-z]+$/.test(address);
-  }
 
-  return false;
-}
-
-/**
- * Validate if a token can be safely resolved
- * Returns error message if token cannot be resolved safely
- */
-function validateTokenResolvability(
-  tokenSymbol: string,
-  tokenAddress: string | undefined,
-  chainId: number
-): { valid: boolean; errorMessage?: string } {
-  // Check if token is in COMMON_TOKENS (verified tokens)
-  const commonTokens = getCommonTokens(chainId);
-  const foundInCommon = commonTokens.find(t =>
-    t.symbol.toLowerCase() === tokenSymbol.toLowerCase()
-  );
-
-  if (foundInCommon) {
-    return { valid: true };
-  }
-
-  // Check if a valid contract address was provided
-  if (tokenAddress && isValidContractAddress(tokenAddress)) {
-    return { valid: true };
-  }
-
-  // Token cannot be safely resolved
-  return {
-    valid: false,
-    errorMessage: `⚠️ I cannot find "${tokenSymbol}" in the verified token list.\n\nTo protect you from scam tokens, please provide the exact contract address:\n"I want to buy 0x..."\n\nYou can find the official contract address on:\n• CoinGecko\n• CoinMarketCap\n• The project's official website`
-  };
-}
 
 /**
  * 将 SwapCardData 转换为 Token 对象

@@ -121,7 +121,7 @@ function getSlippageSetting(slippageBps?: number): string {
 /**
  * Get fallback token image URL from Trust Wallet or other sources
  */
-function getTokenImageUrl(network: string, address?: string, symbol?: string): string | undefined {
+function getTokenImageUrl(network: string, address?: string, _symbol?: string): string | undefined {
   if (!address) return undefined;
 
   // Trust Wallet image URL format

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Activity,
   Globe,
   Lock,
   ArrowUpRight,
@@ -9,11 +8,11 @@ import {
   Maximize2,
   ArrowLeft,
   ExternalLink,
-  FileText,
   Info,
   TrendingUp,
   TrendingDown,
-  ChevronRight
+  ChevronRight,
+  Activity
 } from 'lucide-react';
 import { marketApi } from '../services/api';
 import type { ProtocolData, MarketOverview, ChainData } from '../services/api';
@@ -22,8 +21,6 @@ import { PageContainer } from '../components/Layout/PageContainer';
 import { Skeleton } from '../components/Skeleton';
 import styles from './SuperDefiPage.module.css';
 
-
-// --- Responsive Hook ---
 
 function useWindowSize() {
   const [windowSize, setWindowSize] = useState({
@@ -46,6 +43,8 @@ function useWindowSize() {
 
   return windowSize;
 }
+
+
 
 // --- Formatting Helpers ---
 
@@ -594,14 +593,12 @@ const chainColors: Record<string, string> = {
   AVALANCHE: "#e84142",
 };
 
-const LogoIcon: React.FC<LogoIconProps> = ({ name, size = 'md', variant = 'protocol', logoUrl }) => {
+const LogoIcon: React.FC<LogoIconProps> = ({ name, size = 'md', logoUrl }) => {
   const { resolvedTheme } = useThemeContext();
   const isDark = resolvedTheme === 'dark';
   const sizeConfig = logoSizes[size];
   const upperName = name.toUpperCase();
 
-  // Use chain color if it's a chain, otherwise generate a color from name
-  const isChain = variant === 'chain' || chainColors[upperName];
   let bgColor = chainColors[upperName];
 
   // Generate a consistent color from protocol name if no chain color
@@ -1334,7 +1331,7 @@ export const SuperDefiPage: React.FC = () => {
 
   const { width } = useWindowSize();
   const isMobile = width < 768;
-  const isTablet = width >= 768 && width < 1024;
+
 
   // Theme colors
   const themeColors = useMemo(() => ({

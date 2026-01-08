@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useSessionSigners, usePrivy } from '@privy-io/react-auth';
 
 // The Authorization Key ID from your Privy Dashboard

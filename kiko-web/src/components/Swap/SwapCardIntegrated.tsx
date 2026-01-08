@@ -8,7 +8,6 @@ import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom';
 import { ArrowDown, X, Settings2, Zap, ChevronDown, Search, Check } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
-import { useChainId } from 'wagmi';
 import { useSwap } from '@/hooks/useSwap';
 import { useSolanaSwap } from '@/hooks/useSolanaSwap';
 import type { Token } from '@/types/swap';
@@ -132,9 +131,6 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   // Use the appropriate swap hook based on chain
   const swap = isSolana ? solanaSwap : evmSwap;
 
-  // Get current wallet chain (for display purposes only)
-  const currentChainId = useChainId();
-
   // Typed swap instances and state
   const evmSwapTyped = isSolana ? null : swap as ReturnType<typeof useSwap>;
   const solanaSwapTyped = isSolana ? swap as ReturnType<typeof useSolanaSwap> : null;
@@ -216,7 +212,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const [showTokenSelector, setShowTokenSelector] = useState<'in' | 'out' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { login, connectWallet, authenticated, getAccessToken } = usePrivy();
+  const { login, authenticated, getAccessToken } = usePrivy();
 
   useEffect(() => {
     // Reset confirmation when quote/spender or amount changes
@@ -371,9 +367,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const availableQuotes = (displayInfo as any)?.availableQuotes || [];
   const selectedDex = (displayInfo as any)?.selectedDex || dexName;
 
-  const isWalletConnected = isSolana
-    ? solanaSwapTyped?.isWalletConnected
-    : true; // EVM swap hook doesn't expose this directly yet, assume true if userAddress passed
+
 
   const canExecute =
     amountIn !== '0' &&

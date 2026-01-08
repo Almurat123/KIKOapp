@@ -133,7 +133,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                             drag
                             dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
                             dragElastic={0.1} // Allow slight drag for feel but snap back
-                            onDragEnd={(e, info) => {
+                            onDragEnd={(_e, info) => {
                                 // Swipe down to close logic
                                 if (info.offset.y > 100) onClose();
                             }}

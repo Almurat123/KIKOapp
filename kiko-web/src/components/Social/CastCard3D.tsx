@@ -2,8 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion';
 import type { PanInfo } from 'framer-motion';
-import { X, Heart, MessageCircle, Repeat2, BadgeCheck, ExternalLink } from 'lucide-react';
-import { useThemeContext } from '../../contexts/ThemeContext';
+import { X, Heart, MessageCircle, Repeat2, BadgeCheck } from 'lucide-react';
 import { ContentFrame } from './ContentFrame';
 import type { FeedItem } from '../../services/api';
 import ZorbIcon from '../../assets/images/Zorb.svg';
@@ -305,7 +304,7 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                         }} onClick={() => {
                                             window.open(`https://base.app/post/${cast.id}`, '_blank');
                                         }}>
-                                            <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: '#0052FF' }} />
+                                            <img src="/baselogo.webp" alt="Base" style={{ width: '16px', height: '16px', borderRadius: '2px' }} />
                                             <div style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>Base App</div>
                                         </div>
 
@@ -316,8 +315,7 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                         }} onClick={() => {
                                             if (cast.author?.handle) window.open(`https://warpcast.com/${cast.author.handle}`, '_blank');
                                         }}>
-                                            {/* Warpcast Logo (approx color) */}
-                                            <div style={{ width: '16px', height: '16px', borderRadius: '4px', background: '#7C3AED' }} />
+                                            <img src="/farcasterlogo.webp" alt="Farcaster" style={{ width: '16px', height: '16px', borderRadius: '2px' }} />
                                             <div style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>Warpcast</div>
                                         </div>
 
@@ -481,6 +479,7 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                             boxShadow: '0 4px 12px rgba(0, 82, 255, 0.3)',
                                         }}
                                     >
+                                        <img src="/baselogo.webp" alt="" style={{ width: '18px', height: '18px', borderRadius: '2px' }} />
                                         Base App
                                     </motion.button>
 
@@ -506,6 +505,7 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                             boxShadow: '0 4px 12px rgba(124, 58, 237, 0.3)',
                                         }}
                                     >
+                                        <img src="/farcasterlogo.webp" alt="" style={{ width: '18px', height: '18px', borderRadius: '2px' }} />
                                         Farcaster
                                     </motion.button>
                                 </div>

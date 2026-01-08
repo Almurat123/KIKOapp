@@ -1,4 +1,4 @@
-import { pipeline, env, type TextClassificationPipeline } from '@xenova/transformers';
+import { env } from '@xenova/transformers';
 
 // Configure Transformers.js for browser environment
 env.allowLocalModels = false;

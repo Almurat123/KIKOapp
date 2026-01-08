@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Sparkles,
   ArrowUp,
   Settings,
   ChevronDown
@@ -8,8 +7,6 @@ import {
 import styles from './WelcomeScreen.module.css';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { CustomAISettingsModal } from './CustomAISettingsModal';
-import { chatApi } from '../../services/api';
-import { getAuthToken } from '../../utils/authToken';
 import { useSmartSuggestions } from './useSmartSuggestions';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { logger } from '../../utils/logger';

@@ -1,7 +1,7 @@
 import type { Intent } from './intentParser';
 
 export class AIExtendedIntentParser {
-    static async parseUserIntent(input: string): Promise<Intent | null> {
+    static async parseUserIntent(_input: string): Promise<Intent | null> {
         return null;
     }
 }

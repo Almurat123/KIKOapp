@@ -40,7 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   isDesktopOpen,
   onDesktopClose,
-  onProfileClick,
+
   conversations = [],
   activeConversationId,
   onConversationClick,
@@ -50,7 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   generatingConversationId,
 }) => {
   const { resolvedTheme } = useThemeContext();
-  const { user, authenticated, login } = usePrivy();
+  const { user, authenticated } = usePrivy();
   const { wallets } = useWallets();
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['chat'])); // 默认展开 Chat 分组
   const [editingId, setEditingId] = useState<string | null>(null);

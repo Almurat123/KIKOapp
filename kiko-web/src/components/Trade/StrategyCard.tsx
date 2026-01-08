@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, Edit, Trash2, Eye, Zap, Activity, Target, Check, RefreshCw } from 'lucide-react';
+import { Play, Pause, Edit, Trash2, Eye, Target, Check, RefreshCw } from 'lucide-react';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import type { TradingStrategy } from '../../hooks/useStrategies';
 import styles from './StrategyCard.module.css';
@@ -11,7 +11,6 @@ interface StrategyCardProps {
   onEdit: (strategy: TradingStrategy) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string) => void;
-  onViewDetails?: (strategy: TradingStrategy) => void;
   variant?: 'card' | 'row';
 }
 
@@ -20,7 +19,6 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   onEdit,
   onDelete,
   onToggleStatus,
-  onViewDetails,
   variant = 'card',
 }) => {
   const { resolvedTheme } = useThemeContext();

@@ -1,10 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Copy,
   TrendingUp,
-  TrendingDown,
-  Share2,
   Star,
   Check,
   Zap,
@@ -13,12 +11,10 @@ import {
   Send,
   MessageSquare,
 } from 'lucide-react';
-import { tokenApi } from '../services/api';
 import { favoriteApi } from '../services/favoriteService';
 import { useSidebar } from '../components/Layout/Layout';
 
 import { GeckoTerminalChart } from '../components/Chart/GeckoTerminalChart';
-import { useThemeContext } from '../contexts/ThemeContext';
 import styles from './TokenDetailPage.module.css';
 
 // --- Types ---
@@ -123,13 +119,11 @@ const TwitterIcon = () => (
 );
 
 export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack }) => {
-  const { resolvedTheme } = useThemeContext();
-  const isDark = resolvedTheme === 'dark';
   const sidebar = useSidebar();
 
   const [copied, setCopied] = useState(false);
-  const [securityData, setSecurityData] = useState<any>(null);
-  const [loadingSecurity, setLoadingSecurity] = useState(false);
+  const [securityData] = useState<any>(null);
+  const [loadingSecurity] = useState(false);
 
   // Favorites State
   const [isFavorite, setIsFavorite] = useState(false);
@@ -138,7 +132,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   // Register back handler with global mobile header
   useEffect(() => {
     if (sidebar?.setOnBackHandler) {
-      sidebar.setOnBackHandler(() => onBack);
+      sidebar.setOnBackHandler(() => onBack());
     }
     return () => {
       if (sidebar?.setOnBackHandler) {
@@ -153,9 +147,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
       const checkFav = async () => {
         try {
           const normalizedChain = token.chain.toLowerCase();
-          console.log('[TokenDetailPage] Checking favorite status for:', normalizedChain, token.address);
           const status = await favoriteApi.checkFavorite(normalizedChain, token.address);
-          console.log('[TokenDetailPage] Favorite status result:', status);
           setIsFavorite(status);
         } catch (e) { console.error(e); }
       };
@@ -176,13 +168,6 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
     // Normalize chain to lowercase for API consistency
     const normalizedChain = token.chain.toLowerCase();
 
-    console.log('[TokenDetailPage] Toggling Favorite:', {
-      chain: normalizedChain,
-      address: token.address,
-      currentState: previousState,
-      newState: !previousState
-    });
-
     try {
       let success: boolean;
       if (previousState) {
@@ -195,7 +180,6 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
 
       if (!success) {
         // Revert on failure
-        console.error('[TokenDetailPage] API returned failure');
         setIsFavorite(previousState);
       }
     } catch (e) {
@@ -205,8 +189,6 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
       setLoadingFav(false);
     }
   };
-
-
 
 
   // Copy address function
@@ -423,7 +405,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
           </div>
           <div className={styles.securityValue}>
             {loadingSecurity ? <span className={styles.loadingPulse}>...</span> : securityData ? (
-              securityData.hasRenouncedOwner ?
+              (securityData as any).hasRenouncedOwner ?
                 <div className={styles.safeBadge}><Check size={10} /> Renounced</div> :
                 <div className={styles.warnBadge}>Active</div>
             ) : '-'}
@@ -438,7 +420,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
           </div>
           <div className={styles.securityValue}>
             {loadingSecurity ? <span className={styles.loadingPulse}>...</span> : securityData ? (
-              securityData.isMintable ? 'Yes' : 'No'
+              (securityData as any).isMintable ? 'Yes' : 'No'
             ) : '-'}
           </div>
         </div>
@@ -451,8 +433,8 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
           </div>
           <div className={styles.securityValue}>
             {loadingSecurity ? <span className={styles.loadingPulse}>...</span> : securityData ? (
-              <span className={securityData.buyTax > 5 || securityData.sellTax > 5 ? styles.redText : styles.greenText}>
-                {securityData.buyTax}% / {securityData.sellTax}%
+              <span className={(securityData as any).buyTax > 5 || (securityData as any).sellTax > 5 ? styles.redText : styles.greenText}>
+                {(securityData as any).buyTax}% / {(securityData as any).sellTax}%
               </span>
             ) : '0% / 0%'}
           </div>
@@ -468,14 +450,14 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
         <div className={styles.holdersMainRow}>
           <span className={styles.holderCountLabel}>Total Holders</span>
           <span className={styles.holderCountValue}>
-            {securityData?.holdersCount || token.holders || '-'}
+            {(securityData as any)?.holdersCount || token.holders || '-'}
           </span>
         </div>
         {/* Show Top 10 percentage if available, otherwise hide detail */}
-        {securityData?.top10Percentage && (
+        {(securityData as any)?.top10Percentage && (
           <div className={styles.holdersDetailRow}>
             <span>Top 10:</span>
-            <span>{securityData.top10Percentage}%</span>
+            <span>{(securityData as any).top10Percentage}%</span>
           </div>
         )}
       </div>

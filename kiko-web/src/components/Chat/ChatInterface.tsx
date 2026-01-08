@@ -9,7 +9,6 @@ import { MessageBubble } from './MessageBubble';
 import { WelcomeScreen } from './WelcomeScreen';
 import { CustomAISettingsModal } from './CustomAISettingsModal';
 import { ChatInputSuggestions, type SuggestionItem } from './ChatInputSuggestions';
-import { useSmartSuggestions } from './useSmartSuggestions';
 import { useSidebar } from '../Layout/Layout';
 import { useThemeContext } from '../../contexts/ThemeContext';
 // Use global ChainContext for app-wide chain state
@@ -80,8 +79,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     initialMessages = [],
     onMessagesChange,
     onNewConversation,
-    conversationTitle,
-    onNewChat,
     pendingAIPrompt,
     onAIPromptSet,
     activeTask: propActiveTask,
@@ -141,19 +138,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         },
     });
 
-    // Chain name mapping
-    const chainNameMap: Record<number, string> = {
-        1: 'Ethereum',
-        8453: 'Base',
-        56: 'BSC',
-        42161: 'Arbitrum',
-        10: 'Optimism',
-        137: 'Polygon',
-        43114: 'Avalanche',
-        250: 'Fantom',
-    };
 
-    const chainName = chainNameMap[chainId] || `Chain ${chainId}`;
+
+    // const chainName = chainNameMap[chainId] || `Chain ${chainId}`;
 
     // State for user balances (common tokens)
     const [userBalances, setUserBalances] = useState<Record<string, string>>({});
@@ -173,8 +160,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [thinkingText, setThinkingText] = useState('Thinking');
     const [showJumpToBottom, setShowJumpToBottom] = useState(false);
     const [isComposing, setIsComposing] = useState(false);
-    const [stoppedMessageId, setStoppedMessageId] = useState<string | null>(null);
-    const [stoppedMessageContent, setStoppedMessageContent] = useState<string>('');
     const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
     // Load selected model from localStorage or use default
@@ -392,7 +377,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const lastMsg = prev[prev.length - 1];
                         // Database returns snake_case field names
                         const chunkMessageId = event.data.message_id || event.data.messageId;
-                        const hasContent = event.data.content && event.data.content.length > 0;
                         const hasReasoning = event.data.reasoning_content && event.data.reasoning_content.length > 0;
 
                         // DEBUG: Log chunk info
@@ -923,10 +907,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         };
     }, [isModelDropdownOpen]);
 
-    // Create a stable key for initialMessages to detect changes
-    const initialMessagesKey = initialMessages.length > 0
-        ? `${initialMessages.length}-${initialMessages[initialMessages.length - 1]?.id || ''}`
-        : '0';
 
     // Sync messages when conversationId or initialMessages change
     useEffect(() => {

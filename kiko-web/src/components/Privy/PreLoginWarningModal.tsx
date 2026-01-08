@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
+
 import styles from './PreLoginWarningModal.module.css';
 
 interface PreLoginWarningModalProps {

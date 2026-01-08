@@ -5,10 +5,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ZORA_PROXY_URL = `${API_BASE_URL}/api/zora-proxy/coin`;
 
-// Helper to get API key from env (Deprecated in frontend)
-const getApiKey = () => {
-    return '';
-};
+
 
 export interface ZoraToken {
     id: string;

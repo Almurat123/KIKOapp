@@ -9,10 +9,10 @@ import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useAccount, useChainId } from 'wagmi';
 import { PageContainer } from '../components/Layout/PageContainer';
 import { SwapCardIntegrated } from '../components/Swap/SwapCardIntegrated';
-import { isWalletConnected, getConnectedWalletAddress, isWalletStateBroken } from '@/utils/walletUtils';
+import { isWalletConnected, getConnectedWalletAddress } from '@/utils/walletUtils';
 
 export const SwapTestPage: React.FC = () => {
-  const { authenticated, logout, ready } = usePrivy();
+  const { authenticated, ready } = usePrivy();
   const { wallets } = useWallets();
   const { address: wagmiAddress, isConnected: wagmiIsConnected } = useAccount();
   const chainIdFromWagmi = useChainId();

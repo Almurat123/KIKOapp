@@ -119,7 +119,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                     onEdit={(strategy) => onCardAction?.('strategy-edit', strategy)}
                                     onDelete={(id) => onCardAction?.('strategy-delete', id)}
                                     onToggleStatus={(id) => onCardAction?.('strategy-toggle', id)}
-                                    onViewDetails={(strategy) => onCardAction?.('strategy-details', strategy)}
                                 />
                             </div>
                         </div>

@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { ExternalLink, Image as ImageIcon, Video } from 'lucide-react';
+import { ExternalLink, Video } from 'lucide-react';
 
 interface EmbedPreviewProps {
     url: string;
