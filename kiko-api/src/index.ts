@@ -59,6 +59,15 @@ fastify.register(cors, {
 fastify.setErrorHandler(errorHandler);
 fastify.setNotFoundHandler(notFoundHandler);
 
+// Debug logging hook
+fastify.addHook('onRequest', async (request, reply) => {
+    console.log(`[DEBUG] onRequest: ${request.method} ${request.url}`);
+});
+
+fastify.addHook('onResponse', async (request, reply) => {
+    console.log(`[DEBUG] onResponse: ${request.method} ${request.url} -> ${reply.statusCode}`);
+});
+
 // Register rate limiter for all routes
 fastify.addHook('onRequest', rateLimiter);
 
