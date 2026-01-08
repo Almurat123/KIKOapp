@@ -49,12 +49,9 @@ const fastify = Fastify({
 });
 
 // Register CORS
+const corsOrigins = env.corsOrigin.split(',').map(o => o.trim());
 fastify.register(cors, {
-    origin: [
-        'http://localhost:5173',
-        'http://localhost:3000',
-        'http://localhost:3001',
-    ],
+    origin: corsOrigins,
     credentials: true,
 });
 
