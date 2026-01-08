@@ -118,23 +118,30 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     fastify.post('/alchemy', async (request, reply) => {
         const payload = request.body as any;
 
-        console.log(`[Webhook] Received Alchemy webhook: type=${payload?.type}, network=${payload?.event?.network}`);
+        // Debug: Log full payload structure (first 2000 chars)
+        console.log(`[Webhook] Alchemy payload:`, JSON.stringify(payload, null, 2).slice(0, 2000));
 
         // Respond immediately with 200 (Alchemy expects this)
         reply.send({ success: true });
 
         // Process activities asynchronously
         try {
-            const network = payload?.event?.network;
+            // Alchemy webhook structure can vary - check multiple paths
+            // Standard Address Activity: payload.event.network
+            // Some versions: payload.network
+            // Activity level: payload.event.activity[0].network
+            const network = payload?.event?.network
+                || payload?.network
+                || payload?.event?.activity?.[0]?.network;
+
             const chainId = NETWORK_TO_CHAIN_ID[network];
 
             if (!chainId) {
-                console.warn(`[Webhook] Unknown network: ${network}`);
+                console.warn(`[Webhook] Unknown network: ${network}, tried paths: event.network, network, event.activity[0].network`);
                 return;
             }
 
             const activities = payload?.event?.activity || [];
-            console.log(`[Webhook] Processing ${activities.length} activities on chain ${chainId}`);
 
             for (const activity of activities) {
                 const txHash = activity.hash;
