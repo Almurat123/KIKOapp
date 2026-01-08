@@ -508,12 +508,13 @@ const TrendingCastItem: React.FC<{
 function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
   const now = Date.now();
 
-  // Parse timestamp - handle both number and string formats
+  // Parse timestamp - handle ISO strings, numbers, etc.
   let castTimestamp: number;
   if (typeof cast.timestamp === 'number') {
     castTimestamp = cast.timestamp;
   } else if (typeof cast.timestamp === 'string') {
-    castTimestamp = parseInt(cast.timestamp, 10);
+    const parsedDate = new Date(cast.timestamp).getTime();
+    castTimestamp = isNaN(parsedDate) ? parseInt(cast.timestamp, 10) || 0 : parsedDate;
   } else {
     castTimestamp = 0;
   }
@@ -741,7 +742,15 @@ export const SocialPage: React.FC = () => {
               if (cast.stats.likes < 5) return false;
 
               // Parse timestamp
-              let ts = typeof cast.timestamp === 'number' ? cast.timestamp : Number(cast.timestamp) || 0;
+              let ts: number;
+              if (typeof cast.timestamp === 'number') {
+                ts = cast.timestamp;
+              } else if (typeof cast.timestamp === 'string') {
+                const parsedDate = new Date(cast.timestamp).getTime();
+                ts = isNaN(parsedDate) ? parseInt(cast.timestamp, 10) || 0 : parsedDate;
+              } else {
+                ts = 0;
+              }
 
               // Convert seconds to milliseconds if needed
               if (ts > 0 && ts < 1e12) {
