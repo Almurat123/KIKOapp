@@ -139,22 +139,15 @@
     background: #27272a;
 }
 
-.light .collapseBtn:hover {
+.sidebar.light .collapseBtn:hover {
     background: #f3f4f6;
 }
 
-@media (max-width: 768px) {
-    .closeBtn {
-        display: flex;
-    }
-
-    .collapseBtn {
-        display: none;
-    }
-}
-
-.actionArea {
-    margin-bottom: 16px;
+/* Liquid Glass Core Styles */
+.glassBase {
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .newChatBtn {
@@ -163,29 +156,34 @@
     align-items: center;
     gap: 8px;
     padding: 12px;
-    background: #27272a;
-    border: 1px solid #3f3f46;
-    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05); /* Liquid Glass Dark */
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 0.5px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
     color: #a1a1aa;
     font-size: 14px;
-    transition: background 0.2s;
+    transition: all 0.2s ease;
     cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .light .newChatBtn {
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    color: #6b7280;
+    background: rgba(255, 255, 255, 0.4); /* Liquid Glass Light */
+    border: 0.5px solid rgba(0, 0, 0, 0.05);
+    color: #4b5563;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .newChatBtn:hover {
-    background: #3f3f46;
+    background: rgba(255, 255, 255, 0.1);
+    transform: scale(1.01);
     color: #f4f4f5;
 }
 
 .light .newChatBtn:hover {
-    background: #f3f4f6;
-    color: #1f2937;
+    background: rgba(255, 255, 255, 0.55);
+    color: #111827;
 }
 
 .nav {
@@ -212,14 +210,14 @@
     align-items: center;
     gap: 12px;
     padding: 10px 12px;
-    border-radius: 8px;
+    border-radius: 12px;
     color: #a1a1aa;
-    transition: background 0.2s;
+    transition: all 0.2s ease;
     text-align: left;
     font-size: 14px;
     width: 100%;
     background: transparent;
-    border: none;
+    border: 0.5px solid transparent;
     cursor: pointer;
 }
 
@@ -228,24 +226,36 @@
 }
 
 .navItem:hover {
-    background: #27272a;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 0.5px solid rgba(255, 255, 255, 0.1);
     color: #f4f4f5;
 }
 
 .light .navItem:hover {
-    background: #f3f4f6;
+    background: rgba(0, 0, 0, 0.03);
+    border: 0.5px solid rgba(0, 0, 0, 0.05);
     color: #1f2937;
 }
 
 .navItem.active {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
     color: #ffffff;
-    font-weight: 500;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .light .navItem.active {
-    background: rgba(0, 0, 0, 0.06);
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 0.5px solid rgba(0, 0, 0, 0.05);
     color: #18181b;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .navLabel {
@@ -419,27 +429,35 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    transition: background 0.2s;
+    padding: 10px 12px;
+    border-radius: 12px;
+    transition: all 0.2s ease;
     color: #a1a1aa;
     text-align: left;
     cursor: pointer;
-    background: transparent;
-    border: none;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 0.5px solid rgba(255, 255, 255, 0.05);
     width: 100%;
+    margin-bottom: 8px;
 }
 
 .light .userProfile {
+    background: rgba(255, 255, 255, 0.3);
+    border: 0.5px solid rgba(0, 0, 0, 0.05);
     color: #6b7280;
 }
 
 .userProfile:hover {
-    background: #27272a;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-1px);
 }
 
 .light .userProfile:hover {
-    background: #f3f4f6;
+    background: rgba(255, 255, 255, 0.5);
+    border-color: rgba(0, 0, 0, 0.08);
 }
 
 .avatar {
