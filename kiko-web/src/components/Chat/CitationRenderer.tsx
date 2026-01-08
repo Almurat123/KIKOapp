@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import clsx from 'clsx';
 import type { Citation } from '../../utils/sourceUtils';
 import { getCitationUrl } from '../../utils/sourceUtils';
@@ -13,10 +14,6 @@ interface CitationRendererProps {
   components?: any; // Custom components for ReactMarkdown
 }
 
-/**
- * Renders content with inline citations, similar to Grok.com
- * Supports hover previews and click-to-open links
- */
 // Hook to fetch citation previews
 export const useCitationPreviews = (citations: Citation[]) => {
   const [citationPreviews, setCitationPreviews] = useState<Record<number, string>>({});
@@ -31,15 +28,11 @@ export const useCitationPreviews = (citations: Citation[]) => {
         try {
           const citation = citations[i];
           const url = getCitationUrl(citation);
-          // For X/Twitter URLs, use a special preview
           if (url.includes('twitter.com') || url.includes('x.com')) {
             previews[i + 1] = `X (Twitter) post: ${url}`;
             continue;
           }
 
-          // For other URLs, try to fetch page title
-          // Note: This requires CORS support or a proxy
-          // For now, just use the URL domain
           try {
             const domain = new URL(url).hostname;
             previews[i + 1] = `Source: ${domain}`;
@@ -47,9 +40,7 @@ export const useCitationPreviews = (citations: Citation[]) => {
             previews[i + 1] = url;
           }
         } catch (error) {
-          // Fallback to URL
-          const citation = citations[i];
-          previews[i + 1] = getCitationUrl(citation);
+          previews[i + 1] = getCitationUrl(citations[i]);
         }
       }
 
@@ -71,49 +62,51 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
   const [hoveredCitation, setHoveredCitation] = useState<number | null>(null);
   const citationPreviews = useCitationPreviews(citations);
 
-  // Check if content contains citation markers like [1], [2], etc.
   const citationPattern = /\[(\d+)\]/g;
-  const hasCitations = citations.length > 0 && citationPattern.test(content);
 
+  // Simple render if no citations to avoid complexity
+  if (citations.length === 0 || !citationPattern.test(content)) {
+    return (
+      <div className={clsx(styles.citationContainer, className)}>
+        <ReactMarkdown
+          components={components}
+          remarkPlugins={[remarkGfm]}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
 
-  // Render content with clickable citation links
+  // Complex render with citations
   const renderWithCitations = () => {
-    if (!hasCitations) {
-      return <span>{content}</span>;
-    }
-
     const parts: (string | React.ReactElement)[] = [];
     let lastIndex = 0;
     let match;
 
-    // Reset regex
     citationPattern.lastIndex = 0;
 
     while ((match = citationPattern.exec(content)) !== null) {
       const citationIndex = parseInt(match[1], 10);
-      const citation = citations[citationIndex - 1]; // Citations are 1-indexed
+      const citation = citations[citationIndex - 1];
       const citationUrl = getCitationUrl(citation);
 
-      // Add text before citation (rendered as Markdown)
       if (match.index > lastIndex) {
         const textPart = content.substring(lastIndex, match.index);
         parts.push(
           <ReactMarkdown
             key={`text-${lastIndex}`}
-            components={components || {
-              p: ({ children }: any) => <span className={styles.inlineMarkdown}>{children}</span>,
-              blockquote: ({ children }: any) => <blockquote className={styles.markdownBlockquote}>{children}</blockquote>,
-              strong: ({ children }: any) => <strong>{children}</strong>,
-              em: ({ children }: any) => <em>{children}</em>,
-              a: ({ href, children }: any) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+            components={{
+              ...components,
+              p: React.Fragment // Render text segments without wrapping in <p> to avoid block breaks
             }}
+            remarkPlugins={[remarkGfm]}
           >
             {textPart}
           </ReactMarkdown>
         );
       }
 
-      // Add citation link
       if (citationUrl) {
         const isXPost = citationUrl.includes('twitter.com') || citationUrl.includes('x.com');
         parts.push(
@@ -161,7 +154,6 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
           </sup>
         );
       } else {
-        // Citation index out of range, just show the number
         parts.push(
           <sup key={`citation-${match.index}`} className={styles.citation}>
             [{citationIndex}]
@@ -172,21 +164,17 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
       lastIndex = match.index + match[0].length;
     }
 
-    // Add remaining text
     if (lastIndex < content.length) {
-      const textPart = content.substring(lastIndex);
       parts.push(
         <ReactMarkdown
           key={`text-${lastIndex}`}
-          components={components || {
-            p: ({ children }: any) => <span className={styles.inlineMarkdown}>{children}</span>,
-            blockquote: ({ children }: any) => <blockquote className={styles.markdownBlockquote}>{children}</blockquote>,
-            strong: ({ children }: any) => <strong>{children}</strong>,
-            em: ({ children }: any) => <em>{children}</em>,
-            a: ({ href, children }: any) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+          components={{
+            ...components,
+            p: React.Fragment // Render text segments without wrapping in <p> to avoid block breaks
           }}
+          remarkPlugins={[remarkGfm]}
         >
-          {textPart}
+          {content.substring(lastIndex)}
         </ReactMarkdown>
       );
     }
@@ -200,4 +188,3 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
     </div>
   );
 };
-

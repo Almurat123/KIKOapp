@@ -284,6 +284,75 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     enable_search = true
                 } = request.body;
 
+                // -----------------------------------------------------------------
+                // GROK PROXY: Forward to kiko-python if model is grok-*
+                // This keeps Grok logic (tool use, search) in the Python service
+                // while providing a unified CORS-safe endpoint for the frontend.
+                // -----------------------------------------------------------------
+                if (model.startsWith('grok-')) {
+                    const grokServiceUrl = process.env.GROK_SERVICE_URL || 'http://localhost:8000/grok';
+                    console.log(`[AI Routes] Routing Grok request to ${grokServiceUrl}`);
+
+                    try {
+                        const response = await fetch(`${grokServiceUrl}/v1/chat/completions`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': request.headers.authorization as string,
+                            },
+                            body: JSON.stringify(request.body),
+                        });
+
+                        if (!response.ok) {
+                            const status = response.status;
+                            const errorText = await response.text();
+                            console.error(`[AI Routes] Grok service error (${status}):`, errorText);
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                return reply.code(status).send(errorJson);
+                            } catch {
+                                return reply.code(status).send({ error: errorText || 'Grok service error' });
+                            }
+                        }
+
+                        if (stream) {
+                            const origin = request.headers.origin || 'http://localhost:5173';
+                            reply.raw.writeHead(200, {
+                                'Content-Type': 'text/event-stream',
+                                'Cache-Control': 'no-cache',
+                                'Connection': 'keep-alive',
+                                'Access-Control-Allow-Origin': origin,
+                                'Access-Control-Allow-Credentials': 'true',
+                            });
+
+                            const reader = response.body!.getReader();
+                            const decoder = new TextDecoder();
+                            const encoder = new TextEncoder();
+
+                            try {
+                                while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    reply.raw.write(value);
+                                }
+                            } catch (error) {
+                                console.error('[AI Routes] Grok stream interrupted:', error);
+                            } finally {
+                                reply.raw.end();
+                                reader.releaseLock();
+                            }
+                            return;
+                        } else {
+                            const data = await response.json();
+                            return reply.send(data);
+                        }
+                    } catch (error: any) {
+                        console.error('[AI Routes] Failed to proxy to Grok service:', error);
+                        return reply.code(500).send({ error: `Grok service unreachable: ${error.message}` });
+                    }
+                }
+                // -----------------------------------------------------------------
+
                 if (!messages || !Array.isArray(messages) || messages.length === 0) {
                     return reply.code(400).send({
                         error: 'Invalid request: messages array is required',

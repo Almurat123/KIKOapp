@@ -137,10 +137,10 @@ export interface XaiStreamResponse {
   };
 }
 
-// X.ai API endpoint - using Python service wrapper for proper tool support
-// Python service runs on http://localhost:8001 and uses official xai-sdk
-const GROK_SERVICE_URL = import.meta.env.VITE_GROK_SERVICE_URL || 'http://localhost:8001';
-const XAI_API_URL = `${GROK_SERVICE_URL}/v1/chat/completions`;
+// X.ai API endpoint - Now routed through Node.js API to kiko-python
+// This secures the Python service URL and provides unified authentication
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const XAI_API_URL = `${API_BASE_URL}/api/ai/chat`;
 const DEFAULT_MODEL = 'grok-4-1-fast-reasoning'; // Use reasoning model for tool support
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
@@ -192,10 +192,17 @@ async function makeRequest(
   retries = MAX_RETRIES
 ): Promise<Response> {
   try {
+    // Get Privy auth token
+    const authToken = await getAuthToken();
+    if (!authToken) {
+      throw new Error('Authentication required: Please log in to use Grok.');
+    }
+
     const response = await fetch(XAI_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
       },
       body: JSON.stringify(request),
     });

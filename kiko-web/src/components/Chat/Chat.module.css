@@ -67,7 +67,7 @@
     overflow-x: clip;
     /* Use clip instead of hidden to not interfere with child scrolling */
     padding: 16px;
-    padding-bottom: 140px;
+    padding-bottom: 180px;
     /* Extra space for action buttons + input area */
     display: flex;
     flex-direction: column;
@@ -94,7 +94,7 @@
     .messageList {
         padding: 20px 24px;
         padding-top: 24px;
-        padding-bottom: 140px;
+        padding-bottom: 180px;
         /* Extra space for action buttons + input area */
     }
 }
@@ -117,10 +117,14 @@
     flex-wrap: nowrap;
     position: relative;
     z-index: 1;
+    margin-bottom: 24px;
+    /* Space between message blocks */
 }
 
 .groupedRow {
-    margin-top: 0;
+    margin-top: -16px;
+    /* Pull grouped messages closer */
+    margin-bottom: 8px;
 }
 
 .userRow {
@@ -311,7 +315,9 @@
     /* Strict vertical alignment */
     gap: 4px;
     /* Consistent spacing between all items */
-    margin-top: 8px;
+    margin-top: 12px;
+    margin-bottom: 4px;
+    /* Room for hover effects and general breathing space */
     opacity: 0;
     transition: opacity 0.15s ease;
     user-select: none;
@@ -1950,18 +1956,24 @@
 .markdownContent {
     width: 100%;
     white-space: pre-wrap;
+    /* For raw text messages */
     word-wrap: break-word;
     word-break: break-word;
     overflow-wrap: break-word;
     margin: 0;
     padding: 0;
     font-size: 15px;
-    line-height: 1.4;
+    line-height: 1.6;
     color: #e4e4e7;
     display: block;
     position: relative;
     user-select: text;
     -webkit-user-select: text;
+}
+
+.markdownContainer {
+    white-space: normal !important;
+    /* Markdown handles its own newlines */
 }
 
 .markdownImage {
@@ -2011,12 +2023,16 @@
 /* Style default ReactMarkdown elements directly */
 .markdownContent p {
     margin: 0;
-    margin-bottom: 0;
-    line-height: 1.4;
+    margin-bottom: 8px;
+    line-height: 1.6;
     font-size: 15px;
     color: inherit;
     user-select: text;
     -webkit-user-select: text;
+}
+
+.markdownContent p:last-child {
+    margin-bottom: 0;
 }
 
 .markdownContent h1,
@@ -2028,9 +2044,14 @@
     color: #e4e4e7;
     user-select: text;
     -webkit-user-select: text;
-    margin: 0;
+    margin: 16px 0 8px 0;
+}
+
+.markdownContent h1:first-child,
+.markdownContent h2:first-child,
+.markdownContent h3:first-child,
+.markdownContent h4:first-child {
     margin-top: 0;
-    margin-bottom: 0;
 }
 
 .markdownContent h1 {
@@ -2076,9 +2097,8 @@
 }
 
 .markdownContent li {
-    margin: 4px 0;
-    padding: 4px 0;
-    margin: 0;
+    margin: 2px 0;
+    padding: 0;
     width: 100%;
     line-height: 1.6;
     font-size: 15px;
@@ -2111,8 +2131,7 @@
     border-radius: 8px;
     padding: 12px 14px;
     overflow-x: auto;
-    margin: 8px 0;
-    margin-bottom: 8px;
+    margin: 12px 0;
     user-select: text !important;
     -webkit-user-select: text !important;
     border: 1px solid #3f3f46;
@@ -2158,7 +2177,7 @@
     border-collapse: separate;
     /* Required for border-radius */
     border-spacing: 0;
-    margin: 16px 0;
+    margin: 8px 0;
     width: 100%;
     border: 1px solid #3f3f46;
     /* Slightly lighter border */
@@ -3045,7 +3064,7 @@
     font-size: 13px;
     line-height: 1.6;
     color: #52525b;
-    white-space: normal;
+    white-space: pre-wrap;
     word-wrap: break-word;
     overflow-wrap: break-word;
     word-break: break-word;

@@ -236,7 +236,11 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                             )}
                             {message.content && (
                                 <div
-                                    className={clsx(styles.markdownContent, styles.markdownContentSelectable)}
+                                    className={clsx(
+                                        styles.markdownContent,
+                                        styles.markdownContentSelectable,
+                                        styles.markdownContainer
+                                    )}
                                     onMouseDown={(e) => {
                                         // Allow text selection by not preventing default
                                         e.stopPropagation();
