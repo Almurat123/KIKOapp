@@ -24,7 +24,14 @@ export async function connectRedis(): Promise<boolean> {
 
     if (!redis.isOpen && !redisConnected) {
         try {
-            await redis.connect();
+            // Add timeout to prevent blocking forever
+            const connectWithTimeout = Promise.race([
+                redis.connect(),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Connection timeout')), 5000)
+                )
+            ]);
+            await connectWithTimeout;
             redisConnected = true;
             console.log('[Redis] Connected successfully');
         } catch (err: any) {
