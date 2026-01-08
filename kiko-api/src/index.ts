@@ -155,17 +155,22 @@ async function start() {
             console.warn('⚠️  Caching will be disabled');
         }
 
-        // Start cron jobs (these should handle their own errors)
+        // START SERVER FIRST - so health checks pass while background services init
+        console.log(`Starting server on port ${env.port}...`);
+        await fastify.listen({ port: env.port, host: '0.0.0.0' });
+        console.log(`🚀 Server listening on http://localhost:${env.port}`);
+        console.log(`📊 API endpoints available at http://localhost:${env.port}/api`);
+        console.log(`🏥 Health check: http://localhost:${env.port}/health`);
+
+        // Now start background services (after server is listening)
         console.log('Starting background jobs...');
         try {
             startMarketDataJobs();
             startTokenDataJobs();
-
             startSocialDataJobs();
             console.log('✅ Background jobs started');
         } catch (jobError) {
             console.warn('⚠️  Some background jobs failed to start:', jobError);
-            console.warn('⚠️  Continuing with server startup...');
         }
 
         // Start auto trade service (copy trading)
@@ -195,12 +200,7 @@ async function start() {
             console.warn('⚠️  Chat worker failed to start:', chatWorkerError);
         }
 
-        // Start server
-        console.log(`Starting server on port ${env.port}...`);
-        await fastify.listen({ port: env.port, host: '0.0.0.0' });
-        console.log(`🚀 Server listening on http://localhost:${env.port}`);
-        console.log(`📊 API endpoints available at http://localhost:${env.port}/api`);
-        console.log(`🏥 Health check: http://localhost:${env.port}/health`);
+        console.log('🎉 All services initialized!');
     } catch (error: any) {
         console.error('❌ Error starting server:', error);
         if (error.code === 'EADDRINUSE') {
