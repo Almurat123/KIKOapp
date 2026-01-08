@@ -330,7 +330,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => {
               if (!authenticated) {
                 // Navigate to wallet page with test mode
-                window.history.pushState({}, '', '?test=true');
+                // window.history.pushState({}, '', '?test=true');
                 onTabChange('wallet');
                 onClose(); // Close sidebar on mobile
               } else {

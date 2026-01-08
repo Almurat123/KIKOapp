@@ -237,7 +237,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 if (!allowanceMode) {
                     // Map frontend settings to backend mode
                     // 'allowance_trade' or 'degenMode' implies instant execution
-                    if (toolConfig.swapMethod === 'allowance_trade' || toolConfig.degenMode === true) {
+                    if (toolConfig && (toolConfig.swapMethod === 'allowance_trade' || toolConfig.degenMode === true)) {
                         allowanceMode = 'instant';
                     } else {
                         allowanceMode = 'confirm';
