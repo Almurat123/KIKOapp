@@ -11,7 +11,7 @@
     "start": "node dist/index.js",
     "test": "tsx --test",
     "migrate": "tsx src/db/migrate.ts",
-    "diagnostic:db": "tsx src/scripts/diagnostic-db.ts",
+    "diagnostic:db": "node dist/scripts/diagnostic-db.js",
     "refresh-market-data": "tsx src/scripts/refreshMarketData.ts",
     "kill-port": "bash scripts/kill-port.sh",
     "dev:clean": "npm run kill-port && npm run dev",
