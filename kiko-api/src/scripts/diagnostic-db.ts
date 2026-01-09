@@ -35,14 +35,20 @@ async function main() {
         await checkTable('user', ['email', 'solanaWalletAddress', 'referralCode', 'referredBy']);
 
         // --- Position ---
-        await checkTable('position', ['leaderTxHash', 'leaderBuyPrice', 'leaderBuyAmount', 'leaderBuyValueUsd', 'ourSlippageBps']);
+        await checkTable('position', [
+            'leaderTxHash', 'leaderBuyPrice', 'leaderBuyAmount', 'leaderBuyValueUsd',
+            'ourSlippageBps', 'ourGasUsed', 'ourGasPriceGwei', 'executionDelayMs',
+            'realizedPnlUsd', 'realizedPnlPct', 'holdDurationHours', 'exitTxHash', 'exitReason'
+        ]);
 
         // --- TrackedWallet ---
-        // Note: TrackedWallet uses composite key address_chainId, but prisma name is trackedWallet
-        await checkTable('trackedWallet', ['totalTradesTracked', 'lastTradeAt', 'nickName']);
+        await checkTable('trackedWallet', ['totalTradesTracked', 'lastTradeAt', 'nickName', 'createdAt', 'updatedAt']);
 
         // --- TrendingCast ---
-        await checkTable('trendingCast', ['isBaseAppCoin', 'coinValue', 'authorBio', 'authorTwitter', 'authorCreatorCoin']);
+        await checkTable('trendingCast', [
+            'isBaseAppCoin', 'coinValue', 'authorBio', 'authorTwitter', 'authorCreatorCoin',
+            'createdAt', 'updatedAt'
+        ]);
 
         console.log('\nApplying fixes...');
 
@@ -60,11 +66,15 @@ async function main() {
         await fixColumn('trendingCast', 'trending_casts', 'mentions', 'JSONB');
         await fixColumn('trendingCast', 'trending_casts', 'author_creator_coin', 'TEXT');
         await fixColumn('trendingCast', 'trending_casts', 'author_twitter', 'TEXT');
+        await fixColumn('trendingCast', 'trending_casts', 'created_at', 'TIMESTAMP DEFAULT NOW()');
+        await fixColumn('trendingCast', 'trending_casts', 'updated_at', 'TIMESTAMP DEFAULT NOW()');
 
         // Fix TrackedWallet
         await fixColumn('trackedWallet', 'TrackedWallet', 'totalTradesTracked', 'INTEGER DEFAULT 0');
         await fixColumn('trackedWallet', 'TrackedWallet', 'lastTradeAt', 'TIMESTAMP');
         await fixColumn('trackedWallet', 'TrackedWallet', 'nickName', 'TEXT');
+        await fixColumn('trackedWallet', 'TrackedWallet', 'createdAt', 'TIMESTAMP DEFAULT NOW()');
+        await fixColumn('trackedWallet', 'TrackedWallet', 'updatedAt', 'TIMESTAMP DEFAULT NOW()');
 
         // Fix Position
         await fixColumn('position', 'Position', 'leaderTxHash', 'TEXT');
@@ -72,12 +82,22 @@ async function main() {
         await fixColumn('position', 'Position', 'leaderBuyAmount', 'DOUBLE PRECISION');
         await fixColumn('position', 'Position', 'leaderBuyValueUsd', 'DOUBLE PRECISION');
         await fixColumn('position', 'Position', 'ourSlippageBps', 'INTEGER');
+        await fixColumn('position', 'Position', 'ourGasUsed', 'TEXT');
+        await fixColumn('position', 'Position', 'ourGasPriceGwei', 'DOUBLE PRECISION');
+        await fixColumn('position', 'Position', 'executionDelayMs', 'INTEGER');
+        await fixColumn('position', 'Position', 'realizedPnlUsd', 'DOUBLE PRECISION');
+        await fixColumn('position', 'Position', 'realizedPnlPct', 'DOUBLE PRECISION');
+        await fixColumn('position', 'Position', 'holdDurationHours', 'DOUBLE PRECISION');
+        await fixColumn('position', 'Position', 'exitTxHash', 'TEXT');
+        await fixColumn('position', 'Position', 'exitReason', 'TEXT');
 
         console.log('\nFinal Verification Check...');
         await checkTable('user', ['email', 'solanaWalletAddress', 'referralCode', 'referredBy']);
-        await checkTable('position', ['leaderTxHash', 'leaderBuyPrice', 'leaderBuyAmount', 'leaderBuyValueUsd', 'ourSlippageBps']);
-        await checkTable('trackedWallet', ['totalTradesTracked', 'lastTradeAt', 'nickName']);
-        await checkTable('trendingCast', ['isBaseAppCoin', 'coinValue', 'authorBio', 'authorTwitter', 'authorCreatorCoin']);
+        await checkTable('position', [
+            'ourGasUsed', 'realizedPnlUsd', 'exitTxHash'
+        ]);
+        await checkTable('trackedWallet', ['totalTradesTracked', 'createdAt']);
+        await checkTable('trendingCast', ['isBaseAppCoin', 'createdAt']);
 
         console.log('\n--- Diagnostic and Fix Complete ---');
         console.log('Please restart the server to apply changes.');
