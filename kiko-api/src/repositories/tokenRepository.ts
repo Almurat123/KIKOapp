@@ -10,44 +10,46 @@ export interface TrendingToken extends TokenSearchResult {
 export async function saveTrendingTokens(chain: string, tokens: TokenSearchResult[]): Promise<void> {
   try {
     await withRetry(async () => {
-      // Current behavior: Delete old data for this chain
-      // We'll keep this behavior for simplicity, or use native Prisma upsert
-      await prisma.trendingToken.deleteMany({
-        where: { chain }
-      });
-
       // Deduplicate tokens by address to prevent unique constraint failures
       const seenAddresses = new Set<string>();
       const uniqueTokens = tokens.filter(token => {
-        if (seenAddresses.has(token.address.toLowerCase())) return false;
-        seenAddresses.add(token.address.toLowerCase());
+        if (!token.address) return false;
+        const addr = token.address.toLowerCase();
+        if (seenAddresses.has(addr)) return false;
+        seenAddresses.add(addr);
         return true;
       });
 
-      // Insert new tokens with rank
-      for (let i = 0; i < uniqueTokens.length; i++) {
-        const token = uniqueTokens[i];
-
-        await prisma.trendingToken.create({
-          data: {
-            chain,
-            address: token.address,
-            name: token.name,
-            symbol: token.symbol,
-            network: token.network,
-            imageUrl: token.imageUrl || null,
-            price: token.price ?? null,
-            priceChange5m: token.priceChange5m ?? null,
-            priceChange1h: token.priceChange1h ?? null,
-            priceChange6h: token.priceChange6h ?? null,
-            priceChange24h: token.priceChange24h ?? null,
-            volume24h: token.volume24h ?? null,
-            liquidity: token.liquidity ?? null,
-            fdv: token.fdv ?? null,
-            rank: i + 1,
-          }
+      // Use a transaction to ensure atomicity
+      await prisma.$transaction(async (tx) => {
+        // 1. Delete old data for this chain
+        await tx.trendingToken.deleteMany({
+          where: { chain }
         });
-      }
+
+        // 2. Insert new tokens with rank in bulk
+        if (uniqueTokens.length > 0) {
+          await tx.trendingToken.createMany({
+            data: uniqueTokens.map((token, index) => ({
+              chain,
+              address: token.address,
+              name: token.name,
+              symbol: token.symbol,
+              network: token.network,
+              imageUrl: token.imageUrl || null,
+              price: token.price ?? null,
+              priceChange5m: token.priceChange5m ?? null,
+              priceChange1h: token.priceChange1h ?? null,
+              priceChange6h: token.priceChange6h ?? null,
+              priceChange24h: token.priceChange24h ?? null,
+              volume24h: token.volume24h ?? null,
+              liquidity: token.liquidity ?? null,
+              fdv: token.fdv ?? null,
+              rank: index + 1,
+            }))
+          });
+        }
+      });
     });
 
     // Update memory cache
