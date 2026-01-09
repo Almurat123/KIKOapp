@@ -16,9 +16,17 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
         where: { chain }
       });
 
+      // Deduplicate tokens by address to prevent unique constraint failures
+      const seenAddresses = new Set<string>();
+      const uniqueTokens = tokens.filter(token => {
+        if (seenAddresses.has(token.address.toLowerCase())) return false;
+        seenAddresses.add(token.address.toLowerCase());
+        return true;
+      });
+
       // Insert new tokens with rank
-      for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i];
+      for (let i = 0; i < uniqueTokens.length; i++) {
+        const token = uniqueTokens[i];
 
         await prisma.trendingToken.create({
           data: {

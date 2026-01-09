@@ -3,8 +3,7 @@ import { PanelLeftOpen, ArrowLeft } from 'lucide-react';
 import { usePrivy, useWallets, useLinkAccount } from '@privy-io/react-auth';
 import { Sidebar } from './Sidebar';
 import { useThemeContext } from '../../contexts/ThemeContext';
-
-import { clearWalletData } from '../../utils/privyUtils';
+import { getUserInfo, clearWalletData } from '../../utils/privyUtils';
 import styles from './Layout.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 import { PreLoginWarningModal } from '../Privy/PreLoginWarningModal';
@@ -102,9 +101,8 @@ export const Layout: React.FC<LayoutProps> = ({
         }
     }, [ready, authenticated, secureLogin, wallets, onTabChange, linkWallet]);
 
-    // Get user initials for avatar
-    const userName = user?.farcaster?.username || user?.twitter?.username || user?.discord?.username || user?.email?.address?.split('@')[0] || user?.wallet?.address?.slice(0, 4) + '...' + user?.wallet?.address?.slice(-2) || 'User';
-    const userInitials = userName.substring(0, 2).toUpperCase();
+    // Get user info and avatar
+    const { name: userName, initials: userInitials, avatarUrl } = getUserInfo(user);
 
     // Memoize the context value to prevent unnecessary re-renders in consumers
     const sidebarContextValue = React.useMemo(() => ({
@@ -171,7 +169,11 @@ export const Layout: React.FC<LayoutProps> = ({
                             onClick={handleProfileClick}
                             title={userName}
                         >
-                            <span className={styles.profileInitials}>{userInitials}</span>
+                            {avatarUrl ? (
+                                <img src={avatarUrl} alt={userName} className={styles.profileAvatarImg} />
+                            ) : (
+                                <span className={styles.profileInitials}>{userInitials}</span>
+                            )}
                         </button>
                     </div>
 
@@ -206,7 +208,11 @@ export const Layout: React.FC<LayoutProps> = ({
                             title={authenticated ? "Wallet Profile" : "Connect Wallet"}
                         >
                             <span className={styles.desktopProfileAvatar}>
-                                {userInitials}
+                                {avatarUrl ? (
+                                    <img src={avatarUrl} alt={userName} className={styles.desktopProfileAvatarImg} />
+                                ) : (
+                                    userInitials
+                                )}
                             </span>
                         </button>
                     </div>

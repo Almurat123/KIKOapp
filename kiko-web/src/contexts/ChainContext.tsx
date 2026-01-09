@@ -106,7 +106,11 @@ export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
 
   // Persist chain selection
   useEffect(() => {
-    localStorage.setItem('kiko_active_chain_id', currentChain.id.toString());
+    try {
+      localStorage.setItem('kiko_active_chain_id', currentChain.id.toString());
+    } catch (e) {
+      // Ignored
+    }
   }, [currentChain.id]);
 
   // Track previous chainId to distinguishing between "mounting" and "wallet switching"

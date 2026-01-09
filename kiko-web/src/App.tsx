@@ -31,11 +31,15 @@ function App() {
   // Automatically detect wallet disconnection via browser events
   useEffect(() => {
     // Check for pre-filled AI query from session storage (e.g. from Token Detail page)
-    const prefill = sessionStorage.getItem('ai_prefill_query');
-    if (prefill) {
-      sessionStorage.removeItem('ai_prefill_query');
-      setPendingAIPrompt(prefill);
-      setActiveTab('chat');
+    try {
+      const prefill = sessionStorage.getItem('ai_prefill_query');
+      if (prefill) {
+        sessionStorage.removeItem('ai_prefill_query');
+        setPendingAIPrompt(prefill);
+        setActiveTab('chat');
+      }
+    } catch (e) {
+      // Ignored
     }
 
     if (typeof window === 'undefined') return;

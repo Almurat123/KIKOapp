@@ -18,8 +18,12 @@ interface ThemeProviderProps {
 
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     const [theme, setTheme] = useState<Theme>(() => {
-        const saved = localStorage.getItem('kiko-theme');
-        if (saved === 'light' || saved === 'dark' || saved === 'system') return saved as Theme;
+        try {
+            const saved = localStorage.getItem('kiko-theme');
+            if (saved === 'light' || saved === 'dark' || saved === 'system') return saved as Theme;
+        } catch (e) {
+            console.warn('[ThemeContext] Failed to access localStorage:', e);
+        }
         return 'system'; // Default to system
     });
 
@@ -41,7 +45,11 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     const resolvedTheme = theme === 'system' ? systemTheme : theme;
 
     useEffect(() => {
-        localStorage.setItem('kiko-theme', theme);
+        try {
+            localStorage.setItem('kiko-theme', theme);
+        } catch (e) {
+            // Silently fail or log in dev
+        }
         const root = document.documentElement;
 
         // Update data-theme attribute

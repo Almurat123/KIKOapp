@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import kikoLogo from '../../assets/images/kiko-logo.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
+import { getUserInfo } from '../../utils/privyUtils';
 import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 
@@ -71,12 +72,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-2)}`
     : 'Not connected';
 
-  // Fix [object Object] rendering
-  const emailAddress = user?.email && typeof user.email === 'object' && 'address' in user.email
-    ? (user.email as { address: string }).address
-    : (typeof user?.email === 'string' ? user.email : null);
-
-  const userName = (emailAddress ? emailAddress.split('@')[0] : null) || user?.farcaster?.username || user?.twitter?.username || 'User';
+  // Get user info and avatar
+  const { name: userName, initials: userInitials, avatarUrl } = getUserInfo(user);
 
   const chatItem: NavItem = {
     id: 'chat',
@@ -328,7 +325,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className={styles.userName}>{userName}</span>
               <span className={styles.userWallet}>{displayAddress}</span>
             </div>
-            <div className={styles.avatar} />
+            <div className={styles.avatar}>
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={userName} className={styles.avatarImg} />
+              ) : (
+                <span className={styles.avatarInitials}>{userInitials}</span>
+              )}
+            </div>
           </button>
         </div>
       </aside>

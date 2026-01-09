@@ -24,6 +24,7 @@ import { Settings } from 'lucide-react';
 import { getTokensData } from '../services/tokenDataService';
 import { Skeleton } from '../components/Skeleton';
 import { toast } from '../components/Toast';
+import { getUserInfo } from '../utils/privyUtils';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import styles from './WalletPage.module.css';
 
@@ -738,6 +739,9 @@ export default function WalletPage() {
     );
   }
 
+  // Get user info and avatar
+  const { name: userName, initials: userInitials, avatarUrl } = getUserInfo(user);
+
   return (
     <div className={styles.container}>
       <div className={styles.contentWrapper}>
@@ -745,13 +749,23 @@ export default function WalletPage() {
         {/* Header */}
         <div className={styles.headerSection}>
           <div className={styles.headerLeft}>
-            <div className={styles.portfolioLabel}>Total Balance</div>
-            {loading ? (
-              <Skeleton variant="text" width={150} height={32} />
-            ) : (
-              <div className={styles.portfolioValue}>{portfolioStats.totalValue}</div>
-            )}
-
+            <div className={styles.headerIdentity}>
+              <div className={styles.headerAvatar}>
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={userName} className={styles.avatarImg} />
+                ) : (
+                  <span className={styles.avatarInitials}>{userInitials}</span>
+                )}
+              </div>
+              <div className={styles.headerUserText}>
+                <div className={styles.portfolioLabel}>Total Balance</div>
+                {loading ? (
+                  <Skeleton variant="text" width={150} height={32} />
+                ) : (
+                  <div className={styles.portfolioValue}>{portfolioStats.totalValue}</div>
+                )}
+              </div>
+            </div>
           </div>
           <div className={styles.headerActions}>
             <ChainSwitcher />

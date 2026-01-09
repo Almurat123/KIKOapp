@@ -171,9 +171,42 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 1;
-  /* Allow shrinking if needed */
   min-width: 0;
-  /* Allow text truncation */
+}
+
+.headerIdentity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.headerAvatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.headerUserText {
+  display: flex;
+  flex-direction: column;
+}
+
+.avatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarInitials {
+  color: white;
+  font-weight: 700;
+  font-size: 18px;
 }
 
 .portfolioLabel {

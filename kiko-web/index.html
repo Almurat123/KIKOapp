@@ -14,14 +14,19 @@
     <script>
       // Apply theme immediately to prevent flash
       (function() {
-        const savedTheme = localStorage.getItem('kiko-theme');
-        let theme = savedTheme;
-        
-        if (!theme || theme === 'system') {
-          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        try {
+          const savedTheme = localStorage.getItem('kiko-theme');
+          let theme = savedTheme;
+          
+          if (!theme || theme === 'system') {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          
+          document.documentElement.classList.add(theme);
+        } catch (e) {
+          // Default to dark if theme detection fails (to match dark design)
+          document.documentElement.classList.add('dark');
         }
-        
-        document.documentElement.classList.add(theme);
       })();
     </script>
   </head>

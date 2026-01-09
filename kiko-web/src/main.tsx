@@ -17,6 +17,17 @@ import './index.css';
 import './styles/theme.css';
 import './styles/design-tokens.css';
 
+// Global error logging for debugging (especially useful for mobile Safari)
+if (typeof window !== 'undefined') {
+  window.onerror = function (message, source, lineno, colno, error) {
+    console.error('[Global Error]', { message, source, lineno, colno, error });
+    return false;
+  };
+  window.onunhandledrejection = function (event) {
+    console.error('[Unhandled Rejection]', event.reason);
+  };
+}
+
 const queryClient = new QueryClient();
 
 const wagmiConfig = createConfig({
