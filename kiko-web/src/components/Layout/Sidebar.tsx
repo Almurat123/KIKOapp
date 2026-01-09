@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Newspaper, BarChart2, Layers, Plus, X, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, RefreshCw, Coins, Network } from 'lucide-react';
+import { MessageSquare, Newspaper, BarChart2, Layers, Plus, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, RefreshCw, Coins, Network } from 'lucide-react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import clsx from 'clsx';
 import kikoLogo from '../../assets/images/kiko-logo.png';
@@ -50,7 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   generatingConversationId,
 }) => {
   const { resolvedTheme } = useThemeContext();
-  const { user, authenticated } = usePrivy();
+  const { user } = usePrivy();
   const { wallets } = useWallets();
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['chat']));
   const [editingId, setEditingId] = useState<string | null>(null);
