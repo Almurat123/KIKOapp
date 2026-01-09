@@ -542,3 +542,49 @@ CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_ai_tasks_session ON ai_tasks(session_id);
 CREATE INDEX IF NOT EXISTS idx_ai_tasks_created ON ai_tasks(created_at);
 CREATE INDEX IF NOT EXISTS idx_message_chunks_message ON message_chunks(message_id, chunk_index);
+
+-- User Activity (for analytics/airdrop)
+CREATE TABLE IF NOT EXISTS "UserActivity" (
+  "id" TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+  "date" DATE NOT NULL,
+  "logins" INTEGER DEFAULT 0,
+  "chatMessages" INTEGER DEFAULT 0,
+  "swapsCount" INTEGER DEFAULT 0,
+  "swapVolumeUsd" DOUBLE PRECISION DEFAULT 0,
+  "copyTrades" INTEGER DEFAULT 0,
+  "createdAt" TIMESTAMP DEFAULT NOW(),
+  "updatedAt" TIMESTAMP DEFAULT NOW(),
+  UNIQUE("userId", "date")
+);
+
+-- User Referral records
+CREATE TABLE IF NOT EXISTS "UserReferral" (
+  "id" TEXT PRIMARY KEY,
+  "referrerId" TEXT NOT NULL,
+  "refereeId" TEXT UNIQUE NOT NULL,
+  "referralCode" TEXT NOT NULL,
+  "rewardStatus" TEXT DEFAULT 'pending',
+  "rewardAmount" DOUBLE PRECISION,
+  "rewardedAt" TIMESTAMP,
+  "refereeSwapCount" INTEGER DEFAULT 0,
+  "refereeSwapVolumeUsd" DOUBLE PRECISION DEFAULT 0,
+  "createdAt" TIMESTAMP DEFAULT NOW(),
+  "updatedAt" TIMESTAMP DEFAULT NOW()
+);
+
+-- Data Retention Policy
+CREATE TABLE IF NOT EXISTS "DataRetentionPolicy" (
+  "id" TEXT PRIMARY KEY,
+  "tableName" TEXT UNIQUE NOT NULL,
+  "retentionDays" INTEGER NOT NULL,
+  "isEnabled" BOOLEAN DEFAULT TRUE,
+  "lastCleanedAt" TIMESTAMP,
+  "lastCleanedCount" INTEGER,
+  "description" TEXT,
+  "createdAt" TIMESTAMP DEFAULT NOW(),
+  "updatedAt" TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_useractivity_date ON "UserActivity"("date");
+CREATE INDEX IF NOT EXISTS idx_userreferral_referrer ON "UserReferral"("referrerId");
