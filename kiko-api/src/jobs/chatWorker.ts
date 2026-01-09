@@ -1082,6 +1082,8 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                             // Handle citations (from web search tool results)
                             const choice = data.choices?.[0];
                             if (choice?.message?.citations) {
+                                // Accumulate for DB persistence
+                                allCitations.push(...choice.message.citations);
                                 this.ws.broadcastToUser(userId!, {
                                     type: 'citations',
                                     sessionId: task.sessionId,

@@ -13,96 +13,104 @@ datasource db {
 
 // User linked to Privy
 model User {
-  id            String            @id @default(cuid())
-  privyDid      String            @unique
-  walletAddress String            @unique // Primary EVM address
-  email         String?           @unique // Optional cached email from Privy
-  solanaWalletAddress String?     // Optional Solana address
-  createdAt     DateTime          @default(now())
-  configs       CopyTradeConfig[]
-  positions     Position[]
-  settings      UserSettings?
-  walletExports WalletExport[]
-  favorites     FavoriteToken[]
-  polymarketConfigs PolymarketCopyConfig[]
-  polymarketPositions PolymarketPosition[]
-}
+  id                  String  @id @default(cuid())
+  privyDid            String  @unique
+  walletAddress       String  @unique // Primary EVM address
+  email               String? @unique // Optional cached email from Privy
+  solanaWalletAddress String? // Optional Solana address
 
+  // Referral System
+  referralCode String? @unique // User's unique referral code
+  referredBy   String? // userId of the referrer
+
+  createdAt           DateTime               @default(now())
+  configs             CopyTradeConfig[]
+  positions           Position[]
+  settings            UserSettings?
+  walletExports       WalletExport[]
+  favorites           FavoriteToken[]
+  polymarketConfigs   PolymarketCopyConfig[]
+  polymarketPositions PolymarketPosition[]
+  polymarketActions   PolymarketAction[]
+  swapHistory         SwapHistory[]
+  userActivities      UserActivity[]
+}
 
 // Wallet Key Export Record (for compliance tracking)
 model WalletExport {
   id            String   @id @default(cuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  walletAddress String   // The exported wallet address
-  chainType     String   // ethereum | solana
+  walletAddress String // The exported wallet address
+  chainType     String // ethereum | solana
   exportedAt    DateTime @default(now())
-  
+
   @@unique([userId, walletAddress])
   @@index([userId])
 }
 
 // User Settings (Custom AI Settings)
 model UserSettings {
-  id                    String   @id @default(cuid())
-  userId                String   @unique
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // User Role
-  userRole              String   @default("default")
-  
+  userRole String @default("default")
+
   // Trading Preferences
-  defaultSwapAmount     Float    @default(100)
-  defaultSwapUnit       String   @default("native")
-  checkTokenBeforeSwap  Boolean  @default(true)
-  quickSwapMode         Boolean  @default(false)
-  swapMethod            String   @default("swap_card")
-  
+  defaultSwapAmount    Float   @default(100)
+  defaultSwapUnit      String  @default("native")
+  checkTokenBeforeSwap Boolean @default(true)
+  quickSwapMode        Boolean @default(false)
+  swapMethod           String  @default("swap_card")
+
   // Swap Protection
-  slippageMode          String   @default("auto")
-  customSlippage        Float    @default(0.5)
-  mevProtection         Boolean  @default(true)
-  priceDeviationCheck   Boolean  @default(true)
-  
+  slippageMode        String  @default("auto")
+  customSlippage      Float   @default(0.5)
+  mevProtection       Boolean @default(true)
+  priceDeviationCheck Boolean @default(true)
+
   // Copy Trade AI
-  copyTradeAIMode       String   @default("disabled")
-  
+  copyTradeAIMode String @default("disabled")
+
   // Fast Swap
-  fastSwapMode          Boolean  @default(false)
-  
-  updatedAt             DateTime @updatedAt
+  fastSwapMode Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Copy Trade Configuration
 model CopyTradeConfig {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Target wallet to follow
-  targetWallet    String
-  chainId         Int      @default(8453) // Base
+  targetWallet String
+  chainId      Int    @default(8453) // Base
 
   // Buy Settings
-  buyAmountUsd    Float    // Fixed USD amount to buy
-  maxSlippageBps  Int      @default(300) // 3% default
+  buyAmountUsd   Float // Fixed USD amount to buy
+  maxSlippageBps Int   @default(300) // 3% default
 
   // Filters
-  minMarketCapUsd Float?   // Minimum market cap filter
-  minLiquidityUsd Float?   // Minimum liquidity filter
+  minMarketCapUsd   Float? // Minimum market cap filter
+  minLiquidityUsd   Float? // Minimum liquidity filter
   minTargetValueUsd Float? // Minimum target tx value to trigger copy
 
   // Auto Sell Settings
-  takeProfitPct   Float?   // Take profit percentage (e.g., 100 = +100%)
-  stopLossPct     Float?   // Stop loss percentage (e.g., 20 = -20%)
-  mirrorSell      Boolean  @default(true) // Sell when target sells
+  takeProfitPct Float? // Take profit percentage (e.g., 100 = +100%)
+  stopLossPct   Float? // Stop loss percentage (e.g., 20 = -20%)
+  mirrorSell    Boolean @default(true) // Sell when target sells
 
-  status          String   @default("active") // active | paused
-  aiAnalysisMode  String   @default("disabled") // disabled, analyze_only, auto_decide
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  analyses        CopyTradeAnalysis[]
+  status         String   @default("active") // active | paused
+  aiAnalysisMode String   @default("disabled") // disabled, analyze_only, auto_decide
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  analyses CopyTradeAnalysis[]
 
   @@index([targetWallet])
   @@index([userId])
@@ -110,17 +118,17 @@ model CopyTradeConfig {
 
 // Copy Trade AI Analysis History
 model CopyTradeAnalysis {
-  id              String   @id @default(cuid())
-  configId        String
-  config          CopyTradeConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  
+  id       String          @id @default(cuid())
+  configId String
+  config   CopyTradeConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
   tokenAddress    String
   tokenSymbol     String
-  aiDecision      String   // BUY | SKIP
+  aiDecision      String // BUY | SKIP
   confidenceScore Float
-  analysisJson    String   // JSON string of full analysis
-  
-  createdAt       DateTime @default(now())
+  analysisJson    String // JSON string of full analysis
+
+  createdAt DateTime @default(now())
 
   @@index([configId])
 }
@@ -129,34 +137,41 @@ model CopyTradeAnalysis {
 model TrackedWallet {
   address       String
   chainId       Int
-  lastCheckedTx String?  // Last processed transaction hash
-  activeConfigs Int      @default(0) // Count of configs watching this wallet
-  updatedAt     DateTime @updatedAt
+  lastCheckedTx String? // Last processed transaction hash
+  activeConfigs Int     @default(0) // Count of configs watching this wallet
 
-  @@id([address, chainId])  // Composite primary key: same address can exist on multiple chains
+  // Stats (periodically updated)
+  totalTradesTracked Int       @default(0) // Total trades we've tracked
+  lastTradeAt        DateTime? // Last trade timestamp
+  nickName           String? // User-defined nickname
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([address, chainId]) // Composite primary key: same address can exist on multiple chains
 }
 
 // ======== POLYMARKET COPY TRADING ========
 
 // Polymarket Copy Trade Configuration
 model PolymarketCopyConfig {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  targetWallet    String   // Polymarket trader to follow
+  targetWallet String // Polymarket trader to follow
 
   // Bet Settings
-  betSizeUsd      Float    @default(10) // Fixed bet size per trade
-  maxOpenBets     Int      @default(10) // Max concurrent positions
+  betSizeUsd  Float @default(10) // Fixed bet size per trade
+  maxOpenBets Int   @default(10) // Max concurrent positions
 
-  status          String   @default("active") // active, paused
-  mirrorSell      Boolean  @default(true)
+  status     String  @default("active") // active, paused
+  mirrorSell Boolean @default(true)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  positions       PolymarketPosition[]
+  positions PolymarketPosition[]
 
   @@index([targetWallet])
   @@index([userId])
@@ -171,7 +186,7 @@ model WatchedWallet {
   labels    String[] @default([])
   chain     String   @default("eth")
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([userId, address])
   @@index([userId])
@@ -181,35 +196,35 @@ model WatchedWallet {
 
 // Wallet Performance Stats
 model WalletStats {
-  address      String   @id
-  winRate      Float    @map("win_rate")
-  totalPnl     Float    @map("total_pnl")
-  totalValue   Float    @map("total_value")
-  sharpeRatio  Float    @map("sharpe_ratio")
-  maxDrawdown  Float    @map("max_drawdown")
-  lastUpdated  DateTime @default(now()) @map("last_updated")
+  address     String   @id
+  winRate     Float    @map("win_rate")
+  totalPnl    Float    @map("total_pnl")
+  totalValue  Float    @map("total_value")
+  sharpeRatio Float    @map("sharpe_ratio")
+  maxDrawdown Float    @map("max_drawdown")
+  lastUpdated DateTime @default(now()) @map("last_updated")
 
   @@map("wallet_stats")
 }
 
 // Wallet Transaction History
 model WalletTransaction {
-  id              Int      @id @default(autoincrement())
-  walletAddress   String   @map("wallet_address")
-  chain           String   @default("eth")
-  txHash          String   @map("tx_hash")
-  txType          String   @map("tx_type")
-  fromAddress     String?  @map("from_address")
-  toAddress       String?  @map("to_address")
-  tokenSymbol     String?  @map("token_symbol")
-  tokenAddress    String?  @map("token_address")
-  tokenInSymbol   String?  @map("token_in_symbol")
-  tokenOutSymbol  String?  @map("token_out_symbol")
-  amount          String?
-  valueUsd        Float?   @map("value_usd")
-  blockNumber     BigInt?  @map("block_number")
-  blockTimestamp  DateTime @map("block_timestamp")
-  createdAt       DateTime @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  walletAddress  String   @map("wallet_address")
+  chain          String   @default("eth")
+  txHash         String   @map("tx_hash")
+  txType         String   @map("tx_type")
+  fromAddress    String?  @map("from_address")
+  toAddress      String?  @map("to_address")
+  tokenSymbol    String?  @map("token_symbol")
+  tokenAddress   String?  @map("token_address")
+  tokenInSymbol  String?  @map("token_in_symbol")
+  tokenOutSymbol String?  @map("token_out_symbol")
+  amount         String?
+  valueUsd       Float?   @map("value_usd")
+  blockNumber    BigInt?  @map("block_number")
+  blockTimestamp DateTime @map("block_timestamp")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@unique([txHash, walletAddress])
   @@index([walletAddress])
@@ -220,32 +235,32 @@ model WalletTransaction {
 
 // Polymarket Position (bet tracking)
 model PolymarketPosition {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  configId        String
-  config          PolymarketCopyConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  id       String               @id @default(cuid())
+  userId   String
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  configId String
+  config   PolymarketCopyConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
 
-  marketSlug      String   // e.g., "will-trump-win-2024"
-  conditionId     String   // CTF condition ID
-  assetId         String   // Yes/No token ID
+  marketSlug  String // e.g., "will-trump-win-2024"
+  conditionId String // CTF condition ID
+  assetId     String // Yes/No token ID
 
-  question        String   // "Will Trump win 2024?"
-  outcome         String   // "Yes" or "No"
+  question String // "Will Trump win 2024?"
+  outcome  String // "Yes" or "No"
 
-  entryPrice      Float    // e.g., 0.65 (65¢ per share)
-  shares          Float    // Number of shares
-  costBasis       Float    // Total USD spent
+  entryPrice Float // e.g., 0.65 (65¢ per share)
+  shares     Float // Number of shares
+  costBasis  Float // Total USD spent
 
-  currentPrice    Float?
-  profitLossPct   Float?
+  currentPrice  Float?
+  profitLossPct Float?
 
-  status          String   @default("open") // open, closed, won, lost
-  exitReason      String?  // mirror_sell, manual, market_resolved
+  status     String  @default("open") // open, closed, won, lost
+  exitReason String? // mirror_sell, manual, market_resolved
 
-  createdAt       DateTime @default(now())
-  closedAt        DateTime?
-  resolvedAt      DateTime?
+  createdAt  DateTime  @default(now())
+  closedAt   DateTime?
+  resolvedAt DateTime?
 
   @@index([userId])
   @@index([status])
@@ -255,51 +270,100 @@ model PolymarketPosition {
 // Polymarket API Credentials (per-user, encrypted)
 // Each user's Privy wallet generates their own CLOB API credentials
 model PolymarketApiCreds {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  
+  id     String @id @default(cuid())
+  userId String @unique
+
   // Wallet address this credential is for (user's Privy wallet)
-  walletAddress   String
-  
+  walletAddress String
+
   // L2 API Credentials (encrypted at rest)
-  apiKey          String   // UUID format API key
-  apiSecret       String   // Base64 encoded secret
-  passphrase      String   // Hex passphrase
-  
+  apiKey     String // UUID format API key
+  apiSecret  String // Base64 encoded secret
+  passphrase String // Hex passphrase
+
   // Optional nonce for deriving keys later
-  nonce           Int?
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+  nonce Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([walletAddress])
+}
+
+// Polymarket Action History (Tracked locally for responsiveness)
+model PolymarketAction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type      String   // BUY, SELL, CANCEL
+  status    String   // PENDING, SUCCESS, FAILED, CANCELLED
+  
+  marketTitle String
+  marketSlug  String
+  outcome     String
+  
+  assetId     String?
+  orderId     String?
+  txHash      String?
+  
+  size        Float?
+  price       Float?
+  amount      Float?   // Total USD
+  
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 // Position (tracks user's holdings from copy trades)
 model Position {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  configId      String
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  configId String
 
-  tokenAddress  String
-  tokenSymbol   String?
-  chainId       Int
+  tokenAddress String
+  tokenSymbol  String?
+  chainId      Int
 
   entryPrice    Float
-  entryAmount   String   // Amount in base units
+  entryAmount   String // Amount in base units
   entryTxHash   String
   entryUsdValue Float
 
   currentPrice  Float?
   profitLossPct Float?
 
-  exitTxHash    String?
-  exitReason    String?  // take_profit | stop_loss | mirror_sell | manual
+  // Leader Trade Info (for analytics)
+  leaderTxHash      String? // Leader's original tx hash
+  leaderBuyPrice    Float? // Leader's buy price
+  leaderBuyAmount   Float? // Leader's buy amount
+  leaderBuyValueUsd Float? // Leader's buy value in USD
 
-  status        String   @default("open") // open | closed
-  createdAt     DateTime @default(now())
-  closedAt      DateTime?
+  // Execution Metrics
+  ourSlippageBps   Int? // Actual slippage we experienced
+  ourGasUsed       String? // Gas consumed
+  ourGasPriceGwei  Float? // Gas price in Gwei
+  executionDelayMs Int? // Delay from leader tx to our execution
+
+  // Exit Analytics
+  exitPrice         Float? // Exit price
+  exitAmount        String? // Exit amount
+  exitUsdValue      Float? // Exit value in USD
+  realizedPnlUsd    Float? // Realized PnL in USD
+  realizedPnlPct    Float? // Realized PnL percentage
+  holdDurationHours Float? // How long position was held
+
+  exitTxHash String?
+  exitReason String? // take_profit | stop_loss | mirror_sell | manual
+
+  status    String    @default("open") // open | closed
+  createdAt DateTime  @default(now())
+  closedAt  DateTime?
 
   @@index([userId])
   @@index([status])
@@ -308,43 +372,43 @@ model Position {
 
 // Chat Session for AI Conversations
 model ChatSession {
-  id           String        @id @default(cuid())
-  userId       String
-  title        String
-  model        String        @default("grok-2-1212")
-  status       String        @default("active") // active, archived
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  messages     ChatMessage[]
-  tasks        AITask[]
+  id        String        @id @default(cuid())
+  userId    String
+  title     String
+  model     String        @default("grok-2-1212")
+  status    String        @default("active") // active, archived
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+  tasks     AITask[]
 
   @@index([userId])
 }
 
 // Chat Message
 model ChatMessage {
-  id               String         @id @default(cuid())
+  id               String      @id @default(cuid())
   sessionId        String
-  session          ChatSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role             String         // user | assistant | system | tool
+  session          ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role             String // user | assistant | system | tool
   content          String
   reasoningContent String?
-  
+
   // Metadata & Status
-  type             String         @default("text") // text, swap-card, token-card, etc.
-  data             String?        @db.Text        // JSON string for card data
-  transactionStatus String?       // waiting, success, failed, cancelled
+  type              String  @default("text") // text, swap-card, token-card, etc.
+  data              String? @db.Text // JSON string for card data
+  transactionStatus String? // waiting, success, failed, cancelled
   transactionHash   String?
-  citations        String?        // JSON string
-  usage            String?        // JSON string (prompt_tokens, completion_tokens, etc.)
-  toolCalls        String?        // JSON string
-  toolCallId       String?
-  messageIndex     Int
-  status           String         @default("complete") // streaming, complete, error
-  
-  createdAt        DateTime       @default(now())
-  
-  chunks           MessageChunk[]
+  citations         String? // JSON string
+  usage             String? // JSON string (prompt_tokens, completion_tokens, etc.)
+  toolCalls         String? // JSON string
+  toolCallId        String?
+  messageIndex      Int
+  status            String  @default("complete") // streaming, complete, error
+
+  createdAt DateTime @default(now())
+
+  chunks MessageChunk[]
 
   @@index([sessionId])
   @@index([messageIndex])
@@ -352,22 +416,22 @@ model ChatMessage {
 
 // AI Background Task
 model AITask {
-  id                 String      @id @default(cuid())
-  sessionId          String
-  session            ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  
+  id        String      @id @default(cuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
   userMessageId      String?
   assistantMessageId String?
-  
-  model              String
-  status             String      @default("queued") // queued, running, done, error, cancelled
-  errorMessage       String?
-  
-  toolContext        String?     // JSON string
-  
-  startedAt          DateTime?
-  completedAt        DateTime?
-  createdAt          DateTime    @default(now())
+
+  model        String
+  status       String  @default("queued") // queued, running, done, error, cancelled
+  errorMessage String?
+
+  toolContext String? // JSON string
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
 
   @@index([sessionId])
   @@index([status])
@@ -375,18 +439,18 @@ model AITask {
 
 // Streaming Message Chunk
 model MessageChunk {
-  id               Int         @id @default(autoincrement())
-  messageId        String
-  message          ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  
-  chunkIndex       Int
-  chunkType        String      // content, reasoning, tool_call, tool_result, citation
-  
+  id        Int         @id @default(autoincrement())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  chunkIndex Int
+  chunkType  String // content, reasoning, tool_call, tool_result, citation
+
   content          String?
   reasoningContent String?
-  metadata         String?     // JSON string
-  
-  createdAt        DateTime    @default(now())
+  metadata         String? // JSON string
+
+  createdAt DateTime @default(now())
 
   @@unique([messageId, chunkIndex])
   @@index([messageId])
@@ -394,28 +458,28 @@ model MessageChunk {
 
 // News Article generated by AI (KIKO News Terminal)
 model NewsArticle {
-  id              String   @id @default(cuid())
-  title           String
-  slug            String?  @unique // For URL friendly access
-  summary         String?
-  content         String   // Markdown content
-  
+  id      String  @id @default(cuid())
+  title   String
+  slug    String? @unique // For URL friendly access
+  summary String?
+  content String // Markdown content
+
   // Metadata
-  coverImage      String?  // URL or path to generated cover image
-  tokens          String?  // JSON string of tokens analyzed [{"symbol":"ETH", "chain":"eth", ...}]
-  chains          String?  // JSON string of chains involved ["eth", "base", ...]
-  
+  coverImage String? // URL or path to generated cover image
+  tokens     String? // JSON string of tokens analyzed [{"symbol":"ETH", "chain":"eth", ...}]
+  chains     String? // JSON string of chains involved ["eth", "base", ...]
+
   // Status
-  status          String   @default("pending") // pending, approved, rejected, published
+  status          String  @default("pending") // pending, approved, rejected, published
   rejectionReason String?
-  
+
   // External
-  paragraphId     String?  // ID from Paragraph
-  paragraphUrl    String?  // URL to published article
-  
-  publishedAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  paragraphId  String? // ID from Paragraph
+  paragraphUrl String? // URL to published article
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([status])
   @@index([createdAt])
@@ -423,16 +487,16 @@ model NewsArticle {
 
 // Suggestion Events for Estimation and Verification
 model SuggestionEvent {
-  id              String   @id @default(cuid())
-  userId          String
+  id           String @id @default(cuid())
+  userId       String
   // "Input": The data used for detection (heuristic scores or random)
-  strategy        String   @default("heuristic") // 'heuristic', 'random', 'ai'
-  inputContext    Json?    // Stores scores { "swap": 5, "audit": 0... }
-  
+  strategy     String @default("heuristic") // 'heuristic', 'random', 'ai'
+  inputContext Json? // Stores scores { "swap": 5, "audit": 0... }
+
   // "Output": The resulting suggestion IDs
-  outputResult    Json     // ["swap-tutorial", "deep-audit"...]
-  
-  createdAt       DateTime @default(now())
+  outputResult Json // ["swap-tutorial", "deep-audit"...]
+
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([createdAt])
@@ -440,14 +504,14 @@ model SuggestionEvent {
 
 // Moderation Logs (Input/Output Detection)
 model ModerationLog {
-  id              String   @id @default(cuid())
-  userId          String?  // Optional if we can't always track user
-  sessionId       String?  // The chat session ID
-  model           String?  // The AI model used
-  channel         String   // 'input' or 'output'
-  content         String   // Truncated content
-  result          Json     // Result from kiko-python
-  createdAt       DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String? // Optional if we can't always track user
+  sessionId String? // The chat session ID
+  model     String? // The AI model used
+  channel   String // 'input' or 'output'
+  content   String // Truncated content
+  result    Json // Result from kiko-python
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([sessionId])
@@ -456,49 +520,49 @@ model ModerationLog {
 
 // Judge Engine v3.5 Decision Records (for ML/DL Training)
 model JudgeDecision {
-  id                String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // Input
-  tokenAddress      String
-  tokenSymbol       String?
-  tokenName         String?
-  chainId           Int
-  userAmountUsd     Float
-  targetWallet      String?  // If from copy trade
-  
+  tokenAddress  String
+  tokenSymbol   String?
+  tokenName     String?
+  chainId       Int
+  userAmountUsd Float
+  targetWallet  String? // If from copy trade
+
   // Context
-  launchpadType     String
-  liquidity         Float
-  contractAgeHours  Float
-  
+  launchpadType    String
+  liquidity        Float
+  contractAgeHours Float
+
   // Layer Outputs (stored as JSON for flexibility)
-  userSizeLayer     Json     // L1-L4, scores, reasons
-  liquidityLayer    Json     // Slippage, pool depth, decision
-  structureLayer    Json     // Launchpad features, LP lock
-  stageLayer        Json     // S0-S4, age analysis
-  tokenIntelLayer   Json     // 5 sub-modules + aggregated score
-  
+  userSizeLayer   Json // L1-L4, scores, reasons
+  liquidityLayer  Json // Slippage, pool depth, decision
+  structureLayer  Json // Launchpad features, LP lock
+  stageLayer      Json // S0-S4, age analysis
+  tokenIntelLayer Json // 5 sub-modules + aggregated score
+
   // Final Decision
-  finalDecision     String   // ALLOW | ALLOW_WITH_RISK | BLOCK
-  overallRiskScore  Float    // 0-1
-  slippageEstimate  Float    // 0-1
-  reasons           Json     // Array of reasons
-  aiRationale       String?  @db.Text // Grok-generated decision report
-  
+  finalDecision    String // ALLOW | ALLOW_WITH_RISK | BLOCK
+  overallRiskScore Float // 0-1
+  slippageEstimate Float // 0-1
+  reasons          Json // Array of reasons
+  aiRationale      String? @db.Text // Grok-generated decision report
+
   // Full Output (for debugging)
-  fullOutputJson    String   @db.Text  // Complete JSON output
-  
+  fullOutputJson String @db.Text // Complete JSON output
+
   // Actual Outcome (for validation and learning)
-  actualExecuted    Boolean? // Did user actually execute?
-  actualProfitPct   Float?   // If executed, what was the profit/loss?
-  actualOutcome     String?  // success | failed | rug | honeypot
-  outcomeNotes      String?  // Additional notes
-  outcomeUpdatedAt  DateTime?
-  
+  actualExecuted   Boolean? // Did user actually execute?
+  actualProfitPct  Float? // If executed, what was the profit/loss?
+  actualOutcome    String? // success | failed | rug | honeypot
+  outcomeNotes     String? // Additional notes
+  outcomeUpdatedAt DateTime?
+
   // Metadata
-  analysisTimeMs    Int      // How long analysis took
-  createdAt         DateTime @default(now())
-  
+  analysisTimeMs Int // How long analysis took
+  createdAt      DateTime @default(now())
+
   @@index([tokenAddress])
   @@index([chainId])
   @@index([finalDecision])
@@ -520,11 +584,11 @@ model FavoriteToken {
 
 // PostgreSQL Cache Table (replaces Redis)
 model Cache {
-  key       String   @id
-  value     String   @db.Text
+  key       String    @id
+  value     String    @db.Text
   expiresAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([expiresAt])
 }
@@ -555,40 +619,40 @@ model MarketOverview {
 
 // Chain Metrics
 model ChainMetric {
-  id             Int      @id @default(autoincrement())
-  name           String   @unique @map("chain_name") @db.VarChar(50)
-  tvl            Decimal?
-  tvlChange24h   Decimal? @map("tvl_change_24h")
-  volume24h      Decimal? @map("volume_24h")
-  txns24h        BigInt?  @map("txns_24h")
-  poolsCount     Int?     @map("pools_count")
-  tokensCount    Int?     @map("tokens_count")
-  activeWallets  BigInt?  @map("active_wallets")
-  gasPrice       String?  @map("gas_price") @db.VarChar(50)
-  contracts24h   Int?
-  contracts7d    Int?
-  logoUrl        String?  @map("logo_url") @db.Text
-  updatedAt      DateTime @default(now()) @updatedAt
-  createdAt      DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  name          String   @unique @map("chain_name") @db.VarChar(50)
+  tvl           Decimal?
+  tvlChange24h  Decimal? @map("tvl_change_24h")
+  volume24h     Decimal? @map("volume_24h")
+  txns24h       BigInt?  @map("txns_24h")
+  poolsCount    Int?     @map("pools_count")
+  tokensCount   Int?     @map("tokens_count")
+  activeWallets BigInt?  @map("active_wallets")
+  gasPrice      String?  @map("gas_price") @db.VarChar(50)
+  contracts24h  Int?
+  contracts7d   Int?
+  logoUrl       String?  @map("logo_url") @db.Text
+  updatedAt     DateTime @default(now()) @updatedAt
+  createdAt     DateTime @default(now())
 
   @@index([updatedAt(sort: Desc)])
 }
 
 // Protocol Metrics
 model ProtocolMetric {
-  id            Int      @id @default(autoincrement())
-  name          String   @unique @map("protocol_name") @db.VarChar(100)
-  symbol        String?  @map("protocol_symbol") @db.VarChar(20)
-  category      String?  @db.VarChar(50)
-  tvl           Decimal?
-  tvlChange1d   Decimal? @map("tvl_change_1d")
-  tvlChange7d   Decimal? @map("tvl_change_7d")
-  volume24h     Decimal? @map("volume_24h")
-  chains        String[] 
-  mcapTvlRatio  Decimal? @map("mcap_tvl_ratio")
-  logoUrl       String?  @map("logo_url") @db.Text
-  updatedAt     DateTime @default(now()) @updatedAt
-  createdAt     DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  name         String   @unique @map("protocol_name") @db.VarChar(100)
+  symbol       String?  @map("protocol_symbol") @db.VarChar(20)
+  category     String?  @db.VarChar(50)
+  tvl          Decimal?
+  tvlChange1d  Decimal? @map("tvl_change_1d")
+  tvlChange7d  Decimal? @map("tvl_change_7d")
+  volume24h    Decimal? @map("volume_24h")
+  chains       String[]
+  mcapTvlRatio Decimal? @map("mcap_tvl_ratio")
+  logoUrl      String?  @map("logo_url") @db.Text
+  updatedAt    DateTime @default(now()) @updatedAt
+  createdAt    DateTime @default(now())
 
   @@index([category])
   @@index([updatedAt(sort: Desc)])
@@ -596,24 +660,24 @@ model ProtocolMetric {
 
 // Trending Token Data
 model TrendingToken {
-  id              String   @id @default(cuid())
-  chain           String   @default("eth")
-  address         String
-  name            String
-  symbol          String
-  network         String
-  imageUrl        String?  @map("image_url")
-  price           Decimal?
-  priceChange5m   Decimal? @map("price_change_5m")
-  priceChange1h   Decimal? @map("price_change_1h")
-  priceChange6h   Decimal? @map("price_change_6h")
-  priceChange24h  Decimal? @map("price_change_24h")
-  volume24h       Decimal? @map("volume_24h")
-  liquidity       Decimal?
-  fdv             Decimal?
-  rank            Int?
-  updatedAt       DateTime @default(now()) @updatedAt
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  chain          String   @default("eth")
+  address        String
+  name           String
+  symbol         String
+  network        String
+  imageUrl       String?  @map("image_url")
+  price          Decimal?
+  priceChange5m  Decimal? @map("price_change_5m")
+  priceChange1h  Decimal? @map("price_change_1h")
+  priceChange6h  Decimal? @map("price_change_6h")
+  priceChange24h Decimal? @map("price_change_24h")
+  volume24h      Decimal? @map("volume_24h")
+  liquidity      Decimal?
+  fdv            Decimal?
+  rank           Int?
+  updatedAt      DateTime @default(now()) @updatedAt
+  createdAt      DateTime @default(now())
 
   @@unique([chain, address])
   @@index([rank])
@@ -645,7 +709,8 @@ model TrendingCast {
   mentions            Json?    @default("[]")
   authorCreatorCoin   String?  @map("author_creator_coin")
   authorTwitter       String?  @map("author_twitter")
-  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("trending_casts")
 }
@@ -691,3 +756,143 @@ model TokenRule {
   @@map("token_rules")
 }
 
+// ======== ANALYTICS & TRACKING ========
+
+// Leader 钱包统计 (Copy Trade 目标钱包的完整表现数据)
+model LeaderWalletStats {
+  id      String @id @default(cuid())
+  address String
+  chainId Int
+
+  // 交易统计
+  totalTrades Int @default(0) // 总交易次数
+  buyTrades   Int @default(0) // 买入次数
+  sellTrades  Int @default(0) // 卖出次数
+
+  // PNL 统计
+  totalVolumeUsd   Float @default(0) // 总交易额
+  realizedPnlUsd   Float @default(0) // 已实现盈亏
+  unrealizedPnlUsd Float @default(0) // 未实现盈亏
+  totalPnlUsd      Float @default(0) // 总 PNL
+
+  // 胜率分析
+  winCount  Int   @default(0) // 盈利交易数
+  lossCount Int   @default(0) // 亏损交易数
+  winRate   Float @default(0) // 胜率 (0-1)
+
+  // 最佳/最差
+  bestTradePnl  Float @default(0) // 单笔最大盈利
+  worstTradePnl Float @default(0) // 单笔最大亏损
+  avgTradePnl   Float @default(0) // 平均每笔盈亏
+
+  // 时间范围
+  firstTradeAt DateTime?
+  lastTradeAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([address, chainId])
+  @@index([address])
+  @@index([winRate])
+}
+
+// 用户每日活动记录 (用于空投快照、留存分析)
+model UserActivity {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date   DateTime @db.Date // 按天聚合
+
+  logins        Int   @default(0) // 登录次数
+  chatMessages  Int   @default(0) // 发送的消息数
+  swapsCount    Int   @default(0) // 交易次数
+  swapVolumeUsd Float @default(0) // 当日交易量 USD
+  copyTrades    Int   @default(0) // Copy Trade 触发次数
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+}
+
+// Swap 历史记录 (用户主动发起的交易)
+model SwapHistory {
+  id      String  @id @default(cuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chainId Int
+  txHash  String? @unique // 可能为 null (pending 状态)
+
+  // Token In
+  tokenInAddress String
+  tokenInSymbol  String?
+  tokenInAmount  String // Wei/Lamports
+  tokenInUsd     Float?
+
+  // Token Out
+  tokenOutAddress String
+  tokenOutSymbol  String?
+  tokenOutAmount  String? // 可能为 null (pending 状态)
+  tokenOutUsd     Float?
+
+  // Metadata
+  slippageBps Int?
+
+  // Status
+  status        String  @default("pending") // pending, success, failed
+  failureReason String?
+
+  // Source
+  source      String  @default("manual") // manual, ai_chat, fast_swap, swap_card
+  aiSessionId String? // 如果是 AI Chat 触发的
+
+  createdAt   DateTime  @default(now())
+  confirmedAt DateTime?
+
+  @@index([userId])
+  @@index([chainId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// 推荐关系记录
+model UserReferral {
+  id           String @id @default(cuid())
+  referrerId   String // 推荐人 userId
+  refereeId    String @unique // 被推荐人 userId
+  referralCode String // 使用的推荐码
+
+  // 奖励状态
+  rewardStatus String    @default("pending") // pending, eligible, rewarded, ineligible
+  rewardAmount Float? // 奖励金额
+  rewardedAt   DateTime?
+
+  // 被推荐人活动
+  refereeSwapCount     Int   @default(0)
+  refereeSwapVolumeUsd Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([referrerId])
+  @@index([referralCode])
+}
+
+// 数据保留策略配置
+model DataRetentionPolicy {
+  id            String @id @default(cuid())
+  tableName     String @unique // Prisma 模型名
+  retentionDays Int // 保留天数 (0 = 永久保留)
+
+  isEnabled        Boolean   @default(true)
+  lastCleanedAt    DateTime?
+  lastCleanedCount Int? // 上次清理的记录数
+
+  description String? // 描述说明
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

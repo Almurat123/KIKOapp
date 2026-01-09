@@ -387,7 +387,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                 {/* Sources Sidebar - Use React Portal for proper z-index */}
                 {
                     showCitations && message.citations && message.citations.length > 0 && typeof document !== 'undefined' ? createPortal(
-                        <>
+                        <div className={clsx(styles.portalRoot, resolvedTheme)}>
                             <div
                                 className={styles.sourcesSidebarOverlay}
                                 onClick={() => setShowCitations(false)}
@@ -442,16 +442,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                         // Try to find a description/snippet
                                         const description = parsedCitation.snippet || parsedCitation.content || parsedCitation.description;
 
-                                        logger.debug('[MessageBubble] Sidebar citation', index, ':', {
-                                            original: citation,
-                                            parsed: parsedCitation,
-                                            url: validUrl,
-                                            avatarUrl: logoProps.avatarUrl,
-                                            title,
-                                            description: description ? description.substring(0, 50) + '...' : 'None',
-                                            domain
-                                        });
-
                                         return (
                                             <a
                                                 key={index}
@@ -481,8 +471,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                                                 target.style.display = 'none';
                                                                 const parent = target.parentElement;
                                                                 if (parent && !parent.querySelector('svg')) {
-                                                                    // Fallback to icon if image fails
-                                                                    // ... existing error handling
                                                                     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                                                                     icon.setAttribute('width', '18');
                                                                     icon.setAttribute('height', '18');
@@ -520,7 +508,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                     })}
                                 </div>
                             </div>
-                        </>,
+                        </div>,
                         document.body
                     ) : null
                 }

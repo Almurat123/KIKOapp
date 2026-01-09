@@ -1,0 +1,138 @@
+/* Toast Container - iOS26 Liquid Glass Style */
+.container {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+    /* Safari iOS safe area */
+    padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Individual Toast */
+.toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: 16px;
+    /* Liquid Glass Effect */
+    background: rgba(30, 30, 32, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        0 2px 8px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    color: #f4f4f5;
+    font-size: 14px;
+    font-weight: 500;
+    min-width: 280px;
+    max-width: 400px;
+    pointer-events: auto;
+    animation: slideIn 0.3s ease-out;
+}
+
+:global(.light) .toast {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.1),
+        0 2px 8px rgba(0, 0, 0, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    color: #18181b;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px) scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Icon */
+.icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+/* Message */
+.message {
+    flex: 1;
+    line-height: 1.4;
+}
+
+/* Close Button */
+.closeBtn {
+    background: transparent;
+    border: none;
+    color: #71717a;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.closeBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #f4f4f5;
+}
+
+:global(.light) .closeBtn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #18181b;
+}
+
+/* Toast Types */
+.success .icon {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+}
+
+.error .icon {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.warning .icon {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+}
+
+.info .icon {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+/* Mobile Adjustments */
+@media (max-width: 480px) {
+    .container {
+        left: 16px;
+        right: 16px;
+        transform: none;
+    }
+
+    .toast {
+        min-width: auto;
+        max-width: none;
+    }
+}

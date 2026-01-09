@@ -42,9 +42,19 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
 
     useEffect(() => {
         localStorage.setItem('kiko-theme', theme);
-        document.documentElement.setAttribute('data-theme', resolvedTheme);
-        document.body.classList.toggle('dark', resolvedTheme === 'dark');
-        document.body.classList.toggle('light', resolvedTheme === 'light');
+        const root = document.documentElement;
+
+        // Update data-theme attribute
+        root.setAttribute('data-theme', resolvedTheme);
+
+        // Update classList for Tailwind/CSS selectors
+        root.classList.remove('light', 'dark');
+        root.classList.add(resolvedTheme);
+
+        // Also sync body for safety/legacy styles
+        document.body.classList.remove('light', 'dark');
+        document.body.classList.add(resolvedTheme);
+
     }, [theme, resolvedTheme]);
 
     const toggleTheme = () => {

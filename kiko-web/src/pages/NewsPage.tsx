@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import styles from './NewsPage.module.css';
+import { PageContainer } from '../components/Layout/PageContainer';
 
 interface NewsArticle {
     id: string;
@@ -43,7 +44,7 @@ export default function NewsPage() {
     }
 
     return (
-        <div className={styles.pageContainer}>
+        <PageContainer>
             <div className={styles.contentWrapper}>
                 {/* Header */}
                 <h1 className={styles.headerTitle}>KiKo Analysis</h1>
@@ -51,8 +52,6 @@ export default function NewsPage() {
                     In-depth research and intelligence on the future of decentralized networks.
                     Exploring the intersection of technology, finance, and culture.
                 </p>
-
-                {/* REMOVED: Filter Bar (Tabs) */}
 
                 {/* 2-Column Grid */}
                 <div className={styles.gridContainer}>
@@ -72,12 +71,11 @@ export default function NewsPage() {
                             {/* Content */}
                             <div className={styles.cardContent}>
                                 <h2 className={styles.cardTitle}>{article.title}</h2>
-                                {/* REMOVED: Footer (Avatar, Name, Bookmark) */}
                             </div>
                         </div>
                     ))}
                 </div>
             </div>
-        </div>
+        </PageContainer>
     );
 }

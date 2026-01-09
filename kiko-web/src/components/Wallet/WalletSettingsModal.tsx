@@ -2,6 +2,7 @@ import React from 'react';
 import { Dialog } from '../Dialog/Dialog';
 import { ExportWalletButton } from './ExportWalletButton';
 import { SessionSignerButton } from './SessionSignerButton';
+import { PolymarketAuthButton } from './PolymarketAuthButton';
 import styles from './WalletSettingsModal.module.css';
 
 interface WalletSettingsModalProps {
@@ -32,6 +33,11 @@ export const WalletSettingsModal: React.FC<WalletSettingsModalProps> = ({
             {/* Auto Trading Item */}
             <div className={styles.groupItem}>
               <SessionSignerButton chainType="solana" />
+            </div>
+
+            {/* Polymarket Trading */}
+            <div className={styles.groupItem}>
+              <PolymarketAuthButton />
             </div>
 
             {/* Recovery Phrase Items */}

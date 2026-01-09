@@ -48,7 +48,7 @@ export async function getWalletPositions(wallet: string): Promise<PolymarketUser
 
         const data = await response.json() as any[];
 
-        return data.map(pos => ({
+        let positions = data.map(pos => ({
             market: pos.slug || pos.market || '',
             title: pos.title || pos.question || 'Unknown Market',
             outcome: pos.outcome || (pos.outcomeIndex === 0 ? 'Yes' : 'No'),
@@ -61,8 +61,33 @@ export async function getWalletPositions(wallet: string): Promise<PolymarketUser
             pnl: parseFloat(pos.cashPnl || pos.pnl) || 0,
             pnlPercent: parseFloat(pos.percentPnl || pos.pnlPercent) || 0,
             conditionId: pos.conditionId || '',
-            assetId: pos.asset || pos.assetId || pos.tokenId || '' // API returns 'asset' field
+            assetId: pos.asset || pos.assetId || pos.tokenId || ''
         }));
+
+        // Filter out positions that we know were successfully closed recently (avoid API indexing lag)
+        try {
+            const prisma = (await import('../db/prisma.js')).default as any;
+            const user = await prisma.user.findFirst({ where: { walletAddress: wallet.toLowerCase() } });
+            if (user) {
+                const recentSells = await prisma.polymarketAction.findMany({
+                    where: {
+                        userId: user.id,
+                        type: 'SELL',
+                        status: 'SUCCESS',
+                        createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) } // Last 5 minutes
+                    }
+                });
+
+                if (recentSells.length > 0) {
+                    const closedAssetIds = new Set(recentSells.map((s: any) => s.assetId));
+                    positions = positions.filter(p => !closedAssetIds.has(p.assetId));
+                }
+            }
+        } catch (e) {
+            console.warn('[PolymarketData] Failed to filter closed positions:', e);
+        }
+
+        return positions;
     } catch (error) {
         console.error('[PolymarketData] Failed to fetch positions:', error);
         return [];
@@ -177,18 +202,64 @@ export async function getWalletTrades(wallet: string): Promise<PolymarketTrade[]
 
         const data = await response.json() as any[];
 
-        return data.map(trade => ({
+        const trades: PolymarketTrade[] = data.map(trade => ({
             id: trade.id || '',
             market: trade.slug || trade.market || '',
             asset: trade.asset || '',
-            side: (trade.side || 'BUY').toUpperCase(),
+            side: (trade.side || 'BUY').toUpperCase() as 'BUY' | 'SELL',
             size: parseFloat(trade.size) || 0,
             price: parseFloat(trade.price) || 0,
             timestamp: parseInt(trade.timestamp) * 1000 || Date.now(),
             transactionHash: trade.transactionHash || '',
             outcome: trade.outcome || '',
-            title: trade.title || 'Unknown Market'
+            title: trade.title || 'Unknown Market',
+            status: 'SUCCESS' // All found in trades API are successes
         }));
+
+        // Merge with local actions for responsiveness and to show failures/cancellations
+        try {
+            const prisma = (await import('../db/prisma.js')).default as any;
+            const user = await prisma.user.findFirst({ where: { walletAddress: wallet.toLowerCase() } });
+            if (user) {
+                const localActions = await prisma.polymarketAction.findMany({
+                    where: { userId: user.id },
+                    orderBy: { createdAt: 'desc' },
+                    take: 50
+                });
+
+                // Convert local actions to trade-like format
+                const localTrades: PolymarketTrade[] = localActions.map((action: any) => ({
+                    id: action.id,
+                    market: action.marketSlug || '',
+                    asset: action.assetId || '',
+                    side: action.type as 'BUY' | 'SELL',
+                    size: action.size || 0,
+                    price: action.price || 0,
+                    timestamp: action.createdAt.getTime(),
+                    transactionHash: action.txHash || '',
+                    outcome: action.outcome || '',
+                    title: action.marketTitle || 'Polymarket Action',
+                    status: action.status
+                }));
+
+                // Combine and deduplicate (by transaction hash or order id)
+                // We prioritize local actions for statuses and titles
+                const combined = [...localTrades];
+                const seenTxHashes = new Set(localTrades.filter(t => t.transactionHash).map(t => t.transactionHash));
+
+                for (const trade of trades) {
+                    if (!seenTxHashes.has(trade.transactionHash)) {
+                        combined.push(trade);
+                    }
+                }
+
+                return combined.sort((a, b) => b.timestamp - a.timestamp);
+            }
+        } catch (e) {
+            console.warn('[PolymarketData] Failed to merge local actions:', e);
+        }
+
+        return trades;
     } catch (error) {
         console.error('[PolymarketData] Failed to fetch trades:', error);
         return [];
@@ -246,5 +317,37 @@ export async function getOpenOrders(wallet: string): Promise<PolymarketOpenOrder
     } catch (error) {
         console.error('[PolymarketData] Failed to fetch open orders:', error);
         return [];
+    }
+}
+
+/**
+ * Get the best bid price for an asset from the CLOB
+ * Used to implement a "Market Sell" by selling at the highest bid
+ */
+export async function getBestBid(tokenId: string): Promise<number | null> {
+    const url = `https://clob.polymarket.com/book?token_id=${tokenId}`;
+
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        });
+        if (!response.ok) {
+            return null;
+        }
+
+        const data = await response.json() as any;
+        const bids = data.bids || [];
+
+        if (bids.length > 0) {
+            // Bids are usually sorted high to low
+            return parseFloat(bids[0].price);
+        }
+
+        return null;
+    } catch (error) {
+        console.error('[PolymarketData] Failed to fetch orderbook:', error);
+        return null;
     }
 }

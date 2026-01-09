@@ -28,6 +28,26 @@ const L1_AUTH_TYPES = {
 };
 
 /**
+ * Get server timestamp from Polymarket CLOB API
+ * This is critical - using local time can cause signature validation failures
+ */
+async function getServerTime(): Promise<number> {
+    try {
+        const response = await fetch(`${CLOB_API}/time`);
+        if (!response.ok) {
+            console.warn('[PolymarketCreds] Failed to get server time, falling back to local time');
+            return Math.floor(Date.now() / 1000);
+        }
+        const serverTime = await response.json() as number;
+        console.log('[PolymarketCreds] Server timestamp:', serverTime);
+        return serverTime;
+    } catch (error) {
+        console.warn('[PolymarketCreds] Error fetching server time, falling back to local time:', error);
+        return Math.floor(Date.now() / 1000);
+    }
+}
+
+/**
  * Check if user has Polymarket credentials
  */
 export async function hasCredentials(userId: string): Promise<boolean> {
@@ -54,7 +74,8 @@ async function generateL1AuthHeaders(userId: string, walletAddress: string, nonc
     timestamp: number;
     nonce: number;
 }> {
-    const timestamp = Math.floor(Date.now() / 1000);
+    // Use server timestamp to avoid time sync issues
+    const timestamp = await getServerTime();
 
     // Build L1 auth message
     const typedData = {
@@ -69,16 +90,28 @@ async function generateL1AuthHeaders(userId: string, walletAddress: string, nonc
         }
     };
 
+    console.log('[PolymarketCreds] L1 auth typedData:', JSON.stringify(typedData, null, 2));
+
     // Sign with Privy
     const signature = await signTypedData(userId, typedData, 137);
 
+    const headers = {
+        'POLY_ADDRESS': walletAddress,
+        'POLY_SIGNATURE': signature,
+        'POLY_TIMESTAMP': timestamp.toString(),
+        'POLY_NONCE': nonce.toString()
+    };
+
+    console.log('[PolymarketCreds] L1 auth headers:', {
+        POLY_ADDRESS: headers.POLY_ADDRESS,
+        POLY_SIGNATURE: signature.slice(0, 20) + '...',
+        POLY_TIMESTAMP: headers.POLY_TIMESTAMP,
+        POLY_NONCE: headers.POLY_NONCE,
+        signatureLength: signature.length
+    });
+
     return {
-        headers: {
-            'POLY_ADDRESS': walletAddress,
-            'POLY_SIGNATURE': signature,
-            'POLY_TIMESTAMP': timestamp.toString(),
-            'POLY_NONCE': nonce.toString()
-        },
+        headers,
         timestamp,
         nonce
     };
@@ -130,9 +163,52 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
         const nonce = 0; // Use 0 for first-time creation
         const { headers } = await generateL1AuthHeaders(userId, walletAddress, nonce);
 
-        console.log('[PolymarketCreds] Calling CLOB API to create API key...');
+        // First, try to derive existing credentials (in case nonce was already used)
+        console.log('[PolymarketCreds] Trying to derive existing API key...');
+        const deriveResponse = await fetch(`${CLOB_API}/auth/derive-api-key`, {
+            method: 'GET',
+            headers: {
+                ...headers
+            }
+        });
 
-        // Call CLOB API to create API key
+        if (deriveResponse.ok) {
+            const deriveResult = await deriveResponse.json() as {
+                apiKey?: string;
+                secret?: string;
+                passphrase?: string;
+                error?: string;
+            };
+
+            if (deriveResult.apiKey) {
+                console.log('[PolymarketCreds] Derived existing API key successfully');
+
+                // Store credentials in database
+                await prisma.polymarketApiCreds.create({
+                    data: {
+                        userId,
+                        walletAddress,
+                        apiKey: deriveResult.apiKey,
+                        apiSecret: deriveResult.secret!,
+                        passphrase: deriveResult.passphrase!,
+                        nonce
+                    }
+                });
+
+                return {
+                    success: true,
+                    credentials: {
+                        apiKey: deriveResult.apiKey,
+                        apiSecret: deriveResult.secret!,
+                        passphrase: deriveResult.passphrase!
+                    }
+                };
+            }
+        }
+
+        console.log('[PolymarketCreds] Derive failed, trying to create new API key...');
+
+        // Fallback: Call CLOB API to create API key
         const response = await fetch(`${CLOB_API}/auth/api-key`, {
             method: 'POST',
             headers: {
@@ -149,7 +225,7 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
         };
 
         if (!response.ok || !result.apiKey) {
-            console.error('[PolymarketCreds] API key creation failed:', result);
+            console.error('[PolymarketCreds] API key creation failed:', result, 'status:', response.status);
             return { success: false, error: result.error || 'Failed to create API key' };
         }
 

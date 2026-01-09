@@ -1,0 +1,189 @@
+/* Overlay */
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+    /* Safe area for iOS */
+    padding-top: calc(20px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* Dialog - iOS26 Liquid Glass Style */
+.dialog {
+    background: rgba(30, 30, 32, 0.9);
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 28px 24px 20px;
+    max-width: 320px;
+    width: 100%;
+    text-align: center;
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.4),
+        0 4px 16px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    animation: scaleIn 0.2s ease-out;
+}
+
+:global(.light) .dialog {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.15),
+        0 4px 16px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.92);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Icon */
+.icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+    line-height: 1;
+}
+
+/* Title */
+.title {
+    font-size: 17px;
+    font-weight: 600;
+    color: #f4f4f5;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.2px;
+}
+
+:global(.light) .title {
+    color: #18181b;
+}
+
+/* Message */
+.message {
+    font-size: 14px;
+    color: #a1a1aa;
+    line-height: 1.5;
+    margin: 0 0 24px 0;
+}
+
+:global(.light) .message {
+    color: #71717a;
+}
+
+/* Actions */
+.actions {
+    display: flex;
+    gap: 12px;
+}
+
+/* Base Button Style */
+.cancelBtn,
+.confirmBtn {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: none;
+}
+
+/* Cancel Button */
+.cancelBtn {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f4f4f5;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+:global(.light) .cancelBtn {
+    background: rgba(0, 0, 0, 0.05);
+    color: #18181b;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.cancelBtn:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+:global(.light) .cancelBtn:hover {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+/* Confirm Button - Info (default) */
+.confirmBtn {
+    background: #3f3f46;
+    color: #f4f4f5;
+}
+
+:global(.light) .confirmBtn {
+    background: #e4e4e7;
+    color: #18181b;
+}
+
+.confirmBtn:hover {
+    background: #52525b;
+    transform: translateY(-1px);
+}
+
+:global(.light) .confirmBtn:hover {
+    background: #d4d4d8;
+}
+
+/* Confirm Button - Danger */
+.confirmBtn.danger {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.confirmBtn.danger:hover {
+    background: rgba(239, 68, 68, 0.25);
+}
+
+/* Confirm Button - Warning */
+.confirmBtn.warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.confirmBtn.warning:hover {
+    background: rgba(245, 158, 11, 0.25);
+}
+
+/* Active/Press States */
+.cancelBtn:active,
+.confirmBtn:active {
+    transform: scale(0.98);
+}

@@ -11,7 +11,9 @@ import { ChainProvider } from './contexts/ChainContext';
 import { useTheme } from './hooks/useTheme';
 import { usePrivy } from '@privy-io/react-auth';
 import { setAuthTokenProvider } from './utils/authToken';
-import './styles/global.css';
+import { ThemeProvider } from './contexts/ThemeContext'; // Added ThemeProvider
+import './index.css';
+// import './styles/global.css'; // Removed to fix Beige theme conflict
 import './styles/theme.css';
 import './styles/design-tokens.css';
 
@@ -225,17 +227,19 @@ if (!privyAppId || privyAppId === 'your-privy-app-id') {
 } else {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <ThemedPrivyProvider>
-        <AuthTokenBridge>
-          <QueryClientProvider client={queryClient}>
-            <WagmiProvider config={wagmiConfig}>
-              <ChainProvider>
-                <App />
-              </ChainProvider>
-            </WagmiProvider>
-          </QueryClientProvider>
-        </AuthTokenBridge>
-      </ThemedPrivyProvider>
+      <ThemeProvider>
+        <ThemedPrivyProvider>
+          <AuthTokenBridge>
+            <QueryClientProvider client={queryClient}>
+              <WagmiProvider config={wagmiConfig}>
+                <ChainProvider>
+                  <App />
+                </ChainProvider>
+              </WagmiProvider>
+            </QueryClientProvider>
+          </AuthTokenBridge>
+        </ThemedPrivyProvider>
+      </ThemeProvider>
     </React.StrictMode>
   );
 }

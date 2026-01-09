@@ -40,6 +40,7 @@ import { chatRoutes } from './routes/chat.js';
 import { chatWSRoutes } from './services/chatWebSocket.js';
 import { chatWorker } from './jobs/chatWorker.js';
 import { registerUserRoutes } from './routes/users.js';
+import { initializePolicies, runCleanup } from './services/dataRetentionService.js';
 
 const fastify = Fastify({
     logger: true,
@@ -149,6 +150,11 @@ async function start() {
             console.warn('⚠️  API will still start but database queries may fail');
         } else {
             console.log('✅ Database connection successful');
+
+            // Initialize Data Retention
+            await initializePolicies();
+            // Run cleanup asynchronously
+            runCleanup().catch(err => console.error('Initial cleanup failed:', err));
         }
 
         // Initialize Redis

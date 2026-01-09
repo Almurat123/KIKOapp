@@ -23,6 +23,8 @@ import { createPortal } from 'react-dom';
 import { Settings } from 'lucide-react';
 import { getTokensData } from '../services/tokenDataService';
 import { Skeleton } from '../components/Skeleton';
+import { toast } from '../components/Toast';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import styles from './WalletPage.module.css';
 
 // Common token addresses for different chains (Mock data for demo)
@@ -192,6 +194,7 @@ export default function WalletPage() {
   const [orderHistoryLoading, setOrderHistoryLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; order: any | null }>({ isOpen: false, order: null });
   const balanceReqId = useRef(0);
   const txReqId = useRef(0);
   const ordersReqId = useRef(0);
@@ -274,6 +277,7 @@ export default function WalletPage() {
   }, [viewMode, authenticated, getAccessToken]);
 
   const handleCancelOrder = async (orderId: string) => {
+    console.log('[WalletPage] Cancelling order with ID:', orderId);
     try {
       const token = await getAccessToken();
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -286,21 +290,31 @@ export default function WalletPage() {
         body: JSON.stringify({ orderId })
       });
       const res = await response.json();
+      console.log('[WalletPage] Cancel order response:', res);
       if (res.success) {
-        // Refresh orders
+        toast.success('Order cancelled successfully');
         setPendingOrders(prev => prev.filter(o => o.id !== orderId));
       } else {
-        alert(`Failed to cancel: ${res.error || 'Unknown error'}`);
+        toast.error(res.error || 'Failed to cancel order');
       }
     } catch (e) {
       console.error('Cancel failed', e);
     }
   };
 
-  const handleClosePosition = async (order: any) => {
-    try {
-      if (!confirm(`Are you sure you want to sell your ${order.size} shares of "${order.title}"?`)) return;
+  // Show confirmation dialog before closing position
+  const showCloseConfirm = (order: any) => {
+    setConfirmDialog({ isOpen: true, order });
+  };
 
+  // Actually close the position after confirmation
+  const handleClosePositionConfirmed = async () => {
+    const order = confirmDialog.order;
+    if (!order) return;
+
+    setConfirmDialog({ isOpen: false, order: null });
+
+    try {
       const token = await getAccessToken();
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
       const response = await fetch(`${apiUrl}/api/polymarket/trading/position/close`, {
@@ -317,14 +331,14 @@ export default function WalletPage() {
       });
       const res = await response.json();
       if (res.success) {
-        alert('Position close order submitted successfully!');
-        // Refresh positions
+        toast.success('Position close order submitted');
         setOrders(prev => prev.filter(o => o.assetId !== order.assetId));
       } else {
-        alert(`Failed to close position: ${res.error || 'Unknown error'}`);
+        toast.error(res.error || 'Failed to close position');
       }
     } catch (e) {
       console.error('Close position failed', e);
+      toast.error('Failed to close position');
     }
   };
 
@@ -860,7 +874,7 @@ export default function WalletPage() {
                           key={`${order.market}-${index}`}
                           order={order}
                           styles={styles}
-                          onSell={() => handleClosePosition(order)}
+                          onSell={() => showCloseConfirm(order)}
                         />
                       ))}
                     </div>
@@ -1108,7 +1122,19 @@ export default function WalletPage() {
           document.body
         )
       }
-    </div >
+
+      {/* Confirm Dialog for Position Close */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title="Close Position"
+        message={confirmDialog.order ? `Are you sure you want to sell your ${confirmDialog.order.size} shares of "${confirmDialog.order.title}"?` : ''}
+        confirmText="Sell"
+        cancelText="Cancel"
+        type="warning"
+        onConfirm={handleClosePositionConfirmed}
+        onCancel={() => setConfirmDialog({ isOpen: false, order: null })}
+      />
+    </div>
   );
 }
 
@@ -1160,11 +1186,32 @@ const PolymarketHistoryItem = ({ trade, styles }: { trade: any; styles: any }) =
   const date = new Date(trade.timestamp);
   const month = date.toLocaleString('en-US', { month: 'short' });
   const day = date.getDate();
-  const isProfit = trade.side === 'SELL' || (trade.status === 'WON');
-  const isNeutral = !trade.status;
+  const isProfit = trade.status === 'WON' || (trade.status === 'SUCCESS' && trade.side === 'SELL');
+  const isLoss = trade.status === 'LOST' || trade.status === 'FAILED';
+  const isCancelled = trade.status === 'CANCELLED';
+  const isNeutral = !trade.status || isCancelled || (trade.status === 'SUCCESS' && trade.side === 'BUY');
 
-  const badgeClass = isNeutral ? styles.dateBadgeNeutral : (isProfit ? styles.dateBadge : styles.dateBadgeLoss);
-  const statusBadgeClass = isNeutral ? "" : (isProfit ? styles.statusBadgeWin : styles.statusBadgeLoss);
+  const badgeClass = isLoss ? styles.dateBadgeLoss : (isProfit ? styles.dateBadge : styles.dateBadgeNeutral);
+
+  let statusText = trade.status;
+  let statusColorClass = "";
+
+  if (trade.status === 'SUCCESS') {
+    statusText = 'Success';
+    statusColorClass = styles.statusBadgeWin;
+  } else if (trade.status === 'FAILED') {
+    statusText = 'Fail';
+    statusColorClass = styles.statusBadgeLoss;
+  } else if (trade.status === 'CANCELLED') {
+    statusText = 'Cancel';
+    statusColorClass = styles.statusBadgeNeutral;
+  } else if (trade.status === 'WON') {
+    statusText = 'Won';
+    statusColorClass = styles.statusBadgeWin;
+  } else if (trade.status === 'LOST') {
+    statusText = 'Lost';
+    statusColorClass = styles.statusBadgeLoss;
+  }
 
   return (
     <div className={styles.historyItemNew}>
@@ -1175,12 +1222,12 @@ const PolymarketHistoryItem = ({ trade, styles }: { trade: any; styles: any }) =
       <div className={styles.historyContent}>
         <div className={styles.historyTitle}>{trade.title}</div>
         <div className={styles.historyBadges}>
-          {trade.status && (
-            <span className={`${styles.statusBadge} ${statusBadgeClass}`}>
-              {trade.status}
+          {statusText && (
+            <span className={`${styles.statusBadge} ${statusColorClass}`}>
+              {statusText}
             </span>
           )}
-          {trade.status && <div className={styles.dot} />}
+          {statusText && <div className={styles.dot} />}
           <span className={styles.statusBadge}>
             {trade.side} {trade.outcome}
           </span>

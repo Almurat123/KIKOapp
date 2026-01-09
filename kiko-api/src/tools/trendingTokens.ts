@@ -4,7 +4,7 @@ import * as dexScreener from '../services/dexscreener.js';
 export const GetTrendingTokensTool: Tool = {
     definition: {
         name: 'get_trending_tokens',
-        description: 'Get trending tokens for a specific chain. Returns a list of the most popular tokens based on a weighted score of trading volume, transaction count, and liquidity (emulating DexScreener trending). Supports different timeframes.',
+        description: 'Get currently trending/hot cryptocurrency tokens by trading activity. ONLY use this tool when the user explicitly asks about: trending tokens, hot coins, what tokens are pumping, market movers, top gainers, or specific chain activity. Do NOT use this for general news, world events, or non-crypto topics. For news about the crypto industry (regulations, hacks, company updates), use web_search instead.',
         parameters: {
             type: 'object',
             properties: {

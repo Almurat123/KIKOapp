@@ -10,6 +10,7 @@
  */
 
 import { ethers } from 'ethers';
+import { signTypedData } from './privyWallet.js';
 
 // Exchange contract addresses on Polygon
 const CTF_EXCHANGE_ADDRESS = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
@@ -43,7 +44,7 @@ const ORDER_TYPES = {
 };
 
 export interface OrderData {
-    salt: string;
+    salt: number;      // Salt should be an integer for JSON
     maker: string;     // Funder/Proxy wallet address (holds the funds)
     signer: string;    // Signer wallet address (signs the order)
     taker: string;
@@ -136,7 +137,7 @@ export async function buildSignedOrder(
 
     // Prepare message
     const message = {
-        salt: order.salt,
+        salt: order.salt.toString(), // Use string to avoid BigInt serialization errors in Privy SDK
         maker: order.maker,
         signer: order.signer,
         taker: order.taker,
@@ -159,7 +160,22 @@ export async function buildSignedOrder(
     });
 
     // Sign with EIP-712
-    const signature = await wallet.signTypedData(domain, ORDER_TYPES, message);
+    let signature: string;
+
+    if (_userId && !(_userId.startsWith('0x'))) {
+        // Sign with Privy if userId looks like a Privy DID
+        console.log('[PolymarketOrderBuilder] Signing with Privy for user:', _userId.slice(0, 15) + '...');
+        signature = await signTypedData(_userId, {
+            domain,
+            types: ORDER_TYPES,
+            primaryType: 'Order',
+            message
+        });
+    } else {
+        // Fallback to server private key (legacy or internal)
+        console.log('[PolymarketOrderBuilder] Signing with server private key...');
+        signature = await wallet.signTypedData(domain, ORDER_TYPES, message);
+    }
 
     console.log('[PolymarketOrderBuilder] Signature obtained:', signature.slice(0, 20) + '...');
 
@@ -174,18 +190,25 @@ export async function buildSignedOrder(
  * Uses POLY_PROXY signature type with separate maker (funder) and signer addresses
  */
 export function createLimitOrderData(params: {
-    makerAddress?: string; // Ignored, uses POLYMARKET_FUNDER_ADDRESS
+    makerAddress?: string; // Funder address
+    signerAddress?: string; // Signer address
     tokenId: string;
     side: 'BUY' | 'SELL';
     price: number;
     size: number;
     feeRateBps?: number;
+    signatureType?: number;
 }): OrderData {
     const { tokenId, side, price, size, feeRateBps = 0 } = params;
 
     // Get wallet addresses
-    const signerAddress = getPolymarketWalletAddress(); // Signs the order
-    const funderAddress = getFunderAddress(); // Holds the funds (maker)
+    const signerAddress = params.signerAddress || getPolymarketWalletAddress(); // Signs the order
+    const funderAddress = params.makerAddress || getFunderAddress(); // Holds the funds (maker)
+
+    // Determine signature type: EOA (0) if maker == signer, otherwise POLY_PROXY (1)
+    const signatureType = params.signatureType !== undefined
+        ? params.signatureType
+        : (funderAddress.toLowerCase() === signerAddress.toLowerCase() ? SIGNATURE_TYPE_EOA : SIGNATURE_TYPE_POLY_PROXY);
 
     // Calculate amounts based on side
     // For BUY: makerAmount = USDC to pay, takerAmount = shares to receive
@@ -203,11 +226,11 @@ export function createLimitOrderData(params: {
         takerAmount = Math.floor(size * price * 1e6);
     }
 
-    // Generate random salt
-    const salt = BigInt(Math.floor(Math.random() * 1e18)).toString();
+    // Generate random salt (31-bit integer to safely fit in JSON number)
+    const salt = Math.floor(Math.random() * 2000000000);
 
-    // Expiration: 24 hours from now
-    const expiration = Math.floor(Date.now() / 1000 + 24 * 60 * 60).toString();
+    // Expiration: 0 for GTC orders, or a timestamp for GTD orders
+    const expiration = (params as any).expiration || '0';
 
     return {
         salt,
@@ -221,6 +244,6 @@ export function createLimitOrderData(params: {
         nonce: '0',
         feeRateBps: feeRateBps.toString(),
         side: side === 'BUY' ? 0 : 1,
-        signatureType: SIGNATURE_TYPE_POLY_PROXY // Using proxy signature type
+        signatureType: signatureType
     };
 }

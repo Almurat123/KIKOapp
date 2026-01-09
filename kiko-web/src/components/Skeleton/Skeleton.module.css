@@ -1,12 +1,15 @@
+/* Base Skeleton - iOS System Gray 4 (Light) / System Gray 5 (Dark) */
 .skeleton {
-  background: rgba(0, 0, 0, 0.08);
+  background: #D1D1D6;
+  /* System Gray 4 - High Contrast for Light Mode */
   border-radius: var(--radius-sm);
   position: relative;
   overflow: hidden;
 }
 
 :global(.dark) .skeleton {
-  background: rgba(255, 255, 255, 0.08);
+  background: #2C2C2E;
+  /* System Gray 5 - Dark Mode */
 }
 
 .text {
@@ -29,29 +32,30 @@
 }
 
 .wave {
-  background: linear-gradient(
-    90deg,
-    rgba(0, 0, 0, 0.05) 0%,
-    rgba(0, 0, 0, 0.12) 50%,
-    rgba(0, 0, 0, 0.05) 100%
-  );
+  /* Light Mode Wave: Gray 4 -> Gray 5 -> Gray 4 */
+  background: linear-gradient(90deg,
+      #D1D1D6 0%,
+      #E5E5EA 50%,
+      #D1D1D6 100%);
   background-size: 200% 100%;
   animation: wave 1.5s ease-in-out infinite;
 }
 
 :global(.dark) .wave {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.05) 0%,
-    rgba(255, 255, 255, 0.12) 50%,
-    rgba(255, 255, 255, 0.05) 100%
-  );
+  /* Dark Mode Wave: Gray 5 -> Gray 4 -> Gray 5 */
+  background: linear-gradient(90deg,
+      #2C2C2E 0%,
+      #3A3A3C 50%,
+      #2C2C2E 100%);
 }
 
 @keyframes pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.5;
   }
@@ -61,8 +65,8 @@
   0% {
     background-position: 200% 0;
   }
+
   100% {
     background-position: -200% 0;
   }
 }
-

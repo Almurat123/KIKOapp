@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { Layout } from './components/Layout/Layout';
-import { ThemeProvider } from './contexts/ThemeContext';
+// import { ThemeProvider } from './contexts/ThemeContext'; // Moved to main.tsx
 import { ChatInterface } from './components/Chat/ChatInterface';
 import { SocialPage } from './pages/SocialPage';
 import { OverviewPage } from './pages/OverviewPage';
@@ -17,6 +17,7 @@ import type { Message } from './hooks/useConversations';
 import { chatWSClient, type ChatEvent } from './utils/chatWebSocket';
 import { chatApi } from './services/api';
 import { MandatoryExportModal } from './components/Wallet/MandatoryExportModal';
+import { ToastContainer, useToast } from './components/Toast';
 
 
 function App() {
@@ -361,7 +362,7 @@ function App() {
 
 
   return (
-    <ThemeProvider>
+    <>
       <MandatoryExportModal />
       <Layout
         activeTab={activeTab}
@@ -404,8 +405,15 @@ function App() {
 
         {activeTab === 'trade' && <TradePage />}
       </Layout>
-    </ThemeProvider>
+      <GlobalToast />
+    </>
   );
+}
+
+// Global Toast Component
+function GlobalToast() {
+  const { toasts, handleClose } = useToast();
+  return <ToastContainer toasts={toasts} onClose={handleClose} />;
 }
 
 export default App;

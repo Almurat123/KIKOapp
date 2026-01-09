@@ -2,9 +2,9 @@
     display: flex;
     flex-direction: column;
     min-height: 100vh;
-    background-color: #FAF7F2;
-    /* Global light bg */
-    color: #1a1a1a;
+    background-color: var(--bg-secondary);
+    /* Global light bg (Gray 100 / Gray 800) */
+    color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     padding-bottom: 40px;
 }
@@ -17,9 +17,10 @@
 }
 
 :global(.dark) .container {
-    background-color: #18181b;
+    background-color: var(--bg-primary);
+    /* Use darker black for page bg in dark mode to contrast with gray cards */
     /* Global dark bg */
-    color: #f4f4f5;
+    color: var(--text-primary);
 }
 
 @media (min-width: 769px) {
@@ -27,14 +28,14 @@
         width: 100%;
         max-width: 1200px;
         margin: 0 auto;
-        border-left: 1px solid rgba(0, 0, 0, 0.05);
-        border-right: 1px solid rgba(0, 0, 0, 0.05);
+        border-left: 1px solid var(--border-color);
+        border-right: 1px solid var(--border-color);
         padding-top: 24px;
     }
 
     :global(.dark) .container {
-        border-left: 1px solid rgba(255, 255, 255, 0.05);
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
+        border-left: 1px solid var(--border-color);
+        border-right: 1px solid var(--border-color);
     }
 }
 
@@ -62,23 +63,23 @@
 }
 
 :global(.dark) .backButton {
-    color: #a1a1aa;
+    color: var(--text-secondary);
 }
 
 .backButton:hover {
-    background-color: rgba(0, 0, 0, 0.05);
-    color: #1a1a1a;
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 :global(.dark) .backButton:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #f4f4f5;
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 /* Header Section */
 .headerSection {
     padding: 16px 24px;
-    background-color: #FAF7F2;
+    background-color: var(--bg-secondary);
 }
 
 @media (max-width: 768px) {
@@ -88,7 +89,7 @@
 }
 
 :global(.dark) .headerSection {
-    background-color: #18181b;
+    background-color: var(--bg-primary);
 }
 
 .tokenTitleRow {
@@ -139,8 +140,8 @@
     height: 36px;
     border-radius: 50%;
     object-fit: cover;
-    background: #FAF7F2;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
 }
 
 @media (min-width: 769px) {
@@ -151,8 +152,8 @@
 }
 
 :global(.dark) .tokenIcon {
-    background: #18181b;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
 }
 
 .chainLogo {
@@ -214,7 +215,7 @@
     font-size: 20px;
     font-weight: 700;
     margin: 0;
-    color: #1a1a1a;
+    color: var(--text-primary);
 }
 
 @media (min-width: 769px) {
@@ -224,12 +225,12 @@
 }
 
 :global(.dark) .tokenSymbol {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .chainName {
     font-size: 11px;
-    color: #999999;
+    color: var(--text-secondary);
 }
 
 @media (min-width: 769px) {
@@ -253,6 +254,7 @@
 .mainPrice {
     font-size: 16px;
     font-weight: 700;
+    /* Keep price colored if desired, or use text-primary */
     color: #10b981;
 }
 
@@ -322,7 +324,7 @@
 .sectionLabel {
     font-size: 11px;
     font-weight: 700;
-    color: #999999;
+    color: var(--text-secondary);
     margin: 0;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -332,8 +334,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background-color: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 0 12px;
     height: 36px;
@@ -350,18 +352,18 @@
 }
 
 :global(.dark) .addressBar {
-    background-color: #1f1f23;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
 }
 
 .addressText {
     font-size: 13px;
-    color: #1a1a1a;
+    color: var(--text-primary);
     margin-right: 12px;
 }
 
 :global(.dark) .addressText {
-    color: #f4f4f5;
+    color: var(--text-primary);
 }
 
 .copyIconBtn {
@@ -387,16 +389,16 @@
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 1px;
-    background-color: rgba(0, 0, 0, 0.06);
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    background-color: var(--border-color);
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
     margin: 24px 0;
 }
 
 :global(.dark) .marketGrid {
-    background-color: rgba(255, 255, 255, 0.06);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: var(--border-color);
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
 }
 
 @media (max-width: 768px) {
@@ -406,7 +408,7 @@
 }
 
 .marketCard {
-    background-color: #FAF7F2;
+    background-color: var(--bg-secondary);
     padding: 20px 24px;
     display: flex;
     flex-direction: column;
@@ -414,13 +416,13 @@
 }
 
 :global(.dark) .marketCard {
-    background-color: #18181b;
+    background-color: var(--bg-primary);
 }
 
 .statLabel {
     font-size: 11px;
     font-weight: 700;
-    color: #999999;
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -428,11 +430,11 @@
 .statValue {
     font-size: 18px;
     font-weight: 700;
-    color: #1a1a1a;
+    color: var(--text-primary);
 }
 
 :global(.dark) .statValue {
-    color: #f4f4f5;
+    color: var(--text-primary);
 }
 
 /* Section Headers */
@@ -452,7 +454,7 @@
 .sectionHeader h3 {
     font-size: 11px;
     font-weight: 700;
-    color: #999999;
+    color: var(--text-secondary);
     margin: 0;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -462,9 +464,9 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background-color: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    color: #1a1a1a;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
     padding: 6px 16px;
     border-radius: 20px;
     font-size: 11px;
@@ -475,9 +477,9 @@
 }
 
 :global(.dark) .askAiButton {
-    background-color: #1f1f23;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    color: #f4f4f5;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
 }
 
 .askAiButton:hover {
@@ -487,10 +489,11 @@
 /* Security Card */
 .securityCard {
     margin: 0 24px 32px 24px;
-    background-color: #ffffff;
+    background-color: var(--bg-primary);
     border-radius: 12px;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--border-color);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    /* Soft shadow */
     overflow: hidden;
 }
 
@@ -504,8 +507,8 @@
 }
 
 :global(.dark) .securityCard {
-    background-color: #1f1f23;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
     box-shadow: none;
 }
 
@@ -514,11 +517,11 @@
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid var(--border-color);
 }
 
 :global(.dark) .securityRow {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .securityRow:last-child {
@@ -530,12 +533,12 @@
     align-items: center;
     gap: 12px;
     font-size: 14px;
-    color: #666666;
+    color: var(--text-secondary);
     font-weight: 500;
 }
 
 :global(.dark) .securityLabel {
-    color: #a1a1aa;
+    color: var(--text-secondary);
 }
 
 .iconBox {
@@ -544,17 +547,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #999999;
+    color: var(--text-secondary);
 }
 
 .securityValue {
     font-size: 14px;
     font-weight: 600;
-    color: #1a1a1a;
+    color: var(--text-primary);
 }
 
 :global(.dark) .securityValue {
-    color: #f4f4f5;
+    color: var(--text-primary);
 }
 
 .safeBadge {
@@ -578,10 +581,10 @@
 
 .holdersCard {
     margin: 0 24px 32px 24px;
-    background-color: #ffffff;
+    background-color: var(--bg-primary);
     border-radius: 12px;
     padding: 20px;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--border-color);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
@@ -595,8 +598,8 @@
 }
 
 :global(.dark) .holdersCard {
-    background-color: #1f1f23;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
     box-shadow: none;
 }
 
@@ -608,36 +611,36 @@
 
 .holderCountLabel {
     font-size: 14px;
-    color: #666666;
+    color: var(--text-secondary);
     font-weight: 500;
 }
 
 :global(.dark) .holderCountLabel {
-    color: #a1a1aa;
+    color: var(--text-secondary);
 }
 
 .holderCountValue {
     font-size: 20px;
-    color: #1a1a1a;
+    color: var(--text-primary);
     font-weight: 700;
 }
 
 :global(.dark) .holderCountValue {
-    color: #f4f4f5;
+    color: var(--text-primary);
 }
 
 .holdersDetailRow {
     display: flex;
     justify-content: space-between;
     font-size: 12px;
-    color: #999999;
+    color: var(--text-secondary);
     margin-top: 16px;
     padding-top: 12px;
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    border-top: 1px solid var(--border-color);
 }
 
 :global(.dark) .holdersDetailRow {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--border-color);
 }
 
 /* Main Content (Chart) */
@@ -654,14 +657,14 @@
 .chartCard {
     border-radius: 12px;
     overflow: hidden;
-    background-color: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 :global(.dark) .chartCard {
-    background-color: #1f1f23;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
     box-shadow: none;
 }
 
@@ -684,8 +687,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background-color: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 0 12px;
     text-decoration: none;
@@ -704,7 +707,7 @@
 }
 
 .socialIcon {
-    color: #999999;
+    color: var(--text-secondary);
     display: flex;
     /* Ensure icon centers */
 }
@@ -712,7 +715,7 @@
 .socialText {
     font-size: 11px;
     font-weight: 500;
-    color: #1a1a1a;
+    color: var(--text-primary);
     white-space: nowrap;
 }
 
@@ -724,29 +727,30 @@
 
 /* Dark mode styles */
 :global(.dark) .socialBtn {
-    background-color: #1f1f23;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
 }
 
 :global(.dark) .socialText {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 /* Hover effects */
 .socialBtn:hover {
-    border-color: rgba(0, 0, 0, 0.15);
+    border-color: var(--text-secondary);
+    background-color: var(--bg-hover);
 }
 
 :global(.dark) .socialBtn:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.15);
+    background-color: var(--bg-hover);
+    border-color: var(--text-secondary);
 }
 
 /* Brand colors on hover - REMOVED for monochrome */
 .socialBtn:hover .socialText {
-    color: #1a1a1a;
+    color: var(--text-primary);
 }
 
 :global(.dark) .socialBtn:hover .socialText {
-    color: #ffffff;
+    color: var(--text-primary);
 }

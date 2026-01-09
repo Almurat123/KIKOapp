@@ -153,7 +153,7 @@ get_token_price_tool = tool(
 
 get_trending_tokens_tool = tool(
     name="get_trending_tokens",
-    description="Get list of trending tokens with price, volume, and social metrics. Use this when user asks about trending, hot, or popular tokens.",
+    description="Get currently trending/hot cryptocurrency tokens by trading activity. ONLY use this when user explicitly asks about: trending tokens, hot coins, what tokens are pumping, market movers, top gainers, or specific chain activity. Do NOT use this for general news, world events, crypto industry news, or non-token topics. For news (regulations, hacks, company updates), use web_search instead.",
     parameters={
         "type": "object",
         "properties": {

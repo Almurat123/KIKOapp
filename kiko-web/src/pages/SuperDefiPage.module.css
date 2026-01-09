@@ -1,3 +1,5 @@
+/* SuperDefiPage.module.css */
+
 .container {
     padding: var(--space-4);
     padding-bottom: 32px;
@@ -40,13 +42,13 @@
 }
 
 .card {
-    background: #1f1f23;
+    background: var(--bg-card);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-color);
     padding: 16px;
     border-radius: 12px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--card-shadow);
     transition: all 0.2s ease;
     overflow: hidden;
 }
@@ -54,43 +56,23 @@
 .cardTitle {
     font-size: 18px;
     font-weight: bold;
-    color: #f4f4f5;
+    color: var(--text-primary);
     margin: 0;
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-:global(.light) .cardTitle {
-    color: #18181b;
-}
-
 .cardSubtitle {
-    color: #a1a1aa;
+    color: var(--text-secondary);
     font-size: 12px;
     margin-top: 4px;
 }
 
-:global(.light) .cardSubtitle {
-    color: #666666;
-}
-
 .card:hover {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
     transform: translateY(-2px);
-    border-color: rgba(255, 255, 255, 0.15);
-}
-
-/* Light mode card */
-:global(.light) .card {
-    background: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-}
-
-:global(.light) .card:hover {
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-    border-color: rgba(0, 0, 0, 0.12);
+    border-color: var(--accent-hover);
 }
 
 /* Mobile: edge-to-edge cards */
@@ -104,17 +86,12 @@
 }
 
 .metricLabel {
-    color: #a1a1aa;
+    color: var(--text-secondary);
     font-size: 11px;
     font-weight: bold;
     text-transform: uppercase;
     margin-bottom: 4px;
     letter-spacing: 0.5px;
-}
-
-/* Light mode metric label */
-:global(.light) .metricLabel {
-    color: #52525b;
 }
 
 .metricValueRow {
@@ -127,13 +104,8 @@
 .metricValue {
     font-size: 24px;
     font-weight: bold;
-    color: #f4f4f5;
+    color: var(--text-primary);
     letter-spacing: -0.025em;
-}
-
-/* Light mode metric value */
-:global(.light) .metricValue {
-    color: #18181b;
 }
 
 .metricChange {
@@ -184,27 +156,19 @@
 }
 
 .thead {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--bg-secondary);
     font-size: 11px;
-    color: #a1a1aa;
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-weight: 600;
 }
 
-:global(.light) .thead {
-    background: rgba(0, 0, 0, 0.03);
-    color: #52525b;
-}
-
 .th {
     padding: 12px 16px;
     font-weight: 600;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-:global(.light) .th {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
 }
 
 .tbody {
@@ -212,33 +176,22 @@
 }
 
 .tr {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--border-color);
     transition: background 0.2s;
     cursor: pointer;
 }
 
 .tr:hover {
-    background: rgba(255, 255, 255, 0.04);
-}
-
-:global(.light) .tr {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-:global(.light) .tr:hover {
-    background: rgba(0, 0, 0, 0.03);
+    background: var(--bg-hover);
 }
 
 .td {
     padding: 14px 16px;
+    color: var(--text-primary);
 }
 
 .mcapTvl {
-    color: #a1a1aa;
+    color: var(--text-secondary);
     font-family: monospace;
     font-size: 13px;
-}
-
-:global(.light) .mcapTvl {
-    color: #71717a;
 }

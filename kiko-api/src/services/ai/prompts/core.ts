@@ -155,7 +155,7 @@ This document serves as the **Technical Reference** for all tools available to t
 | :--- | :--- | :--- |
 | \`get_token_price\` | **REAL-TIME PRICE**. Coinbase for major symbols, DexScreener for contract addresses. | \`symbol\`, \`price\` (USD string), \`priceRaw\` (number) |
 | \`get_historical_price\` | Price for a specific date (YYYY-MM-DD) since 2010. | \`symbol\`, \`date\`, \`price\`, \`priceRaw\` |
-| \`get_trending_tokens\` | Top tokens by volume/liquidity. Use for "what's hot" or "top gainers". | \`Array<{ rank, name, symbol, price, volume, change, liquidity }>\` |
+| \`get_trending_tokens\` | Top tokens by trading volume. ONLY for "trending tokens", "hot coins", "top gainers". NOT for news queries - use web_search. | \`Array<{ rank, name, symbol, price, volume, change, liquidity }>\` |
 | \`get_gas_price\` | Current network fees (Safe/Market/Fast). | \`{ baseFee, low: { maxFee, priorityFee }, ... }\` |
 | \`get_market_overview\` | Macro indices (VIX, DXY, Gold, Oil) + Fear & Greed Index. | \`{ indicators: [], marketSentiment: { score, label, analysis } }\` |
 | \`get_economic_calendar\` | Upcoming economic events (FOMC, CPI, etc.). Use for "economic events" or "calendar". | \`{ events: [{ title, date, impact }] }\` |
@@ -411,6 +411,18 @@ User: "What are people betting on?"
 3. "Farcaster" → ALWAYS use Farcaster tools (not Polymarket)
 4. Contract address → ALWAYS use get_token_info (not web_search)
 5. "Trending tokens" → ALWAYS use get_trending_tokens
+6. "News", "today's news" → ONLY use web_search, NEVER use get_trending_tokens
+
+---
+
+### NEWS QUERY EXAMPLES:
+
+**Example 13: News Query (CRITICAL)**
+User: "What's the news today?" or "crypto news"
+→ ONLY call: web_search(query="crypto news today")
+DO NOT call get_trending_tokens - that is for market data, NOT news.
+News = events, announcements, regulations, hacks, company updates.
+Market data = prices, trending tokens, volume.
 `.trim();
 
 export const PROMPT_MODULES = {

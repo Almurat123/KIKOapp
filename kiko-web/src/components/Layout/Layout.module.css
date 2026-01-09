@@ -113,31 +113,35 @@
 .mobileProfileBtn,
 .mobileBackBtn {
     width: 40px;
-    /* Slightly larger */
     height: 40px;
     padding: 0;
-    border-radius: 50%;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .mobileMenuBtn,
 .mobileBackBtn {
+    border-radius: 12px;
+    /* iOS 26 style */
     color: #f4f4f5;
-    background: rgba(39, 39, 42, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.05);
+    /* Liquid Glass Dark */
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
 .mobileMenuBtn:hover,
 .mobileBackBtn:hover {
-    background: rgba(39, 39, 42, 0.8);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: scale(1.04);
+    /* Liquid feedback */
 }
 
 .mobileBackBtn:active {
@@ -146,22 +150,26 @@
 
 .light .mobileMenuBtn,
 .light .mobileBackBtn {
-    background: rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    color: #6b7280;
+    background: rgba(255, 255, 255, 0.4);
+    /* Liquid Glass Light */
+    border: 0.5px solid rgba(0, 0, 0, 0.08);
+    color: #4b5563;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
 .light .mobileMenuBtn:hover,
 .light .mobileBackBtn:hover {
-    background: rgba(0, 0, 0, 0.08);
-    color: #1f2937;
+    background: rgba(255, 255, 255, 0.65);
+    color: #111827;
 }
 
 .mobileProfileBtn {
-    background: rgba(39, 39, 42, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .mobileProfileBtn:hover {
@@ -236,24 +244,43 @@
 }
 
 .desktopTrigger {
-    padding: var(--space-2);
-    border-radius: var(--radius-md);
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 12px;
+    /* iOS 26 style */
     color: #a1a1aa;
-    background: rgba(39, 39, 42, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    /* Liquid Glass Dark */
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .desktopTrigger:hover {
-    background: rgba(39, 39, 42, 0.95);
+    background: rgba(255, 255, 255, 0.12);
     color: white;
-    border-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: scale(1.04);
+}
+
+.light .desktopTrigger {
+    background: rgba(255, 255, 255, 0.4);
+    /* Liquid Glass Light */
+    border: 0.5px solid rgba(0, 0, 0, 0.08);
+    color: #4b5563;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+.light .desktopTrigger:hover {
+    background: rgba(255, 255, 255, 0.6);
+    color: #111827;
 }
 
 /* Desktop Back Button */
@@ -262,33 +289,39 @@
     height: 36px;
     border-radius: 50%;
     color: #a1a1aa;
-    background: #27272a;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.05);
+    /* Liquid Glass Dark */
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .desktopBackBtn:hover {
-    background: #3f3f46;
+    background: rgba(255, 255, 255, 0.12);
     color: #f4f4f5;
+    transform: scale(1.04);
 }
 
 .desktopBackBtn:active {
-    transform: scale(0.95);
+    transform: scale(0.92);
 }
 
 .light .desktopBackBtn {
-    background: rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    color: #6b7280;
+    background: rgba(255, 255, 255, 0.4);
+    /* Liquid Glass Light */
+    border: 0.5px solid rgba(0, 0, 0, 0.08);
+    color: #4b5563;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
 .light .desktopBackBtn:hover {
-    background: rgba(0, 0, 0, 0.08);
-    color: #1f2937;
+    background: rgba(255, 255, 255, 0.65);
+    color: #111827;
 }
 
 /* Desktop Top Right Profile */
@@ -309,31 +342,28 @@
 }
 
 .desktopProfileBtn {
-    background: rgba(39, 39, 42, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.05);
+    /* Liquid Glass Dark */
+    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
     width: 40px;
-    /* Fixed width for circle */
     height: 40px;
     padding: 0;
-    /* Remove padding */
     border-radius: 50%;
-    /* Circle */
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Center content */
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     color: #f4f4f5;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .desktopProfileBtn:hover {
-    background: rgba(39, 39, 42, 0.8);
-    border-color: rgba(255, 255, 255, 0.2);
-    transform: translateY(0);
-    /* Remove lift effect for cleaner feel or keep? Mobile doesn't lift much */
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: scale(1.04);
 }
 
 .desktopProfileAvatar {

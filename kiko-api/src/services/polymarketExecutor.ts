@@ -82,7 +82,7 @@ async function postSignedOrder(
     const orderPayload = {
         deferExec: false,
         order: {
-            salt: parseInt(signedOrder.salt, 10),
+            salt: signedOrder.salt, // Keep as string (Polymarket API handles string for uint256)
             maker: signedOrder.maker,
             signer: signedOrder.signer,
             taker: signedOrder.taker,
@@ -101,7 +101,8 @@ async function postSignedOrder(
     };
 
     const body = JSON.stringify(orderPayload);
-    const signature = generateHmacSignature(creds.apiSecret, timestamp, method, requestPath, body);
+    console.log('[PolymarketExecutor] Order payload:', JSON.stringify(orderPayload, null, 2));
+    const hmacSignature = generateHmacSignature(creds.apiSecret, timestamp, method, requestPath, body);
 
     try {
         const response = await fetch(`${CLOB_API}${requestPath}`, {
@@ -112,7 +113,7 @@ async function postSignedOrder(
                 'POLY_API_KEY': creds.apiKey,
                 'POLY_PASSPHRASE': creds.passphrase,
                 'POLY_TIMESTAMP': timestamp,
-                'POLY_SIGNATURE': signature
+                'POLY_SIGNATURE': hmacSignature
             },
             body
         });
@@ -209,6 +210,7 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
         // Build order data (EOA mode: maker = signer = user's wallet)
         const orderData = createLimitOrderData({
             makerAddress: creds.walletAddress,
+            signerAddress: creds.walletAddress,
             tokenId: params.tokenId,
             side: 'BUY',
             price: params.price,
@@ -224,6 +226,22 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
 
         // Post to CLOB
         const result = await postSignedOrder(signedOrder, creds);
+
+        // Record action in DB
+        await logPolymarketAction({
+            userId: user.id,
+            type: 'BUY',
+            status: result.success ? 'SUCCESS' : 'FAILED',
+            marketTitle: params.question,
+            marketSlug: params.marketSlug,
+            outcome: params.outcome,
+            assetId: params.tokenId,
+            orderId: result.orderId,
+            size: shares,
+            price: params.price,
+            amount: params.amountUsd,
+            error: result.error
+        });
 
         // Create position record
         await prisma.polymarketPosition.create({
@@ -291,6 +309,7 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
         // Build sell order
         const orderData = createLimitOrderData({
             makerAddress: creds.walletAddress,
+            signerAddress: creds.walletAddress,
             tokenId: assetId,
             side: 'SELL',
             price: params.minPrice > 0 ? params.minPrice : 0.01,
@@ -302,20 +321,64 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
 
         // Post to CLOB
         const result = await postSignedOrder(signedOrder, creds);
+        console.log('[PolymarketExecutor] SELL order result:', result);
+
+        // Record action in DB
+        try {
+            const user = await prisma.user.findFirst({ where: { privyDid: params.userId } });
+            if (user) {
+                // Try to get market info for title
+                let marketTitle = 'Polymarket Position';
+                let marketSlug = '';
+                if (params.positionId && params.positionId.length < 50) {
+                    const pos = await (prisma as any).polymarketPosition.findUnique({ where: { id: params.positionId } });
+                    if (pos) {
+                        marketTitle = pos.question;
+                        marketSlug = pos.marketSlug;
+                    }
+                }
+
+                await logPolymarketAction({
+                    userId: user.id,
+                    type: 'SELL',
+                    status: result.success ? 'SUCCESS' : 'FAILED',
+                    marketTitle,
+                    marketSlug,
+                    outcome: '',
+                    assetId: assetId,
+                    orderId: result.orderId,
+                    size: params.shares,
+                    price: params.minPrice,
+                    amount: params.shares * params.minPrice,
+                    error: result.error
+                });
+            }
+        } catch (e) {
+            console.warn('[PolymarketExecutor] Failed to log action:', e);
+        }
 
         // Update position in DB if it exists
-        if (params.positionId && params.positionId.length < 50) {
+        if (params.positionId) {
             try {
-                await prisma.polymarketPosition.update({
-                    where: { id: params.positionId },
-                    data: {
-                        status: 'closed',
-                        exitReason: result.success ? 'manual_sell' : `sell_failed: ${result.error?.slice(0, 100)}`,
-                        closedAt: new Date()
-                    }
-                });
+                // Try finding by internal ID or assetId
+                const where = params.positionId.length < 50
+                    ? { id: params.positionId }
+                    : { userId_assetId: { userId: params.userId, assetId: params.positionId } };
+
+                // Note: userId_assetId might need specialized handling if not unique in schema
+                // For now, let's keep it simple: try update by ID if it's short
+                if (params.positionId.length < 50) {
+                    await prisma.polymarketPosition.update({
+                        where: { id: params.positionId },
+                        data: {
+                            status: 'closed',
+                            exitReason: result.success ? 'manual_sell' : `sell_failed: ${result.error?.slice(0, 100)}`,
+                            closedAt: new Date()
+                        }
+                    });
+                }
             } catch (e) {
-                // Ignore update errors if not in DB
+                // Ignore update errors
             }
         }
 
@@ -517,12 +580,26 @@ export async function closePosition(params: ClosePositionParams): Promise<{
             };
         }
 
-        // 3. Place sell order
+        // 3. Try to get Best Bid to ensure immediate execution (Market Sell)
+        let sellPrice = params.currentPrice || 0.01;
+        try {
+            const { getBestBid } = await import('./polymarketDataService.js');
+            const bestBid = await getBestBid(assetId);
+            if (bestBid && bestBid > 0) {
+                console.log(`[PolymarketExecutor] Found best bid: ${bestBid} (currentPrice: ${params.currentPrice})`);
+                sellPrice = bestBid;
+            }
+        } catch (e) {
+            console.error('[PolymarketExecutor] Failed to fetch best bid, falling back to currentPrice');
+        }
+
+        // 4. Place sell order
         const result = await placeSellOrder({
             userId: params.userId,
-            positionId: dbPosition ? dbPosition.id : assetId, // This field in placeSellOrder actually expects a DB ID, but we need to fix it too if it's missing
+            positionId: dbPosition ? dbPosition.id : undefined,
+            assetId: assetId,
             shares: shares,
-            minPrice: params.currentPrice || 0.01
+            minPrice: sellPrice
         });
 
         return result;
@@ -584,10 +661,69 @@ export async function cancelOrder(params: CancelOrderParams): Promise<{
         }
 
         console.log('[PolymarketExecutor] Order cancelled successfully');
+
+        // Record action in DB
+        try {
+            const user = await prisma.user.findFirst({ where: { privyDid: params.userId } });
+            if (user) {
+                await logPolymarketAction({
+                    userId: user.id,
+                    type: 'CANCEL',
+                    status: 'CANCELLED',
+                    marketTitle: 'Order Cancellation',
+                    marketSlug: '',
+                    outcome: '',
+                    orderId: params.orderId,
+                });
+            }
+        } catch (e) {
+            console.warn('[PolymarketExecutor] Failed to log cancel action:', e);
+        }
+
         return { success: true };
 
     } catch (error: any) {
         console.error('[PolymarketExecutor] Cancel order failed:', error);
         return { success: false, error: error.message };
+    }
+}
+/**
+ * Log a Polymarket action to the database
+ */
+async function logPolymarketAction(data: {
+    userId: string;
+    type: string;
+    status: string;
+    marketTitle: string;
+    marketSlug: string;
+    outcome: string;
+    assetId?: string;
+    orderId?: string;
+    txHash?: string;
+    size?: number;
+    price?: number;
+    amount?: number;
+    error?: string;
+}) {
+    try {
+        await (prisma as any).polymarketAction.create({
+            data: {
+                userId: data.userId,
+                type: data.type,
+                status: data.status,
+                marketTitle: data.marketTitle,
+                marketSlug: data.marketSlug,
+                outcome: data.outcome,
+                assetId: data.assetId,
+                orderId: data.orderId,
+                txHash: data.txHash,
+                size: data.size,
+                price: data.price,
+                amount: data.amount,
+                error: data.error
+            }
+        });
+    } catch (error) {
+        console.error('[PolymarketExecutor] Failed to log action:', error);
     }
 }

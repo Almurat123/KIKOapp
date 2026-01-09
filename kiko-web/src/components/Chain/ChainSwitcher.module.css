@@ -9,42 +9,40 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    /* Ensure content spans width */
     width: 100%;
-    /* Fill container */
     gap: 8px;
     padding: 0 12px;
     height: 40px;
-    /* Enforce consistent height */
-    background: #27272a;
+    /* Liquid Glass Style */
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 12px;
-    /* Match Settings button radius if needed */
     cursor: pointer;
-    color: #f4f4f5;
+    color: var(--text-primary);
     font-size: 14px;
-    /* Slightly larger font */
     font-weight: 500;
-    transition: all 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
 }
 
 :global(.light) .trigger {
-    background: #f4f4f5;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    /* Light mode border */
-    color: #18181b;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
 .trigger:hover {
-    background: #3f3f46;
-    color: #ffffff;
-    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
 }
 
 :global(.light) .trigger:hover {
-    background: #e4e4e7;
-    color: #000000;
-    border-color: rgba(0, 0, 0, 0.1);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
 }
 
 .chainIcon {

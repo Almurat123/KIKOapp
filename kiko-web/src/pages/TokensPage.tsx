@@ -372,7 +372,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true); // Initial multi-chain load
   const [error, setError] = useState<string | null>(null);
-  const [selectedChain, setSelectedChain] = useState('all'); // Chain filter
+  const [selectedChain, setSelectedChain] = useState(() => localStorage.getItem('kiko-selected-chain') || 'all'); // Chain filter
   const [showChainDropdown, setShowChainDropdown] = useState(false); // Chain dropdown visibility
   const [activeTab, setActiveTab] = useState<'trending' | 'favorites'>('trending'); // Tab state
 
@@ -620,6 +620,11 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       }
     };
   }, [searchQuery]);
+
+  // Persist selected chain
+  useEffect(() => {
+    localStorage.setItem('kiko-selected-chain', selectedChain);
+  }, [selectedChain]);
 
   // Detect screen size
   useEffect(() => {
@@ -970,55 +975,226 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const getChangeColumn = () => 'c5m';
 
   return (
-    <PageContainer fullWidth>
-      <div className={styles.container}>
-        {/* Token Table */}
-        <div className={`${styles.content} ${isMobile ? styles.contentMobile : ''}`}>
-          {/* Control Bar - Search Only */}
-          {/* Control Bar - filters & search */}
-          <div className={styles.controlBar}>
-            {/* Tabs - Full Width */}
-            <div className={styles.filterGroup} style={{ width: '100%', display: 'flex', gap: '8px' }}>
-              <button
-                className={`${styles.filterBtn} ${activeTab === 'trending' ? styles.filterBtnActive : ''}`}
-                onClick={() => setActiveTab('trending')}
-                style={{ flex: 1, justifyContent: 'center' }}
-              >
-                Trending
-              </button>
-              <button
-                className={`${styles.filterBtn} ${activeTab === 'favorites' ? styles.filterBtnActive : ''}`}
-                onClick={() => setActiveTab('favorites')}
-                style={{ flex: 1, justifyContent: 'center' }}
-              >
-                Favorites
-              </button>
-            </div>
-
-            {/* Search Bar */}
-            <div className={styles.searchWrapper}>
-              <Search size={18} className={styles.searchIcon} />
-              <input
-                type="text"
-                placeholder="Search tokens..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={styles.searchInput}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className={styles.clearButton}
-                >
-                  <X size={16} />
-                </button>
-              )}
-            </div>
+    <PageContainer fullWidth className={styles.container}>
+      {/* Token Table */}
+      <div className={`${styles.content} ${isMobile ? styles.contentMobile : ''}`}>
+        {/* Control Bar - Search Only */}
+        {/* Control Bar - filters & search */}
+        <div className={styles.controlBar}>
+          {/* Tabs - Full Width */}
+          <div className={styles.filterGroup} style={{ width: '100%', display: 'flex', gap: '8px' }}>
+            <button
+              className={`${styles.filterBtn} ${activeTab === 'trending' ? styles.filterBtnActive : ''}`}
+              onClick={() => setActiveTab('trending')}
+              style={{ flex: 1, justifyContent: 'center' }}
+            >
+              Trending
+            </button>
+            <button
+              className={`${styles.filterBtn} ${activeTab === 'favorites' ? styles.filterBtnActive : ''}`}
+              onClick={() => setActiveTab('favorites')}
+              style={{ flex: 1, justifyContent: 'center' }}
+            >
+              Favorites
+            </button>
           </div>
 
-          {/* Loading Skeleton */}
-          {(loading || initialLoading) && (
+          {/* Search Bar */}
+          <div className={styles.searchWrapper}>
+            <Search size={18} className={styles.searchIcon} />
+            <input
+              type="text"
+              placeholder="Search tokens..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={styles.searchInput}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className={styles.clearButton}
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Loading Skeleton */}
+        {(loading || initialLoading) && (
+          <div className={styles.tableCard}>
+            <table className={styles.table}>
+              <colgroup>
+                <col style={{ width: isMobile ? '32%' : '28%' }} />
+                <col style={{ width: isMobile ? '18%' : '14%' }} />
+                <col style={{ width: isMobile ? '24%' : '20%' }} />
+                <col style={{ width: isMobile ? '16%' : '12%' }} />
+                <col style={{ width: isMobile ? '10%' : '8%' }} />
+                {!isMobile && <col style={{ width: '18%' }} />}
+              </colgroup>
+              <thead className={styles.thead}>
+                <tr>
+                  <th className={styles.th} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                    <div className={styles.thContent}>Token Info</div>
+                  </th>
+                  <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                    <div className={`${styles.thContent} ${styles.thContentRight}`}>Price</div>
+                  </th>
+                  <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                    <div className={`${styles.thContent} ${styles.thContentRight}`}>Volume</div>
+                  </th>
+                  <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                    <div className={`${styles.thContent} ${styles.thContentRight}`}>5M</div>
+                  </th>
+                  <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                    <div className={`${styles.thContent} ${styles.thContentRight}`}>Age</div>
+                  </th>
+                  {!isMobile && (
+                    <th className={`${styles.th} ${styles.thCenter}`} style={{ padding: '12px 16px' }}>
+                      <div className={`${styles.thContent} ${styles.thContentCenter}`}>Txns</div>
+                    </th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className={styles.tbody}>
+                {Array.from({ length: 15 }).map((_, i) => (
+                  <tr key={i} className={styles.tr}>
+                    <td className={styles.td} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={styles.skeletonCell}>
+                        {!isMobile && <div className={styles.skeletonText} style={{ width: '18px', marginRight: '4px' }} />}
+                        <div className={`${styles.skeletonIconWrapper} ${isMobile ? styles.skeletonIconWrapperMobile : ''}`}>
+                          {isMobile && <div className={styles.skeletonBadge} />}
+                          <div className={styles.skeletonAvatar} />
+                          <div className={styles.skeletonChainLogo} />
+                        </div>
+                        <div>
+                          <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} />
+                          <div className={`${styles.skeletonText} ${styles.skeletonTextName}`} style={{ marginTop: 4 }} />
+                        </div>
+                      </div>
+                    </td>
+                    <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} style={{ marginLeft: 'auto' }} />
+                    </td>
+                    <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={`${styles.skeletonText} ${styles.skeletonTextLong}`} style={{ marginLeft: 'auto' }} />
+                    </td>
+                    <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
+                    </td>
+                    <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
+                    </td>
+                    {!isMobile && (
+                      <td className={`${styles.td} ${styles.tdCenter}`} style={{ padding: '12px 16px' }}>
+                        <div className={styles.skeletonBar} style={{ width: '80%', margin: '0 auto' }} />
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Error State - Only show if no data available */}
+        {error && !loading && !initialLoading && allTokens.length === 0 && (
+          <div className={styles.errorContainer}>
+            <div className={styles.errorMessage}>
+              {error.includes('request limit') || error.includes('429') ? (
+                <>
+                  <div>⚠️ API Rate Limit Exceeded</div>
+                  <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.8 }}>
+                    Please wait a moment and try again, or refresh the page
+                  </div>
+                </>
+              ) : (
+                error
+              )}
+            </div>
+            {(error.includes('request limit') || error.includes('429')) && (
+              <button
+                onClick={() => {
+                  setError(null);
+                  setTimeout(() => {
+                    // Reload the page to retry
+                    window.location.reload();
+                  }, 5000);
+                }}
+                className={styles.retryBtn}
+              >
+                Auto refresh in 5s
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Empty State - Search with no results */}
+        {!loading && !initialLoading && !error && searchQuery.trim() && filteredAndSortedTokens.length === 0 && (
+          <div className={styles.emptyState}>
+            <p>No tokens found for "{searchQuery}"</p>
+            <p className={styles.emptyStateSub}>Try searching with a different term</p>
+          </div>
+        )}
+
+        {/* Empty State - Chain filter with no results */}
+        {!loading && !initialLoading && !error && !searchQuery.trim() && selectedChain !== 'all' && filteredAndSortedTokens.length === 0 && allTokens.length > 0 && (
+          <div className={styles.emptyState}>
+            <p>No tokens found for {CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || selectedChain}</p>
+            <p className={styles.emptyStateSub}>Try selecting a different chain</p>
+          </div>
+        )}
+
+        {filteredAndSortedTokens.length > 0 && !loading && !initialLoading && (
+          <>
             <div className={styles.tableCard}>
+              <div className={styles.tableHeader}>
+                <h2 className={styles.tableTitle}>
+                  {activeTab === 'favorites'
+                    ? 'Favorites'
+                    : 'Trending'}
+                </h2>
+                {/* Chain Selector */}
+                <div className={styles.chainSelector}>
+                  <button
+                    className={styles.chainSelectorBtn}
+                    onClick={() => setShowChainDropdown(!showChainDropdown)}
+                  >
+                    {selectedChain === 'all' ? (
+                      null
+                    ) : (
+                      <img
+                        src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
+                        alt={selectedChain}
+                        className={styles.chainSelectorIcon}
+                      />
+                    )}
+                    <span>{CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || 'All Chains'}</span>
+                    <ChevronDown size={14} />
+                  </button>
+                  {showChainDropdown && (
+                    <div className={styles.chainDropdown}>
+                      {CHAIN_OPTIONS.map(chain => (
+                        <button
+                          key={chain.id}
+                          className={`${styles.chainOption} ${selectedChain === chain.id ? styles.chainOptionActive : ''}`}
+                          onClick={() => {
+                            setSelectedChain(chain.id);
+                            setShowChainDropdown(false);
+                          }}
+                        >
+                          {chain.logo ? (
+                            <img src={chain.logo} alt={chain.name} className={styles.chainOptionIcon} />
+                          ) : (
+                            <span className={styles.allChainsIcon}>⛓</span>
+                          )}
+                          <span>{chain.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
               <table className={styles.table}>
                 <colgroup>
                   <col style={{ width: isMobile ? '32%' : '28%' }} />
@@ -1030,405 +1206,237 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                 </colgroup>
                 <thead className={styles.thead}>
                   <tr>
-                    <th className={styles.th} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={styles.thContent}>Token Info</div>
+                    <th
+                      className={styles.th}
+                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                      onClick={() => handleSort('symbol')}
+                    >
+                      <div className={styles.thContent}>
+                        Token Info
+                        <SortIcon column="symbol" />
+                      </div>
                     </th>
-                    <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>Price</div>
+                    <th
+                      className={`${styles.th} ${styles.thRight}`}
+                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                      onClick={() => handleSort('price')}
+                    >
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>
+                        Price
+                        <SortIcon column="price" />
+                      </div>
                     </th>
-                    <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>Volume</div>
+                    <th
+                      className={`${styles.th} ${styles.thRight}`}
+                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                      onClick={() => handleSort('volume')}
+                    >
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>
+                        Vol / Liq
+                        <SortIcon column="volume" />
+                      </div>
                     </th>
-                    <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>5M</div>
+                    <th
+                      className={`${styles.th} ${styles.thRight}`}
+                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                      onClick={() => handleSort(getChangeColumn() as keyof Token)}
+                    >
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>
+                        5M
+                        <SortIcon column={getChangeColumn() as keyof Token} />
+                      </div>
                     </th>
-                    <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>Age</div>
+                    <th
+                      className={`${styles.th} ${styles.thRight}`}
+                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                      onClick={() => handleSort('age')}
+                    >
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>
+                        Age
+                        <SortIcon column="age" />
+                      </div>
                     </th>
                     {!isMobile && (
-                      <th className={`${styles.th} ${styles.thCenter}`} style={{ padding: '12px 16px' }}>
-                        <div className={`${styles.thContent} ${styles.thContentCenter}`}>Txns</div>
+                      <th
+                        className={`${styles.th} ${styles.thCenter}`}
+                        style={{ padding: '12px 16px' }}
+                        onClick={() => handleSort('txns')}
+                      >
+                        <div className={`${styles.thContent} ${styles.thContentCenter}`}>
+                          Txns
+                          <SortIcon column="txns" />
+                        </div>
                       </th>
                     )}
                   </tr>
                 </thead>
                 <tbody className={styles.tbody}>
-                  {Array.from({ length: 15 }).map((_, i) => (
-                    <tr key={i} className={styles.tr}>
-                      <td className={styles.td} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                        <div className={styles.skeletonCell}>
-                          <div className={styles.skeletonAvatar} />
-                          <div>
-                            <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} />
-                            <div className={`${styles.skeletonText} ${styles.skeletonTextName}`} style={{ marginTop: 4 }} />
+                  {filteredAndSortedTokens.map((t, i) => {
+                    const changeValue = t.c5m;
+                    const isPositive = changeValue.startsWith('+');
+                    const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
+
+                    return (
+                      <tr
+                        key={t.id}
+                        onClick={() => handleTokenClick(t)}
+                        className={styles.tr}
+                      >
+                        {/* Token Info */}
+                        <td
+                          className={styles.td}
+                          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                        >
+                          <div className={styles.tokenInfo}>
+                            {/* Desktop: Normal rank */}
+                            {!isMobile && (
+                              <span className={styles.rank}>
+                                {i + 1}
+                              </span>
+                            )}
+                            {/* Token Icon with Chain Logo */}
+                            <div className={`${styles.tokenIconWrapper} ${isMobile ? styles.tokenIconWrapperMobile : ''}`}>
+                              {/* Mobile: Rank badge above avatar */}
+                              {isMobile && (
+                                <span className={`${styles.avatarRankBadge} ${t.isNew ? styles.avatarRankNew : ''} ${t.isHot && !t.isNew ? styles.avatarRankHot : ''}`}>
+                                  {t.isNew ? 'NEW' : t.isHot ? 'HOT' : i + 1}
+                                </span>
+                              )}
+                              <img
+                                src={t.imageUrl || `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`}
+                                alt={t.name}
+                                className={styles.tokenIcon}
+                                onError={(e) => {
+                                  // Fallback to ui-avatars if image fails to load
+                                  e.currentTarget.src = `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`;
+                                }}
+                              />
+                              {/* Chain Logo */}
+                              <img
+                                src={getChainLogo(t.chain)}
+                                alt={t.chain}
+                                className={styles.chainLogo}
+                                onError={(e) => {
+                                  e.currentTarget.style.background = getChainColor(t.chain);
+                                }}
+                              />
+                            </div>
+
+                            <div className={styles.tokenNameCol}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                <span className={styles.tokenSymbol}>{t.symbol}</span>
+                                {/* NEW badge - desktop only */}
+                                {t.isNew && !isMobile && (
+                                  <span style={{
+                                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                                    color: '#fff',
+                                    fontSize: '9px',
+                                    fontWeight: 700,
+                                    padding: '2px 5px',
+                                    borderRadius: '4px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.3px',
+                                  }}>NEW</span>
+                                )}
+                                {/* HOT badge - desktop only, don't show if already NEW */}
+                                {t.isHot && !t.isNew && !isMobile && (
+                                  <span style={{
+                                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                                    color: '#fff',
+                                    fontSize: '9px',
+                                    fontWeight: 700,
+                                    padding: '2px 5px',
+                                    borderRadius: '4px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.3px',
+                                  }}>HOT</span>
+                                )}
+                              </div>
+                              <span className={styles.tokenName}>{t.name}</span>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                        <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} style={{ marginLeft: 'auto' }} />
-                      </td>
-                      <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                        <div className={`${styles.skeletonText} ${styles.skeletonTextLong}`} style={{ marginLeft: 'auto' }} />
-                      </td>
-                      <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                        <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
-                      </td>
-                      <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                        <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
-                      </td>
-                      {!isMobile && (
-                        <td className={`${styles.td} ${styles.tdCenter}`} style={{ padding: '12px 16px' }}>
-                          <div className={styles.skeletonBar} style={{ width: '80%', margin: '0 auto' }} />
                         </td>
-                      )}
-                    </tr>
-                  ))}
+
+                        {/* Price */}
+                        <td
+                          className={`${styles.td} ${styles.tdRight}`}
+                          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                        >
+                          <div className={styles.price}>
+                            {t.price}
+                          </div>
+                        </td>
+
+                        {/* Volume / Liquidity */}
+                        <td
+                          className={`${styles.td} ${styles.tdRight}`}
+                          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                        >
+                          <div className={styles.tokenNameCol} style={{ alignItems: 'flex-end' }}>
+                            <div className={styles.volume}>
+                              <span className={styles.liquidity} style={{ marginRight: '4px' }}>VOL:</span>
+                              {t.volume}
+                            </div>
+                            <div className={styles.volume}>
+                              <span className={styles.liquidity} style={{ marginRight: '4px' }}>LIQ:</span>
+                              {t.liquidity}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Change (based on timeframe) */}
+                        <td
+                          className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
+                          style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+                        >
+                          {changeValue}
+                        </td>
+
+                        {/* Age */}
+                        <td
+                          className={`${styles.td} ${styles.tdRight} ${styles.age}`}
+                          style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+                        >
+                          {t.age}
+                        </td>
+
+                        {/* Txns (Buy/Sell Bar) */}
+                        {!isMobile && (
+                          <td
+                            className={`${styles.td} ${styles.tdCenter}`}
+                            style={{ padding: '12px 16px' }}
+                          >
+                            <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
+                              <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <span className={styles.changePositive} style={{ fontSize: '9px' }}>
+                                  {t.buys}
+                                </span>
+                                <span className={styles.changeNegative} style={{ fontSize: '9px' }}>
+                                  {t.sells}
+                                </span>
+                              </div>
+                              <div className={styles.barContainer} style={{ height: '6px' }}>
+                                <div
+                                  className={styles.buyBar}
+                                  style={{ width: `${buyPct}%` }}
+                                ></div>
+                                <div
+                                  className={styles.sellBar}
+                                  style={{ width: `${100 - buyPct}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-          )}
-
-          {/* Error State - Only show if no data available */}
-          {error && !loading && !initialLoading && allTokens.length === 0 && (
-            <div className={styles.errorContainer}>
-              <div className={styles.errorMessage}>
-                {error.includes('request limit') || error.includes('429') ? (
-                  <>
-                    <div>⚠️ API Rate Limit Exceeded</div>
-                    <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.8 }}>
-                      Please wait a moment and try again, or refresh the page
-                    </div>
-                  </>
-                ) : (
-                  error
-                )}
-              </div>
-              {(error.includes('request limit') || error.includes('429')) && (
-                <button
-                  onClick={() => {
-                    setError(null);
-                    setTimeout(() => {
-                      // Reload the page to retry
-                      window.location.reload();
-                    }, 5000);
-                  }}
-                  className={styles.retryBtn}
-                >
-                  Auto refresh in 5s
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Empty State - Search with no results */}
-          {!loading && !initialLoading && !error && searchQuery.trim() && filteredAndSortedTokens.length === 0 && (
-            <div className={styles.emptyState}>
-              <p>No tokens found for "{searchQuery}"</p>
-              <p className={styles.emptyStateSub}>Try searching with a different term</p>
-            </div>
-          )}
-
-          {/* Empty State - Chain filter with no results */}
-          {!loading && !initialLoading && !error && !searchQuery.trim() && selectedChain !== 'all' && filteredAndSortedTokens.length === 0 && allTokens.length > 0 && (
-            <div className={styles.emptyState}>
-              <p>No tokens found for {CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || selectedChain}</p>
-              <p className={styles.emptyStateSub}>Try selecting a different chain</p>
-            </div>
-          )}
-
-          {filteredAndSortedTokens.length > 0 && !loading && !initialLoading && (
-            <>
-              <div className={styles.tableCard}>
-                <div className={styles.tableHeader}>
-                  <h2 className={styles.tableTitle}>
-                    {activeTab === 'favorites'
-                      ? 'Favorites'
-                      : 'Trending'}
-                  </h2>
-                  {/* Chain Selector */}
-                  <div className={styles.chainSelector}>
-                    <button
-                      className={styles.chainSelectorBtn}
-                      onClick={() => setShowChainDropdown(!showChainDropdown)}
-                    >
-                      {selectedChain === 'all' ? (
-                        <span className={styles.allChainsIcon}>⛓</span>
-                      ) : (
-                        <img
-                          src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
-                          alt={selectedChain}
-                          className={styles.chainSelectorIcon}
-                        />
-                      )}
-                      <span>{CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || 'All Chains'}</span>
-                      <ChevronDown size={14} />
-                    </button>
-                    {showChainDropdown && (
-                      <div className={styles.chainDropdown}>
-                        {CHAIN_OPTIONS.map(chain => (
-                          <button
-                            key={chain.id}
-                            className={`${styles.chainOption} ${selectedChain === chain.id ? styles.chainOptionActive : ''}`}
-                            onClick={() => {
-                              setSelectedChain(chain.id);
-                              setShowChainDropdown(false);
-                            }}
-                          >
-                            {chain.logo ? (
-                              <img src={chain.logo} alt={chain.name} className={styles.chainOptionIcon} />
-                            ) : (
-                              <span className={styles.allChainsIcon}>⛓</span>
-                            )}
-                            <span>{chain.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <table className={styles.table}>
-                  <colgroup>
-                    <col style={{ width: isMobile ? '32%' : '28%' }} />
-                    <col style={{ width: isMobile ? '18%' : '14%' }} />
-                    <col style={{ width: isMobile ? '24%' : '20%' }} />
-                    <col style={{ width: isMobile ? '16%' : '12%' }} />
-                    <col style={{ width: isMobile ? '10%' : '8%' }} />
-                    {!isMobile && <col style={{ width: '18%' }} />}
-                  </colgroup>
-                  <thead className={styles.thead}>
-                    <tr>
-                      <th
-                        className={styles.th}
-                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                        onClick={() => handleSort('symbol')}
-                      >
-                        <div className={styles.thContent}>
-                          Token Info
-                          <SortIcon column="symbol" />
-                        </div>
-                      </th>
-                      <th
-                        className={`${styles.th} ${styles.thRight}`}
-                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                        onClick={() => handleSort('price')}
-                      >
-                        <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                          Price
-                          <SortIcon column="price" />
-                        </div>
-                      </th>
-                      <th
-                        className={`${styles.th} ${styles.thRight}`}
-                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                        onClick={() => handleSort('volume')}
-                      >
-                        <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                          Vol / Liq
-                          <SortIcon column="volume" />
-                        </div>
-                      </th>
-                      <th
-                        className={`${styles.th} ${styles.thRight}`}
-                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                        onClick={() => handleSort(getChangeColumn() as keyof Token)}
-                      >
-                        <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                          5M
-                          <SortIcon column={getChangeColumn() as keyof Token} />
-                        </div>
-                      </th>
-                      <th
-                        className={`${styles.th} ${styles.thRight}`}
-                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                        onClick={() => handleSort('age')}
-                      >
-                        <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                          Age
-                          <SortIcon column="age" />
-                        </div>
-                      </th>
-                      {!isMobile && (
-                        <th
-                          className={`${styles.th} ${styles.thCenter}`}
-                          style={{ padding: '12px 16px' }}
-                          onClick={() => handleSort('txns')}
-                        >
-                          <div className={`${styles.thContent} ${styles.thContentCenter}`}>
-                            Txns
-                            <SortIcon column="txns" />
-                          </div>
-                        </th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className={styles.tbody}>
-                    {filteredAndSortedTokens.map((t, i) => {
-                      const changeValue = t.c5m;
-                      const isPositive = changeValue.startsWith('+');
-                      const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
-
-                      return (
-                        <tr
-                          key={t.id}
-                          onClick={() => handleTokenClick(t)}
-                          className={styles.tr}
-                        >
-                          {/* Token Info */}
-                          <td
-                            className={styles.td}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                          >
-                            <div className={styles.tokenInfo}>
-                              {/* Desktop: Normal rank */}
-                              {!isMobile && (
-                                <span className={styles.rank}>
-                                  {i + 1}
-                                </span>
-                              )}
-                              {/* Token Icon with Chain Logo */}
-                              <div className={`${styles.tokenIconWrapper} ${isMobile ? styles.tokenIconWrapperMobile : ''}`}>
-                                {/* Mobile: Rank badge above avatar */}
-                                {isMobile && (
-                                  <span className={`${styles.avatarRankBadge} ${t.isNew ? styles.avatarRankNew : ''} ${t.isHot && !t.isNew ? styles.avatarRankHot : ''}`}>
-                                    {t.isNew ? 'NEW' : t.isHot ? 'HOT' : i + 1}
-                                  </span>
-                                )}
-                                <img
-                                  src={t.imageUrl || `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`}
-                                  alt={t.name}
-                                  className={styles.tokenIcon}
-                                  onError={(e) => {
-                                    // Fallback to ui-avatars if image fails to load
-                                    e.currentTarget.src = `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`;
-                                  }}
-                                />
-                                {/* Chain Logo */}
-                                <img
-                                  src={getChainLogo(t.chain)}
-                                  alt={t.chain}
-                                  className={styles.chainLogo}
-                                  onError={(e) => {
-                                    e.currentTarget.style.background = getChainColor(t.chain);
-                                  }}
-                                />
-                              </div>
-
-                              <div className={styles.tokenNameCol}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                                  <span className={styles.tokenSymbol}>{t.symbol}</span>
-                                  {/* NEW badge - desktop only */}
-                                  {t.isNew && !isMobile && (
-                                    <span style={{
-                                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                                      color: '#fff',
-                                      fontSize: '9px',
-                                      fontWeight: 700,
-                                      padding: '2px 5px',
-                                      borderRadius: '4px',
-                                      textTransform: 'uppercase',
-                                      letterSpacing: '0.3px',
-                                    }}>NEW</span>
-                                  )}
-                                  {/* HOT badge - desktop only, don't show if already NEW */}
-                                  {t.isHot && !t.isNew && !isMobile && (
-                                    <span style={{
-                                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                                      color: '#fff',
-                                      fontSize: '9px',
-                                      fontWeight: 700,
-                                      padding: '2px 5px',
-                                      borderRadius: '4px',
-                                      textTransform: 'uppercase',
-                                      letterSpacing: '0.3px',
-                                    }}>HOT</span>
-                                  )}
-                                </div>
-                                <span className={styles.tokenName}>{t.name}</span>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Price */}
-                          <td
-                            className={`${styles.td} ${styles.tdRight}`}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                          >
-                            <div className={styles.price}>
-                              {t.price}
-                            </div>
-                          </td>
-
-                          {/* Volume / Liquidity */}
-                          <td
-                            className={`${styles.td} ${styles.tdRight}`}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                          >
-                            <div className={styles.tokenNameCol} style={{ alignItems: 'flex-end' }}>
-                              <div className={styles.volume}>
-                                <span className={styles.liquidity} style={{ marginRight: '4px' }}>VOL:</span>
-                                {t.volume}
-                              </div>
-                              <div className={styles.volume}>
-                                <span className={styles.liquidity} style={{ marginRight: '4px' }}>LIQ:</span>
-                                {t.liquidity}
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Change (based on timeframe) */}
-                          <td
-                            className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
-                          >
-                            {changeValue}
-                          </td>
-
-                          {/* Age */}
-                          <td
-                            className={`${styles.td} ${styles.tdRight} ${styles.age}`}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
-                          >
-                            {t.age}
-                          </td>
-
-                          {/* Txns (Buy/Sell Bar) */}
-                          {!isMobile && (
-                            <td
-                              className={`${styles.td} ${styles.tdCenter}`}
-                              style={{ padding: '12px 16px' }}
-                            >
-                              <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
-                                <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
-                                  <span className={styles.changePositive} style={{ fontSize: '9px' }}>
-                                    {t.buys}
-                                  </span>
-                                  <span className={styles.changeNegative} style={{ fontSize: '9px' }}>
-                                    {t.sells}
-                                  </span>
-                                </div>
-                                <div className={styles.barContainer} style={{ height: '6px' }}>
-                                  <div
-                                    className={styles.buyBar}
-                                    style={{ width: `${buyPct}%` }}
-                                  ></div>
-                                  <div
-                                    className={styles.sellBar}
-                                    style={{ width: `${100 - buyPct}%` }}
-                                  ></div>
-                                </div>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
+          </>
+        )}
       </div>
-    </PageContainer>
+    </PageContainer >
   );
 };

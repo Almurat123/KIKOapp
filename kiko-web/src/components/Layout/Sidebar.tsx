@@ -52,13 +52,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { resolvedTheme } = useThemeContext();
   const { user, authenticated } = usePrivy();
   const { wallets } = useWallets();
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['chat'])); // 默认展开 Chat 分组
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['chat']));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-  // Detect mobile viewport
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
@@ -67,17 +66,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Get wallet address from Privy
   const walletAddress = wallets[0]?.address || '';
   const displayAddress = walletAddress
     ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-2)}`
     : 'Not connected';
 
-  // Get user name from Privy user or default
-  const userEmail = user?.email ? String(user.email) : '';
-  const userName = (userEmail && userEmail.split('@')[0]) || user?.farcaster?.username || 'User';
+  // Fix [object Object] rendering
+  const emailAddress = user?.email && typeof user.email === 'object' && 'address' in user.email
+    ? (user.email as { address: string }).address
+    : (typeof user?.email === 'string' ? user.email : null);
 
-  // Dynamic chat item with real conversations
+  const userName = (emailAddress ? emailAddress.split('@')[0] : null) || user?.farcaster?.username || user?.twitter?.username || 'User';
+
   const chatItem: NavItem = {
     id: 'chat',
     icon: MessageSquare,
@@ -120,7 +120,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Layers,
       label: 'SuperDefi',
     },
-
     {
       id: 'trade',
       icon: RefreshCw,
@@ -140,7 +139,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {/* Mobile Overlay */}
       <div
         className={clsx(styles.overlay, isOpen && styles.overlayVisible)}
         onClick={onClose}
@@ -168,13 +166,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <ThemeToggle />
           </div>
 
-          {/* Mobile Close */}
-          <button className={styles.closeBtn} onClick={onClose}>
-            <X size={20} />
-          </button>
-
-          {/* Desktop Collapse */}
-          <button className={styles.collapseBtn} onClick={onDesktopClose} title="Close sidebar">
+          {/* Corrected: Using Sidebar icon for both mobile and desktop (as per user screen) */}
+          <button
+            className={styles.collapseBtn}
+            onClick={isMobile ? onClose : onDesktopClose}
+            title={isMobile ? "Close" : "Collapse"}
+          >
             <PanelLeftClose size={20} />
           </button>
         </div>
@@ -185,6 +182,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => {
               if (onNewChat) onNewChat();
               onTabChange('chat');
+              if (isMobile) onClose();
             }}
           >
             <Plus size={16} />
@@ -200,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={() => {
                   if (!item.subItems) {
                     onTabChange(item.id);
-                    if (window.innerWidth < 768) onClose();
+                    if (isMobile) onClose();
                   } else {
                     toggleExpand(item.id);
                   }
@@ -215,7 +213,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </button>
 
-              {/* Sub Items */}
               {item.subItems && expandedItems.has(item.id) && (
                 <div className={styles.subItems}>
                   {item.subItems.map((sub) => {
@@ -267,11 +264,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               onClick={() => {
                                 if (isChatItem && onConversationClick) {
                                   onConversationClick(sub.id);
-                                  // Don't call onTabChange here - handleConversationClick already sets activeTab to 'chat'
                                 } else {
                                   onTabChange(sub.id);
                                 }
-                                if (window.innerWidth < 768) onClose();
+                                if (isMobile) onClose();
                               }}
                             >
                               <span className={styles.subItemLabel}>{sub.label}</span>
@@ -324,16 +320,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             className={styles.userProfile}
             onClick={() => {
-              if (!authenticated) {
-                // Navigate to wallet page with test mode
-                // window.history.pushState({}, '', '?test=true');
-                onTabChange('wallet');
-                onClose(); // Close sidebar on mobile
-              } else {
-                // Navigate to wallet page when authenticated
-                onTabChange('wallet');
-                onClose(); // Close sidebar on mobile
-              }
+              onTabChange('wallet');
+              if (isMobile) onClose();
             }}
           >
             <div className={styles.userInfo}>

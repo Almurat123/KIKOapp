@@ -27,7 +27,7 @@ html {
 }
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
@@ -99,8 +99,13 @@ a:hover {
 body {
   margin: 0;
   padding: 0;
+  /* Safari iOS 26: Add safe area insets for notch and home indicator */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
+  /* Use dynamic viewport height for iOS Safari */
   width: 100%;
 }
 
@@ -129,8 +134,7 @@ button:hover {
 
 button:focus,
 button:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 2px;
+  outline: none;
 }
 
 /* Dark Theme - Modern Zinc Logic */

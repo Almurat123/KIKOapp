@@ -381,7 +381,18 @@ async function fetchCastsFromUsers(
                         const qCast = await snapchainService.getCastById(embed.castId.fid, embed.castId.hash);
                         if (qCast) {
                           const qUser = await snapchainService.getUserDataByFid(embed.castId.fid);
-                          return { ...embed, cast: { ...qCast, author: qUser } };
+                          return {
+                            ...embed,
+                            cast: {
+                              ...qCast,
+                              author: {
+                                ...qUser,
+                                avatar: qUser.pfp,
+                                name: qUser.displayName || qUser.username,
+                                handle: qUser.username ? `@${qUser.username}` : undefined
+                              }
+                            }
+                          };
                         }
                       } catch (e) { }
                     }

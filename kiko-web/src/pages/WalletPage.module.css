@@ -1234,6 +1234,7 @@
 
 /* Settings Button - Swap Card Secondary Style */
 /* Settings Button - Filled to Match ChainSwitcher */
+/* Settings Button - Liquid Glass */
 .settingsButton {
   display: flex;
   align-items: center;
@@ -1242,43 +1243,40 @@
   height: 40px;
   padding: 0;
   border-radius: 12px;
-  background: #27272a;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  color: #a1a1aa;
   cursor: pointer;
-  transition: all 0.2s;
   flex-shrink: 0;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Liquid Glass Style */
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  /* #a1a1aa previously, updated to text-primary for visibility */
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
 }
 
+/* Light mode overrides handled by var or global light class */
 :global(.light) .settingsButton {
-  background: #f4f4f5;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  /* Light mode border */
-  color: #18181b;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  color: var(--text-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
 .settingsButton:hover {
-  background: #3f3f46;
-  color: #f4f4f5;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
   border-color: rgba(255, 255, 255, 0.1);
 }
 
 :global(.light) .settingsButton:hover {
-  background: #e4e4e7;
-  color: #000000;
-  border-color: rgba(0, 0, 0, 0.1);
-}
-
-
-
-.settingsButton:hover {
-  background: #3f3f46;
-  color: #f4f4f5;
-}
-
-:global(.light) .settingsButton:hover {
-  background: #f3f4f6;
-  color: #1f2937;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
 }
 
 .settingsDropdown {
@@ -1479,101 +1477,87 @@
 
 /* Removed manual overrides - simplified to use vars */
 
-/* Main Actions Row (Send, Receive, Swap) */
+/* Actions Row (Send, Receive, Swap) */
 .actionsRow {
   display: flex;
   gap: 12px;
-  align-items: flex-end;
   width: 100%;
-  /* Ensure full width */
-  /* justify-content: space-between; Removed to align left */
 }
 
 .actionButton {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 20px;
-  border-radius: 12px;
-  font-size: 14px;
+  height: 44px;
+  border-radius: 14px;
   font-weight: 600;
+  font-size: 15px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  border: 1px solid transparent;
-}
 
-/* Primary Action Style - Swap Card (White BG/Black Text) */
-.actionBtnPrimary {
-  background: #ffffff;
-  color: #000000;
-  border: none;
-  box-shadow: 0 0 15px -5px rgba(255, 255, 255, 0.3);
-}
-
-:global(.light) .actionBtnPrimary {
-  background: #000000;
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.actionBtnPrimary:hover {
-  background: rgba(255, 255, 255, 0.9);
-  transform: translateY(-1px);
-}
-
-:global(.light) .actionBtnPrimary:hover {
-  background: rgba(0, 0, 0, 0.85);
-}
-
-/* Secondary Action Style - Swap Card Secondary (#27272a) */
-.actionBtnSecondary {
-  background: #27272a;
+  /* Liquid Glass Style */
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  /* Match card border */
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-primary);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-:global(.light) .actionBtnSecondary {
-  background: #f4f4f5;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  color: #18181b;
+:global(.light) .actionButton {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  color: var(--text-primary);
 }
 
-.actionBtnSecondary:hover {
-  background: #3f3f46;
-  color: #ffffff;
-  transform: translateY(-1px);
+.actionButton:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
 }
 
-:global(.light) .actionBtnSecondary:hover {
-  background: #e4e4e7;
-  color: #18181b;
-  /* Ensure text stays dark on light hover background */
-  border-color: rgba(0, 0, 0, 0.15);
-  /* Slightly darker border for definition */
+:global(.light) .actionButton:hover {
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
 }
 
-/* Prediction Orders Grid (Horizontal Scroll) */
+.actionButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Variants - Unified Glass */
+.actionBtnPrimary,
+.actionBtnSecondary {
+  /* Inherit base glass style, specialized colors if needed, but unified is cleaner */
+}
+
+/* Prediction Orders Grid (Responsive Flex Wrap) */
 .horizontalScroll {
   display: flex;
-  overflow-x: auto;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 4px 0 16px 0;
-  scrollbar-width: none;
-  /* Firefox */
-  -ms-overflow-style: none;
-  /* IE/Edge */
 }
 
-.horizontalScroll::-webkit-scrollbar {
-  display: none;
-  /* Chrome/Safari */
+/* Mobile: Single column, full-width cards */
+@media (max-width: 768px) {
+  .horizontalScroll {
+    flex-direction: column;
+    gap: 12px;
+  }
 }
 
 .orderCard {
-  min-width: 250px;
-  max-width: 280px;
+  /* Mobile: Full width, one per row */
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
   background: #27272a;
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 24px;
@@ -1583,6 +1567,24 @@
   gap: 16px;
   transition: all 0.2s ease;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Desktop: Cards side by side with wrapping */
+@media (min-width: 769px) {
+  .orderCard {
+    flex: 0 0 calc(50% - 8px);
+    /* Two per row with gap */
+    max-width: calc(50% - 8px);
+  }
+}
+
+/* Large Desktop: Three per row */
+@media (min-width: 1200px) {
+  .orderCard {
+    flex: 0 0 calc(33.333% - 11px);
+    /* Three per row */
+    max-width: calc(33.333% - 11px);
+  }
 }
 
 :global(.light) .orderCard {
@@ -1821,6 +1823,10 @@
 
 .statusBadgeLoss {
   color: #ef4444;
+}
+
+.statusBadgeNeutral {
+  color: #a1a1aa;
 }
 
 .dot {

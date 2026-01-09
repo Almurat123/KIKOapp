@@ -103,10 +103,7 @@ export const Layout: React.FC<LayoutProps> = ({
     }, [ready, authenticated, secureLogin, wallets, onTabChange, linkWallet]);
 
     // Get user initials for avatar
-    const emailAddress = user?.email && typeof user.email === 'object' && 'address' in user.email
-        ? (user.email as { address: string }).address
-        : (typeof user?.email === 'string' ? user.email : null);
-    const userName = (emailAddress ? emailAddress.split('@')[0] : null) || user?.farcaster?.username || 'User';
+    const userName = user?.farcaster?.username || user?.twitter?.username || user?.discord?.username || user?.email?.address?.split('@')[0] || user?.wallet?.address?.slice(0, 4) + '...' + user?.wallet?.address?.slice(-2) || 'User';
     const userInitials = userName.substring(0, 2).toUpperCase();
 
     // Memoize the context value to prevent unnecessary re-renders in consumers

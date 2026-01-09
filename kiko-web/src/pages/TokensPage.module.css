@@ -6,12 +6,13 @@
     height: 100%;
     width: 100%;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    /* Match controlBar background colors */
-    background: #fafafa;
+    /* Match Layout background */
+    background: var(--bg-primary);
 }
 
 :global(.dark) .container {
-    background: #1f1f23;
+    background: var(--bg-primary);
+    /* Dark mode uses true black/darker bg */
 }
 
 /* Desktop: centered container with max-width */
@@ -58,8 +59,7 @@
     flex-direction: column;
     gap: 12px;
     padding: 16px;
-    /* Light mode */
-    background: #fafafa;
+    background: var(--bg-primary);
 }
 
 /* Desktop: adjust controlBar margins to match centered container */
@@ -85,7 +85,7 @@
 }
 
 :global(.dark) .controlBar {
-    background: #1f1f23;
+    background: var(--bg-primary);
 }
 
 /* Desktop: sticky at top - kept but with new styling */
@@ -102,8 +102,8 @@
     .controlBar {
         margin: 0;
         /* Full width */
-        padding: 56px 0 12px 0;
-        /* Top padding for floating buttons (16px + 40px height), bottom 12px */
+        padding: 0 0 12px 0;
+        /* Top padding handled by PageContainer (60px), just bottom spacing here */
     }
 }
 
@@ -112,9 +112,7 @@
     display: none;
 }
 
-.controlBarSidebarCollapsed {
-    /* Not needed */
-}
+/* .controlBarSidebarCollapsed - deprecated */
 
 /* Mobile: controlBar children spacing */
 /* Mobile: controlBar children spacing */
@@ -153,35 +151,37 @@
     white-space: nowrap;
     /* Light mode - 非激活状态 */
     background: transparent;
-    color: #52525b;
+    color: var(--text-secondary);
 }
 
 .filterBtn:hover {
     /* Light mode hover */
-    background: rgba(0, 0, 0, 0.05);
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 /* Dark mode filter button */
 :global(.dark) .filterBtn {
     background: transparent;
-    color: #a1a1aa;
+    color: var(--text-secondary);
+    /* Use var for consistency */
 }
 
 :global(.dark) .filterBtn:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-hover);
 }
 
 /* 激活状态 - 浅色模式用白色背景 */
 .filterBtnActive {
-    background: #ffffff !important;
-    color: #18181b !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+    box-shadow: var(--card-shadow);
 }
 
 /* 激活状态 - 深色模式用深色背景 */
 :global(.dark) .filterBtnActive {
-    background: #3f3f46 !important;
-    color: #ffffff !important;
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
@@ -215,24 +215,25 @@
     font-size: 14px;
     transition: all 0.2s ease;
     /* Light mode */
-    background: #f4f4f5;
-    border: 1px solid #e4e4e7;
-    color: #18181b;
+    background: var(--bg-hover);
+    /* Keep input slightly distinct from bg */
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
 }
 
 :global(.dark) .searchInput {
-    background: #27272a;
-    border: 1px solid #3f3f46;
-    color: #fafafa;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
 }
 
 .searchInput::placeholder {
     /* Light mode */
-    color: #a1a1aa;
+    color: var(--text-secondary);
 }
 
 :global(.dark) .searchInput::placeholder {
-    color: #71717a;
+    color: var(--text-secondary);
 }
 
 .searchInput:focus {
@@ -416,9 +417,9 @@
     margin: 0;
     margin-top: 0;
     /* Light mode default */
-    background: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
 }
 
 /* Desktop Styles */
@@ -442,7 +443,8 @@
 
 /* Dark mode table card */
 :global(.dark) .tableCard {
-    background: #1f1f23;
+    background: var(--bg-card);
+    /* Dark gray card */
     border: none;
     box-shadow: none;
 }
@@ -481,11 +483,11 @@
     font-weight: 600;
     margin: 0;
     /* Light mode */
-    color: #18181b;
+    color: var(--text-primary);
 }
 
 :global(.dark) .tableTitle {
-    color: #fafafa;
+    color: var(--text-primary);
 }
 
 /* Chain Selector */
@@ -651,14 +653,14 @@
     top: 0;
     z-index: 10;
     /* Light mode default */
-    background: #f4f4f5;
-    color: #71717a;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
 }
 
 /* Dark mode thead */
 :global(.dark) .thead {
-    background: rgba(255, 255, 255, 0.04);
-    color: #a1a1aa;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
 }
 
 .th {
@@ -691,32 +693,32 @@
 .tbody {
     font-size: 13px;
     /* Light mode default */
-    color: #18181b;
+    color: var(--text-primary);
 }
 
 /* Dark mode tbody */
 :global(.dark) .tbody {
-    color: #f4f4f5;
+    color: var(--text-primary);
 }
 
 .tr {
     transition: background 0.2s;
     cursor: pointer;
     /* Light mode default */
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .tr:hover {
-    background: rgba(0, 0, 0, 0.03);
+    background: var(--bg-hover);
 }
 
 /* Dark mode tr */
 :global(.dark) .tr {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--border-color);
 }
 
 :global(.dark) .tr:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--bg-hover);
 }
 
 .td {
@@ -1019,27 +1021,77 @@
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    /* Light Mode: Gray 4 -> Gray 5 -> Gray 4 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #D1D1D6 0%, #E5E5EA 50%, #D1D1D6 100%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
 }
 
-:global(.dark) .skeletonAvatar {
-    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+.skeletonIconWrapper {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    margin-right: 2px;
+}
+
+.skeletonIconWrapperMobile {
+    margin-top: 6px;
+}
+
+.skeletonBadge {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 10px;
+    border-radius: 3px;
+    /* Light Mode: Gray 4 -> Gray 5 -> Gray 4 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #D1D1D6 0%, #E5E5EA 50%, #D1D1D6 100%);
     background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    z-index: 2;
+}
+
+.skeletonChainLogo {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    /* Light Mode: Gray 4 -> Gray 5 -> Gray 4 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #D1D1D6 0%, #E5E5EA 50%, #D1D1D6 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    z-index: 1;
+}
+
+:global(.dark) .skeletonBadge,
+:global(.dark) .skeletonChainLogo {
+    /* Dark Mode: Gray 5 -> Gray 4 -> Gray 5 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #2C2C2E 0%, #3A3A3C 50%, #2C2C2E 100%);
+    border-color: #1f1f23;
+}
+
+:global(.dark) .skeletonAvatar {
+    /* Dark Mode: Gray 5 -> Gray 4 -> Gray 5 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #2C2C2E 0%, #3A3A3C 50%, #2C2C2E 100%);
 }
 
 .skeletonText {
     height: 14px;
     border-radius: 4px;
-    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    /* Light Mode: Gray 4 -> Gray 5 -> Gray 4 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #D1D1D6 0%, #E5E5EA 50%, #D1D1D6 100%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
 }
 
 :global(.dark) .skeletonText {
-    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
-    background-size: 200% 100%;
+    /* Dark Mode: Gray 5 -> Gray 4 -> Gray 5 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #2C2C2E 0%, #3A3A3C 50%, #2C2C2E 100%);
 }
 
 .skeletonTextShort {
@@ -1064,14 +1116,15 @@
     width: 100%;
     height: 6px;
     border-radius: 3px;
-    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    /* Light Mode: Gray 4 -> Gray 5 -> Gray 4 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #D1D1D6 0%, #E5E5EA 50%, #D1D1D6 100%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
 }
 
 :global(.dark) .skeletonBar {
-    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
-    background-size: 200% 100%;
+    /* Dark Mode: Gray 5 -> Gray 4 -> Gray 5 (Matched to Skeleton.module.css) */
+    background: linear-gradient(90deg, #2C2C2E 0%, #3A3A3C 50%, #2C2C2E 100%);
 }
 
 @keyframes shimmer {

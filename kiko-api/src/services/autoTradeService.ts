@@ -25,6 +25,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { env } from '../config/env.js';
 import { sendTradeNotification } from './emailService.js';
 import { PrivyClient } from '@privy-io/server-auth';
+import { recordNewTrade } from './leaderWalletStatsService.js';
+import { trackCopyTrade, trackSwap } from './userActivityService.js';
 
 // ... (previous functions remain)
 
@@ -232,6 +234,10 @@ async function processBuyWithInfo(
         targetSwapValueUsd = formattedAmountOut * tokenInfo.price;
         console.log(`[AutoTrade] Calculated value from tokenOut (${swap.tokenOut}): $${targetSwapValueUsd.toFixed(2)}`);
     }
+
+    // Record Leader Trade Stats (Buy)
+    // We record it once for the leader, regardless of how many users copy it
+    recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
 
     // Process each config
     for (const config of configs) {
@@ -455,6 +461,10 @@ ${analysis.rawAnalysis}
 
             console.log(`[AutoTrade] Position created for user ${config.userId}`);
 
+            // Track User Activity (Copy Trade + Swap Volume)
+            trackCopyTrade(config.userId);
+            trackSwap(config.userId, usdAmount);
+
             // =================================================================
             // 📧 Send Email Notification (Success)
             // =================================================================
@@ -602,6 +612,13 @@ async function handleTargetSell(
                     decimals = acc.account.data.parsed.info.tokenAmount.decimals;
                 }
 
+                // Calculate rough USD value for stats if possible (need price)
+                // We have tokenInfo from parallel fetch
+                if (tokenInfo && tokenInfo.price) {
+                    const valUsd = (Number(balance) / (10 ** decimals)) * tokenInfo.price;
+                    recordNewTrade(targetWallet, chainId, 'sell', valUsd);
+                }
+
                 if (balance <= 0n) {
                     console.log(`[AutoTrade] User has 0 balance of ${tokenToSell} (Solana), cannot sell.`);
                     await prisma.position.updateMany({
@@ -715,6 +732,12 @@ async function handleTargetSell(
             });
 
             console.log(`[AutoTrade] Closed positions with tx ${txHash}`);
+
+            // Track Activity
+            trackCopyTrade(config.userId);
+            // Calculate sell volume for tracking
+            const sellVolUsd = (Number(balance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+            trackSwap(config.userId, sellVolUsd);
 
         } catch (error) {
             console.error(`[AutoTrade] Error processing mirror sell for ${config.id}:`, error);

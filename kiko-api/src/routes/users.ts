@@ -6,6 +6,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
+import { trackLogin } from '../services/userActivityService.js';
 
 // Types
 interface UserSettingsBody {
@@ -60,6 +61,9 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 if (!user) {
                     return reply.status(404).send({ success: false, error: 'User not found' });
                 }
+
+                // Track daily login activity
+                trackLogin(user.id);
 
                 // Return settings or null if not set
                 return {

@@ -34,6 +34,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { getWalletBalance, getTokenBalances } from '../services/alchemy.js';
 import * as coinbaseCdpService from '../services/coinbaseCdp.js';
 import { getTransactionReceipt } from '../services/rpcManager.js';
+import prisma from '../db/prisma.js';
+import { trackSwap } from '../services/userActivityService.js';
 
 // 类型定义
 export interface SwapQuoteRequest {
@@ -119,18 +121,9 @@ interface CachedPendingTransaction {
 import { env } from '../config/env.js';
 
 // 从配置读取常量
-const MAX_TRADE_HISTORY = env.swapConfig.maxTradeHistory;
-const MAX_PENDING_TRANSACTIONS = env.swapConfig.maxPendingTransactions;
-const TRADE_RECORD_TTL = env.swapConfig.tradeRecordTtl;
-const PENDING_TRANSACTION_TTL = env.swapConfig.pendingTransactionTtl;
-
-// Swap retry configuration
-const SWAP_MAX_RETRIES = 2; // Maximum number of retry attempts
 const SWAP_CONFIRMATION_TIMEOUT_MS = 30000; // 30 seconds to wait for confirmation
 const SWAP_CONFIRMATION_POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
-
-const tradeHistory: Map<string, CachedTradeRecord> = new Map();
-const pendingTransactions: Map<string, CachedPendingTransaction> = new Map();
+const SWAP_MAX_RETRIES = 2; // Maximum number of retry attempts
 
 /**
  * Wait for transaction confirmation and check status
@@ -178,47 +171,7 @@ async function waitForTransactionConfirmation(
     return { success: true }; // Don't retry if we timeout - tx might still succeed
 }
 
-// 清理过期记录的函数
-function cleanupExpiredRecords() {
-    const now = Date.now();
-
-    // 清理过期的交易记录
-    for (const [key, cached] of tradeHistory.entries()) {
-        if (cached.expiresAt < now) {
-            tradeHistory.delete(key);
-        }
-    }
-
-    // 清理过期的待处理交易
-    for (const [key, cached] of pendingTransactions.entries()) {
-        if (cached.expiresAt < now) {
-            pendingTransactions.delete(key);
-        }
-    }
-
-    // 如果交易记录超过最大数量，删除最旧的
-    if (tradeHistory.size > MAX_TRADE_HISTORY) {
-        const sortedEntries = Array.from(tradeHistory.entries())
-            .sort((a, b) => a[1].record.createdAt - b[1].record.createdAt);
-        const toDelete = sortedEntries.slice(0, tradeHistory.size - MAX_TRADE_HISTORY);
-        for (const [key] of toDelete) {
-            tradeHistory.delete(key);
-        }
-    }
-
-    // 如果待处理交易超过最大数量，删除最旧的
-    if (pendingTransactions.size > MAX_PENDING_TRANSACTIONS) {
-        const sortedEntries = Array.from(pendingTransactions.entries())
-            .sort((a, b) => a[1].expiresAt - b[1].expiresAt);
-        const toDelete = sortedEntries.slice(0, pendingTransactions.size - MAX_PENDING_TRANSACTIONS);
-        for (const [key] of toDelete) {
-            pendingTransactions.delete(key);
-        }
-    }
-}
-
-// 每5分钟清理一次过期记录
-setInterval(cleanupExpiredRecords, 5 * 60 * 1000);
+// Cleanup function removed as we use DB now
 
 /**
  * Swap Routes for Fastify
@@ -1303,30 +1256,41 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     })();
                 }
 
-                // Record trade
-                const tradeId = `instant_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-                const tradeRecord: TradeRecord = {
-                    id: tradeId,
-                    userAddress: walletAddress,
-                    tokenIn,
-                    tokenOut,
-                    amountIn,
-                    amountOut: finalQuote.amountOutBase,
-                    chainId: validatedChainId,
-                    txHash,
-                    status: 'SUCCESS',
-                    createdAt: Date.now(),
-                    completedAt: Date.now(),
-                };
+                // Record trade in DB
+                const tradeRecord = await prisma.swapHistory.create({
+                    data: {
+                        user: { connect: { privyDid: userId } },
 
-                const expiresAt = Date.now() + TRADE_RECORD_TTL;
-                tradeHistory.set(tradeId, { record: tradeRecord, expiresAt });
+                        tokenInAddress: tokenIn,
+                        tokenInSymbol: tokenIn.slice(0, 6).toUpperCase(),
+                        tokenInAmount: amountIn,
+                        tokenInUsd: tokenInUsd ? parseFloat(amountIn) * tokenInUsd : 0,
+
+                        tokenOutAddress: tokenOut,
+                        tokenOutSymbol: tokenOut.slice(0, 6).toUpperCase(),
+                        tokenOutAmount: finalQuote.amountOutBase,
+                        tokenOutUsd: tokenOutUsd && finalQuote.amountOutBase ?
+                            (parseFloat(finalQuote.amountOutBase) / (10 ** tokenOutDecimals)) * tokenOutUsd : 0,
+
+                        chainId: validatedChainId,
+                        txHash,
+                        status: 'success',
+                        source: 'fast_swap',
+                        slippageBps: slippageBps,
+                        confirmedAt: new Date()
+                    }
+                });
+
+
+                // Track User Activity
+                const volumeUsd = tradeRecord.tokenInUsd || 0;
+                trackSwap(tradeRecord.userId, volumeUsd);
 
                 return reply.send({
                     success: true,
                     data: {
                         txHash,
-                        tradeId,
+                        tradeId: tradeRecord.id,
                         status: 'SUCCESS',
                         amountOut: finalQuote.amountOutBase,
                         retryCount,
@@ -1373,35 +1337,31 @@ export async function swapRoutes(fastify: FastifyInstance) {
             validateChainId(chainId);
 
             // 生成交易 ID
-            const tradeId = `trade_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+            // Create trade record in DB
+            const tradeRecord = await prisma.swapHistory.create({
+                data: {
+                    user: { connect: { walletAddress: userAddress } },
 
-            // 创建交易记录
-            const tradeRecord: TradeRecord = {
-                id: tradeId,
-                userAddress,
-                tokenIn,
-                tokenOut,
-                amountIn,
-                chainId,
-                status: 'PENDING',
-                createdAt: Date.now(),
-            };
+                    tokenInAddress: tokenIn,
+                    tokenInSymbol: 'UNKNOWN',
+                    tokenInAmount: amountIn,
 
-            // 保存到存储（带过期时间）
-            const expiresAt = Date.now() + TRADE_RECORD_TTL;
-            tradeHistory.set(tradeId, {
-                record: tradeRecord,
-                expiresAt,
+                    tokenOutAddress: tokenOut,
+                    tokenOutSymbol: 'UNKNOWN',
+
+                    chainId: chainId,
+                    status: 'pending',
+                    source: 'manual',
+                }
             });
 
-            const pendingExpiresAt = Date.now() + PENDING_TRANSACTION_TTL;
-            pendingTransactions.set(tradeId, {
-                request: request.body,
-                expiresAt: pendingExpiresAt,
-            });
+            const tradeId = tradeRecord.id;
 
-            // 清理过期记录
-            cleanupExpiredRecords();
+            // We don't use memory map anymore.
+            // tradeHistory.set(...)
+            // pendingTransactions.set(...)
+
+            // Cleanup removed
 
             // 注意：实际交易由前端通过钱包执行
             // 这里只是记录交易意图
@@ -1426,22 +1386,32 @@ export async function swapRoutes(fastify: FastifyInstance) {
         try {
             const { tradeId } = request.params;
 
-            const cached = tradeHistory.get(tradeId);
+            // Fetch from DB
+            const trade = await prisma.swapHistory.findUnique({
+                where: { id: tradeId }
+            });
 
-            // 检查是否过期
-            if (!cached || cached.expiresAt < Date.now()) {
-                if (cached) {
-                    tradeHistory.delete(tradeId);
-                }
+            if (!trade) {
                 return reply.status(404).send({
                     success: false,
                     error: 'Trade not found',
                 });
             }
 
+            // Map to response format
             return reply.send({
                 success: true,
-                data: cached.record,
+                data: {
+                    id: trade.id,
+                    userAddress: 'HIDDEN', // We might not have it easily without include
+                    tokenIn: trade.tokenInAddress,
+                    tokenOut: trade.tokenOutAddress,
+                    amountIn: trade.tokenInAmount,
+                    chainId: trade.chainId,
+                    status: trade.status.toUpperCase(), // PENDING, SUCCESS
+                    txHash: trade.txHash,
+                    createdAt: trade.createdAt.getTime(),
+                },
             });
         } catch (error) {
             throw error;
@@ -1462,34 +1432,61 @@ export async function swapRoutes(fastify: FastifyInstance) {
         try {
             const { userAddress, limit = '20', offset = '0' } = request.query;
 
-            // 清理过期记录
-            cleanupExpiredRecords();
+            // Fetch from DB
+            const limitNum = Math.min(parseInt(limit as string) || 20, 100);
+            const offsetNum = parseInt(offset as string) || 0;
 
-            // 获取未过期的交易记录
-            const now = Date.now();
-            let trades = Array.from(tradeHistory.values())
-                .filter(cached => cached.expiresAt >= now)
-                .map(cached => cached.record);
-
-            // 按用户地址过滤
+            // Find user first if address provided
+            let whereClause = {};
             if (userAddress) {
-                trades = trades.filter((t) => t.userAddress.toLowerCase() === userAddress.toLowerCase());
+                const user = await prisma.user.findUnique({ where: { walletAddress: userAddress as string } });
+                if (user) {
+                    whereClause = { userId: user.id };
+                } else {
+                    // User not found by address, return empty
+                    return reply.send({
+                        success: true,
+                        data: {
+                            trades: [],
+                            total: 0,
+                            limit: limitNum,
+                            offset: offsetNum,
+                        },
+                    });
+                }
             }
 
-            // 按创建时间排序（最新优先）
-            trades.sort((a, b) => b.createdAt - a.createdAt);
+            const [trades, total] = await prisma.$transaction([
+                prisma.swapHistory.findMany({
+                    where: whereClause,
+                    orderBy: { createdAt: 'desc' },
+                    take: limitNum,
+                    skip: offsetNum
+                }),
+                prisma.swapHistory.count({ where: whereClause })
+            ]);
 
-            // 分页
-            const limitNum = Math.min(parseInt(limit) || 20, 100);
-            const offsetNum = parseInt(offset) || 0;
-
-            const paginatedTrades = trades.slice(offsetNum, offsetNum + limitNum);
+            // Map to TradeRecord format
+            const mappedTrades = trades.map(t => ({
+                id: t.id,
+                userAddress: userAddress || '', // We inferred it
+                tokenIn: t.tokenInAddress,
+                tokenOut: t.tokenOutAddress,
+                amountIn: t.tokenInAmount,
+                amountOut: t.tokenOutAmount || undefined,
+                chainId: t.chainId,
+                txHash: t.txHash || undefined,
+                status: t.status.toUpperCase(),
+                createdAt: t.createdAt.getTime(),
+                completedAt: t.confirmedAt?.getTime(),
+                error: t.failureReason || undefined
+            }));
 
             return reply.send({
                 success: true,
                 data: {
-                    trades: paginatedTrades,
-                    total: trades.length,
+                    trades: mappedTrades,
+                    total: total,
                     limit: limitNum,
                     offset: offsetNum,
                 },
@@ -1521,6 +1518,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 });
             }
 
+            // Cleanup removed
             // 验证地址格式
             validateAddress(userAddress, 'userAddress');
             validateAddress(tokenAddress, 'tokenAddress');
