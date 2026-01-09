@@ -38,6 +38,7 @@ async function main() {
         await checkTable('position', [
             'leaderTxHash', 'leaderBuyPrice', 'leaderBuyAmount', 'leaderBuyValueUsd',
             'ourSlippageBps', 'ourGasUsed', 'ourGasPriceGwei', 'executionDelayMs',
+            'exitPrice', 'exitAmount', 'exitUsdValue',
             'realizedPnlUsd', 'realizedPnlPct', 'holdDurationHours', 'exitTxHash', 'exitReason'
         ]);
 
@@ -85,6 +86,9 @@ async function main() {
         await fixColumn('position', 'Position', 'ourGasUsed', 'TEXT');
         await fixColumn('position', 'Position', 'ourGasPriceGwei', 'DOUBLE PRECISION');
         await fixColumn('position', 'Position', 'executionDelayMs', 'INTEGER');
+        await fixColumn('position', 'Position', 'exitPrice', 'DOUBLE PRECISION');
+        await fixColumn('position', 'Position', 'exitAmount', 'TEXT');
+        await fixColumn('position', 'Position', 'exitUsdValue', 'DOUBLE PRECISION');
         await fixColumn('position', 'Position', 'realizedPnlUsd', 'DOUBLE PRECISION');
         await fixColumn('position', 'Position', 'realizedPnlPct', 'DOUBLE PRECISION');
         await fixColumn('position', 'Position', 'holdDurationHours', 'DOUBLE PRECISION');
