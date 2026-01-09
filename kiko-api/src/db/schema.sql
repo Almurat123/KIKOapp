@@ -154,11 +154,153 @@ CREATE TABLE IF NOT EXISTS trending_casts (
   stats_replies INTEGER DEFAULT 0,
   heat_score NUMERIC(5, 2) DEFAULT 0,
   rank INTEGER,
+  is_base_app_coin BOOLEAN DEFAULT FALSE,
+  base_app_coin_metadata JSONB,
+  coin_value NUMERIC,
+  author_bio TEXT,
+  mentions JSONB,
+  author_creator_coin TEXT,
+  author_twitter TEXT,
   updated_at TIMESTAMP DEFAULT NOW(),
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Create indexes for faster queries
+-- =============================================
+-- User Management Tables (Sync with Prisma)
+-- =============================================
+
+-- User linked to Privy
+CREATE TABLE IF NOT EXISTS "User" (
+  "id" TEXT PRIMARY KEY,
+  "privyDid" TEXT UNIQUE NOT NULL,
+  "walletAddress" TEXT UNIQUE NOT NULL,
+  "email" TEXT UNIQUE,
+  "solanaWalletAddress" TEXT,
+  "referralCode" TEXT UNIQUE,
+  "referredBy" TEXT,
+  "createdAt" TIMESTAMP DEFAULT NOW()
+);
+
+-- Wallet Key Export Record
+CREATE TABLE IF NOT EXISTS "WalletExport" (
+  "id" TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+  "walletAddress" TEXT NOT NULL,
+  "chainType" TEXT NOT NULL,
+  "exportedAt" TIMESTAMP DEFAULT NOW(),
+  UNIQUE("userId", "walletAddress")
+);
+
+-- User Settings
+CREATE TABLE IF NOT EXISTS "UserSettings" (
+  "id" TEXT PRIMARY KEY,
+  "userId" TEXT UNIQUE NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+  "userRole" TEXT DEFAULT 'default',
+  "defaultSwapAmount" DOUBLE PRECISION DEFAULT 100,
+  "defaultSwapUnit" TEXT DEFAULT 'native',
+  "checkTokenBeforeSwap" BOOLEAN DEFAULT TRUE,
+  "quickSwapMode" BOOLEAN DEFAULT FALSE,
+  "swapMethod" TEXT DEFAULT 'swap_card',
+  "slippageMode" TEXT DEFAULT 'auto',
+  "customSlippage" DOUBLE PRECISION DEFAULT 0.5,
+  "mevProtection" BOOLEAN DEFAULT TRUE,
+  "priceDeviationCheck" BOOLEAN DEFAULT TRUE,
+  "copyTradeAIMode" TEXT DEFAULT 'disabled',
+  "fastSwapMode" BOOLEAN DEFAULT FALSE,
+  "createdAt" TIMESTAMP DEFAULT NOW(),
+  "updatedAt" TIMESTAMP DEFAULT NOW()
+);
+
+-- Wallet Transaction History (Sync with Prisma model name)
+CREATE TABLE IF NOT EXISTS "WalletTransaction" (
+  "id" SERIAL PRIMARY KEY,
+  "walletAddress" TEXT NOT NULL,
+  "chain" TEXT DEFAULT 'eth',
+  "txHash" TEXT NOT NULL,
+  "txType" TEXT NOT NULL,
+  "fromAddress" TEXT,
+  "toAddress" TEXT,
+  "tokenSymbol" TEXT,
+  "tokenAddress" TEXT,
+  "tokenInSymbol" TEXT,
+  "tokenOutSymbol" TEXT,
+  "amount" TEXT,
+  "valueUsd" DOUBLE PRECISION,
+  "blockNumber" BIGINT,
+  "blockTimestamp" TIMESTAMP NOT NULL,
+  "createdAt" TIMESTAMP DEFAULT NOW(),
+  UNIQUE("txHash", "walletAddress")
+);
+
+-- Tracked Wallet
+CREATE TABLE IF NOT EXISTS "TrackedWallet" (
+  "address" TEXT NOT NULL,
+  "chainId" INTEGER NOT NULL,
+  "lastCheckedTx" TEXT,
+  "activeConfigs" INTEGER DEFAULT 0,
+  total_trades_tracked INTEGER DEFAULT 0,
+  last_trade_at TIMESTAMP,
+  nick_name TEXT,
+  "createdAt" TIMESTAMP DEFAULT NOW(),
+  "updatedAt" TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY ("address", "chainId")
+);
+
+-- Copy Trade Configuration
+CREATE TABLE IF NOT EXISTS "CopyTradeConfig" (
+  "id" TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+  "targetWallet" TEXT NOT NULL,
+  "chainId" INTEGER DEFAULT 8453,
+  "buyAmountUsd" DOUBLE PRECISION NOT NULL,
+  "maxSlippageBps" INTEGER DEFAULT 300,
+  "minMarketCapUsd" DOUBLE PRECISION,
+  "minLiquidityUsd" DOUBLE PRECISION,
+  "minTargetValueUsd" DOUBLE PRECISION,
+  "takeProfitPct" DOUBLE PRECISION,
+  "stopLossPct" DOUBLE PRECISION,
+  "mirrorSell" BOOLEAN DEFAULT TRUE,
+  "status" TEXT DEFAULT 'active',
+  "aiAnalysisMode" TEXT DEFAULT 'disabled',
+  "createdAt" TIMESTAMP DEFAULT NOW(),
+  "updatedAt" TIMESTAMP DEFAULT NOW()
+);
+
+-- Position Table
+CREATE TABLE IF NOT EXISTS "Position" (
+  "id" TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+  "configId" TEXT NOT NULL,
+  "tokenAddress" TEXT NOT NULL,
+  "tokenSymbol" TEXT,
+  "chainId" INTEGER NOT NULL,
+  "entryPrice" DOUBLE PRECISION NOT NULL,
+  "entryAmount" TEXT NOT NULL,
+  "entryTxHash" TEXT NOT NULL,
+  "entryUsdValue" DOUBLE PRECISION NOT NULL,
+  currentPrice DOUBLE PRECISION,
+  profitLossPct DOUBLE PRECISION,
+  leaderTxHash TEXT,
+  leaderBuyPrice DOUBLE PRECISION,
+  leaderBuyAmount DOUBLE PRECISION,
+  leaderBuyValueUsd DOUBLE PRECISION,
+  ourSlippageBps INTEGER,
+  exitPrice DOUBLE PRECISION,
+  exitAmount TEXT,
+  exitUsdValue DOUBLE PRECISION,
+  status TEXT DEFAULT 'open',
+  createdAt TIMESTAMP DEFAULT NOW(),
+  closedAt TIMESTAMP
+);
+
+-- Create indexes for the new Prisma-aligned tables
+CREATE INDEX IF NOT EXISTS "idx_User_privyDid" ON "User"("privyDid");
+CREATE INDEX IF NOT EXISTS "idx_WalletExport_userId" ON "WalletExport"("userId");
+CREATE INDEX IF NOT EXISTS "idx_CopyTradeConfig_userId" ON "CopyTradeConfig"("userId");
+CREATE INDEX IF NOT EXISTS "idx_Position_userId" ON "Position"("userId");
+CREATE INDEX IF NOT EXISTS "idx_Position_status" ON "Position"("status");
+
+-- Legacy Indexes (matching original sql structure)
 CREATE INDEX IF NOT EXISTS idx_market_overview_updated_at ON market_overview(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chain_metrics_updated_at ON chain_metrics(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_protocol_metrics_updated_at ON protocol_metrics(updated_at DESC);
