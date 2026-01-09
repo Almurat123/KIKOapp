@@ -46,6 +46,12 @@ async function main() {
 
         console.log('\nApplying fixes...');
 
+        // Fix User
+        await fixColumn('user', 'User', 'email', 'TEXT', true);
+        await fixColumn('user', 'User', 'solanaWalletAddress', 'TEXT');
+        await fixColumn('user', 'User', 'referralCode', 'TEXT', true);
+        await fixColumn('user', 'User', 'referredBy', 'TEXT');
+
         // Fix TrendingCast
         await fixColumn('trendingCast', 'trending_casts', 'is_base_app_coin', 'BOOLEAN DEFAULT FALSE');
         await fixColumn('trendingCast', 'trending_casts', 'base_app_coin_metadata', 'JSONB');
@@ -66,6 +72,12 @@ async function main() {
         await fixColumn('position', 'Position', 'leaderBuyAmount', 'DOUBLE PRECISION');
         await fixColumn('position', 'Position', 'leaderBuyValueUsd', 'DOUBLE PRECISION');
         await fixColumn('position', 'Position', 'ourSlippageBps', 'INTEGER');
+
+        console.log('\nFinal Verification Check...');
+        await checkTable('user', ['email', 'solanaWalletAddress', 'referralCode', 'referredBy']);
+        await checkTable('position', ['leaderTxHash', 'leaderBuyPrice', 'leaderBuyAmount', 'leaderBuyValueUsd', 'ourSlippageBps']);
+        await checkTable('trackedWallet', ['totalTradesTracked', 'lastTradeAt', 'nickName']);
+        await checkTable('trendingCast', ['isBaseAppCoin', 'coinValue', 'authorBio', 'authorTwitter', 'authorCreatorCoin']);
 
         console.log('\n--- Diagnostic and Fix Complete ---');
         console.log('Please restart the server to apply changes.');
