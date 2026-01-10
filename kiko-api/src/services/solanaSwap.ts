@@ -31,6 +31,9 @@ export interface SolanaQuote {
   routePlan?: any;
   fee?: string;
   estimatedGas?: string;
+  otherAmountThreshold?: string; // Required for Jupiter V6/Ultra swap
+  swapMode?: string;             // Required for Jupiter V6/Ultra swap
+  slippageBps?: number;          // Required for Jupiter V6/Ultra swap
 }
 
 export interface SolanaPrice {
@@ -42,15 +45,13 @@ export interface SolanaPrice {
 }
 
 // Jupiter Ultra Swap API base URLs
-// Jupiter Ultra Swap API base URLs
-// Documentation: https://station.jup.ag/docs/ultra/get-order
-const JUPITER_ULTRA_API = 'https://api.jup.ag/ultra/v1';
-
 // Jupiter V6/V1 Quote API
 // - Public: https://public.jupiterapi.com (No Key)
-// - Auth: https://api.jup.ag/swap/v1 (Requires Key)
 const JUPITER_PUBLIC_API = 'https://public.jupiterapi.com';
-const JUPITER_AUTH_API = 'https://api.jup.ag/swap/v1';
+
+// Jupiter Ultra API (Authenticated)
+// Documentation: https://station.jup.ag/docs/ultra/get-order
+const JUPITER_ULTRA_API = 'https://api.jup.ag/ultra/v1';
 
 const FETCH_TIMEOUT = 15000; // 15 seconds timeout
 
@@ -89,22 +90,30 @@ async function getJupiterQuote(
       headers['x-api-key'] = apiKey;
     }
 
-    // Determine Base URL: Use Auth endpoint if key is present, else Public
-    const baseUrl = apiKey ? JUPITER_AUTH_API : JUPITER_PUBLIC_API;
+    // STRATEGY:
+    // - If API Key is present, use ULTRA API (/order) - Faster, 1-step (Quote + TX)
+    // - If NO Key, use PUBLIC API (/quote + /swap) - Slower, 2-step, Rate-limited
 
-    // STRATEGY: Use Legacy API for quote (no balance check) + separate swap call
-    // This allows 99.99% balance utilization
+    let quoteUrl: string;
+    let isUltra = false;
 
-    // Step 1: Get quote from Legacy API (doesn't check balance)
-    const legacyQuoteUrl = `${baseUrl}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
-
-    console.log('[Jupiter Legacy API] Getting quote without balance check...');
+    if (apiKey) {
+      // ULTRA API: /order
+      isUltra = true;
+      const takerParam = userAddress ? `&taker=${userAddress}` : '';
+      quoteUrl = `${JUPITER_ULTRA_API}/order?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${takerParam}`;
+      console.log('[Jupiter Ultra] Fetching order/quote...');
+    } else {
+      // PUBLIC API: /quote
+      quoteUrl = `${JUPITER_PUBLIC_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+      console.log('[Jupiter Public] Fetching quote...');
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
     const quoteStartTime = Date.now();
-    const quoteResponse = await fetch(legacyQuoteUrl, {
+    const quoteResponse = await fetch(quoteUrl, {
       method: 'GET',
       headers,
       signal: controller.signal,
@@ -115,52 +124,81 @@ async function getJupiterQuote(
 
     if (!quoteResponse.ok) {
       const errorText = await quoteResponse.text();
-      console.error(`[Jupiter Legacy API] Quote request failed: ${quoteResponse.status}`, errorText);
+      console.error(`[Jupiter API] Request failed: ${quoteResponse.status}`, errorText);
       return null;
     }
 
-    const quoteData = await quoteResponse.json() as {
-      inputMint: string;
-      outputMint: string;
-      inAmount: string;
-      outAmount: string;
-      priceImpactPct?: string;
-      slippageBps: number;
-      routePlan?: any;
-      error?: string;
-    };
-
-    if (quoteData.error) {
-      console.error('[Jupiter Legacy API] Quote error:', quoteData.error);
-      return null;
-    }
-
-    // Step 2: If userAddress provided, get swap transaction separately
+    let quoteData: any;
     let swapTransaction: string | undefined;
 
-    if (userAddress) {
-      console.log('[Jupiter API] Getting swap transaction...');
+    if (isUltra) {
+      // Parse ULTRA response
+      const ultraData = await quoteResponse.json() as any;
+      if (ultraData.error) {
+        console.error('[Jupiter Ultra] API error:', ultraData.error);
+        return null;
+      }
+      quoteData = {
+        inputMint: ultraData.inputMint,
+        outputMint: ultraData.outputMint,
+        inAmount: ultraData.inAmount,
+        outAmount: ultraData.outAmount,
+        otherAmountThreshold: ultraData.otherAmountThreshold,
+        swapMode: ultraData.swapMode || 'ExactIn',
+        priceImpactPct: ultraData.priceImpactPct || ultraData.priceImpact,
+        slippageBps: ultraData.slippageBps,
+        routePlan: ultraData.routePlan.map((r: any) => ({
+          ...r,
+          percent: Math.round(r.percent)
+        }))
+      };
+      // Ultra returns transaction directly if taker was provided
+      if (ultraData.transaction) {
+        swapTransaction = ultraData.transaction;
+      }
+    } else {
+      // Parse PUBLIC response
+      quoteData = await quoteResponse.json() as {
+        inputMint: string;
+        outputMint: string;
+        inAmount: string;
+        outAmount: string;
+        routePlan?: any;
+        error?: string;
+      };
+    }
 
-      const swapResponse = await fetch(`${baseUrl}/swap`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          quoteResponse: quoteData,
-          userPublicKey: userAddress,
-          wrapAndUnwrapSol: true,
-          dynamicComputeUnitLimit: true,
-          prioritizationFeeLamports: 'auto',
-        }),
-      });
+    if (!quoteData || quoteData.error) {
+      console.error('[Jupiter API] Quote data error:', quoteData?.error);
+      return null;
+    }
 
-      if (swapResponse.ok) {
-        const swapData = await swapResponse.json() as { swapTransaction: string };
-        swapTransaction = swapData.swapTransaction;
-        console.log('[Jupiter Legacy API] Got swap transaction successfully');
+    // Step 2: Swap Transaction Logic (only if needed)
+    if (userAddress && !swapTransaction) {
+      if (isUltra) {
+        console.warn('[Jupiter Ultra] User address provided but no transaction returned.');
       } else {
-        const errorText = await swapResponse.text();
-        console.error('[Jupiter Legacy API] Swap transaction failed:', errorText);
-        // Still return quote even if swap fails - frontend can retry
+        console.log('[Jupiter Public] Getting swap transaction...');
+        const swapResponse = await fetch(`${JUPITER_PUBLIC_API}/swap`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            quoteResponse: quoteData,
+            userPublicKey: userAddress,
+            wrapAndUnwrapSol: true,
+            dynamicComputeUnitLimit: true,
+            prioritizationFeeLamports: 'auto',
+          }),
+        });
+
+        if (swapResponse.ok) {
+          const swapData = await swapResponse.json() as { swapTransaction: string };
+          swapTransaction = swapData.swapTransaction;
+          console.log('[Jupiter Public] Got swap transaction successfully');
+        } else {
+          const errorText = await swapResponse.text();
+          console.error('[Jupiter Public] Swap transaction failed:', errorText);
+        }
       }
     }
 
@@ -169,6 +207,9 @@ async function getJupiterQuote(
       outputMint: quoteData.outputMint,
       inAmount: quoteData.inAmount,
       outAmount: quoteData.outAmount,
+      otherAmountThreshold: quoteData.otherAmountThreshold,
+      swapMode: quoteData.swapMode,
+      slippageBps: quoteData.slippageBps,
       priceImpact: quoteData.priceImpactPct || '0',
       aggregator: 'jupiter',
       routePlan: quoteData.routePlan,
@@ -194,14 +235,18 @@ export async function getJupiterSwapTransaction(
       'Content-Type': 'application/json',
     };
 
+    // Note: With Ultra API strategy, swap transaction is usually returned in the quote response directly.
+    // This function is primarily a fallback for the Public API flow.
+
     const apiKey = getJupiterApiKey();
     if (apiKey) {
       headers['x-api-key'] = apiKey;
     }
 
-    // Determine Base URL: Use Auth endpoint if key is present, else Public
-    const baseUrl = apiKey ? JUPITER_AUTH_API : JUPITER_PUBLIC_API;
-    const url = `${baseUrl}/swap`;
+    // If we are here, we are likely using the Public API or need a standalone swap build.
+    // The standalone /swap endpoint is part of the V6/Public API.
+    // Ultra does not seem to have a standalone /swap endpoint documented in the same way.
+    const url = `${JUPITER_PUBLIC_API}/swap`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -212,6 +257,10 @@ export async function getJupiterSwapTransaction(
           outputMint: quote.outputMint,
           inAmount: quote.inAmount,
           outAmount: quote.outAmount,
+          otherAmountThreshold: quote.otherAmountThreshold,
+          swapMode: quote.swapMode || 'ExactIn',
+          slippageBps: quote.slippageBps,
+          priceImpactPct: quote.priceImpact,
           routePlan: quote.routePlan,
         },
         userPublicKey,
