@@ -533,7 +533,8 @@ export class ChatWorker {
                 console.log(`[ChatWorker] Chain detection: tokenIn=${tokenIn.slice(0, 10)}..., actualChain=${actualChainName}`);
 
                 // Handle percentage/all amounts
-                if (amountIn === 'all' || amountIn.endsWith('%')) {
+                const amountInStr = String(amountIn);
+                if (amountInStr === 'all' || amountInStr.endsWith('%')) {
                     console.log(`[ChatWorker] 🧮 Calculating ${amountIn} amount for ${tokenIn}`);
                     if (task.sessionId) {
                         this.ws.broadcastToUser(userId!, {

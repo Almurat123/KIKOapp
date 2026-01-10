@@ -16,11 +16,19 @@ interface ProcessTxBody {
 
 // Map Alchemy network names to chain IDs
 const NETWORK_TO_CHAIN_ID: Record<string, number> = {
-    'BASE_MAINNET': 8453,
-    'BNB_SMART_CHAIN_MAINNET': 56,
-    'SOLANA_MAINNET': 900,      // Solana
     'ETH_MAINNET': 1,
+    'BASE_MAINNET': 8453,
+    'BNB_MAINNET': 56,          // Alchemy's network name for BSC
+    'BNB_SMART_CHAIN_MAINNET': 56,
+    'BSC_MAINNET': 56,          // Alias
     'ARB_MAINNET': 42161,
+    'ARBITRUM_MAINNET': 42161,  // Alias
+    'OPT_MAINNET': 10,
+    'OPTIMISM_MAINNET': 10,     // Alias
+    'MATIC_MAINNET': 137,
+    'POLYGON_MAINNET': 137,     // Alias
+    'SOLANA_MAINNET': 900,      // Solana
+    'SOL_MAINNET': 900,         // Alias
 };
 
 export default async function webhookRoutes(fastify: FastifyInstance) {

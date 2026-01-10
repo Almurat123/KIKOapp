@@ -546,7 +546,8 @@ function parseDetailedIntentHeuristic(
     let isSellOperation = false;
 
     // Detect swap
-    if (hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
+    const isStrategyCondition = /\b(when|if|once|whenever)\b/i.test(userMessage);
+    if ((hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) && !isStrategyCondition) {
         action = 'swap';
 
         // Detect if this is a SELL operation (selling the contract address token)

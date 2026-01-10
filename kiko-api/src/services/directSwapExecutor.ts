@@ -9,6 +9,7 @@ import { solanaLaunchpadSwapService } from './solanaLaunchpadSwapService.js';
 import { executeSolanaSwap } from './solanaExecutor.js';
 import { getEmbeddedWalletAddress, sendTransaction } from './privyWallet.js';
 import { findTokenOnAnyChain } from './ai/tokenDetector.js';
+import { resolveTokenAddress } from './tokens.js';
 
 export interface DirectSwapParams {
     sessionId: string;
@@ -229,52 +230,55 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
         // IMPORTANT: Use effectiveChainId (token's actual chain) not user's current chain
         console.log(`[DirectSwap] Using aggregator swap on chain ${effectiveChainId}...`);
 
-        // Native token symbols per chain
-        const NATIVE_SYMBOLS: Record<number, string[]> = {
-            1: ['ETH'],
-            8453: ['ETH'],
-            56: ['BNB'],
-            42161: ['ETH'],
-            10: ['ETH'],
-            137: ['MATIC'],
-            900: ['SOL'],
-        };
-        const nativeSymbols = NATIVE_SYMBOLS[effectiveChainId] || ['ETH'];
-        const isNativeIn = nativeSymbols.includes(params.tokenIn.toUpperCase()) ||
-            params.tokenIn === '0x0000000000000000000000000000000000000000';
+        // Resolve addresses
+        const actualTokenIn = resolveTokenAddress(params.tokenIn, effectiveChainId);
+        const actualTokenOut = resolveTokenAddress(params.tokenOut, effectiveChainId);
 
-        const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
-        const response = await fetch(`${API_BASE}/api/swap/execute-instant`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${params.accessToken}`
-            },
-            body: JSON.stringify({
-                tokenIn: isNativeIn ? '0x0000000000000000000000000000000000000000' : params.tokenIn,
-                tokenOut: params.tokenOut,
-                amountIn: params.amountIn,
-                chainId: effectiveChainId,  // Use token's actual chain!
-                slippageBps: Math.round((params.slippage || 3) * 100)
-            })
+        // Get token metadata for decimals
+        const [tokenInMeta, tokenOutMeta] = await Promise.all([
+            import('./zeroEx.js').then(m => m.getZeroExTokenMetadata(actualTokenIn, effectiveChainId)),
+            import('./zeroEx.js').then(m => m.getZeroExTokenMetadata(actualTokenOut, effectiveChainId))
+        ]);
+
+        const tokenInDecimals = tokenInMeta?.decimals || 18;
+        const tokenOutDecimals = tokenOutMeta?.decimals || 18;
+
+        // Get Best Quote
+        const { getBestQuote } = await import('./quoteService.js');
+        const amountInHuman = parseFloat(params.amountIn);
+        const amountInBase = import('./zeroEx.js').then(m => m.toWei(params.amountIn, tokenInDecimals));
+
+        const { best } = await getBestQuote({
+            tokenIn: params.tokenIn,
+            tokenOut: params.tokenOut,
+            actualTokenIn,
+            actualTokenOut,
+            amountInBase: await amountInBase,
+            amountInHuman,
+            tokenInDecimals,
+            tokenOutDecimals,
+            chainId: effectiveChainId,
+            slippageBps: Math.round((params.slippage || 3) * 100),
+            userAddress: params.walletAddress
         });
 
-        const result = await response.json() as any;
-
-        if (!response.ok || !result.success) {
-            const errorMsg = result.error || result.message || 'Aggregator swap failed';
-            console.error('[DirectSwap] Aggregator swap failed:', errorMsg);
-            return {
-                success: false,
-                error: errorMsg,
-                method: 'failed'
-            };
+        if (!best) {
+            throw new Error(`No quotes available for ${params.tokenIn} -> ${params.tokenOut}`);
         }
 
-        console.log('[DirectSwap] ✅ Aggregator swap successful:', result.data?.txHash);
+        // Execute via Privy
+        console.log(`[DirectSwap] Executing via ${best.dexName} on chain ${effectiveChainId}`);
+        const txHash = await sendTransaction(params.userId, params.accessToken, {
+            to: best.to,
+            data: best.data,
+            value: best.value,
+            chainId: effectiveChainId,
+        });
+
+        console.log('[DirectSwap] ✅ Aggregator swap successful:', txHash);
         return {
             success: true,
-            txHash: result.data?.txHash,
+            txHash,
             method: 'aggregator'
         };
 

@@ -87,7 +87,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const sidebar = useSidebar();
     const { resolvedTheme } = useThemeContext();
-    const { createStrategy, strategies, toggleStrategyStatus, deleteStrategy } = useStrategies();
+    const { createStrategy, strategies, toggleStrategyStatus, deleteStrategy, refreshUserStrategies: refreshStrategies } = useStrategies();
     const { user, authenticated } = usePrivy();
     const { wallets } = useWallets();
     // Use global chain context instead of Wagmi's useChainId
@@ -691,7 +691,36 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }
                             return prev;
                         });
-                    } else if (['show_strategy_card', 'show_chart_card', 'show_launchpad_card'].includes(event.data.action.type)) {
+                    } else if (event.data.action.type === 'show_strategy_card') {
+                        // For strategy cards, trigger an immediate refresh of the strategies list
+                        // This helps avoid the "deleted" race condition
+                        if (refreshStrategies) {
+                            logger.debug('Triggering immediate strategy refresh for new card');
+                            refreshStrategies();
+                        }
+
+                        const targetMessageId = event.data.message_id || event.data.messageId;
+                        setMessages(prev => {
+                            const targetIdx = targetMessageId ? prev.findIndex(m => m.id === targetMessageId) : -1;
+                            if (targetIdx !== -1) {
+                                return prev.map((m, idx) => idx === targetIdx ? {
+                                    ...m,
+                                    type: 'strategy-card',
+                                    data: event.data.action.data
+                                } : m);
+                            }
+                            const lastMsgIdx = [...prev].reverse().findIndex(m => m.role === 'assistant');
+                            if (lastMsgIdx !== -1) {
+                                const actualIdx = prev.length - 1 - lastMsgIdx;
+                                return prev.map((m, idx) => idx === actualIdx ? {
+                                    ...m,
+                                    type: 'strategy-card',
+                                    data: event.data.action.data
+                                } : m);
+                            }
+                            return prev;
+                        });
+                    } else if (['show_chart_card', 'show_launchpad_card'].includes(event.data.action.type)) {
                         // Update the specific message or the latest assistant message
                         const targetMessageId = event.data.message_id || event.data.messageId;
 
@@ -1683,7 +1712,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             if (liveStrat) {
                                 return { ...msg, data: liveStrat };
                             } else {
-                                // Strategy was deleted
+                                // IMPORTANT: Don't mark as deleted if it was just created (< 30s ago)
+                                // This prevents the race condition where the card shows up before the poll returns it
+                                const isNew = msg.timestamp && (Date.now() - new Date(msg.timestamp).getTime() < 30000);
+                                if (isNew) {
+                                    return msg;
+                                }
+                                // Strategy was actually deleted (or didn't load after 30s)
                                 return { ...msg, data: { ...msg.data, status: 'deleted' } };
                             }
                         }
