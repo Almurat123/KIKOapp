@@ -273,7 +273,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                 const trackedWallets = await prisma.trackedWallet.findMany({
                     where: {
-                        address: { in: candidates },
+                        address: { in: candidates, mode: 'insensitive' },
                         chainId,
                     }
                 });

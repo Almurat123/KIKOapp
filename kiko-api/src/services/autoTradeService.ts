@@ -130,7 +130,7 @@ async function handleTargetBuy(
     const [configs, tokenInfo, launchpadResult] = await Promise.all([
         withRetry(() => prisma.copyTradeConfig.findMany({
             where: {
-                targetWallet: normalizedWallet,
+                targetWallet: { mode: 'insensitive', equals: normalizedWallet },
                 chainId,
                 status: 'active',
             },
@@ -564,7 +564,7 @@ async function handleTargetSell(
 
     const configs = await withRetry(() => prisma.copyTradeConfig.findMany({
         where: {
-            targetWallet: normalizedWallet,
+            targetWallet: { mode: 'insensitive', equals: normalizedWallet },
             chainId,
             status: 'active',
             mirrorSell: true,
