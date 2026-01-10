@@ -23,6 +23,8 @@ const NETWORK_TO_CHAIN_ID: Record<string, number> = {
     'BSC_MAINNET': 56,          // Alias
     'SOLANA_MAINNET': 900,      // Solana
     'SOL_MAINNET': 900,         // Alias
+    'SOLANA_MAINNET_SOLANA': 900, // Common Solana alias
+    'SOLANA_MAINNET_NETWORK': 900,
     'SOLANA': 900,              // Short alias
     'SOL': 900,                 // Short alias
 };
@@ -129,12 +131,28 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
         const results = [];
         for (const config of configs) {
+            // 1. Ensure it's in TrackedWallet table (used for filtering in webhook handler)
+            await prisma.trackedWallet.upsert({
+                where: {
+                    address_chainId: {
+                        address: config.targetWallet,
+                        chainId: 900
+                    }
+                },
+                update: {},
+                create: {
+                    address: config.targetWallet,
+                    chainId: 900
+                }
+            });
+
+            // 2. Add to Alchemy Webhook
             const success = await addAddressToWebhook(config.targetWallet, 900);
-            results.push({ wallet: config.targetWallet, success });
+            results.push({ wallet: config.targetWallet, success, tracked: true });
         }
 
         return reply.send({
-            message: `Synced ${configs.length} Solana wallets`,
+            message: `Synced ${configs.length} Solana wallets and ensured they are tracked`,
             details: results
         });
     });
@@ -146,8 +164,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     fastify.post('/alchemy', async (request, reply) => {
         const payload = request.body as any;
 
-        // Debug: Log full payload as single-line JSON (Railway splits multi-line)
-        console.log(`[Webhook] Alchemy payload: ${JSON.stringify(payload)}`);
+        const evmNetwork = payload?.event?.network;
+        const solNetwork = payload?.event?.event?.network || payload?.event?.network;
+        const rawNetwork = evmNetwork || solNetwork || payload?.network || 'unknown';
+
+        // Debug: Log full payload as single-line JSON
+        console.log(`[Webhook] Incoming Alchemy (${rawNetwork}): ${JSON.stringify(payload)}`);
 
         // Respond immediately with 200 (Alchemy expects this)
         reply.send({ success: true });
