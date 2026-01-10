@@ -24,10 +24,10 @@ const TOOL_CATEGORIES: ToolCategory[] = [
         priority: 100
     },
 
-    // WALLET ANALYSIS
+    // WALLET ANALYSIS / EARLY BUYERS / SMART MONEY
     {
-        keywords: /\b(pnl|profit|loss|roi|win\s*rate|performance|history|early\s*buyers?|smart\s*money|holdings?|cost\s*basis|收益|利润|早期买家|最早买家|聪明钱)\b/i,
-        tools: ['get_token_early_buyers', 'get_token_info', 'get_wallet_info'],
+        keywords: /\b(pnl|profit|loss|roi|win\s*rate|performance|history|early\s*buyers?|smart\s*money|holdings?|cost\s*basis|snipers?|deployer|creator|收益|利润|早期买家|最早买家|聪明钱)\b/i,
+        tools: ['get_early_buyers', 'analyze_creator', 'get_token_info', 'get_wallet_info'],
         priority: 95
     },
 
@@ -47,8 +47,8 @@ const TOOL_CATEGORIES: ToolCategory[] = [
 
     // ZORA
     {
-        keywords: /\b(zora|new\s+coins?|top\s+gainers?|trending\s+(tokens?|coins?)|zora\s+profile|zora\s+balances?)\b/i,
-        tools: ['get_zora_trending', 'get_zora_profile', 'get_zora_balances'],
+        keywords: /\b(zora|zora\s+coins?|top\s+gainers?|zora\s+trending|zora\s+profile)\b/i,
+        tools: ['get_zora_trending', 'get_zora_profile'],
         priority: 85
     },
 
@@ -69,7 +69,7 @@ const TOOL_CATEGORIES: ToolCategory[] = [
     // TOKEN INFO (with contract address)
     {
         keywords: /0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/,
-        tools: ['get_token_info', 'check_token_risk', 'prepare_swap_transaction', 'get_token_early_buyers'],
+        tools: ['get_token_info', 'check_token_risk', 'prepare_swap_transaction', 'get_early_buyers', 'analyze_creator'],
         priority: 60
     },
 
