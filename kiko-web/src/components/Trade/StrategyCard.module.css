@@ -257,7 +257,7 @@
 .capsuleDivider {
   width: 1px;
   height: 20px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-color);
 }
 
 /* Footer & Actions */
@@ -277,14 +277,14 @@
 
 .strategyInfoItem {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .strategyInfoItem span {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-secondary);
 }
 
 .strategyPauseBtn {
@@ -406,7 +406,7 @@
 .rowName {
   font-size: 14px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 /* col-2: Config (Target + Trigger) */
@@ -452,21 +452,23 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.6);
-  border: 1px solid transparent;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .rowBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--accent-color);
 }
 
 .rowBtnDelete:hover {
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 /* Mobile adjustments for Row - Two Lines */
@@ -526,7 +528,7 @@
     gap: 12px;
     padding-top: 10px;
     margin-top: 2px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-color);
   }
 
   .rowItem {
@@ -538,7 +540,7 @@
 
   .rowItemLabel {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--text-tertiary);
     text-transform: uppercase;
     font-weight: 500;
   }
@@ -546,6 +548,6 @@
   .rowItemValue {
     font-size: 12px;
     font-weight: 600;
-    color: #e4e4e7;
+    color: var(--text-primary);
   }
 }

@@ -67,6 +67,8 @@ html {
   --text-primary: var(--light-text);
   --text-secondary: #71717a;
   /* Zinc 500 */
+  --text-tertiary: #a1a1aa;
+  /* Zinc 400 - for very subtle labels */
 
   --border-color: var(--light-border);
   --card-shadow: var(--light-shadow);
@@ -99,29 +101,14 @@ a:hover {
 body {
   margin: 0;
   padding: 0;
-  /* Safari iOS 26: Add safe area insets for notch and home indicator */
+  /* Safari iOS: Add safe area insets for notch and home indicator */
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   min-width: 320px;
-  /* Safari iOS: Use dvh for dynamic viewport height that responds to address bar */
   min-height: 100vh;
   min-height: 100dvh;
-  height: 100vh;
-  height: 100dvh;
   width: 100%;
-  /* Prevent overscroll/bounce on iOS */
-  overflow: hidden;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-}
-
-/* Safari iOS keyboard handling - CSS variables set by useSafariKeyboard hook */
-:root {
-  --keyboard-height: 0px;
-  --keyboard-visible: 0;
+  /* Allow normal scrolling - don't use position:fixed which breaks keyboard */
 }
 
 h1 {
@@ -163,6 +150,8 @@ html.dark {
   --text-primary: var(--dark-text);
   --text-secondary: #a1a1aa;
   /* Zinc 400 */
+  --text-tertiary: #71717a;
+  /* Zinc 500 - for very subtle labels in dark mode */
 
   --border-color: var(--dark-border);
   --card-shadow: var(--dark-shadow);
