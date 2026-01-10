@@ -42,10 +42,16 @@ export interface SolanaPrice {
 }
 
 // Jupiter Ultra Swap API base URLs
+// Jupiter Ultra Swap API base URLs
 // Documentation: https://station.jup.ag/docs/ultra/get-order
 const JUPITER_ULTRA_API = 'https://api.jup.ag/ultra/v1';
-// Jupiter Legacy Swap API - quote without balance check
-const JUPITER_LEGACY_API = 'https://api.jup.ag/swap/v1';
+
+// Jupiter V6/V1 Quote API
+// - Public: https://public.jupiterapi.com (No Key)
+// - Auth: https://api.jup.ag/swap/v1 (Requires Key)
+const JUPITER_PUBLIC_API = 'https://public.jupiterapi.com';
+const JUPITER_AUTH_API = 'https://api.jup.ag/swap/v1';
+
 const FETCH_TIMEOUT = 15000; // 15 seconds timeout
 
 // Get Jupiter API key from environment
@@ -83,11 +89,14 @@ async function getJupiterQuote(
       headers['x-api-key'] = apiKey;
     }
 
+    // Determine Base URL: Use Auth endpoint if key is present, else Public
+    const baseUrl = apiKey ? JUPITER_AUTH_API : JUPITER_PUBLIC_API;
+
     // STRATEGY: Use Legacy API for quote (no balance check) + separate swap call
     // This allows 99.99% balance utilization
 
     // Step 1: Get quote from Legacy API (doesn't check balance)
-    const legacyQuoteUrl = `${JUPITER_LEGACY_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+    const legacyQuoteUrl = `${baseUrl}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
 
     console.log('[Jupiter Legacy API] Getting quote without balance check...');
 
@@ -130,9 +139,9 @@ async function getJupiterQuote(
     let swapTransaction: string | undefined;
 
     if (userAddress) {
-      console.log('[Jupiter Legacy API] Getting swap transaction...');
+      console.log('[Jupiter API] Getting swap transaction...');
 
-      const swapResponse = await fetch(`${JUPITER_LEGACY_API}/swap`, {
+      const swapResponse = await fetch(`${baseUrl}/swap`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -180,8 +189,6 @@ export async function getJupiterSwapTransaction(
   wrapUnwrapSOL: boolean = true
 ): Promise<string | null> {
   try {
-    const url = `${JUPITER_LEGACY_API}/swap`;
-
     // Build headers with API key if available
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -191,6 +198,10 @@ export async function getJupiterSwapTransaction(
     if (apiKey) {
       headers['x-api-key'] = apiKey;
     }
+
+    // Determine Base URL: Use Auth endpoint if key is present, else Public
+    const baseUrl = apiKey ? JUPITER_AUTH_API : JUPITER_PUBLIC_API;
+    const url = `${baseUrl}/swap`;
 
     const response = await fetch(url, {
       method: 'POST',
