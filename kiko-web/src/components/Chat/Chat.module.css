@@ -1498,23 +1498,29 @@
 /* Jump to Bottom Button */
 .jumpToBottom {
     position: absolute;
-    top: -18px;
-    /* Half of button height (36/2) to center on top edge */
+    top: -50px;
     left: 50%;
     transform: translateX(-50%);
-    width: 36px;
-    height: 36px;
-    background: #27272a;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 50%;
+    width: 32px !important;
+    height: 32px !important;
+    padding: 0 !important;
+    margin: 0;
+    background: rgba(39, 39, 42, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
     display: flex;
     align-items: center;
     justify-content: center;
     color: #f4f4f5;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     cursor: pointer;
-    z-index: 40;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    z-index: 999;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 1;
+    min-width: 32px !important;
+    min-height: 32px !important;
 }
 
 .jumpToBottom span {
@@ -1523,8 +1529,11 @@
 
 .jumpToBottom:hover {
     background: #3f3f46;
-    transform: translateX(-50%) scale(1.1);
-    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateX(-50%) translateY(-2px);
+    /* Lift on hover */
+    border-color: rgba(255, 255, 255, 0.3);
+    opacity: 1;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
 }
 
 .light .jumpToBottom {

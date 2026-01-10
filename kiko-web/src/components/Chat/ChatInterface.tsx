@@ -1858,7 +1858,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             className={styles.jumpToBottom}
                             onClick={() => scrollToBottom()}
                         >
-                            <ArrowDown size={16} />
+                            <ArrowDown size={20} />
                         </button>
                     )}
                     <div className={clsx(styles.inputWrapper, showSuggestions && styles.inputWrapperOpen)}>
