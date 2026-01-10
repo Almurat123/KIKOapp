@@ -1015,6 +1015,41 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
         console.error(`[AutoTrade] getTokenInfo: GeckoTerminal fallback also failed:`, gtErr.message);
     }
 
+    // --- STEP 3: Try ZORA API (For Base chain launchpad tokens) ---
+    if (chainId === 8453) {
+        console.log(`[AutoTrade] getTokenInfo: Trying ZORA API fallback for Base token ${tokenAddress}...`);
+        try {
+            const zoraUrl = `https://api-sdk.zora.engineering/coin?address=${tokenAddress}&chain=8453`;
+            const zoraRes = await fetch(zoraUrl, {
+                headers: { 'Accept': 'application/json' }
+            });
+
+            if (zoraRes.ok) {
+                const zoraData = await zoraRes.json() as any;
+                if (zoraData && zoraData.tokenPrice) {
+                    const result = {
+                        price: parseFloat(zoraData.tokenPrice?.usd || zoraData.tokenPrice?.usdc || '0'),
+                        symbol: zoraData.symbol || 'ZORA_TOKEN',
+                        name: zoraData.name || 'ZORA Launchpad Token',
+                        decimals: 18,
+                        liquidity: zoraData.marketCap || 0,
+                        volume24h: zoraData.volume24h || 0,
+                        fdv: zoraData.marketCap || 0,
+                        marketCap: zoraData.marketCap || 0,
+                        pairCreatedAt: Date.now(),
+                        socials: [],
+                        websites: [],
+                        provider: 'zora'
+                    };
+                    console.log(`[AutoTrade] getTokenInfo: Success (ZORA) - ${result.symbol} $${result.price}`);
+                    return result;
+                }
+            }
+        } catch (zoraErr: any) {
+            console.error(`[AutoTrade] getTokenInfo: ZORA API fallback failed:`, zoraErr.message);
+        }
+    }
+
     console.error(`[AutoTrade] getTokenInfo: All providers failed for ${tokenAddress}. Last DS Error: ${dsError?.message}`);
     return null;
 }

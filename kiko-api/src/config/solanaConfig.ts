@@ -4,13 +4,18 @@ export const SOLANA_CONFIG = {
     // Chain ID for Solana (internal mapping, not on-chain ID)
     CHAIN_ID: 900,
 
-    // RPC Endpoints
+    // RPC Endpoints - Prioritized for reliability
     RPC_URLS: {
-        MAINNET: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-        HELIUS: process.env.HELIUS_RPC_URL, // Optional standard RPC
-        PUBLIC: 'https://api.mainnet-beta.solana.com',
-        BACKUP_1: 'https://solana-api.projectserum.com',
-        BACKUP_2: 'https://rpc.ankr.com/solana'
+        // Primary: Helius (from env) - Best for production
+        MAINNET: process.env.SOLANA_RPC_URL || process.env.HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com',
+        // Helius with API key from env
+        HELIUS: process.env.HELIUS_API_KEY
+            ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+            : undefined,
+        // Public fallbacks (no auth required)
+        PUBLIC: 'https://solana-rpc.publicnode.com',
+        BACKUP_1: 'https://solana.drpc.org',
+        BACKUP_2: 'https://api.mainnet-beta.solana.com'
     },
 
     // Jupiter Aggregator API
