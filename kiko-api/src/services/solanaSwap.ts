@@ -34,6 +34,7 @@ export interface SolanaQuote {
   otherAmountThreshold?: string; // Required for Jupiter V6/Ultra swap
   swapMode?: string;             // Required for Jupiter V6/Ultra swap
   slippageBps?: number;          // Required for Jupiter V6/Ultra swap
+  rawQuoteResponse?: any;        // Raw quote response from API (for swap endpoint)
 }
 
 export interface SolanaPrice {
@@ -157,15 +158,8 @@ async function getJupiterQuote(
         swapTransaction = ultraData.transaction;
       }
     } else {
-      // Parse PUBLIC response
-      quoteData = await quoteResponse.json() as {
-        inputMint: string;
-        outputMint: string;
-        inAmount: string;
-        outAmount: string;
-        routePlan?: any;
-        error?: string;
-      };
+      // Parse PUBLIC response - store the full raw response for /swap endpoint
+      quoteData = await quoteResponse.json() as any;
     }
 
     if (!quoteData || quoteData.error) {
@@ -214,6 +208,7 @@ async function getJupiterQuote(
       aggregator: 'jupiter',
       routePlan: quoteData.routePlan,
       swapTransaction,
+      rawQuoteResponse: quoteData, // Store full response for /swap endpoint
     };
   } catch (error) {
     console.error('[Jupiter API] Error fetching quote:', error);
@@ -252,7 +247,9 @@ export async function getJupiterSwapTransaction(
       method: 'POST',
       headers,
       body: JSON.stringify({
-        quoteResponse: {
+        // CRITICAL: Use the raw quote response if available to include all market data
+        // This prevents "Market not found" errors from stale/incomplete quote data
+        quoteResponse: quote.rawQuoteResponse || {
           inputMint: quote.inputMint,
           outputMint: quote.outputMint,
           inAmount: quote.inAmount,
