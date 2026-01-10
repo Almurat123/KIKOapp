@@ -196,14 +196,27 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             // Alchemy Address Activity webhook structure:
             // EVM: payload.event.network, payload.event.activity
             // Solana: payload.event.event.network, payload.event.event.transaction
-            const evmNetwork = payload?.event?.network;
-            const solNetwork = payload?.event?.event?.network;
-            const network = evmNetwork || solNetwork;
+            // Dig into the payload to find the network and event data
+            // Alchemy likes to nest things differently between test pings and real events
+            let current = payload;
+            let network = undefined;
+            let eventData = undefined;
+
+            // Max 5 levels of recursion to avoid infinite loops
+            for (let i = 0; i < 5; i++) {
+                if (current.network) network = current.network;
+                if (current.event && typeof current.event === 'object') {
+                    current = current.event;
+                    continue;
+                }
+                eventData = current;
+                break;
+            }
 
             const chainId = NETWORK_TO_CHAIN_ID[network] || (network ? NETWORK_TO_CHAIN_ID[network.toUpperCase()] : undefined);
 
             if (!chainId) {
-                console.warn(`[Webhook] Unknown network: ${network}`);
+                console.warn(`[Webhook] Unknown network: ${network}. Payload snippet: ${JSON.stringify(payload).slice(0, 200)}`);
                 return;
             }
 
@@ -211,19 +224,15 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             let items: any[] = [];
             let isSolanaItems = false;
 
-            if (payload?.event?.activity) {
-                items = payload.event.activity;
+            if (eventData?.activity) {
+                items = Array.isArray(eventData.activity) ? eventData.activity : [eventData.activity];
                 console.log(`[Webhook] Processing as EVM activity (${items.length} items)`);
-            } else if (payload?.event?.event?.transaction) {
-                items = payload.event.event.transaction;
+            } else if (eventData?.transaction) {
+                items = Array.isArray(eventData.transaction) ? eventData.transaction : [eventData.transaction];
                 isSolanaItems = true;
                 console.log(`[Webhook] Processing as Solana transaction (${items.length} items)`);
-            } else if (payload?.event?.transaction) {
-                items = payload.event.transaction;
-                isSolanaItems = true;
-                console.log(`[Webhook] Processing as Solana transaction (fallback nest) (${items.length} items)`);
             } else {
-                console.log(`[Webhook] No recognizable activity or transaction array in payload`);
+                console.log(`[Webhook] No recognizable activity or transaction array in eventData`);
             }
 
             for (const item of items) {
@@ -231,17 +240,21 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 let candidates: string[] = [];
 
                 if (isSolanaItems) {
-                    // Solana Structure
-                    // item.signature or item.transaction.signatures[0]
+                    // Solana Structure: Handle cases where transaction/message might be arrays (Alchemy Test Hook)
                     txHash = item.signature;
-                    if (!txHash && item.transaction?.signatures) {
-                        txHash = item.transaction.signatures[0];
+
+                    const solTx = Array.isArray(item.transaction) ? item.transaction[0] : item.transaction;
+                    if (!txHash && solTx?.signatures) {
+                        txHash = solTx.signatures[0];
                     }
 
-                    // Extract all involved accounts as candidates
-                    // item.transaction.message.account_keys (array of strings or objects)
-                    const keys = item.transaction?.message?.account_keys || [];
+                    const solMsg = Array.isArray(solTx?.message) ? solTx.message[0] : solTx?.message;
+                    const keys = solMsg?.account_keys || solMsg?.accountKeys || [];
                     candidates = keys.map((k: any) => typeof k === 'string' ? k : k.pubkey || k.toString());
+
+                    if (candidates.length === 0) {
+                        console.log(`[Webhook] Solana candidate extraction debug: signature=${txHash}, item keys=${Object.keys(item)}, solTx keys=${solTx ? Object.keys(solTx) : 'null'}, solMsg keys=${solMsg ? Object.keys(solMsg) : 'null'}`);
+                    }
                 } else {
                     // EVM Structure
                     txHash = item.hash;
