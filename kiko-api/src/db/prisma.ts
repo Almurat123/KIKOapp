@@ -7,15 +7,16 @@ declare global {
 }
 
 const originalDbUrl = process.env.DATABASE_URL;
-const connectionLimit = 30; // Increased for better concurrency coverage
-const poolTimeout = 60; // Increased to 60s
-const connectionTimeout = 20; // 20s initial connection timeout
+// Tuned connection settings: 20 connections is safer for shared RDS/Cloud DBs
+const connectionLimit = 20;
+const poolTimeout = 45; // Slightly lower timeout to catch issues faster
+const connectionTimeout = 20;
 
 const urlWithParams = originalDbUrl && !originalDbUrl.includes('connection_limit')
     ? `${originalDbUrl}${originalDbUrl.includes('?') ? '&' : '?'}connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}&connect_timeout=${connectionTimeout}`
     : originalDbUrl;
 
-// Force override environment variable so Prisma picked it up regardless of how it's initialized
+// Force override environment variable
 if (urlWithParams) {
     process.env.DATABASE_URL = urlWithParams;
 }
@@ -23,12 +24,26 @@ if (urlWithParams) {
 console.log(`[Prisma] Initializing client (Pool: ${connectionLimit}, Timeout: ${poolTimeout}s, Connect: ${connectionTimeout}s)`);
 
 export const prisma = global.prisma || new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    log: [
+        { emit: 'event', level: 'query' },
+        { emit: 'event', level: 'error' },
+        { emit: 'event', level: 'info' },
+        { emit: 'event', level: 'warn' },
+    ],
     datasources: {
         db: {
             url: urlWithParams
         }
     }
+});
+
+// Setup event-based logging for better production diagnostics
+prisma.$on('error' as any, (e: any) => {
+    console.error(`[Prisma-Error] ${e.message}`, { target: e.target, timestamp: new Date() });
+});
+
+prisma.$on('warn' as any, (e: any) => {
+    console.warn(`[Prisma-Warn] ${e.message}`);
 });
 
 // Health check and auto-reconnect logic

@@ -20,7 +20,7 @@ const TOOL_CATEGORIES: ToolCategory[] = [
     // TRADING - Most specific
     {
         keywords: /\b(swap|buy|sell|trade|exchange|convert|购买|卖出|兑换)\b/i,
-        tools: ['prepare_swap_transaction', 'check_token_risk', 'get_wallet_info', 'get_token_info'],
+        tools: ['prepare_swap_transaction', 'check_token_risk', 'get_wallet_info', 'get_token_info', 'create_copy_trade_config'],
         priority: 100
     },
 
@@ -82,7 +82,7 @@ const TOOL_CATEGORIES: ToolCategory[] = [
 
     // COPY TRADING - Higher priority than TRADING to catch "copy trade" before "trade"
     {
-        keywords: /\b(copy\s*trade?|copy\s*trading|auto\s*trad(e|ing)?|mirror\s*trad(e|ing)?|follow\s*wallet|跟单|复制交易)\b/i,
+        keywords: /\b(copy\s*trader?|copy\s*trading|auto\s*trad(e|ing)?|mirror\s*trad(e|ing)?|follow\s*wallet|跟单|复制交易|follow\s*me|mirror\s*me)\b/i,
         tools: ['create_copy_trade_config', 'list_copy_trade_configs', 'pause_copy_trade_config', 'delete_copy_trade_config'],
         priority: 110  // Higher than TRADING (100) to catch "copy trade" first
     },

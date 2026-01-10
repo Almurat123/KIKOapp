@@ -884,6 +884,19 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
             });
             clearTimeout(timeoutId);
 
+            if (!res.ok) {
+                const text = await res.text();
+                console.warn(`[AutoTrade] getTokenInfo: HTTP Error ${res.status} for ${tokenAddress}. Body: ${text.slice(0, 100)}...`);
+                throw new Error(`HTTP Error ${res.status}`);
+            }
+
+            const contentType = res.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const text = await res.text();
+                console.warn(`[AutoTrade] getTokenInfo: Non-JSON response for ${tokenAddress}. Header: ${contentType}, Body: ${text.slice(0, 100)}...`);
+                throw new Error('Non-JSON response received');
+            }
+
             const data = await res.json() as any;
 
             if (!data.pairs || data.pairs.length === 0) {

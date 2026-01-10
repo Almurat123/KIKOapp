@@ -1676,9 +1676,22 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
             >
-                {messages.map((msg, index) => {
-                    const isGrouped = index > 0 && messages[index - 1].role === msg.role;
-                    const prevMsg = index > 0 ? messages[index - 1] : null;
+                {useMemo(() => {
+                    return messages.map(msg => {
+                        if (msg.type === 'strategy-card' && msg.data?.id) {
+                            const liveStrat = strategies.find(s => s.id === msg.data.id);
+                            if (liveStrat) {
+                                return { ...msg, data: liveStrat };
+                            } else {
+                                // Strategy was deleted
+                                return { ...msg, data: { ...msg.data, status: 'deleted' } };
+                            }
+                        }
+                        return msg;
+                    });
+                }, [messages, strategies]).map((msg, index, enrichedMessages) => {
+                    const isGrouped = index > 0 && enrichedMessages[index - 1].role === msg.role;
+                    const prevMsg = index > 0 ? enrichedMessages[index - 1] : null;
                     const showDateSeparator = prevMsg && prevMsg.date && msg.date && prevMsg.date !== msg.date;
 
                     return (

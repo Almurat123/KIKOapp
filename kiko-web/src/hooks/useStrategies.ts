@@ -77,10 +77,14 @@ export const useStrategies = () => {
     //       // Copy trades must only come from the backend to avoid "ghosts"
     //       const localStrats = parsed
     //         .filter((s: any) => s.type !== 'copy_trade')
-    //         .map((s: any) => ({ ...s, id: String(s.id) }));
+    //         .map((s: any) => ({
+    //           ...s,
+    //           id: String(s.id),
+    //           executionHistory: s.executionHistory || []
+    //         }));
     //       allStrategies.push(...localStrats);
     //     }
-    //   } 
+    //   }
     // } catch (e) {
     //   console.warn('Failed to load local strategies', e);
     // }

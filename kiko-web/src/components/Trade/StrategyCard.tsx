@@ -35,9 +35,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   };
 
   const isActive = strategy.status === 'active';
-  const statusLabel = strategy.status.toUpperCase();
-  const statusClass = isActive ? styles.statusActive : styles.statusPaused;
-  const executionCount = strategy.executionHistory.length;
+  const status = (strategy.status || 'paused').toUpperCase() === 'PAUSED' ? 'PAUSED' :
+    (strategy.status || '').toUpperCase() === 'DELETED' ? 'DELETED' : 'ACTIVE';
+  const executionCount = (strategy.executionHistory || []).length;
 
   // --- ROW VARIANT (Single Line) ---
   if (variant === 'row') {
@@ -50,8 +50,14 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
           </div>
           <div>
             <div className={styles.rowName}>Copy Trading</div>
-            <div className={clsx(styles.strategyStatus, statusClass)} style={{ marginTop: '4px', display: 'inline-block' }}>
-              {statusLabel}
+            <div style={{ marginTop: '4px', display: 'inline-block' }}>
+              {status === 'DELETED' ? (
+                <span className={styles.statusBadgeDeleted}>DELETED</span>
+              ) : (
+                <span className={status === 'ACTIVE' ? styles.statusBadgeActive : styles.statusBadgePaused}>
+                  {status}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -101,6 +107,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             onClick={() => onEdit(strategy)}
             className={styles.rowBtn}
             title="Edit"
+            disabled={status === 'DELETED'}
           >
             <Edit size={14} />
           </button>
@@ -109,6 +116,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             onClick={() => onToggleStatus(strategy.id)}
             className={styles.rowBtn}
             title={isActive ? 'Pause' : 'Resume'}
+            disabled={status === 'DELETED'}
           >
             {isActive ? <Pause size={14} /> : <Play size={14} />}
           </button>
@@ -117,6 +125,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             onClick={() => onDelete(strategy.id)}
             className={clsx(styles.rowBtn, styles.rowBtnDelete)}
             title="Delete"
+            disabled={status === 'DELETED'}
           >
             <Trash2 size={14} />
           </button>
@@ -131,16 +140,20 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
       {/* Header: Title & Status */}
       <div className={styles.strategyHeader}>
         <div className={styles.strategyTitleSection}>
-          <div className={styles.strategyIcon}>
-            <RefreshCw size={16} fill="currentColor" />
+          <div className={styles.uintaIcon}>
+            <RefreshCw size={16} />
           </div>
           <div>
             <div className={styles.strategyName}>Copy Trading</div>
           </div>
         </div>
-        <div className={`${styles.strategyStatus} ${statusClass}`}>
-          {statusLabel}
-        </div>
+        {status === 'DELETED' ? (
+          <span className={styles.statusBadgeDeleted}>DELETED</span>
+        ) : (
+          <span className={status === 'ACTIVE' ? styles.statusBadgeActive : styles.statusBadgePaused}>
+            {status}
+          </span>
+        )}
       </div>
 
       {/* Core Configuration */}
@@ -148,13 +161,12 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 
         {/* IF Block: Monitor Conditions */}
         <div className={styles.strategyBlock}>
-
-          {/* Item 1: Target Wallet */}
-          <div className={styles.strategyItem}>
+          {/* Item 1: Target Wallet (Vertical for better readability) */}
+          <div className={styles.strategyItemVertical}>
             <div className={styles.strategyItemLabel}>
               <Target size={12} /> Target Wallet
             </div>
-            <div className={styles.strategyItemValue}>
+            <div className={styles.strategyItemValueVertical}>
               <div
                 className={styles.walletAddress}
                 onClick={(e) => {
@@ -166,7 +178,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
                 style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
                 {isWalletCopied ? <Check size={10} color="#4ade80" /> : null}
-                {config.targetWallet.slice(0, 6)}...{config.targetWallet.slice(-4)}
+                <span className={styles.walletAddressText}>{config.targetWallet}</span>
               </div>
             </div>
           </div>
@@ -216,29 +228,28 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 
       {/* Footer: Info & Actions */}
       <div className={styles.strategyFooter}>
-        <div className={styles.strategyInfo}>
-          <div className={styles.strategyInfoItem}>
-            <span>Executed {executionCount} trades</span>
+        <div className={styles.strategyCardFooter}>
+          <div className={styles.strategyItemValue}>
+            Executed {executionCount} trades
+          </div>
+          <div className={styles.strategyActions}>
+            <button
+              className={styles.strategyDeleteBtn}
+              onClick={() => onDelete(strategy.id)}
+              disabled={status === 'DELETED'}
+            >
+              Delete
+            </button>
+            <button
+              className={styles.strategyPauseBtn}
+              onClick={() => onToggleStatus(strategy.id)}
+              disabled={status === 'DELETED'}
+            >
+              {status === 'PAUSED' ? 'Resume' : 'Pause'}
+            </button>
           </div>
         </div>
-
-        <div className="flex gap-2" style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => onDelete(strategy.id)}
-            className={clsx(styles.strategyPauseBtn, styles.deleteActionBtn)}
-          >
-            Delete
-          </button>
-
-          <button
-            onClick={() => onToggleStatus(strategy.id)}
-            className={styles.strategyPauseBtn}
-          >
-            {isActive ? 'Pause' : 'Resume'}
-          </button>
-        </div>
       </div>
-
     </div>
   );
 };
