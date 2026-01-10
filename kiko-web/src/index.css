@@ -103,10 +103,25 @@ body {
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   min-width: 320px;
+  /* Safari iOS: Use dvh for dynamic viewport height that responds to address bar */
   min-height: 100vh;
   min-height: 100dvh;
-  /* Use dynamic viewport height for iOS Safari */
+  height: 100vh;
+  height: 100dvh;
   width: 100%;
+  /* Prevent overscroll/bounce on iOS */
+  overflow: hidden;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* Safari iOS keyboard handling - CSS variables set by useSafariKeyboard hook */
+:root {
+  --keyboard-height: 0px;
+  --keyboard-visible: 0;
 }
 
 h1 {

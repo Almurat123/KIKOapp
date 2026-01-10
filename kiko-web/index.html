@@ -1,37 +1,43 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>kiko-web</title>
-    <!-- Content Security Policy and Permissions Policy are set via HTTP headers in vite.config.ts -->
-    <!-- This ensures proper support for frame-ancestors and other directives that require HTTP headers -->
-    <!-- Nunito Font for KIKO Logo (Rounded Bold) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@900&family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
-    <script>
-      // Apply theme immediately to prevent flash
-      (function() {
-        try {
-          const savedTheme = localStorage.getItem('kiko-theme');
-          let theme = savedTheme;
-          
-          if (!theme || theme === 'system') {
-            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-          }
-          
-          document.documentElement.classList.add(theme);
-        } catch (e) {
-          // Default to dark if theme detection fails (to match dark design)
-          document.documentElement.classList.add('dark');
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+  <title>kiko-web</title>
+  <!-- Content Security Policy and Permissions Policy are set via HTTP headers in vite.config.ts -->
+  <!-- This ensures proper support for frame-ancestors and other directives that require HTTP headers -->
+  <!-- Nunito Font for KIKO Logo (Rounded Bold) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Nunito:wght@900&family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap"
+    rel="stylesheet">
+  <script>
+    // Apply theme immediately to prevent flash
+    (function () {
+      try {
+        const savedTheme = localStorage.getItem('kiko-theme');
+        let theme = savedTheme;
+
+        if (!theme || theme === 'system') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
-      })();
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+
+        document.documentElement.classList.add(theme);
+      } catch (e) {
+        // Default to dark if theme detection fails (to match dark design)
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

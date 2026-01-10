@@ -15,6 +15,7 @@ import { useThemeContext } from '../../contexts/ThemeContext';
 import { useChain } from '../../contexts/ChainContext';
 import { extractStrategiesFromMessages } from '../../utils/strategyExtractor';
 import { useStrategies } from '../../hooks/useStrategies';
+import { useSafariKeyboard } from '../../hooks/useSafariKeyboard';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 import { chatApi } from '../../services/api';
@@ -88,6 +89,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const sidebar = useSidebar();
     const { resolvedTheme } = useThemeContext();
     const { createStrategy, strategies, toggleStrategyStatus, deleteStrategy, refreshUserStrategies: refreshStrategies } = useStrategies();
+
+    // Safari iOS keyboard handling - sets --keyboard-height CSS variable
+    useSafariKeyboard();
+
     const { user, authenticated } = usePrivy();
     const { wallets } = useWallets();
     // Use global chain context instead of Wagmi's useChainId

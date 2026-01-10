@@ -599,14 +599,16 @@
 
 .inputBottom {
     top: auto;
-    /* Safari iOS 26: Add safe area padding to avoid Safari toolbar */
-    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    /* Safari iOS 26: Add safe area padding + keyboard height to avoid Safari toolbar */
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px) + var(--keyboard-height, 0px));
     transform: translateY(0);
+    /* Smooth transition when keyboard appears/disappears */
+    transition: bottom 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @media (min-width: 768px) {
     .inputBottom {
-        bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        bottom: calc(24px + env(safe-area-inset-bottom, 0px) + var(--keyboard-height, 0px));
     }
 }
 
