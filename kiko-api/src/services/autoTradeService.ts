@@ -27,6 +27,7 @@ import { sendTradeNotification } from './emailService.js';
 import { PrivyClient } from '@privy-io/server-auth';
 import { recordNewTrade } from './leaderWalletStatsService.js';
 import { trackCopyTrade, trackSwap } from './userActivityService.js';
+import { getTokenDetails } from './geckoTerminal.js';
 
 // ... (previous functions remain)
 
@@ -861,87 +862,114 @@ function getChainSlug(chainId: number) {
 }
 
 /**
- * Get token information from external API
+ * Get token information from external API with multi-provider fallback
  */
 async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any> {
-    const slug = getChainSlug(chainId).dexScreener;
-    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+    const chainSlug = getChainSlug(chainId);
+    const dsSlug = chainSlug.dexScreener;
+    const gtSlug = chainSlug.geckoTerminal;
 
-    console.log(`[AutoTrade] getTokenInfo: Fetching ${tokenAddress} on ${slug} (chainId: ${chainId})`);
+    // --- STEP 0: Request Jitter ---
+    // Add a random delay to prevent synchronized burst blocks
+    const jitter = Math.floor(Math.random() * 300) + 200; // 200-500ms
+    await new Promise(resolve => setTimeout(resolve, jitter));
 
-    // Retry logic for network errors (ECONNRESET, etc.)
+    console.log(`[AutoTrade] getTokenInfo: Fetching ${tokenAddress} (Chain: ${chainId}, Jitter: ${jitter}ms)`);
+
+    // --- STEP 1: Try DexScreener (Primary) ---
+    const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
     const MAX_RETRIES = 3;
-    let lastError: Error | null = null;
+    let dsError: any = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-            const res = await fetch(url, {
-                headers: { 'Connection': 'close' },
+            const res = await fetch(dsUrl, {
+                headers: { 'Connection': 'close', 'Accept': 'application/json' },
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
 
+            if (res.status === 429) {
+                console.warn(`[AutoTrade] DexScreener 429 (Rate Limit) for ${tokenAddress} on attempt ${attempt}`);
+                throw new Error('429');
+            }
+
             if (!res.ok) {
-                const text = await res.text();
-                console.warn(`[AutoTrade] getTokenInfo: HTTP Error ${res.status} for ${tokenAddress}. Body: ${text.slice(0, 100)}...`);
-                throw new Error(`HTTP Error ${res.status}`);
+                throw new Error(`HTTP ${res.status}`);
             }
 
             const contentType = res.headers.get('content-type');
             if (!contentType || !contentType.includes('application/json')) {
-                const text = await res.text();
-                console.warn(`[AutoTrade] getTokenInfo: Non-JSON response for ${tokenAddress}. Header: ${contentType}, Body: ${text.slice(0, 100)}...`);
-                throw new Error('Non-JSON response received');
+                throw new Error('Non-JSON response');
             }
 
             const data = await res.json() as any;
-
-            if (!data.pairs || data.pairs.length === 0) {
-                console.warn(`[AutoTrade] getTokenInfo: No pairs returned for ${tokenAddress}`);
-                return null;
+            if (data.pairs && data.pairs.length > 0) {
+                const pair = data.pairs.find((p: any) => p.chainId === dsSlug) || data.pairs[0];
+                const result = {
+                    price: parseFloat(pair.priceUsd),
+                    symbol: pair.baseToken.symbol,
+                    name: pair.baseToken.name,
+                    decimals: 18,
+                    liquidity: pair.liquidity?.usd || 0,
+                    volume24h: pair.volume?.h24 || 0,
+                    fdv: pair.fdv || 0,
+                    marketCap: pair.fdv || 0,
+                    pairCreatedAt: pair.pairCreatedAt,
+                    socials: pair.info?.socials || [],
+                    websites: pair.info?.websites || [],
+                    provider: 'dexscreener'
+                };
+                console.log(`[AutoTrade] getTokenInfo: Success (DexScreener) - ${result.symbol} $${result.price}`);
+                return result;
             }
 
-            console.log(`[AutoTrade] getTokenInfo: Found ${data.pairs.length} pairs for ${tokenAddress}`);
-
-            // Filter for correct chain if needed
-            const pair = data.pairs.find((p: any) => p.chainId === slug) || data.pairs[0];
-
-            const result = {
-                price: parseFloat(pair.priceUsd),
-                symbol: pair.baseToken.symbol,
-                name: pair.baseToken.name,
-                decimals: 18, // DexScreener doesn't always give decimals. Fallback.
-                liquidity: pair.liquidity?.usd || 0,
-                volume24h: pair.volume?.h24 || 0,
-                fdv: pair.fdv || 0,
-                marketCap: pair.fdv || 0, // Approx
-                pairCreatedAt: pair.pairCreatedAt, // Pool creation timestamp
-                socials: pair.info?.socials || [], // Twitter, Discord, etc.
-                websites: pair.info?.websites || [], // Official websites
-            };
-
-            console.log(`[AutoTrade] getTokenInfo: Success - ${result.symbol} price: $${result.price}, liq: $${result.liquidity}`);
-            return result;
+            // If no pairs found, don't retry dexscreener, move to fallback
+            console.warn(`[AutoTrade] DexScreener: No pairs for ${tokenAddress}`);
+            break;
 
         } catch (e: any) {
-            lastError = e;
-            if (e.name === 'AbortError') {
-                console.warn(`[AutoTrade] getTokenInfo attempt ${attempt}/${MAX_RETRIES} timeout for ${tokenAddress}`);
-            } else {
-                console.warn(`[AutoTrade] getTokenInfo attempt ${attempt}/${MAX_RETRIES} failed:`, e.message);
+            dsError = e;
+            if (attempt < MAX_RETRIES && (e.message === '429' || e.name === 'AbortError')) {
+                // Wait longer for 429s (1.5s, 3s)
+                const wait = e.message === '429' ? 1500 * attempt : 500 * attempt;
+                await new Promise(resolve => setTimeout(resolve, wait));
+                continue;
             }
-
-            // Exponential backoff before retry
-            if (attempt < MAX_RETRIES) {
-                await new Promise(resolve => setTimeout(resolve, 500 * attempt));
-            }
+            break; // Other errors or max retries
         }
     }
 
-    console.error('[AutoTrade] getTokenInfo failed after retries:', lastError?.message);
+    // --- STEP 2: Try GeckoTerminal (Fallback) ---
+    console.log(`[AutoTrade] getTokenInfo: DexScreener failed or limited. Falling back to GeckoTerminal for ${tokenAddress}...`);
+    try {
+        const gtData = await getTokenDetails(gtSlug, tokenAddress);
+        if (gtData) {
+            const result = {
+                price: gtData.price || 0,
+                symbol: gtData.symbol || 'UNKNOWN',
+                name: gtData.name || 'Unknown Token',
+                decimals: gtData.decimals || 18,
+                liquidity: gtData.liquidity || 0,
+                volume24h: gtData.volume24h || 0,
+                fdv: gtData.fdv || 0,
+                marketCap: gtData.marketCap || gtData.fdv || 0,
+                pairCreatedAt: gtData.poolCreatedAt ? new Date(gtData.poolCreatedAt).getTime() : Date.now(),
+                socials: gtData.socials || [],
+                websites: gtData.websites || [],
+                provider: 'geckoterminal'
+            };
+            console.log(`[AutoTrade] getTokenInfo: Success (GeckoTerminal) - ${result.symbol} $${result.price}`);
+            return result;
+        }
+    } catch (gtErr: any) {
+        console.error(`[AutoTrade] getTokenInfo: GeckoTerminal fallback also failed:`, gtErr.message);
+    }
+
+    console.error(`[AutoTrade] getTokenInfo: All providers failed for ${tokenAddress}. Last DS Error: ${dsError?.message}`);
     return null;
 }
 

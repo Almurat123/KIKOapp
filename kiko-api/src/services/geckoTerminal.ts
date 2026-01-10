@@ -290,8 +290,7 @@ export async function getTokenDetails(network: string, address: string): Promise
     }
 
     // First, get pools for this token to find the most liquid pool
-    const poolsUrl = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/tokens/${address}/pools`;
-
+    const poolsUrl = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/tokens/${address}/pools?include=base_token,quote_token`;
 
     const poolsResponse = await fetchWithRetry(poolsUrl, {
       headers: { 'Accept': 'application/json' },
@@ -311,17 +310,11 @@ export async function getTokenDetails(network: string, address: string): Promise
 
     const poolsData = await poolsResponse.json();
 
-    console.log(`[getTokenDetails] Pools data:`, {
-      hasData: !!(poolsData as any).data,
-      isArray: Array.isArray((poolsData as any).data),
-      dataLength: (poolsData as any).data?.length || 0,
-      hasErrors: !!(poolsData as any).errors,
-      errors: (poolsData as any).errors,
-    });
-
     if (!(poolsData as any).data || !Array.isArray((poolsData as any).data) || (poolsData as any).data.length === 0) {
       return null;
     }
+
+    const included = (poolsData as any).included || [];
 
     // Get the most liquid pool
     const pools = (poolsData as any).data.sort((a: any, b: any) => {
@@ -330,25 +323,27 @@ export async function getTokenDetails(network: string, address: string): Promise
       return liquidityB - liquidityA;
     });
 
-
     const bestPool = pools[0];
     const attributes = bestPool.attributes || {};
-    const baseToken = attributes.base_token || {};
     const poolId = bestPool.id;
 
     // Determine if the queried token is base or quote token
     const relationships = bestPool.relationships || {};
-    const baseTokenData = relationships.base_token?.data;
-    const quoteTokenData = relationships.quote_token?.data;
-    const isBaseToken = baseTokenData?.id?.toLowerCase().endsWith(address.toLowerCase());
-    const isQuoteToken = quoteTokenData?.id?.toLowerCase().endsWith(address.toLowerCase());
+    const baseTokenRelData = relationships.base_token?.data;
+    const quoteTokenRelData = relationships.quote_token?.data;
+    const isBaseToken = baseTokenRelData?.id?.toLowerCase().endsWith(address.toLowerCase());
+    const isQuoteToken = quoteTokenRelData?.id?.toLowerCase().endsWith(address.toLowerCase());
+
+    // Extract metadata for the correct token from 'included'
+    const targetTokenId = isBaseToken ? baseTokenRelData?.id : quoteTokenRelData?.id;
+    const tokenMeta = included.find((item: any) => item.id === targetTokenId)?.attributes || {};
 
     console.log(`[getTokenDetails] Best pool info:`, {
       poolId: poolId,
       hasAddress: !!attributes.address,
       address: attributes.address,
       liquidity: attributes.reserve_in_usd,
-      baseToken: baseToken.symbol || baseToken.name || 'unknown',
+      tokenName: tokenMeta.name || 'unknown',
       isBaseToken,
       isQuoteToken,
       baseTokenPrice: attributes.base_token_price_usd,
@@ -431,8 +426,8 @@ export async function getTokenDetails(network: string, address: string): Promise
 
     return {
       address: address,
-      name: baseToken.name || '',
-      symbol: baseToken.symbol || '',
+      name: tokenMeta.name || '',
+      symbol: tokenMeta.symbol || '',
       network: network, // Keep original network name for consistency
       poolAddress: poolAddress,
       poolId: poolId,
