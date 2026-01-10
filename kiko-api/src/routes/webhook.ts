@@ -154,8 +154,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
             for (const activity of activities) {
                 const txHash = activity.hash;
-                const fromAddr = activity.fromAddress?.toLowerCase();
-                const toAddr = activity.toAddress?.toLowerCase();
+                const fromAddr = chainId === 900 ? activity.fromAddress : activity.fromAddress?.toLowerCase();
+                const toAddr = chainId === 900 ? activity.toAddress : activity.toAddress?.toLowerCase();
 
                 if (!txHash) continue;
 
@@ -166,15 +166,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 }
 
                 // Mark as processing IMMEDIATELY to prevent race conditions
-                // Before any await that could allow another request to pass the check
                 markTxAsProcessed(txHash);
 
                 // Check if EITHER from or to is a tracked wallet
-                // This handles smart wallets, relayers, or cases where the tracked wallet is the recipient
                 const candidates = [fromAddr, toAddr].filter(Boolean) as string[];
-                let trackedTarget: string | null = null;
 
-                // Find if any of the addresses involved are tracked
                 const trackedWallets = await prisma.trackedWallet.findMany({
                     where: {
                         address: { in: candidates },
@@ -186,7 +182,50 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     continue;
                 }
 
-                // Fetch full transaction details (once per transaction)
+                // Branch by chain type: Solana vs EVM
+                if (chainId === 900) {
+                    // Solana Logic
+                    const { getSolanaConnection } = await import('../config/solanaConfig.js');
+                    const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
+                    const connection = getSolanaConnection();
+
+                    try {
+                        const tx = await connection.getParsedTransaction(txHash, {
+                            maxSupportedTransactionVersion: 0,
+                            commitment: 'confirmed'
+                        });
+
+                        if (!tx) {
+                            console.warn(`[Webhook] Could not fetch Solana tx: ${txHash.slice(0, 16)}`);
+                            continue;
+                        }
+
+                        // Trigger copy trade for EACH matched tracked wallet
+                        const { handleSwapDetected } = await import('../services/autoTradeService.js');
+                        for (const walletRecord of trackedWallets) {
+                            const trackedTarget = walletRecord.address;
+
+                            // Decode Solana Swap
+                            const swap = await decodeSolanaSwap(tx, trackedTarget);
+
+                            if (swap) {
+                                console.log(`[Webhook] ✅ Solana Swap detected for ${trackedTarget.slice(0, 8)}:`, {
+                                    in: swap.tokenIn,
+                                    out: swap.tokenOut,
+                                    dex: swap.dexName
+                                });
+                                await handleSwapDetected(trackedTarget, swap, chainId);
+                            } else {
+                                // console.log(`[Webhook] Solana tx ${txHash.slice(0, 8)} was not a swap for tracked wallet`);
+                            }
+                        }
+                    } catch (err) {
+                        console.error(`[Webhook] Error fetching Solana tx details:`, err);
+                    }
+                    continue;
+                }
+
+                // EVM Logic (Base, BSC, etc.)
                 const [tx, receipt] = await Promise.all([
                     fetchTransaction(txHash, chainId),
                     fetchTransactionReceipt(txHash, chainId),
@@ -198,7 +237,6 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 }
 
                 // Trigger copy trade for EACH matched tracked wallet
-                // This handles cases where Target A swims with Target B (one sells, one buys)
                 const { handleSwapDetected } = await import('../services/autoTradeService.js');
 
                 for (const walletRecord of trackedWallets) {
@@ -208,7 +246,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     const swap = await parseSwapTransaction(
                         {
                             hash: txHash,
-                            from: trackedTarget, // The identity we are decoding FOR
+                            from: trackedTarget,
                             to: tx.to,
                             input: tx.input,
                             value: tx.value,

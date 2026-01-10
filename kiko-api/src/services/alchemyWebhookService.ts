@@ -50,7 +50,7 @@ export async function addAddressToWebhook(
             },
             body: JSON.stringify({
                 webhook_id: webhookId,
-                addresses_to_add: [address.toLowerCase()],
+                addresses_to_add: chainId === 900 ? [address] : [address.toLowerCase()],
                 addresses_to_remove: [], // Required field - empty array when not removing
             }),
         });
@@ -97,7 +97,7 @@ export async function removeAddressFromWebhook(
             body: JSON.stringify({
                 webhook_id: webhookId,
                 addresses_to_add: [], // Required field - empty array when not adding
-                addresses_to_remove: [address.toLowerCase()],
+                addresses_to_remove: chainId === 900 ? [address] : [address.toLowerCase()],
             }),
         });
 

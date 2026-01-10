@@ -87,8 +87,13 @@ export class SolanaWatcher {
 
 export const solanaWatcher = new SolanaWatcher();
 
+// export function startSolanaWatcher() {
+//    return solanaWatcher.start();
+// }
+
 export function startSolanaWatcher() {
-    return solanaWatcher.start();
+    console.log('[SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.');
+    return Promise.resolve();
 }
 
 let solanaSwapCallback: ((target: string, swap: any, chainId: number) => Promise<void>) | null = null;

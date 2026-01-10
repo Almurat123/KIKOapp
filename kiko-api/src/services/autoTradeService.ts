@@ -53,16 +53,22 @@ export async function handleSwapDetected(
     const chainConfig = getChainConfig(chainId);
 
     // Stablecoin/ETH addresses (what we consider "cash out")
+    // Stablecoin/ETH addresses (what we consider "cash out")
     const NATIVE_ETH = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
+    const { SOLANA_CONFIG } = await import('../config/solanaConfig.js');
 
     // Normalize all to lowercase for comparison
     const CASH_TOKENS = [
         NATIVE_ETH,
         ZORA_TOKEN,
         chainConfig.wrappedNativeAddress,
-        ...chainConfig.stablecoins
-    ].map(s => s.toLowerCase());
+        ...chainConfig.stablecoins,
+        // Add Solana Cash Tokens
+        SOLANA_CONFIG.TOKENS.SOL,
+        SOLANA_CONFIG.TOKENS.USDC,
+        SOLANA_CONFIG.TOKENS.USDT
+    ].map(s => s ? s.toLowerCase() : '');
 
     // Determine if this is a BUY or SELL
     // BUY: tokenOut is NOT cash (buying a token), tokenIn IS cash (paying with stable/eth)
