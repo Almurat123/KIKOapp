@@ -26,10 +26,10 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     let quoteData: any = null;
     let lastError: Error | null = null;
 
-    // Retry up to 3 times
-    for (let attempt = 1; attempt <= 3; attempt++) {
-        // Increase slippage on retries if route not found
-        if (attempt > 1) currentSlippage += 50; // +0.5% per retry
+    // Retry up to 4 times for quote (total ~15-20s if needed)
+    for (let attempt = 1; attempt <= 4; attempt++) {
+        // Increase slippage on retries
+        if (attempt > 1) currentSlippage += 50;
 
         const quoteUrl = `${baseUrl}/quote?inputMint=${tokenInMint}&outputMint=${tokenOutMint}&amount=${amountIn}&slippageBps=${currentSlippage}&swapMode=ExactIn`;
 
@@ -43,19 +43,20 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
             });
             quoteData = await quoteRes.json() as any;
 
-            // Debug: Log full response
-            console.log(`[SolanaExecutor] Quote Response:`, JSON.stringify(quoteData, null, 2).slice(0, 500));
-
             if (quoteData && !quoteData.error && quoteData.outAmount) {
                 console.log(`[SolanaExecutor] Got Quote: Out ${quoteData.outAmount}`);
                 break; // Success!
-            } else if (quoteData?.error) {
-                console.error(`[SolanaExecutor] Quote error:`, quoteData.error);
+            } else if (quoteData?.error || quoteData?.message === 'Route not found') {
+                const msg = quoteData?.error || quoteData?.message;
+                console.warn(`[SolanaExecutor] Quote issue: ${msg}. Wait and retry...`);
+                // If route not found, wait longer (potental new token indexing)
+                const waitTime = msg === 'Route not found' ? 2000 * attempt : 1000;
+                await new Promise(r => setTimeout(r, waitTime));
             }
         } catch (e: any) {
             lastError = e;
             console.warn(`[SolanaExecutor] Quote attempt ${attempt} failed:`, e.message);
-            await new Promise(r => setTimeout(r, 500 * attempt));
+            await new Promise(r => setTimeout(r, 1000 * attempt));
         }
     }
 

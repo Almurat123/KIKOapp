@@ -1,39 +1,52 @@
 import prisma from '../db/prisma.js';
+import { normalizeAddress } from '../utils/address.js';
 
 /**
  * Record a new trade execution for a leader wallet
  * Updates volume and trade counts
  */
 export async function recordNewTrade(
-    address: string,
+    rawAddress: string,
     chainId: number,
     type: 'buy' | 'sell',
     volumeUsd: number
 ) {
+    const address = normalizeAddress(rawAddress);
     try {
-        const stats = await prisma.leaderWalletStats.upsert({
+        // Manual upsert to avoid issues with unique constraint mapping in Prisma
+        const existing = await prisma.leaderWalletStats.findUnique({
             where: {
                 address_chainId: { address, chainId }
-            },
-            create: {
-                address,
-                chainId,
-                totalTrades: 1,
-                buyTrades: type === 'buy' ? 1 : 0,
-                sellTrades: type === 'sell' ? 1 : 0,
-                totalVolumeUsd: volumeUsd,
-                firstTradeAt: new Date(),
-                lastTradeAt: new Date()
-            },
-            update: {
-                totalTrades: { increment: 1 },
-                buyTrades: type === 'buy' ? { increment: 1 } : undefined,
-                sellTrades: type === 'sell' ? { increment: 1 } : undefined,
-                totalVolumeUsd: { increment: volumeUsd },
-                lastTradeAt: new Date()
             }
         });
-        return stats;
+
+        if (existing) {
+            return await prisma.leaderWalletStats.update({
+                where: {
+                    address_chainId: { address, chainId }
+                },
+                data: {
+                    totalTrades: { increment: 1 },
+                    buyTrades: type === 'buy' ? { increment: 1 } : undefined,
+                    sellTrades: type === 'sell' ? { increment: 1 } : undefined,
+                    totalVolumeUsd: { increment: volumeUsd },
+                    lastTradeAt: new Date()
+                }
+            });
+        } else {
+            return await prisma.leaderWalletStats.create({
+                data: {
+                    address,
+                    chainId,
+                    totalTrades: 1,
+                    buyTrades: type === 'buy' ? 1 : 0,
+                    sellTrades: type === 'sell' ? 1 : 0,
+                    totalVolumeUsd: volumeUsd,
+                    firstTradeAt: new Date(),
+                    lastTradeAt: new Date()
+                }
+            });
+        }
     } catch (error) {
         console.error(`[LeaderStats] Failed to record new trade for ${address}:`, error);
     }
@@ -44,10 +57,11 @@ export async function recordNewTrade(
  * Updates PnL, Win/Loss counts, and Win Rate
  */
 export async function recordTradeResult(
-    address: string,
+    rawAddress: string,
     chainId: number,
     pnlUsd: number
 ) {
+    const address = normalizeAddress(rawAddress);
     try {
         // First get current stats to calculate new min/max/avg
         const current = await prisma.leaderWalletStats.findUnique({
