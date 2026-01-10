@@ -564,12 +564,42 @@ export async function getSolanaQuote(
 
       if (bestQuote.aggregator === 'jupiter') {
         const tx = await getJupiterSwapTransaction(bestQuote, userAddress);
-        if (tx) bestQuote.swapTransaction = tx;
+        if (tx) {
+          bestQuote.swapTransaction = tx;
+        } else {
+          // Jupiter TX build failed - fallback to Raydium if available
+          console.warn('[Solana Swap] Jupiter transaction build failed, trying Raydium fallback...');
+          const raydiumQuote = validQuotes.find(q => q.aggregator === 'raydium');
+          if (raydiumQuote) {
+            const isInputSol = inputMint === SOLANA_NATIVE_MINT || inputMint === 'SOL';
+            const isOutputSol = outputMint === SOLANA_NATIVE_MINT || outputMint === 'SOL';
+            const raydiumTx = await getRaydiumSwapTransaction(raydiumQuote, userAddress, isInputSol, isOutputSol);
+            if (raydiumTx) {
+              raydiumQuote.swapTransaction = raydiumTx;
+              bestQuote = raydiumQuote; // Switch to Raydium
+              console.log('[Solana Swap] Successfully fell back to Raydium');
+            }
+          }
+        }
       } else if (bestQuote.aggregator === 'raydium') {
         const isInputSol = inputMint === SOLANA_NATIVE_MINT || inputMint === 'SOL';
         const isOutputSol = outputMint === SOLANA_NATIVE_MINT || outputMint === 'SOL';
         const tx = await getRaydiumSwapTransaction(bestQuote, userAddress, isInputSol, isOutputSol);
-        if (tx) bestQuote.swapTransaction = tx;
+        if (tx) {
+          bestQuote.swapTransaction = tx;
+        } else {
+          // Raydium TX build failed - fallback to Jupiter if available
+          console.warn('[Solana Swap] Raydium transaction build failed, trying Jupiter fallback...');
+          const jupiterQuote = validQuotes.find(q => q.aggregator === 'jupiter');
+          if (jupiterQuote) {
+            const jupiterTx = await getJupiterSwapTransaction(jupiterQuote, userAddress);
+            if (jupiterTx) {
+              jupiterQuote.swapTransaction = jupiterTx;
+              bestQuote = jupiterQuote; // Switch to Jupiter
+              console.log('[Solana Swap] Successfully fell back to Jupiter');
+            }
+          }
+        }
       }
 
       console.log(`[Solana Swap] Best quote with transaction complete (${Date.now() - startTime}ms)`);
