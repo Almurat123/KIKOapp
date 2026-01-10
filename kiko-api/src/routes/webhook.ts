@@ -157,6 +157,17 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         });
     });
 
+    fastify.get('/config-check', async (request, reply) => {
+        const mask = (s: string | undefined) => s ? `${s.slice(0, 10)}...${s.slice(-4)}` : 'MISSING';
+        return reply.send({
+            ALCHEMY_AUTH_TOKEN: mask(process.env.ALCHEMY_AUTH_TOKEN),
+            ALCHEMY_WEBHOOK_ID_SOL: mask(process.env.ALCHEMY_WEBHOOK_ID_SOL),
+            ALCHEMY_WEBHOOK_ID_BASE: mask(process.env.ALCHEMY_WEBHOOK_ID_BASE),
+            ALCHEMY_WEBHOOK_ID_BSC: mask(process.env.ALCHEMY_WEBHOOK_ID_BSC),
+            SOLANA_RPC_URL: mask(process.env.SOLANA_RPC_URL),
+        });
+    });
+
     /**
      * POST /api/webhook/alchemy
      * Direct endpoint for Alchemy Address Activity webhooks
