@@ -472,16 +472,32 @@ ${analysis.rawAnalysis}
             try {
                 let userEmail = config.user.email;
                 if (!userEmail) {
-                    console.log(`[AutoTrade] Fetching email from Privy for user ${config.userId}...`);
-                    const privyClient = new PrivyClient(process.env.PRIVY_APP_ID || '', process.env.PRIVY_APP_SECRET || '');
-                    const privyUser = await privyClient.getUser(config.user.privyDid);
-                    userEmail = privyUser.linkedAccounts?.find(a => a.type === 'email')?.address;
+                    console.log(`[AutoTrade] 📧 Email missing in DB for ${config.userId}, fetching from Privy...`);
 
-                    if (userEmail) {
-                        await prisma.user.update({
-                            where: { id: config.user.id },
-                            data: { email: userEmail }
-                        });
+                    // Add a timeout to Privy call to prevent hanging the trade process
+                    const privyPromise = (async () => {
+                        const privyClient = new PrivyClient(process.env.PRIVY_APP_ID || '', process.env.PRIVY_APP_SECRET || '');
+                        const privyUser = await privyClient.getUser(config.user.privyDid);
+                        return privyUser.linkedAccounts?.find(a => a.type === 'email')?.address;
+                    })();
+
+                    const timeoutPromise = new Promise<undefined>((_, reject) =>
+                        setTimeout(() => reject(new Error('Privy email fetch timeout')), 5000)
+                    );
+
+                    try {
+                        userEmail = await Promise.race([privyPromise, timeoutPromise]);
+                        if (userEmail) {
+                            console.log(`[AutoTrade] 📧 Successfully fetched email from Privy for ${config.userId}`);
+                            await prisma.user.update({
+                                where: { id: config.user.id },
+                                data: { email: userEmail }
+                            });
+                        } else {
+                            console.log(`[AutoTrade] ⚠️ No email found in Privy for user ${config.userId}`);
+                        }
+                    } catch (e: any) {
+                        console.error(`[AutoTrade] ❌ Failed to fetch email from Privy for ${config.userId}:`, e.message);
                     }
                 }
 

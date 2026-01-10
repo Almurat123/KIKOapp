@@ -776,10 +776,22 @@ async function ensureTableAndColumns(model: ModelDefinition) {
             console.log(`Checking composite unique index "${indexName}" on (${cols})...`);
 
             try {
+                // CLEANUP: Remove duplicates before attempting to create unique index
+                // This is critical for LeaderWalletStats where duplicates exist
+                const cleanupSql = `
+                    DELETE FROM "${model.dbName}" a USING "${model.dbName}" b
+                    WHERE a.id < b.id
+                    AND ${uniqueGroup.map(c => `a."${c}" = b."${c}"`).join(' AND ')}
+                `;
+                const cleanupResult = await prisma.$executeRawUnsafe(cleanupSql);
+                if (cleanupResult > 0) {
+                    console.log(`🧹 Cleaned up ${cleanupResult} duplicate rows from "${model.dbName}"`);
+                }
+
                 // Check if index exists by trying to create it if it doesn't
                 const createIdxSql = `CREATE UNIQUE INDEX IF NOT EXISTS "${indexName}" ON "${model.dbName}" (${cols})`;
                 await prisma.$executeRawUnsafe(createIdxSql);
-                // console.log(`✅ Composite index "${indexName}": ensured`);
+                console.log(`✅ Composite index "${indexName}": ensured`);
             } catch (err: any) {
                 console.error(`Failed to ensure composite index "${indexName}":`, err.message);
             }

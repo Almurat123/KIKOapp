@@ -155,6 +155,8 @@ export async function sendTradeNotification(email: string, data: TradeNotificati
 
         const finalExplorerLink = data.txHash ? `${explorerUrl}${data.txHash}` : 'https://kiko.trade';
 
+        console.log(`[EmailService] 📧 Preparing to send ${data.type} email to ${email} for ${data.tokenSymbol} (${chainName})`);
+
         const result = await client.emails.send({
             from: 'KIKO <notifications@kikoapp.app>',
             to: email,
@@ -168,21 +170,26 @@ export async function sendTradeNotification(email: string, data: TradeNotificati
 
         if (result.error) {
             const errorMsg = String(result.error.message || '');
+            console.error(`[EmailService] ❌ Error sending email to ${email}:`, result.error);
+
             // Check for verification errors or 403
             if (errorMsg.includes('verified domain') || (result.error as any).statusCode === 403) {
-                console.log('[EmailService] Domain kikoapp.app might not be fully propagated, falling back...');
-                await client.emails.send({
+                console.log('[EmailService] 🛠️ Domain kikoapp.app might not be fully propagated, falling back to onboarding@resend.dev...');
+                const fallbackResult = await client.emails.send({
                     from: 'onboarding@resend.dev',
                     to: email,
                     subject: subject,
                     html: html,
                     text: text,
                 });
-            } else {
-                console.error('[EmailService] Error sending email:', result.error);
+                if (fallbackResult.error) {
+                    console.error('[EmailService] ❌ Fallback also failed:', fallbackResult.error);
+                } else {
+                    console.log('[EmailService] ✅ Fallback email sent successfully via resend.dev');
+                }
             }
         } else {
-            console.log('[EmailService] Email sent successfully via kikoapp.app:', result.data?.id);
+            console.log(`[EmailService] ✅ Email sent successfully to ${email}. ID: ${result.data?.id}`);
         }
     } catch (error) {
         console.error('[EmailService] Error in sendTradeNotification:', error);
