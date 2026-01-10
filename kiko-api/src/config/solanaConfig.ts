@@ -6,12 +6,20 @@ export const SOLANA_CONFIG = {
 
     // RPC Endpoints - Prioritized for reliability
     RPC_URLS: {
-        // Primary: Helius (from env) - Best for production
-        MAINNET: process.env.SOLANA_RPC_URL || process.env.HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com',
-        // Helius with API key from env
+        // Primary: Alchemy (from env) - Most reliable for production
+        ALCHEMY: process.env.ALCHEMY_API_KEY
+            ? `https://solana-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
+            : undefined,
+        // Secondary: Helius (from env)
         HELIUS: process.env.HELIUS_API_KEY
             ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
             : undefined,
+        // MAINNET uses first available: Alchemy -> Helius -> Env -> Public
+        MAINNET: process.env.ALCHEMY_API_KEY
+            ? `https://solana-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
+            : (process.env.HELIUS_API_KEY
+                ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+                : (process.env.SOLANA_RPC_URL || 'https://solana-rpc.publicnode.com')),
         // Public fallbacks (no auth required)
         PUBLIC: 'https://solana-rpc.publicnode.com',
         BACKUP_1: 'https://solana.drpc.org',
