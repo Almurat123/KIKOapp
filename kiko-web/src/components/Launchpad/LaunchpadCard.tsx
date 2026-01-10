@@ -293,7 +293,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
                 <div className={styles.avatarContainer}>
                     <div className="w-full h-full rounded-md bg-white/5 animate-pulse" />
                 </div>
-                <div className={styles.content} style={{ background: '#0a0b0d' }}>
+                <div className={styles.content}>
                     <div className="h-4 w-3/4 bg-white/5 rounded animate-pulse mb-3" />
                     <div className="h-3 w-1/2 bg-white/5 rounded animate-pulse" />
                 </div>

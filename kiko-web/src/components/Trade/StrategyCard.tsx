@@ -177,7 +177,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
                 }}
                 style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                {isWalletCopied ? <Check size={10} color="#4ade80" /> : null}
+                {isWalletCopied ? <Check size={10} color="var(--success-color)" /> : null}
                 <span className={styles.walletAddressText}>{config.targetWallet}</span>
               </div>
             </div>

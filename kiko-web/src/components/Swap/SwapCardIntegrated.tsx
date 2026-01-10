@@ -621,13 +621,13 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       <CardWrapper>
         <div style={{ padding: '20px' }}>
           <div className="animate-pulse space-y-4">
-            <div className="h-6 w-24 bg-white/10 rounded"></div>
+            <div className="h-6 w-24 bg-zinc-200 dark:bg-white/10 rounded"></div>
             <div className="space-y-2">
-              <div className="h-20 bg-white/5 rounded-xl"></div>
-              <div className="h-8 w-8 mx-auto bg-white/10 rounded-full"></div>
-              <div className="h-20 bg-white/5 rounded-xl"></div>
+              <div className="h-20 bg-zinc-100 dark:bg-white/5 rounded-xl"></div>
+              <div className="h-8 w-8 mx-auto bg-zinc-200 dark:bg-white/10 rounded-full"></div>
+              <div className="h-20 bg-zinc-100 dark:bg-white/5 rounded-xl"></div>
             </div>
-            <div className="h-10 bg-white/10 rounded-xl mt-4"></div>
+            <div className="h-10 bg-zinc-200 dark:bg-white/10 rounded-xl mt-4"></div>
           </div>
         </div>
       </CardWrapper>
@@ -686,7 +686,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                   value={maxPriceImpact}
                   onChange={(e) => setMaxPriceImpact(parseFloat(e.target.value) || 0)}
                 />
-                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>%</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>%</span>
               </div>
             </div>
           </div>
@@ -777,7 +777,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                   <span className={styles.tokenEmoji}>{tokenInEmoji}</span>
                 )}
                 <span className={styles.tokenName}>{tokenInSymbol}</span>
-                <ChevronDown size={14} style={{ color: 'rgba(255, 255, 255, 0.5)' }} />
+                <ChevronDown size={14} style={{ color: 'var(--text-tertiary)' }} />
               </button>
             </div>
 
@@ -809,7 +809,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             <div className={styles.swapLabelRow}>
               <span>You receive</span>
               {!isLoading && dexName && dexName !== 'N/A' && (
-                <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>from {dexName}</span>
+                <span style={{ color: 'var(--text-tertiary)' }}>from {dexName}</span>
               )}
             </div>
 
@@ -834,7 +834,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                   <span className={styles.tokenEmoji}>{tokenOutEmoji}</span>
                 )}
                 <span className={styles.tokenName}>{tokenOutSymbol}</span>
-                <ChevronDown size={14} style={{ color: 'rgba(255, 255, 255, 0.5)' }} />
+                <ChevronDown size={14} style={{ color: 'var(--text-tertiary)' }} />
               </button>
             </div>
 
@@ -1054,7 +1054,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                       left: '16px',
                       top: '50%',
                       transform: 'translateY(-50%)',
-                      color: 'rgba(255, 255, 255, 0.4)',
+                      color: 'var(--text-tertiary)',
                     }}
                   />
                   <input
@@ -1103,7 +1103,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                   <div style={{
                     padding: '40px 20px',
                     textAlign: 'center',
-                    color: 'rgba(255, 255, 255, 0.5)',
+                    color: 'var(--text-tertiary)',
                     fontSize: '14px',
                   }}>
                     No tokens found
@@ -1154,7 +1154,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
                           {userHolding && (
                             <div style={{
                               fontSize: '12px',
-                              color: 'rgba(255, 255, 255, 0.6)',
+                              color: 'var(--text-tertiary)',
                               marginTop: '2px',
                             }}>
                               {parseFloat(userHolding.balance).toFixed(6)} {token.symbol} • {userHolding.value}

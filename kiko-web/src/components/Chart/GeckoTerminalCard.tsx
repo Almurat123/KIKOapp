@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChartEmbedCard } from './ChartEmbedCard';
+import { useThemeContext } from '../../contexts/ThemeContext';
 
 interface GeckoTerminalCardProps {
     chain: string;
@@ -7,8 +8,10 @@ interface GeckoTerminalCardProps {
 }
 
 export const GeckoTerminalCard: React.FC<GeckoTerminalCardProps> = ({ chain, address }) => {
+    const { resolvedTheme } = useThemeContext();
     // GeckoTerminal embed URL
-    const embedUrl = `https://www.geckoterminal.com/${chain}/tokens/${address}?embed=1&info=1&swaps=1`;
+    // GeckoTerminal uses scheme=dark or scheme=light
+    const embedUrl = `https://www.geckoterminal.com/${chain}/tokens/${address}?embed=1&info=1&swaps=1&scheme=${resolvedTheme}`;
 
     return <ChartEmbedCard embedUrl={embedUrl} title="GeckoTerminal" />;
 };

@@ -18,10 +18,8 @@
 .card {
     position: relative;
     width: 100%;
-    background: #0a0b0d;
-    /* Force dark background */
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    /* More transparent border */
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
     border-radius: 24px;
     overflow: hidden;
     font-family: 'Inter', sans-serif;
@@ -32,8 +30,7 @@
 }
 
 :global(.dark) .card {
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    /* Dark mode border */
+    border: 1px solid var(--border-color);
 }
 
 .card:hover {
@@ -82,8 +79,8 @@
     height: 240px;
     background-size: cover;
     background-position: center;
-    filter: blur(60px) brightness(0.4) saturate(1.2);
-    /* Deeply dimmed to match dark mode feel */
+    filter: blur(60px) brightness(0.7) saturate(1.2);
+    /* Adjusted brightness for better mix in both modes */
     transform: scale(1.3);
     z-index: 1;
     mask-image: linear-gradient(to bottom, black 0%, black 70%, transparent 100%);
@@ -99,8 +96,7 @@
     width: 100%;
     height: 240px;
     position: relative;
-    /* Ensure a dark base so the blur looks rich even in light mode */
-    background: #0a0b0d;
+    background: transparent;
     overflow: hidden;
     display: flex;
     align-items: center;
@@ -128,8 +124,7 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    background: #0a0b0d;
-    /* Force dark background */
+    background: var(--bg-card);
     border-top: 1px solid var(--border-color);
     position: relative;
     z-index: 2;
@@ -230,8 +225,8 @@
 }
 
 .addressLink:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.8);
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 .creatorAvatar {
@@ -519,7 +514,7 @@
 }
 
 :global(.dark) .card {
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
 }
 
 .backBtn:hover {

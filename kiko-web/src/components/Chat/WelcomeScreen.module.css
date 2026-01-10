@@ -1154,8 +1154,8 @@
 }
 
 .light .modelMode {
-  background: rgba(0, 122, 255, 0.12);
-  color: #007AFF;
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: #374151 !important;
 }
 
 .light .modelDropdown {
@@ -1286,36 +1286,42 @@
 /* Light Theme Overrides - iOS Glassmorphism Style */
 
 .light .inputWrapper {
-  background: rgba(255, 255, 255, 0.4);
-  /* Liquid Glass Light */
+  background: rgba(210, 220, 230, 0.35);
+  /* Subtle grey-blue tint for glass effect */
   backdrop-filter: blur(40px) saturate(180%);
   -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 0.5px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  border: 0.5px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.03);
 }
 
 .light .inputFocused {
-  border-color: rgba(0, 0, 0, 0.2);
-  box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.15), 0 0 8px rgba(0, 0, 0, 0.05);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 12px 32px -10px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 8px rgba(0, 0, 0, 0.05);
 }
 
 .light .modelButton {
-  background: rgba(255, 255, 255, 0.7) !important;
-  /* iOS 26 Pure White Glass */
-  border: 0.5px solid rgba(255, 255, 255, 0.4) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(245, 248, 252, 0.4) 100%) !important;
+  /* Gradient glass effect */
+  border: 0.5px solid rgba(255, 255, 255, 0.75) !important;
   color: #1a1a1a !important;
   height: 28px !important;
-  backdrop-filter: blur(20px) saturate(190%);
-  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
   box-shadow:
-    0 0 1px 1px inset rgba(255, 255, 255, 0.9),
-    /* High-gloss edge */
-    0 2px 8px rgba(0, 0, 0, 0.04);
+    0 2px 8px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.4) !important;
 }
 
 .light .modelMode {
-  background: rgba(0, 0, 0, 0.08) !important;
-  color: #1a1a1a !important;
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: #374151 !important;
 }
 
 .light .modelDropdown {
@@ -1358,29 +1364,33 @@
 }
 
 .light .settingsButton {
-  background: rgba(255, 255, 255, 0.7) !important;
-  border: 0.5px solid rgba(255, 255, 255, 0.4) !important;
-  color: #1a1a1a !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(245, 248, 252, 0.4) 100%) !important;
+  /* Gradient glass effect */
+  border: 0.5px solid rgba(255, 255, 255, 0.75) !important;
+  color: #374151 !important;
   height: 28px !important;
   width: 28px !important;
-  backdrop-filter: blur(20px) saturate(190%);
-  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
   box-shadow:
-    0 0 1px 1px inset rgba(255, 255, 255, 0.9),
-    0 2px 8px rgba(0, 0, 0, 0.04);
+    0 2px 8px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.4) !important;
 }
 
 .light .sendButton {
-  background: rgba(255, 255, 255, 0.7) !important;
-  border: 0.5px solid rgba(255, 255, 255, 0.4) !important;
-  color: #a1a1aa !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(245, 248, 252, 0.4) 100%) !important;
+  /* Gradient glass effect */
+  border: 0.5px solid rgba(255, 255, 255, 0.75) !important;
+  color: #9ca3af !important;
   height: 36px !important;
   width: 36px !important;
-  backdrop-filter: blur(20px) saturate(190%);
-  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
   box-shadow:
-    0 0 1px 1px inset rgba(255, 255, 255, 0.9),
-    0 2px 8px rgba(0, 0, 0, 0.04);
+    0 2px 8px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.4) !important;
 }
 
 .light .sendButtonActive {

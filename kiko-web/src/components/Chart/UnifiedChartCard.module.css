@@ -1,26 +1,26 @@
-.container {
+.unifiedContainer {
     display: flex;
     flex-direction: column;
     gap: 0;
     width: 100%;
     max-width: 100%;
     /* Allow filling the expanded parent */
-    background: #18181b;
+    background: var(--bg-card);
     /* Match Swap Card background */
     border-radius: 24px;
     /* Match Swap Card radius */
     padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
     /* Match Swap Card border */
     overflow: hidden;
-    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--card-shadow);
     /* Match Swap Card shadow */
 }
 
 .header {
     padding: 12px 16px;
-    background: #1a1a1a;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--bg-hover);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .tabs {
@@ -39,7 +39,7 @@
     border-radius: 6px;
     border: none;
     background: transparent;
-    color: #888;
+    color: var(--text-secondary);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -51,9 +51,9 @@
 }
 
 .active {
-    background: #333;
-    color: #fff;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    box-shadow: var(--card-shadow);
 }
 
 .content {
