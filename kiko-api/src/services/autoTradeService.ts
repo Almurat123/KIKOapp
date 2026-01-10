@@ -28,6 +28,7 @@ import { PrivyClient } from '@privy-io/server-auth';
 import { recordNewTrade } from './leaderWalletStatsService.js';
 import { trackCopyTrade, trackSwap } from './userActivityService.js';
 import { getTokenDetails } from './geckoTerminal.js';
+import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
 
 // ... (previous functions remain)
 
@@ -68,15 +69,15 @@ export async function handleSwapDetected(
         SOLANA_CONFIG.TOKENS.SOL,
         SOLANA_CONFIG.TOKENS.USDC,
         SOLANA_CONFIG.TOKENS.USDT
-    ].map(s => s ? s.toLowerCase() : '');
+    ].map(s => s ? normalizeAddress(s) : '');
 
     // Determine if this is a BUY or SELL
     // BUY: tokenOut is NOT cash (buying a token), tokenIn IS cash (paying with stable/eth)
     // SELL: tokenIn is NOT cash (selling a token), tokenOut IS cash (receiving stable/eth)
 
     // Check if In/Out are "Cash"
-    const isTokenInCash = CASH_TOKENS.includes(swap.tokenIn.toLowerCase());
-    const isTokenOutCash = CASH_TOKENS.includes(swap.tokenOut.toLowerCase());
+    const isTokenInCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenIn));
+    const isTokenOutCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenOut));
 
     const isBuy = isTokenInCash && !isTokenOutCash;
     const isSell = !isTokenInCash && isTokenOutCash;
@@ -118,8 +119,7 @@ async function handleTargetBuy(
 ): Promise<void> {
     // Find all configs watching this wallet
     // NOTE: Solana addresses are case-sensitive (Base58), only lowercase EVM addresses
-    const isSolana = !targetWallet.startsWith('0x');
-    const normalizedWallet = isSolana ? targetWallet : targetWallet.toLowerCase();
+    const normalizedWallet = normalizeAddress(targetWallet);
 
     // I will fix this logic now too: `const tokenToBuy = swap.tokenOut`.
     const tokenToBuy = swap.tokenOut;
@@ -205,22 +205,25 @@ async function processBuyWithInfo(
     const CASH_TOKENS = [
         '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
         chainConfig.wrappedNativeAddress,
-        ...chainConfig.stablecoins
-    ].map(s => s.toLowerCase());
+        ...chainConfig.stablecoins,
+        SOLANA_CONFIG.TOKENS.SOL,
+        SOLANA_CONFIG.TOKENS.USDC,
+        SOLANA_CONFIG.TOKENS.USDT
+    ].map(s => normalizeAddress(s));
 
     const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
-    const isTokenInCash = CASH_TOKENS.includes(swap.tokenIn.toLowerCase());
+    const isTokenInCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenIn));
     let targetSwapValueUsd = 0;
 
     if (isTokenInCash) {
         // Use tokenIn for value calculation
-        const isStableIn = chainConfig.stablecoins.map(s => s.toLowerCase()).includes(swap.tokenIn.toLowerCase());
-        const isZoraIn = swap.tokenIn.toLowerCase() === ZORA_TOKEN.toLowerCase();
+        const isStableIn = chainConfig.stablecoins.map(s => normalizeAddress(s)).includes(normalizeAddress(swap.tokenIn));
+        const isZoraIn = normalizeAddress(swap.tokenIn) === normalizeAddress(ZORA_TOKEN);
         const amountInBN = BigInt(swap.amountIn);
 
         if (isStableIn) {
             // USDC/USDT have 6 decimals usually
-            const decimalsIn = swap.tokenIn.toLowerCase().includes('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913') ? 6 : 18; // Base USDC is 6
+            const decimalsIn = normalizeAddress(swap.tokenIn).includes('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913') ? 6 : 18; // Base USDC is 6
             targetSwapValueUsd = Number(amountInBN) / Math.pow(10, decimalsIn);
         } else if (isZoraIn) {
             // ZORA Token price
@@ -559,8 +562,7 @@ async function handleTargetSell(
 
     // Find configs with mirrorSell enabled
     // NOTE: Solana addresses are case-sensitive (Base58), only lowercase EVM addresses
-    const isSolana = !targetWallet.startsWith('0x');
-    const normalizedWallet = isSolana ? targetWallet : targetWallet.toLowerCase();
+    const normalizedWallet = normalizeAddress(targetWallet);
 
     const configs = await withRetry(() => prisma.copyTradeConfig.findMany({
         where: {

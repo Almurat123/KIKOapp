@@ -1,5 +1,6 @@
 import { pool } from '../db/connection.js';
 import prisma from '../db/prisma.js';
+import { normalizeAddress } from '../utils/address.js';
 
 export const query = (text: string, params?: any[]) => pool.query(text, params);
 
@@ -49,11 +50,13 @@ export async function addWatchedWallet(wallet: {
 }): Promise<MonitoredWallet> {
     const { userId, address, alias, labels = [], chain = 'eth' } = wallet;
 
+    const normalizedAddress = normalizeAddress(address);
+
     return await prisma.watchedWallet.upsert({
         where: {
             userId_address: {
                 userId,
-                address: address.toLowerCase()
+                address: normalizedAddress
             }
         },
         update: {
@@ -63,7 +66,7 @@ export async function addWatchedWallet(wallet: {
         },
         create: {
             userId,
-            address: address.toLowerCase(),
+            address: normalizedAddress,
             alias,
             labels,
             chain
@@ -101,7 +104,7 @@ export async function getTransactionFeed(userId: string, options: { limit?: numb
         const { limit = 50, offset = 0 } = options;
 
         const wallets = await getWatchedWallets(userId);
-        const addresses = wallets.map(w => w.address.toLowerCase());
+        const addresses = wallets.map(w => normalizeAddress(w.address));
 
         if (addresses.length === 0) return [];
 
@@ -167,7 +170,7 @@ export async function saveWalletStats(stats: WalletStats) {
              sharpe_ratio = EXCLUDED.sharpe_ratio,
              max_drawdown = EXCLUDED.max_drawdown,
              last_updated = NOW()`,
-            [address.toLowerCase(), win_rate, total_pnl, total_value, sharpe_ratio, max_drawdown]
+            [normalizeAddress(address), win_rate, total_pnl, total_value, sharpe_ratio, max_drawdown]
         );
     } catch (error) {
         console.error('[WalletRepository] Error saving wallet stats:', error);
@@ -186,7 +189,7 @@ export async function saveWalletTransactions(transactions: Partial<WalletTransac
                  VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
                  ON CONFLICT(wallet_address, tx_hash) DO NOTHING`,
                 [
-                    tx.wallet_address?.toLowerCase(),
+                    normalizeAddress(tx.wallet_address),
                     tx.tx_hash,
                     tx.token_symbol,
                     tx.token_address,

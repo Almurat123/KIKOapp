@@ -1,7 +1,4 @@
-/**
- * Alchemy Webhook Management Service
- * Handles creating/updating/deleting webhook address subscriptions
- */
+import { normalizeAddress } from '../utils/address.js';
 
 const ALCHEMY_AUTH_TOKEN = process.env.ALCHEMY_AUTH_TOKEN || '';
 const ALCHEMY_NOTIFY_URL = 'https://dashboard.alchemy.com/api/update-webhook-addresses';
@@ -42,17 +39,21 @@ export async function addAddressToWebhook(
     console.log(`[AlchemyWebhook] Using webhook ID: ${webhookId.slice(0, 10)}... for chain ${chainId}`);
 
     try {
+        const body = {
+            webhook_id: webhookId,
+            addresses_to_add: [normalizeAddress(address)],
+            addresses_to_remove: [], // Required field - empty array when not removing
+        };
+
+        console.log(`[AlchemyWebhook] Raw Request Body to Alchemy:`, JSON.stringify(body));
+
         const response = await fetch(ALCHEMY_NOTIFY_URL, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
                 'X-Alchemy-Token': ALCHEMY_AUTH_TOKEN,
             },
-            body: JSON.stringify({
-                webhook_id: webhookId,
-                addresses_to_add: chainId === 900 ? [address] : [address.toLowerCase()],
-                addresses_to_remove: [], // Required field - empty array when not removing
-            }),
+            body: JSON.stringify(body),
         });
 
         if (!response.ok) {
@@ -97,7 +98,7 @@ export async function removeAddressFromWebhook(
             body: JSON.stringify({
                 webhook_id: webhookId,
                 addresses_to_add: [], // Required field - empty array when not adding
-                addresses_to_remove: chainId === 900 ? [address] : [address.toLowerCase()],
+                addresses_to_remove: [normalizeAddress(address)],
             }),
         });
 

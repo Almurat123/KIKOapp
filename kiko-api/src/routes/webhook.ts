@@ -6,6 +6,7 @@
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
 import { fetchTransaction, fetchTransactionReceipt, isTxProcessed, markTxAsProcessed } from '../services/watcherService.js';
+import { normalizeAddress } from '../utils/address.js';
 import { parseSwapTransaction } from '../services/txDecoder.js';
 
 interface ProcessTxBody {
@@ -250,7 +251,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                     const solMsg = Array.isArray(solTx?.message) ? solTx.message[0] : solTx?.message;
                     const keys = solMsg?.account_keys || solMsg?.accountKeys || [];
-                    candidates = keys.map((k: any) => typeof k === 'string' ? k : k.pubkey || k.toString());
+                    candidates = keys.map((k: any) => normalizeAddress(typeof k === 'string' ? k : k.pubkey || k.toString()));
 
                     if (candidates.length === 0) {
                         console.log(`[Webhook] Solana candidate extraction debug: signature=${txHash}, item keys=${Object.keys(item)}, solTx keys=${solTx ? Object.keys(solTx) : 'null'}, solMsg keys=${solMsg ? Object.keys(solMsg) : 'null'}`);
@@ -258,8 +259,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 } else {
                     // EVM Structure
                     txHash = item.hash;
-                    const fromAddr = item.fromAddress?.toLowerCase();
-                    const toAddr = item.toAddress?.toLowerCase();
+                    const fromAddr = normalizeAddress(item.fromAddress);
+                    const toAddr = normalizeAddress(item.toAddress);
                     candidates = [fromAddr, toAddr].filter(Boolean);
                 }
 

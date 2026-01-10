@@ -1,6 +1,7 @@
 import { Tool } from './registry.js';
 import prisma from '../db/prisma.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../services/alchemyWebhookService.js';
+import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
 
 // --- Tool Definitions ---
 
@@ -70,7 +71,7 @@ export const CreateCopyTradeConfigTool: Tool = {
             let chainId = args.chain_id;
             if (!chainId) {
                 // Auto-detect based on address format
-                const isSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(args.target_wallet);
+                const isSolana = isSolanaAddress(args.target_wallet);
                 const isEVM = args.target_wallet.startsWith('0x');
 
                 if (isSolana) {
@@ -98,10 +99,7 @@ export const CreateCopyTradeConfigTool: Tool = {
                 });
             }
 
-            const isSolanaAddress = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(args.target_wallet);
-            const normalizedWallet = isSolanaAddress
-                ? args.target_wallet  // Keep original case for Solana
-                : args.target_wallet.toLowerCase();  // Lowercase for EVM
+            const normalizedWallet = normalizeAddress(args.target_wallet);
 
             // --- Check for existing configuration to prevent duplication ---
             const existingConfig = await prisma.copyTradeConfig.findFirst({
@@ -300,14 +298,15 @@ export const DeleteCopyTradeConfigTool: Tool = {
 
             // Find config to get chainId and normalized address
             // Try explicit match first, then lenient
-            let configToDelete = user.configs.find(c => c.targetWallet.toLowerCase() === args.target_wallet.toLowerCase());
+            const normalizedTarget = normalizeAddress(args.target_wallet);
+            let configToDelete = user.configs.find(c => normalizeAddress(c.targetWallet) === normalizedTarget);
 
             if (!configToDelete) {
                 return { summary: `No active configuration found for target \`${args.target_wallet}\`.` };
             }
 
             const activeChainId = configToDelete.chainId;
-            const normalizedTarget = configToDelete.targetWallet;
+            const targetToProcess = configToDelete.targetWallet;
 
             // Delete config
             const result = await prisma.copyTradeConfig.delete({
@@ -320,7 +319,7 @@ export const DeleteCopyTradeConfigTool: Tool = {
             await prisma.trackedWallet.update({
                 where: {
                     address_chainId: {
-                        address: normalizedTarget,
+                        address: targetToProcess,
                         chainId: activeChainId
                     }
                 },
@@ -332,17 +331,17 @@ export const DeleteCopyTradeConfigTool: Tool = {
             // Remove from Alchemy Webhook
             // Check if any other configs use this wallet/chain combo
             const remainingConfigs = await prisma.copyTradeConfig.count({
-                where: { targetWallet: normalizedTarget, chainId: activeChainId },
+                where: { targetWallet: targetToProcess, chainId: activeChainId },
             });
 
             if (remainingConfigs === 0) {
-                console.log(`[Tool] Attempting to remove ${normalizedTarget} from Alchemy webhook`);
-                removeAddressFromWebhook(normalizedTarget, activeChainId).catch(err => {
+                console.log(`[Tool] Attempting to remove ${targetToProcess} from Alchemy webhook`);
+                removeAddressFromWebhook(targetToProcess, activeChainId).catch(err => {
                     console.warn('[Tool] Failed to remove from Alchemy webhook:', err.message);
                 });
             }
 
-            return { summary: `✅ Stopped copy trading for target \`${activeChainId === 900 ? 'Solana' : 'EVM'} Wallet ${normalizedTarget}\`.` };
+            return { summary: `✅ Stopped copy trading for target \`${activeChainId === 900 ? 'Solana' : 'EVM'} Wallet ${targetToProcess}\`.` };
         } catch (error: any) {
             console.error('[Tool] delete_copy_trade_config error:', error);
             throw new Error(`Failed to delete config: ${error.message}`);
@@ -387,7 +386,7 @@ export const PauseCopyTradeConfigTool: Tool = {
             const result = await prisma.copyTradeConfig.updateMany({
                 where: {
                     userId: user.id,
-                    targetWallet: args.target_wallet.toLowerCase()
+                    targetWallet: normalizeAddress(args.target_wallet)
                 },
                 data: { status }
             });

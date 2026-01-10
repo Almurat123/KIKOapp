@@ -4,17 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../services/alchemyWebhookService.js';
 import { sendTradeNotification } from '../services/emailService.js';
 import { PrivyClient } from '@privy-io/server-auth';
-
-// Helper to normalize wallet address
-// EVM addresses (0x...) are case-insensitive, so lowercase them
-// Solana addresses are case-sensitive (Base58), keep as-is
-function normalizeAddress(address: string): string {
-    if (!address) return address;
-    if (address.startsWith('0x')) return address.toLowerCase();
-    // Simple heuristic for Solana: 32-44 base58 chars
-    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) return address;
-    return address; // Default to as-is if unsure
-}
+import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
 
 interface CreateConfigBody {
     targetWallet: string;
@@ -91,20 +81,21 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             return reply.status(400).send({ error: 'targetWallet and buyAmountUsd are required' });
         }
 
+        targetWallet = targetWallet.trim();
+        if (chainId) chainId = Number(chainId);
+
         // --- INTELLIGENT CHAIN DETECTION ---
         // If chainId is missing, trying to infer from address
         if (!chainId) {
-            if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(targetWallet)) {
-                chainId = 900; // Solana
-            } else if (targetWallet.startsWith('0x')) {
-                chainId = 8453; // Default Base for EVM
+            if (isSolanaAddress(targetWallet)) {
+                chainId = 900;
             } else {
-                chainId = 8453;
+                chainId = 8453; // Default Base for EVM
             }
         }
 
         // Normalize target wallet based on chain
-        const normalizedTarget = chainId === 900 ? targetWallet : targetWallet.toLowerCase();
+        const normalizedTarget = normalizeAddress(targetWallet);
 
         console.log(`[CopyTrade] POST /config - User ${userId}`, {
             target: normalizedTarget,
@@ -130,8 +121,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 }
 
                 // Determine user wallet normalization
-                const isSolanaUser = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress);
-                const normalizedUserWallet = isSolanaUser ? walletAddress : walletAddress.toLowerCase();
+                const normalizedUserWallet = normalizeAddress(walletAddress);
 
                 user = await prisma.user.create({
                     data: {
@@ -189,8 +179,8 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             console.log('[CopyTrade] Created config:', config.id, 'for target:', targetWallet);
 
             // Register address with Alchemy webhook for real-time notifications
-            console.log(`[CopyTrade] Attempting to add ${targetWallet} to Alchemy webhook for chain ${chainId}`);
-            addAddressToWebhook(targetWallet, chainId)
+            console.log(`[CopyTrade] Attempting to add ${normalizedTarget} to Alchemy webhook for chain ${chainId}`);
+            addAddressToWebhook(normalizedTarget, chainId)
                 .then(success => {
                     if (success) {
                         console.log(`[CopyTrade] ✅ Successfully added to Alchemy webhook`);
