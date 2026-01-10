@@ -5,6 +5,7 @@ interface ModelDefinition {
     dbName: string;
     columns: { name: string; type: string; default?: string; unique?: boolean }[];
     pk?: string[]; // Primary key columns if not 'id'
+    uniques?: string[][]; // Composite unique constraints (e.g., [['address', 'chainId']])
 }
 
 const SCHEMA_DEFINITIONS: ModelDefinition[] = [
@@ -21,6 +22,18 @@ const SCHEMA_DEFINITIONS: ModelDefinition[] = [
             { name: 'referredBy', type: 'TEXT' },
             { name: 'createdAt', type: 'TIMESTAMP', default: 'NOW()' }
         ]
+    },
+    {
+        prismaName: 'walletExport',
+        dbName: 'WalletExport',
+        columns: [
+            { name: 'id', type: 'TEXT' },
+            { name: 'userId', type: 'TEXT' },
+            { name: 'walletAddress', type: 'TEXT' },
+            { name: 'chainType', type: 'TEXT' },
+            { name: 'exportedAt', type: 'TIMESTAMP', default: 'NOW()' }
+        ],
+        uniques: [['userId', 'walletAddress']]
     },
     {
         prismaName: 'userSettings',
@@ -152,7 +165,8 @@ const SCHEMA_DEFINITIONS: ModelDefinition[] = [
             { name: 'lastTradeAt', type: 'TIMESTAMP' },
             { name: 'createdAt', type: 'TIMESTAMP', default: 'NOW()' },
             { name: 'updatedAt', type: 'TIMESTAMP', default: 'NOW()' }
-        ]
+        ],
+        uniques: [['address', 'chainId']]
     },
     {
         prismaName: 'chatSession',
@@ -241,7 +255,8 @@ const SCHEMA_DEFINITIONS: ModelDefinition[] = [
             { name: 'createdAt', type: 'TIMESTAMP', default: 'NOW()' },
             { name: 'updatedAt', type: 'TIMESTAMP', default: 'NOW()' }
         ],
-        pk: ['address', 'chainId']
+        pk: ['address', 'chainId'],
+        uniques: [['address', 'chainId']]
     }
 ];
 
@@ -301,6 +316,24 @@ async function ensureTableAndColumns(model: ModelDefinition) {
                 console.log(`✅ Column "${model.dbName}.${col.name}": ADDED`);
             } catch (alterError: any) {
                 console.error(`Failed to add column "${model.dbName}.${col.name}":`, alterError.message);
+            }
+        }
+    }
+
+    // 3. Composite unique indexes check
+    if (model.uniques) {
+        for (const uniqueGroup of model.uniques) {
+            const indexName = `${model.dbName}_${uniqueGroup.join('_')}_key`;
+            const cols = uniqueGroup.map(c => `"${c}"`).join(', ');
+            console.log(`Checking composite unique index "${indexName}" on (${cols})...`);
+
+            try {
+                // Check if index exists by trying to create it if it doesn't
+                const createIdxSql = `CREATE UNIQUE INDEX IF NOT EXISTS "${indexName}" ON "${model.dbName}" (${cols})`;
+                await prisma.$executeRawUnsafe(createIdxSql);
+                // console.log(`✅ Composite index "${indexName}": ensured`);
+            } catch (err: any) {
+                console.error(`Failed to ensure composite index "${indexName}":`, err.message);
             }
         }
     }
