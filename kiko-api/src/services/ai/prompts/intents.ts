@@ -51,7 +51,8 @@ export const MARKET_ANALYSIS_INTENT = `
 2. **Token Due Diligence**:
    - If analyzing a specific token, check:
      * \`get_token_info\` (FDV, Liquidity)
-     * \`get_token_early_buyers\` (Smart Money)
+     * \`get_early_buyers\` (Smart Money)
+     * \`analyze_creator\` (Deployer Risk)
      * \`check_token_risk\` (Safety)
    - Explain *why* a token is moving (use \`web_search\` for news if needed).
 `.trim();

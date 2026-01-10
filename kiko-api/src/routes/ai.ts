@@ -395,9 +395,8 @@ NEVER fabricate data.
     -   **check_token_risk**: Use for security analysis (honeypot, taxes, ownership).
 
 4.  **NEWS & RESEARCH**
-    -   **get_market_news**: Use for latest crypto news, specific coin news "news about Solana".
-    -   **web_search**: Use ONLY for general research, "why is crypto down?", "what is project X?", or when other tools fail.
-        -   *Priority*: Use specific market tools (news/price) BEFORE web_search.
+    -   **web_search**: Use for news, general research, "why is crypto down?", "what is project X?".
+        -   For "crypto news" or "news about Solana", use web_search with appropriate query.
 
 5.  **WALLET & PORTFOLIO**
     -   **get_wallet_info**: Use for "my balance", "monitor wallet 0x...", "portfolio value".
@@ -425,7 +424,8 @@ NEVER fabricate data.
     1.  get_token_info (verify CA)
     2.  get_token_price (market cap)
     3.  check_token_risk (safety)
-    4.  get_market_news (sentiment)
+    4.  get_early_buyers (smart money)
+    5.  web_search (news/sentiment if needed)
 -   **JSON Only**: Do not output markdown or text when calling tools. Just the tool call.
 -   **Gas Calculation**: Fee = Gas Limit * Gas Price. (ETH Tx ~21k, Swap ~200k).
 
