@@ -11,6 +11,8 @@ import { GetTokenPriceTool } from './tokenPrice.js';
 import { GetHistoricalPriceTool } from './historicalPrice.js';
 import { CheckTokenRiskTool } from './tokenRisk.js';
 import { GetTrendingCastsTool, GetFarcasterUserTool, SearchFarcasterCastsTool } from './farcasterTools.js';
+import { GetZoraTrendingTool, GetZoraProfileTool } from './zoraTools.js';
+import { GetEarlyBuyersTool, AnalyzeCreatorTool } from './tokenAnalysisTools.js';
 import { GetUserFavoritesTool } from './userFavorites.js';
 import { GetMarketOverviewTool } from './marketOverview.js';
 import { GetEconomicCalendarTool } from './economicCalendar.js';
@@ -54,6 +56,15 @@ toolRegistry.register(CheckTokenRiskTool);
 toolRegistry.register(GetTrendingCastsTool);
 toolRegistry.register(GetFarcasterUserTool);
 toolRegistry.register(SearchFarcasterCastsTool);
+
+// Zora Tools
+toolRegistry.register(GetZoraTrendingTool);
+toolRegistry.register(GetZoraProfileTool);
+
+// Token Analysis Tools
+toolRegistry.register(GetEarlyBuyersTool);
+toolRegistry.register(AnalyzeCreatorTool);
+
 toolRegistry.register(GetUserFavoritesTool);
 
 // Copy Trade Tools
@@ -101,6 +112,7 @@ export * from './tokenPrice.js';
 export * from './historicalPrice.js';
 export * from './tokenRisk.js';
 export * from './farcasterTools.js';
+export * from './zoraTools.js';
 export * from './userFavorites.js';
 export * from './copyTradeTools.js';
 export * from './polymarketTools.js';

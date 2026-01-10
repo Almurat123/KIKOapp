@@ -1,5 +1,16 @@
 import * as zoraSdk from "@zoralabs/coins-sdk";
-const { getCoin, getProfile, createTradeCall } = zoraSdk as any;
+const {
+    getCoin,
+    getProfile,
+    createTradeCall,
+    setApiKey,
+    getCoinsTopGainers,
+    getCoinsTopVolume24h,
+    getCoinsMostValuable,
+    getCoinsNew,
+    getProfileBalances,
+    getProfileSocial
+} = zoraSdk as any;
 import { ethers } from "ethers";
 
 const CHAIN_ID = 8453; // Base Mainnet
@@ -12,7 +23,7 @@ const ZORA_CREATOR_COIN_HOOKS = [
     "0x5e5d19d22c85a4aef7c1fdf25fb22a5a38f71040", // New Creator Coin Hook (e.g. Jacob's)
 ];
 const ZORA_CONTENT_COIN_HOOK = "0x9ea932730A7787000042e34390B8E435dD839040";
-const BASE_PLATFORM_REFERRER = "0x55c88bb05602da94fce8feadc1cbebf5b72c2453";
+export const BASE_PLATFORM_REFERRER = "0x55c88bb05602da94fce8feadc1cbebf5b72c2453";
 
 export interface ZoraCoin {
     id: string;
@@ -82,6 +93,15 @@ export class ZoraService {
     // In-memory cache for current refresh cycle (avoids duplicate API calls)
     private coinCache = new Map<string, ZoraCoin | null>();
     private profileCache = new Map<string, UserProfile | null>();
+
+    constructor() {
+        // Initialize API key if available in environment
+        const apiKey = process.env.ZORA_API_KEY;
+        if (apiKey && typeof setApiKey === 'function') {
+            setApiKey(apiKey);
+            console.log('[ZoraService] SDK initialized with API Key');
+        }
+    }
 
     /**
      * Get a coin by its contract address using the SDK
@@ -191,9 +211,16 @@ export class ZoraService {
                 return cached;
             }
 
-            const response = await getProfile({ identifier });
+            // Using getProfileSocial for more comprehensive data if available, otherwise fallback to getProfile
+            let profile: any;
+            if (typeof getProfileSocial === 'function') {
+                const response = await getProfileSocial({ query: { identifier } });
+                profile = response.data?.profile;
+            } else {
+                const response = await getProfile({ identifier });
+                profile = (response.data as any)?.profile;
+            }
 
-            const profile = (response.data as any)?.profile;
             if (!profile) {
                 this.profileCache.set(identifier.toLowerCase(), null);
                 return null;
@@ -203,7 +230,7 @@ export class ZoraService {
                 handle: profile.handle || undefined,
                 displayName: profile.displayName || undefined,
                 bio: profile.bio || undefined,
-                avatar: profile.avatar?.medium || undefined,
+                avatar: profile.avatar?.medium || profile.avatar?.previewImage?.medium || undefined,
                 socialAccounts: profile.socialAccounts ? {
                     twitter: profile.socialAccounts.twitter ? {
                         username: profile.socialAccounts.twitter.username || '',
@@ -239,6 +266,89 @@ export class ZoraService {
         } catch (error) {
             this.profileCache.set(identifier.toLowerCase(), null);
             return null;
+        }
+    }
+
+    /**
+     * Get all Zora coin balances for a user
+     * Docs: https://docs.zora.co/coins/sdk/queries/profile#getprofilebalances
+     */
+    async getUserBalances(walletAddress: string) {
+        try {
+            if (typeof getProfileBalances !== 'function') return [];
+
+            // SDK internally wraps first arg in { query: ... }, so pass flat params
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Timeout')), 10000)
+            );
+
+            const response = await Promise.race([
+                getProfileBalances({ identifier: walletAddress, count: 50 }),
+                timeoutPromise
+            ]) as any;
+
+            const profile = response?.data?.profile;
+            if (!profile || !profile.coinBalances) return [];
+
+            const edges = profile.coinBalances.edges || [];
+            return Array.isArray(edges) ? edges.map((edge: any) => edge.node || edge) : [];
+        } catch (error: any) {
+            if (error.message === 'Timeout') {
+                console.warn(`[ZoraService] Timeout fetching balances for ${walletAddress}`);
+            } else {
+                console.error(`[ZoraService] Error fetching balances for ${walletAddress}:`, error);
+            }
+            return [];
+        }
+    }
+
+    /**
+     * Get top gainers from Zora
+     * Docs: https://docs.zora.co/coins/sdk/queries/explore#getcoinstopgainers
+     */
+    async getTopGainers(limit: number = 20) {
+        try {
+            if (typeof getCoinsTopGainers !== 'function') return [];
+            // SDK wraps params internally, pass flat
+            const response = await getCoinsTopGainers({ count: limit });
+
+            const edges = response?.data?.exploreList?.edges || [];
+            return Array.isArray(edges) ? edges.map((edge: any) => edge.node) : [];
+        } catch (error) {
+            console.error('[ZoraService] Error fetching top gainers:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get coins with highest 24h volume
+     * Docs: https://docs.zora.co/coins/sdk/queries/explore#getcoinstopvolume24h
+     */
+    async getTopVolume24h(limit: number = 20) {
+        try {
+            if (typeof getCoinsTopVolume24h !== 'function') return [];
+            const response = await getCoinsTopVolume24h({ count: limit });
+            const edges = response?.data?.exploreList?.edges || [];
+            return Array.isArray(edges) ? edges.map((edge: any) => edge.node) : [];
+        } catch (error) {
+            console.error('[ZoraService] Error fetching top volume:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Get newly created coins
+     * Docs: https://docs.zora.co/coins/sdk/queries/explore#getcoinsnew
+     */
+    async getNewCoins(limit: number = 20) {
+        try {
+            if (typeof getCoinsNew !== 'function') return [];
+            const response = await getCoinsNew({ count: limit });
+            const edges = response?.data?.exploreList?.edges || [];
+            return Array.isArray(edges) ? edges.map((edge: any) => edge.node) : [];
+        } catch (error) {
+            console.error('[ZoraService] Error fetching new coins:', error);
+            return [];
         }
     }
 
@@ -385,7 +495,8 @@ export class ZoraService {
             amountIn: ethers.parseEther(params.amountInEth),
             sender: params.sender as `0x${string}`,
             slippage: params.slippage || 0.05,
-        });
+            platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
+        } as any);
     }
 
     /**
@@ -403,7 +514,8 @@ export class ZoraService {
             amountIn: BigInt(params.amountInToken), // Smallest unit
             sender: params.sender as `0x${string}`,
             slippage: params.slippage || 0.05,
-        });
+            platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
+        } as any);
     }
 
     /**

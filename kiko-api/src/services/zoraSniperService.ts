@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
-import { createTradeCall } from "@zoralabs/coins-sdk";
-import { zoraService } from './zoraService.js';
+import * as zoraSdk from "@zoralabs/coins-sdk";
+const { createTradeCall } = zoraSdk as any;
+import { zoraService, BASE_PLATFORM_REFERRER } from './zoraService.js';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
 import { getChainConfig } from '../config/chainConfig.js';
 
@@ -89,6 +90,7 @@ export class ZoraSniperService {
                 amountIn: ethers.parseEther(buyAmountEth),
                 sender: walletAddress as `0x${string} `,
                 slippage: maxSlippage,
+                platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
             };
 
             const quote = await createTradeCall(tradeParams);
@@ -134,6 +136,20 @@ export class ZoraSniperService {
                 console.log(`[ZoraSniper] 📊 Market Info for ${coin.symbol}: Price: $${coin.tokenPrice.priceInUsdc}, MarketCap: ${zoraService.formatMarketCap(coin.marketCap)}`);
             }
 
+            // Optimization: Log user's Zora portfolio
+            try {
+                const balances = await zoraService.getUserBalances(params.walletAddress);
+                if (balances && balances.length > 0) {
+                    console.log(`[ZoraSniper] 💼 User Zora Portfolio: ${balances.length} coins tracked.`);
+                    const currentBalance = balances.find((b: any) => b.address.toLowerCase() === params.tokenOut.toLowerCase());
+                    if (currentBalance) {
+                        console.log(`[ZoraSniper] 💰 Current holding of ${coin?.symbol || 'output token'}: ${ethers.formatUnits(currentBalance.balance, 18)}`);
+                    }
+                }
+            } catch (err) {
+                console.warn('[ZoraSniper] Failed to log portfolio:', err);
+            }
+
             // Convert slippage from percentage (e.g., 1.5) to decimal (e.g., 0.015)
             // Zora SDK expects slippage < 1, so cap at 0.99
             const slippageDecimal = Math.min((params.slippage || 5) / 100, 0.99);
@@ -142,20 +158,33 @@ export class ZoraSniperService {
             let useZoraToken = false;
             let zoraBalance = BigInt(0);
             try {
-                const chainConfig = getChainConfig(CHAIN_ID);
-                const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
-                const zoraContract = new ethers.Contract(ZORA_TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
-                zoraBalance = await zoraContract.balanceOf(params.walletAddress);
+                const balances = await zoraService.getUserBalances(params.walletAddress);
+                const zoraBalanceObj = balances.find((b: any) => b.address.toLowerCase() === ZORA_TOKEN_ADDRESS.toLowerCase());
 
-                // Calculate required ZORA amount based on ETH input (rough estimate)
-                // If user has significant ZORA, use it for direct swap
-                const minZoraForSwap = ethers.parseUnits('100', 18); // Min 100 ZORA for optimization
-                if (zoraBalance > minZoraForSwap) {
-                    useZoraToken = true;
-                    console.log(`[ZoraSniper] 💎 Using ZORA token directly (balance: ${ethers.formatUnits(zoraBalance, 18)} ZORA) - single-hop swap!`);
+                if (zoraBalanceObj) {
+                    zoraBalance = BigInt(zoraBalanceObj.balance);
+                    // Calculate required ZORA amount based on ETH input (rough estimate)
+                    // If user has significant ZORA, use it for direct swap
+                    const minZoraForSwap = ethers.parseUnits('100', 18); // Min 100 ZORA for optimization
+                    if (zoraBalance > minZoraForSwap) {
+                        useZoraToken = true;
+                        console.log(`[ZoraSniper] 💎 Using ZORA token directly (balance: ${ethers.formatUnits(zoraBalance, 18)} ZORA) - single-hop swap!`);
+                    }
                 }
             } catch (balanceError) {
-                console.warn(`[ZoraSniper] Could not check ZORA balance, using ETH:`, balanceError);
+                console.warn(`[ZoraSniper] Could not check ZORA balance via SDK, using provider fallback:`, balanceError);
+                // Fallback to provider check if SDK fails
+                try {
+                    const chainConfig = getChainConfig(CHAIN_ID);
+                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+                    const zoraContract = new ethers.Contract(ZORA_TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
+                    zoraBalance = await zoraContract.balanceOf(params.walletAddress);
+                    if (zoraBalance > ethers.parseUnits('100', 18)) {
+                        useZoraToken = true;
+                    }
+                } catch (fallbackError) {
+                    console.error('[ZoraSniper] Provider fallback also failed:', fallbackError);
+                }
             }
 
             // 3. Build trade params (ZORA direct or ETH multi-hop)
@@ -223,6 +252,7 @@ export class ZoraSniperService {
                         amountIn: zoraAmountIn,
                         sender: params.walletAddress as `0x${string}`,
                         slippage: slippageDecimal,
+                        platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
                     };
                     inputLabel = `${ethers.formatUnits(zoraAmountIn, 18)} ZORA`;
                 }
@@ -236,6 +266,7 @@ export class ZoraSniperService {
                     amountIn: ethers.parseEther(params.amountIn),
                     sender: params.walletAddress as `0x${string}`,
                     slippage: slippageDecimal,
+                    platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
                 };
                 inputLabel = `${params.amountIn} ETH`;
             }
@@ -316,6 +347,7 @@ export class ZoraSniperService {
                 amountIn: BigInt(params.amountIn),
                 sender: params.walletAddress as `0x${string} `,
                 slippage: slippageDecimal,
+                platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
             };
 
             const quote = await createTradeCall(tradeParams);

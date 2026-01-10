@@ -45,6 +45,13 @@ const TOOL_CATEGORIES: ToolCategory[] = [
         priority: 80
     },
 
+    // ZORA
+    {
+        keywords: /\b(zora|new\s+coins?|top\s+gainers?|trending\s+(tokens?|coins?)|zora\s+profile|zora\s+balances?)\b/i,
+        tools: ['get_zora_trending', 'get_zora_profile', 'get_zora_balances'],
+        priority: 85
+    },
+
     // PREDICTION MARKETS
     {
         keywords: /\b(polymarket|prediction|betting|bet\s+on|odds)\b/i,

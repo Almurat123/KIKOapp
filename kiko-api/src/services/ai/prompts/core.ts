@@ -87,8 +87,9 @@ export const TOOL_DIRECTIVE = `
    - **Copy Trading**: 'create_copy_trade_config', 'list_copy_trade_configs', 'pause_copy_trade_config', 'delete_copy_trade_config'.
    - **Information**: 'get_token_info' (contracts), 'web_search' (broad info).
    - **Wallet**: 'get_wallet_info' (balances/portfolio).
-   - **Wallet Analysis**: 'get_token_early_buyers' (Discover early adopters).
+   - **Token Analytics**: 'get_early_buyers' (Discover early adopters), 'analyze_creator' (Risk scan token deployer).
    - **Social (Farcaster)**: 'get_trending_casts', 'get_farcaster_user', 'search_farcaster_casts', 'get_user_favorites'.
+   - **Zora Creator Coins**: 'get_zora_trending', 'get_zora_profile'.
    - **Prediction Markets (Polymarket)**: 'get_polymarket_trending', 'get_polymarket_trending_markets', 'get_polymarket_event', 'search_polymarket', 'get_new_markets'.
 
 3. **TOOL SEQUENCING MATRIX (MANDATORY - FOLLOW EXACTLY)**:
@@ -99,7 +100,7 @@ export const TOOL_DIRECTIVE = `
    | "Symbol Only" | 1. STOP → ASK for contract address | Don't guess |
    | "High Risk Token" | 1. get_token_info<br>2. check_token_risk<br>3. prepare_swap | Use for suspecious coins |
    | "Is [CA] safe?" | 1. check_token_risk | Don't call get_token_info |
-   | "Analyze [CA]" | 1. get_token_info<br>2. check_token_risk<br>3. get_token_early_buyers | Full analysis |
+   | "Analyze [CA]" | 1. get_token_info<br>2. check_token_risk<br>3. get_early_buyers | Full analysis |
    | "What's trending?" | 1. get_trending_tokens | Single call only |
    | "Price of [Symbol]" | 1. get_token_price | Don't call get_token_info |
    | "My balance" | 1. get_wallet_info | Single call only |
@@ -182,7 +183,14 @@ This document serves as the **Technical Reference** for all tools available to t
 ## 📊 TOKEN ANALYTICS
 | Tool Name | Technical Description | Key Return Fields (JSON) |
 | :--- | :--- | :--- |
-| \`get_token_early_buyers\` | **SMART MONEY**. Identify who bought a token early. Good for finding "insiders" or "snipers". | \`{ buyers: [{ address, timestamp, amount, txHash }] }\` |
+| \`get_early_buyers\` | **SMART MONEY**. Identify who bought a token early. Good for finding "insiders" or "snipers". | \`{ buyerCount, earlyBuyers: [{ address, timestamp, amount, txHash }] }\` |
+| \`analyze_creator\` | **CREATOR RISK**. Analyze token deployer's wallet for risk signals (mixer funding, wallet age). | \`{ riskLevel: 'Safe'|'Medium'|'High', riskScore, tags }\` |
+
+## 🟣 ZORA (Creator Coins)
+| Tool Name | Technical Description | Key Return Fields (JSON) |
+| :--- | :--- | :--- |
+| \`get_zora_trending\` | Get trending coins on Zora (new, gainers, volume). Returns 20 by default. | \`{ category, count, coins: [{ name, symbol, address, marketCapUsdc }] }\` |
+| \`get_zora_profile\` | Get Zora user profile by wallet address or handle. | \`{ profile: { displayName, bio, avatar, creatorCoin } }\` |
 
 ## 💬 SOCIAL (FARCASTER)
 | Tool Name | Technical Description | Key Return Fields (JSON) |

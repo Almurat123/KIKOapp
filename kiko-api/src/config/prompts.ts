@@ -234,6 +234,8 @@ This document serves as the **Technical Reference** for all tools available to t
 | Tool Name | Technical Description | Key Return Fields (JSON) |
 | :--- | :--- | :--- |
 | \`get_token_info\` | Metadata, Price, Liquidity, and FDV for any contract address. | \`{ name, symbol, address, price, liquidity, fdv, priceChange24h, volume24h }\` |
+| \`get_early_buyers\` | **NEW**: Get earliest buyers of a token. Reveals insider/whale activity. | \`{ buyerCount, earlyBuyers: [{ rank, address, timestamp, amount, txHash }] }\` |
+| \`analyze_creator\` | **NEW**: Analyze token deployer's wallet for risk signals (mixer funding, wallet age). | \`{ riskLevel: 'Safe'|'Medium'|'High', riskScore, tags, details }\` |
 | \`web_search\` | Real-time news and general info from the live web. | \`{ results: "Text summary...", citations: ["URL1", ...] }\` |
 
 ## 👛 WALLET & PERSONAL
@@ -247,6 +249,12 @@ This document serves as the **Technical Reference** for all tools available to t
 | :--- | :--- | :--- |
 | \`get_trending_casts\` | Hot posts/narratives on Farcaster (last 24h). | \`{ count, casts: [{ author: { username }, text, stats: { likes, recasts } }] }\` |
 | \`get_farcaster_user\` | Profile & post history for specific Farcaster ID (FID). | \`{ user: { username, displayName, pfp, bio }, casts: [] }\` |
+
+## 🟣 ZORA (Creator Coins)
+| Tool Name | Technical Description | Key Return Fields (JSON) |
+| :--- | :--- | :--- |
+| \`get_zora_trending\` | Get trending coins on Zora (new, gainers, volume). Returns 20 by default. | \`{ category, count, coins: [{ name, symbol, address, marketCapUsdc }] }\` |
+| \`get_zora_profile\` | Get Zora user profile by wallet address or handle. | \`{ profile: { displayName, bio, avatar, creatorCoin } }\` |
 
 ## 🤖 COPY TRADING
 | Tool Name | Technical Description | Key Return Fields (JSON) |
