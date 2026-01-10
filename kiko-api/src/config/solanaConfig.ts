@@ -8,6 +8,9 @@ export const SOLANA_CONFIG = {
     RPC_URLS: {
         MAINNET: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
         HELIUS: process.env.HELIUS_RPC_URL, // Optional standard RPC
+        PUBLIC: 'https://api.mainnet-beta.solana.com',
+        BACKUP_1: 'https://solana-api.projectserum.com',
+        BACKUP_2: 'https://rpc.ankr.com/solana'
     },
 
     // Jupiter Aggregator API
@@ -36,6 +39,6 @@ export const SOLANA_CONFIG = {
 /**
  * Get a fresh Solana Connection
  */
-export function getSolanaConnection(): Connection {
-    return new Connection(SOLANA_CONFIG.RPC_URLS.MAINNET, 'confirmed');
+export function getSolanaConnection(url?: string): Connection {
+    return new Connection(url || SOLANA_CONFIG.RPC_URLS.MAINNET, 'confirmed');
 }

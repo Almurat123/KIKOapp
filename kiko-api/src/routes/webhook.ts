@@ -291,19 +291,42 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                 // Branch by chain type: Solana vs EVM
                 if (chainId === 900) {
-                    // Solana Logic
-                    const { getSolanaConnection } = await import('../config/solanaConfig.js');
-                    const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
-                    const connection = getSolanaConnection();
-
                     try {
-                        const tx = await connection.getParsedTransaction(txHash, {
-                            maxSupportedTransactionVersion: 0,
-                            commitment: 'confirmed'
-                        });
+                        // Solana Logic
+                        const { getSolanaConnection, SOLANA_CONFIG } = await import('../config/solanaConfig.js');
+                        const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
+
+                        let tx: any = null;
+                        const rpcsToTry = [
+                            undefined, // Primary (from .env)
+                            SOLANA_CONFIG.RPC_URLS.PUBLIC,
+                            SOLANA_CONFIG.RPC_URLS.BACKUP_1,
+                            SOLANA_CONFIG.RPC_URLS.BACKUP_2
+                        ];
+
+                        for (const rpcUrl of rpcsToTry) {
+                            try {
+                                const connection = getSolanaConnection(rpcUrl);
+                                tx = await connection.getParsedTransaction(txHash, {
+                                    maxSupportedTransactionVersion: 0,
+                                    commitment: 'confirmed'
+                                });
+                                if (tx) {
+                                    if (rpcUrl) console.log(`[Webhook] ✅ Successfully fetched Solana tx via fallback RPC: ${rpcUrl}`);
+                                    break;
+                                }
+                            } catch (err: any) {
+                                const isSslError = err.message?.includes('SSL') || err.cause?.message?.includes('SSL');
+                                console.warn(`[Webhook] Solana fetch failed ${rpcUrl ? 'via ' + rpcUrl : 'via primary'}: ${err.message}${isSslError ? ' (SSL Error)' : ''}`);
+                                if (!isSslError && !err.message?.includes('fetch failed')) {
+                                    // If it's not a connection/SSL error, it might be a 404 or something else where retrying won't help as much
+                                    // but we try others anyway
+                                }
+                            }
+                        }
 
                         if (!tx) {
-                            console.warn(`[Webhook] Could not fetch Solana tx: ${txHash.slice(0, 16)}`);
+                            console.error(`[Webhook] ❌ Failed to fetch Solana tx details after trying all RPCs: ${txHash.slice(0, 16)}`);
                             continue;
                         }
 
