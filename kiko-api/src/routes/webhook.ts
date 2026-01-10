@@ -117,6 +117,29 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     });
 
     /**
+     * GET /api/webhook/sync-solana
+     * Force resync all Solana wallets from DB to Alchemy.
+     * Use this when webhooks are missing or addresses were lowercased.
+     */
+    fastify.get('/sync-solana', async (request, reply) => {
+        const { addAddressToWebhook } = await import('../services/alchemyWebhookService.js');
+        const configs = await prisma.copyTradeConfig.findMany({
+            where: { chainId: 900 }
+        });
+
+        const results = [];
+        for (const config of configs) {
+            const success = await addAddressToWebhook(config.targetWallet, 900);
+            results.push({ wallet: config.targetWallet, success });
+        }
+
+        return reply.send({
+            message: `Synced ${configs.length} Solana wallets`,
+            details: results
+        });
+    });
+
+    /**
      * POST /api/webhook/alchemy
      * Direct endpoint for Alchemy Address Activity webhooks
      */
