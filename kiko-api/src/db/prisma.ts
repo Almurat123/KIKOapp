@@ -38,11 +38,13 @@ export const prisma = global.prisma || new PrismaClient({
 });
 
 // Setup event-based logging for better production diagnostics
-prisma.$on('error' as any, (e: any) => {
+// @ts-ignore
+prisma.$on('error', (e: any) => {
     console.error(`[Prisma-Error] ${e.message}`, { target: e.target, timestamp: new Date() });
 });
 
-prisma.$on('warn' as any, (e: any) => {
+// @ts-ignore
+prisma.$on('warn', (e: any) => {
     console.warn(`[Prisma-Warn] ${e.message}`);
 });
 
