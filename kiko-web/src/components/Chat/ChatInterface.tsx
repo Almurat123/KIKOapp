@@ -15,6 +15,7 @@ import { useThemeContext } from '../../contexts/ThemeContext';
 import { useChain } from '../../contexts/ChainContext';
 import { extractStrategiesFromMessages } from '../../utils/strategyExtractor';
 import { useStrategies } from '../../hooks/useStrategies';
+import { useSafariKeyboardFix } from '../../hooks/useSafariKeyboardFix';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 import { chatApi } from '../../services/api';
@@ -88,6 +89,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const sidebar = useSidebar();
     const { resolvedTheme } = useThemeContext();
     const { createStrategy, strategies, toggleStrategyStatus, deleteStrategy, refreshUserStrategies: refreshStrategies } = useStrategies();
+
+    // Safari iOS 26 keyboard fix - provides inputTop when keyboard is open
+    const safariKeyboard = useSafariKeyboardFix();
 
     const { user, authenticated } = usePrivy();
     const { wallets } = useWallets();
@@ -1851,7 +1855,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             {/* Input Area - Only show when conversation has started */}
             {hasStarted && (
-                <div className={clsx(styles.inputArea, styles.inputBottom)}>
+                <div
+                    className={clsx(styles.inputArea, styles.inputBottom)}
+                    style={safariKeyboard.isKeyboardVisible && safariKeyboard.inputTop !== null ? {
+                        bottom: 'auto',
+                        top: `${safariKeyboard.inputTop}px`,
+                        transform: 'translateY(-100%)',
+                    } : undefined}
+                >
                     {/* DEBUG: Render check */}
                     {/* Jump to Bottom Button - positioned at top edge of input */}
                     {showJumpToBottom && (
