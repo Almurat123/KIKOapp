@@ -647,14 +647,26 @@ async function handleTargetSell(
 
                 console.log(`[AutoTrade] Selling ${balance.toString()} of ${tokenToSell} on Solana`);
 
-                // Execute Solana Sell (Swap to SOL)
-                txHash = await executeSolanaSwap({
-                    userId: config.user.privyDid,
-                    tokenInMint: tokenToSell,
-                    tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
-                    amountIn: balance.toString(),
-                    slippageBps: config.maxSlippageBps
-                });
+                try {
+                    console.log(`[AutoTrade] Selling 100% balance: ${balance.toString()} on Solana`);
+                    txHash = await executeSolanaSwap({
+                        userId: config.user.privyDid,
+                        tokenInMint: tokenToSell,
+                        tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
+                        amountIn: balance.toString(),
+                        slippageBps: config.maxSlippageBps
+                    });
+                } catch (e: any) {
+                    console.warn(`[AutoTrade] Solana 100% sell failed: ${e.message}. Trying 99.9% fallback...`);
+                    const safeBalance999 = (balance * 999n) / 1000n;
+                    txHash = await executeSolanaSwap({
+                        userId: config.user.privyDid,
+                        tokenInMint: tokenToSell,
+                        tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
+                        amountIn: safeBalance999.toString(),
+                        slippageBps: Math.max((config.maxSlippageBps || 50) * 1.5, 300)
+                    });
+                }
 
             } else {
                 // EVM Logic
@@ -696,9 +708,8 @@ async function handleTargetSell(
                 console.log(`[AutoTrade] Selling ${balance.toString()} of ${tokenToSell} (decimals: ${decimals})`);
 
                 try {
-                    // NOTE: Zora specialized Sell disabled temporarily due to permit signature requirements
-                    // directly using high-performance aggregators (0x/Kyber)
-                    console.log(`[AutoTrade] Attempting to sell 100% balance: ${balance.toString()}`);
+                    // Try 1: 100% (Full Sell)
+                    console.log(`[AutoTrade] Attempting Step 1: 100% balance sell (${balance.toString()})`);
                     txHash = await executeSellInstant({
                         userId: config.user.privyDid,
                         walletAddress: config.user.walletAddress,
@@ -709,26 +720,37 @@ async function handleTargetSell(
                         tokenDecimals: Number(decimals)
                     });
                 } catch (e: any) {
-                    console.warn(`[AutoTrade] Sell 100% failed (${e.message}). Retrying with 99% balance...`);
-                    // Retry logic...
+                    console.warn(`[AutoTrade] Step 1 (100%) failed: ${e.message}. Trying Step 2 (99.9%)...`);
                     try {
-                        const safeBalance = (balance * 99n) / 100n;
-                        // For the retry, we increase slippage to ensure the trade goes through
-                        const retrySlippage = Math.max((config.maxSlippageBps || 50) * 2, 500);
-                        console.log(`[AutoTrade] Retrying sell with 99% balance and increased slippage: ${retrySlippage} bps`);
-
+                        // Try 2: 99.9% (Minimal residue)
+                        const safeBalance999 = (balance * 999n) / 1000n;
                         txHash = await executeSellInstant({
                             userId: config.user.privyDid,
                             walletAddress: config.user.walletAddress,
                             tokenToSell: tokenToSell,
-                            amountToSell: safeBalance.toString(),
+                            amountToSell: safeBalance999.toString(),
                             chainId: chainId,
-                            slippageBps: retrySlippage,
+                            slippageBps: Math.max((config.maxSlippageBps || 50) * 1.5, 300),
                             tokenDecimals: Number(decimals)
                         });
-                    } catch (retryError) {
-                        console.error(`[AutoTrade] Failed to execute mirror sell: ${retryError}`);
-                        return;
+                    } catch (e2: any) {
+                        console.warn(`[AutoTrade] Step 2 (99.9%) failed: ${e2.message}. Trying Step 3 (fallback 99.5%)...`);
+                        try {
+                            // Try 3: 99.5% (Final fallback)
+                            const safeBalance995 = (balance * 995n) / 1000n;
+                            txHash = await executeSellInstant({
+                                userId: config.user.privyDid,
+                                walletAddress: config.user.walletAddress,
+                                tokenToSell: tokenToSell,
+                                amountToSell: safeBalance995.toString(),
+                                chainId: chainId,
+                                slippageBps: Math.max((config.maxSlippageBps || 50) * 2, 500),
+                                tokenDecimals: Number(decimals)
+                            });
+                        } catch (e3: any) {
+                            console.error(`[AutoTrade] All sell steps failed for EVM: ${e3.message}`);
+                            return;
+                        }
                     }
                 }
             }
