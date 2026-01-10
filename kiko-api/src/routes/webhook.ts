@@ -209,6 +209,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 });
 
                 if (trackedWallets.length === 0) {
+                    console.log(`[Webhook] ⚠️ Ignoring tx ${txHash.slice(0, 8)}: No matched tracked wallets in [${candidates.map(c => c.slice(0, 6)).join(', ')}]`);
                     continue;
                 }
 
