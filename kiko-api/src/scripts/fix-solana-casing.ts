@@ -33,24 +33,26 @@ async function main() {
 
         // Check if lowercase version exists in Alchemy
         if (alchemyAddresses.includes(lowerAddress) && lowerAddress !== correctAddress) {
-            console.log(`[Fix] Found INCORRECT lowercase address on Alchemy: ${lowerAddress}`);
+            console.log(`[Fix] Found INCORRECT lowercase address: ${lowerAddress}`);
 
             // REMOVE Lowercase
-            console.log(`[Fix] Removing ${lowerAddress}...`);
+            console.log(`[Fix] Step 1: Removing ${lowerAddress}...`);
             await updateWebhook(WEBHOOK_ID_SOL, [], [lowerAddress]);
 
+            console.log('[Fix] Waiting 2 seconds...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
             // ADD Correct Case
-            console.log(`[Fix] Adding ${correctAddress}...`);
+            console.log(`[Fix] Step 2: Adding ${correctAddress}...`);
             await updateWebhook(WEBHOOK_ID_SOL, [correctAddress], []);
 
             console.log(`[Fix] ✅ Repaired ${correctAddress}`);
         } else if (!alchemyAddresses.includes(correctAddress)) {
-            console.log(`[Fix] Address missing entirely on Alchemy. Adding ${correctAddress}...`);
-            // Just add
+            console.log(`[Fix] Address missing entirely. Adding ${correctAddress}...`);
             await updateWebhook(WEBHOOK_ID_SOL, [correctAddress], []);
             console.log(`[Fix] ✅ Added ${correctAddress}`);
         } else {
-            console.log(`[Fix] Address ${correctAddress} appears correct on Alchemy.`);
+            console.log(`[Fix] Address ${correctAddress} appears correct (mixed case preserved).`);
         }
     }
 }
@@ -68,8 +70,11 @@ async function updateWebhook(webhookId: string, add: string[], remove: string[])
             addresses_to_remove: remove,
         }),
     });
+    const text = await res.text();
     if (!res.ok) {
-        console.error(`[Fix] Update failed: ${await res.text()}`);
+        console.error(`[Fix] Update failed: ${text}`);
+    } else {
+        console.log(`[Fix] Alchemy response: ${text}`);
     }
 }
 
