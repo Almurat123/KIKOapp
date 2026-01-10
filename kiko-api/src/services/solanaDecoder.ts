@@ -78,7 +78,9 @@ export async function decodeSolanaSwap(
     let amountIn = '0';
     let amountOut = '0';
 
+    console.log(`[SolanaDecoder] Detected ${changes.size} token balance changes`);
     for (const [mint, change] of changes) {
+        console.log(`[SolanaDecoder]   - ${mint.slice(0, 8)}: ${change.delta.toString()}`);
         if (change.delta < 0n) {
             tokenIn = mint;
             amountIn = (-change.delta).toString();
@@ -96,6 +98,7 @@ export async function decodeSolanaSwap(
         else if (programIds.includes(SOLANA_CONFIG.PROGRAMS.RAYDIUM_V4)) dexName = 'Raydium';
         else if (programIds.includes(SOLANA_CONFIG.PROGRAMS.PUMP_FUN)) dexName = 'Pump.fun';
 
+        console.log(`[SolanaDecoder] ✅ Swap identified: ${tokenIn.slice(0, 6)} -> ${tokenOut.slice(0, 6)} (${dexName})`);
         return {
             tokenIn,
             tokenOut,
@@ -106,5 +109,6 @@ export async function decodeSolanaSwap(
         };
     }
 
+    console.log(`[SolanaDecoder] ❌ No swap identified (In: ${tokenIn.slice(0, 6)}, Out: ${tokenOut.slice(0, 6)})`);
     return null;
 }

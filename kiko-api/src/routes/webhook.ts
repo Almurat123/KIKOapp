@@ -157,13 +157,17 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
             if (payload?.event?.activity) {
                 items = payload.event.activity;
+                console.log(`[Webhook] Processing as EVM activity (${items.length} items)`);
             } else if (payload?.event?.event?.transaction) {
                 items = payload.event.event.transaction;
                 isSolanaItems = true;
+                console.log(`[Webhook] Processing as Solana transaction (${items.length} items)`);
             } else if (payload?.event?.transaction) {
-                // Fallback if nesting level varies
                 items = payload.event.transaction;
                 isSolanaItems = true;
+                console.log(`[Webhook] Processing as Solana transaction (fallback nest) (${items.length} items)`);
+            } else {
+                console.log(`[Webhook] No recognizable activity or transaction array in payload`);
             }
 
             for (const item of items) {
@@ -198,9 +202,6 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     continue;
                 }
 
-                // Mark as processing IMMEDIATELY to prevent race conditions
-                markTxAsProcessed(txHash);
-
                 const trackedWallets = await prisma.trackedWallet.findMany({
                     where: {
                         address: { in: candidates },
@@ -212,6 +213,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     console.log(`[Webhook] ⚠️ Ignoring tx ${txHash.slice(0, 8)}: No matched tracked wallets in [${candidates.map(c => c.slice(0, 6)).join(', ')}]`);
                     continue;
                 }
+
+                // Mark as processing ONLY if we have matched wallets
+                markTxAsProcessed(txHash);
+
+                console.log(`[Webhook] 🎯 Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
 
                 // Branch by chain type: Solana vs EVM
                 if (chainId === 900) {
