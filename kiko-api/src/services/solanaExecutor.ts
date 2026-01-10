@@ -1,7 +1,7 @@
 
 import { getSolanaConnection, SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { getServerSolanaWalletAddress, sendSolanaTransaction } from './privyWallet.js';
+import { getServerSolanaWalletAddress, sendSolanaTransaction, getDelegatedSolanaWallet } from './privyWallet.js';
 import { getSolanaQuote } from './solanaSwap.js';
 
 export interface SolanaSwapParams {
@@ -15,8 +15,17 @@ export interface SolanaSwapParams {
 export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
     const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 100 } = params;
 
-    // Get the server wallet address for executing swaps
-    const walletAddress = await getServerSolanaWalletAddress();
+    // CRITICAL: Use the SAME wallet for building and signing!
+    // Try user's delegated wallet first, fallback to server wallet
+    let walletAddress: string;
+    const delegatedWallet = await getDelegatedSolanaWallet(userId);
+    if (delegatedWallet) {
+        walletAddress = delegatedWallet.address;
+        console.log(`[SolanaExecutor] Using user's delegated wallet: ${walletAddress.slice(0, 10)}...`);
+    } else {
+        walletAddress = await getServerSolanaWalletAddress();
+        console.log(`[SolanaExecutor] Using server wallet (no delegation): ${walletAddress.slice(0, 10)}...`);
+    }
 
     console.log(`[SolanaExecutor] Executing Swap: ${amountIn} of ${tokenInMint} -> ${tokenOutMint} using auto-router...`);
 
@@ -28,7 +37,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
         amountIn,
         slippageBps,
         'auto', // Try all aggregators
-        walletAddress // Providing address builds the transaction immediately
+        walletAddress // Build transaction for the SAME wallet that will sign
     );
 
     if (!quote) {
