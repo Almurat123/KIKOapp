@@ -21,14 +21,10 @@ const NETWORK_TO_CHAIN_ID: Record<string, number> = {
     'BNB_MAINNET': 56,          // Alchemy's network name for BSC
     'BNB_SMART_CHAIN_MAINNET': 56,
     'BSC_MAINNET': 56,          // Alias
-    'ARB_MAINNET': 42161,
-    'ARBITRUM_MAINNET': 42161,  // Alias
-    'OPT_MAINNET': 10,
-    'OPTIMISM_MAINNET': 10,     // Alias
-    'MATIC_MAINNET': 137,
-    'POLYGON_MAINNET': 137,     // Alias
     'SOLANA_MAINNET': 900,      // Solana
     'SOL_MAINNET': 900,         // Alias
+    'SOLANA': 900,              // Short alias
+    'SOL': 900,                 // Short alias
 };
 
 export default async function webhookRoutes(fastify: FastifyInstance) {
@@ -43,7 +39,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return reply.status(400).send({ error: 'wallet, txHash, and network are required' });
         }
 
-        const chainId = NETWORK_TO_CHAIN_ID[network];
+        // Try direct lookup or uppercase lookup
+        const chainId = NETWORK_TO_CHAIN_ID[network] || NETWORK_TO_CHAIN_ID[network.toUpperCase()];
         if (!chainId) {
             console.warn(`[Webhook] Unknown network: ${network}`);
             return reply.status(400).send({ error: `Unknown network: ${network}` });
@@ -141,21 +138,57 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         // Process activities asynchronously
         try {
             // Alchemy Address Activity webhook structure:
-            // payload.event.network = "ETH_MAINNET", "BASE_MAINNET", etc.
-            const network = payload?.event?.network;
-            const chainId = NETWORK_TO_CHAIN_ID[network];
+            // EVM: payload.event.network, payload.event.activity
+            // Solana: payload.event.event.network, payload.event.event.transaction
+            const evmNetwork = payload?.event?.network;
+            const solNetwork = payload?.event?.event?.network;
+            const network = evmNetwork || solNetwork;
+
+            const chainId = NETWORK_TO_CHAIN_ID[network] || (network ? NETWORK_TO_CHAIN_ID[network.toUpperCase()] : undefined);
 
             if (!chainId) {
                 console.warn(`[Webhook] Unknown network: ${network}`);
                 return;
             }
 
-            const activities = payload?.event?.activity || [];
+            // Extract items to process (Activity or Transaction)
+            let items: any[] = [];
+            let isSolanaItems = false;
 
-            for (const activity of activities) {
-                const txHash = activity.hash;
-                const fromAddr = chainId === 900 ? activity.fromAddress : activity.fromAddress?.toLowerCase();
-                const toAddr = chainId === 900 ? activity.toAddress : activity.toAddress?.toLowerCase();
+            if (payload?.event?.activity) {
+                items = payload.event.activity;
+            } else if (payload?.event?.event?.transaction) {
+                items = payload.event.event.transaction;
+                isSolanaItems = true;
+            } else if (payload?.event?.transaction) {
+                // Fallback if nesting level varies
+                items = payload.event.transaction;
+                isSolanaItems = true;
+            }
+
+            for (const item of items) {
+                let txHash = '';
+                let candidates: string[] = [];
+
+                if (isSolanaItems) {
+                    // Solana Structure
+                    // item.signature or item.transaction.signatures[0]
+                    txHash = item.signature;
+                    if (!txHash && item.transaction?.signatures) {
+                        txHash = item.transaction.signatures[0];
+                    }
+
+                    // Extract all involved accounts as candidates
+                    // item.transaction.message.account_keys (array of strings or objects)
+                    const keys = item.transaction?.message?.account_keys || [];
+                    candidates = keys.map((k: any) => typeof k === 'string' ? k : k.pubkey || k.toString());
+                } else {
+                    // EVM Structure
+                    txHash = item.hash;
+                    const fromAddr = item.fromAddress?.toLowerCase();
+                    const toAddr = item.toAddress?.toLowerCase();
+                    candidates = [fromAddr, toAddr].filter(Boolean);
+                }
 
                 if (!txHash) continue;
 
@@ -167,9 +200,6 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                 // Mark as processing IMMEDIATELY to prevent race conditions
                 markTxAsProcessed(txHash);
-
-                // Check if EITHER from or to is a tracked wallet
-                const candidates = [fromAddr, toAddr].filter(Boolean) as string[];
 
                 const trackedWallets = await prisma.trackedWallet.findMany({
                     where: {
