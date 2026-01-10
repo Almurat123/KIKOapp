@@ -390,6 +390,8 @@ NEVER fabricate data.
 
 3.  **TOKEN ANALYSIS**
     -   **get_token_info**: Use for contract addresses, decimals, social links of a token.
+    -   **get_early_buyers**: Use for "early buyers", "who bought first", "smart money", "snipers".
+    -   **analyze_creator**: Use for "analyze creator", "deployer risk", "is creator safe".
     -   **check_token_risk**: Use for security analysis (honeypot, taxes, ownership).
 
 4.  **NEWS & RESEARCH**
@@ -399,6 +401,10 @@ NEVER fabricate data.
 
 5.  **WALLET & PORTFOLIO**
     -   **get_wallet_info**: Use for "my balance", "monitor wallet 0x...", "portfolio value".
+
+6.  **ZORA CREATOR COINS**
+    -   **get_zora_trending**: Use for "Zora trending", "new Zora coins", "hot on Zora".
+    -   **get_zora_profile**: Use for "Zora profile of X", "who is X on Zora".
 
 **CRITICAL RULES - ANTI-HALLUCINATION**:
 -   **VERBATIM DATA COPYING**: When a tool returns data, you MUST:
