@@ -650,85 +650,6 @@ function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
 }
 
 
-// --- Native Lightbox ---
-const NativeLightbox: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  images: string[];
-  initialIndex: number;
-}> = ({ isOpen, onClose, images, initialIndex }) => {
-  const [index, setIndex] = useState(initialIndex);
-
-  useEffect(() => {
-    if (isOpen) {
-      setIndex(initialIndex);
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [isOpen, initialIndex]);
-
-  if (!isOpen) return null;
-
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 10000,
-          background: 'rgba(0,0,0,0.95)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'zoom-out',
-        }}
-        onClick={onClose}
-      >
-        <motion.img
-          key={index}
-          src={images[index]}
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          drag="y"
-          dragConstraints={{ top: 0, bottom: 0 }}
-          onDragEnd={(_, info) => {
-            if (Math.abs(info.offset.y) > 100) onClose();
-          }}
-          style={{
-            maxWidth: '100%',
-            maxHeight: '100%',
-            objectFit: 'contain',
-            userSelect: 'none',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        />
-
-        {images.length > 1 && (
-          <div style={{
-            position: 'absolute',
-            bottom: '40px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            color: 'white',
-            fontSize: '14px',
-            fontWeight: '600',
-            background: 'rgba(0,0,0,0.5)',
-            padding: '4px 12px',
-            borderRadius: '12px',
-          }}>
-            {index + 1} / {images.length}
-          </div>
-        )}
-      </motion.div>
-    </AnimatePresence>
-  );
-};
-
 export const SocialPage: React.FC = () => {
   const { resolvedTheme } = useThemeContext();
   const isDark = resolvedTheme === 'dark';
@@ -1045,7 +966,7 @@ export const SocialPage: React.FC = () => {
                 drag="x"
                 dragConstraints={{ left: 0, right: 0 }}
                 dragElastic={0.7}
-                onDragEnd={(e, { offset, velocity }) => {
+                onDragEnd={(_, { offset, velocity }) => {
                   const swipe = swipePower(offset.x, velocity.x);
 
                   if (swipe < -swipeConfidenceThreshold) {
