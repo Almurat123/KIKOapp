@@ -39,10 +39,21 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
 
     // 检查是否已授权
     useEffect(() => {
-        if (embeddedWallet && 'delegated' in embeddedWallet) {
-            setIsDelegated(embeddedWallet.delegated === true);
+        if (embeddedWallet) {
+            const delegatedValue = 'delegated' in embeddedWallet ? embeddedWallet.delegated : undefined;
+            console.log(`[SessionSignerButton] ${chainType} wallet delegation check:`, {
+                address: embeddedWallet.address?.slice(0, 10) + '...',
+                delegated: delegatedValue,
+                walletClientType: embeddedWallet.walletClientType,
+                chainType: embeddedWallet.chainType,
+                fullWallet: embeddedWallet,
+            });
+            setIsDelegated(delegatedValue === true);
+        } else {
+            console.log(`[SessionSignerButton] No ${chainType} embedded wallet found`);
+            setIsDelegated(false);
         }
-    }, [embeddedWallet]);
+    }, [embeddedWallet, chainType]);
 
     // 从后端获取 Authorization Key ID
     useEffect(() => {

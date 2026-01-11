@@ -46,10 +46,14 @@ export function useAutoAuthorization() {
     useEffect(() => {
         const fetchAuthKeyId = async () => {
             try {
+                console.log('[AutoAuth] Fetching auth key ID from backend...');
                 const response = await fetch(`${API_URL}/api/config/auth-key-id`);
                 if (response.ok) {
                     const data = await response.json();
+                    console.log('[AutoAuth] Got auth key ID:', data.authKeyId?.slice(0, 15) + '...');
                     setAuthKeyId(data.authKeyId);
+                } else {
+                    console.error('[AutoAuth] Failed to fetch auth key ID, status:', response.status);
                 }
             } catch (error) {
                 console.error('[AutoAuth] Failed to fetch auth key ID:', error);
@@ -60,6 +64,22 @@ export function useAutoAuthorization() {
             fetchAuthKeyId();
         }
     }, [authenticated]);
+
+    // Debug: Log wallet status when user changes
+    useEffect(() => {
+        if (user) {
+            console.log('[AutoAuth] User wallets status:', {
+                evmWallet: evmWallet ? {
+                    address: evmWallet.address?.slice(0, 10) + '...',
+                    delegated: 'delegated' in evmWallet ? evmWallet.delegated : 'N/A',
+                } : null,
+                solanaWallet: solanaWallet ? {
+                    address: solanaWallet.address?.slice(0, 10) + '...',
+                    delegated: 'delegated' in solanaWallet ? solanaWallet.delegated : 'N/A',
+                } : null,
+            });
+        }
+    }, [user, evmWallet, solanaWallet]);
 
     // Load saved auth status
     useEffect(() => {
