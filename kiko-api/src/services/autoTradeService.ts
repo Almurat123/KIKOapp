@@ -10,6 +10,7 @@ import { onSwapDetected, startWatcher } from './watcherService.js';
 import { executeSwapInstant, executeSellInstant } from './tradeExecutor.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
+import { fourMemeService } from './fourMemeService.js';
 
 import { getChainConfig } from '../config/chainConfig.js';
 
@@ -437,6 +438,17 @@ ${analysis.rawAnalysis}
                         amountIn: (usdAmount / nativePrice).toFixed(6),
                         slippage: (config.maxSlippageBps || 50) / 100
                     });
+                } else if (launchpad && launchpad.provider === 'fourmeme') {
+                    // Four.meme tokens can ONLY be traded via TokenManager2 contract
+                    console.log(`[AutoTrade] 🔶 Four.meme token detected. Using TokenManager2 buyTokenAMAP...`);
+                    const bnbAmount = (usdAmount / nativePrice).toFixed(6);
+                    txHash = await fourMemeService.buyTokenAMAP({
+                        userId: config.user.privyDid,
+                        walletAddress: config.user.walletAddress,
+                        tokenAddress: tokenToBuy,
+                        bnbAmount,
+                        slippageBps: config.maxSlippageBps,
+                    });
                 } else {
                     if (launchpad && launchpad.provider === 'zora' && !isFastExecutionEnabled) {
                         console.log(`[AutoTrade] Zora token detected but Fast Execution is OFF for user ${config.userId}. Using standard 0x swap.`);
@@ -676,6 +688,47 @@ async function handleTargetSell(
                     });
                 }
 
+                // SWEEP (Solana): Check for remaining dust and attempt cleanup sell
+                try {
+                    const connection = getSolanaConnection();
+                    const postSellAccounts = await connection.getParsedTokenAccountsByOwner(
+                        new PublicKey(solAddress!),
+                        { mint: new PublicKey(tokenToSell) }
+                    );
+
+                    let remainingBalance = 0n;
+                    for (const acc of postSellAccounts.value) {
+                        remainingBalance += BigInt(acc.account.data.parsed.info.tokenAmount.amount);
+                    }
+
+                    if (remainingBalance > 0n) {
+                        const dustUsdValue = (Number(remainingBalance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+                        const MIN_DUST_USD = 0.05;
+
+                        if (dustUsdValue >= MIN_DUST_USD) {
+                            console.log(`[AutoTrade] Sweeping remaining ${remainingBalance.toString()} Solana tokens (≈$${dustUsdValue.toFixed(4)})...`);
+
+                            const sweepTx = await executeSolanaSwap({
+                                userId: config.user.privyDid,
+                                tokenInMint: tokenToSell,
+                                tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
+                                amountIn: remainingBalance.toString(),
+                                slippageBps: 1000 // 10% slippage for dust clearing
+                            });
+
+                            if (sweepTx) {
+                                console.log(`[AutoTrade] Solana sweep successful: ${sweepTx}`);
+                                txHash = sweepTx;
+                            }
+                        } else {
+                            console.log(`[AutoTrade] Solana dust too small to sweep: $${dustUsdValue.toFixed(6)}`);
+                        }
+                    }
+                } catch (sweepErr: any) {
+                    console.warn(`[AutoTrade] Solana sweep failed (dust may remain): ${sweepErr.message}`);
+                }
+
+
             } else {
                 // EVM Logic
                 const contract = new ethers.Contract(tokenToSell, [
@@ -761,7 +814,44 @@ async function handleTargetSell(
                         }
                     }
                 }
+
+                // SWEEP: Check for remaining dust and attempt cleanup sell
+                try {
+                    const remainingBalance = await contractDynamic.balanceOf(config.user.walletAddress);
+                    const MIN_DUST_WEI = BigInt(1000); // Skip if less than 1000 wei (negligible)
+
+                    if (remainingBalance > MIN_DUST_WEI) {
+                        // Calculate USD value of remaining balance
+                        const dustUsdValue = (Number(remainingBalance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+                        const MIN_DUST_USD = 0.05; // Only sweep if worth more than $0.05 (gas consideration)
+
+                        if (dustUsdValue >= MIN_DUST_USD) {
+                            console.log(`[AutoTrade] Sweeping remaining ${remainingBalance.toString()} tokens (≈$${dustUsdValue.toFixed(4)})...`);
+
+                            const sweepTx = await executeSellInstant({
+                                userId: config.user.privyDid,
+                                walletAddress: config.user.walletAddress,
+                                tokenToSell: tokenToSell,
+                                amountToSell: remainingBalance.toString(),
+                                chainId: chainId,
+                                slippageBps: 1000, // 10% slippage for dust clearing
+                                tokenDecimals: Number(decimals)
+                            });
+
+                            if (sweepTx) {
+                                console.log(`[AutoTrade] Sweep successful: ${sweepTx}`);
+                                txHash = sweepTx; // Update txHash to include sweep
+                            }
+                        } else {
+                            console.log(`[AutoTrade] Dust too small to sweep: $${dustUsdValue.toFixed(6)} < $${MIN_DUST_USD}`);
+                        }
+                    }
+                } catch (sweepErr: any) {
+                    console.warn(`[AutoTrade] Sweep failed (dust may remain): ${sweepErr.message}`);
+                    // Don't fail the overall operation - main sell already succeeded
+                }
             }
+
 
             // 3. Update ALL positions to closed
             await prisma.position.updateMany({

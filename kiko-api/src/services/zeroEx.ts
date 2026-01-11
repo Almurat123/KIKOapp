@@ -602,6 +602,29 @@ export async function getZeroExQuote(
       buyAmount: data.buyAmount,
     });
 
+    // CRITICAL VALIDATION: Ensure the quote has valid transaction data
+    // If to/data are missing, the token is likely not tradeable via DEX aggregators
+    // (e.g., Four.meme tokens that can only be traded via TokenManager contract)
+    if (!data.to || !data.data) {
+      console.error('[0x API] ❌ Quote has invalid/missing transaction data:', {
+        to: data.to,
+        dataLength: data.data?.length,
+        buyToken: buyToken,
+        sellToken: sellToken,
+        chainId,
+      });
+      throw new Error(`0x API error: No valid swap route found for token ${buyToken}. This token may only be tradeable via its native platform (e.g., Four.meme, Pump.fun).`);
+    }
+
+    if (!data.buyAmount || data.buyAmount === '0') {
+      console.error('[0x API] ❌ Quote has invalid buyAmount:', {
+        buyAmount: data.buyAmount,
+        buyToken: buyToken,
+        chainId,
+      });
+      throw new Error(`0x API error: Zero or invalid output amount for token ${buyToken}. Check liquidity or try a smaller amount.`);
+    }
+
     return data;
   } catch (error) {
     console.error('[0x API] Error fetching quote:', error);

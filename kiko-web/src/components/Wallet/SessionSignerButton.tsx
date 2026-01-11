@@ -15,6 +15,7 @@ interface SessionSignerButtonProps {
  * SessionSignerButton - 允许用户授权服务器代签交易
  * 
  * 用于 Copy Trading 等需要后端自动签名的场景
+ * 点击按钮后直接调用 Privy 的 addSessionSigners
  */
 export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     chainType,
@@ -26,8 +27,6 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [isDelegated, setIsDelegated] = useState(false);
     const [authKeyId, setAuthKeyId] = useState<string | null>(null);
-    const [showWarning, setShowWarning] = useState(false);
-    const [confirmText, setConfirmText] = useState('');
 
     // 获取用户的嵌入式钱包
     const embeddedWallet = user?.linkedAccounts?.find(
@@ -39,21 +38,12 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
 
     // 检查是否已授权
     useEffect(() => {
-        if (embeddedWallet) {
-            const delegatedValue = 'delegated' in embeddedWallet ? embeddedWallet.delegated : undefined;
-            console.log(`[SessionSignerButton] ${chainType} wallet delegation check:`, {
-                address: embeddedWallet.address?.slice(0, 10) + '...',
-                delegated: delegatedValue,
-                walletClientType: embeddedWallet.walletClientType,
-                chainType: embeddedWallet.chainType,
-                fullWallet: embeddedWallet,
-            });
-            setIsDelegated(delegatedValue === true);
+        if (embeddedWallet && 'delegated' in embeddedWallet) {
+            setIsDelegated(embeddedWallet.delegated === true);
         } else {
-            console.log(`[SessionSignerButton] No ${chainType} embedded wallet found`);
             setIsDelegated(false);
         }
-    }, [embeddedWallet, chainType]);
+    }, [embeddedWallet]);
 
     // 从后端获取 Authorization Key ID
     useEffect(() => {
@@ -73,7 +63,8 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
         fetchAuthKeyId();
     }, []);
 
-    const executeAuthorize = async () => {
+    // 直接执行授权 - 不再显示自定义确认弹窗
+    const handleAuthorize = async () => {
         if (!embeddedWallet?.address || !authKeyId) return;
 
         setIsLoading(true);
@@ -82,7 +73,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                 address: embeddedWallet.address,
                 signers: [{
                     signerId: authKeyId,
-                    policyIds: [] // 无限制策略
+                    policyIds: []
                 }]
             });
             setIsDelegated(true);
@@ -94,18 +85,6 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
             onError?.(error as Error);
         } finally {
             setIsLoading(false);
-            setShowWarning(false);
-            setConfirmText('');
-        }
-    };
-
-    const handleAuthorizeClick = () => {
-        setShowWarning(true);
-    };
-
-    const handleConfirmAuthorize = () => {
-        if (confirmText === 'Confirm') {
-            executeAuthorize();
         }
     };
 
@@ -114,8 +93,6 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
 
         setIsLoading(true);
         try {
-            // removeSessionSigners takes the signer IDs to remove
-            // Using type assertion as the SDK types may not be fully updated
             await (removeSessionSigners as any)({
                 address: embeddedWallet.address,
                 signerIds: [authKeyId]
@@ -137,43 +114,6 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
         return null;
     }
 
-    const warningModalStyle: React.CSSProperties = {
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.9)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-    };
-
-    const warningContentStyle: React.CSSProperties = {
-        background: 'var(--bg-card)',
-        borderRadius: '16px',
-        padding: '24px',
-        maxWidth: '400px',
-        width: '90%',
-        textAlign: 'center',
-        border: '1px solid var(--border-color)',
-        boxShadow: 'none',
-        color: 'var(--text-primary)',
-    };
-
-    const inputStyle: React.CSSProperties = {
-        width: '100%',
-        padding: '12px',
-        margin: '16px 0',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        background: 'transparent',
-        color: 'var(--text-primary)',
-        fontSize: '14px',
-        outline: 'none',
-    };
-
     return (
         <div className={styles.container}>
             <div className={styles.header}>
@@ -194,7 +134,7 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
 
             <button
                 className={`${styles.button} ${isDelegated ? styles.revokeButton : styles.authorizeButton}`}
-                onClick={isDelegated ? handleRevoke : handleAuthorizeClick}
+                onClick={isDelegated ? handleRevoke : handleAuthorize}
                 disabled={isLoading || !authKeyId}
             >
                 {isLoading
@@ -209,70 +149,6 @@ export const SessionSignerButton: React.FC<SessionSignerButtonProps> = ({
                 <p className={styles.error}>
                     Unable to fetch authorization configuration. Please try again later.
                 </p>
-            )}
-
-            {showWarning && (
-                <div style={warningModalStyle} onClick={() => setShowWarning(false)}>
-                    <div style={warningContentStyle} onClick={(e) => e.stopPropagation()}>
-                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
-                        <h3 style={{ color: 'var(--text-primary)', margin: '0 0 12px 0', fontSize: '18px' }}>
-                            High Risk Warning
-                        </h3>
-                        <p style={{ color: 'var(--text-secondary)', margin: '0 0 20px 0', lineHeight: 1.5, fontSize: '14px' }}>
-                            You are about to authorize an automated system to sign transactions on your behalf.<br /><br />
-                            <strong>This enables automatic trading.</strong><br />
-                            Ensure you trust this platform and have reviewed the risks.
-                        </p>
-
-                        <div style={{ marginBottom: '20px', textAlign: 'left' }}>
-                            <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                                Type "Confirm" to proceed:
-                            </label>
-                            <input
-                                type="text"
-                                style={inputStyle}
-                                value={confirmText}
-                                onChange={(e) => setConfirmText(e.target.value)}
-                                placeholder="Confirm"
-                                autoFocus
-                            />
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                            <button
-                                style={{
-                                    padding: '10px 20px',
-                                    borderRadius: '8px',
-                                    border: 'none',
-                                    background: 'rgba(255, 255, 255, 0.1)',
-                                    color: '#fff',
-                                    cursor: 'pointer',
-                                    fontWeight: 500,
-                                    flex: 1,
-                                }}
-                                onClick={() => setShowWarning(false)}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                style={{
-                                    padding: '10px 20px',
-                                    borderRadius: '8px',
-                                    border: 'none',
-                                    background: confirmText === 'Confirm' ? '#ef4444' : 'rgba(239, 68, 68, 0.3)',
-                                    color: confirmText === 'Confirm' ? '#fff' : 'rgba(255, 255, 255, 0.5)',
-                                    cursor: confirmText === 'Confirm' ? 'pointer' : 'not-allowed',
-                                    fontWeight: 500,
-                                    flex: 1,
-                                }}
-                                onClick={handleConfirmAuthorize}
-                                disabled={confirmText !== 'Confirm'}
-                            >
-                                Authorize
-                            </button>
-                        </div>
-                    </div>
-                </div>
             )}
         </div>
     );
