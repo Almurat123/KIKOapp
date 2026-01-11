@@ -459,6 +459,14 @@
   transition: all 0.2s;
 }
 
+/* Ensure SVG icons inherit color properly (fixes Safari iOS) */
+.rowBtn svg {
+  stroke: currentColor;
+  color: inherit;
+  width: 14px;
+  height: 14px;
+}
+
 .rowBtn:hover {
   background: var(--bg-card);
   color: var(--text-primary);
