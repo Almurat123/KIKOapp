@@ -1,182 +1,88 @@
-[Webhook] Incoming Alchemy (SOLANA_MAINNET): {"webhookId":"wh_7hvs9h2sleb5rbdy","id":"whevt_1j8z422b0fso74ft","createdAt":"2026-01-10T14:06:20.219Z","type":"ADDRESS_ACTIVITY","event":{"transaction":[{"signature":"3UKEBPD6CBmd4R2fi7cxvZ6par4eA2y5ZVHqoCATuCZqWFmg62CtU4T94GZD7xiydix4iNpn7XXxTQkFEVA9hEne","transaction":[{"signatures":["3UKEBPD6CBmd4R2fi7cxvZ6par4eA2y5ZVHqoCATuCZqWFmg62CtU4T94GZD7xiydix4iNpn7XXxTQkFEVA9hEne"],"message":[{"header":[{"num_required_signatures":1,"num_readonly_signed_accounts":0,"num_readonly_unsigned_accounts":3}],"instructions":[{"accounts":[20],"data":"Gxgscb","program_id_index":5},{"data":"3czLDkHAh59H","program_id_index":5},{"accounts":[7,0,0,0,8,21,26,22,22,1,12,2,9,3,23,4,10,8,12,2,13,10,14,15,26,21,16,10,22,22,24,25,17,18,19],"data":"2K4KLh8aDSSAYWqQQ12kEv3rDSk7c3kHHB34LX2whaTmbv2X72wpR3ZH5x5uzDzD4HSemgcAtMiYkonuezQURFy1NQVhQD9","program_id_index":6},{"accounts":[0,11],"data":"3Bxs48c6wx3AUiwy","program_id_index":4}],"versioned":true,"account_keys":["CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV","GHVioHZQpTK7SF45KoYYT4uz6ASMvogUE2FQKnCbemzz","4CbixAvjPC8ESEUhKndSnTZmZnbdYzgwzWKB6FXHNUuy","4iZ2v3rJnF8pp4TybqXBCBqYYQmKXn94V8hMYviekUfY","11111111111111111111111111111111","ComputeBudget111111111111111111111111111111","s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC"],"recent_blockhash":"CMKNNvVzDPejLLB3rF7VgKzaVdUfTY7SFbS5u6X9CMyp","address_table_lookups":[{"account_key":"3PiDGEeehivGdhkmLt6Rzyo6mhmogYXtgAjurb25NxxW","writable_indexes":[100,99,76,18,86],"readonly_indexes":[74,68,3,5,6,57]},{"account_key":"7ZZxxRoiQ3w5LkXqQynjW5c1m6rhn1q1AYhtVdjLwtZm","writable_indexes":[15]},{"account_key":"G4Lz35DmyUnnDEpWTat5iH5WE8uGeN3jpiy597tUq1Qz","writable_indexes":[0,3,4,10,12,5,6],"readonly_indexes":[1]}]}]}],"meta":[{"fee":65621,"pre_balances":[30060684,2039280,2039280,2689791393,1,1,25178294,13008240,37209554,310877963843,32941452,26079082977,821534723,7182758,2039280,436060787893,23385600,71437440,71437440,71437440,0,1295273356838,5547701260,3316541054,521499933,4000424,68219446368],"post_balances":[18990473,2039280,2039280,2689791393,1,1,25178294,13008240,37209554,310878013843,32941452,26080087567,821534723,7182758,2039280,436070737893,23385600,71437440,71437440,71437440,0,1295273356838,5547701260,3316541054,521499933,4000424,68219446368],"inner_instructions":[{"index":2,"instructions":[{"accounts":[0,9],"data":"3Bxs4EN9fHrenk9m","program_id_index":4},{"accounts":[0,12],"data":"3Bxs492LbjBMvDmH","program_id_index":4},{"accounts":[12],"data":"J","program_id_index":22},{"accounts":[13,10,14,15,12,2,26,21,16,10,8,22,22,24,25,10,17,18,19],"data":"fx9RHbGFfZ7nZ9MkznQX5je95Ehx3bbGKbrxRD","program_id_index":10},{"accounts":[25],"data":"yCGxBopjnVNQkNP5usq1PntWTPobvRCTjYppqNJeCXxJHR9DVjCbaDYH1KZpfutCqCXpGv5DecZjLsE3uapqmaGz696SMW4PECmKfvXFaNYztZmgVFCikj2tgsjkqZ5cNusdg5SNzKLYhe9gbscBxfwGvR7WUWikiVRyydS6A4bwuooUHcnBUupwDd4RmBokGQFEwq","program_id_index":10},{"accounts":[12,21,15,8],"data":"gizgCpmjJRB5i","program_id_index":22},{"accounts":[14,26,2,13],"data":"hZmgumN8y9pY5","program_id_index":22},{"accounts":[2,26,1,8],"data":"hZmgumN8y9pY5","program_id_index":22}]}],"inner_instructions_none":false,"log_messages":["Program ComputeBudget111111111111111111111111111111 invoke [1]","Program ComputeBudget111111111111111111111111111111 success","Program ComputeBudget111111111111111111111111111111 invoke [1]","Program ComputeBudget111111111111111111111111111111 success","Program s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC invoke [1]","Program log: Instruction: SwapSolSplV3","Program log: start-> amt_in:10000000, quote_amt:86435186, min_amt_out:84706482, deduct_amt:0, fee_rate: 50, order_id: 208636575741677908145069259218493030113","Program 11111111111111111111111111111111 invoke [2]","Program 11111111111111111111111111111111 success","Program log: fee-> amt:50000","Program 11111111111111111111111111111111 invoke [2]","Program 11111111111111111111111111111111 success","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]","Program log: Instruction: SyncNative","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 3045 of 502971 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program log: tf-> amt_in: 9950000, amt_in_for_swap: 9950000","Program log: is_first_hop_bool:false, is_last_hop_bool:false","Program LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo invoke [2]","Program log: Instruction: Swap2","Program LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo invoke [3]","Program LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo consumed 2221 of 456512 compute units","Program LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo success","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [3]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6238 of 451644 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [3]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6147 of 442569 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo consumed 42365 of 477730 compute units","Program LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo success","Program log: inv-> pool:3d8m2UMTudV4kW1WbjFzRVV9fbBmWVCfbCiB3wMJapZw, input_mint:So11111111111111111111111111111111111111112, amt_in:9950000, amt_out:86435186","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6147 of 422563 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program log: tf-> amt_out: 86435186","Program log: done-> amt_in:9950000, amt_out:86435186","Program data: oCrVSQpVOdOrDwv3V7oKBi30JUpTVlgBwItslSI1blFRVa0D785ZHoCWmAAAAAAAcuUmBQAAAABy5SYFAAAAALKEDAUAAAAAAAAAAAAAAABQwwAAAAAAAOG+1ucr0GqzTUlXB2Dx9Zw=","Program s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC consumed 137396 of 549700 compute units","Program return: s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC cuUmBQAAAAA=","Program s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC success","Program 11111111111111111111111111111111 invoke [1]","Program 11111111111111111111111111111111 success"],"log_messages_none":false,"pre_token_balances":[{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV","account_index":1,"ui_token_amount":{"decimals":6,"amount":"0","ui_amount":0,"ui_amount_string":"0"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"35dszeQQQzkMvjcmyrPWPnN5ZyK9ZjYkNp9kKXZWMvji","account_index":2,"ui_token_amount":{"decimals":6,"amount":"0","ui_amount":0,"ui_amount_string":"0"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"35dszeQQQzkMvjcmyrPWPnN5ZyK9ZjYkNp9kKXZWMvji","account_index":12,"ui_token_amount":{"decimals":9,"amount":"819495443","ui_amount":0.819495443,"ui_amount_string":"0.819495443"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"3d8m2UMTudV4kW1WbjFzRVV9fbBmWVCfbCiB3wMJapZw","account_index":14,"ui_token_amount":{"decimals":6,"amount":"6456714561285","ui_amount":6456714.561285,"ui_amount_string":"6456714.561285"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"3d8m2UMTudV4kW1WbjFzRVV9fbBmWVCfbCiB3wMJapZw","account_index":15,"ui_token_amount":{"decimals":9,"amount":"436058748613","ui_amount":436.058748613,"ui_amount_string":"436.058748613"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}],"post_token_balances":[{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV","account_index":1,"ui_token_amount":{"decimals":6,"amount":"86435186","ui_amount":86.435186,"ui_amount_string":"86.435186"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"35dszeQQQzkMvjcmyrPWPnN5ZyK9ZjYkNp9kKXZWMvji","account_index":2,"ui_token_amount":{"decimals":6,"amount":"0","ui_amount":0,"ui_amount_string":"0"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"35dszeQQQzkMvjcmyrPWPnN5ZyK9ZjYkNp9kKXZWMvji","account_index":12,"ui_token_amount":{"decimals":9,"amount":"819495443","ui_amount":0.819495443,"ui_amount_string":"0.819495443"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"3d8m2UMTudV4kW1WbjFzRVV9fbBmWVCfbCiB3wMJapZw","account_index":14,"ui_token_amount":{"decimals":6,"amount":"6456628126099","ui_amount":6456628.126099,"ui_amount_string":"6456628.126099"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"3d8m2UMTudV4kW1WbjFzRVV9fbBmWVCfbCiB3wMJapZw","account_index":15,"ui_token_amount":{"decimals":9,"amount":"436068698613","ui_amount":436.068698613,"ui_amount_string":"436.068698613"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}],"loaded_writable_addresses":["Dh6ji16DrAzAZCTDXPSSAdzKsEaprC5rkMTLXGwDN1Fr","35dszeQQQzkMvjcmyrPWPnN5ZyK9ZjYkNp9kKXZWMvji","69xpHRvBFzG5UooTszUEEcNvdEvKZeUdbxLE2wXUbLar","LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo","95cfoy472fcQHaw4tPGBTKpn6ZQnfEPfBgDQx6gcRmRg","4AMGF2hf5t3nEKfQSPsLvhcpS4HrQUV2opRwEmhavx1d","3d8m2UMTudV4kW1WbjFzRVV9fbBmWVCfbCiB3wMJapZw","5js9GFvtU6J54T6ioBGkzPjLH6dEk3rVba1jt5Fn69AY","2U5T8Dyh3wPPVFEEDNo43gwvaV6sfVevKLZpATH2PQPr","Hh9fVvggUrf4pqeYEiKQturEiQeba2DPgYbfGnKWrcEN","EjzhmCmQucv26FqGrCE1jTWSLp2pugcDc54JuXnWejuX","8eZBZ6op9EHsqJ9g2kbrGSYkGyzC5THxZnYQe1cHrqQW","GsgYYkVCARc36dF6XX5Zm1NhpRjBFGMGj77wd7SWFgbY"],"loaded_readonly_addresses":["jitodontfront111111111111111111BitgetWaLLet","So11111111111111111111111111111111111111112","TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL","MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr","D1ZN9Wj1fRSUQfCjhvnu1hqDMT7hzjzBBpi12nVniYD6","9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump"],"return_data_none":true,"compute_units_consumed":137846}],"index":1421,"is_vote":false}],"slot":392581496,"network":"SOLANA_MAINNET"}}
-incoming request
-[DEBUG] onRequest: POST /api/webhook/alchemy
-[AutoTrade] ========== SWAP DETECTED ==========
-[AutoTrade] Processing swap from target: {
-  wallet: 'CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV',
-  tokenIn: 'So11111111111111111111111111111111111111112',
-  tokenOut: '9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump',
-  amountIn: '11070211',
-[Webhook] Processing as Solana transaction (1 items)
-  amountOut: '86435186'
-[DEBUG] onResponse: POST /api/webhook/alchemy -> 200
-request completed
-[Webhook] 🎯 Found 1 tracked wallets for tx 3UKEBPD6
-[SolanaDecoder] Decoding tx 3UKEBPD6CBmd4R2fi7cxvZ6par4eA2y5ZVHqoCATuCZqWFmg62CtU4T94GZD7xiydix4iNpn7XXxTQkFEVA9hEne for CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV
-[SolanaDecoder] Detected 2 token balance changes
-[SolanaDecoder]   - So111111: -11070211
-[SolanaDecoder]   - 9AvytnUK: 86435186
-[SolanaDecoder] ✅ Swap identified: So1111 -> 9Avytn (Solana DEX)
-[Webhook] ✅ Solana Swap detected for CWk2NqZw: {
-  in: 'So11111111111111111111111111111111111111112',
-  out: '9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump',
-  dex: 'Solana DEX'
-}
-}
-[AutoTrade] Detection result: {
-  isBuy: true,
-  isSell: false,
-  isTokenToToken: false,
-  tokenInIsCash: true,
-  tokenOutIsCash: false
-}
-[AutoTrade] 🟢 TARGET IS BUYING - triggering copy trade
-[AutoTrade] ⚡ Fast path start for 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump from CWk2NqZw...
-[LaunchpadDetector] Token 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump missing API indicators. Checking on-chain metadata...
-[LaunchpadDetector] Token 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump found on Raydium but missing LaunchLab indicators and on-chain Auth mismatch. Ignoring.
-[LaunchpadDetector] PumpPortal fallback failed with status 404
-[AutoTrade] getTokenInfo: Fetching 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump (Chain: 900, Jitter: 448ms)
-[LaunchpadDetector] Raydium fallback found token 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump but Program ID TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA mismatch (expected Pump.fun). Ignoring.
-[LaunchpadDetector] Detected Pump.fun token via suffix: 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump
-[AutoTrade] getTokenInfo: Success (DexScreener) - 67 $0.01573
-[AutoTrade] Found 1 config(s) for BUY. Price: $0.01573 (Fallback: false)
-[AutoTrade] Would execute BUY: { user: '0xA386bc9D', tokenIn: 'ETH' }
-[PrivyWallet] Authorization Key config: {
-  keyFormat: 'wallet-auth',
-  keyLength: 196,
-  keyIdConfigured: true,
-  keyId: 'crdgro3bw0...'
-[AutoTrade] getTokenInfo: Fetching So11111111111111111111111111111111111111112 (Chain: 900, Jitter: 367ms)
-}
-[AutoTrade] getTokenInfo: Success (DexScreener) - SOL $136.34
-[AutoTrade] Calculated value from tokenIn (So11111111111111111111111111111111111111112): $0.00
-[AutoTrade] getTokenInfo: Fetching So11111111111111111111111111111111111111112 (Chain: 900, Jitter: 448ms)
-[AutoTrade] getTokenInfo: Success (DexScreener) - SOL $136.34
-[AutoTrade] Solana trade calculation: {
-  buyAmountUsd: 1,
-  solPrice: 136.34,
-  amountInSol: '0.007335',
-  amountInLamports: '7334604',
-  tokenToBuy: '9AvytnUKsLxPxFH...',
-  walletAddress: 'BgNm4YDzxb3sMpp...'
-}
-[PrivyWallet] Found delegated Solana wallet for user: { address: 'BgNm4YDzxb...', id: 'g12d93bd9p...' }
-[SolanaExecutor] Using user's delegated wallet: BgNm4YDzxb...
-[SolanaExecutor] Executing Swap: 7334604 of So11111111111111111111111111111111111111112 -> 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump using auto-router...
-[Solana Swap] Fetching multiple quotes in parallel (Price-First strategy)...
-[Jupiter Ultra] Fetching order/quote...
-[Raydium API] Quote took 266ms
-[Jupiter API] Quote took 622ms
-[Solana Swap] Selected jupiter as best route (624ms)
-[Solana Swap] Building transaction for best quote (jupiter)...
-[Solana Swap] Best quote with transaction complete (890ms)
-[SolanaExecutor] Swap prepared via jupiter (Out: 63652243)
-[PrivyWallet] Found delegated Solana wallet for user: { address: 'BgNm4YDzxb...', id: 'g12d93bd9p...' }
-[PrivyWallet] Sending Solana transaction: {
-  walletSource: 'delegated',
-  walletId: 'g12d93bd9p...',
-  walletAddress: 'BgNm4YDzxb...',
-  userId: 'did:privy:...'
-}
-    at $n.handleRequestError (/app/node_modules/@prisma/client/runtime/library.js:121:7315)
-[Prisma-Error] 
-    at $n.handleAndLogRequestError (/app/node_modules/@prisma/client/runtime/library.js:121:6623)
-Invalid `prisma.trendingCast.upsert()` invocation:
-    at $n.request (/app/node_modules/@prisma/client/runtime/library.js:121:6307)
-    at async l (/app/node_modules/@prisma/client/runtime/library.js:130:9633)
-    at async file:///app/dist/repositories/socialRepository.js:64:21
-    at async Proxy._transactionWithCallback (/app/node_modules/@prisma/client/runtime/library.js:130:8000)
-Transaction API error: Transaction not found. Transaction ID is invalid, refers to an old closed transaction Prisma doesn't have information about anymore, or was obtained before disconnecting. { target: 'trendingCast.upsert', timestamp: 2026-01-10T14:06:24.308Z }
-    at async file:///app/dist/repositories/socialRepository.js:55:13
-Error saving trending casts: PrismaClientKnownRequestError: 
-    at async withRetry (file:///app/dist/db/prisma.js:60:20)
-Invalid `prisma.trendingCast.upsert()` invocation:
-Transaction API error: Transaction not found. Transaction ID is invalid, refers to an old closed transaction Prisma doesn't have information about anymore, or was obtained before disconnecting.
-    at async saveTrendingCasts (file:///app/dist/repositories/socialRepository.js:52:9)
-    at async refreshTrendingCasts (file:///app/dist/jobs/socialDataJob.js:280:9) {
-  code: 'P2028',
-  clientVersion: '5.22.0',
-  meta: {
-    modelName: 'TrendingCast',
-    error: "Transaction not found. Transaction ID is invalid, refers to an old closed transaction Prisma doesn't have information about anymore, or was obtained before disconnecting."
-  }
-}
-[SocialJob] Error: 
-Invalid `prisma.trendingCast.upsert()` invocation:
-Transaction API error: Transaction not found. Transaction ID is invalid, refers to an old closed transaction Prisma doesn't have information about anymore, or was obtained before disconnecting.
-[AutoTrade] getTokenInfo: Fetching 6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN (Chain: 900, Jitter: 386ms)
-[AutoTrade] getTokenInfo: Success (DexScreener) - TRUMP $5.44
-[AutoTrade] getTokenInfo: Fetching 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump (Chain: 900, Jitter: 311ms)
-[AutoTrade] getTokenInfo: Success (DexScreener) - 67 $0.01573
-[PrivyWallet] Solana transaction sent: 39XeVt3vpFmQBDvrSJFtNauQjBUFVUDajRMozQqLW3MuD5gXj8P7AJAEEyCFFUxgzn96Zg8N6H87L3C8XkcVXdJC
-[SolanaExecutor] Swap Executed: https://solscan.io/tx/39XeVt3vpFmQBDvrSJFtNauQjBUFVUDajRMozQqLW3MuD5gXj8P7AJAEEyCFFUxgzn96Zg8N6H87L3C8XkcVXdJC
-[AutoTrade] Position created for user cmjqr6yqq00003svdazw3v6xx
-[AutoTrade] 📧 Email missing in DB for cmjqr6yqq00003svdazw3v6xx, fetching from Privy...
-[AutoTrade] ⚠️ No email found in Privy for user cmjqr6yqq00003svdazw3v6xx
-
-incoming request
-[DEBUG] onRequest: POST /api/webhook/alchemy
-[Webhook] Incoming Alchemy (SOLANA_MAINNET): {"webhookId":"wh_7hvs9h2sleb5rbdy","id":"whevt_wb3ga89858u2oxp1","createdAt":"2026-01-10T14:07:25.256Z","type":"ADDRESS_ACTIVITY","event":{"transaction":[{"signature":"3oJZ4dd9EGa4HqVU7X5fzRqVr9WLFm8ux8ouPsDqA3KQyzwXNbMtpUPv8augakghyFpMo3U59bNKWmrvXvRhRqpa","transaction":[{"signatures":["3oJZ4dd9EGa4HqVU7X5fzRqVr9WLFm8ux8ouPsDqA3KQyzwXNbMtpUPv8augakghyFpMo3U59bNKWmrvXvRhRqpa"],"message":[{"header":[{"num_required_signatures":1,"num_readonly_signed_accounts":0,"num_readonly_unsigned_accounts":3}],"instructions":[{"accounts":[22],"data":"Gxgscb","program_id_index":12},{"data":"3DXqyz4SKXro","program_id_index":12},{"accounts":[15,0,0,0,16,28,23,24,24,1,2,17,3,25,11,4,18,16,2,4,26,5,6,7,28,23,24,24,18,27,18,16,2,4,26,8,9,10,28,23,24,24,18,27,18,16,2,4,26,19,20,21,28,23,24,24,18,27],"data":"NDupGMnjiRderTsgxSnHPEdXRtZwN4ZWiCHhDAUQcx6JvvVA1jirrtJsMz6r3rncicd4GeJ5Rsi6FRafo2mqHHaHaEgVp4dHYadZcbzPJHWZ","program_id_index":13},{"accounts":[0,14],"data":"3Bxs4Bc3VYuGVB19","program_id_index":11}],"versioned":true,"account_keys":["CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV","GHVioHZQpTK7SF45KoYYT4uz6ASMvogUE2FQKnCbemzz","4CbixAvjPC8ESEUhKndSnTZmZnbdYzgwzWKB6FXHNUuy","4iZ2v3rJnF8pp4TybqXBCBqYYQmKXn94V8hMYviekUfY","EXcso4VNxPX2VATMZEA6FxNy7i9H7NuR48iA4vEESqcu","7Syn4DkSiVd7rCfTsddMC7bMzt7Z1XW4Q4tyhcLumfKz","3fFzggvEWwA2Un9VeHtiktwVtThgVnh93YHqt1CWW2JS","5NPgdb77vWXDztwBagSm2K1soEyPYEFcHp8TNoVRo1h","8RvhzZwtpi5yyF6XvGrEK3gW48jEj93gV2QFqf9FrsQ9","7a5yU81bBvgYzHhzTFoubPvarW448P9A2jknCiwf8dNL","CBeGtnHyHQrXuW66YipfZLCd4Q2Mtj73jXuXpsGnWPYh","11111111111111111111111111111111","ComputeBudget111111111111111111111111111111","s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC"],"recent_blockhash":"7u8JSu6kn3SfFnQmR43rzNTZXh1XZCgJMYL24GzXViPS","address_table_lookups":[{"account_key":"3PiDGEeehivGdhkmLt6Rzyo6mhmogYXtgAjurb25NxxW","writable_indexes":[88],"readonly_indexes":[74]},{"account_key":"7ZZxxRoiQ3w5LkXqQynjW5c1m6rhn1q1AYhtVdjLwtZm","writable_indexes":[1,0,2,39],"readonly_indexes":[14,11,24,43,40]},{"account_key":"AvmKEETU7hPYiwYMusAv5pbBy5rdXrrjbK51nWseD9ts","writable_indexes":[102,104,105],"readonly_indexes":[103]}]}]}],"meta":[{"fee":93000,"pre_balances":[18990473,2039280,2039280,2689791393,0,8630400,2039280,1538665398,8630400,2039280,1281449590,1,1,25178294,26790102894,13008240,37209554,310884082505,1151507,8630400,2039280,20868997539,0,1295273356838,5547701260,3316541054,63083877457,0,68219446368],"post_balances":[27766463,2039280,2039280,2689791393,0,8630400,2039280,1537475129,8630400,2039280,1280954572,1,1,25178294,26791102894,13008240,37209554,310884132097,1151507,8630400,2039280,20860764244,0,1295273356838,5547701260,3316541054,63083877457,0,68219446368],"inner_instructions":[{"index":2,"instructions":[{"accounts":[0,4],"data":"11119os1e9qSs2u7TsThXqkBSRVFxhmYaFKFZ1waB2X7armDmvK3p5GmLdUxYdg3h7QSrL","program_id_index":11},{"accounts":[4,23],"data":"6PDLYvqwChr2CCDiJ51aqskoU4rtxyUpT5jKbp7FKf5Ag","program_id_index":24},{"accounts":[1,28,2,0],"data":"hZmgumN8y9pY5","program_id_index":24},{"accounts":[26,5,2,4,6,7,28,23,16,24,24,18,27,18],"data":"PgQWtn8ozixDmmc7b1QZB9zcyzpLnMM5y","program_id_index":18},{"accounts":[2,28,6,16],"data":"iUN9CfMU2AYQV","program_id_index":24},{"accounts":[7,23,4,26],"data":"hhMF3VqhSV1vQ","program_id_index":24},{"accounts":[27],"data":"EVM9wLnauu9H41GfKhTodoyoXMcB8UTgHkY9ztdCAHFwEBBYK6MGh2BKVeoKGLzrPwe1MX4ttUeSoneADDdH1QFHgFsAK9gZAp3Yks88X2CyJK75qBmPuMsb1SeSkaaxbNjY466pAyGC7MN8HnkXzZQkc3bkDWCjVJ6WaT6eTZkuvURCuKtKXrpCx3bb7jAMT9zkXpe7XzmorMtaxFEjNqjzUrCgab6nVaiBz6aZ2qFkuYnNhzhJuei1RPVMnDpG1f53niw5nCas","program_id_index":18},{"accounts":[26,8,2,4,9,10,28,23,16,24,24,18,27,18],"data":"PgQWtn8oziwtDrbDwfi6vDiDmyixVkyJo","program_id_index":18},{"accounts":[2,28,9,16],"data":"gTUuubaqTDboK","program_id_index":24},{"accounts":[10,23,4,26],"data":"iGrqBZH3Bsc2t","program_id_index":24},{"accounts":[27],"data":"EVM9wLnauu9H41GfKhTodp1PFwe31UXj4CKc8bgShkCS1QeBhKjvKYEBdh1g1vxpnxamK51FnQdJZ9876HoCcnoWJLhKr3gAtSJEv4HcbVf2ETioqoshxPUUiZDCuXkd19xRztHRYB6DiRZbivjrB58RpM9TFRwwdJxb1c4m6La1a6pZSkPmjmoD8H2he8P1S45XyxrifnkuqfQ9YGpF7gRaUL3cCnesubqMNTebHVVwwtjdv8r4acBhMbKQNL2ay9r95fheiLco","program_id_index":18},{"accounts":[26,19,2,4,20,21,28,23,16,24,24,18,27,18],"data":"PgQWtn8ozixAHsvxWeCRmeV8ffb7BXnK9","program_id_index":18},{"accounts":[2,28,20,16],"data":"i7Z7dQdVgY6Tf","program_id_index":24},{"accounts":[21,23,4,26],"data":"h7jhJE2rGeWuN","program_id_index":24},{"accounts":[27],"data":"EVM9wLnauu9H41GfKhTodp9xLQhV5ZfXCmohK55eP3Qx5EPKQ9x7UwZxwVj96bkkYiDAFKjm7Ws5c2j8YqM3b6iVco4PiVvALHg6jRh1gXoPzsrxmnoNBmE4YKY6ZiNb5dj89mUZtfPoGNL2c3XyZiPYcHp1jZdVUoMtu2u7bhNihoDtVSZJGud2unwGkMzjAMb1By4Thg1AjhJ4teRSLmwyyuKs6iunFi1o5XGuG6BpDAPHQv6pfcucWRBXa7mA9YuEwBndH1H1","program_id_index":18},{"accounts":[4,16,16],"data":"A","program_id_index":24},{"accounts":[16,17],"data":"3Bxs4Xm1Dn4rS9fm","program_id_index":11},{"accounts":[16,0],"data":"3Bxs4Yjc2tqCVAsR","program_id_index":11},{"accounts":[16,0],"data":"3Bxs4h24hBtQy9rw","program_id_index":11}]}],"inner_instructions_none":false,"log_messages":["Program ComputeBudget111111111111111111111111111111 invoke [1]","Program ComputeBudget111111111111111111111111111111 success","Program ComputeBudget111111111111111111111111111111 invoke [1]","Program ComputeBudget111111111111111111111111111111 success","Program s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC invoke [1]","Program log: Instruction: SwapSplSolV3","Program 11111111111111111111111111111111 invoke [2]","Program 11111111111111111111111111111111 success","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]","Program log: Instruction: InitializeAccount3","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 3158 of 520189 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program log: start-> amt_in:86435186, quote_amt:9868990, min_amt_out:9670618, deduct_amt:0, fee_rate: 50, order_id: 205603494891396018007213221230779973220","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6147 of 501025 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program log: tf-> amt_in: 86435186, amt_in_for_swap: 86435186","Program log: is_first_hop_bool:false, is_last_hop_bool:false","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG invoke [2]","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [3]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6147 of 464668 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [3]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6238 of 457250 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG invoke [3]","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG consumed 109 of 444913 compute units","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG success","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG consumed 31442 of 476221 compute units","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG success","Program log: inv-> pool:7Syn4DkSiVd7rCfTsddMC7bMzt7Z1XW4Q4tyhcLumfKz, input_mint:9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump, amt_in:10363578, amt_out:1190269","Program log: is_first_hop_bool:false, is_last_hop_bool:false","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG invoke [2]","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [3]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6147 of 411035 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [3]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6238 of 403617 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG invoke [3]","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG consumed 109 of 391279 compute units","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG success","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG consumed 31465 of 422610 compute units","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG success","Program log: inv-> pool:8RvhzZwtpi5yyF6XvGrEK3gW48jEj93gV2QFqf9FrsQ9, input_mint:9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump, amt_in:4313115, amt_out:495018","Program log: is_first_hop_bool:false, is_last_hop_bool:false","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG invoke [2]","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [3]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6147 of 357627 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [3]","Program log: Instruction: TransferChecked","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 6238 of 350209 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG invoke [3]","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG consumed 109 of 337557 compute units","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG success","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG consumed 31778 of 369201 compute units","Program cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG success","Program log: inv-> pool:DkWAvM15zbrSKKeko9vBs2fY7WRu7WeEe47DDTMUiDJu, input_mint:9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump, amt_in:71758493, amt_out:8233295","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]","Program log: Instruction: CloseAccount","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 2915 of 325145 compute units","Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA success","Program 11111111111111111111111111111111 invoke [2]","Program 11111111111111111111111111111111 success","Program log: fee-> amt:49592","Program 11111111111111111111111111111111 invoke [2]","Program 11111111111111111111111111111111 success","Program log: tf-> amt_out: 9868990","Program 11111111111111111111111111111111 invoke [2]","Program 11111111111111111111111111111111 success","Program log: ix-> pda before_sol:37209554, pda_wsol_sol(rent+amt_out):11957862, pda_after_sol:49167416, tf pda_wsol_rent to payer:2039280","Program log: done-> amt_in:86435186, amt_out:11908270","Program data: oCrVSQpVOdOrDwv3V7oKBi30JUpTVlgBwItslSI1blFRVa0D785ZHnLlJgUAAAAArrS1AAAAAAC+lpYAAAAAANqPkwAAAAAAAAAAAAAAAAC4wQAAAAAAAGQ+MqZd+H6jIkHMi/HKrZo=","Program s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC consumed 241953 of 549700 compute units","Program return: s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC dliXAAAAAAA=","Program s7SunwrPG5SbViEKiViaDThPRJxkkTrNx2iRPN3exNC success","Program 11111111111111111111111111111111 invoke [1]","Program 11111111111111111111111111111111 success"],"log_messages_none":false,"pre_token_balances":[{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV","account_index":1,"ui_token_amount":{"decimals":6,"amount":"86435186","ui_amount":86.435186,"ui_amount_string":"86.435186"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"35dszeQQQzkMvjcmyrPWPnN5ZyK9ZjYkNp9kKXZWMvji","account_index":2,"ui_token_amount":{"decimals":6,"amount":"0","ui_amount":0,"ui_amount_string":"0"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":6,"ui_token_amount":{"decimals":6,"amount":"6972257005","ui_amount":6972.257005,"ui_amount_string":"6972.257005"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":7,"ui_token_amount":{"decimals":9,"amount":"1536626118","ui_amount":1.536626118,"ui_amount_string":"1.536626118"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":9,"ui_token_amount":{"decimals":6,"amount":"6686329701","ui_amount":6686.329701,"ui_amount_string":"6686.329701"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":10,"ui_token_amount":{"decimals":9,"amount":"1279410310","ui_amount":1.27941031,"ui_amount_string":"1.27941031"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":20,"ui_token_amount":{"decimals":6,"amount":"635196968333","ui_amount":635196.968333,"ui_amount_string":"635196.968333"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":21,"ui_token_amount":{"decimals":9,"amount":"20866958259","ui_amount":20.866958259,"ui_amount_string":"20.866958259"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}],"post_token_balances":[{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV","account_index":1,"ui_token_amount":{"decimals":6,"amount":"0","ui_amount":0,"ui_amount_string":"0"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"35dszeQQQzkMvjcmyrPWPnN5ZyK9ZjYkNp9kKXZWMvji","account_index":2,"ui_token_amount":{"decimals":6,"amount":"0","ui_amount":0,"ui_amount_string":"0"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":6,"ui_token_amount":{"decimals":6,"amount":"6982620583","ui_amount":6982.620583,"ui_amount_string":"6982.620583"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":7,"ui_token_amount":{"decimals":9,"amount":"1535435849","ui_amount":1.535435849,"ui_amount_string":"1.535435849"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":9,"ui_token_amount":{"decimals":6,"amount":"6690642816","ui_amount":6690.642816,"ui_amount_string":"6690.642816"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":10,"ui_token_amount":{"decimals":9,"amount":"1278915292","ui_amount":1.278915292,"ui_amount_string":"1.278915292"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":20,"ui_token_amount":{"decimals":6,"amount":"635268726826","ui_amount":635268.726826,"ui_amount_string":"635268.726826"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},{"mint":"So11111111111111111111111111111111111111112","owner":"HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","account_index":21,"ui_token_amount":{"decimals":9,"amount":"20858724964","ui_amount":20.858724964,"ui_amount_string":"20.858724964"},"program_id":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}],"loaded_writable_addresses":["FogxVNs6Mm2w9rnGL1vkARSwJxvLE8mujTv3LK8RnUhF","Dh6ji16DrAzAZCTDXPSSAdzKsEaprC5rkMTLXGwDN1Fr","35dszeQQQzkMvjcmyrPWPnN5ZyK9ZjYkNp9kKXZWMvji","69xpHRvBFzG5UooTszUEEcNvdEvKZeUdbxLE2wXUbLar","cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG","DkWAvM15zbrSKKeko9vBs2fY7WRu7WeEe47DDTMUiDJu","6yoPULkiT1FqYzvwPNQ9JvpqCxiboRpGAkzxDSq8Y2wF","GsBv7YFgPq1zs2MtR5hcTdovj2eJsSDJindaGEXRnKZ8"],"loaded_readonly_addresses":["jitodontfront111111111111111111BitgetWaLLet","So11111111111111111111111111111111111111112","TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL","HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC","3rmHSu74h1ZcmAisVcWerTCiRDQbUrBKmcwptYGjHfet","9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump"],"return_data_none":true,"compute_units_consumed":242403}],"index":43,"is_vote":false}],"slot":392581664,"network":"SOLANA_MAINNET"}}
-[Webhook] Processing as Solana transaction (1 items)
-[DEBUG] onResponse: POST /api/webhook/alchemy -> 200
-request completed
-[Webhook] 🎯 Found 1 tracked wallets for tx 3oJZ4dd9
-[SolanaDecoder] Decoding tx 3oJZ4dd9EGa4HqVU7X5fzRqVr9WLFm8ux8ouPsDqA3KQyzwXNbMtpUPv8augakghyFpMo3U59bNKWmrvXvRhRqpa for CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV
-[SolanaDecoder] Detected 2 token balance changes
-[SolanaDecoder]   - So111111: 8775990
-[SolanaDecoder]   - 9AvytnUK: -86435186
-[SolanaDecoder] ✅ Swap identified: 9Avytn -> So1111 (Solana DEX)
-[Webhook] ✅ Solana Swap detected for CWk2NqZw: {
-  in: '9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump',
-  out: 'So11111111111111111111111111111111111111112',
-  dex: 'Solana DEX'
-}
-[AutoTrade] 🔴 TARGET IS SELLING - triggering mirror sell
-[AutoTrade] ========== SWAP DETECTED ==========
-[AutoTrade] ⚡ Fast path sell: Found 1 config(s) for SELL of 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump
-[AutoTrade] Processing swap from target: {
-[AutoTrade] getTokenInfo: Fetching 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump (Chain: 900, Jitter: 407ms)
-  wallet: 'CWk2NqZwy3Fo9cumJcWwt45j4D6FnboS5h3vHZWtKyvV',
-[AutoTrade] getTokenInfo: Success (DexScreener) - 67 $0.01567
-  tokenIn: '9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump',
-[AutoTrade] Closing 2 position(s) for user cmjqr6yqq00003svdazw3v6xx
-  tokenOut: 'So11111111111111111111111111111111111111112',
-[AutoTrade] Selling 63588533 of 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump on Solana
-  amountIn: '86435186',
-[AutoTrade] Selling 100% balance: 63588533 on Solana
-  amountOut: '8775990'
-}
-[PrivyWallet] Found delegated Solana wallet for user: { address: 'BgNm4YDzxb...', id: 'g12d93bd9p...' }
-[AutoTrade] Detection result: {
-  isBuy: false,
-  isSell: true,
-  isTokenToToken: false,
-  tokenInIsCash: false,
-  tokenOutIsCash: true
-}
-[SolanaExecutor] Using user's delegated wallet: BgNm4YDzxb...
-[SolanaExecutor] Executing Swap: 63588533 of 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump -> So11111111111111111111111111111111111111112 using auto-router...
-[Solana Swap] Fetching multiple quotes in parallel (Price-First strategy)...
-[Jupiter Ultra] Fetching order/quote...
-[Raydium API] Quote took 227ms
-[AutoTrade] getTokenInfo: Fetching 6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN (Chain: 900, Jitter: 252ms)
-[AutoTrade] getTokenInfo: Success (DexScreener) - TRUMP $5.44
-[Jupiter API] Quote took 445ms
-[Solana Swap] Selected jupiter as best route (446ms)
-[Solana Swap] Building transaction for best quote (jupiter)...
-[AutoTrade] getTokenInfo: Fetching 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump (Chain: 900, Jitter: 382ms)
-[Solana Swap] Best quote with transaction complete (802ms)
-[SolanaExecutor] Swap prepared via jupiter (Out: 7283369)
-[AutoTrade] getTokenInfo: Success (DexScreener) - 67 $0.01567
-[PrivyWallet] Found delegated Solana wallet for user: { address: 'BgNm4YDzxb...', id: 'g12d93bd9p...' }
-[PrivyWallet] Sending Solana transaction: {
-  walletSource: 'delegated',
-  walletId: 'g12d93bd9p...',
-  walletAddress: 'BgNm4YDzxb...',
-  userId: 'did:privy:...'
-}
-[PrivyWallet] Solana transaction sent: 5X8qjRfMDAuzt6XPBvSgNPcRfVGDxsrEp6Wu3qQSWSSfVoTzUAmbEiQqhD1jFcUcJAoUcFAAbbxzSdTPkKvC4XRN
-[SolanaExecutor] Swap Executed: https://solscan.io/tx/5X8qjRfMDAuzt6XPBvSgNPcRfVGDxsrEp6Wu3qQSWSSfVoTzUAmbEiQqhD1jFcUcJAoUcFAAbbxzSdTPkKvC4XRN
-[AutoTrade] getTokenInfo: Fetching 9AvytnUKsLxPxFHFqS6VLxaxt5p6BhYNr53SD2Chpump (Chain: 900, Jitter: 458ms)
-[AutoTrade] getTokenInfo: Success (DexScreener) - 67 $0.01567
-[AutoTrade] Closed positions with tx 5X8qjRfMDAuzt6XPBvSgNPcRfVGDxsrEp6Wu3qQSWSSfVoTzUAmbEiQqhD1jFcUcJAoUcFAAbbxzSdTPkKvC4XRN
+[Log] [AutoAuth] All wallets properly authorized, skipping (useAutoAuthorization.ts, line 118)
+[Debug] [vite] connecting... (client, line 733)
+[Debug] [vite] connected. (client, line 827)
+[Log] [DEBUG] – "Loading model from localStorage:" – "{\"id\":\"deepseek-v3-fast\",\"name\":\"DeepSeek-V3.2\",\"mode\":\"fast\"}" (logger.ts, line 23)
+[Log] [DEBUG] – "Found saved model:" – "deepseek-v3-fast" (logger.ts, line 23)
+[Log] [DEBUG] – "Loading model from localStorage:" – "{\"id\":\"deepseek-v3-fast\",\"name\":\"DeepSeek-V3.2\",\"mode\":\"fast\"}" (logger.ts, line 23)
+[Log] [DEBUG] – "Found saved model:" – "deepseek-v3-fast" (logger.ts, line 23)
+[Log] [DEBUG] – "[WelcomeScreen] Saved model selection:" – "deepseek-v3-fast" (logger.ts, line 23)
+[Log] [DEBUG] – "Saved model selection to localStorage:" – "deepseek-v3-fast" (logger.ts, line 23)
+[Log] [DEBUG] – "[WelcomeScreen] Saved model selection:" – "deepseek-v3-fast" (logger.ts, line 23)
+[Log] [DEBUG] – "Saved model selection to localStorage:" – "deepseek-v3-fast" (logger.ts, line 23)
+[Info] Successfully preconnected to https://fonts.googleapis.com/
+[Info] Successfully preconnected to https://fonts.gstatic.com/
+[Warning] WalletConnect Core is already initialized. This is probably a mistake and can lead to unexpected behavior. Init() was called 2 times. (chunk-U3RQ5DKL.js, line 14533)
+[Debug] Wallet did not respond to eth_accounts. Defaulting to prefetched accounts. – provider_error: Must call 'eth_requestAccounts' before other methods (chunk-UDXY66LK.js, line 1710)
+provider_error: Must call 'eth_requestAccounts' before other methods
+[Log] [AutoAuth] Fetching auth key ID from backend... (useAutoAuthorization.ts, line 27)
+[Log] [AutoAuth] User wallets status: – {evmWallet: {address: "0xCEC0dE02...", delegated: true}, solanaWallet: {address: "5KhxVxJPw6...", delegated: true}} (useAutoAuthorization.ts, line 46)
+[Debug] Embedded1193Provider.request() called with args – {method: "eth_accounts"} (chunk-4JLPTE6Z.js, line 29908)
+[Debug] eth_accounts for privy: – ["0xCEC0dE02d21E8ACb37F18E5447A085867C07465D"] (1) (chunk-UDXY66LK.js, line 1707)
+[Debug] Embedded1193Provider.request() called with args – {method: "wallet_switchEthereumChain", params: [{chainId: "0x1"}]} (chunk-4JLPTE6Z.js, line 29908)
+[Warning] [CopyTradeApi] No token available, skipping fetch. (copyTradeApi.ts, line 25)
+[Log] [ChatWS] Connecting to user WebSocket... (chatWebSocket.ts, line 30)
+[Debug] Embedded1193Provider.request() called with args – {method: "eth_accounts"} (chunk-4JLPTE6Z.js, line 29908)
+[Debug] Embedded1193Provider.request() called with args – {method: "eth_accounts"} (chunk-4JLPTE6Z.js, line 29908)
+[Debug] Embedded1193Provider.request() called with args – {method: "eth_chainId"} (chunk-4JLPTE6Z.js, line 29908)
+[Log] [AutoAuth] Got auth key ID: – "crdgro3bw07z2y2..." (useAutoAuthorization.ts, line 31)
+[Error] WebSocket connection to 'ws://localhost:3001/api/chat/ws?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwUEFsR2FodWVyZEVTbWZjX01aOFltc2twWWlRZHJrRTQ5MENUbnJTVnMifQ.eyJzaWQiOiJjbWs5N3JwdWEwMWVobGIwY2l6cmE5Y2N0IiwiaXNzIjoicHJpdnkuaW8iLCJpYXQiOjE3NjgxMDQ1MDMsImF1ZCI6ImNtaTJzcGwwdzAydzBsNzBjcmVjd3Y3bDMiLCJzdWIiOiJkaWQ6cHJpdnk6Y21rM3ViZ3JhMDB4M2w1MGMwNXpycWJ6eSIsImV4cCI6MTc2ODEwODEwM30.f4Y_AqGSRih2iV-4CYdrPx8rAFMOmuBqeKJuq0oE08lAP29846dTqufPqNUGskpVRc2Z1Kn-8eXXkmWaoVRkgg' failed: The network connection was lost.
+[Error] [ChatWS] WebSocket error: – Event {isTrusted: true, type: "error", target: WebSocket, …}
+Event {isTrusted: true, type: "error", target: WebSocket, currentTarget: WebSocket, eventPhase: 2, …}Event
+	（匿名函数） (chatWebSocket.ts:56)
+[Log] [ChatWS] Disconnected (code: 1006, reason: ) (chatWebSocket.ts, line 49)
+[Debug] Detected injected providers: – [] (0) (chunk-UDXY66LK.js, line 1589)
+[Log] [AutoAuth] All wallets properly authorized, skipping (useAutoAuthorization.ts, line 118)
+[Log] [ChatWS] Connecting to user WebSocket... (chatWebSocket.ts, line 30)
+[Log] [ChatWS] Connected to user WebSocket (chatWebSocket.ts, line 33)
+[Log] [WalletPage] Chain changed to – 8453 – "- resetting state" (WalletPage.tsx, line 300)
+[Log] [WalletPage] Balance useEffect triggered: – {ready: true, authenticated: true, isConnected: true, …} (WalletPage.tsx, line 385)
+{ready: true, authenticated: true, isConnected: true, walletAddress: "0xCEC0dE02d21E8ACb37F18E5447A085867C07465D", chainId: 8453, …}Object
+[Log] [WalletPage] Fetching all-chain balances for: – "0xCEC0dE02d21E8ACb37F18E5447A085867C07465D" (WalletPage.tsx, line 415)
+[Log] [WalletPage] Fetching transactions: – {walletAddress: "0xCEC0dE02d21E8ACb37F18E5447A085867C07465D", chainName: "base", reqId: 1} (WalletPage.tsx, line 539)
+[Log] [WalletPage] Chain changed to – 8453 – "- resetting state" (WalletPage.tsx, line 300)
+[Log] [WalletPage] Balance useEffect triggered: – {ready: true, authenticated: true, isConnected: true, …} (WalletPage.tsx, line 385)
+{ready: true, authenticated: true, isConnected: true, walletAddress: "0xCEC0dE02d21E8ACb37F18E5447A085867C07465D", chainId: 8453, …}Object
+[Log] [WalletPage] Fetching all-chain balances for: – "0xCEC0dE02d21E8ACb37F18E5447A085867C07465D" (WalletPage.tsx, line 415)
+[Log] [WalletPage] Fetching transactions: – {walletAddress: "0xCEC0dE02d21E8ACb37F18E5447A085867C07465D", chainName: "base", reqId: 2} (WalletPage.tsx, line 539)
+[Log] [SessionSignerButton] ethereum wallet delegation check: – {address: "0xCEC0dE02...", delegated: true, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "0xCEC0dE02...", delegated: true, walletClientType: "privy", chainType: "ethereum", fullWallet: Object}Object
+[Log] [SessionSignerButton] solana wallet delegation check: – {address: "5KhxVxJPw6...", delegated: true, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "5KhxVxJPw6...", delegated: true, walletClientType: "privy", chainType: "solana", fullWallet: Object}Object
+[Log] [SessionSignerButton] ethereum wallet delegation check: – {address: "0xCEC0dE02...", delegated: true, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "0xCEC0dE02...", delegated: true, walletClientType: "privy", chainType: "ethereum", fullWallet: Object}Object
+[Log] [SessionSignerButton] solana wallet delegation check: – {address: "5KhxVxJPw6...", delegated: true, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "5KhxVxJPw6...", delegated: true, walletClientType: "privy", chainType: "solana", fullWallet: Object}Object
+[Log] [AutoAuth] All wallets properly authorized, skipping (useAutoAuthorization.ts, line 118)
+[Log] [WalletPage] Transactions received: – {count: 0, reqId: 1, currentReqId: 2, …} (WalletPage.tsx, line 544)
+{count: 0, reqId: 1, currentReqId: 2, cancelled: true, sample: undefined}Object
+[Warning] [WalletPage] Transaction request stale (newer request exists), ignoring update – {cancelled: true, reqId: 1, currentReqId: 2} (WalletPage.tsx, line 556)
+[Log] [WalletPage] Transactions received: – {count: 0, reqId: 2, currentReqId: 2, …} (WalletPage.tsx, line 544)
+{count: 0, reqId: 2, currentReqId: 2, cancelled: false, sample: undefined}Object
+[Log] [WalletPage] Transactions updated, count: – 0 (WalletPage.tsx, line 554)
+[Debug] Successfully verified access token. (5714-8d2f20debd9e715a.js, line 1)
+[Log] [SessionSignerButton] ethereum wallet delegation check: – {address: "0xCEC0dE02...", delegated: false, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "0xCEC0dE02...", delegated: false, walletClientType: "privy", chainType: "ethereum", fullWallet: Object}Object
+[Log] [SessionSignerButton] solana wallet delegation check: – {address: "5KhxVxJPw6...", delegated: true, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "5KhxVxJPw6...", delegated: true, walletClientType: "privy", chainType: "solana", fullWallet: Object}Object
+[Log] [AutoAuth] User wallets status: – {evmWallet: {address: "0xCEC0dE02...", delegated: false}, solanaWallet: {address: "5KhxVxJPw6...", delegated: true}} (useAutoAuthorization.ts, line 46)
+[Log] [AutoAuth] ethereum wallet needs auth (Privy delegated: false) (useAutoAuthorization.ts, line 104)
+[Log] [AutoAuth] Attempting to authorize EVM wallet... (useAutoAuthorization.ts, line 125)
+[Log] [AutoAuth] Authorizing ethereum wallet: – "0xCEC0dE02..." (useAutoAuthorization.ts, line 81)
+[Debug] Successfully verified access token. (5714-8d2f20debd9e715a.js, line 1, x2)
+[Log] [AutoAuth] ethereum wallet authorized successfully (useAutoAuthorization.ts, line 90)
+[Log] [SessionSignerButton] ethereum wallet delegation check: – {address: "0xCEC0dE02...", delegated: true, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "0xCEC0dE02...", delegated: true, walletClientType: "privy", chainType: "ethereum", fullWallet: Object}Object
+[Log] [SessionSignerButton] solana wallet delegation check: – {address: "5KhxVxJPw6...", delegated: false, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "5KhxVxJPw6...", delegated: false, walletClientType: "privy", chainType: "solana", fullWallet: Object}Object
+[Log] [AutoAuth] User wallets status: – {evmWallet: {address: "0xCEC0dE02...", delegated: true}, solanaWallet: {address: "5KhxVxJPw6...", delegated: false}} (useAutoAuthorization.ts, line 46)
+[Log] [AutoAuth] solana wallet needs auth (Privy delegated: false) (useAutoAuthorization.ts, line 104)
+[Log] [AutoAuth] Attempting to authorize Solana wallet... (useAutoAuthorization.ts, line 131)
+[Log] [AutoAuth] Authorizing solana wallet: – "5KhxVxJPw6..." (useAutoAuthorization.ts, line 81)
+[Debug] Successfully verified access token. (5714-8d2f20debd9e715a.js, line 1)
+[Log] [AutoAuth] solana wallet authorized successfully (useAutoAuthorization.ts, line 90)
+[Log] [SessionSignerButton] ethereum wallet delegation check: – {address: "0xCEC0dE02...", delegated: true, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "0xCEC0dE02...", delegated: true, walletClientType: "privy", chainType: "ethereum", fullWallet: Object}Object
+[Log] [SessionSignerButton] solana wallet delegation check: – {address: "5KhxVxJPw6...", delegated: true, walletClientType: "privy", …} (SessionSignerButton.tsx, line 33)
+{address: "5KhxVxJPw6...", delegated: true, walletClientType: "privy", chainType: "solana", fullWallet: Object}Object
+[Log] [AutoAuth] User wallets status: – {evmWallet: {address: "0xCEC0dE02...", delegated: true}, solanaWallet: {address: "5KhxVxJPw6...", delegated: true}} (useAutoAuthorization.ts, line 46)
+[Log] [AutoAuth] All wallets properly authorized, skipping (useAutoAuthorization.ts, line 118)

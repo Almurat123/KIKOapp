@@ -93,11 +93,20 @@ export function useAutoAuthorization() {
         }
     }, []);
 
-    // Check if wallet is already delegated (from Privy's data)
-    const isWalletDelegated = useCallback((wallet: WalletWithMetadata | undefined): boolean => {
-        if (!wallet) return false;
-        // Privy adds 'delegated' property to wallets that have been delegated
-        return 'delegated' in wallet && wallet.delegated === true;
+    // NOTE: Privy's 'delegated' property on wallets does NOT mean our auth key is added!
+    // It just means the wallet supports delegation. We need to track our own auth status.
+    // Check our localStorage to see if we've successfully authorized before
+    const hasAuthorizedBefore = useCallback((chainType: 'ethereum' | 'solana'): boolean => {
+        try {
+            const saved = localStorage.getItem(AUTH_STATUS_KEY);
+            if (saved) {
+                const status = JSON.parse(saved);
+                return status[chainType] === true;
+            }
+        } catch (e) {
+            // Ignore
+        }
+        return false;
     }, []);
 
     // Authorize a specific wallet
@@ -106,12 +115,6 @@ export function useAutoAuthorization() {
         chainType: 'ethereum' | 'solana'
     ): Promise<boolean> => {
         if (!authKeyId || !wallet?.address) return false;
-
-        // Skip if already delegated
-        if (isWalletDelegated(wallet)) {
-            console.log(`[AutoAuth] ${chainType} wallet already delegated`);
-            return true;
-        }
 
         try {
             console.log(`[AutoAuth] Authorizing ${chainType} wallet:`, wallet.address.slice(0, 10) + '...');
@@ -130,38 +133,67 @@ export function useAutoAuthorization() {
             console.error(`[AutoAuth] Failed to authorize ${chainType} wallet:`, error);
             return false;
         }
-    }, [authKeyId, addSessionSigners, isWalletDelegated]);
+    }, [authKeyId, addSessionSigners]);
 
     // Main auto-authorization effect
     useEffect(() => {
         if (!ready || !authenticated || !authKeyId || isAuthorizing) return;
 
-        const performAutoAuth = async () => {
-            // Skip if we recently checked (within last hour)
-            const now = Date.now();
-            if (authStatus.lastChecked && now - authStatus.lastChecked < 3600000) {
-                // But still check if wallets have changed
-                const evmDelegated = isWalletDelegated(evmWallet);
-                const solanaDelegated = isWalletDelegated(solanaWallet);
+        // Helper to check if wallet needs authorization
+        // We need to authorize if:
+        // 1. We haven't authorized before (localStorage says false)
+        // 2. OR user has revoked (Privy returns delegated: false)
+        const needsAuthorization = (
+            wallet: WalletWithMetadata | undefined,
+            chainType: 'ethereum' | 'solana'
+        ): boolean => {
+            if (!wallet) return false;
+            const privyDelegated = 'delegated' in wallet ? wallet.delegated : false;
+            const localStorageAuthorized = hasAuthorizedBefore(chainType);
 
-                if (evmDelegated && solanaDelegated) {
-                    return; // All good, skip
-                }
+            // If Privy says NOT delegated, we definitely need to authorize
+            if (!privyDelegated) {
+                console.log(`[AutoAuth] ${chainType} wallet needs auth (Privy delegated: false)`);
+                return true;
+            }
+
+            // If Privy says delegated but we don't have localStorage record, we might need to authorize
+            // (user could have cleared localStorage but still be authorized, so skip in this case)
+            if (privyDelegated && !localStorageAuthorized) {
+                console.log(`[AutoAuth] ${chainType} wallet: Privy delegated but no localStorage record - assuming authorized`);
+                return false; // Trust Privy's status
+            }
+
+            return false;
+        };
+
+        const performAutoAuth = async () => {
+            const now = Date.now();
+
+            // Check if any wallet needs authorization
+            const evmNeedsAuth = needsAuthorization(evmWallet, 'ethereum');
+            const solanaNeedsAuth = needsAuthorization(solanaWallet, 'solana');
+
+            if (!evmNeedsAuth && !solanaNeedsAuth) {
+                console.log('[AutoAuth] All wallets properly authorized, skipping');
+                return;
             }
 
             setIsAuthorizing(true);
             const results: AuthStatus = { lastChecked: now };
 
             try {
-                // Authorize EVM wallet
-                if (evmWallet && !isWalletDelegated(evmWallet)) {
+                // Authorize EVM wallet if needed
+                if (evmWallet && evmNeedsAuth) {
+                    console.log('[AutoAuth] Attempting to authorize EVM wallet...');
                     results.ethereum = await authorizeWallet(evmWallet, 'ethereum');
                 } else if (evmWallet) {
                     results.ethereum = true;
                 }
 
-                // Authorize Solana wallet
-                if (solanaWallet && !isWalletDelegated(solanaWallet)) {
+                // Authorize Solana wallet if needed
+                if (solanaWallet && solanaNeedsAuth) {
+                    console.log('[AutoAuth] Attempting to authorize Solana wallet...');
                     results.solana = await authorizeWallet(solanaWallet, 'solana');
                 } else if (solanaWallet) {
                     results.solana = true;
@@ -181,13 +213,13 @@ export function useAutoAuthorization() {
         // Small delay to ensure Privy is fully ready
         const timer = setTimeout(performAutoAuth, 2000);
         return () => clearTimeout(timer);
-    }, [ready, authenticated, authKeyId, evmWallet, solanaWallet, isAuthorizing, authStatus.lastChecked, authorizeWallet, isWalletDelegated]);
+    }, [ready, authenticated, authKeyId, evmWallet, solanaWallet, isAuthorizing, authStatus.lastChecked, authorizeWallet, hasAuthorizedBefore]);
 
     return {
         isAuthorizing,
         authStatus,
-        evmDelegated: isWalletDelegated(evmWallet),
-        solanaDelegated: isWalletDelegated(solanaWallet),
+        evmAuthorized: hasAuthorizedBefore('ethereum'),
+        solanaAuthorized: hasAuthorizedBefore('solana'),
         // Manual trigger for re-authorization
         reauthorize: useCallback(async () => {
             if (!evmWallet && !solanaWallet) return;
