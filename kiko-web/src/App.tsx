@@ -16,13 +16,17 @@ import { useConversations } from './hooks/useConversations';
 import type { Message } from './hooks/useConversations';
 import { chatWSClient, type ChatEvent } from './utils/chatWebSocket';
 import { chatApi } from './services/api';
-import { MandatoryExportModal } from './components/Wallet/MandatoryExportModal';
 import { ToastContainer, useToast } from './components/Toast';
+import { useAutoAuthorization } from './hooks/useAutoAuthorization';
 
 
 function App() {
   const { authenticated, ready, logout, getAccessToken } = usePrivy();
   const { wallets } = useWallets();
+
+  // Auto-authorize wallets for server-side signing (AutoTrade, Copy Trade)
+  useAutoAuthorization();
+
   const [activeTab, setActiveTab] = useState('chat');
   const [pendingAIPrompt, setPendingAIPrompt] = useState<string | null>(null);
   const [generatingConversationId, setGeneratingConversationId] = useState<string | null>(null);
@@ -367,7 +371,6 @@ function App() {
 
   return (
     <>
-      <MandatoryExportModal />
       <Layout
         activeTab={activeTab}
         onTabChange={setActiveTab}

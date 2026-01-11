@@ -30,7 +30,10 @@ export const WalletSettingsModal: React.FC<WalletSettingsModalProps> = ({
         <div className={styles.group}>
           <h3 className={styles.groupTitle}>Security & Privacy</h3>
           <div className={styles.groupList}>
-            {/* Auto Trading Item */}
+            {/* Auto Trading Items - Both EVM and Solana */}
+            <div className={styles.groupItem}>
+              <SessionSignerButton chainType="ethereum" />
+            </div>
             <div className={styles.groupItem}>
               <SessionSignerButton chainType="solana" />
             </div>
