@@ -7,7 +7,6 @@ import { ContentFrame } from './ContentFrame';
 import type { FeedItem } from '../../services/api';
 import ZorbIcon from '../../assets/images/Zorb.svg';
 import { EmbedPreview } from './EmbedPreview';
-import { ImageViewer } from '../Common/ImageViewer';
 
 interface CastCard3DProps {
     cast: FeedItem | null;
@@ -15,9 +14,10 @@ interface CastCard3DProps {
     onClose: () => void;
     isDark: boolean;
     mode?: 'cast' | 'profile';
+    onImageClick?: (images: string[], index: number) => void;
 }
 
-export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, isDark, mode = 'cast' }) => {
+export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, isDark, mode = 'cast', onImageClick }) => {
     // Portal target (document.body)
     const mounted = useRef(false);
     useEffect(() => {
@@ -42,8 +42,8 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
     const y = useMotionValue(0);
 
     // Smooth spring physics for the tilt (Only active on non-touch devices)
-    const rotateX = useSpring(useTransform(y, [-100, 100], [10, -10]), { stiffness: 150, damping: 20 });
-    const rotateY = useSpring(useTransform(x, [-100, 100], [-10, 10]), { stiffness: 150, damping: 20 });
+    const rotateX = useSpring(useTransform(y, [-100, 100], [4, -4]), { stiffness: 150, damping: 20 });
+    const rotateY = useSpring(useTransform(x, [-100, 100], [-4, 4]), { stiffness: 150, damping: 20 });
 
     // Mouse move handler for tilt
     const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -72,18 +72,9 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
         }
     };
 
-    // Image viewer state (must be before early return for React Hooks rules)
-    const [imageViewerState, setImageViewerState] = React.useState<{
-        isOpen: boolean;
-        images: string[];
-        initialIndex: number;
-    }>({
-        isOpen: false,
-        images: [],
-        initialIndex: 0
-    });
 
-    if (!isOpen || !cast) return null;
+
+    if (!cast) return null;
 
     // Theme colors
     const bgCard = isDark ? 'rgba(24, 24, 27, 0.85)' : 'rgba(255, 255, 255, 0.9)';
@@ -158,6 +149,8 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                     justifyContent: 'center',
                                     color: subTextColor,
                                     cursor: 'pointer',
+                                    flexShrink: 0,
+                                    padding: 0,
                                 }}
                             >
                                 <X size={16} />
@@ -186,7 +179,11 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                         <span style={{ fontWeight: '700', fontSize: '18px', color: textColor }}>
                                             {cast.author?.name}
                                         </span>
-                                        {cast.author?.isVerified && <BadgeCheck size={16} style={{ color: '#5B8DEF' }} />}
+                                        {cast.author?.isVerified && (
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '16px', height: '16px', flexShrink: 0 }}>
+                                                <BadgeCheck size={16} style={{ color: '#5B8DEF' }} />
+                                            </div>
+                                        )}
                                     </div>
                                     <div style={{ color: subTextColor, fontSize: '14px' }}>
                                         {cast.author?.handle} {mode === 'cast' && `· ${cast.time}`}
@@ -381,7 +378,12 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                                         maxWidth: '100%',
                                                         maxHeight: '100%',
                                                         objectFit: 'contain', // Show full image
-                                                        display: 'block'
+                                                        display: 'block',
+                                                        cursor: 'zoom-in'
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onImageClick ? onImageClick([img], 0) : window.open(img, '_blank');
                                                     }}
                                                     onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
                                                 />
@@ -437,17 +439,26 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                     }}>
                                         <div style={{ textAlign: 'center' }}>
                                             <div style={{ color: textColor, fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                                <MessageCircle size={14} style={{ color: isDark ? '#ffffff' : '#52525b' }} /> {cast.stats?.replies}
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '16px', height: '16px' }}>
+                                                    <MessageCircle size={16} style={{ color: isDark ? '#ffffff' : '#52525b' }} />
+                                                </div>
+                                                {cast.stats?.replies}
                                             </div>
                                         </div>
                                         <div style={{ textAlign: 'center' }}>
                                             <div style={{ color: textColor, fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                                <Repeat2 size={14} style={{ color: '#10b981' }} /> {cast.stats?.recasts}
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '16px', height: '16px' }}>
+                                                    <Repeat2 size={16} style={{ color: '#10b981' }} />
+                                                </div>
+                                                {cast.stats?.recasts}
                                             </div>
                                         </div>
                                         <div style={{ textAlign: 'center' }}>
                                             <div style={{ color: textColor, fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                                <Heart size={14} style={{ color: '#ef4444', fill: '#ef4444' }} /> {cast.stats?.likes}
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '16px', height: '16px' }}>
+                                                    <Heart size={16} style={{ color: '#ef4444', fill: '#ef4444' }} />
+                                                </div>
+                                                {cast.stats?.likes}
                                             </div>
                                         </div>
                                     </div>
@@ -515,12 +526,7 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                     </motion.div>
                 </motion.div>
             )}
-            <ImageViewer
-                isOpen={imageViewerState.isOpen}
-                onClose={() => setImageViewerState(prev => ({ ...prev, isOpen: false }))}
-                images={imageViewerState.images}
-                initialIndex={imageViewerState.initialIndex}
-            />
+
         </AnimatePresence >
     );
 

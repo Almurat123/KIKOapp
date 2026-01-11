@@ -38,6 +38,7 @@ import {
     WithdrawPolymarketPositionTool,
     CancelPolymarketOrderTool
 } from './polymarketDirectTrading.js';
+import { AnalyzeWalletPnlTool } from './dunePnlTools.js';
 
 // Register all tools here
 toolRegistry.register(GetTokenInfoTool);
@@ -95,6 +96,9 @@ toolRegistry.register(PlacePolymarketOrderTool);
 toolRegistry.register(WithdrawPolymarketPositionTool);
 toolRegistry.register(CancelPolymarketOrderTool);
 
+// Dune PNL Tools
+toolRegistry.register(AnalyzeWalletPnlTool);
+
 
 // Tool Exports
 export * from './registry.js';
@@ -116,3 +120,4 @@ export * from './zoraTools.js';
 export * from './userFavorites.js';
 export * from './copyTradeTools.js';
 export * from './polymarketTools.js';
+export * from './dunePnlTools.js';

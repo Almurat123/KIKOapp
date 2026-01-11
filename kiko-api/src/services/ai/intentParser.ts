@@ -44,6 +44,8 @@ export type DetailedIntentType =
     | 'social_user_info'
     // Security intents
     | 'token_security'
+    // Wallet PNL
+    | 'wallet_pnl'
     // General
     | 'general_query';
 
@@ -130,6 +132,8 @@ const DETAILED_TO_HIGH_LEVEL: Record<DetailedIntentType, HighLevelIntentType> = 
     'social_user_info': 'SOCIAL_SENSING',
     // RISK_SCAN
     'token_security': 'RISK_SCAN',
+    // Wallet PNL
+    'wallet_pnl': 'MARKET_ANALYSIS',
     // GENERAL_CHAT
     'general_query': 'GENERAL_CHAT',
 };
@@ -158,6 +162,7 @@ Available intent types:
 - social_trending: Get trending social media posts (Farcaster)
 - social_user_info: Get Farcaster user information
 - token_security: Scan token security
+- wallet_pnl: Analyze wallet trading performance (PNL, win rate, realized profit)
 - general_query: General questions or chat
 
 For token queries, extract:
@@ -658,6 +663,10 @@ function parseDetailedIntentHeuristic(
     // Detect token info
     else if (/\b(price|chart|info|data|detail).*(?:token|coin|eth|btc|usdc)\b/i.test(userMessage)) {
         action = 'token_info';
+    }
+    // Detect PNL
+    else if (/\b(pnl|profit|loss|win\s*rate|performance|收益|利润|胜率)\b/i.test(userMessage)) {
+        action = 'wallet_pnl';
     }
     // Detect trending
     else if (/\b(trending|hot|popular|top)\b/i.test(userMessage)) {

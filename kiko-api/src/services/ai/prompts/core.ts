@@ -86,7 +86,7 @@ export const TOOL_DIRECTIVE = `
    - **Trading**: 'prepare_swap_transaction' (EXECUTE trades), 'simulate_swap' (DRY RUN / Safety check), 'check_token_risk' (Full safety scan).
    - **Copy Trading**: 'create_copy_trade_config', 'list_copy_trade_configs', 'pause_copy_trade_config', 'delete_copy_trade_config'.
    - **Information**: 'get_token_info' (contracts), 'web_search' (broad info).
-   - **Wallet**: 'get_wallet_info' (balances/portfolio).
+   - **Wallet**: 'get_wallet_info' (balances/portfolio), 'analyze_wallet_pnl' (Dune Analytics PNL & Win Rate).
    - **Token Analytics**: 'get_early_buyers' (Discover early adopters), 'analyze_creator' (Risk scan token deployer).
    - **Social (Farcaster)**: 'get_trending_casts', 'get_farcaster_user', 'search_farcaster_casts', 'get_user_favorites'.
    - **Zora Creator Coins**: 'get_zora_trending', 'get_zora_profile'.
@@ -104,6 +104,7 @@ export const TOOL_DIRECTIVE = `
    | "What's trending?" | 1. get_trending_tokens | Single call only |
    | "Price of [Symbol]" | 1. get_token_price | Don't call get_token_info |
    | "My balance" | 1. get_wallet_info | Single call only |
+   | "My PNL" | 1. analyze_wallet_pnl | Use Dune Analytics |
 
 4. **EFFICIENCY RULES (Avoid Redundancy)**:
    - If you just called 'get_token_price', DON'T call 'get_token_info' for the same token.
@@ -119,6 +120,7 @@ export const TOOL_DIRECTIVE = `
 
 6. **TOOL TRIGGERS (KEYWORD -> TOOL)**:
    - "my balance", "my wallet", "my funds" -> Use 'get_wallet_info'.
+   - "my pnl", "trading performance", "win rate" -> Use 'analyze_wallet_pnl'.
    - "trending", "hot tokens", "gainers" -> Use 'get_trending_tokens'.
    - "on Farcaster", "social trends" -> Use 'get_trending_casts'.
    - "price of [Address]" -> Use 'get_token_info'.
@@ -178,6 +180,7 @@ This document serves as the **Technical Reference** for all tools available to t
 | Tool Name | Technical Description | Key Return Fields (JSON) |
 | :--- | :--- | :--- |
 | \`get_wallet_info\` | **PORTFOLIO CHECK**. Balance & History for User or ANY public address. Use for "my balance" or "check vitalik.eth". | \`{ ethBalance, tokens: [{ symbol, balance, contract }], recentTransactions: [] }\` |
+| \`analyze_wallet_pnl\` | **PERFORMANCE ANALYSIS**. PNL, Win Rate, and Top Tokens via Dune Analytics. Use for profit/loss queries. | \`{ summary: { totalRealizedPnlUsd, winRate }, topTokens: [] }\` |
 | \`get_user_favorites\` | Fetches the user's specific watchlist from database. | \`{ count, favorites: [{ name, symbol, chain, address }] }\` |
 
 ## 📊 TOKEN ANALYTICS

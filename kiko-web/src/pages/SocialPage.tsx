@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   MessageCircle,
   Repeat2,
@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { socialApi } from '../services/api';
 import { PageContainer } from '../components/Layout/PageContainer';
 import { CastCard3D } from '../components/Social/CastCard3D';
@@ -16,7 +17,6 @@ import { HlsVideoPlayer } from '../components/Social/HlsVideoPlayer';
 import { LoadingSpinner } from '../components/Common/LoadingSpinner';
 import { useThemeContext } from '../contexts/ThemeContext';
 import { EmbedPreview } from '../components/Social/EmbedPreview';
-import { ImageViewer } from '../components/Common/ImageViewer';
 import type { TrendingCast, FeedItem } from '../services/api';
 
 // Theme colors
@@ -85,6 +85,19 @@ const formatText = (text: string) => {
 };
 
 // --- Icons ---
+const SocialIconWrapper = ({ children }: { children: React.ReactNode }) => (
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '16px',
+    height: '16px',
+    flexShrink: 0,
+  }}>
+    {children}
+  </div>
+);
+
 const BaseIcon = ({ size = 16, style = {} }: { size?: number, style?: React.CSSProperties }) => (
   <img
     src="/baselogo.webp"
@@ -107,12 +120,9 @@ const TrendingCastItem: React.FC<{
   onClick: (cast: FeedItem) => void;
   onAvatarClick?: (cast: FeedItem) => void;
   onImageClick?: (images: string[], index: number) => void;
-}> = ({ data, isDark, onClick, onAvatarClick, onImageClick }) => {
+}> = React.memo(({ data, isDark, onClick, onAvatarClick, onImageClick }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [is3DOpen, setIs3DOpen] = useState(false);
-  const [selectedCast] = useState<FeedItem | null>(null);
-  const [cardMode, setCardMode] = useState<'cast' | 'profile'>('cast');
   const colors = getThemeColors(isDark);
 
   useEffect(() => {
@@ -214,7 +224,9 @@ const TrendingCastItem: React.FC<{
                   {data.author?.name}
                 </span>
                 {data.author?.isVerified && (
-                  <BadgeCheck size={14} style={{ color: '#5B8DEF', flexShrink: 0 }} />
+                  <SocialIconWrapper>
+                    <BadgeCheck size={14} style={{ color: '#5B8DEF' }} />
+                  </SocialIconWrapper>
                 )}
                 <span style={{
                   color: colors.textSecondary,
@@ -410,7 +422,9 @@ const TrendingCastItem: React.FC<{
                   color: isHovered ? '#5B8DEF' : colors.textSecondary,
                   transition: 'color 0.2s',
                 }}>
-                  <MessageCircle size={14} />
+                  <SocialIconWrapper>
+                    <MessageCircle size={16} />
+                  </SocialIconWrapper>
                   <span style={{
                     fontSize: '12px',
                     fontWeight: '500',
@@ -423,7 +437,9 @@ const TrendingCastItem: React.FC<{
                   color: isHovered ? '#10b981' : colors.textSecondary,
                   transition: 'color 0.2s',
                 }}>
-                  <Repeat2 size={14} />
+                  <SocialIconWrapper>
+                    <Repeat2 size={16} />
+                  </SocialIconWrapper>
                   <span style={{
                     fontSize: '12px',
                     fontWeight: '500',
@@ -436,7 +452,9 @@ const TrendingCastItem: React.FC<{
                   color: isHovered ? '#e74c3c' : colors.textSecondary,
                   transition: 'color 0.2s',
                 }}>
-                  <Heart size={14} />
+                  <SocialIconWrapper>
+                    <Heart size={16} />
+                  </SocialIconWrapper>
                   <span style={{
                     fontSize: '12px',
                     fontWeight: '500',
@@ -477,7 +495,6 @@ const TrendingCastItem: React.FC<{
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setCardMode('cast'); // Set mode to cast
                     onClick(data);
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.color = '#7C3AED'}
@@ -495,18 +512,9 @@ const TrendingCastItem: React.FC<{
           </div>
         </div>
       </article >
-
-      {/* 3D Card Modal */}
-      <CastCard3D
-        cast={data}
-        isOpen={selectedCast?.id === data.id && is3DOpen}
-        onClose={() => setIs3DOpen(false)}
-        isDark={isDark}
-        mode={cardMode}
-      />
     </>
   );
-};
+});
 
 function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
   const now = Date.now();
@@ -641,6 +649,86 @@ function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
   };
 }
 
+
+// --- Native Lightbox ---
+const NativeLightbox: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  images: string[];
+  initialIndex: number;
+}> = ({ isOpen, onClose, images, initialIndex }) => {
+  const [index, setIndex] = useState(initialIndex);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIndex(initialIndex);
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen, initialIndex]);
+
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 10000,
+          background: 'rgba(0,0,0,0.95)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'zoom-out',
+        }}
+        onClick={onClose}
+      >
+        <motion.img
+          key={index}
+          src={images[index]}
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          drag="y"
+          dragConstraints={{ top: 0, bottom: 0 }}
+          onDragEnd={(_, info) => {
+            if (Math.abs(info.offset.y) > 100) onClose();
+          }}
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            objectFit: 'contain',
+            userSelect: 'none',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        />
+
+        {images.length > 1 && (
+          <div style={{
+            position: 'absolute',
+            bottom: '40px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            color: 'white',
+            fontSize: '14px',
+            fontWeight: '600',
+            background: 'rgba(0,0,0,0.5)',
+            padding: '4px 12px',
+            borderRadius: '12px',
+          }}>
+            {index + 1} / {images.length}
+          </div>
+        )}
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
 export const SocialPage: React.FC = () => {
   const { resolvedTheme } = useThemeContext();
   const isDark = resolvedTheme === 'dark';
@@ -660,13 +748,29 @@ export const SocialPage: React.FC = () => {
     initialIndex: 0
   });
 
-  const handleImageClick = (images: string[], index: number) => {
+  const [selectedCast, setSelectedCast] = useState<FeedItem | null>(null);
+  const [isCardOpen, setIsCardOpen] = useState(false);
+  const [cardMode, setCardMode] = useState<'cast' | 'profile'>('cast');
+
+  const handleImageClick = useCallback((images: string[], index: number) => {
     setImageViewerState({
       isOpen: true,
       images,
       initialIndex: index
     });
-  };
+  }, []);
+
+  const handleCastClick = useCallback((cast: FeedItem) => {
+    setCardMode('cast');
+    setSelectedCast(cast);
+    setIsCardOpen(true);
+  }, []);
+
+  const handleAvatarClick = useCallback((cast: FeedItem) => {
+    setCardMode('profile');
+    setSelectedCast(cast);
+    setIsCardOpen(true);
+  }, []);
 
   type TimeRange = 'trending' | '24h' | '7d' | '30d';
   type SortOption = 'rank' | 'newest' | 'oldest';
@@ -688,19 +792,60 @@ export const SocialPage: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const sortedFeedItems = React.useMemo(() => {
+  // Infinite Scroll State
+  const [visibleCount, setVisibleCount] = useState(15);
+  const observerTarget = useRef<HTMLDivElement>(null);
+
+  // Filter full dataset first, then slice for display
+  const allFilteredItems = useMemo(() => {
+    // Clone array to avoid mutating state
     let items = [...feedItems];
+
+    // Sort
     if (sortBy === 'newest') {
-      items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      items.sort((a, b) => {
+        const timeA = new Date(a.timestamp || 0).getTime();
+        const timeB = new Date(b.timestamp || 0).getTime();
+        return timeB - timeA;
+      });
     } else if (sortBy === 'oldest') {
-      items.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      items.sort((a, b) => {
+        const timeA = new Date(a.timestamp || 0).getTime();
+        const timeB = new Date(b.timestamp || 0).getTime();
+        return timeA - timeB;
+      });
     }
-    // 'rank' preserves API order (default)
+    // Rank is default
     return items;
   }, [feedItems, sortBy]);
 
-  const [selectedCast, setSelectedCast] = useState<FeedItem | null>(null);
-  const [cardMode, setCardMode] = useState<'cast' | 'profile'>('cast');
+  // Derived visible items
+  const sortedFeedItems = useMemo(() => {
+    return allFilteredItems.slice(0, visibleCount);
+  }, [allFilteredItems, visibleCount]);
+
+  // Observer for loading more
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + 15, allFilteredItems.length));
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [allFilteredItems.length]); // Dependency on length so we keep observing if list grows
+
 
   const mountedRef = useRef(true);
 
@@ -804,6 +949,198 @@ export const SocialPage: React.FC = () => {
     }
   };
 
+
+  // --- Native Lightbox with Swipe Support ---
+  const NativeLightbox: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    images: string[];
+    initialIndex: number;
+  }> = ({ isOpen, onClose, images, initialIndex }) => {
+    const [[page, direction], setPage] = useState([initialIndex, 0]);
+
+    // Keep page state in sync with external initialIndex when opening
+    useEffect(() => {
+      if (isOpen) {
+        setPage([initialIndex, 0]);
+      }
+    }, [isOpen, initialIndex]);
+
+    useEffect(() => {
+      if (isOpen) {
+        document.body.style.overflow = 'hidden';
+      } else {
+        document.body.style.overflow = '';
+      }
+      return () => { document.body.style.overflow = ''; };
+    }, [isOpen]);
+
+    const paginate = (newDirection: number) => {
+      const newPage = page + newDirection;
+      if (newPage >= 0 && newPage < images.length) {
+        setPage([newPage, newDirection]);
+      }
+    };
+
+    if (!isOpen) return null;
+
+    const variants = {
+      enter: (direction: number) => {
+        return {
+          x: direction > 0 ? 300 : -300,
+          opacity: 0
+        };
+      },
+      center: {
+        zIndex: 1,
+        x: 0,
+        opacity: 1
+      },
+      exit: (direction: number) => {
+        return {
+          zIndex: 0,
+          x: direction < 0 ? 300 : -300,
+          opacity: 0
+        };
+      }
+    };
+
+    const swipeConfidenceThreshold = 10000;
+    const swipePower = (offset: number, velocity: number) => {
+      return Math.abs(offset) * velocity;
+    };
+
+    return (
+      <AnimatePresence>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10000,
+            background: 'rgba(0,0,0,0.95)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'column',
+          }}
+          onClick={onClose}
+        >
+          <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <AnimatePresence initial={false} custom={direction} mode="popLayout">
+              <motion.img
+                key={page}
+                src={images[page]}
+                custom={direction}
+                variants={variants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{
+                  x: { type: "spring", stiffness: 300, damping: 30 },
+                  opacity: { duration: 0.2 }
+                }}
+                drag="x"
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.7}
+                onDragEnd={(e, { offset, velocity }) => {
+                  const swipe = swipePower(offset.x, velocity.x);
+
+                  if (swipe < -swipeConfidenceThreshold) {
+                    paginate(1); // Swipe Left -> Next
+                  } else if (swipe > swipeConfidenceThreshold) {
+                    paginate(-1); // Swipe Right -> Prev
+                  } else if (Math.abs(offset.y) > 150) {
+                    // Vertical swipe detection (basic)
+                    onClose();
+                  }
+                }}
+                // Add separate vertical drag listener logic if needed, but drag="x" locks axis.
+                // To handle both, we might just rely on a simple click to close or add a specific dismiss button.
+                // But user asked for swipe. Let's try to enable free drag or handle Y close differently.
+                // For now, let's stick to X swipe for gallery navigation. To close, user can tap background or use a close button.
+                // Actually, a dedicated close button is safer.
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  objectFit: 'contain',
+                  userSelect: 'none',
+                  position: 'absolute',
+                  cursor: 'grab'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </AnimatePresence>
+          </div>
+
+          {/* Controls Overlay */}
+          <div style={{
+            position: 'absolute',
+            bottom: '40px',
+            left: 0,
+            right: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '12px',
+            pointerEvents: 'none'
+          }}>
+            {/* Dots */}
+            {images.length > 1 && (
+              <div style={{ display: 'flex', gap: '8px', pointerEvents: 'auto' }}>
+                {images.map((_, i) => (
+                  <div
+                    key={i}
+                    onClick={(e) => { e.stopPropagation(); setPage([i, i > page ? 1 : -1]); }}
+                    style={{
+                      width: '8px', height: '8px', borderRadius: '50%',
+                      background: i === page ? '#fff' : 'rgba(255,255,255,0.3)',
+                      cursor: 'pointer', transition: 'background 0.2s'
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={(e) => { e.stopPropagation(); onClose(); }}
+              style={{
+                pointerEvents: 'auto',
+                background: 'rgba(255,255,255,0.2)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: 'white',
+                borderRadius: '24px',
+                padding: '8px 24px',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Close
+            </button>
+          </div>
+
+          {/* Left/Right Click Zones for Desktop */}
+          {images.length > 1 && (
+            <>
+              <div
+                style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '15%', zIndex: 10, cursor: 'pointer' }}
+                onClick={(e) => { e.stopPropagation(); paginate(-1); }}
+              />
+              <div
+                style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '15%', zIndex: 10, cursor: 'pointer' }}
+                onClick={(e) => { e.stopPropagation(); paginate(1); }}
+              />
+            </>
+          )}
+
+        </motion.div>
+      </AnimatePresence>
+    );
+  };
 
   if (loading && feedItems.length === 0) {
     return (
@@ -1053,18 +1390,19 @@ export const SocialPage: React.FC = () => {
                   key={item.id}
                   data={item}
                   isDark={isDark}
-                  onClick={(cast: FeedItem) => {
-                    setCardMode('cast');
-                    setSelectedCast(cast);
-                  }}
-                  onAvatarClick={(cast: FeedItem) => {
-                    setCardMode('profile');
-                    setSelectedCast(cast);
-                  }}
+                  onClick={handleCastClick}
+                  onAvatarClick={handleAvatarClick}
                   onImageClick={handleImageClick}
                 />
               )
             ))}
+
+            {/* Loading Sentinel */}
+            {sortedFeedItems.length < allFilteredItems.length && (
+              <div ref={observerTarget} style={{ height: '40px', width: '100%', display: 'flex', justifyContent: 'center', padding: '10px' }}>
+                <LoadingSpinner color={colors.textSecondary} />
+              </div>
+            )}
           </div>
 
           {sortedFeedItems.length === 0 && !loading && (
@@ -1111,13 +1449,13 @@ export const SocialPage: React.FC = () => {
       </div>
       <CastCard3D
         cast={selectedCast}
-        isOpen={!!selectedCast}
-        onClose={() => setSelectedCast(null)}
+        isOpen={isCardOpen}
+        onClose={() => setIsCardOpen(false)}
         isDark={isDark}
         mode={cardMode}
+        onImageClick={handleImageClick}
       />
-
-      <ImageViewer
+      <NativeLightbox
         isOpen={imageViewerState.isOpen}
         onClose={() => setImageViewerState(prev => ({ ...prev, isOpen: false }))}
         images={imageViewerState.images}

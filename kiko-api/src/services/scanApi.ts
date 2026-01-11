@@ -44,7 +44,23 @@ function getAvailableProviders(chain: string): Array<{ name: string; url: string
     const chainLower = chain.toLowerCase();
     const providers: Array<{ name: string; url: string; apiKey: string; isV2?: boolean; chainId?: number }> = [];
 
-    const chainConfig = Object.values(CHAINS).find(c => c.name.toLowerCase() === chainLower || c.id.toString() === chainLower);
+    // Map common names to names in CHAINS
+    const NAME_MAP: Record<string, string> = {
+        'eth': 'ethereum',
+        'bsc': 'bnb smart chain',
+        'base': 'base',
+        'polygon': 'polygon',
+        'arbitrum': 'arbitrum',
+        'optimism': 'optimism'
+    };
+
+    const targetName = NAME_MAP[chainLower] || chainLower;
+
+    const chainConfig = Object.values(CHAINS).find(c =>
+        c.name.toLowerCase() === targetName ||
+        c.id.toString() === chainLower ||
+        c.id.toString() === targetName // For cases where we pass numeric ID as string
+    );
     const chainId = chainConfig?.id;
 
     console.log(`[ScanAPI Debug] chain: ${chainLower}, chainId: ${chainId}, etherscanEnabled: ${SCAN_PROVIDERS.etherscan.enabled}`);

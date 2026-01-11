@@ -287,10 +287,27 @@
   color: var(--text-secondary);
 }
 
+.iconWrapper {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 16px !important;
+  flex-shrink: 0 !important;
+  pointer-events: none;
+}
+
+.iconWrapper svg {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  stroke: currentColor !important;
+}
+
 .strategyPauseBtn {
   height: 32px;
-  padding: 0 16px;
-  border-radius: 9999px;
+  padding: 0 12px;
+  border-radius: 8px;
   background: var(--bg-hover);
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
@@ -300,12 +317,21 @@
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  min-width: fit-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.strategyPauseBtn svg {
+  stroke: currentColor;
+  color: inherit;
 }
 
 .strategyPauseBtn:hover {
-  background: var(--text-primary);
-  color: var(--bg-primary);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--accent-hover);
 }
 
 .strategyPauseBtn:active {
@@ -314,10 +340,15 @@
 
 .strategyCardFooter {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
   width: 100%;
-  gap: 12px;
+  gap: 16px;
+}
+
+.strategyItemValue {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: left;
 }
 
 .strategyActions {
@@ -328,8 +359,8 @@
 
 .strategyDeleteBtn {
   height: 32px;
-  padding: 0 16px;
-  border-radius: 9999px;
+  padding: 0 12px;
+  border-radius: 8px;
   background: rgba(239, 68, 68, 0.1);
   color: #ef4444;
   border: 1px solid rgba(239, 68, 68, 0.2);
@@ -339,12 +370,51 @@
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  min-width: fit-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.strategyDeleteBtn svg {
+  stroke: currentColor;
+  color: inherit;
 }
 
 .strategyDeleteBtn:hover:not(:disabled) {
-  background: #ef4444;
-  color: #ffffff;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.strategyEditBtn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.strategyEditBtn svg {
+  stroke: currentColor;
+  color: inherit;
+}
+
+.strategyEditBtn:hover:not(:disabled) {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--accent-hover);
 }
 
 .strategyDeleteBtn:disabled,
@@ -453,18 +523,17 @@
   justify-content: center;
   border-radius: 8px;
   background: var(--bg-hover);
-  color: var(--text-secondary);
+  color: var(--text-primary);
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.2s;
 }
 
-/* Ensure SVG icons inherit color properly (fixes Safari iOS) */
+/* Ensure SVG icons are visible */
 .rowBtn svg {
-  stroke: currentColor;
-  color: inherit;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .rowBtn:hover {

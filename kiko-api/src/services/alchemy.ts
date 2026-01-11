@@ -344,7 +344,12 @@ export async function getAssetTransfers(
   // But for contract-only searches (early buyers), we MUST use Alchemy
   let transfers: AssetTransfer[] = [];
   if (address) {
-    transfers = await tryScanApi();
+    try {
+      transfers = await tryScanApi();
+    } catch (e) {
+      console.warn(`[Alchemy] Scan API failed, falling back to direct Alchemy/fallback:`, e instanceof Error ? e.message : e);
+      transfers = [];
+    }
   }
 
   // If Scan API didn't give results OR we don't have an address, use Alchemy

@@ -46,7 +46,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         {/* Identity */}
         <div className={styles.rowIdentity}>
           <div className={styles.rowIcon}>
-            <RefreshCw size={18} />
+            <div className={styles.iconWrapper}>
+              <RefreshCw size={16} />
+            </div>
           </div>
           <div>
             <div className={styles.rowName}>Copy Trading</div>
@@ -77,7 +79,11 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
               }}
               style={{ cursor: 'pointer' }}
             >
-              {isWalletCopied ? <Check size={10} color="#4ade80" /> : null}
+              {isWalletCopied ? (
+                <div className={styles.iconWrapper}>
+                  <Check size={16} color="#4ade80" />
+                </div>
+              ) : null}
               {config.targetWallet.slice(0, 6)}...{config.targetWallet.slice(-4)}
             </div>
           </div>
@@ -109,7 +115,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             title="Edit"
             disabled={status === 'DELETED'}
           >
-            <Edit size={14} />
+            <div className={styles.iconWrapper}>
+              <Edit size={16} />
+            </div>
           </button>
 
           <button
@@ -118,7 +126,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             title={isActive ? 'Pause' : 'Resume'}
             disabled={status === 'DELETED'}
           >
-            {isActive ? <Pause size={14} /> : <Play size={14} />}
+            <div className={styles.iconWrapper}>
+              {isActive ? <Pause size={16} /> : <Play size={16} />}
+            </div>
           </button>
 
           <button
@@ -127,7 +137,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             title="Delete"
             disabled={status === 'DELETED'}
           >
-            <Trash2 size={14} />
+            <div className={styles.iconWrapper}>
+              <Trash2 size={16} />
+            </div>
           </button>
         </div>
       </div>
@@ -141,7 +153,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
       <div className={styles.strategyHeader}>
         <div className={styles.strategyTitleSection}>
           <div className={styles.uintaIcon}>
-            <RefreshCw size={16} />
+            <div className={styles.iconWrapper}>
+              <RefreshCw size={16} />
+            </div>
           </div>
           <div>
             <div className={styles.strategyName}>Copy Trading</div>
@@ -164,7 +178,10 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
           {/* Item 1: Target Wallet (Vertical for better readability) */}
           <div className={styles.strategyItemVertical}>
             <div className={styles.strategyItemLabel}>
-              <Target size={12} /> Target Wallet
+              <div className={styles.iconWrapper}>
+                <Target size={16} />
+              </div>
+              <span>Target Wallet</span>
             </div>
             <div className={styles.strategyItemValueVertical}>
               <div
@@ -177,7 +194,11 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
                 }}
                 style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                {isWalletCopied ? <Check size={10} color="var(--success-color)" /> : null}
+                {isWalletCopied ? (
+                  <div className={styles.iconWrapper}>
+                    <Check size={16} color="var(--success-color)" />
+                  </div>
+                ) : null}
                 <span className={styles.walletAddressText}>{config.targetWallet}</span>
               </div>
             </div>
@@ -188,7 +209,10 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
           {/* Item 2: Trigger Condition */}
           <div className={styles.strategyItem}>
             <div className={styles.strategyItemLabel}>
-              <Eye size={12} /> Trigger
+              <div className={styles.iconWrapper}>
+                <Eye size={16} />
+              </div>
+              <span>Trigger</span>
             </div>
             <div className={styles.strategyItemValue}>
               <div className={styles.triggerValue}>
@@ -234,18 +258,37 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
           </div>
           <div className={styles.strategyActions}>
             <button
-              className={styles.strategyDeleteBtn}
-              onClick={() => onDelete(strategy.id)}
+              className={styles.strategyEditBtn}
+              onClick={() => onEdit(strategy)}
               disabled={status === 'DELETED'}
+              title="Edit"
             >
-              Delete
+              <div className={styles.iconWrapper}>
+                <Edit size={16} />
+              </div>
+              <span>Edit</span>
             </button>
             <button
               className={styles.strategyPauseBtn}
               onClick={() => onToggleStatus(strategy.id)}
               disabled={status === 'DELETED'}
+              title={status === 'PAUSED' ? 'Resume' : 'Pause'}
             >
-              {status === 'PAUSED' ? 'Resume' : 'Pause'}
+              <div className={styles.iconWrapper}>
+                {status === 'PAUSED' ? <Play size={16} /> : <Pause size={16} />}
+              </div>
+              <span>{status === 'PAUSED' ? 'Resume' : 'Pause'}</span>
+            </button>
+            <button
+              className={styles.strategyDeleteBtn}
+              onClick={() => onDelete(strategy.id)}
+              disabled={status === 'DELETED'}
+              title="Delete"
+            >
+              <div className={styles.iconWrapper}>
+                <Trash2 size={16} />
+              </div>
+              <span>Delete</span>
             </button>
           </div>
         </div>

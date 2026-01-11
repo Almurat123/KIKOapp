@@ -27,7 +27,7 @@ const TOOL_CATEGORIES: ToolCategory[] = [
     // WALLET ANALYSIS / EARLY BUYERS / SMART MONEY
     {
         keywords: /\b(pnl|profit|loss|roi|win\s*rate|performance|history|early\s*buyers?|smart\s*money|holdings?|cost\s*basis|snipers?|deployer|creator|收益|利润|早期买家|最早买家|聪明钱)\b/i,
-        tools: ['get_early_buyers', 'analyze_creator', 'get_token_info', 'get_wallet_info'],
+        tools: ['analyze_wallet_pnl', 'get_early_buyers', 'analyze_creator', 'get_token_info', 'get_wallet_info'],
         priority: 95
     },
 

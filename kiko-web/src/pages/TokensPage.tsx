@@ -999,24 +999,68 @@ export const TokensPage: React.FC<TokensPageProps> = ({
             </button>
           </div>
 
-          {/* Search Bar */}
-          <div className={styles.searchWrapper}>
-            <Search size={18} className={styles.searchIcon} />
-            <input
-              type="text"
-              placeholder="Search tokens..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={styles.searchInput}
-            />
-            {searchQuery && (
+          {/* Search & Chain Row */}
+          <div className={styles.controlsRow}>
+            {/* Search Bar */}
+            <div className={styles.searchWrapper}>
+              <Search size={18} className={styles.searchIcon} />
+              <input
+                type="text"
+                placeholder="Search tokens..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={styles.searchInput}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className={styles.clearButton}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            {/* Chain Selector - Moved here for persistence */}
+            <div className={styles.chainSelector}>
               <button
-                onClick={() => setSearchQuery('')}
-                className={styles.clearButton}
+                className={styles.chainSelectorBtn}
+                onClick={() => setShowChainDropdown(!showChainDropdown)}
               >
-                <X size={16} />
+                {selectedChain === 'all' ? (
+                  null
+                ) : (
+                  <img
+                    src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
+                    alt={selectedChain}
+                    className={styles.chainSelectorIcon}
+                  />
+                )}
+                <span>{CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || 'All Chains'}</span>
+                <ChevronDown size={14} />
               </button>
-            )}
+              {showChainDropdown && (
+                <div className={styles.chainDropdown}>
+                  {CHAIN_OPTIONS.map(chain => (
+                    <button
+                      key={chain.id}
+                      className={`${styles.chainOption} ${selectedChain === chain.id ? styles.chainOptionActive : ''}`}
+                      onClick={() => {
+                        setSelectedChain(chain.id);
+                        setShowChainDropdown(false);
+                      }}
+                    >
+                      {chain.logo ? (
+                        <img src={chain.logo} alt={chain.name} className={styles.chainOptionIcon} />
+                      ) : (
+                        <span className={styles.allChainsIcon}>⛓</span>
+                      )}
+                      <span>{chain.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1154,46 +1198,6 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                     ? 'Favorites'
                     : 'Trending'}
                 </h2>
-                {/* Chain Selector */}
-                <div className={styles.chainSelector}>
-                  <button
-                    className={styles.chainSelectorBtn}
-                    onClick={() => setShowChainDropdown(!showChainDropdown)}
-                  >
-                    {selectedChain === 'all' ? (
-                      null
-                    ) : (
-                      <img
-                        src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
-                        alt={selectedChain}
-                        className={styles.chainSelectorIcon}
-                      />
-                    )}
-                    <span>{CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || 'All Chains'}</span>
-                    <ChevronDown size={14} />
-                  </button>
-                  {showChainDropdown && (
-                    <div className={styles.chainDropdown}>
-                      {CHAIN_OPTIONS.map(chain => (
-                        <button
-                          key={chain.id}
-                          className={`${styles.chainOption} ${selectedChain === chain.id ? styles.chainOptionActive : ''}`}
-                          onClick={() => {
-                            setSelectedChain(chain.id);
-                            setShowChainDropdown(false);
-                          }}
-                        >
-                          {chain.logo ? (
-                            <img src={chain.logo} alt={chain.name} className={styles.chainOptionIcon} />
-                          ) : (
-                            <span className={styles.allChainsIcon}>⛓</span>
-                          )}
-                          <span>{chain.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
               <table className={styles.table}>
                 <colgroup>
