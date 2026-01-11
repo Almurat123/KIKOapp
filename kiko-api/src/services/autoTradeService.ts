@@ -152,19 +152,25 @@ async function handleTargetBuy(
         if (launchpadResult && launchpadResult.data) {
             console.log(`[AutoTrade] ⚠️ ${tokenToBuy} missing DexScreener info, but is valid ${launchpadResult.provider.toUpperCase()} launchpad token. Using fallback info.`);
 
-            // Construct fallback token info
+            // Construct fallback token info using launchpad data when available
+            const lpData = launchpadResult.data;
+            const lpPrice = lpData.tokenPrice?.priceInUsdc || lpData.tokenPrice?.usd || 0;
+            const lpMarketCap = parseFloat(lpData.marketCap || '0');
+            const lpVolume = parseFloat(lpData.volume24h || lpData.totalVolume || '0');
+
             const fallbackInfo = {
-                price: 0, // We don't know price yet, will rely on "Buy Amount (ETH)" logic
-                symbol: launchpadResult.data.symbol || 'UNKNOWN',
-                name: launchpadResult.data.name || 'Unknown Token',
-                decimals: launchpadResult.data.decimals || 18,
-                liquidity: 0,
-                volume24h: 0,
-                fdv: 0,
-                marketCap: 0,
-                pairCreatedAt: Date.now(),
+                price: typeof lpPrice === 'string' ? parseFloat(lpPrice) : lpPrice,
+                symbol: lpData.symbol || 'UNKNOWN',
+                name: lpData.name || 'Unknown Token',
+                decimals: lpData.decimals || 18,
+                liquidity: lpMarketCap, // Use marketCap as proxy for liquidity
+                volume24h: lpVolume,
+                fdv: lpMarketCap,
+                marketCap: lpMarketCap,
+                pairCreatedAt: lpData.createdAt ? new Date(lpData.createdAt).getTime() : Date.now(),
                 socials: [],
-                websites: []
+                websites: [],
+                provider: launchpadResult.provider
             };
 
             // Proceed with fallback info
@@ -809,8 +815,33 @@ async function handleTargetSell(
                                 tokenDecimals: Number(decimals)
                             });
                         } catch (e3: any) {
-                            console.error(`[AutoTrade] All sell steps failed for EVM: ${e3.message}`);
-                            return;
+                            console.warn(`[AutoTrade] All 0x API sell steps failed for EVM: ${e3.message}`);
+
+                            // === FOUR.MEME FALLBACK ===
+                            // If this is a Four.meme token (BSC), try TokenManager2 sellToken
+                            const isFourMemeToken = chainId === 56 && (
+                                tokenToSell.toLowerCase().endsWith('4444') ||
+                                fourMemeService.isFourMemeToken(tokenToSell)
+                            );
+
+                            if (isFourMemeToken) {
+                                console.log(`[AutoTrade] 🔶 Four.meme token detected. Trying TokenManager2 sellToken fallback...`);
+                                try {
+                                    txHash = await fourMemeService.sellToken({
+                                        userId: config.user.privyDid,
+                                        walletAddress: config.user.walletAddress,
+                                        tokenAddress: tokenToSell,
+                                        amount: balance.toString(), // Use full balance
+                                    });
+                                    console.log(`[AutoTrade] ✅ Four.meme sell succeeded: ${txHash}`);
+                                } catch (fmErr: any) {
+                                    console.error(`[AutoTrade] ❌ Four.meme sell also failed: ${fmErr.message}`);
+                                    return;
+                                }
+                            } else {
+                                console.error(`[AutoTrade] All sell steps failed for EVM token ${tokenToSell}`);
+                                return;
+                            }
                         }
                     }
                 }
@@ -1116,17 +1147,22 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
 
             if (zoraRes.ok) {
                 const zoraData = await zoraRes.json() as any;
-                if (zoraData && zoraData.tokenPrice) {
+                // Zora API returns tokenPrice.priceInUsdc (not tokenPrice.usd)
+                if (zoraData && (zoraData.tokenPrice || zoraData.marketCap)) {
+                    const priceStr = zoraData.tokenPrice?.priceInUsdc ||
+                        zoraData.tokenPrice?.usd ||
+                        zoraData.tokenPrice?.usdc ||
+                        '0';
                     const result = {
-                        price: parseFloat(zoraData.tokenPrice?.usd || zoraData.tokenPrice?.usdc || '0'),
+                        price: parseFloat(priceStr),
                         symbol: zoraData.symbol || 'ZORA_TOKEN',
                         name: zoraData.name || 'ZORA Launchpad Token',
                         decimals: 18,
-                        liquidity: zoraData.marketCap || 0,
-                        volume24h: zoraData.volume24h || 0,
-                        fdv: zoraData.marketCap || 0,
-                        marketCap: zoraData.marketCap || 0,
-                        pairCreatedAt: Date.now(),
+                        liquidity: parseFloat(zoraData.marketCap || '0'),
+                        volume24h: parseFloat(zoraData.volume24h || zoraData.totalVolume || '0'),
+                        fdv: parseFloat(zoraData.marketCap || '0'),
+                        marketCap: parseFloat(zoraData.marketCap || '0'),
+                        pairCreatedAt: zoraData.createdAt ? new Date(zoraData.createdAt).getTime() : Date.now(),
                         socials: [],
                         websites: [],
                         provider: 'zora'
