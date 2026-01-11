@@ -459,15 +459,63 @@ ${analysis.rawAnalysis}
                     if (launchpad && launchpad.provider === 'zora' && !isFastExecutionEnabled) {
                         console.log(`[AutoTrade] Zora token detected but Fast Execution is OFF for user ${config.userId}. Using standard 0x swap.`);
                     }
-                    txHash = await executeSwapInstant({
-                        userId: config.user.privyDid,
-                        walletAddress: config.user.walletAddress,
-                        tokenIn: 'ETH',
-                        tokenOut: tokenToBuy,
-                        amountIn: (usdAmount / nativePrice).toFixed(6), // ETH amount
-                        chainId,
-                        slippageBps: config.maxSlippageBps,
-                    });
+
+                    // === BUY WITH RETRY LOGIC ===
+                    const baseAmount = usdAmount / nativePrice;
+                    const baseSlippage = config.maxSlippageBps || 300;
+
+                    try {
+                        // Step 1: Try with 100% amount
+                        console.log(`[AutoTrade] Buy Step 1: 100% amount (${baseAmount.toFixed(6)} ETH), slippage ${baseSlippage}bps`);
+                        txHash = await executeSwapInstant({
+                            userId: config.user.privyDid,
+                            walletAddress: config.user.walletAddress,
+                            tokenIn: 'ETH',
+                            tokenOut: tokenToBuy,
+                            amountIn: baseAmount.toFixed(6),
+                            chainId,
+                            slippageBps: baseSlippage,
+                        });
+                    } catch (buyErr1: any) {
+                        console.warn(`[AutoTrade] Buy Step 1 failed: ${buyErr1.message}. Trying Step 2...`);
+
+                        try {
+                            // Step 2: Try with 99% amount + higher slippage
+                            const amount99 = baseAmount * 0.99;
+                            const slippage2 = Math.max(baseSlippage * 1.5, 450);
+                            console.log(`[AutoTrade] Buy Step 2: 99% amount (${amount99.toFixed(6)} ETH), slippage ${slippage2}bps`);
+                            txHash = await executeSwapInstant({
+                                userId: config.user.privyDid,
+                                walletAddress: config.user.walletAddress,
+                                tokenIn: 'ETH',
+                                tokenOut: tokenToBuy,
+                                amountIn: amount99.toFixed(6),
+                                chainId,
+                                slippageBps: slippage2,
+                            });
+                        } catch (buyErr2: any) {
+                            console.warn(`[AutoTrade] Buy Step 2 failed: ${buyErr2.message}. Trying Step 3 (final)...`);
+
+                            try {
+                                // Step 3: Final attempt with 98% amount + even higher slippage
+                                const amount98 = baseAmount * 0.98;
+                                const slippage3 = Math.max(baseSlippage * 2, 600);
+                                console.log(`[AutoTrade] Buy Step 3: 98% amount (${amount98.toFixed(6)} ETH), slippage ${slippage3}bps`);
+                                txHash = await executeSwapInstant({
+                                    userId: config.user.privyDid,
+                                    walletAddress: config.user.walletAddress,
+                                    tokenIn: 'ETH',
+                                    tokenOut: tokenToBuy,
+                                    amountIn: amount98.toFixed(6),
+                                    chainId,
+                                    slippageBps: slippage3,
+                                });
+                            } catch (buyErr3: any) {
+                                console.error(`[AutoTrade] ❌ All buy steps failed for ${tokenToBuy}: ${buyErr3.message}`);
+                                continue; // Skip to next config
+                            }
+                        }
+                    }
                 }
             }
 
