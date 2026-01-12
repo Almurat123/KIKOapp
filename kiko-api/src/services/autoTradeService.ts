@@ -705,21 +705,24 @@ async function handleTargetSell(
 
                 // Calculate rough USD value for stats if possible (need price)
                 // We have tokenInfo from parallel fetch
+                const balanceUsd = (Number(balance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+
                 if (tokenInfo && tokenInfo.price) {
-                    const valUsd = (Number(balance) / (10 ** decimals)) * tokenInfo.price;
-                    recordNewTrade(targetWallet, chainId, 'sell', valUsd);
+                    recordNewTrade(targetWallet, chainId, 'sell', balanceUsd);
                 }
 
-                if (balance <= 0n) {
-                    console.log(`[AutoTrade] User has 0 balance of ${tokenToSell} (Solana), cannot sell.`);
+                if (balance <= 0n || balanceUsd < 0.1) {
+                    console.log(`[AutoTrade] User has negligible balance of ${tokenToSell} ($${balanceUsd.toFixed(4)}), cannot sell.`);
                     await prisma.position.updateMany({
                         where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
-                        data: { status: 'closed', exitReason: 'balance_empty' }
+                        data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
                     });
                     return;
                 }
 
-                console.log(`[AutoTrade] Selling ${balance.toString()} of ${tokenToSell} on Solana`);
+                console.log(`[AutoTrade] Selling ${balance.toString()} of ${tokenToSell} on Solana (Value: $${balanceUsd.toFixed(2)})`);
+
+                let isPartialSell = false;
 
                 try {
                     console.log(`[AutoTrade] Selling 100% balance: ${balance.toString()} on Solana`);
@@ -731,15 +734,37 @@ async function handleTargetSell(
                         slippageBps: config.maxSlippageBps
                     });
                 } catch (e: any) {
-                    console.warn(`[AutoTrade] Solana 100% sell failed: ${e.message}. Trying 99.9% fallback...`);
-                    const safeBalance999 = (balance * 999n) / 1000n;
-                    txHash = await executeSolanaSwap({
-                        userId: config.user.privyDid,
-                        tokenInMint: tokenToSell,
-                        tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
-                        amountIn: safeBalance999.toString(),
-                        slippageBps: Math.max((config.maxSlippageBps || 50) * 1.5, 300)
-                    });
+                    console.warn(`[AutoTrade] Solana 100% sell failed: ${e.message}.`);
+
+                    try {
+                        // Try 1.5: 100% with Double Slippage
+                        const highSlippage = Math.max((config.maxSlippageBps || 50) * 2, 500);
+                        console.log(`[AutoTrade] Retrying Solana 100% sell with HIGHER slippage (${highSlippage}bps)...`);
+                        txHash = await executeSolanaSwap({
+                            userId: config.user.privyDid,
+                            tokenInMint: tokenToSell,
+                            tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
+                            amountIn: balance.toString(),
+                            slippageBps: highSlippage
+                        });
+                    } catch (e1_5: any) {
+                        console.warn(`[AutoTrade] Solana 100% (High Slippage) failed: ${e1_5.message}. Falling back to 99.9%...`);
+
+                        try {
+                            const safeBalance999 = (balance * 999n) / 1000n;
+                            txHash = await executeSolanaSwap({
+                                userId: config.user.privyDid,
+                                tokenInMint: tokenToSell,
+                                tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
+                                amountIn: safeBalance999.toString(),
+                                slippageBps: Math.max((config.maxSlippageBps || 50) * 1.5, 300)
+                            });
+                            isPartialSell = true;
+                        } catch (e2: any) {
+                            console.error(`[AutoTrade] All Solana sell attempts failed for ${tokenToSell}: ${e2.message}`);
+                            return;
+                        }
+                    }
                 }
 
                 // SWEEP (Solana): Check for remaining dust and attempt cleanup sell
@@ -759,8 +784,8 @@ async function handleTargetSell(
                         const dustUsdValue = (Number(remainingBalance) / (10 ** decimals)) * (tokenInfo?.price || 0);
                         const MIN_DUST_USD = 0.05;
 
-                        if (dustUsdValue >= MIN_DUST_USD) {
-                            console.log(`[AutoTrade] Sweeping remaining ${remainingBalance.toString()} Solana tokens (≈$${dustUsdValue.toFixed(4)})...`);
+                        if (dustUsdValue >= MIN_DUST_USD || isPartialSell) {
+                            console.log(`[AutoTrade] Sweeping remaining ${remainingBalance.toString()} Solana tokens (≈$${dustUsdValue.toFixed(4)}, Forced: ${isPartialSell})...`);
 
                             const sweepTx = await executeSolanaSwap({
                                 userId: config.user.privyDid,
@@ -772,7 +797,7 @@ async function handleTargetSell(
 
                             if (sweepTx) {
                                 console.log(`[AutoTrade] Solana sweep successful: ${sweepTx}`);
-                                txHash = sweepTx;
+                                if (!txHash) txHash = sweepTx;
                             }
                         } else {
                             console.log(`[AutoTrade] Solana dust too small to sweep: $${dustUsdValue.toFixed(6)}`);
@@ -808,87 +833,114 @@ async function handleTargetSell(
                 ]);
                 balance = bal;
                 decimals = Number(dec);
+                const balanceUsd = (Number(balance) / (10 ** decimals)) * (tokenInfo?.price || 0);
 
-                if (balance <= 0n) {
+                if (balance <= 0n || balanceUsd < 0.1) {
                     // ... same empty check ...
-                    console.log(`[AutoTrade] User has 0 balance of ${tokenToSell}, cannot sell.`);
+                    console.log(`[AutoTrade] User has negligible balance of ${tokenToSell} ($${balanceUsd.toFixed(4)}), cannot sell.`);
                     await prisma.position.updateMany({
                         where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
-                        data: { status: 'closed', exitReason: 'balance_empty' }
+                        data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
                     });
                     return;
                 }
 
                 // Execute EVM Sell
-                console.log(`[AutoTrade] Selling ${balance.toString()} of ${tokenToSell} (decimals: ${decimals})`);
+                console.log(`[AutoTrade] Selling ${balance.toString()} of ${tokenToSell} (decimals: ${decimals}, Value: $${balanceUsd.toFixed(2)})`);
+                let isPartialSell = false;
 
                 try {
-                    // Try 1: 100% (Full Sell)
-                    console.log(`[AutoTrade] Attempting Step 1: 100% balance sell (${balance.toString()})`);
+                    // Try 1: 100% (Full Sell - 1 Wei safety buffer) - Standard Slippage
+                    // Subtracting 1 wei helps avoid rounding errors on some tokens/DEXs that revert on exact balance match
+                    const safeBalance = balance > 0n ? balance - 1n : 0n;
+                    console.log(`[AutoTrade] Attempting Step 1: 100% (minus 1 wei) sell (${safeBalance.toString()})`);
+
                     txHash = await executeSellInstant({
                         userId: config.user.privyDid,
                         walletAddress: config.user.walletAddress,
                         tokenToSell: tokenToSell,
-                        amountToSell: balance.toString(),
+                        amountToSell: safeBalance.toString(),
                         chainId: chainId,
                         slippageBps: config.maxSlippageBps,
                         tokenDecimals: Number(decimals)
                     });
                 } catch (e: any) {
-                    console.warn(`[AutoTrade] Step 1 (100%) failed: ${e.message}. Trying Step 2 (99.9%)...`);
+                    console.warn(`[AutoTrade] Step 1 (100% @ Normal Slippage) failed: ${e.message}.`);
+
                     try {
-                        // Try 2: 99.9% (Minimal residue)
-                        const safeBalance999 = (balance * 999n) / 1000n;
+                        // Try 1.5: 100% - 1 Wei (High Slippage)
+                        const safeBalance = balance > 0n ? balance - 1n : 0n;
+                        const highSlippage = Math.max((config.maxSlippageBps || 50) * 2, 500); // at least 5%
+                        console.log(`[AutoTrade] Attempting Step 1.5: 100% (minus 1 wei) sell with HIGHER slippage (${highSlippage}bps)...`);
+
                         txHash = await executeSellInstant({
                             userId: config.user.privyDid,
                             walletAddress: config.user.walletAddress,
                             tokenToSell: tokenToSell,
-                            amountToSell: safeBalance999.toString(),
+                            amountToSell: safeBalance.toString(),
                             chainId: chainId,
-                            slippageBps: Math.max((config.maxSlippageBps || 50) * 1.5, 300),
+                            slippageBps: highSlippage,
                             tokenDecimals: Number(decimals)
                         });
-                    } catch (e2: any) {
-                        console.warn(`[AutoTrade] Step 2 (99.9%) failed: ${e2.message}. Trying Step 3 (fallback 99.5%)...`);
+                    } catch (e1_5: any) {
+                        console.warn(`[AutoTrade] Step 1.5 (100% @ High Slippage) failed: ${e1_5.message}. Falling back to partial sell...`);
+
                         try {
-                            // Try 3: 99.5% (Final fallback)
-                            const safeBalance995 = (balance * 995n) / 1000n;
+                            // Try 2: 99.9% (Minimal residue)
+                            const safeBalance999 = (balance * 999n) / 1000n;
                             txHash = await executeSellInstant({
                                 userId: config.user.privyDid,
                                 walletAddress: config.user.walletAddress,
                                 tokenToSell: tokenToSell,
-                                amountToSell: safeBalance995.toString(),
+                                amountToSell: safeBalance999.toString(),
                                 chainId: chainId,
-                                slippageBps: Math.max((config.maxSlippageBps || 50) * 2, 500),
+                                slippageBps: Math.max((config.maxSlippageBps || 50) * 1.5, 300),
                                 tokenDecimals: Number(decimals)
                             });
-                        } catch (e3: any) {
-                            console.warn(`[AutoTrade] All 0x API sell steps failed for EVM: ${e3.message}`);
+                            isPartialSell = true;
+                        } catch (e2: any) {
+                            console.warn(`[AutoTrade] Step 2 (99.9%) failed: ${e2.message}. Trying Step 3 (fallback 99.5%)...`);
+                            try {
+                                // Try 3: 99.5% (Final fallback)
+                                const safeBalance995 = (balance * 995n) / 1000n;
+                                txHash = await executeSellInstant({
+                                    userId: config.user.privyDid,
+                                    walletAddress: config.user.walletAddress,
+                                    tokenToSell: tokenToSell,
+                                    amountToSell: safeBalance995.toString(),
+                                    chainId: chainId,
+                                    slippageBps: Math.max((config.maxSlippageBps || 50) * 2, 500),
+                                    tokenDecimals: Number(decimals)
+                                });
+                                isPartialSell = true;
+                            } catch (e3: any) {
+                                console.warn(`[AutoTrade] All 0x API sell steps failed for EVM: ${e3.message}`);
 
-                            // === FOUR.MEME FALLBACK ===
-                            // If this is a Four.meme token (BSC), try TokenManager2 sellToken
-                            const isFourMemeToken = chainId === 56 && (
-                                tokenToSell.toLowerCase().endsWith('4444') ||
-                                fourMemeService.isFourMemeToken(tokenToSell)
-                            );
+                                // === FOUR.MEME FALLBACK ===
+                                // If this is a Four.meme token (BSC), try TokenManager2 sellToken
+                                const isFourMemeToken = chainId === 56 && (
+                                    tokenToSell.toLowerCase().endsWith('4444') ||
+                                    fourMemeService.isFourMemeToken(tokenToSell)
+                                );
 
-                            if (isFourMemeToken) {
-                                console.log(`[AutoTrade] 🔶 Four.meme token detected. Trying TokenManager2 sellToken fallback...`);
-                                try {
-                                    txHash = await fourMemeService.sellToken({
-                                        userId: config.user.privyDid,
-                                        walletAddress: config.user.walletAddress,
-                                        tokenAddress: tokenToSell,
-                                        amount: balance.toString(), // Use full balance
-                                    });
-                                    console.log(`[AutoTrade] ✅ Four.meme sell succeeded: ${txHash}`);
-                                } catch (fmErr: any) {
-                                    console.error(`[AutoTrade] ❌ Four.meme sell also failed: ${fmErr.message}`);
+                                if (isFourMemeToken) {
+                                    console.log(`[AutoTrade] 🔶 Four.meme token detected. Trying TokenManager2 sellToken fallback...`);
+                                    try {
+                                        txHash = await fourMemeService.sellToken({
+                                            userId: config.user.privyDid,
+                                            walletAddress: config.user.walletAddress,
+                                            tokenAddress: tokenToSell,
+                                            amount: balance.toString(), // Use full balance
+                                        });
+                                        console.log(`[AutoTrade] ✅ Four.meme sell succeeded: ${txHash}`);
+                                    } catch (fmErr: any) {
+                                        console.error(`[AutoTrade] ❌ Four.meme sell also failed: ${fmErr.message}`);
+                                        return;
+                                    }
+                                } else {
+                                    console.error(`[AutoTrade] All sell steps failed for EVM token ${tokenToSell}`);
                                     return;
                                 }
-                            } else {
-                                console.error(`[AutoTrade] All sell steps failed for EVM token ${tokenToSell}`);
-                                return;
                             }
                         }
                     }
@@ -904,8 +956,9 @@ async function handleTargetSell(
                         const dustUsdValue = (Number(remainingBalance) / (10 ** decimals)) * (tokenInfo?.price || 0);
                         const MIN_DUST_USD = 0.05; // Only sweep if worth more than $0.05 (gas consideration)
 
-                        if (dustUsdValue >= MIN_DUST_USD) {
-                            console.log(`[AutoTrade] Sweeping remaining ${remainingBalance.toString()} tokens (≈$${dustUsdValue.toFixed(4)})...`);
+                        // Force sweep if we did a partial sell, OR if value is significant
+                        if (dustUsdValue >= MIN_DUST_USD || isPartialSell) {
+                            console.log(`[AutoTrade] Sweeping remaining ${remainingBalance.toString()} tokens (≈$${dustUsdValue.toFixed(4)}, Forced: ${isPartialSell})...`);
 
                             const sweepTx = await executeSellInstant({
                                 userId: config.user.privyDid,
@@ -919,7 +972,7 @@ async function handleTargetSell(
 
                             if (sweepTx) {
                                 console.log(`[AutoTrade] Sweep successful: ${sweepTx}`);
-                                txHash = sweepTx; // Update txHash to include sweep
+                                if (!txHash) txHash = sweepTx; // Use sweep hash if main failed (shouldn't happen here)
                             }
                         } else {
                             console.log(`[AutoTrade] Dust too small to sweep: $${dustUsdValue.toFixed(6)} < $${MIN_DUST_USD}`);
@@ -992,6 +1045,9 @@ export function initAutoTradeService(): void {
 /**
  * Check and execute take profit / stop loss for open positions
  */
+/**
+ * Check and execute take profit / stop loss for open positions
+ */
 export async function checkPositionsForExits(): Promise<void> {
     const positions = await prisma.position.findMany({
         where: { status: 'open' },
@@ -1000,10 +1056,19 @@ export async function checkPositionsForExits(): Promise<void> {
         },
     });
 
+    if (positions.length === 0) return;
+
+    // Batch fetch configs for efficiency
+    const configIds = [...new Set(positions.map(p => p.configId))];
+    const configs = await prisma.copyTradeConfig.findMany({
+        where: { id: { in: configIds } }
+    });
+    const configMap = new Map(configs.map(c => [c.id, c]));
+
     for (const position of positions) {
         try {
-            // Get current price
-            const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId);
+            // Get current price (Silent mode to avoid log spam)
+            const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, { verbose: false });
             if (!tokenInfo) continue;
 
             const currentPrice = tokenInfo.price;
@@ -1018,11 +1083,8 @@ export async function checkPositionsForExits(): Promise<void> {
                 },
             });
 
-            // Get config for TP/SL settings
-            const config = await prisma.copyTradeConfig.findUnique({
-                where: { id: position.configId },
-            });
-
+            // Get config from map
+            const config = configMap.get(position.configId);
             if (!config) continue;
 
             // Check take profit
@@ -1079,7 +1141,9 @@ function getChainSlug(chainId: number) {
 /**
  * Get token information from external API with multi-provider fallback
  */
-async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any> {
+// ... (getTokenInfo signature)
+async function getTokenInfo(tokenAddress: string, chainId: number, options: { verbose?: boolean } = { verbose: true }): Promise<any> {
+    const { verbose } = options;
     const chainSlug = getChainSlug(chainId);
     const dsSlug = chainSlug.dexScreener;
     const gtSlug = chainSlug.geckoTerminal;
@@ -1089,7 +1153,9 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
     const jitter = Math.floor(Math.random() * 300) + 200; // 200-500ms
     await new Promise(resolve => setTimeout(resolve, jitter));
 
-    console.log(`[AutoTrade] getTokenInfo: Fetching ${tokenAddress} (Chain: ${chainId}, Jitter: ${jitter}ms)`);
+    if (verbose) {
+        console.log(`[AutoTrade] getTokenInfo: Fetching ${tokenAddress} (Chain: ${chainId}, Jitter: ${jitter}ms)`);
+    }
 
     // --- STEP 1: Try DexScreener (Primary) ---
     const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
@@ -1108,7 +1174,7 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
             clearTimeout(timeoutId);
 
             if (res.status === 429) {
-                console.warn(`[AutoTrade] DexScreener 429 (Rate Limit) for ${tokenAddress} on attempt ${attempt}`);
+                if (verbose) console.warn(`[AutoTrade] DexScreener 429 (Rate Limit) for ${tokenAddress} on attempt ${attempt}`);
                 throw new Error('429');
             }
 
@@ -1138,12 +1204,12 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
                     websites: pair.info?.websites || [],
                     provider: 'dexscreener'
                 };
-                console.log(`[AutoTrade] getTokenInfo: Success (DexScreener) - ${result.symbol} $${result.price}`);
+                if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (DexScreener) - ${result.symbol} $${result.price}`);
                 return result;
             }
 
             // If no pairs found, don't retry dexscreener, move to fallback
-            console.warn(`[AutoTrade] DexScreener: No pairs for ${tokenAddress}`);
+            if (verbose) console.warn(`[AutoTrade] DexScreener: No pairs for ${tokenAddress}`);
             break;
 
         } catch (e: any) {
@@ -1159,7 +1225,7 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
     }
 
     // --- STEP 2: Try GeckoTerminal (Fallback) ---
-    console.log(`[AutoTrade] getTokenInfo: DexScreener failed or limited. Falling back to GeckoTerminal for ${tokenAddress}...`);
+    if (verbose) console.log(`[AutoTrade] getTokenInfo: DexScreener failed or limited. Falling back to GeckoTerminal for ${tokenAddress}...`);
     try {
         const gtData = await getTokenDetails(gtSlug, tokenAddress);
         if (gtData) {
@@ -1177,16 +1243,16 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
                 websites: gtData.websites || [],
                 provider: 'geckoterminal'
             };
-            console.log(`[AutoTrade] getTokenInfo: Success (GeckoTerminal) - ${result.symbol} $${result.price}`);
+            if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (GeckoTerminal) - ${result.symbol} $${result.price}`);
             return result;
         }
     } catch (gtErr: any) {
-        console.error(`[AutoTrade] getTokenInfo: GeckoTerminal fallback also failed:`, gtErr.message);
+        if (verbose) console.error(`[AutoTrade] getTokenInfo: GeckoTerminal fallback also failed:`, gtErr.message);
     }
 
     // --- STEP 3: Try ZORA API (For Base chain launchpad tokens) ---
     if (chainId === 8453) {
-        console.log(`[AutoTrade] getTokenInfo: Trying ZORA API fallback for Base token ${tokenAddress}...`);
+        if (verbose) console.log(`[AutoTrade] getTokenInfo: Trying ZORA API fallback for Base token ${tokenAddress}...`);
         try {
             const zoraUrl = `https://api-sdk.zora.engineering/coin?address=${tokenAddress}&chain=8453`;
             const zoraRes = await fetch(zoraUrl, {
@@ -1215,16 +1281,16 @@ async function getTokenInfo(tokenAddress: string, chainId: number): Promise<any>
                         websites: [],
                         provider: 'zora'
                     };
-                    console.log(`[AutoTrade] getTokenInfo: Success (ZORA) - ${result.symbol} $${result.price}`);
+                    if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (ZORA) - ${result.symbol} $${result.price}`);
                     return result;
                 }
             }
         } catch (zoraErr: any) {
-            console.error(`[AutoTrade] getTokenInfo: ZORA API fallback failed:`, zoraErr.message);
+            if (verbose) console.error(`[AutoTrade] getTokenInfo: ZORA API fallback failed:`, zoraErr.message);
         }
     }
 
-    console.error(`[AutoTrade] getTokenInfo: All providers failed for ${tokenAddress}. Last DS Error: ${dsError?.message}`);
+    if (verbose) console.error(`[AutoTrade] getTokenInfo: All providers failed for ${tokenAddress}. Last DS Error: ${dsError?.message}`);
     return null;
 }
 

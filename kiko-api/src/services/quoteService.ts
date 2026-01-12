@@ -1,4 +1,4 @@
-
+import { ethers } from 'ethers';
 import { getZeroExQuote, getDefaultTakerAddress } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -73,13 +73,14 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
             );
 
             if (q) {
-                const amountOutHumanNum = parseFloat(q.buyAmount) / Math.pow(10, tokenOutDecimals);
-                const impactVsMkt = calcImpactVsMkt(amountOutHumanNum);
+                // Use ethers for accurate decimal formatting
+                const amountOutHuman = ethers.formatUnits(q.buyAmount, tokenOutDecimals);
+                const impactVsMkt = calcImpactVsMkt(parseFloat(amountOutHuman));
 
                 quotes.push({
                     dex: '0x',
                     dexName: '0x Aggregator',
-                    amountOut: amountOutHumanNum.toString(),
+                    amountOut: amountOutHuman,
                     amountOutBase: q.buyAmount,
                     gasEstimate: q.estimatedGas ? parseInt(q.estimatedGas) : 150000,
                     priceImpact: impactVsMkt ?? parseFloat(q.estimatedPriceImpact || '0') * 100,
@@ -113,11 +114,9 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
             );
 
             if (kyberQuote) {
-                const humanOut = tokenOutDecimals
-                    ? (Number(kyberQuote.amountOut || '0') / Math.pow(10, tokenOutDecimals)).toString()
-                    : kyberQuote.amountOut;
-                const humanOutNum = parseFloat(humanOut);
-                const impactVsMkt = calcImpactVsMkt(humanOutNum);
+                // Use ethers for accurate decimal formatting
+                const humanOut = ethers.formatUnits(kyberQuote.amountOut || '0', tokenOutDecimals);
+                const impactVsMkt = calcImpactVsMkt(parseFloat(humanOut));
 
                 quotes.push({
                     dex: 'kyber',
