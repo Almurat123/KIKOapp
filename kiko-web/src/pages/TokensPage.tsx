@@ -42,6 +42,18 @@ interface Token {
   poolAddress?: string; // Pool address for GeckoTerminal charts
   network?: string; // Network for API calls
   trendingScore: number; // Calculated trending score (0-100)
+
+  // Raw numeric fields for fast sorting
+  priceRaw: number;
+  volumeRaw: number;
+  liquidityRaw: number;
+  fdvRaw: number;
+  c5mRaw: number;
+  c1hRaw: number;
+  c6hRaw: number;
+  c24hRaw: number;
+  ageRaw: number; // timestamp
+
   socialLinks?: {
     website?: string;
     twitter?: string;
@@ -292,6 +304,17 @@ function convertApiTokenToToken(apiToken: TokenSearchResult, id: number): Token 
     address: apiToken.address, // Store address for detail page
     poolAddress: apiToken.poolAddress, // Critical for charts
     network: apiToken.network, // Store network for detail page
+
+    // Raw fields for fast sorting
+    priceRaw: price || 0,
+    volumeRaw: volume24h || 0,
+    liquidityRaw: liquidity || 0,
+    fdvRaw: fdv || 0,
+    c5mRaw: priceChange5m || 0,
+    c1hRaw: priceChange1h || 0,
+    c6hRaw: priceChange6h || 0,
+    c24hRaw: priceChange24h || 0,
+    ageRaw: apiToken.poolCreatedAt ? new Date(apiToken.poolCreatedAt).getTime() : 0,
     socialLinks: {
       website: apiToken.websites?.[0]?.url || apiToken.socials?.find(s => s.type === 'website')?.url,
       twitter: apiToken.socials?.find(s => s.type === 'twitter')?.url,
@@ -325,18 +348,183 @@ const getChainColor = (chain: string): string => {
 };
 
 const getChainLogo = (chain: string): string => {
-  switch (chain) {
-    case 'SOL': return 'https://cryptologos.cc/logos/solana-sol-logo.png';
-    case 'ETH': return 'https://cryptologos.cc/logos/ethereum-eth-logo.png';
-    case 'BSC': return 'https://cryptologos.cc/logos/bnb-bnb-logo.png';
-    case 'BASE': return 'https://avatars.githubusercontent.com/u/108554348?s=200&v=4';
-    case 'ARB': return 'https://cryptologos.cc/logos/arbitrum-arb-logo.png';
-    case 'OP': return 'https://cryptologos.cc/logos/optimism-ethereum-op-logo.png';
-    case 'AVAX': return 'https://cryptologos.cc/logos/avalanche-avax-logo.png';
-    case 'MATIC': return 'https://cryptologos.cc/logos/polygon-matic-logo.png';
-    default: return '';
-  }
+  const chainLower = chain.toLowerCase();
+  if (chainLower === 'eth' || chainLower === 'ethereum') return 'https://assets.coingecko.com/coins/images/279/small/ethereum.png';
+  if (chainLower === 'sol' || chainLower === 'solana') return 'https://assets.coingecko.com/coins/images/4128/small/solana.png';
+  if (chainLower === 'base') return 'https://assets.coingecko.com/asset_platforms/images/131/small/base.png';
+  if (chainLower === 'bsc' || chainLower === 'binance') return 'https://assets.coingecko.com/coins/images/825/small/binance-coin-logo.png';
+  if (chainLower === 'arbitrum' || chainLower === 'arb') return 'https://assets.coingecko.com/asset_platforms/images/33/small/arbitrum-one.png';
+  if (chainLower === 'optimism' || chainLower === 'op') return 'https://assets.coingecko.com/asset_platforms/images/41/small/optimism.png';
+  if (chainLower === 'polygon' || chainLower === 'matic') return 'https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png';
+  if (chainLower === 'avax' || chainLower === 'avalanche') return 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png';
+  return '';
 };
+
+const TokenRow = React.memo(({
+  token: t,
+  index: i,
+  isMobile,
+  onTokenClick
+}: {
+  token: Token;
+  index: number;
+  isMobile: boolean;
+  onTokenClick: (token: Token) => void;
+}) => {
+  const changeValue = t.c5m;
+  const isPositive = changeValue.startsWith('+');
+  const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
+
+  return (
+    <tr
+      onClick={() => onTokenClick(t)}
+      className={styles.tr}
+    >
+      {/* Token Info */}
+      <td
+        className={styles.td}
+        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+      >
+        <div className={styles.tokenInfo}>
+          {!isMobile && (
+            <span className={styles.rank}>
+              {i + 1}
+            </span>
+          )}
+          <div className={`${styles.tokenIconWrapper} ${isMobile ? styles.tokenIconWrapperMobile : ''}`}>
+            {isMobile && (
+              <span className={`${styles.avatarRankBadge} ${t.isNew ? styles.avatarRankNew : ''} ${t.isHot && !t.isNew ? styles.avatarRankHot : ''}`}>
+                {t.isNew ? 'NEW' : t.isHot ? 'HOT' : i + 1}
+              </span>
+            )}
+            <img
+              src={t.imageUrl || `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`}
+              alt={t.name}
+              className={styles.tokenIcon}
+              onError={(e) => {
+                e.currentTarget.src = `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`;
+              }}
+            />
+            <img
+              src={getChainLogo(t.chain)}
+              alt={t.chain}
+              className={styles.chainLogo}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                if (e.currentTarget.parentElement) {
+                  e.currentTarget.parentElement.style.background = getChainColor(t.chain);
+                }
+              }}
+            />
+          </div>
+
+          <div className={styles.tokenNameCol}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+              <span className={styles.tokenSymbol}>{t.symbol}</span>
+              {t.isNew && !isMobile && (
+                <span style={{
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#fff',
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  padding: '2px 5px',
+                  borderRadius: '4px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.3px',
+                }}>NEW</span>
+              )}
+              {t.isHot && !t.isNew && !isMobile && (
+                <span style={{
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  color: '#fff',
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  padding: '2px 5px',
+                  borderRadius: '4px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.3px',
+                }}>HOT</span>
+              )}
+            </div>
+            <span className={styles.tokenName}>{t.name}</span>
+          </div>
+        </div>
+      </td>
+
+      {/* Price */}
+      <td
+        className={`${styles.td} ${styles.tdRight}`}
+        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+      >
+        <div className={styles.price}>
+          {t.price}
+        </div>
+      </td>
+
+      {/* Change (based on timeframe) */}
+      <td
+        className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
+        style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+      >
+        {changeValue}
+      </td>
+
+      {/* Age */}
+      <td
+        className={`${styles.td} ${styles.tdRight} ${styles.age} ${((t.age.toLowerCase().endsWith('h') || t.age.toLowerCase().endsWith('m')) || t.isNew) ? styles.ageRecent : ''}`}
+        style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+      >
+        {t.age}
+      </td>
+
+      {/* Volume / Liquidity */}
+      <td
+        className={`${styles.td} ${styles.tdRight}`}
+        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+      >
+        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+          <div className={styles.volume}>
+            <span className={styles.volLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>VOL:</span>
+            {t.volume}
+          </div>
+          <div className={styles.volume}>
+            <span className={styles.liqLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>LIQ:</span>
+            {t.liquidity}
+          </div>
+        </div>
+      </td>
+
+      {/* Txns (Buy/Sell Bar) */}
+      {!isMobile && (
+        <td
+          className={`${styles.td} ${styles.tdCenter}`}
+          style={{ padding: '12px 16px' }}
+        >
+          <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
+            <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
+              <span className={styles.changePositive} style={{ fontSize: '9px' }}>
+                {t.buys}
+              </span>
+              <span className={styles.changeNegative} style={{ fontSize: '9px' }}>
+                {t.sells}
+              </span>
+            </div>
+            <div className={styles.barContainer} style={{ height: '6px' }}>
+              <div
+                className={styles.buyBar}
+                style={{ width: `${buyPct}%` }}
+              ></div>
+              <div
+                className={styles.sellBar}
+                style={{ width: `${100 - buyPct}%` }}
+              ></div>
+            </div>
+          </div>
+        </td>
+      )}
+    </tr>
+  );
+});
 
 interface TokensPageProps {
   searchQuery?: string;
@@ -346,13 +534,13 @@ interface TokensPageProps {
 // Available chains for filtering
 const CHAIN_OPTIONS = [
   { id: 'all', name: 'All Chains', logo: '', apiKey: '' },
-  { id: 'ETH', name: 'Ethereum', logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.png', apiKey: 'eth' },
-  { id: 'SOL', name: 'Solana', logo: 'https://cryptologos.cc/logos/solana-sol-logo.png', apiKey: 'solana' },
-  { id: 'BSC', name: 'BNB Chain', logo: 'https://cryptologos.cc/logos/bnb-bnb-logo.png', apiKey: 'bsc' },
-  { id: 'BASE', name: 'Base', logo: 'https://avatars.githubusercontent.com/u/108554348?s=200&v=4', apiKey: 'base' },
-  { id: 'ARB', name: 'Arbitrum', logo: 'https://cryptologos.cc/logos/arbitrum-arb-logo.png', apiKey: 'arbitrum' },
-  { id: 'OP', name: 'Optimism', logo: 'https://cryptologos.cc/logos/optimism-ethereum-op-logo.png', apiKey: 'optimism' },
-  { id: 'MATIC', name: 'Polygon', logo: 'https://cryptologos.cc/logos/polygon-matic-logo.png', apiKey: 'polygon' },
+  { id: 'ETH', name: 'Ethereum', logo: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png', apiKey: 'eth' },
+  { id: 'SOL', name: 'Solana', logo: 'https://assets.coingecko.com/coins/images/4128/small/solana.png', apiKey: 'solana' },
+  { id: 'BSC', name: 'BNB Chain', logo: 'https://assets.coingecko.com/coins/images/825/small/binance-coin-logo.png', apiKey: 'bsc' },
+  { id: 'BASE', name: 'Base', logo: 'https://assets.coingecko.com/asset_platforms/images/131/small/base.png', apiKey: 'base' },
+  { id: 'ARB', name: 'Arbitrum', logo: 'https://assets.coingecko.com/asset_platforms/images/33/small/arbitrum-one.png', apiKey: 'arbitrum' },
+  { id: 'OP', name: 'Optimism', logo: 'https://assets.coingecko.com/asset_platforms/images/41/small/optimism.png', apiKey: 'optimism' },
+  { id: 'MATIC', name: 'Polygon', logo: 'https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png', apiKey: 'polygon' },
 ];
 
 // Chains to fetch data from
@@ -374,8 +562,12 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true); // Initial multi-chain load
   const [error, setError] = useState<string | null>(null);
-  const [selectedChain, setSelectedChain] = useState(() => localStorage.getItem('kiko-selected-chain') || 'all'); // Chain filter
+  const [selectedChain, setSelectedChain] = useState<string>(
+    localStorage.getItem('kiko-selected-chain') || 'all'
+  );
   const [showChainDropdown, setShowChainDropdown] = useState(false); // Chain dropdown visibility
+  const [visibleCount, setVisibleCount] = useState(30);
+  const loadingRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<'trending' | 'favorites'>('trending'); // Tab state
 
   // Use external search if provided, otherwise use internal
@@ -416,8 +608,10 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         });
 
         if (currentTokens.length > 0) {
-          // Keep API order - do NOT re-sort by trendingScore
-          // The API returns tokens in DexScreener's trending order
+          // GLOBAL TRENDING SORT: Sort by trendingScore descending
+          currentTokens.sort((a, b) => b.trendingScore - a.trendingScore);
+
+          // Assign unique IDs for the table display AFTER sorting
           const displayTokens = currentTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
           setAllTokens(displayTokens);
           // INSTANT LOAD: If we have cache, hide loading immediately
@@ -446,11 +640,16 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         });
 
         const results = await Promise.all(fetchPromises);
-        const freshTokens = results.flat();
+        let freshTokens = results.flat();
 
-        // Batch update: Keep API order - do NOT re-sort
+        // GLOBAL TRENDING SORT: Rank tokens from all chains by popularity
+        if (freshTokens.length > 0) {
+          freshTokens.sort((a, b) => b.trendingScore - a.trendingScore);
+        }
+
+        // Batch update
         if (mountedRef.current && freshTokens.length > 0) {
-          // Assign unique IDs for the table display
+          // Assign unique IDs for the table display AFTER global sorting
           const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
           setAllTokens(displayTokens);
         }
@@ -512,10 +711,12 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         });
 
         const results = await Promise.all(promises);
-        const freshTokens = results.flat();
+        let freshTokens = results.flat();
 
         if (mountedRef.current && freshTokens.length > 0) {
-          // Preserve API order
+          // GLOBAL TRENDING SORT: Keep the list ranked by popularity across all chains
+          freshTokens.sort((a, b) => b.trendingScore - a.trendingScore);
+
           const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
           setAllTokens(displayTokens);
         }
@@ -704,56 +905,44 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         const aVal: any = a[sortBy];
         const bVal: any = b[sortBy];
 
-        // Helper: Parse money strings like "$4.2M", "$1.5B", "$500K"
-        const parseMoney = (val: string): number => {
-          if (!val || typeof val !== 'string') return 0;
-          const num = parseFloat(val.replace(/[$,]/g, ''));
-          if (val.includes('B')) return num * 1_000_000_000;
-          if (val.includes('M')) return num * 1_000_000;
-          if (val.includes('K')) return num * 1_000;
-          return num;
-        };
-
-        // Helper: Parse age strings like "10mo", "2d", "1y", "5h" to hours
-        const parseAge = (val: string): number => {
-          if (!val || typeof val !== 'string') return Infinity;
-          const num = parseFloat(val);
-          if (val.includes('y')) return num * 365 * 24; // years to hours
-          if (val.includes('mo')) return num * 30 * 24; // months to hours
-          if (val.includes('d')) return num * 24; // days to hours
-          if (val.includes('h')) return num; // hours
-          if (val.includes('m')) return num / 60; // minutes to hours
-          return num;
-        };
-
-        // Helper: Parse percentage strings like "+5.2%", "-3.1%"
-        const parsePercent = (val: string): number => {
-          if (!val || typeof val !== 'string') return 0;
-          return parseFloat(val.replace('%', '').replace('+', ''));
-        };
-
         let aNum: number, bNum: number;
+        const aToken = a as Token;
+        const bToken = b as Token;
 
-        // Determine sort type based on column
+        // Use raw fields for sorting to avoid parsing strings
         if (sortBy === 'age') {
-          // Age: smaller = newer, so desc should show newest first
-          aNum = parseAge(aVal);
-          bNum = parseAge(bVal);
-        } else if (sortBy === 'volume' || sortBy === 'liquidity' || sortBy === 'fdv' || sortBy === 'price') {
-          // Money values
-          aNum = parseMoney(aVal);
-          bNum = parseMoney(bVal);
-        } else if (sortBy === 'c5m' || sortBy === 'c1h' || sortBy === 'c6h' || sortBy === 'c24h') {
-          // Percentage values
-          aNum = parsePercent(aVal);
-          bNum = parsePercent(bVal);
+          aNum = aToken.ageRaw;
+          bNum = bToken.ageRaw;
+        } else if (sortBy === 'volume') {
+          aNum = aToken.volumeRaw;
+          bNum = bToken.volumeRaw;
+        } else if (sortBy === 'liquidity') {
+          aNum = aToken.liquidityRaw;
+          bNum = bToken.liquidityRaw;
+        } else if (sortBy === 'fdv') {
+          aNum = aToken.fdvRaw;
+          bNum = bToken.fdvRaw;
+        } else if (sortBy === 'price') {
+          aNum = aToken.priceRaw;
+          bNum = bToken.priceRaw;
+        } else if (sortBy === 'c5m') {
+          aNum = aToken.c5mRaw;
+          bNum = bToken.c5mRaw;
+        } else if (sortBy === 'c1h') {
+          aNum = aToken.c1hRaw;
+          bNum = bToken.c1hRaw;
+        } else if (sortBy === 'c6h') {
+          aNum = aToken.c6hRaw;
+          bNum = bToken.c6hRaw;
+        } else if (sortBy === 'c24h') {
+          aNum = aToken.c24hRaw;
+          bNum = bToken.c24hRaw;
+        } else if (sortBy === 'trendingScore') {
+          aNum = aToken.trendingScore;
+          bNum = bToken.trendingScore;
         } else if (typeof aVal === 'number' && typeof bVal === 'number') {
-          // Numeric values (txns, buys, sells, makers)
           aNum = aVal;
           bNum = bVal;
-        } else if (sortBy === 'trendingScore') {
-          aNum = (a as Token).trendingScore;
-          bNum = (b as Token).trendingScore;
         } else {
           // String comparison for symbol, name, chain
           return sortDirection === 'asc'
@@ -761,6 +950,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
             : String(bVal).localeCompare(String(aVal));
         }
 
+        // Adjust for Age: smaller timestamp = older token
+        // In "desc" mode for age, we want newest first, so higher timestamp first
         return sortDirection === 'asc' ? aNum - bNum : bNum - aNum;
       });
     } else {
@@ -799,6 +990,24 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       console.error('Failed to refresh favorites', err);
     }
   }, []);
+
+  // Infinite scroll observer
+  useEffect(() => {
+    if (!loadingRef.current || filteredAndSortedTokens.length <= visibleCount) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          console.log('[TokensPage] Infinite scroll triggered');
+          setVisibleCount((prev) => prev + 30);
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    );
+
+    observer.observe(loadingRef.current);
+    return () => observer.disconnect();
+  }, [filteredAndSortedTokens.length, visibleCount]);
 
   const SortIcon: React.FC<{ column: keyof Token }> = ({ column }) => {
     if (sortBy !== column) return null;
@@ -1144,6 +1353,9 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                           src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
                           alt={selectedChain}
                           className={styles.chainSelectorIcon}
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
                         />
                       )}
                       <span>{selectedChain === 'all' ? 'All' : CHAIN_OPTIONS.find(c => c.id === selectedChain)?.id}</span>
@@ -1161,7 +1373,14 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                             }}
                           >
                             {chain.logo ? (
-                              <img src={chain.logo} alt={chain.name} className={styles.chainOptionIcon} />
+                              <img
+                                src={chain.logo}
+                                alt={chain.name}
+                                className={styles.chainOptionIcon}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
                             ) : (
                               <span className={styles.allChainsIcon}>⛓</span>
                             )}
@@ -1248,168 +1467,24 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                     </tr>
                   </thead>
                   <tbody className={styles.tbody}>
-                    {filteredAndSortedTokens.map((t, i) => {
-                      const changeValue = t.c5m;
-                      const isPositive = changeValue.startsWith('+');
-                      const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
-
-                      return (
-                        <tr
-                          key={t.id}
-                          onClick={() => handleTokenClick(t)}
-                          className={styles.tr}
-                        >
-                          {/* Token Info */}
-                          <td
-                            className={styles.td}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                          >
-                            <div className={styles.tokenInfo}>
-                              {/* Desktop: Normal rank */}
-                              {!isMobile && (
-                                <span className={styles.rank}>
-                                  {i + 1}
-                                </span>
-                              )}
-                              {/* Token Icon with Chain Logo */}
-                              <div className={`${styles.tokenIconWrapper} ${isMobile ? styles.tokenIconWrapperMobile : ''}`}>
-                                {/* Mobile: Rank badge above avatar */}
-                                {isMobile && (
-                                  <span className={`${styles.avatarRankBadge} ${t.isNew ? styles.avatarRankNew : ''} ${t.isHot && !t.isNew ? styles.avatarRankHot : ''}`}>
-                                    {t.isNew ? 'NEW' : t.isHot ? 'HOT' : i + 1}
-                                  </span>
-                                )}
-                                <img
-                                  src={t.imageUrl || `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`}
-                                  alt={t.name}
-                                  className={styles.tokenIcon}
-                                  onError={(e) => {
-                                    // Fallback to ui-avatars if image fails to load
-                                    e.currentTarget.src = `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`;
-                                  }}
-                                />
-                                {/* Chain Logo */}
-                                <img
-                                  src={getChainLogo(t.chain)}
-                                  alt={t.chain}
-                                  className={styles.chainLogo}
-                                  onError={(e) => {
-                                    e.currentTarget.style.background = getChainColor(t.chain);
-                                  }}
-                                />
-                              </div>
-
-                              <div className={styles.tokenNameCol}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                                  <span className={styles.tokenSymbol}>{t.symbol}</span>
-                                  {/* NEW badge - desktop only */}
-                                  {t.isNew && !isMobile && (
-                                    <span style={{
-                                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                                      color: '#fff',
-                                      fontSize: '9px',
-                                      fontWeight: 700,
-                                      padding: '2px 5px',
-                                      borderRadius: '4px',
-                                      textTransform: 'uppercase',
-                                      letterSpacing: '0.3px',
-                                    }}>NEW</span>
-                                  )}
-                                  {/* HOT badge - desktop only, don't show if already NEW */}
-                                  {t.isHot && !t.isNew && !isMobile && (
-                                    <span style={{
-                                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                                      color: '#fff',
-                                      fontSize: '9px',
-                                      fontWeight: 700,
-                                      padding: '2px 5px',
-                                      borderRadius: '4px',
-                                      textTransform: 'uppercase',
-                                      letterSpacing: '0.3px',
-                                    }}>HOT</span>
-                                  )}
-                                </div>
-                                <span className={styles.tokenName}>{t.name}</span>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Price */}
-                          <td
-                            className={`${styles.td} ${styles.tdRight}`}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                          >
-                            <div className={styles.price}>
-                              {t.price}
-                            </div>
-                          </td>
-
-                          {/* Change (based on timeframe) */}
-                          <td
-                            className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
-                          >
-                            {changeValue}
-                          </td>
-
-                          {/* Age */}
-                          <td
-                            className={`${styles.td} ${styles.tdRight} ${styles.age} ${((t.age.toLowerCase().endsWith('h') || t.age.toLowerCase().endsWith('m')) || t.isNew) ? styles.ageRecent : ''}`}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
-                          >
-                            {t.age}
-                          </td>
-
-                          {/* Volume / Liquidity */}
-                          <td
-                            className={`${styles.td} ${styles.tdRight}`}
-                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                          >
-                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                              <div className={styles.volume}>
-                                <span className={styles.volLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>VOL:</span>
-                                {t.volume}
-                              </div>
-                              <div className={styles.volume}>
-                                <span className={styles.liqLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>LIQ:</span>
-                                {t.liquidity}
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Txns (Buy/Sell Bar) */}
-                          {!isMobile && (
-                            <td
-                              className={`${styles.td} ${styles.tdCenter}`}
-                              style={{ padding: '12px 16px' }}
-                            >
-                              <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
-                                <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
-                                  <span className={styles.changePositive} style={{ fontSize: '9px' }}>
-                                    {t.buys}
-                                  </span>
-                                  <span className={styles.changeNegative} style={{ fontSize: '9px' }}>
-                                    {t.sells}
-                                  </span>
-                                </div>
-                                <div className={styles.barContainer} style={{ height: '6px' }}>
-                                  <div
-                                    className={styles.buyBar}
-                                    style={{ width: `${buyPct}%` }}
-                                  ></div>
-                                  <div
-                                    className={styles.sellBar}
-                                    style={{ width: `${100 - buyPct}%` }}
-                                  ></div>
-                                </div>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
+                    {filteredAndSortedTokens.slice(0, visibleCount).map((t, i) => (
+                      <TokenRow
+                        key={t.id}
+                        token={t}
+                        index={i}
+                        isMobile={isMobile}
+                        onTokenClick={handleTokenClick}
+                      />
+                    ))}
                   </tbody>
                 </table>
+
+                {filteredAndSortedTokens.length > visibleCount && (
+                  <div ref={loadingRef} className={styles.infiniteScrollLoader}>
+                    <div className={styles.loadingSpinnerSmall}></div>
+                    <span>Loading more tokens...</span>
+                  </div>
+                )}
               </div>
             </>
           )

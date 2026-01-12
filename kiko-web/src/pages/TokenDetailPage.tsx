@@ -238,14 +238,14 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
 
   const getChainLogo = (chain: string): string => {
     switch (chain?.toUpperCase()) {
-      case 'SOL': return 'https://cryptologos.cc/logos/solana-sol-logo.png';
-      case 'ETH': return 'https://cryptologos.cc/logos/ethereum-eth-logo.png';
-      case 'BSC': return 'https://cryptologos.cc/logos/bnb-bnb-logo.png';
-      case 'BASE': return 'https://avatars.githubusercontent.com/u/108554348?s=200&v=4';
-      case 'ARB': return 'https://cryptologos.cc/logos/arbitrum-arb-logo.png';
-      case 'OP': return 'https://cryptologos.cc/logos/optimism-ethereum-op-logo.png';
-      case 'AVAX': return 'https://cryptologos.cc/logos/avalanche-avax-logo.png';
-      case 'MATIC': return 'https://cryptologos.cc/logos/polygon-matic-logo.png';
+      case 'SOL': return 'https://assets.coingecko.com/coins/images/4128/small/solana.png';
+      case 'ETH': return 'https://assets.coingecko.com/coins/images/279/small/ethereum.png';
+      case 'BSC': return 'https://assets.coingecko.com/coins/images/825/small/binance-coin-logo.png';
+      case 'BASE': return 'https://assets.coingecko.com/asset_platforms/images/131/small/base.png';
+      case 'ARB': return 'https://assets.coingecko.com/asset_platforms/images/33/small/arbitrum-one.png';
+      case 'OP': return 'https://assets.coingecko.com/asset_platforms/images/41/small/optimism.png';
+      case 'AVAX': return 'https://assets.coingecko.com/coins/images/2790/small/avalanche.png';
+      case 'MATIC': return 'https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png';
       default: return '';
     }
   };
@@ -312,7 +312,10 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
                 alt={token.chain}
                 className={styles.chainLogo}
                 onError={(e) => {
-                  e.currentTarget.style.background = getChainColor(token.chain);
+                  e.currentTarget.style.display = 'none';
+                  if (e.currentTarget.parentElement) {
+                    e.currentTarget.parentElement.style.background = getChainColor(token.chain);
+                  }
                 }}
               />
             </div>
