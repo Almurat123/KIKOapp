@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Command, ArrowRight } from 'lucide-react';
+import { Command, ArrowRight } from 'lucide-react';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
@@ -32,10 +32,6 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
         <div
             className={clsx(styles.suggestionBox, styles[resolvedTheme])}
         >
-            <div className={styles.suggestionHeader}>
-                <Sparkles size={14} className={styles.suggestionHeaderIcon} />
-                <span>Suggested Actions</span>
-            </div>
             <div className={styles.suggestionList}>
                 {suggestions.map((item) => (
                     <button
@@ -48,7 +44,12 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
                         </div>
                         <div className={styles.suggestionContent}>
                             <span className={styles.suggestionLabel}>{item.label}</span>
-                            {item.subLabel && <span className={styles.suggestionSubLabel}>{item.subLabel}</span>}
+                            {item.subLabel && (
+                                <span
+                                    className={styles.suggestionSubLabel}
+                                    dangerouslySetInnerHTML={{ __html: item.subLabel }}
+                                />
+                            )}
                         </div>
                         <div className={styles.suggestionArrow}>
                             <ArrowRight size={14} />

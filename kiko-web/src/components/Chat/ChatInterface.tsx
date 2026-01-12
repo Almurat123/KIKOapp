@@ -9,6 +9,8 @@ import { MessageBubble } from './MessageBubble';
 import { WelcomeScreen } from './WelcomeScreen';
 import { CustomAISettingsModal } from './CustomAISettingsModal';
 import { ChatInputSuggestions, type SuggestionItem } from './ChatInputSuggestions';
+import { SuggestionEngine, type SuggestionContext } from './SuggestionEngine.tsx';
+import { loadFromCache } from '../../services/trendingService';
 import { useSidebar } from '../Layout/Layout';
 import { useThemeContext } from '../../contexts/ThemeContext';
 // Use global ChainContext for app-wide chain state
@@ -192,137 +194,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Suggestions State
     const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
-
-    // Intent Detection Logic
-    const detectIntent = useCallback((text: string) => {
-        logger.debug('detectIntent called with:', text);
-        if (!text || text.trim().length === 0) {
-            setSuggestions([]);
-            setShowSuggestions(false);
-            return;
-        }
-
-        const lowerText = text.toLowerCase().trim();
-        logger.debug('Processing text:', lowerText);
-        const newSuggestions: SuggestionItem[] = [];
-
-        // 1. Address Detection (EVM or Solana)
-        const evmAddressMatch = text.match(/0x[a-fA-F0-9]{40}/);
-        const solanaAddressMatch = text.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
-
-        if (evmAddressMatch) {
-            const address = evmAddressMatch[0];
-            const shortAddr = `${address.slice(0, 6)}...${address.slice(-4)}`;
-
-            newSuggestions.push({
-                id: 'check-evm',
-                label: `Check Token Analysis`,
-                subLabel: `Run risk & safety check for ${shortAddr}`,
-                action: () => handleSend(`Check ${address}`),
-                highlight: true
-            });
-            newSuggestions.push({
-                id: 'swap-evm',
-                label: `Swap Token`,
-                subLabel: `Buy/Sell ${shortAddr}`,
-                action: () => handleSend(`Swap ${address}`),
-            });
-            newSuggestions.push({
-                id: 'buyers-evm',
-                label: `Check Early Buyers`,
-                subLabel: `Analyze top holders/snipers for ${shortAddr}`,
-                action: () => handleSend(`Check early buyers for ${address}`),
-            });
-        } else if (solanaAddressMatch) {
-            const address = solanaAddressMatch[0];
-            // Filter out common non-address base58 strings if needed (simplified check logic)
-            if (address.length > 30) {
-                const shortAddr = `${address.slice(0, 6)}...${address.slice(-4)}`;
-
-                newSuggestions.push({
-                    id: 'check-sol',
-                    label: `Check Solana Token`,
-                    subLabel: `Run deep analysis for ${shortAddr}`,
-                    action: () => handleSend(`Check ${address}`),
-                    highlight: true
-                });
-                newSuggestions.push({
-                    id: 'swap-sol',
-                    label: `Swap on Solana`,
-                    subLabel: `Trade ${shortAddr}`,
-                    action: () => handleSend(`Swap ${address}`),
-                });
-                newSuggestions.push({
-                    id: 'dev-sol',
-                    label: `Check Developer`,
-                    subLabel: `Analyze dev wallet history for ${shortAddr}`,
-                    action: () => handleSend(`Check developer of ${address}`),
-                });
-            }
-        }
-
-        // 2. Keyword Detection
-        if (newSuggestions.length === 0) {
-            if (lowerText.startsWith('swap')) {
-                newSuggestions.push({
-                    id: 'swap-generic',
-                    label: 'Swap Tokens',
-                    subLabel: 'I want to swap [Token] for [Token]',
-                    action: () => setInput('[SWAP] I want to swap '), // Pre-fill
-                });
-                newSuggestions.push({
-                    id: 'swap-eth-usdc',
-                    label: 'Quick Swap: ETH -> USDC',
-                    subLabel: 'Swap 0.1 ETH to USDC',
-                    action: () => handleSend('Swap 0.1 ETH to USDC'),
-                });
-                newSuggestions.push({
-                    id: 'swap-sol-usdc',
-                    label: 'Quick Swap: SOL -> USDC',
-                    subLabel: 'Swap 1 SOL to USDC',
-                    action: () => handleSend('Swap 1 SOL to USDC on Solana'),
-                });
-            } else if (lowerText.startsWith('check') || lowerText.startsWith('analyze')) {
-                newSuggestions.push({
-                    id: 'check-generic',
-                    label: 'Analyze Token',
-                    subLabel: 'Paste a contract address to check safety',
-                    action: () => setInput('Check '), // Pre-fill
-                });
-                newSuggestions.push({
-                    id: 'check-wallet',
-                    label: 'Check Wallet',
-                    subLabel: 'Analyze a wallet address PnL',
-                    action: () => setInput('Analyze wallet '),
-                });
-                newSuggestions.push({
-                    id: 'check-trending',
-                    label: 'Check Trending Tokens',
-                    subLabel: 'See what is hot on Base/Solana',
-                    action: () => handleSend('What are the trending tokens right now?'),
-                });
-            } else if (lowerText.startsWith('copy')) {
-                newSuggestions.push({
-                    id: 'copy-trade',
-                    label: 'Copy Trade Setup',
-                    subLabel: 'I want to copy trade a wallet',
-                    action: () => handleSend('I want to copy trade a wallet'),
-                });
-                newSuggestions.push({
-                    id: 'copy-list',
-                    label: 'List My Tasks',
-                    subLabel: 'Show my active copy trade tasks',
-                    action: () => handleSend('Show my copy trade tasks'),
-                });
-            }
-        }
-
-        // Limit to 5 suggestions max
-        const limitedSuggestions = newSuggestions.slice(0, 5);
-        logger.debug('Suggestions found:', limitedSuggestions.length);
-        setSuggestions(limitedSuggestions);
-        setShowSuggestions(limitedSuggestions.length > 0);
-    }, []);
 
     // Delegation state for instant trades (delegation is handled by DelegatedActionRequest component)
     const [showDelegationModal, setShowDelegationModal] = useState(false);
@@ -1565,6 +1436,64 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             isSubmittingRef.current = false;
         }
     };
+
+    // 1. Context Gathering (History & Trending)
+    const getContext = useCallback((): SuggestionContext => {
+        let history: string[] = [];
+        try {
+            history = JSON.parse(localStorage.getItem('kiko-recent-items') || '[]');
+        } catch (e) {
+            logger.warn('Failed to parse history from localStorage', e);
+        }
+
+        const chains = ['eth', 'solana', 'base', 'bsc'];
+        const trending: { symbol: string; address?: string }[] = [];
+        chains.forEach(chain => {
+            const cached = loadFromCache(chain);
+            if (cached) {
+                cached.slice(0, 3).forEach(t => {
+                    if (!trending.find(ex => ex.symbol === t.symbol)) {
+                        trending.push({ symbol: t.symbol, address: t.address });
+                    }
+                });
+            }
+        });
+
+        return { history, trending: trending.slice(0, 10) };
+    }, []);
+
+    // Intent Detection Logic
+    const detectIntent = useCallback((text: string) => {
+        if (!text || text.trim().length === 0) {
+            setSuggestions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
+        const context = getContext();
+        const results = SuggestionEngine.getSuggestions(
+            text,
+            (t) => {
+                // Add to history
+                try {
+                    const history = JSON.parse(localStorage.getItem('kiko-recent-items') || '[]');
+                    const addrMatch = t.match(/0x[a-fA-F0-9]{40}/i) || t.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
+                    if (addrMatch) {
+                        const newHistory = [addrMatch[0], ...history.filter((a: string) => a !== addrMatch[0])].slice(0, 10);
+                        localStorage.setItem('kiko-recent-items', JSON.stringify(newHistory));
+                    }
+                } catch (e) {
+                    logger.warn('Failed to save to history', e);
+                }
+                handleSend(t);
+            },
+            setInput,
+            context
+        );
+
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
+    }, [handleSend, getContext]);
     // Process pending swap message from LaunchpadCard
     useEffect(() => {
         if (pendingSwapMessage && !isStreaming && !isThinking) {

@@ -924,12 +924,18 @@
   border-radius: 32px;
   border: 0.5px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 1px rgba(255, 255, 255, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .inputFocused {
-  border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.3), 0 0 8px rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  /* More opaque on focus */
+  box-shadow:
+    0 12px 48px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 0 20px rgba(255, 255, 255, 0.05);
+  transform: scale(1.002);
 }
 
 .textareaContainer {
@@ -1192,9 +1198,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px !important;
-  /* Match modelButton height for alignment */
-  height: 28px !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  flex-shrink: 0;
   padding: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.05);
@@ -1236,8 +1244,11 @@
   align-items: center;
   justify-content: center;
   width: 36px !important;
-  /* Restored to original size as requested */
   height: 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  flex-shrink: 0;
+  padding: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.05);
   /* Liquid Glass Dark */
@@ -1286,37 +1297,45 @@
 /* Light Theme Overrides - iOS Glassmorphism Style */
 
 .light .inputWrapper {
-  background: rgba(210, 220, 230, 0.35);
-  /* Subtle grey-blue tint for glass effect */
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.6);
+  background: linear-gradient(135deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.35) 45%,
+      rgba(255, 255, 255, 0.6) 50%,
+      rgba(255, 255, 255, 0.35) 55%,
+      rgba(255, 255, 255, 0.5) 100%);
+  background-size: 200% 200%;
+  backdrop-filter: blur(16px) saturate(200%);
+  -webkit-backdrop-filter: blur(16px) saturate(200%);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.03);
+    0 8px 32px rgba(0, 0, 0, 0.04),
+    0 4px 8px rgba(0, 0, 0, 0.02),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
 .light .inputFocused {
-  border-color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 122, 255, 0.15);
+  /* Soft sapphire tint border */
+  background: rgba(255, 255, 255, 0.88);
   box-shadow:
-    0 12px 32px -10px rgba(0, 0, 0, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 0 8px rgba(0, 0, 0, 0.05);
+    0 15px 45px rgba(0, 0, 0, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 0 0 3px rgba(0, 122, 255, 0.06);
+  /* Soft focus ring */
+  transform: scale(1.002);
 }
 
 .light .modelButton {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(245, 248, 252, 0.4) 100%) !important;
-  /* Gradient glass effect */
-  border: 0.5px solid rgba(255, 255, 255, 0.75) !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
   color: #1a1a1a !important;
-  height: 28px !important;
-  backdrop-filter: blur(30px) saturate(190%);
-  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  height: 30px !important;
+  backdrop-filter: blur(12px) saturate(190%);
+  -webkit-backdrop-filter: blur(12px) saturate(190%);
   box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.4) !important;
+    0 2px 10px rgba(0, 0, 0, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 1) !important;
 }
 
 .light .modelMode {
@@ -1364,39 +1383,41 @@
 }
 
 .light .settingsButton {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(245, 248, 252, 0.4) 100%) !important;
-  /* Gradient glass effect */
-  border: 0.5px solid rgba(255, 255, 255, 0.75) !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  /* More transparent */
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
   color: #374151 !important;
-  height: 28px !important;
-  width: 28px !important;
-  backdrop-filter: blur(30px) saturate(190%);
-  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  height: 30px !important;
+  width: 30px !important;
+  backdrop-filter: blur(12px) saturate(190%);
+  -webkit-backdrop-filter: blur(12px) saturate(190%);
   box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.4) !important;
+    0 2px 10px rgba(0, 0, 0, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 1) !important;
 }
 
 .light .sendButton {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(245, 248, 252, 0.4) 100%) !important;
-  /* Gradient glass effect */
-  border: 0.5px solid rgba(255, 255, 255, 0.75) !important;
-  color: #9ca3af !important;
+  background: rgba(255, 255, 255, 0.8) !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  color: #71717a !important;
   height: 36px !important;
   width: 36px !important;
-  backdrop-filter: blur(30px) saturate(190%);
-  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(20px) saturate(190%);
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
   box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.4) !important;
+    inset 0 1px 1px rgba(255, 255, 255, 1),
+    0 4px 12px rgba(0, 0, 0, 0.04) !important;
 }
 
 .light .sendButtonActive {
-  background: rgba(0, 0, 0, 0.8) !important;
-  color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.95) !important;
+  /* Sync with Chat.module.css active state */
+  color: #1a1a1a !important;
+  box-shadow:
+    0 4px 15px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  cursor: pointer;
 }
 
 .light .inputFooter p {

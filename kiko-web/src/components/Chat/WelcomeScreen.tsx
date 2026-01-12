@@ -7,7 +7,7 @@ import {
 import styles from './WelcomeScreen.module.css';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { CustomAISettingsModal } from './CustomAISettingsModal';
-import { useSmartSuggestions } from './useSmartSuggestions';
+import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { logger } from '../../utils/logger';
 
@@ -214,7 +214,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
                   className={`${styles.sendButton} ${inputValue.trim() ? styles.sendButtonActive : ''}`}
                   title={inputValue.trim() ? '发送' : '输入内容后可发送'}
                 >
-                  <ArrowUp size={18} strokeWidth={2.4} />
+                  <ArrowUp size={20} strokeWidth={2.5} />
                 </button>
               </div>
             </div>

@@ -631,33 +631,36 @@
 
     /* Separator line between suggestions and textarea */
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    margin-bottom: 4px;
-    /* Reduced from 8px */
+    margin-bottom: 0;
 
     /* Animation for reveal */
-    animation: slideDown 0.2s ease-out;
-
+    animation: revealSuggestions 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
-    max-height: 300px;
+    max-height: 400px;
+    /* Increased for better visibility */
     overflow-y: auto;
+    scrollbar-width: none;
+    /* Hide scrollbar for cleaner look */
 }
 
-@keyframes slideDown {
+.suggestionBox::-webkit-scrollbar {
+    display: none;
+}
+
+@keyframes revealSuggestions {
     from {
         opacity: 0;
-        max-height: 0;
-        padding: 0;
-        margin-bottom: 0;
+        transform: translateY(8px) scale(0.98);
     }
 
     to {
         opacity: 1;
-        max-height: 300px;
-        padding: 0;
-        margin-bottom: 4px;
+        transform: translateY(0) scale(1);
     }
 }
+
+/* Removed slideDown as it was replaced by revealSuggestions */
 
 @keyframes expandUp {
     from {
@@ -673,14 +676,14 @@
 
 /* Light theme unified look */
 .light .suggestionBox {
-    background: rgba(255, 255, 255, 0.95);
-    /* More opaque */
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    /* Match input border */
-    border-bottom: none;
-    box-shadow: 0 5px 20px -5px rgba(0, 0, 0, 0.1);
+    background: transparent;
+    /* Let parent glass background show through */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    /* Very subtle separator */
+    box-shadow: none;
 }
 
 .suggestionList {
@@ -697,54 +700,54 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    /* Wider gap like search results */
-    padding: 12px 24px;
-    /* Sufficient horizontal padding to align with textarea text */
+    padding: 14px 24px;
     border-radius: 0;
-    /* No radius, full width rows */
     border: none;
     background: transparent;
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     text-align: left;
     width: 100%;
     position: relative;
-    /* Separator line except last */
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.suggestionItem:last-child {
-    border-bottom: none;
 }
 
 .suggestionItem:hover {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.light .suggestionItem {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .light .suggestionItem:hover {
-    background: rgba(0, 0, 0, 0.04);
+    background: rgba(0, 0, 0, 0.03);
 }
 
-/* Specific Highlight for "Top Match" or address check */
+/* More subtle highlight without the abrupt left border */
 .suggestionItemHighlight {
-    background: rgba(99, 102, 241, 0.05);
-    /* Very subtle tint */
+    background: rgba(16, 185, 129, 0.04);
+}
+
+.suggestionItemHighlight::before {
+    content: '';
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 4px;
+    background: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
 }
 
 .suggestionItemHighlight:hover {
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(16, 185, 129, 0.08);
 }
 
 .light .suggestionItemHighlight {
-    background: rgba(0, 122, 255, 0.03);
+    background: rgba(16, 185, 129, 0.03);
 }
 
-.light .suggestionItemHighlight:hover {
-    background: rgba(0, 122, 255, 0.08);
+.light .suggestionItemHighlight::before {
+    background: #059669;
+    box-shadow: 0 0 6px rgba(5, 150, 105, 0.3);
 }
 
 .suggestionIconWrapper {
@@ -767,13 +770,12 @@
 }
 
 .suggestionItemHighlight .suggestionIconWrapper {
-    color: #818cf8;
-    /* Accent color for icon only */
+    color: #10b981;
     background: transparent;
 }
 
 .light .suggestionItemHighlight .suggestionIconWrapper {
-    color: #007AFF;
+    color: #059669;
     background: transparent;
 }
 
@@ -805,13 +807,36 @@
     font-weight: 400;
 }
 
+/* Slot hint styling within sublabel */
+.suggestionSubLabel em {
+    color: #a1a1aa;
+    font-style: italic;
+    font-weight: 500;
+}
+
 .light .suggestionSubLabel {
     color: #6b7280;
 }
 
-/* Removed Arrow Styles */
+.light .suggestionSubLabel em {
+    color: #4b5563;
+}
+
+/* Re-enabled and refined arrow */
 .suggestionArrow {
-    display: none;
+    opacity: 0;
+    transform: translateX(-10px);
+    transition: all 0.2s ease;
+    color: #71717a;
+}
+
+.suggestionItem:hover .suggestionArrow {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.suggestionItemHighlight .suggestionArrow {
+    color: #10b981;
 }
 
 
@@ -827,8 +852,10 @@
     border: 0.5px solid rgba(255, 255, 255, 0.15);
     display: flex;
     flex-direction: column;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 1px rgba(255, 255, 255, 0.1);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.2),
+        0 0 1px rgba(255, 255, 255, 0.1);
     position: relative;
     z-index: 30;
 }
@@ -850,36 +877,68 @@
 }
 
 .light .inputWrapper {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.45) 0%, rgba(240, 245, 250, 0.35) 100%);
-    /* Gradient glass - simulates light refraction */
-    backdrop-filter: blur(50px) saturate(180%);
-    -webkit-backdrop-filter: blur(50px) saturate(180%);
-    border: 0.5px solid rgba(255, 255, 255, 0.7);
+    background: linear-gradient(135deg,
+            rgba(255, 255, 255, 0.55) 0%,
+            rgba(255, 255, 255, 0.35) 45%,
+            rgba(255, 255, 255, 0.6) 50%,
+            rgba(255, 255, 255, 0.35) 55%,
+            rgba(255, 255, 255, 0.5) 100%);
+    background-size: 200% 200%;
+    /* Reduced blur for more transparency */
+    backdrop-filter: blur(16px) saturate(200%);
+    -webkit-backdrop-filter: blur(16px) saturate(200%);
+    border: 1px solid rgba(0, 0, 0, 0.1);
     box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.06),
+        0 8px 32px rgba(0, 0, 0, 0.04),
+        0 4px 8px rgba(0, 0, 0, 0.02),
         inset 0 1px 0 rgba(255, 255, 255, 0.9),
-        inset 0 -1px 0 rgba(255, 255, 255, 0.3);
+        0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
 .inputBottom .inputWrapper {
     box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.15);
 }
 
+.light .inputBottom .inputWrapper {
+    box-shadow:
+        0 10px 30px -10px rgba(0, 0, 0, 0.1),
+        0 4px 12px rgba(0, 0, 0, 0.03),
+        inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
 .inputCenter .inputWrapper {
     box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.15);
 }
 
+.light .inputCenter .inputWrapper {
+    box-shadow:
+        0 10px 40px -5px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
 .inputWrapper:focus-within {
-    border-color: rgba(255, 255, 255, 0.4);
-    box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.3), 0 0 8px rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.45);
+    background: rgba(255, 255, 255, 0.08);
+    /* Slightly more opaque glass on focus */
+    box-shadow:
+        0 12px 48px rgba(0, 0, 0, 0.35),
+        0 0 0 1px rgba(255, 255, 255, 0.12),
+        0 0 20px rgba(255, 255, 255, 0.05);
+    /* Subtle diffuse light */
+    transform: scale(1.002);
+    /* Near-invisible but felt responsive scale */
 }
 
 .light .inputWrapper:focus-within {
-    border-color: rgba(255, 255, 255, 0.9);
+    border-color: rgba(0, 122, 255, 0.15);
+    /* Soft sapphire tint border */
+    background: rgba(255, 255, 255, 0.88);
     box-shadow:
-        0 12px 40px rgba(0, 0, 0, 0.08),
+        0 15px 45px rgba(0, 0, 0, 0.07),
         inset 0 1px 0 rgba(255, 255, 255, 1),
-        0 0 0 4px rgba(255, 255, 255, 0.3);
+        0 0 0 3px rgba(0, 122, 255, 0.06);
+    /* Soft focus ring */
+    transform: scale(1.002);
 }
 
 
@@ -964,8 +1023,11 @@
 .sendBtn {
     position: relative;
     padding: 0;
-    width: 36px;
-    height: 36px;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    min-height: 36px !important;
+    flex-shrink: 0;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.05);
     /* Liquid Glass Dark Base */
@@ -986,13 +1048,14 @@
 }
 
 .light .sendBtn {
-    background: rgba(255, 255, 255, 0.7) !important;
-    /* iOS 26 Pure White Glass */
-    border: 0.5px solid rgba(255, 255, 255, 0.4) !important;
-    color: #a1a1aa !important;
+    background: rgba(255, 255, 255, 0.8) !important;
+    /* iOS 26 High-Reflectance Glass */
+    border: 1px solid rgba(0, 0, 0, 0.05) !important;
+    color: #71717a !important;
+    /* Slightly darker than zinc-400 */
     box-shadow:
-        0 0 1px 1px inset rgba(255, 255, 255, 0.9),
-        0 2px 8px rgba(0, 0, 0, 0.04) !important;
+        inset 0 1px 1px rgba(255, 255, 255, 1),
+        0 4px 12px rgba(0, 0, 0, 0.04) !important;
     backdrop-filter: blur(20px) saturate(190%);
     -webkit-backdrop-filter: blur(20px) saturate(190%);
 }
@@ -1010,11 +1073,13 @@
 }
 
 .light .activeMode {
-    background: rgba(0, 0, 0, 0.9) !important;
-    /* iOS 26 Active State */
-    color: #ffffff !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    border-color: rgba(0, 0, 0, 1);
+    background: rgba(255, 255, 255, 0.95) !important;
+    /* iOS 26 High-Contrast Glass Active */
+    color: #1a1a1a !important;
+    box-shadow:
+        0 4px 15px rgba(0, 0, 0, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 1);
+    border-color: rgba(0, 0, 0, 0.1) !important;
 }
 
 .activeMode:hover {
@@ -1138,10 +1203,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px !important;
-    /* Unified 28px */
-    height: 28px !important;
-    /* Unified 28px */
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    min-height: 30px !important;
+    flex-shrink: 0;
     padding: 0;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.05);
@@ -1169,8 +1235,8 @@
     /* iOS 26 Pure White Glass */
     border: 0.5px solid rgba(255, 255, 255, 0.4) !important;
     color: #1a1a1a !important;
-    height: 28px !important;
-    width: 28px !important;
+    height: 30px !important;
+    width: 30px !important;
     backdrop-filter: blur(20px) saturate(190%);
     -webkit-backdrop-filter: blur(20px) saturate(190%);
     box-shadow:
@@ -1344,24 +1410,21 @@
 
 /* Light theme model selector - iOS Style */
 .light .modelButton {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(245, 248, 252, 0.4) 100%) !important;
-    /* Gradient glass effect */
-    border: 0.5px solid rgba(255, 255, 255, 0.75) !important;
+    background: rgba(255, 255, 255, 0.5) !important;
+    /* More transparent */
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
     color: #1a1a1a !important;
-    height: 28px !important;
-    /* Unified 28px sync */
-    backdrop-filter: blur(30px) saturate(190%);
-    -webkit-backdrop-filter: blur(30px) saturate(190%);
+    height: 30px !important;
+    backdrop-filter: blur(12px) saturate(190%);
+    -webkit-backdrop-filter: blur(12px) saturate(190%);
     box-shadow:
-        0 2px 8px rgba(0, 0, 0, 0.04),
-        inset 0 1px 0 rgba(255, 255, 255, 0.95),
-        inset 0 -1px 0 rgba(255, 255, 255, 0.4) !important;
+        0 2px 10px rgba(0, 0, 0, 0.03),
+        inset 0 1px 0 rgba(255, 255, 255, 1) !important;
 }
 
 .light .modelButton:hover {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(250, 252, 255, 0.5) 100%) !important;
-    border-color: rgba(255, 255, 255, 0.85);
-    color: #1a1a1a;
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(0, 0, 0, 0.1) !important;
 }
 
 .light .modelName {
