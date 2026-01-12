@@ -52,9 +52,14 @@ export const AnalyzeWalletPnlTool: Tool = {
                 timeRange: `${days} days`,
                 summary: {
                     totalRealizedPnlUsd: result.totalRealizedPnlUsd,
+                    totalRealizedProfitUsd: result.totalRealizedProfitUsd,
+                    totalRealizedLossUsd: result.totalRealizedLossUsd,
+                    tradingPnlUsd: result.tradingPnlUsd,
+
                     totalBoughtUsd: result.totalBoughtUsd,
                     totalSoldUsd: result.totalSoldUsd,
                     winRate: result.winRate,
+                    tradingWinRate: result.tradingWinRate,
                     totalTrades: result.totalTrades,
                     profitableTrades: result.profitableTrades
                 },

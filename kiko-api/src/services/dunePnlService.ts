@@ -43,10 +43,24 @@ export interface DunePnlResult {
     profitPct: number | null;
 }
 
+// Tokens to exclude from PNL calculation (Quote/Gas/Stable tokens)
+const QUOTE_TOKENS = new Set([
+    'WBNB', 'BNB', 'ETH', 'WETH', 'USDT', 'USDC', 'DAI', 'FDUSD', 'BUSD', 'USDE',
+    'wBNB', 'bnb', 'eth', 'weth', 'usdt', 'usdc', 'dai', 'fdusd', 'busd', 'usde',
+    'SOL', 'WSOL', 'USDC.e', 'USDT.e', 'sol', 'wsol'
+]);
+
 export interface DuneWalletPnlSummary {
     walletAddress: string;
     chain: string;
-    totalRealizedPnlUsd: number;
+    totalRealizedPnlUsd: number;      // Net PNL (All tokens)
+    totalRealizedProfitUsd: number;   // Sum of positive PNL
+    totalRealizedLossUsd: number;     // Sum of negative PNL
+
+    // New Metrics for "Skill" Analysis
+    tradingPnlUsd: number;            // PNL excluding Quote Tokens
+    tradingWinRate: number;           // Win Rate excluding Quote Tokens
+
     totalBoughtUsd: number;
     totalSoldUsd: number;
     totalTrades: number;
@@ -94,12 +108,16 @@ export async function getWalletPnlFromDune(
         const executionTime = Date.now() - startTime;
         console.log(`[Dune PNL] Query ${EVM_PNL_QUERY_ID} completed in ${executionTime}ms`);
 
-        if (!response.result?.rows || response.result.rows.length === 0) {
+        if (!response?.result?.rows || response.result.rows.length === 0) {
             console.log('[Dune PNL] No trades found for this wallet');
             return {
                 walletAddress,
                 chain: duneChain,
                 totalRealizedPnlUsd: 0,
+                totalRealizedProfitUsd: 0,
+                totalRealizedLossUsd: 0,
+                tradingPnlUsd: 0,      // New Field
+                tradingWinRate: 0,     // New Field
                 totalBoughtUsd: 0,
                 totalSoldUsd: 0,
                 totalTrades: 0,
@@ -113,35 +131,85 @@ export async function getWalletPnlFromDune(
         const rows = response.result.rows as any[];
 
         // Parse results
-        const tokens: DunePnlResult[] = rows.map(row => ({
-            tokenAddress: row.token_address || '',
-            tokenSymbol: row.token_symbol || row.token || undefined,
-            boughtUsd: Number(row.bought_usd) || 0,
-            soldUsd: Number(row.sold_usd) || 0,
-            pnlUsd: Number(row.pnl_usd) || 0,
-            profitPct: row.profit_pct !== null ? Number(row.profit_pct) : null
-        }));
+        const tokens: DunePnlResult[] = rows.map(row => {
+            const bought = Number(row.bought_usd) || 0;
+            const sold = Number(row.sold_usd) || 0;
+            const pnl = Number(row.pnl_usd);
+
+            return {
+                tokenAddress: row.address || row.token_address || '',
+                tokenSymbol: row.token || row.token_symbol || undefined,
+                boughtUsd: bought,
+                soldUsd: sold,
+                pnlUsd: isNaN(pnl) ? (sold - bought) : pnl,
+                profitPct: row.profit_pct !== null ? Number(row.profit_pct) : null
+            };
+        });
 
         // Calculate summary stats
-        const totalBoughtUsd = tokens.reduce((sum, t) => sum + t.boughtUsd, 0);
-        const totalSoldUsd = tokens.reduce((sum, t) => sum + t.soldUsd, 0);
-        const totalRealizedPnl = tokens.reduce((sum, t) => sum + t.pnlUsd, 0);
-        const profitableTrades = tokens.filter(t => t.pnlUsd > 0).length;
-        const totalTrades = tokens.filter(t => t.soldUsd > 0).length;
-        const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
+        // LOGIC CHANGE: Asymmetric PNL
+        // 1. ALL Losses are real (whether USDT or Meme).
+        // 2. Quote Token Profits are FAKE (just selling principal).
+        // 3. Meme Profits are REAL.
 
-        console.log(`[Dune PNL] ✅ ${tokens.length} tokens, PNL: $${totalRealizedPnl.toFixed(2)}, Win Rate: ${winRate.toFixed(1)}%`);
+        let totalBought = 0;
+        let totalSold = 0;
+        let totalPnl = 0; // This will now reflect "Trader PNL"
+        let totalProfit = 0;
+        let totalLoss = 0;
+        let profitableCount = 0;
+
+        for (const t of tokens) {
+            totalBought += t.boughtUsd;
+            totalSold += t.soldUsd;
+
+            // Check if it's a quote token (only matters for profits)
+            const isQuote = t.tokenSymbol && QUOTE_TOKENS.has(t.tokenSymbol);
+
+            if (t.pnlUsd < 0) {
+                // LOSSES: Always count them. 
+                // If you lost USDT, you lost money. If you lost Meme, you lost money.
+                totalPnl += t.pnlUsd;
+                totalLoss += t.pnlUsd;
+            } else if (t.pnlUsd > 0) {
+                // PROFITS: Only count if NOT a quote token.
+                // Selling WBNB for profit is just retrieving principal (in this user's context).
+                if (!isQuote) {
+                    totalPnl += t.pnlUsd;
+                    totalProfit += t.pnlUsd;
+                    if (t.pnlUsd > 0.01) profitableCount++;
+                } else {
+                    // It's a quote token profit (e.g. Sold WBNB), ignore for Net PNL
+                    // But maybe track it separately if needed, for now ignore.
+                }
+            }
+        }
+
+        const tradesCount = tokens.filter(t => t.soldUsd > 0).length;
+        const finalWinRate = tradesCount > 0 ? (profitableCount / tradesCount) * 100 : 0;
+
+        // Sort: Absolute PNL descending
+        tokens.sort((a, b) => Math.abs(b.pnlUsd) - Math.abs(a.pnlUsd));
+
+        console.log(`[Dune PNL] ✅ Processed. Net Trader PNL: $${totalPnl.toFixed(2)} (Reflects User Reality)`);
 
         return {
             walletAddress,
             chain: duneChain,
-            totalRealizedPnlUsd: totalRealizedPnl,
-            totalBoughtUsd,
-            totalSoldUsd,
-            totalTrades,
-            profitableTrades,
-            winRate,
-            tokens: tokens.slice(0, 50), // Limit to top 50
+            totalRealizedPnlUsd: totalPnl, // Now clearly -104
+            totalRealizedProfitUsd: totalProfit,
+            totalRealizedLossUsd: totalLoss,
+
+            // Legacy/Dual compatibility
+            tradingPnlUsd: totalPnl,
+            tradingWinRate: finalWinRate,
+
+            totalBoughtUsd: totalBought,
+            totalSoldUsd: totalSold,
+            totalTrades: tradesCount,
+            profitableTrades: profitableCount,
+            winRate: finalWinRate,
+            tokens: tokens.slice(0, 50),
             queryExecutionTimeMs: executionTime
         };
 
