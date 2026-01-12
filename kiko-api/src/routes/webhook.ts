@@ -8,6 +8,8 @@ import prisma from '../db/prisma.js';
 import { fetchTransaction, fetchTransactionReceipt, isTxProcessed, markTxAsProcessed } from '../services/watcherService.js';
 import { normalizeAddress } from '../utils/address.js';
 import { parseSwapTransaction } from '../services/txDecoder.js';
+import { env } from '../config/env.js';
+import crypto from 'node:crypto';
 
 interface ProcessTxBody {
     wallet: string;
@@ -36,6 +38,16 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
      * Called by Go webhook service when Alchemy detects a transaction
      */
     fastify.post<{ Body: ProcessTxBody }>('/process-tx', async (request, reply) => {
+        // 1. Verify internal secret if configured
+        const internalSecret = env.security.internalWebhookSecret;
+        if (internalSecret) {
+            const providedSecret = request.headers['x-internal-secret'];
+            if (providedSecret !== internalSecret) {
+                console.warn(`[Webhook] Unauthorized access attempt to /process-tx from ${request.ip}`);
+                return reply.status(401).send({ error: 'Unauthorized' });
+            }
+        }
+
         const { wallet, txHash, network } = request.body;
 
         if (!wallet || !txHash || !network) {
@@ -107,7 +119,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return reply.send({ success: true, swap: { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut } });
         } catch (error: any) {
             console.error(`[Webhook] Error processing tx:`, error);
-            return reply.status(500).send({ error: error.message || 'Failed to process transaction' });
+            return reply.status(500).send({ error: 'Failed to process transaction' });
         }
     });
 
@@ -125,6 +137,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
      * Use this when webhooks are missing or addresses were lowercased.
      */
     fastify.get('/sync-solana', async (request, reply) => {
+        // Restrict to development or admin
+        if (env.nodeEnv !== 'development') {
+            return reply.status(403).send({ error: 'Forbidden in production' });
+        }
+
         const { addAddressToWebhook } = await import('../services/alchemyWebhookService.js');
         const configs = await prisma.copyTradeConfig.findMany({
             where: { chainId: 900 }
@@ -158,22 +175,38 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         });
     });
 
-    fastify.get('/config-check', async (request, reply) => {
-        const mask = (s: string | undefined) => s ? `${s.slice(0, 10)}...${s.slice(-4)}` : 'MISSING';
-        return reply.send({
-            ALCHEMY_AUTH_TOKEN: mask(process.env.ALCHEMY_AUTH_TOKEN),
-            ALCHEMY_WEBHOOK_ID_SOL: mask(process.env.ALCHEMY_WEBHOOK_ID_SOL),
-            ALCHEMY_WEBHOOK_ID_BASE: mask(process.env.ALCHEMY_WEBHOOK_ID_BASE),
-            ALCHEMY_WEBHOOK_ID_BSC: mask(process.env.ALCHEMY_WEBHOOK_ID_BSC),
-            SOLANA_RPC_URL: mask(process.env.SOLANA_RPC_URL),
-        });
-    });
-
     /**
      * POST /api/webhook/alchemy
      * Direct endpoint for Alchemy Address Activity webhooks
      */
     fastify.post('/alchemy', async (request, reply) => {
+        // 1. Signature Verification for Alchemy
+        const alchemySecret = env.security.alchemyWebhookSecret;
+        if (alchemySecret) {
+            const signature = request.headers['x-alchemy-signature'] as string;
+            if (!signature) {
+                console.warn(`[Webhook] Missing Alchemy signature from ${request.ip}`);
+                return reply.status(401).send({ error: 'Missing signature' });
+            }
+
+            // CRITICAL: Use rawBody for signature verification to ensure exact byte-match
+            const hmac = crypto.createHmac('sha256', alchemySecret);
+            const content = (request as any).rawBody;
+
+            if (!content) {
+                console.error(`[Webhook] rawBody is missing despite being enabled for /alchemy`);
+                return reply.status(500).send({ error: 'Internal server error' });
+            }
+
+            hmac.update(content);
+            const digest = hmac.digest('hex');
+
+            if (signature !== digest) {
+                console.warn(`[Webhook] Invalid Alchemy signature. Expected ${digest}, got ${signature}`);
+                return reply.status(401).send({ error: 'Invalid signature' });
+            }
+        }
+
         const payload = request.body as any;
 
         const evmNetwork = payload?.event?.network;

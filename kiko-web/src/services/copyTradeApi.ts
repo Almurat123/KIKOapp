@@ -44,7 +44,6 @@ const getHeaders = async () => {
     }
     return {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
     };
 };
 
@@ -59,11 +58,11 @@ export const getConfigs = async (): Promise<CopyTradeConfig[]> => {
             return [];
         }
 
-        const headers = {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-        };
-        const response = await axios.get(`${API_BASE_URL}/configs`, { headers });
+        const response = await axios.get(`${API_BASE_URL}/configs`, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            }
+        });
         return response.data.configs;
     } catch (error: any) {
         if (error.message === 'No authentication token available') {
@@ -80,7 +79,9 @@ export const getConfigs = async (): Promise<CopyTradeConfig[]> => {
 export const createConfig = async (params: CreateConfigParams): Promise<CopyTradeConfig> => {
     try {
         const headers = await getHeaders();
-        const response = await axios.post(`${API_BASE_URL}/config`, params, { headers });
+        const response = await axios.post(`${API_BASE_URL}/config`, params, {
+            headers: { ...headers, 'Content-Type': 'application/json' }
+        });
         return response.data.config;
     } catch (error) {
         console.error('[CopyTradeApi] Error creating config:', error);
@@ -107,7 +108,9 @@ export const deleteConfig = async (id: string): Promise<void> => {
 export const updateConfigStatus = async (id: string, status: 'active' | 'paused'): Promise<void> => {
     try {
         const headers = await getHeaders();
-        await axios.patch(`${API_BASE_URL}/config/${id}/status`, { status }, { headers });
+        await axios.patch(`${API_BASE_URL}/config/${id}/status`, { status }, {
+            headers: { ...headers, 'Content-Type': 'application/json' }
+        });
     } catch (error) {
         console.error('[CopyTradeApi] Error updating status:', error);
         throw error;
@@ -123,7 +126,7 @@ export const updateConfig = async (id: string, updates: Partial<CopyTradeConfig>
         const response = await axios.patch<{ success: boolean; config: CopyTradeConfig }>(
             `${API_BASE_URL}/config/${id}`,
             updates,
-            { headers }
+            { headers: { ...headers, 'Content-Type': 'application/json' } }
         );
         return response.data.config;
     } catch (error) {

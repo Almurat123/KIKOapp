@@ -126,10 +126,10 @@ export async function getTransactionFeed(userId: string, options: { limit?: numb
 /**
  * Update a watched wallet
  */
-export async function updateWatchedWallet(id: number, data: { alias?: string; labels?: string[]; chain?: string }) {
+export async function updateWatchedWallet(id: number, userId: string, data: { alias?: string; labels?: string[]; chain?: string }) {
     try {
         return await prisma.watchedWallet.update({
-            where: { id },
+            where: { id, userId },
             data
         });
     } catch (error) {

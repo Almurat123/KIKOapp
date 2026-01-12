@@ -20,7 +20,8 @@ export async function rateLimiterMiddleware(
     }
 
     // Skip rate limiting for specific paths or in dev if needed
-    if (process.env.NODE_ENV === 'test' || process.env.SKIP_RATE_LIMIT === 'true') {
+    const isProduction = (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod');
+    if (process.env.NODE_ENV === 'test' || (process.env.SKIP_RATE_LIMIT === 'true' && !isProduction)) {
         return;
     }
 
@@ -35,7 +36,26 @@ export async function rateLimiterMiddleware(
     }
 
     const ip = request.ip;
-    const key = `ratelimit:${ip}`;
+    const url = request.url;
+    const authUser = (request as any).user;
+    const userId = authUser?.sub;
+
+    // Determine limit based on endpoint
+    let maxRequests = MAX_REQUESTS_PER_WINDOW;
+    let category = 'default';
+
+    if (url.includes('/sessions/') && url.includes('/messages')) {
+        maxRequests = 10; // Stricter limit for AI chat (10/min)
+        category = 'ai_chat';
+    } else if (url.includes('/api/webhook/process-tx')) {
+        maxRequests = 20; // Internal webhook limit
+        category = 'webhook_internal';
+    }
+
+    // Key prioritization: userId > ip
+    // Using userId prevents rate-limit bypass via IP rotation
+    const identifier = userId ? `u:${userId.slice(-12)}` : `i:${ip}`;
+    const key = `ratelimit:${category}:${identifier}`;
 
     try {
         // Use Redis INCR for atomic counting with timeout
@@ -52,7 +72,7 @@ export async function rateLimiterMiddleware(
         }
 
         // Check if limit exceeded
-        if (current > MAX_REQUESTS_PER_WINDOW) {
+        if (current > maxRequests) {
             const ttl = await redis.ttl(key).catch(() => WINDOW_SIZE_IN_SECONDS);
 
             reply.status(429).header('Retry-After', ttl).send({
@@ -66,8 +86,8 @@ export async function rateLimiterMiddleware(
         }
 
         // Optional: Add rate limit headers to response
-        reply.header('X-RateLimit-Limit', MAX_REQUESTS_PER_WINDOW);
-        reply.header('X-RateLimit-Remaining', Math.max(0, MAX_REQUESTS_PER_WINDOW - current));
+        reply.header('X-RateLimit-Limit', maxRequests);
+        reply.header('X-RateLimit-Remaining', Math.max(0, maxRequests - current));
 
     } catch (error) {
         // Fallback: If Redis is down, allow request but log warning

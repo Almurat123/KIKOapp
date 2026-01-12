@@ -16,6 +16,15 @@ const MAX_RETRIES = 2;
 const TIMEOUT_MS = 120000; // 120 seconds
 
 /**
+ * Sanitize input to prevent prompt injection
+ */
+function sanitizeInput(input: string, maxLength = 100): string {
+    if (!input) return '';
+    // Remove characters that could be used for prompt injection or command sequence breaks
+    return input.replace(/[<>{}[\]|\\^~]/g, '').slice(0, maxLength).trim();
+}
+
+/**
  * Fetch with timeout and retry
  */
 async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
@@ -72,17 +81,21 @@ export async function analyzeTwitterPresence(
     tokenAddress: string,
     twitterUrl?: string
 ): Promise<XSearchResult> {
-    console.log(`[Grok Tools] Analyzing Twitter presence for ${tokenSymbol}`);
+    const sSymbol = sanitizeInput(tokenSymbol, 20);
+    const sAddress = sanitizeInput(tokenAddress, 64);
+    const sTwitter = twitterUrl ? sanitizeInput(twitterUrl, 150) : '';
+
+    console.log(`[Grok Tools] Analyzing Twitter presence for ${sSymbol}`);
 
     const prompt = `
 You have access to x_search tool. Use it to analyze the Twitter/X presence for this crypto token.
 
-Token: ${tokenSymbol}
-Address: ${tokenAddress}
-${twitterUrl ? `Official Twitter: ${twitterUrl}` : ''}
+Token: ${sSymbol}
+Address: ${sAddress}
+${sTwitter ? `Official Twitter: ${sTwitter}` : ''}
 
 TASKS:
-1. Use x_search to search for "$${tokenSymbol}" AND "${tokenAddress.slice(0, 10)}"
+1. Use x_search to search for "$${sSymbol}" AND "${sAddress.slice(0, 10)}"
 2. Check if there are KOL (Key Opinion Leaders) mentions
 3. Detect any scam or rug reports
 4. Estimate community discussion level
@@ -156,9 +169,12 @@ export async function analyzeWebsite(
     websiteUrl: string,
     tokenSymbol: string
 ): Promise<WebAnalysisResult> {
-    console.log(`[Grok Tools] Analyzing website: ${websiteUrl}`);
+    const sUrl = sanitizeInput(websiteUrl, 200);
+    const sSymbol = sanitizeInput(tokenSymbol, 20);
 
-    if (!websiteUrl) {
+    console.log(`[Grok Tools] Analyzing website: ${sUrl}`);
+
+    if (!sUrl) {
         return {
             websiteReachable: false,
             designQuality: 0,
@@ -171,9 +187,9 @@ export async function analyzeWebsite(
     }
 
     const prompt = `
-Analyze this crypto project website for ${tokenSymbol}.
+Analyze this crypto project website for ${sSymbol}.
 
-Website URL: ${websiteUrl}
+Website URL: ${sUrl}
 
 Use web_search to find information about this website. Then evaluate:
 
@@ -337,10 +353,13 @@ export async function generateJudgeRationale(
     decision: FinalDecision,
     layers: DecisionEngineLayers
 ): Promise<string> {
+    const sName = sanitizeInput(tokenName, 40);
+    const sAddress = sanitizeInput(tokenAddress, 64);
+
     const prompt = `You are the KIKO AI Judge Engine (v3.5). 
 Your goal is to provide a concise, high-credibility rationale for why you made a specific trading decision.
 
-Token: ${tokenName} (${tokenAddress})
+Token: ${sName} (${sAddress})
 Decision: ${decision}
         
 Analysis Data:

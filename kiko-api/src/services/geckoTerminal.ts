@@ -255,14 +255,32 @@ export async function searchTokens(query: string, network?: string): Promise<Tok
   }
 }
 
+// Simple in-memory cache to prevent redundant API calls (1 min TTL)
+const tokenCache = new Map<string, { data: TokenSearchResult, timestamp: number }>();
+const CACHE_TTL_MS = 60 * 1000;
+
 /**
  * Get token details by address
  * First try to get token info, then get pool data for price/volume
  */
-export async function getTokenDetails(network: string, address: string): Promise<TokenSearchResult | null> {
+export async function getTokenDetails(
+  network: string,
+  address: string
+): Promise<TokenSearchResult | null> {
   const startTime = Date.now();
+  const cacheKey = `${network}:${address.toLowerCase()}`;
+
+  // Check cache
+  if (tokenCache.has(cacheKey)) {
+    const cached = tokenCache.get(cacheKey)!;
+    if (Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      // console.log(`[GeckoTerminal] Cache hit for ${address}`); // Optional debug
+      return cached.data;
+    }
+  }
 
   try {
+    // console.log(`[GeckoTerminal] Fetching token details: ${address} on ${network}`);
     // Map network names to Gecko Terminal format
     const networkMap: Record<string, string> = {
       'sol': 'solana',
@@ -339,6 +357,7 @@ export async function getTokenDetails(network: string, address: string): Promise
     const targetTokenId = isBaseToken ? baseTokenRelData?.id : quoteTokenRelData?.id;
     const tokenMeta = included.find((item: any) => item.id === targetTokenId)?.attributes || {};
 
+    /* 
     console.log(`[getTokenDetails] Best pool info:`, {
       poolId: poolId,
       hasAddress: !!attributes.address,
@@ -351,6 +370,7 @@ export async function getTokenDetails(network: string, address: string): Promise
       quoteTokenPrice: attributes.quote_token_price_usd,
       tokenPrice: attributes.token_price_usd,
     });
+    */
 
     // Extract pool address from pool ID or attributes
     // For Solana, pool ID format is typically: solana_<pool_address>
@@ -425,7 +445,7 @@ export async function getTokenDetails(network: string, address: string): Promise
 
     const duration = Date.now() - startTime;
 
-    return {
+    const result = {
       address: address,
       name: tokenMeta.name || '',
       symbol: tokenMeta.symbol || '',
@@ -441,6 +461,11 @@ export async function getTokenDetails(network: string, address: string): Promise
       liquidity: attributes.reserve_in_usd,
       fdv: attributes.fdv_usd,
     };
+
+    // Update cache
+    tokenCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    return result;
   } catch (error: any) {
     const duration = Date.now() - startTime;
     return null;

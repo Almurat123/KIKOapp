@@ -67,7 +67,7 @@ const formatText = (text: string) => {
       return (
         <span key={i} style={{ color: '#5B8DEF', cursor: 'pointer', fontWeight: 500 }} onClick={(e) => {
           e.stopPropagation();
-          window.open(`https://warpcast.com/${part.substring(1)}`, '_blank');
+          window.open(`https://warpcast.com/${part.substring(1)}`, '_blank', 'noopener,noreferrer');
         }}>
           {part}
         </span>

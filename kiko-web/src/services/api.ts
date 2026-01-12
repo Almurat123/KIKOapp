@@ -3,6 +3,7 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { logger } from '../utils/logger';
 
 export type MarketOverview = {
     globalMarketCap: number;
@@ -145,9 +146,9 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
                 cache: 'no-store',
                 signal: controller.signal,
                 headers: {
-                    'Content-Type': 'application/json',
                     'Pragma': 'no-cache',
                     'Cache-Control': 'no-cache',
+                    ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
                     ...options?.headers,
                 },
@@ -204,18 +205,18 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
 
             // Handle specific error types
             if (error.name === 'AbortError') {
-                console.error(`API Timeout [${endpoint}]: Request took longer than 30 seconds`);
+                logger.error(`API Timeout [${endpoint}]: Request took longer than 30 seconds`);
                 throw new Error('Request timeout. The server may be slow or unavailable.');
             }
 
             if (error.message?.includes('Failed to fetch') ||
                 error.message?.includes('NetworkError') ||
                 error.message?.includes('ERR_CONNECTION_REFUSED')) {
-                console.error(`API Connection Error [${endpoint}]: Backend server not available`);
+                logger.error(`API Connection Error [${endpoint}]: Backend server not available`);
                 throw new Error('Cannot connect to backend server. Please ensure the backend is running on port 3001.');
             }
 
-            console.error(`API Error [${endpoint}]:`, error);
+            logger.error(`API Error [${endpoint}]:`, error);
             throw error;
         } finally {
             // 4. Remove from pending requests when done
@@ -275,7 +276,7 @@ export const marketApi = {
         try {
             return await fetchApi<{ website?: string; url?: string }>(`/api/market/protocol/${encodeURIComponent(protocolName)}`);
         } catch (error) {
-            console.error('[MarketAPI] Error fetching protocol details:', error);
+            logger.error('[MarketAPI] Error fetching protocol details:', error);
             return null;
         }
     },
@@ -363,7 +364,7 @@ export const tokenApi = {
         try {
             const url = `${API_BASE_URL}/api/tokens/${network}/${address}/chart?timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
 
-            console.log(`[API] getChart request:`, { network, address, timeframe, limit, url });
+            logger.debug(`[API] getChart request:`, { network, address, timeframe, limit, url });
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -401,13 +402,13 @@ export const tokenApi = {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error(`[API] Chart request failed: ${response.status} ${response.statusText}`, errorText);
+                logger.error(`[API] Chart request failed: ${response.status} ${response.statusText}`, errorText);
                 return [];
             }
 
             const data = await response.json();
 
-            console.log(`[API] getChart response:`, {
+            logger.debug(`[API] getChart response:`, {
                 status: response.status,
                 hasData: !!data,
                 dataType: Array.isArray(data) ? 'array' : typeof data,
@@ -417,26 +418,29 @@ export const tokenApi = {
 
             // Handle both wrapped and unwrapped responses
             if (Array.isArray(data)) {
-                console.log(`[API] Returning array data directly (${data.length} items)`);
+                logger.debug(`[API] Returning array data directly (${data.length} items)`);
                 return data;
             } else if (data && typeof data === 'object') {
                 if (data.success && Array.isArray(data.data)) {
-                    console.log(`[API] Returning data.data (${data.data.length} items)`);
+                    logger.debug(`[API] Returning data.data (${data.data.length} items)`);
                     return data.data;
+                } else if (data.data?.data && Array.isArray(data.data.data)) {
+                    logger.debug(`[API] Returning data.data (${data.data.data.length} items)`);
+                    return data.data.data;
                 } else if (Array.isArray(data.data)) {
-                    console.log(`[API] Returning data.data (${data.data.length} items)`);
+                    logger.debug(`[API] Returning data.data (${data.data.length} items)`);
                     return data.data;
                 } else if (Array.isArray(data.result)) {
-                    console.log(`[API] Returning data.result (${data.result.length} items)`);
+                    logger.debug(`[API] Returning data.result (${data.result.length} items)`);
                     return data.result;
                 }
             }
-            console.warn(`[API] No valid data found in response, returning empty array`);
+            logger.warn(`[API] No valid data found in response, returning empty array`);
             return [];
         } catch (error: any) {
             // Don't log AbortError as it's expected when requests are cancelled
             if (error.name !== 'AbortError') {
-                console.error('[API] Error fetching chart data:', error);
+                logger.error('[API] Error fetching chart data:', error);
             }
             // Return empty array for all errors (including AbortError)
             return [];
@@ -610,7 +614,7 @@ async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T 
         const response = await fetch(`${API_BASE}${endpoint}`, {
             ...options,
             headers: {
-                'Content-Type': 'application/json',
+                ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 ...options?.headers,
             },
@@ -623,7 +627,7 @@ async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T 
 
         return await response.json();
     } catch (error) {
-        console.error(`[chatApi] Error ${endpoint}:`, error);
+        logger.error(`[chatApi] Error ${endpoint}:`, error);
         throw error;
     }
 }

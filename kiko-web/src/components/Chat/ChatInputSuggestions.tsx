@@ -45,10 +45,14 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
                         <div className={styles.suggestionContent}>
                             <span className={styles.suggestionLabel}>{item.label}</span>
                             {item.subLabel && (
-                                <span
-                                    className={styles.suggestionSubLabel}
-                                    dangerouslySetInnerHTML={{ __html: item.subLabel }}
-                                />
+                                <span className={styles.suggestionSubLabel}>
+                                    {item.subLabel.split(/(<em>.*?<\/em>)/g).map((part, i) => {
+                                        if (part.startsWith('<em>') && part.endsWith('</em>')) {
+                                            return <em key={i}>{part.slice(4, -5)}</em>;
+                                        }
+                                        return part;
+                                    })}
+                                </span>
                             )}
                         </div>
                         <div className={styles.suggestionArrow}>

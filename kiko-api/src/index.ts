@@ -41,6 +41,8 @@ import { chatWSRoutes } from './services/chatWebSocket.js';
 import { chatWorker } from './jobs/chatWorker.js';
 import { registerUserRoutes } from './routes/users.js';
 import { initializePolicies, runCleanup } from './services/dataRetentionService.js';
+import fastifyRawBody from 'fastify-raw-body';
+import helmet from '@fastify/helmet';
 
 const fastify = Fastify({
     logger: true,
@@ -56,18 +58,53 @@ fastify.register(cors, {
     credentials: true,
 });
 
+// Register raw body plugin (disabled globally, enabled per route)
+fastify.register(fastifyRawBody, {
+    global: false,
+    encoding: 'utf8',
+    runFirst: true
+});
+
+// Register security headers
+fastify.register(helmet, {
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:"],
+            connectSrc: [
+                "'self'",
+                "wss:",
+                "https:",
+                "https://*.privy.io",
+                "https://auth.privy.io",
+                "https://api.gopluslabs.io",
+                "https://*.alchemy.com",
+                "https://*.helius-rpc.com"
+            ],
+            frameAncestors: ["'none'"],
+            upgradeInsecureRequests: [],
+        },
+    },
+});
+
 // Register error handler
 fastify.setErrorHandler(errorHandler);
 fastify.setNotFoundHandler(notFoundHandler);
 
-// Debug logging hook
-fastify.addHook('onRequest', async (request, reply) => {
-    console.log(`[DEBUG] onRequest: ${request.method} ${request.url}`);
-});
+import { redactUrl } from './utils/sanitizer.js';
 
-fastify.addHook('onResponse', async (request, reply) => {
-    console.log(`[DEBUG] onResponse: ${request.method} ${request.url} -> ${reply.statusCode}`);
-});
+// Debug logging hook - only in development
+if (env.nodeEnv === 'development') {
+    fastify.addHook('onRequest', async (request, reply) => {
+        console.log(`[DEBUG] onRequest: ${request.method} ${redactUrl(request.url)}`);
+    });
+
+    fastify.addHook('onResponse', async (request, reply) => {
+        console.log(`[DEBUG] onResponse: ${request.method} ${redactUrl(request.url)} -> ${reply.statusCode}`);
+    });
+}
 
 // Register rate limiter for all routes
 fastify.addHook('onRequest', rateLimiter);
@@ -123,7 +160,10 @@ fastify.register(async (fastify) => {
     fastify.register(chatWSRoutes); // Handled as /api/chat/ws/:sessionId inside
     fastify.register(favoriteRoutes, { prefix: '/api/favorites' });
     fastify.register(copyTradeRoutes, { prefix: '/api/copy-trade' });
-    fastify.register(webhookRoutes, { prefix: '/api/webhook' });
+    fastify.register(webhookRoutes, {
+        prefix: '/api/webhook',
+        config: { rawBody: true } // Enable raw body for webhook routes
+    });
     fastify.register(newsRoutes, { prefix: '/api/news' });
     fastify.register(polymarketRoutes, { prefix: '/api/polymarket' });
     fastify.register(zoraRoutes, { prefix: '/api/zora' });

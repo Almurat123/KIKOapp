@@ -4,9 +4,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const API_URL = `${API_BASE_URL}/api/wallets`;
 
 async function getAuthHeaders() {
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-    };
+    const headers: Record<string, string> = {};
     const token = await getAuthToken();
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -142,7 +140,10 @@ export const walletApi = {
         const headers = await getAuthHeaders();
         const response = await fetch(API_URL, {
             method: 'POST',
-            headers,
+            headers: {
+                ...headers,
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify(params)
         });
         const json = await response.json();

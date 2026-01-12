@@ -29,16 +29,19 @@ function getRequestId(request: any) {
     return request.id || undefined;
 }
 
+import { redact, redactUrl } from '../utils/sanitizer.js';
+import { scrubObject } from '../utils/scrubber.js';
+
 /**
  * Log error with context
  */
 function logError(error: any, request: any) {
     const requestId = getRequestId(request);
     const method = request.method;
-    const url = request.url;
+    const url = redactUrl(request.url); // Sanitize request URL
     const ip = request.ip;
 
-    const errorInfo = {
+    const errorInfo = scrubObject({
         requestId,
         method,
         url,
@@ -50,7 +53,7 @@ function logError(error: any, request: any) {
             statusCode: error.statusCode || 500,
             stack: env.nodeEnv === 'development' ? error.stack : undefined,
         },
-    };
+    });
 
     // Log to console (in production, should use proper logging service)
     if (error.isOperational === false || error.statusCode === 500) {

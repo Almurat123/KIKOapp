@@ -73,7 +73,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
         <div
             onClick={(e) => {
                 e.stopPropagation();
-                window.open(url, '_blank');
+                window.open(url, '_blank', 'noopener,noreferrer');
             }}
             style={{
                 marginTop: '12px',

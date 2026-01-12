@@ -1163,7 +1163,7 @@ const PolymarketOrderCard = ({ order, styles, onSell }: { order: any; styles: an
         </span>
         <button
           className={styles.moreButton}
-          onClick={() => window.open(`https://polymarket.com/event/${order.market}`, '_blank')}
+          onClick={() => window.open(`https://polymarket.com/event/${order.market}`, '_blank', 'noopener,noreferrer')}
           title="View on Polymarket"
         >
           <ExternalLink size={14} />
@@ -1253,7 +1253,7 @@ const PolymarketHistoryItem = ({ trade, styles }: { trade: any; styles: any }) =
         </div>
         <button
           className={styles.externalLink}
-          onClick={() => window.open(`https://polymarket.com/event/${trade.market}`, '_blank')}
+          onClick={() => window.open(`https://polymarket.com/event/${trade.market}`, '_blank', 'noopener,noreferrer')}
         >
           <ExternalLink size={14} />
         </button>
@@ -1334,7 +1334,7 @@ const TradingHistoryItem = ({ tx, styles, walletAddress }: { tx: any; styles: an
                 const baseUrl = tx.from?.startsWith('0x')
                   ? 'https://etherscan.io/tx/'
                   : 'https://solscan.io/tx/';
-                window.open(`${baseUrl}${tx.hash}`, '_blank');
+                window.open(`${baseUrl}${tx.hash}`, '_blank', 'noopener,noreferrer');
               }}
             >
               <ExternalLink size={12} />

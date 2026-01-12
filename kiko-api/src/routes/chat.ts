@@ -8,6 +8,7 @@ import { requireAuth } from '../middleware/auth.js';
 import * as chatRepo from '../repositories/chatRepository.js';
 import { trackChatMessage } from '../services/userActivityService.js';
 import prisma from '../db/prisma.js';
+import { redact } from '../utils/sanitizer.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -342,6 +343,13 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(404).send({ error: 'Task not found' });
                 }
 
+                // Verify ownership - must belong to a session owned by this user
+                const userId = (request as any).user?.sub;
+                const session = await chatRepo.getSession(task.sessionId);
+                if (!session || session.userId !== userId) {
+                    return reply.code(403).send({ error: 'Access denied' });
+                }
+
                 // Get associated message if exists
                 let assistantMessage = null;
                 if (task.assistant_message_id) {
@@ -371,6 +379,13 @@ export async function chatRoutes(fastify: FastifyInstance) {
 
                 if (!task) {
                     return reply.code(404).send({ error: 'Task not found' });
+                }
+
+                // Verify ownership
+                const userId = (request as any).user?.sub;
+                const session = await chatRepo.getSession(task.sessionId);
+                if (!session || session.userId !== userId) {
+                    return reply.code(403).send({ error: 'Access denied' });
                 }
 
                 if (task.status !== 'queued' && task.status !== 'running') {
@@ -418,6 +433,16 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 );
 
                 const message = await chatRepo.getMessage(messageId);
+                if (!message) {
+                    return reply.code(404).send({ error: 'Message not found' });
+                }
+
+                // Verify ownership (message -> session -> user)
+                const userId = (request as any).user?.sub;
+                const session = await chatRepo.getSession(message.sessionId);
+                if (!session || session.userId !== userId) {
+                    return reply.code(403).send({ error: 'Access denied' });
+                }
 
                 return reply.send({
                     success: true,
@@ -476,7 +501,8 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 const userId = (request as any).user?.sub;
                 const { channel, content, result, sessionId, model } = request.body as any;
 
-                console.log(`[ModerationLog] Received backend request: channel=${channel}, userId=${userId}, content=${content?.slice(0, 20)}...`);
+                const sanitizedContent = redact(content);
+                console.log(`[ModerationLog] Received backend request: channel=${channel}, userId=${userId}, content=${sanitizedContent?.slice(0, 20)}...`);
 
                 await chatRepo.createModerationLog(
                     userId,

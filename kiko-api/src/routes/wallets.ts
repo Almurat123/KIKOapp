@@ -152,8 +152,18 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/:address/balance', async (request: any, reply) => {
         try {
+            const userId = request.user.sub || request.user.id;
             const { address } = request.params as any;
             const { chain = 'eth' } = request.query as any;
+
+            // Verify the address is monitored by the user or is their own wallet
+            const hasAccess = await walletService.verifyAccess(userId, address);
+            if (!hasAccess) {
+                return reply.status(403).send({
+                    success: false,
+                    message: 'Access denied'
+                });
+            }
 
             const balance = await walletService.getWalletBalance(address, chain);
 
@@ -175,8 +185,18 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/:address/all-balances', async (request: any, reply) => {
         try {
+            const userId = request.user.sub || request.user.id;
             const { address } = request.params as any;
             const { solanaAddress } = request.query as any;
+
+            // Verify ownership/monitoring
+            const hasAccess = await walletService.verifyAccess(userId, address);
+            if (!hasAccess) {
+                return reply.status(403).send({
+                    success: false,
+                    message: 'Access denied'
+                });
+            }
 
             const balances = await walletService.getAllChainBalances(address, solanaAddress);
 
@@ -198,8 +218,18 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/:address/transactions', async (request: any, reply) => {
         try {
+            const userId = request.user.sub || request.user.id;
             const { address } = request.params as any;
             const { chain = 'eth', limit = 50 } = request.query as any;
+
+            // Verify ownership/monitoring
+            const hasAccess = await walletService.verifyAccess(userId, address);
+            if (!hasAccess) {
+                return reply.status(403).send({
+                    success: false,
+                    message: 'Access denied'
+                });
+            }
 
             const transactions = await walletService.getWalletTransactions(address, {
                 chain,

@@ -8,6 +8,7 @@
 
 import { PrivyClient } from '@privy-io/server-auth';
 import { AppError } from '../middleware/errorHandler.js';
+import { redact } from '../utils/sanitizer.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -86,7 +87,7 @@ export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: 
             id: walletData.id || walletData.address // Fallback to address if id not present
         };
     } catch (error) {
-        console.error('[PrivyWallet] Error getting user wallet:', error);
+        console.error('[PrivyWallet] Error getting user wallet:', redact(error));
         throw new AppError(500, 'Failed to get user wallet', 'WALLET_ERROR');
     }
 }
@@ -124,7 +125,7 @@ export async function getSolanaEmbeddedWalletAddress(userId: string): Promise<st
 
         return (solanaWallet as any).address || null;
     } catch (error) {
-        console.error('[PrivyWallet] Error getting Solana wallet:', error);
+        console.error('[PrivyWallet] Error getting Solana wallet:', redact(error));
         throw new AppError(500, 'Failed to get Solana wallet', 'WALLET_ERROR');
     }
 }
@@ -236,7 +237,7 @@ export async function sendTransaction(
                     continue;
                 }
 
-                console.error('[PrivyWallet] Transaction failed:', error);
+                console.error('[PrivyWallet] Transaction failed:', redact(error));
 
                 // Handle specific Privy errors
                 if (error.code === 'insufficient_funds') {
@@ -306,7 +307,7 @@ export async function getOrCreateServerSolanaWallet(): Promise<{ id: string; add
         console.log('[PrivyWallet] Created new server Solana wallet:', serverSolanaWallet.address.slice(0, 10) + '...');
         return serverSolanaWallet;
     } catch (error: any) {
-        console.error('[PrivyWallet] Failed to get/create server wallet:', error);
+        console.error('[PrivyWallet] Failed to get/create server wallet:', redact(error));
         throw new AppError(500, `Failed to get/create server wallet: ${error.message}`, 'SERVER_WALLET_ERROR');
     }
 }
@@ -402,7 +403,7 @@ export async function sendSolanaTransaction(
         console.log('[PrivyWallet] Solana transaction sent:', response.hash);
         return response.hash;
     } catch (error: any) {
-        console.error('[PrivyWallet] Solana transaction failed:', error);
+        console.error('[PrivyWallet] Solana transaction failed:', redact(error));
         throw new AppError(
             500,
             `Failed to send Solana transaction: ${error.message || 'Unknown error'}`,
@@ -472,7 +473,7 @@ export async function signTypedData(
 
         return response.signature;
     } catch (error: any) {
-        console.error('[PrivyWallet] EIP-712 signing failed:', error);
+        console.error('[PrivyWallet] EIP-712 signing failed:', redact(error));
 
         // Handle specific errors
         if (error.message?.includes('not delegated')) {

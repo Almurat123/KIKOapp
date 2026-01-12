@@ -1,5 +1,6 @@
 import { walletRepository, MonitoredWallet, WalletStats, WalletTransaction } from '../repositories/walletRepository.js';
 import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio } from './alchemy.js';
+import prisma from '../db/prisma.js';
 
 // Mock data generator for simulation
 const generateMockStats = (address: string): WalletStats => ({
@@ -106,5 +107,34 @@ export const walletService = {
      */
     async getWalletTransactions(address: string, options: { chain?: string; limit?: number } = {}): Promise<any[]> {
         return await fetchAlchemyTransactions(address, options.chain || 'eth', options.limit);
+    },
+
+    /**
+     * Verify if a user has access to a specific wallet address
+     */
+    async verifyAccess(userId: string, address: string): Promise<boolean> {
+        const normalizedAddress = address.toLowerCase();
+
+        // 1. Check if it's the user's primary wallet or solana wallet
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { privyDid: userId },
+                    { id: userId }
+                ]
+            }
+        });
+
+        if (user) {
+            if (user.walletAddress.toLowerCase() === normalizedAddress ||
+                user.solanaWalletAddress?.toLowerCase() === normalizedAddress) {
+                return true;
+            }
+        }
+
+        // 2. Check if it's in their monitored list
+        const internalUserId = user?.id || userId;
+        const wallets = await walletRepository.getWatchedWallets(internalUserId);
+        return wallets.some(w => w.address.toLowerCase() === normalizedAddress);
     }
 };

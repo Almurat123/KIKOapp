@@ -127,24 +127,26 @@ async function handleTargetBuy(
 
     console.log(`[AutoTrade] ⚡ Fast path start for ${tokenToBuy} from ${targetWallet.slice(0, 8)}...`);
 
-    // 🏎️ PARALLEL PRE-CHECKS: Fetch configs, token info, and launchpad status simultaneously
-    const [configs, tokenInfo, launchpadResult] = await Promise.all([
-        withRetry(() => prisma.copyTradeConfig.findMany({
-            where: {
-                targetWallet: { mode: 'insensitive', equals: normalizedWallet },
-                chainId,
-                status: 'active',
-            },
-            include: { user: true },
-        })),
-        getTokenInfo(tokenToBuy, chainId),
-        detectLaunchpadToken(tokenToBuy, chainId)
-    ]);
+    // 1. FIRST: Check for active configs. If none, exit immediately (No API calls, No Logs)
+    const configs = await withRetry(() => prisma.copyTradeConfig.findMany({
+        where: {
+            targetWallet: { mode: 'insensitive', equals: normalizedWallet },
+            chainId,
+            status: 'active',
+        },
+        include: { user: true },
+    }));
 
     if (configs.length === 0) {
         console.log('[AutoTrade] No active configs for this wallet');
         return;
     }
+
+    // 2. SECOND: Fetch Token Info & Checks (Only if we have interested users)
+    const [tokenInfo, launchpadResult] = await Promise.all([
+        getTokenInfo(tokenToBuy, chainId),
+        detectLaunchpadToken(tokenToBuy, chainId)
+    ]);
 
     if (!tokenInfo || tokenInfo.price <= 0) {
         // 🚨 Fallback: If we detected it as a valid Launchpad token (Clanker/Pump/etc), we might trust it blind
@@ -342,22 +344,22 @@ ${analysis.rawAnalysis}
 
                 // 4. Act on Decision (if auto_decide)
                 if (config.aiAnalysisMode === 'auto_decide') {
-                    if (analysis.decision === 'SKIP') {
-                        console.log(`[AutoTrade] AI STOPPED trade for ${config.userId}. Reason: ${analysis.reason}`);
+                    // Fail-Closed: ONLY proceed if decision is precisely 'BUY' (mapped from Judge 'ALLOW')
+                    // 'SKIP' or any other decision stops the trade.
+                    if (analysis.decision !== 'BUY') {
+                        console.log(`[AutoTrade] AI FAIL-CLOSED: Stopping trade for ${config.userId}. Decision: ${analysis.decision}. Reason: ${analysis.reason}`);
                         continue; // SKIP TRADE
                     }
 
-                    if (analysis.decision === 'BUY') {
-                        // 5. Re-check Price (Safety Check)
-                        console.log('[AutoTrade] AI approved BUY. Re-checking price...');
-                        const latestInfo = await getTokenInfo(tokenToBuy, chainId);
-                        if (latestInfo) {
-                            const priceChangeSinceStart = ((latestInfo.price - tokenInfo.price) / tokenInfo.price) * 100;
-                            // If price pumped more than 10% during analysis (3-8s), ABORT
-                            if (priceChangeSinceStart > 10) {
-                                console.warn(`[AutoTrade] ⚠️ Price pumped ${priceChangeSinceStart.toFixed(2)}% during analysis. Aborting trade.`);
-                                continue;
-                            }
+                    // 5. Re-check Price (Safety Check)
+                    console.log('[AutoTrade] AI approved BUY (FAIL-CLOSED). Re-checking price...');
+                    const latestInfo = await getTokenInfo(tokenToBuy, chainId);
+                    if (latestInfo) {
+                        const priceChangeSinceStart = ((latestInfo.price - tokenInfo.price) / tokenInfo.price) * 100;
+                        // If price pumped more than 10% during analysis (3-8s), ABORT
+                        if (priceChangeSinceStart > 10) {
+                            console.warn(`[AutoTrade] ⚠️ Price pumped ${priceChangeSinceStart.toFixed(2)}% during analysis. Aborting trade.`);
+                            continue;
                         }
                     }
                 }
@@ -460,13 +462,14 @@ ${analysis.rawAnalysis}
                         console.log(`[AutoTrade] Zora token detected but Fast Execution is OFF for user ${config.userId}. Using standard 0x swap.`);
                     }
 
-                    // === BUY WITH RETRY LOGIC ===
+                    // === BUY WITH RETRY LOGIC (Hardened) ===
                     const baseAmount = usdAmount / nativePrice;
                     const baseSlippage = config.maxSlippageBps || 300;
+                    const MAX_ALLOWED_SLIPPAGE = 500; // 5% absolute cap for automated escalation
 
                     try {
                         // Step 1: Try with 100% amount
-                        console.log(`[AutoTrade] Buy Step 1: 100% amount (${baseAmount.toFixed(6)} ETH), slippage ${baseSlippage}bps`);
+                        console.log(`[AutoTrade] Buy Step 1: 100% amount (${baseAmount.toFixed(6)} ETH), slippage ${Math.min(baseSlippage, MAX_ALLOWED_SLIPPAGE)}bps`);
                         txHash = await executeSwapInstant({
                             userId: config.user.privyDid,
                             walletAddress: config.user.walletAddress,
@@ -474,15 +477,16 @@ ${analysis.rawAnalysis}
                             tokenOut: tokenToBuy,
                             amountIn: baseAmount.toFixed(6),
                             chainId,
-                            slippageBps: baseSlippage,
+                            slippageBps: Math.min(baseSlippage, MAX_ALLOWED_SLIPPAGE),
                         });
                     } catch (buyErr1: any) {
-                        console.warn(`[AutoTrade] Buy Step 1 failed: ${buyErr1.message}. Trying Step 2...`);
+                        console.warn(`[AutoTrade] Buy Step 1 failed: ${buyErr1.message}. Delaying 1s...`);
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
 
                         try {
-                            // Step 2: Try with 99% amount + higher slippage
+                            // Step 2: Try with 99% amount + slightly higher slippage (capped)
                             const amount99 = baseAmount * 0.99;
-                            const slippage2 = Math.max(baseSlippage * 1.5, 450);
+                            const slippage2 = Math.min(Math.max(baseSlippage * 1.5, 450), MAX_ALLOWED_SLIPPAGE);
                             console.log(`[AutoTrade] Buy Step 2: 99% amount (${amount99.toFixed(6)} ETH), slippage ${slippage2}bps`);
                             txHash = await executeSwapInstant({
                                 userId: config.user.privyDid,
@@ -494,12 +498,13 @@ ${analysis.rawAnalysis}
                                 slippageBps: slippage2,
                             });
                         } catch (buyErr2: any) {
-                            console.warn(`[AutoTrade] Buy Step 2 failed: ${buyErr2.message}. Trying Step 3 (final)...`);
+                            console.warn(`[AutoTrade] Buy Step 2 failed: ${buyErr2.message}. Delaying 1s...`);
+                            await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
 
                             try {
-                                // Step 3: Final attempt with 98% amount + even higher slippage
+                                // Step 3: Final attempt with 98% amount + capped slippage
                                 const amount98 = baseAmount * 0.98;
-                                const slippage3 = Math.max(baseSlippage * 2, 600);
+                                const slippage3 = Math.min(Math.max(baseSlippage * 2, 600), MAX_ALLOWED_SLIPPAGE);
                                 console.log(`[AutoTrade] Buy Step 3: 98% amount (${amount98.toFixed(6)} ETH), slippage ${slippage3}bps`);
                                 txHash = await executeSwapInstant({
                                     userId: config.user.privyDid,

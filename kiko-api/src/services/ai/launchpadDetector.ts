@@ -9,6 +9,7 @@ import { zoraService } from '../zoraService.js';
 import { getChainConfig } from '../../config/chainConfig.js';
 import { env } from '../../config/env.js';
 import { Connection, PublicKey } from '@solana/web3.js';
+import { redact } from '../../utils/sanitizer.js';
 
 const LAUNCHPAD_AUTH_PDA = 'WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh';
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
@@ -149,11 +150,11 @@ export async function getParagraphToken(address: string): Promise<any | null> {
             return null;
         }
 
-        console.error(`[LaunchpadDetector] Paragraph fetch failed for ${address}:`, {
+        console.error(`[LaunchpadDetector] Paragraph fetch failed for ${address}:`, redact({
             message: error?.message || error?.toString(),
             status: statusCode,
             apiKeyPresent: !!paragraphApiKey
-        });
+        }));
 
         return null;
     }
@@ -282,17 +283,6 @@ async function getPumpFunToken(mintAddress: string): Promise<any | null> {
             }
         }
 
-        // 3. Suffix Heuristic fallback
-        if (mintAddress.toLowerCase().endsWith('pump')) {
-            console.log(`[LaunchpadDetector] Detected Pump.fun token via suffix: ${mintAddress}`);
-            return {
-                mint: mintAddress,
-                symbol: 'PUMP',
-                name: 'Pump.fun Token',
-                isPumpFun: true
-            };
-        }
-
         return null;
     } catch (error: any) {
         console.warn(`[LaunchpadDetector] Pump.fun fetch failed for ${mintAddress}:`, error.message);
@@ -327,9 +317,7 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
 
                     const isLaunchLabProgram = t.programId === 'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj';
                     const hasPlatformId = !!t.platformId || !!t.platform || (t.extensions && (t.extensions.platform === 'launchlab' || t.extensions.platform === 'bonkfun'));
-                    const hasBonkSuffix = mintAddress.toLowerCase().endsWith('bonk');
-
-                    if (isLaunchLabProgram || hasPlatformId || hasBonkSuffix) {
+                    if (isLaunchLabProgram || hasPlatformId) {
                         return {
                             mint: mintAddress, // Use input mint as canonical
                             name: t.name,

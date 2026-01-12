@@ -11,6 +11,7 @@
 
 import { ethers } from 'ethers';
 import { signTypedData } from './privyWallet.js';
+import crypto from 'crypto';
 
 // Exchange contract addresses on Polygon
 const CTF_EXCHANGE_ADDRESS = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
@@ -227,7 +228,8 @@ export function createLimitOrderData(params: {
     }
 
     // Generate random salt (31-bit integer to safely fit in JSON number)
-    const salt = Math.floor(Math.random() * 2000000000);
+    // Hardened: Using cryptographically secure random values
+    const salt = crypto.getRandomValues(new Uint32Array(1))[0] % 2000000000;
 
     // Expiration: 0 for GTC orders, or a timestamp for GTD orders
     const expiration = (params as any).expiration || '0';

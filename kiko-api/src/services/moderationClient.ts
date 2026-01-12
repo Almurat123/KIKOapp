@@ -1,6 +1,8 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { createModerationLog } from '../repositories/chatRepository.js';
+import { redact } from '../utils/sanitizer.js';
+import { scrub } from '../utils/scrubber.js';
 
 dotenv.config();
 
@@ -48,12 +50,12 @@ export class ModerationClient {
 
             // Log to DB
             console.log(`[ModerationClient] Logging input check to DB for userId=${userId}`);
-            createModerationLog(userId || '', 'input', text, JSON.stringify(response.data), sessionId, model).catch((err: any) => console.error('ModLog failed', err));
+            createModerationLog(userId || '', 'input', text, JSON.stringify(response.data), sessionId, model).catch((err: any) => console.error('ModLog failed', redact(err)));
 
             console.log(`[ModerationClient] Input check result: safe=${response.data.safe}, action=${response.data.action}`);
             return response.data;
         } catch (error) {
-            console.warn('[ModerationClient] Input moderation request failed, defaulting to safe:', error);
+            console.warn('[ModerationClient] Input moderation request failed, defaulting to safe:', redact(error));
             return { safe: true, action: 'allow' };
         }
     }
@@ -74,13 +76,13 @@ export class ModerationClient {
 
             // Log to DB
             console.log(`[ModerationClient] Logging output check to DB for userId=${userId}`);
-            createModerationLog(userId || '', 'output', text, JSON.stringify(response.data), sessionId, model).catch((err: any) => console.error('ModLog failed', err));
+            createModerationLog(userId || '', 'output', text, JSON.stringify(response.data), sessionId, model).catch((err: any) => console.error('ModLog failed', redact(err)));
 
             console.log(`[ModerationClient] Output check result: safe=${response.data.safe}`);
             return response.data;
         } catch (error) {
-            console.warn('[ModerationClient] Output moderation request failed, defaulting to original:', error);
-            return { safe: true, filtered_text: text };
+            console.warn('[ModerationClient] Output moderation request failed, defaulting to original (scrubbed):', redact(error));
+            return { safe: true, filtered_text: scrub(text) };
         }
     }
 }

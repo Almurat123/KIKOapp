@@ -342,10 +342,11 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             }
 
             // Update
+            const { userId: _, ...allowedUpdates } = updates as any;
             const config = await prisma.copyTradeConfig.update({
                 where: { id },
                 data: {
-                    ...updates,
+                    ...allowedUpdates,
                     // If target wallet changed, we need complex logic to update TrackedWallet counts
                     // For MVP simplicity, let's assume targetWallet update is allowed but we handle tracking count locally or lazily
                     // Ideally we should decrement old and increment new.

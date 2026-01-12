@@ -8,7 +8,9 @@ import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose';
 import { AppError } from './errorHandler.js';
 
 const PRIVY_JWKS_URL = process.env.PRIVY_JWKS_URL || '';
-const PRIVY_SKIP_VERIFY = process.env.PRIVY_SKIP_VERIFY === 'true';
+const PRIVY_APP_ID = process.env.PRIVY_APP_ID || '';
+const isProduction = (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod');
+const PRIVY_SKIP_VERIFY = process.env.PRIVY_SKIP_VERIFY === 'true' && !isProduction;
 
 // Only create JWKS fetcher if URL is provided
 const jwks = PRIVY_JWKS_URL ? createRemoteJWKSet(new URL(PRIVY_JWKS_URL)) : null;
@@ -30,8 +32,11 @@ async function verifyPrivyToken(token: string) {
   }
 
   try {
-    // Do not enforce audience to avoid false negatives; signature + JWKS is sufficient
-    const { payload } = await jwtVerify(token, jwks);
+    // End-to-End Hardening: Enforce issuer and audience (App ID)
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer: 'privy.io',
+      audience: PRIVY_APP_ID || undefined, // Allow any if not set, but enforce if it is
+    });
     return payload;
   } catch (error: any) {
     const msg = error?.message || '';
@@ -58,7 +63,9 @@ async function verifyPrivyToken(token: string) {
  */
 export async function requireAuth(request: FastifyRequest, _reply: FastifyReply) {
   // DEV ONLY: TEST_MODE bypass for automated testing
-  const TEST_MODE = process.env.TEST_MODE === 'true';
+  // Strictly disabled in production
+  const isProduction = (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod');
+  const TEST_MODE = process.env.TEST_MODE === 'true' && !isProduction;
   if (TEST_MODE) {
     console.warn('[auth] TEST_MODE=true, using mock user for testing');
     (request as any).user = {

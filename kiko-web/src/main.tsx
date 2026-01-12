@@ -12,19 +12,36 @@ import { useTheme } from './hooks/useTheme';
 import { usePrivy } from '@privy-io/react-auth';
 import { setAuthTokenProvider } from './utils/authToken';
 import { ThemeProvider } from './contexts/ThemeContext'; // Added ThemeProvider
+import { logger, redact } from './utils/logger';
 import './index.css';
 // import './styles/global.css'; // Removed to fix Beige theme conflict
 import './styles/theme.css';
 import './styles/design-tokens.css';
 
-// Global error logging for debugging (especially useful for mobile Safari)
+// Global error logging and console sanitization
 if (typeof window !== 'undefined') {
+  const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+
+  if (!isDev) {
+    // Production: Suppress verbose logs and sanitize errors
+    const noop = () => { };
+    const originalConsoleError = console.error;
+
+    console.log = noop;
+    console.info = noop;
+    console.debug = noop;
+    console.warn = noop;
+    console.error = (...args) => originalConsoleError(...args.map(redact));
+  }
+
+  // Global error handlers
   window.onerror = function (message, source, lineno, colno, error) {
-    console.error('[Global Error]', { message, source, lineno, colno, error });
+    // These will be routed through our sanitized console.error
+    logger.error('[Global Error]', { message, source, lineno, colno, error });
     return false;
   };
   window.onunhandledrejection = function (event) {
-    console.error('[Unhandled Rejection]', event.reason);
+    logger.error('[Unhandled Rejection]', event.reason);
   };
 }
 

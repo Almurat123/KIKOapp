@@ -13,6 +13,7 @@ import { chatWS } from '../services/chatWebSocket.js';
 import { getTrendingCasts } from '../repositories/socialRepository.js';
 import * as alchemy from '../services/alchemy.js';
 import * as privyWallet from '../services/privyWallet.js';
+import { scrub } from '../utils/scrubber.js';
 
 // Constants
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
@@ -449,7 +450,6 @@ export class ChatWorker {
             const hasSwapTarget = !!parsedIntent.swapIntent?.tokenOut || !!parsedIntent.contractAddress;
 
             if (fastSwapMode && isSwapIntent && hasSwapTarget) {
-                console.log('[ChatWorker] ⚡ FAST SWAP BYPASS: Executing swap directly without LLM');
                 if (task.sessionId) {
                     this.ws.broadcastToUser(userId!, {
                         type: 'task_status',
@@ -1104,11 +1104,12 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                                 totalContent += delta.content;
                                 // Broadcast immediately to frontend (zero latency)
                                 // Include both content and delta for compatibility
+                                const scrubbedDelta = scrub(delta.content);
                                 const chunkData = {
                                     index: chunkIndex++,
                                     type: 'content' as const,
-                                    content: delta.content,
-                                    delta: delta.content, // Add delta for frontend compatibility
+                                    content: scrubbedDelta,
+                                    delta: scrubbedDelta, // Add delta for frontend compatibility
                                     messageId: assistantMessageId
                                 };
                                 this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: chunkData });
@@ -1132,7 +1133,13 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                                 iterReasoning += delta.reasoning_content;
                                 totalReasoning += delta.reasoning_content;
                                 // Broadcast immediately to frontend (zero latency)
-                                const chunkData = { index: chunkIndex++, type: 'reasoning' as const, reasoning_content: delta.reasoning_content, messageId: assistantMessageId };
+                                const scrubbedDelta = scrub(delta.reasoning_content);
+                                const chunkData = {
+                                    index: chunkIndex++,
+                                    type: 'reasoning' as const,
+                                    reasoning_content: scrubbedDelta,
+                                    messageId: assistantMessageId
+                                };
                                 this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: chunkData });
 
                                 // Sync reasoning too (throttled)
@@ -1925,11 +1932,12 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
                         fullContent += delta.content;
                         // Broadcast immediately to frontend (zero latency)
                         // Include both content and delta for compatibility
+                        const scrubbedDelta = scrub(delta.content);
                         const chunkData = {
                             index: chunkIndex++,
                             type: 'content' as const,
-                            content: delta.content,
-                            delta: delta.content, // Add delta for compatibility
+                            content: scrubbedDelta,
+                            delta: scrubbedDelta, // Add delta for compatibility
                             messageId: assistantMessageId
                         };
                         this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: chunkData });
@@ -1938,9 +1946,14 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
 
                     // Handle reasoning chunks (thinking mode) - HOT PATH: WebSocket only, no DB writes
                     if (delta && delta.reasoning_content) {
-                        fullReasoning += delta.reasoning_content;
                         // Broadcast immediately to frontend (zero latency)
-                        const chunkData = { index: chunkIndex++, type: 'reasoning' as const, reasoning_content: delta.reasoning_content, messageId: assistantMessageId };
+                        const scrubbedDelta = scrub(delta.reasoning_content);
+                        const chunkData = {
+                            index: chunkIndex++,
+                            type: 'reasoning' as const,
+                            reasoning_content: scrubbedDelta,
+                            messageId: assistantMessageId
+                        };
                         this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: chunkData });
                         // No DB write here - will batch save at the end (cold path)
                     }

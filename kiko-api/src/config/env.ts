@@ -79,6 +79,10 @@ export interface EnvConfig {
         tradeRecordTtl: number; // Trade record TTL in ms
         pendingTransactionTtl: number; // Pending transaction TTL in ms
     };
+    security: {
+        alchemyWebhookSecret?: string; // Secret for verifying Alchemy webhooks
+        internalWebhookSecret?: string; // Secret for verifying internal Go service requests
+    };
     aiModel: string; // AI Model for analysis
 }
 
@@ -168,6 +172,10 @@ function validateEnv(): EnvConfig {
             maxPendingTransactions: parseInt(process.env.MAX_PENDING_TRANSACTIONS || '10', 10),
             tradeRecordTtl: parseInt(process.env.TRADE_RECORD_TTL || '86400000', 10),
             pendingTransactionTtl: parseInt(process.env.PENDING_TRANSACTION_TTL || '600000', 10),
+        },
+        security: {
+            alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,
+            internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET,
         },
         aiModel: process.env.AI_MODEL || 'grok-beta',
     };

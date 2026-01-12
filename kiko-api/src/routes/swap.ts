@@ -1525,9 +1525,10 @@ export async function swapRoutes(fastify: FastifyInstance) {
             validateAmount(requiredAmount);
             validateChainId(chainId);
 
-            // TODO: 实际应该查询区块链合约的 allowance
-            // 这里返回模拟数据
-            const isApproved = Math.random() > 0.3; // 70% 已授权
+            // ⚠️ SECURITY ALERT: Removed Math.random() mock logic.
+            // TODO: MUST implement real blockchain allowance check via ethers/web3.
+            // For now, we return false by default for safety in production.
+            const isApproved = false;
 
             return reply.send({
                 success: true,
@@ -1536,9 +1537,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     userAddress,
                     tokenAddress,
                     chainId,
-                    message: isApproved
-                        ? 'User has sufficient approval'
-                        : 'User needs to approve token before swap',
+                    message: 'Approval check results (Needs integration with chain provider)',
                 },
             });
         } catch (error) {

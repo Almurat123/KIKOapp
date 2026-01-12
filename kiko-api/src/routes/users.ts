@@ -238,15 +238,23 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         console.error('[WalletExport] Error creating user:', createError);
                         // Try to find by wallet address if it's a unique constraint violation
                         if (createError.code === 'P2002') {
+                            // If a user with this walletAddress already exists
                             user = await prisma.user.findUnique({
                                 where: { walletAddress }
                             });
-                            if (user) {
-                                // Update the privyDid if needed
+
+                            // SECURITY FIX: Only associate the DID if the user doesn't already have one
+                            // or if it's the exact same DID (no-op).
+                            // This prevents an attacker from hijacking an existing user's record
+                            // simply by claiming their wallet address.
+                            if (user && (!user.privyDid || user.privyDid === userId)) {
                                 user = await prisma.user.update({
                                     where: { id: user.id },
                                     data: { privyDid: userId }
                                 });
+                            } else if (user && user.privyDid !== userId) {
+                                console.error(`[WalletExport] SECURITY ALERT: User ${userId} tried to claim wallet ${walletAddress} which is already owned by DID ${user.privyDid}`);
+                                return reply.status(403).send({ success: false, error: 'Wallet address owned by another account' });
                             }
                         }
                         if (!user) {

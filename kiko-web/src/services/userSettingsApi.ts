@@ -28,7 +28,6 @@ export async function getUserSettings(accessToken: string): Promise<UserSettings
         const response = await fetch(`${API_BASE}/api/users/settings`, {
             method: 'GET',
             headers: {
-                'Content-Type': 'application/json',
                 'Authorization': `Bearer ${accessToken}`,
             },
         });
