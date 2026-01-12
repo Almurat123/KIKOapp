@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft,
   Copy,
@@ -34,7 +34,7 @@ interface TokenInfo {
   mcap: string;
   liquidity: string;
   volume24h: string;
-  holders: string;
+  holders?: number | string;
   txns24h?: string;
   buys24h?: string;
   sells24h?: string;
@@ -128,6 +128,17 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   // Favorites State
   const [isFavorite, setIsFavorite] = useState(false);
   const [loadingFav, setLoadingFav] = useState(false);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top on mount
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollIntoView({ block: 'start' });
+    } else {
+      window.scrollTo(0, 0);
+    }
+  }, []);
 
   // Register back handler with global mobile header
   useEffect(() => {
@@ -253,6 +264,16 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
     return `$${num.toFixed(2)}`;
   };
 
+  const formatCompact = (val: number | string | undefined) => {
+    if (val === undefined || val === null) return '-';
+    const num = Number(val);
+    if (isNaN(num)) return String(val);
+    if (num >= 1e9) return `${(num / 1e9).toFixed(1)}B`;
+    if (num >= 1e6) return `${(num / 1e6).toFixed(1)}M`;
+    if (num >= 1e3) return `${(num / 1e3).toFixed(1)}K`;
+    return num.toLocaleString();
+  };
+
   const formatPercentage = (val: number | undefined) => {
     if (val === undefined) return '-';
     return `${val >= 0 ? '+' : ''}${val.toFixed(2)}%`;
@@ -267,7 +288,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   };
 
   return (
-    <div className={styles.container}>
+    <div className={styles.container} ref={containerRef}>
       {/* Header Section */}
       <div className={styles.headerSection}>
         <div className={styles.tokenTitleRow}>
@@ -453,7 +474,7 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
         <div className={styles.holdersMainRow}>
           <span className={styles.holderCountLabel}>Total Holders</span>
           <span className={styles.holderCountValue}>
-            {(securityData as any)?.holdersCount || token.holders || '-'}
+            {(securityData as any)?.holdersCount || (token.holders ? formatCompact(token.holders) : '-')}
           </span>
         </div>
         {/* Show Top 10 percentage if available, otherwise hide detail */}

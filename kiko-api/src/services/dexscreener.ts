@@ -31,6 +31,7 @@ export interface DexScreenerToken {
   socials?: Array<{ type: string; url: string }>; // Twitter, Discord, etc.
   websites?: Array<{ url: string; label?: string }>; // Official websites
   decimals?: number;
+  holders?: number;
 }
 
 /**
@@ -946,6 +947,8 @@ export async function getTrendingTokensPremium(
         'solana': ['raydium', 'jupiter', 'pump', 'sol', 'usdc'],
         'bsc': ['pancakeswap', 'bnb', 'wbnb', 'usdt', 'busd'],
         'arbitrum': ['uniswap', 'gmx', 'arbitrum', 'weth', 'usdc'],
+        'optimism': ['uniswap', 'velodrome', 'optimism', 'op', 'usdc'],
+        'polygon': ['uniswap', 'quickswap', 'polygon', 'matic', 'usdc', 'usdt'],
       };
 
       const searchTerms = ORGANIC_SEARCH_TERMS[normalizedChainId] || ['uniswap', 'weth', 'usdc'];
@@ -1036,7 +1039,7 @@ export async function getTrendingTokensPremium(
               liquidity: currentLiquidity,
               fdv: parseFloat(pair.fdv || '0'),
               poolAddress: pair.pairAddress,
-              poolCreatedAt: pair.pairCreatedAt,
+              poolCreatedAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : undefined,
               imageUrl: imageUrl || getTrustWalletImageUrl(normalizedChainId, baseTokenAddr),
               txns24h: (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
               buys24h: pair.txns?.h24?.buys || 0,

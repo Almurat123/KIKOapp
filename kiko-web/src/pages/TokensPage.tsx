@@ -37,6 +37,7 @@ interface Token {
   c24h: string;
   liquidity: string;
   fdv: string;
+  holders?: number;
   address?: string; // Token address for API calls
   poolAddress?: string; // Pool address for GeckoTerminal charts
   network?: string; // Network for API calls
@@ -280,7 +281,8 @@ function convertApiTokenToToken(apiToken: TokenSearchResult, id: number): Token 
     buys: apiToken.buys24h || 0,
     sells: apiToken.sells24h || 0,
     volume: formatCurrency(volume24h),
-    makers: 0, // Not available from API
+    makers: apiToken.holders || 0, // Using holders count for makers display
+    holders: apiToken.holders,
     c5m: formatChange(priceChange5m),  // 5 minutes change
     c1h: formatChange(priceChange1h),  // 1 hour change
     c6h: formatChange(priceChange6h), // 6 hours change
@@ -422,41 +424,33 @@ export const TokensPage: React.FC<TokensPageProps> = ({
           setInitialLoading(false);
         }
 
-        // 2. Fetch Fresh Data
-        // Reset tokens accumulator for fresh data to avoid duplicates/mixing with cache
-        let freshTokens: Token[] = [];
-        let freshTokenId = 1;
-
-        // Create promises but don't await Promise.all immediately
-        const promises = FETCH_CHAINS.map(async (chain) => {
-          if (!mountedRef.current) return;
+        // 2. Fetch Fresh Data (Parallel)
+        const fetchPromises = FETCH_CHAINS.map(async (chain) => {
+          if (!mountedRef.current) return [];
 
           try {
-            // Direct API call
             const data = await tokenApi.getTrendingLive(chain, '5m', 50);
 
             if (mountedRef.current && data && data.length > 0) {
               // Save to cache
               saveToCache(chain, data);
 
-              // Convert and add new tokens
-              const newTokens = data.map((token) => convertApiTokenToToken(token, freshTokenId++));
-
-              // Keep all tokens from API - the API already returns quality-filtered trending tokens
-              // Do NOT filter by liquidity/volume here as it causes tokens to disappear
-              freshTokens = [...freshTokens, ...newTokens];
+              // Convert to internal tokens
+              // We'll assign IDs later after aggregation
+              return data.map((token) => convertApiTokenToToken(token, 0));
             }
           } catch (err) {
             console.warn(`Failed to load ${chain} tokens:`, err);
           }
+          return [];
         });
 
-        // Wait for all chains to complete before updating UI
-        await Promise.all(promises);
+        const results = await Promise.all(fetchPromises);
+        const freshTokens = results.flat();
 
         // Batch update: Keep API order - do NOT re-sort
         if (mountedRef.current && freshTokens.length > 0) {
-          // Preserve DexScreener's trending order
+          // Assign unique IDs for the table display
           const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
           setAllTokens(displayTokens);
         }
@@ -502,25 +496,23 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
 
 
-      let freshTokens: Token[] = [];
-      let freshTokenId = 1;
 
       try {
         const promises = FETCH_CHAINS.map(async (chain) => {
-          if (!mountedRef.current) return;
+          if (!mountedRef.current) return [];
           try {
             const data = await tokenApi.getTrendingLive(chain, '5m', 50);
             if (mountedRef.current && data && data.length > 0) {
-              const newTokens = data.map((token) => convertApiTokenToToken(token, freshTokenId++));
-              // Keep all tokens from API without filtering
-              freshTokens = [...freshTokens, ...newTokens];
+              return data.map((token) => convertApiTokenToToken(token, 0));
             }
           } catch (err) {
             // Silently ignore poll errors
           }
+          return [];
         });
 
-        await Promise.all(promises);
+        const results = await Promise.all(promises);
+        const freshTokens = results.flat();
 
         if (mountedRef.current && freshTokens.length > 0) {
           // Preserve API order
@@ -620,6 +612,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       }
     };
   }, [searchQuery]);
+
+  const selectedTokenRef = useRef<Token | null>(null);
 
   // Persist selected chain
   useEffect(() => {
@@ -812,6 +806,35 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   };
 
   // Convert token list data to detail page format
+  const getFallbackDetail = (token: Token) => {
+    const priceNum = parseFloat(token.price.replace('$', '').replace(',', '').replace(/\.\.\..*/, '') || '0');
+    const priceChange = parseFloat(token.c24h.replace('%', '').replace('+', '') || '0');
+    const symbol = token.symbol || token.name || 'UNKNOWN';
+
+    return {
+      name: token.name || 'Unknown Token',
+      symbol: symbol,
+      pair: `${symbol} / ${getNativeTokenSymbol(token.chain)}`,
+      chain: token.chain,
+      price: isNaN(priceNum) ? '0.000000' : priceNum.toFixed(18),
+      priceChange24h: isNaN(priceChange) ? 0 : priceChange,
+      address: token.address || '',
+      fdv: token.fdv,
+      mcap: token.fdv,
+      liquidity: token.liquidity,
+      volume24h: token.volume,
+      holders: token.holders || token.makers || 0,
+      imageUrl: token.imageUrl,
+      poolAddress: token.poolAddress,
+      riskScore: 50,
+      audit: {
+        status: "Unverified",
+        warnings: [],
+      },
+      socialLinks: token.socialLinks,
+    };
+  };
+
   const convertTokenToDetail = async (token: Token) => {
     // Map chain display name to API network slug
     const apiNetwork = token.network || token.chain.toLowerCase();
@@ -821,7 +844,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       try {
         const details = await tokenApi.getDetails(apiNetwork, token.address);
 
-        // Use API data if available, otherwise fallback to token data
+        // Use API data if available
         const symbol = details.symbol || token.symbol || details.name || token.name || 'UNKNOWN';
         const name = details.name || token.name || 'Unknown Token';
 
@@ -842,15 +865,15 @@ export const TokensPage: React.FC<TokensPageProps> = ({
           symbol: symbol,
           pair: `${symbol} / ${getNativeTokenSymbol(details.network || apiNetwork)}`,
           chain: formatNetworkName(details.network || apiNetwork),
-          price: isNaN(priceNum) ? '0.000000' : priceNum.toFixed(18), // Keep full precision for formatPrice
+          price: isNaN(priceNum) ? '0.000000' : priceNum.toFixed(18),
           priceChange24h: isNaN(priceChange) ? 0 : priceChange,
           address: details.address || token.address,
           fdv: formatCurrency(details.fdv),
           mcap: formatCurrency(details.fdv),
           liquidity: formatCurrency(details.liquidity),
           volume24h: formatCurrency(details.volume24h),
-          holders: '0',
-          imageUrl: details.imageUrl || token.imageUrl, // Pass imageUrl from API or token
+          holders: details.holders || token.holders || 0,
+          imageUrl: details.imageUrl || token.imageUrl,
           poolAddress: details.poolAddress || token.poolAddress,
           riskScore: Math.floor(Math.random() * 50) + 50,
           audit: {
@@ -866,98 +889,47 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         };
       } catch (err) {
         console.error('Error fetching token details, using fallback:', err);
-        // Continue to fallback below
       }
     }
 
     // Fallback to basic info from list
-    const priceNum = parseFloat(token.price.replace('$', '').replace(',', '').replace(/\.\.\..*/, '') || '0');
-    const priceChange = parseFloat(token.c24h.replace('%', '').replace('+', '') || '0');
-    const symbol = token.symbol || token.name || 'UNKNOWN';
-
-    return {
-      name: token.name || 'Unknown Token',
-      symbol: symbol,
-      pair: `${symbol} / ${getNativeTokenSymbol(token.chain)}`,
-      chain: token.chain,
-      price: isNaN(priceNum) ? '0.000000' : priceNum.toFixed(6),
-      priceChange24h: isNaN(priceChange) ? 0 : priceChange,
-      address: token.address || `0x${Math.random().toString(16).substring(2, 10)}...${Math.random().toString(16).substring(2, 6)}`,
-      fdv: token.fdv,
-      mcap: token.fdv,
-      liquidity: token.liquidity,
-      volume24h: token.volume,
-      holders: token.makers.toString(),
-      imageUrl: token.imageUrl, // Pass imageUrl from token
-      poolAddress: token.poolAddress,
-      riskScore: Math.floor(Math.random() * 50) + 50,
-      audit: {
-        status: "Unverified",
-        warnings: token.liquidity.includes('K') ? ["Low Liquidity"] : ["Mintable"],
-      },
-      socialLinks: token.socialLinks, // Pass socialLinks from token
-    };
+    return getFallbackDetail(token);
   };
 
   const [detailToken, setDetailToken] = useState<any>(null);
 
 
-  const handleTokenClick = async (token: Token) => {
-    console.log('[TokensPage] Clicked token:', token.symbol, token.address);
-    console.log('[TokensPage] Clicked token:', token.symbol, token.address);
+  const handleTokenClick = (token: Token) => {
+    console.log('[TokensPage] Immediate redirect for:', token.symbol, token.address);
 
-    try {
-      // Convert to detail format
-      const detail = await convertTokenToDetail(token);
-      console.log('[TokensPage] Got detail:', detail?.symbol);
+    // 1. Set fallback data immediately to trigger navigation
+    const fallback = getFallbackDetail(token);
+    selectedTokenRef.current = token;
+    setDetailToken(fallback);
+    setSelectedToken(token);
 
-      if (detail) {
-        setDetailToken(detail);
-        setSelectedToken(token);
-      } else {
-        // If detail is null, use fallback
-        throw new Error('No detail returned');
+    // 2. Fetch full details in the background and update
+    const updateDetails = async () => {
+      try {
+        const detail = await convertTokenToDetail(token);
+        // Only update if the user hasn't switched to another token or closed details
+        if (detail && selectedTokenRef.current?.address === token.address) {
+          console.log('[TokensPage] Full details loaded, updating state');
+          setDetailToken(detail);
+        }
+      } catch (err) {
+        console.error('[TokensPage] Background update error:', err);
       }
-    } catch (err) {
-      console.error('[TokensPage] Error loading token details:', err);
-      // Fallback to basic info from list data
-      const priceNum = parseFloat(token.price.replace('$', '').replace(',', '').replace(/\.\.\..*/, '') || '0');
-      const priceChange = parseFloat(token.c24h.replace('%', '').replace('+', '') || '0');
-      const symbol = token.symbol || token.name || 'UNKNOWN';
+    };
 
-      const fallbackDetail = {
-        name: token.name || 'Unknown Token',
-        symbol: symbol,
-        pair: `${symbol} / ${getNativeTokenSymbol(token.chain)}`,
-        chain: token.chain,
-        price: isNaN(priceNum) ? '0.000000' : priceNum.toFixed(18), // Keep full precision
-        priceChange24h: isNaN(priceChange) ? 0 : priceChange,
-        address: token.address || '',
-        fdv: token.fdv,
-        mcap: token.fdv,
-        liquidity: token.liquidity,
-        volume24h: token.volume,
-        holders: token.makers?.toString() || '0',
-        imageUrl: token.imageUrl,
-        riskScore: 50,
-        audit: {
-          status: "Unverified",
-          warnings: [],
-        },
-        socialLinks: token.socialLinks,
-      };
-
-      setDetailToken(fallbackDetail);
-      setSelectedToken(token);
-    } finally {
-
-    }
+    updateDetails();
   };
 
   // useCallback to prevent infinite render loops when passed to child components affecting Layout state
   const handleBack = useCallback(() => {
     // Refresh favorites when returning from detail page (user may have toggled)
     refreshFavorites();
+    selectedTokenRef.current = null;
     setSelectedToken(null);
     setDetailToken(null);
   }, [refreshFavorites]);
@@ -978,30 +950,23 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     <PageContainer fullWidth className={styles.container}>
       {/* Token Table */}
       <div className={`${styles.content} ${isMobile ? styles.contentMobile : ''}`}>
-        {/* Control Bar - Search Only */}
-        {/* Control Bar - filters & search */}
         <div className={styles.controlBar}>
-          {/* Tabs - Full Width */}
-          <div className={styles.filterGroup} style={{ width: '100%', display: 'flex', gap: '8px' }}>
+          <div className={styles.filterGroup}>
             <button
               className={`${styles.filterBtn} ${activeTab === 'trending' ? styles.filterBtnActive : ''}`}
               onClick={() => setActiveTab('trending')}
-              style={{ flex: 1, justifyContent: 'center' }}
             >
               Trending
             </button>
             <button
               className={`${styles.filterBtn} ${activeTab === 'favorites' ? styles.filterBtnActive : ''}`}
               onClick={() => setActiveTab('favorites')}
-              style={{ flex: 1, justifyContent: 'center' }}
             >
               Favorites
             </button>
           </div>
 
-          {/* Search & Chain Row */}
           <div className={styles.controlsRow}>
-            {/* Search Bar */}
             <div className={styles.searchWrapper}>
               <Search size={18} className={styles.searchIcon} />
               <input
@@ -1020,427 +985,436 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                 </button>
               )}
             </div>
-
-            {/* Chain Selector - Moved here for persistence */}
-            <div className={styles.chainSelector}>
-              <button
-                className={styles.chainSelectorBtn}
-                onClick={() => setShowChainDropdown(!showChainDropdown)}
-              >
-                {selectedChain === 'all' ? (
-                  null
-                ) : (
-                  <img
-                    src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
-                    alt={selectedChain}
-                    className={styles.chainSelectorIcon}
-                  />
-                )}
-                <span>{CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || 'All Chains'}</span>
-                <ChevronDown size={14} />
-              </button>
-              {showChainDropdown && (
-                <div className={styles.chainDropdown}>
-                  {CHAIN_OPTIONS.map(chain => (
-                    <button
-                      key={chain.id}
-                      className={`${styles.chainOption} ${selectedChain === chain.id ? styles.chainOptionActive : ''}`}
-                      onClick={() => {
-                        setSelectedChain(chain.id);
-                        setShowChainDropdown(false);
-                      }}
-                    >
-                      {chain.logo ? (
-                        <img src={chain.logo} alt={chain.name} className={styles.chainOptionIcon} />
-                      ) : (
-                        <span className={styles.allChainsIcon}>⛓</span>
-                      )}
-                      <span>{chain.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
 
         {/* Loading Skeleton */}
-        {(loading || initialLoading) && (
-          <div className={styles.tableCard}>
-            <table className={styles.table}>
-              <colgroup>
-                <col style={{ width: isMobile ? '32%' : '28%' }} />
-                <col style={{ width: isMobile ? '18%' : '14%' }} />
-                <col style={{ width: isMobile ? '24%' : '20%' }} />
-                <col style={{ width: isMobile ? '16%' : '12%' }} />
-                <col style={{ width: isMobile ? '10%' : '8%' }} />
-                {!isMobile && <col style={{ width: '18%' }} />}
-              </colgroup>
-              <thead className={styles.thead}>
-                <tr>
-                  <th className={styles.th} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                    <div className={styles.thContent}>Token Info</div>
-                  </th>
-                  <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                    <div className={`${styles.thContent} ${styles.thContentRight}`}>Price</div>
-                  </th>
-                  <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                    <div className={`${styles.thContent} ${styles.thContentRight}`}>Volume</div>
-                  </th>
-                  <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                    <div className={`${styles.thContent} ${styles.thContentRight}`}>5M</div>
-                  </th>
-                  <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                    <div className={`${styles.thContent} ${styles.thContentRight}`}>Age</div>
-                  </th>
-                  {!isMobile && (
-                    <th className={`${styles.th} ${styles.thCenter}`} style={{ padding: '12px 16px' }}>
-                      <div className={`${styles.thContent} ${styles.thContentCenter}`}>Txns</div>
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody className={styles.tbody}>
-                {Array.from({ length: 15 }).map((_, i) => (
-                  <tr key={i} className={styles.tr}>
-                    <td className={styles.td} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={styles.skeletonCell}>
-                        {!isMobile && <div className={styles.skeletonText} style={{ width: '18px', marginRight: '4px' }} />}
-                        <div className={`${styles.skeletonIconWrapper} ${isMobile ? styles.skeletonIconWrapperMobile : ''}`}>
-                          {isMobile && <div className={styles.skeletonBadge} />}
-                          <div className={styles.skeletonAvatar} />
-                          <div className={styles.skeletonChainLogo} />
-                        </div>
-                        <div>
-                          <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} />
-                          <div className={`${styles.skeletonText} ${styles.skeletonTextName}`} style={{ marginTop: 4 }} />
-                        </div>
-                      </div>
-                    </td>
-                    <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} style={{ marginLeft: 'auto' }} />
-                    </td>
-                    <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.skeletonText} ${styles.skeletonTextLong}`} style={{ marginLeft: 'auto' }} />
-                    </td>
-                    <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
-                    </td>
-                    <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
-                    </td>
-                    {!isMobile && (
-                      <td className={`${styles.td} ${styles.tdCenter}`} style={{ padding: '12px 16px' }}>
-                        <div className={styles.skeletonBar} style={{ width: '80%', margin: '0 auto' }} />
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Error State - Only show if no data available */}
-        {error && !loading && !initialLoading && allTokens.length === 0 && (
-          <div className={styles.errorContainer}>
-            <div className={styles.errorMessage}>
-              {error.includes('request limit') || error.includes('429') ? (
-                <>
-                  <div>⚠️ API Rate Limit Exceeded</div>
-                  <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.8 }}>
-                    Please wait a moment and try again, or refresh the page
-                  </div>
-                </>
-              ) : (
-                error
-              )}
-            </div>
-            {(error.includes('request limit') || error.includes('429')) && (
-              <button
-                onClick={() => {
-                  setError(null);
-                  setTimeout(() => {
-                    // Reload the page to retry
-                    window.location.reload();
-                  }, 5000);
-                }}
-                className={styles.retryBtn}
-              >
-                Auto refresh in 5s
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Empty State - Search with no results */}
-        {!loading && !initialLoading && !error && searchQuery.trim() && filteredAndSortedTokens.length === 0 && (
-          <div className={styles.emptyState}>
-            <p>No tokens found for "{searchQuery}"</p>
-            <p className={styles.emptyStateSub}>Try searching with a different term</p>
-          </div>
-        )}
-
-        {/* Empty State - Chain filter with no results */}
-        {!loading && !initialLoading && !error && !searchQuery.trim() && selectedChain !== 'all' && filteredAndSortedTokens.length === 0 && allTokens.length > 0 && (
-          <div className={styles.emptyState}>
-            <p>No tokens found for {CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || selectedChain}</p>
-            <p className={styles.emptyStateSub}>Try selecting a different chain</p>
-          </div>
-        )}
-
-        {filteredAndSortedTokens.length > 0 && !loading && !initialLoading && (
-          <>
+        {
+          (loading || initialLoading) && (
             <div className={styles.tableCard}>
-              <div className={styles.tableHeader}>
-                <h2 className={styles.tableTitle}>
-                  {activeTab === 'favorites'
-                    ? 'Favorites'
-                    : 'Trending'}
-                </h2>
-              </div>
               <table className={styles.table}>
                 <colgroup>
                   <col style={{ width: isMobile ? '32%' : '28%' }} />
                   <col style={{ width: isMobile ? '18%' : '14%' }} />
+                  <col style={{ width: isMobile ? '14%' : '12%' }} />
+                  <col style={{ width: isMobile ? '12%' : '8%' }} />
                   <col style={{ width: isMobile ? '24%' : '20%' }} />
-                  <col style={{ width: isMobile ? '16%' : '12%' }} />
-                  <col style={{ width: isMobile ? '10%' : '8%' }} />
                   {!isMobile && <col style={{ width: '18%' }} />}
                 </colgroup>
                 <thead className={styles.thead}>
                   <tr>
-                    <th
-                      className={styles.th}
-                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                      onClick={() => handleSort('symbol')}
-                    >
-                      <div className={styles.thContent}>
-                        Token Info
-                        <SortIcon column="symbol" />
-                      </div>
+                    <th className={styles.th} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={styles.thContent}>Token Info</div>
                     </th>
-                    <th
-                      className={`${styles.th} ${styles.thRight}`}
-                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                      onClick={() => handleSort('price')}
-                    >
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                        Price
-                        <SortIcon column="price" />
-                      </div>
+                    <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>Price</div>
                     </th>
-                    <th
-                      className={`${styles.th} ${styles.thRight}`}
-                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                      onClick={() => handleSort('volume')}
-                    >
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                        Vol / Liq
-                        <SortIcon column="volume" />
-                      </div>
+                    <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>5M</div>
                     </th>
-                    <th
-                      className={`${styles.th} ${styles.thRight}`}
-                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                      onClick={() => handleSort(getChangeColumn() as keyof Token)}
-                    >
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                        5M
-                        <SortIcon column={getChangeColumn() as keyof Token} />
-                      </div>
+                    <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>Age</div>
                     </th>
-                    <th
-                      className={`${styles.th} ${styles.thRight}`}
-                      style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                      onClick={() => handleSort('age')}
-                    >
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                        Age
-                        <SortIcon column="age" />
-                      </div>
+                    <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>Vol / Liq</div>
                     </th>
                     {!isMobile && (
-                      <th
-                        className={`${styles.th} ${styles.thCenter}`}
-                        style={{ padding: '12px 16px' }}
-                        onClick={() => handleSort('txns')}
-                      >
-                        <div className={`${styles.thContent} ${styles.thContentCenter}`}>
-                          Txns
-                          <SortIcon column="txns" />
-                        </div>
+                      <th className={`${styles.th} ${styles.thCenter}`} style={{ padding: '12px 16px' }}>
+                        <div className={`${styles.thContent} ${styles.thContentCenter}`}>Txns</div>
                       </th>
                     )}
                   </tr>
                 </thead>
                 <tbody className={styles.tbody}>
-                  {filteredAndSortedTokens.map((t, i) => {
-                    const changeValue = t.c5m;
-                    const isPositive = changeValue.startsWith('+');
-                    const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
-
-                    return (
-                      <tr
-                        key={t.id}
-                        onClick={() => handleTokenClick(t)}
-                        className={styles.tr}
-                      >
-                        {/* Token Info */}
-                        <td
-                          className={styles.td}
-                          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                        >
-                          <div className={styles.tokenInfo}>
-                            {/* Desktop: Normal rank */}
-                            {!isMobile && (
-                              <span className={styles.rank}>
-                                {i + 1}
-                              </span>
-                            )}
-                            {/* Token Icon with Chain Logo */}
-                            <div className={`${styles.tokenIconWrapper} ${isMobile ? styles.tokenIconWrapperMobile : ''}`}>
-                              {/* Mobile: Rank badge above avatar */}
-                              {isMobile && (
-                                <span className={`${styles.avatarRankBadge} ${t.isNew ? styles.avatarRankNew : ''} ${t.isHot && !t.isNew ? styles.avatarRankHot : ''}`}>
-                                  {t.isNew ? 'NEW' : t.isHot ? 'HOT' : i + 1}
-                                </span>
-                              )}
-                              <img
-                                src={t.imageUrl || `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`}
-                                alt={t.name}
-                                className={styles.tokenIcon}
-                                onError={(e) => {
-                                  // Fallback to ui-avatars if image fails to load
-                                  e.currentTarget.src = `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`;
-                                }}
-                              />
-                              {/* Chain Logo */}
-                              <img
-                                src={getChainLogo(t.chain)}
-                                alt={t.chain}
-                                className={styles.chainLogo}
-                                onError={(e) => {
-                                  e.currentTarget.style.background = getChainColor(t.chain);
-                                }}
-                              />
-                            </div>
-
-                            <div className={styles.tokenNameCol}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                                <span className={styles.tokenSymbol}>{t.symbol}</span>
-                                {/* NEW badge - desktop only */}
-                                {t.isNew && !isMobile && (
-                                  <span style={{
-                                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                                    color: '#fff',
-                                    fontSize: '9px',
-                                    fontWeight: 700,
-                                    padding: '2px 5px',
-                                    borderRadius: '4px',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.3px',
-                                  }}>NEW</span>
-                                )}
-                                {/* HOT badge - desktop only, don't show if already NEW */}
-                                {t.isHot && !t.isNew && !isMobile && (
-                                  <span style={{
-                                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                                    color: '#fff',
-                                    fontSize: '9px',
-                                    fontWeight: 700,
-                                    padding: '2px 5px',
-                                    borderRadius: '4px',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.3px',
-                                  }}>HOT</span>
-                                )}
-                              </div>
-                              <span className={styles.tokenName}>{t.name}</span>
-                            </div>
+                  {Array.from({ length: 15 }).map((_, i) => (
+                    <tr key={i} className={styles.tr}>
+                      <td className={styles.td} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                        <div className={styles.skeletonCell}>
+                          {!isMobile && <div className={styles.skeletonText} style={{ width: '18px', marginRight: '4px' }} />}
+                          <div className={`${styles.skeletonIconWrapper} ${isMobile ? styles.skeletonIconWrapperMobile : ''}`}>
+                            {isMobile && <div className={styles.skeletonBadge} />}
+                            <div className={styles.skeletonAvatar} />
+                            <div className={styles.skeletonChainLogo} />
                           </div>
-                        </td>
-
-                        {/* Price */}
-                        <td
-                          className={`${styles.td} ${styles.tdRight}`}
-                          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                        >
-                          <div className={styles.price}>
-                            {t.price}
+                          <div>
+                            <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} />
+                            <div className={`${styles.skeletonText} ${styles.skeletonTextName}`} style={{ marginTop: 4 }} />
                           </div>
+                        </div>
+                      </td>
+                      <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                        <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} style={{ marginLeft: 'auto' }} />
+                      </td>
+                      <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                        <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
+                      </td>
+                      <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                        <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
+                      </td>
+                      <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
+                        <div className={styles.skeletonText} style={{ width: '80%', marginLeft: 'auto' }} />
+                      </td>
+                      {!isMobile && (
+                        <td className={`${styles.td} ${styles.tdCenter}`} style={{ padding: '12px 16px' }}>
+                          <div className={styles.skeletonBar} style={{ width: '80%', margin: '0 auto' }} />
                         </td>
-
-                        {/* Volume / Liquidity */}
-                        <td
-                          className={`${styles.td} ${styles.tdRight}`}
-                          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-                        >
-                          <div className={styles.tokenNameCol} style={{ alignItems: 'flex-end' }}>
-                            <div className={styles.volume}>
-                              <span className={styles.liquidity} style={{ marginRight: '4px' }}>VOL:</span>
-                              {t.volume}
-                            </div>
-                            <div className={styles.volume}>
-                              <span className={styles.liquidity} style={{ marginRight: '4px' }}>LIQ:</span>
-                              {t.liquidity}
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Change (based on timeframe) */}
-                        <td
-                          className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
-                          style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
-                        >
-                          {changeValue}
-                        </td>
-
-                        {/* Age */}
-                        <td
-                          className={`${styles.td} ${styles.tdRight} ${styles.age}`}
-                          style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
-                        >
-                          {t.age}
-                        </td>
-
-                        {/* Txns (Buy/Sell Bar) */}
-                        {!isMobile && (
-                          <td
-                            className={`${styles.td} ${styles.tdCenter}`}
-                            style={{ padding: '12px 16px' }}
-                          >
-                            <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
-                              <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
-                                <span className={styles.changePositive} style={{ fontSize: '9px' }}>
-                                  {t.buys}
-                                </span>
-                                <span className={styles.changeNegative} style={{ fontSize: '9px' }}>
-                                  {t.sells}
-                                </span>
-                              </div>
-                              <div className={styles.barContainer} style={{ height: '6px' }}>
-                                <div
-                                  className={styles.buyBar}
-                                  style={{ width: `${buyPct}%` }}
-                                ></div>
-                                <div
-                                  className={styles.sellBar}
-                                  style={{ width: `${100 - buyPct}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
+                      )}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-          </>
-        )}
-      </div>
+          )
+        }
+
+        {/* Error State - Only show if no data available */}
+        {
+          error && !loading && !initialLoading && allTokens.length === 0 && (
+            <div className={styles.errorContainer}>
+              <div className={styles.errorMessage}>
+                {error && (error.includes('request limit') || error.includes('429')) ? (
+                  <>
+                    <div>⚠️ API Rate Limit Exceeded</div>
+                    <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.8 }}>
+                      Please wait a moment and try again, or refresh the page
+                    </div>
+                  </>
+                ) : (
+                  error
+                )}
+              </div>
+              {error && (error.includes('request limit') || error.includes('429')) && (
+                <button
+                  onClick={() => {
+                    setError(null);
+                    setTimeout(() => {
+                      // Reload the page to retry
+                      window.location.reload();
+                    }, 5000);
+                  }}
+                  className={styles.retryBtn}
+                >
+                  Auto refresh in 5s
+                </button>
+              )}
+            </div>
+          )
+        }
+
+        {/* Empty State - Search with no results */}
+        {
+          !loading && !initialLoading && !error && searchQuery.trim() && filteredAndSortedTokens.length === 0 && (
+            <div className={styles.emptyState}>
+              <p>No tokens found for "{searchQuery}"</p>
+              <p className={styles.emptyStateSub}>Try searching with a different term</p>
+            </div>
+          )
+        }
+
+        {/* Empty State - Chain filter with no results */}
+        {
+          !loading && !initialLoading && !error && !searchQuery.trim() && selectedChain !== 'all' && filteredAndSortedTokens.length === 0 && allTokens.length > 0 && (
+            <div className={styles.emptyState}>
+              <p>No tokens found for {CHAIN_OPTIONS.find(c => c.id === selectedChain)?.name || selectedChain}</p>
+              <p className={styles.emptyStateSub}>Try selecting a different chain</p>
+            </div>
+          )
+        }
+
+        {
+          filteredAndSortedTokens.length > 0 && !loading && !initialLoading && (
+            <>
+              <div className={styles.tableCard}>
+                <div className={styles.tableHeader} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <h2 className={styles.tableTitle} style={{ margin: 0 }}>
+                    {activeTab === 'favorites'
+                      ? 'Favorites'
+                      : 'Trending'}
+                  </h2>
+
+                  <div className={styles.chainSelector}>
+                    <button
+                      className={styles.chainSelectorBtn}
+                      onClick={() => setShowChainDropdown(!showChainDropdown)}
+                    >
+                      {selectedChain === 'all' ? (
+                        null
+                      ) : (
+                        <img
+                          src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
+                          alt={selectedChain}
+                          className={styles.chainSelectorIcon}
+                        />
+                      )}
+                      <span>{selectedChain === 'all' ? 'All' : CHAIN_OPTIONS.find(c => c.id === selectedChain)?.id}</span>
+                      <ChevronDown size={14} />
+                    </button>
+                    {showChainDropdown && (
+                      <div className={styles.chainDropdown}>
+                        {CHAIN_OPTIONS.map(chain => (
+                          <button
+                            key={chain.id}
+                            className={`${styles.chainOption} ${selectedChain === chain.id ? styles.chainOptionActive : ''}`}
+                            onClick={() => {
+                              setSelectedChain(chain.id);
+                              setShowChainDropdown(false);
+                            }}
+                          >
+                            {chain.logo ? (
+                              <img src={chain.logo} alt={chain.name} className={styles.chainOptionIcon} />
+                            ) : (
+                              <span className={styles.allChainsIcon}>⛓</span>
+                            )}
+                            <span>{chain.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <table className={styles.table}>
+                  <colgroup>
+                    <col style={{ width: isMobile ? '32%' : '28%' }} />
+                    <col style={{ width: isMobile ? '18%' : '14%' }} />
+                    <col style={{ width: isMobile ? '14%' : '12%' }} />
+                    <col style={{ width: isMobile ? '12%' : '8%' }} />
+                    <col style={{ width: isMobile ? '24%' : '20%' }} />
+                    {!isMobile && <col style={{ width: '18%' }} />}
+                  </colgroup>
+                  <thead className={styles.thead}>
+                    <tr>
+                      <th
+                        className={styles.th}
+                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                        onClick={() => handleSort('symbol')}
+                      >
+                        <div className={styles.thContent}>
+                          Token Info
+                          <SortIcon column="symbol" />
+                        </div>
+                      </th>
+                      <th
+                        className={`${styles.th} ${styles.thRight}`}
+                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                        onClick={() => handleSort('price')}
+                      >
+                        <div className={`${styles.thContent} ${styles.thContentRight}`}>
+                          Price
+                          <SortIcon column="price" />
+                        </div>
+                      </th>
+                      <th
+                        className={`${styles.th} ${styles.thRight}`}
+                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                        onClick={() => handleSort(getChangeColumn() as keyof Token)}
+                      >
+                        <div className={`${styles.thContent} ${styles.thContentRight}`}>
+                          5M
+                          <SortIcon column={getChangeColumn() as keyof Token} />
+                        </div>
+                      </th>
+                      <th
+                        className={`${styles.th} ${styles.thRight}`}
+                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                        onClick={() => handleSort('age')}
+                      >
+                        <div className={`${styles.thContent} ${styles.thContentRight}`}>
+                          Age
+                          <SortIcon column="age" />
+                        </div>
+                      </th>
+                      <th
+                        className={`${styles.th} ${styles.thRight}`}
+                        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                        onClick={() => handleSort('volume')}
+                      >
+                        <div className={`${styles.thContent} ${styles.thContentRight}`}>
+                          Vol / Liq
+                          <SortIcon column="volume" />
+                        </div>
+                      </th>
+                      {!isMobile && (
+                        <th
+                          className={`${styles.th} ${styles.thCenter}`}
+                          style={{ padding: '12px 16px' }}
+                          onClick={() => handleSort('txns')}
+                        >
+                          <div className={`${styles.thContent} ${styles.thContentCenter}`}>
+                            Txns
+                            <SortIcon column="txns" />
+                          </div>
+                        </th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className={styles.tbody}>
+                    {filteredAndSortedTokens.map((t, i) => {
+                      const changeValue = t.c5m;
+                      const isPositive = changeValue.startsWith('+');
+                      const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
+
+                      return (
+                        <tr
+                          key={t.id}
+                          onClick={() => handleTokenClick(t)}
+                          className={styles.tr}
+                        >
+                          {/* Token Info */}
+                          <td
+                            className={styles.td}
+                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                          >
+                            <div className={styles.tokenInfo}>
+                              {/* Desktop: Normal rank */}
+                              {!isMobile && (
+                                <span className={styles.rank}>
+                                  {i + 1}
+                                </span>
+                              )}
+                              {/* Token Icon with Chain Logo */}
+                              <div className={`${styles.tokenIconWrapper} ${isMobile ? styles.tokenIconWrapperMobile : ''}`}>
+                                {/* Mobile: Rank badge above avatar */}
+                                {isMobile && (
+                                  <span className={`${styles.avatarRankBadge} ${t.isNew ? styles.avatarRankNew : ''} ${t.isHot && !t.isNew ? styles.avatarRankHot : ''}`}>
+                                    {t.isNew ? 'NEW' : t.isHot ? 'HOT' : i + 1}
+                                  </span>
+                                )}
+                                <img
+                                  src={t.imageUrl || `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`}
+                                  alt={t.name}
+                                  className={styles.tokenIcon}
+                                  onError={(e) => {
+                                    // Fallback to ui-avatars if image fails to load
+                                    e.currentTarget.src = `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`;
+                                  }}
+                                />
+                                {/* Chain Logo */}
+                                <img
+                                  src={getChainLogo(t.chain)}
+                                  alt={t.chain}
+                                  className={styles.chainLogo}
+                                  onError={(e) => {
+                                    e.currentTarget.style.background = getChainColor(t.chain);
+                                  }}
+                                />
+                              </div>
+
+                              <div className={styles.tokenNameCol}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                  <span className={styles.tokenSymbol}>{t.symbol}</span>
+                                  {/* NEW badge - desktop only */}
+                                  {t.isNew && !isMobile && (
+                                    <span style={{
+                                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                                      color: '#fff',
+                                      fontSize: '9px',
+                                      fontWeight: 700,
+                                      padding: '2px 5px',
+                                      borderRadius: '4px',
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.3px',
+                                    }}>NEW</span>
+                                  )}
+                                  {/* HOT badge - desktop only, don't show if already NEW */}
+                                  {t.isHot && !t.isNew && !isMobile && (
+                                    <span style={{
+                                      background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                                      color: '#fff',
+                                      fontSize: '9px',
+                                      fontWeight: 700,
+                                      padding: '2px 5px',
+                                      borderRadius: '4px',
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.3px',
+                                    }}>HOT</span>
+                                  )}
+                                </div>
+                                <span className={styles.tokenName}>{t.name}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Price */}
+                          <td
+                            className={`${styles.td} ${styles.tdRight}`}
+                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                          >
+                            <div className={styles.price}>
+                              {t.price}
+                            </div>
+                          </td>
+
+                          {/* Change (based on timeframe) */}
+                          <td
+                            className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
+                            style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+                          >
+                            {changeValue}
+                          </td>
+
+                          {/* Age */}
+                          <td
+                            className={`${styles.td} ${styles.tdRight} ${styles.age} ${((t.age.toLowerCase().endsWith('h') || t.age.toLowerCase().endsWith('m')) || t.isNew) ? styles.ageRecent : ''}`}
+                            style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+                          >
+                            {t.age}
+                          </td>
+
+                          {/* Volume / Liquidity */}
+                          <td
+                            className={`${styles.td} ${styles.tdRight}`}
+                            style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+                          >
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                              <div className={styles.volume}>
+                                <span className={styles.volLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>VOL:</span>
+                                {t.volume}
+                              </div>
+                              <div className={styles.volume}>
+                                <span className={styles.liqLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>LIQ:</span>
+                                {t.liquidity}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Txns (Buy/Sell Bar) */}
+                          {!isMobile && (
+                            <td
+                              className={`${styles.td} ${styles.tdCenter}`}
+                              style={{ padding: '12px 16px' }}
+                            >
+                              <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
+                                <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
+                                  <span className={styles.changePositive} style={{ fontSize: '9px' }}>
+                                    {t.buys}
+                                  </span>
+                                  <span className={styles.changeNegative} style={{ fontSize: '9px' }}>
+                                    {t.sells}
+                                  </span>
+                                </div>
+                                <div className={styles.barContainer} style={{ height: '6px' }}>
+                                  <div
+                                    className={styles.buyBar}
+                                    style={{ width: `${buyPct}%` }}
+                                  ></div>
+                                  <div
+                                    className={styles.sellBar}
+                                    style={{ width: `${100 - buyPct}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )
+        }
+      </div >
     </PageContainer >
   );
 };

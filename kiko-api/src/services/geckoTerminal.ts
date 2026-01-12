@@ -141,6 +141,7 @@ export interface TokenSearchResult {
   liquidity?: number;
   fdv?: number;
   decimals?: number;
+  holders?: number;
 }
 
 /**

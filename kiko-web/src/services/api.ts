@@ -70,6 +70,7 @@ export interface TokenSearchResult {
     liquidity?: number | string;
     fdv?: number | string;
     poolAddress?: string;
+    holders?: number;
     socials?: Array<{ type: string; url: string }>;
     websites?: Array<{ url: string; label?: string }>;
 }

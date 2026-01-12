@@ -15,8 +15,8 @@
   --theme-success-bg: rgba(16, 185, 129, 0.08);
   --theme-warning: #f59e0b;
   --theme-warning-bg: rgba(245, 158, 11, 0.08);
-  --theme-error: #ef4444;
-  --theme-error-bg: rgba(239, 68, 68, 0.08);
+  --theme-error: #ff3b30;
+  --theme-error-bg: rgba(255, 59, 48, 0.08);
 
   /* Swap Card specific - Light Mode */
   --card-bg: #ffffff;
@@ -41,9 +41,9 @@
   --button-secondary-hover-bg: #e5e7eb;
   --success-color: #059669;
   --success-bg: rgba(5, 150, 105, 0.1);
-  --error-color: #dc2626;
-  --error-bg: rgba(220, 38, 38, 0.1);
-  --error-border: rgba(220, 38, 38, 0.2);
+  --error-color: #ff3b30;
+  --error-bg: rgba(255, 59, 48, 0.1);
+  --error-border: rgba(255, 59, 48, 0.2);
   --warning-color: #d97706;
   --warning-bg: rgba(217, 119, 6, 0.1);
   --warning-border: rgba(217, 119, 6, 0.2);
@@ -66,8 +66,8 @@
   --theme-success-bg: rgba(16, 185, 129, 0.1);
   --theme-warning: #f59e0b;
   --theme-warning-bg: rgba(245, 158, 11, 0.1);
-  --theme-error: #ef4444;
-  --theme-error-bg: rgba(239, 68, 68, 0.1);
+  --theme-error: #ff3b30;
+  --theme-error-bg: rgba(255, 59, 48, 0.1);
 
   /* Swap Card specific - Dark Mode */
   --card-bg: #18181b;
@@ -92,9 +92,9 @@
   --button-secondary-hover-bg: #3f3f46;
   --success-color: #4ade80;
   --success-bg: rgba(74, 222, 128, 0.1);
-  --error-color: #fca5a5;
-  --error-bg: rgba(239, 68, 68, 0.1);
-  --error-border: rgba(239, 68, 68, 0.2);
+  --error-color: #ff3b30;
+  --error-bg: rgba(255, 59, 48, 0.15);
+  --error-border: rgba(255, 59, 48, 0.3);
   --warning-color: #fbbf24;
   --warning-bg: rgba(234, 179, 8, 0.1);
   --warning-border: rgba(234, 179, 8, 0.2);

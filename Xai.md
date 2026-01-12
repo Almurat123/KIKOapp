@@ -1,130 +1,84 @@
-token_address
-bought_usd
-sold_usd
-pnl_usd
-profit_pct
-2nP9yKQNSGQy851iyawDvBkzkK2R2aqKArQCKc2gpump
-406.96
-3600.69
-3193.73
-784.78
-GbyskLRnNarZmm7WEHVe4PcS5bvEiUPZQgafacmapump
-768.66
-2747.7
-1979.04
-257.47
-DmH58pnG4B254Egse55M54kcRFhcAB9uVQTb16x2AbxF
-419.13
-2247.27
-1828.13
-436.17
-CxR1xWaVMbochoU8sQLn9FxDb3kA4RPCMATaC5Qsnow
-406.96
-2161.58
-1754.62
-431.15
-5rzseVsSTRnizipLEnuBbyhiLqYkGqMSo2gkgnLmpump
-763.09
-2360.32
-1597.24
-209.31
-4uscjcZhWH1UTKGQvM8aTVsHx26jnGcHAEpqknmyBAGS
-696.07
-1945.85
-1249.78
-179.55
-864WM2kzNiM6cFqDeHs1pw6J2nGGRG1RuoAuxWJtpump
-1085.23
-2166.62
-1081.4
-99.65
-2CSNtGRUJQPLroQwWMy2bkRm6URK6R3i62ebzc49pump
-1356.53
-2437.36
-1080.82
-79.68
-BvkPHKx2QKMbWgo1gT2R9FemF1BvYhv2ufcmeMydrciu
-678.27
-1733.9
-1055.63
-155.64
-GZ2KcaGTrW9Xf1dEjFS6LNeb7ppdfiDumggUCcA4pump
-768.72
-1711.87
-943.15
-122.69
-3qsKpdzDtkzsGrYB2CEMJL7FTfx6bnRUCfNF1JQTpump
-406.96
-1343.95
-936.99
-230.24
-CrhChTp4kFy9EcSwqhGQ55Fwo56G2tCmM56HesLdpump
-1763.49
-2628.99
-865.5
-49.08
-8PULU8418EyYkWuUrZBak3JpqtFBSvQfKhGNm9MUpump
-1356.53
-2209.22
-852.68
-62.86
-5dXhiEBib7DQUiegy5hJxKLwoJQnQDczjBYJW8SRpump
-801.31
-1634.05
-832.74
-103.92
-48z1enrrDTRHVnajh4XPdVmvSmUvsuHeEjxc5qqcpump
-766.78
-1519.92
-753.14
-98.22
-6bbW3ZufJaDkGYsQ1dqfLrchqtRQyEATA7g3Fs7tpump
-406.96
-1139.34
-732.38
-179.96
-4u4w3Ey8ewYw7pZWyUH6kaGf7pUx97KYLp3tnFcEpump
-2713.07
-3440.51
-727.45
-26.81
-5dzP6e5iUYtXMcUBKiLrxunTtRQTZfhgqcEWEBhapump
-763.29
-1480.8
-717.5
-94
-GJkTAB77rT1z518RadL1xmgELJGGvAmZbNaMGjMkKXhF
-678.27
-1357.11
-678.84
-100.08
-7E9gvRBjXzFv7gsgUL6txhChhMWSghT4sgaLjen2pump
-406.96
-1076.23
-669.27
-164.46
-77NRQenXfSDY1GG1nD4p2ywUcR4Ga8bouZdJ3HYTpump
-678.27
-1340.52
-662.26
-97.64
-H5ZzNEA3WhHNqcLSHXTT2gxfH88n16GmMtDhMwpxpump
-678.27
-1317.92
-639.66
-94.31
-2AmAGuE8E4wH2ABTeUBAqjJpX3hJN9RpRfoxwSAhpump
-406.96
-1029.76
-622.8
-153.04
-DVguBpgnixDwVcM654YiaLCMNiY2cdUYJXJK3u9Gpump
-678.27
-1255.54
-577.27
-85.11
-3kC6gheQ5fxK8iKWWDHeomHU5Z6U2dUWfqEK6dpLpump
-678.27
-1254.44
-576.17
-84.95
+12:34:23 [vite] (client) Pre-transform error: /Users/almurat/KiKo/kiko-web/src/pages/TokensPage.tsx: Missing catch or finally clause. (500:6)
+
+  498 |       let freshTokenId = 1;
+  499 |
+> 500 |       try {
+      |       ^
+  501 |         try {
+  502 |           const promises = FETCH_CHAINS.map(async (chain) => {
+  503 |             if (!mountedRef.current) return [];
+  Plugin: vite:react-babel
+  File: /Users/almurat/KiKo/kiko-web/src/pages/TokensPage.tsx:500:6
+  498 |        let freshTokenId = 1;
+  499 |  
+  500 |        try {
+      |        ^
+  501 |          try {
+  502 |            const promises = FETCH_CHAINS.map(async (chain) => {
+12:34:23 [vite] Internal server error: /Users/almurat/KiKo/kiko-web/src/pages/TokensPage.tsx: Missing catch or finally clause. (500:6)
+
+  498 |       let freshTokenId = 1;
+  499 |
+> 500 |       try {
+      |       ^
+  501 |         try {
+  502 |           const promises = FETCH_CHAINS.map(async (chain) => {
+  503 |             if (!mountedRef.current) return [];
+  Plugin: vite:react-babel
+  File: /Users/almurat/KiKo/kiko-web/src/pages/TokensPage.tsx:500:6
+  498 |        let freshTokenId = 1;
+  499 |  
+  500 |        try {
+      |        ^
+  501 |          try {
+  502 |            const promises = FETCH_CHAINS.map(async (chain) => {
+      at constructor (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:6624:19)
+      at TypeScriptParserMixin.parseTryStatement (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13300:12)
+      at TypeScriptParserMixin.parseStatementContent (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12880:21)
+      at TypeScriptParserMixin.parseStatementContent (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13392:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseBlock (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13373:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12174:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseAsyncArrowFromCallExpression (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11328:10)
+      at TypeScriptParserMixin.parseAsyncArrowFromCallExpression (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:9819:18)
+      at TypeScriptParserMixin.parseCoverCallAndAsyncArrowHead (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11258:27)
+      at TypeScriptParserMixin.parseSubscript (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11184:19)
+      at TypeScriptParserMixin.parseSubscript (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:9329:18)
+      at TypeScriptParserMixin.parseSubscripts (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11158:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11149:17)
+      at TypeScriptParserMixin.parseUpdate (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:10963:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:10968:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:10945:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:10895:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:9839:20)
+      at /Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:10864:39
+      at TypeScriptParserMixin.allowInAnd (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12495:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:10864:17)
+      at TypeScriptParserMixin.parseVar (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13460:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13306:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:9469:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12927:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:9569:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12843:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12823:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13392:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13385:10)
+      at TypeScriptParserMixin.parseBlock (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:13373:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12174:24)
+      at TypeScriptParserMixin.parseArrowExpression (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:12149:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11759:12)
+      at TypeScriptParserMixin.parseExprAtom (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11395:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:4793:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11145:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11130:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:11110:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:9890:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/almurat/KiKo/kiko-web/node_modules/@babel/parser/lib/index.js:10963:61)

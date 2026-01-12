@@ -22,6 +22,8 @@ const SUPPORTED_CHAINS = [
   { id: 'base', name: 'Base', geckoNetwork: 'base' },
   { id: 'bsc', name: 'BSC', geckoNetwork: 'bsc' },
   { id: 'arbitrum', name: 'Arbitrum', geckoNetwork: 'arbitrum' },
+  { id: 'optimism', name: 'Optimism', geckoNetwork: 'optimism' },
+  { id: 'polygon', name: 'Polygon', geckoNetwork: 'polygon_pos' },
 ];
 
 

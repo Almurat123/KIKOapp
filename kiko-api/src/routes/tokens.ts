@@ -16,6 +16,7 @@ import { AppError, handleExternalApiError } from '../middleware/errorHandler.js'
 import { sanitizeString, validateNetwork, validateAddress, validateLimit, validateTimeframe } from '../utils/validation.js';
 import { detectLaunchpadToken, getParagraphToken } from '../services/ai/launchpadDetector.js';
 import * as tokenAnalysis from '../services/tokenAnalysis.js';
+import { getHolderCount } from '../services/goPlus.js';
 
 const GECKO_TERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 
@@ -31,6 +32,9 @@ const SUPPORTED_CHAINS_INFO = [
   { id: 'base', name: 'Base', network: 'base' },
   { id: 'bsc', name: 'BNB Smart Chain', network: 'bsc' },
   { id: 'arbitrum', name: 'Arbitrum', network: 'arbitrum' },
+  { id: 'solana', name: 'Solana', network: 'solana' },
+  { id: 'optimism', name: 'Optimism', network: 'optimism' },
+  { id: 'polygon', name: 'Polygon', network: 'polygon' },
 ];
 
 const SEARCH_ALLOWED_NETWORKS = [
@@ -349,6 +353,22 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         }
       } catch (e) {
         console.warn('[TokenDetails] Failed to fetch/enrich from DexScreener:', e);
+      }
+
+      // Fetch holder count (Enrichment)
+      if (token) {
+        try {
+          console.log(`[TokenDetails] Fetching holder count for ${address} on ${network}...`);
+          const holders = await getHolderCount(network, address);
+          if (holders) {
+            console.log(`[TokenDetails] Got ${holders} holders for ${address}`);
+            token.holders = holders;
+          } else {
+            console.log(`[TokenDetails] No holder count returned for ${address}`);
+          }
+        } catch (e) {
+          console.warn('[TokenDetails] Failed to fetch holders from GoPlus:', e);
+        }
       }
 
       if (!token) {
