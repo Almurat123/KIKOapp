@@ -37,20 +37,37 @@ const URL_SENSITIVE_PARAMS = [
  * Redacts sensitive information from a string or object.
  * Recursively scans objects and arrays.
  */
-export function redact(data: any): any {
+const MAX_DEPTH = 8;
+export function redact(data: any, visited = new WeakSet(), depth = 0): any {
     if (data === null || data === undefined) {
         return data;
     }
+    if (depth > MAX_DEPTH) return '[Max Depth Exceeded]';
 
     if (typeof data === 'string') {
         return redactString(data);
     }
 
+    if (typeof data === 'object') {
+        if (visited.has(data)) return '[Circular]';
+        visited.add(data);
+    }
+
     if (Array.isArray(data)) {
-        return data.map(item => redact(item));
+        return data.map(item => redact(item, visited, depth + 1));
     }
 
     if (typeof data === 'object') {
+        // Handle Error objects specifically
+        if (data instanceof Error) {
+            return {
+                message: redact(data.message, visited, depth + 1),
+                name: data.name,
+                stack: redact(data.stack, visited, depth + 1),
+                ...redact({ ...data }, visited, depth + 1)
+            };
+        }
+
         const redactedObj: Record<string, any> = {};
         for (const [key, value] of Object.entries(data)) {
             const lowerKey = key.toLowerCase();
@@ -60,7 +77,7 @@ export function redact(data: any): any {
                 redactedObj[key] = '[REDACTED]';
             } else {
                 // Otherwise, recursively redact the value
-                redactedObj[key] = redact(value);
+                redactedObj[key] = redact(value, visited, depth + 1);
             }
         }
         return redactedObj;

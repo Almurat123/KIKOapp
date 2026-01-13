@@ -50,23 +50,40 @@ export function scrub(text: string): string {
 /**
  * Depth-first object scrubbing
  */
-export function scrubObject(obj: any): any {
+const MAX_DEPTH = 8;
+export function scrubObject(obj: any, visited = new WeakSet(), depth = 0): any {
     if (!obj) return obj;
+    if (depth > MAX_DEPTH) return '[Max Depth Exceeded]';
 
     if (typeof obj === 'string') {
         return scrub(obj);
     }
 
+    if (typeof obj === 'object') {
+        if (visited.has(obj)) return '[Circular]';
+        visited.add(obj);
+    }
+
     if (Array.isArray(obj)) {
-        return obj.map(item => scrubObject(item));
+        return obj.map(item => scrubObject(item, visited, depth + 1));
     }
 
     if (typeof obj === 'object') {
+        // Handle Error objects specifically
+        if (obj instanceof Error) {
+            return {
+                message: scrubObject(obj.message, visited, depth + 1),
+                name: obj.name,
+                stack: scrubObject(obj.stack, visited, depth + 1),
+                ...scrubObject({ ...obj }, visited, depth + 1)
+            };
+        }
+
         const result: any = {};
         for (const [key, value] of Object.entries(obj)) {
             // Also scrub keys themselves if they look like secrets (metadata leak)
             const scrubbedKey = scrub(key);
-            result[scrubbedKey] = scrubObject(value);
+            result[scrubbedKey] = scrubObject(value, visited, depth + 1);
         }
         return result;
     }

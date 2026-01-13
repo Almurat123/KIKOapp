@@ -31,7 +31,7 @@ if (typeof window !== 'undefined') {
     console.info = noop;
     console.debug = noop;
     console.warn = noop;
-    console.error = (...args) => originalConsoleError(...args.map(redact));
+    console.error = (...args) => originalConsoleError(...args.map(a => redact(a)));
   }
 
   // Global error handlers
