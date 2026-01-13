@@ -105,10 +105,26 @@ body {
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
   min-width: 320px;
-  min-height: 100vh;
-  min-height: 100dvh;
+  /* Safari iOS 26: Use dvh with vh fallback, constrain to viewport */
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
   width: 100%;
-  /* Allow normal scrolling - don't use position:fixed which breaks keyboard */
+  /* Safari iOS 26: Prevent page stretching and overscroll bounce */
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Safari iOS 26: Ensure html also respects viewport */
+html {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 h1 {
