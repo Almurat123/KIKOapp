@@ -623,7 +623,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
           if (!mountedRef.current) return [];
 
           try {
-            const data = await tokenApi.getTrendingLive(chain, '5m', 50);
+            const data = await tokenApi.getTrendingLive(chain, '5m', 100);
 
             if (mountedRef.current && data && data.length > 0) {
               // Save to cache
@@ -700,7 +700,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         const promises = FETCH_CHAINS.map(async (chain) => {
           if (!mountedRef.current) return [];
           try {
-            const data = await tokenApi.getTrendingLive(chain, '5m', 50);
+            const data = await tokenApi.getTrendingLive(chain, '5m', 100);
             if (mountedRef.current && data && data.length > 0) {
               return data.map((token) => convertApiTokenToToken(token, 0));
             }
@@ -724,6 +724,9 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         // Silently ignore
       }
     };
+
+    // Trigger immediate poll on activation
+    pollData();
 
     const intervalId = setInterval(pollData, POLL_INTERVAL);
 

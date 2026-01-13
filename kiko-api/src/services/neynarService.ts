@@ -34,6 +34,21 @@ interface NeynarSearchResponse {
     };
 }
 
+interface NeynarUserResponse {
+    users: {
+        fid: number;
+        username: string;
+        display_name: string;
+        pfp_url: string;
+        profile: {
+            bio: {
+                text: string;
+            }
+        };
+        verifications: string[];
+    }[];
+}
+
 /**
  * Search Farcaster casts using Neynar API
  * Supports literal, semantic, and hybrid search modes
@@ -181,8 +196,51 @@ export async function isNeynarConfigured(): Promise<boolean> {
     return !!process.env.NEYNAR_API_KEY;
 }
 
+/**
+ * Fetch users by FIDs using Neynar API
+ */
+export async function getUsersNeynar(fids: number[]): Promise<any[]> {
+    const apiKey = process.env.NEYNAR_API_KEY;
+
+    if (!apiKey || fids.length === 0) {
+        return [];
+    }
+
+    try {
+        const url = new URL(`${NEYNAR_API_BASE}/farcaster/user/bulk`);
+        url.searchParams.set('fids', fids.join(','));
+
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            console.warn(`[Neynar] Users fetch failed: ${response.status}`);
+            return [];
+        }
+
+        const data = await response.json() as NeynarUserResponse;
+        return data.users.map(u => ({
+            fid: u.fid,
+            username: u.username,
+            displayName: u.display_name,
+            pfp: u.pfp_url,
+            bio: u.profile?.bio?.text,
+            verifications: u.verifications
+        }));
+    } catch (error: any) {
+        console.error('[Neynar] Users fetch error:', error.message);
+        return [];
+    }
+}
+
 export default {
     searchCastsNeynar,
     getTrendingFeed,
-    isNeynarConfigured
+    isNeynarConfigured,
+    getUsersNeynar
 };

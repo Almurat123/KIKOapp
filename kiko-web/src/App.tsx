@@ -29,6 +29,29 @@ function App() {
   const [generatingConversationId, setGeneratingConversationId] = useState<string | null>(null);
   const [activeTask, setActiveTask] = useState<any | null>(null);
 
+  // Global auto-reload if the page has been hidden for a long time (e.g. overnight)
+  useEffect(() => {
+    let lastHiddenTime = 0;
+    const RELOAD_STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        lastHiddenTime = Date.now();
+      } else if (lastHiddenTime > 0) {
+        const inactiveDuration = Date.now() - lastHiddenTime;
+        // If hidden for more than 4 hours, reload to refresh sessions/sockets
+        if (inactiveDuration >= RELOAD_STALE_MS) {
+          console.log(`[App] Page inactive for ${Math.round(inactiveDuration / 1000)}s - triggering auto-refresh...`);
+          window.location.reload();
+        }
+        lastHiddenTime = 0; // Reset
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   // Automatically detect wallet disconnection via browser events
   useEffect(() => {
     // Check for pre-filled AI query from session storage (e.g. from Token Detail page)

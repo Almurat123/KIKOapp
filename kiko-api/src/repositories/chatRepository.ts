@@ -389,28 +389,6 @@ export async function getLatestChunkIndex(messageId: string): Promise<number> {
     return chunk?.chunkIndex ?? -1;
 }
 
-
-export async function createSuggestionEvent(
-    userId: string,
-    strategy: string,
-    inputContext: any,
-    outputResult: string[]
-): Promise<void> {
-    try {
-        await prisma.suggestionEvent.create({
-            data: {
-                userId,
-                strategy,
-                inputContext: inputContext || null,
-                outputResult: outputResult
-            }
-        });
-    } catch (error) {
-        console.error('Failed to log suggestion event:', error);
-        // Do not throw, logging failure shouldn't break the feature
-    }
-}
-
 export async function createModerationLog(
     userId: string | null,
     channel: string,

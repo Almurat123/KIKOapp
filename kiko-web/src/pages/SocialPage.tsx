@@ -8,7 +8,7 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+
 import { socialApi } from '../services/api';
 import { PageContainer } from '../components/Layout/PageContainer';
 import { CastCard3D } from '../components/Social/CastCard3D';
@@ -17,6 +17,8 @@ import { HlsVideoPlayer } from '../components/Social/HlsVideoPlayer';
 import { LoadingSpinner } from '../components/Common/LoadingSpinner';
 import { useThemeContext } from '../contexts/ThemeContext';
 import { EmbedPreview } from '../components/Social/EmbedPreview';
+import { NativeLightbox } from '../components/Common/NativeLightbox';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { TrendingCast, FeedItem } from '../services/api';
 
 // Theme colors
@@ -120,19 +122,11 @@ const TrendingCastItem: React.FC<{
   onClick: (cast: FeedItem) => void;
   onAvatarClick?: (cast: FeedItem) => void;
   onImageClick?: (images: string[], index: number) => void;
-}> = React.memo(({ data, isDark, onClick, onAvatarClick, onImageClick }) => {
+  isMobile: boolean;
+}> = React.memo(({ data, isDark, onClick, onAvatarClick, onImageClick, isMobile }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const colors = getThemeColors(isDark);
-
-  useEffect(() => {
-    const checkScreenSize = () => {
-      setIsMobile(window.innerWidth < 640);
-    };
-    checkScreenSize();
-    window.addEventListener('resize', checkScreenSize);
-    return () => window.removeEventListener('resize', checkScreenSize);
-  }, []);
 
   if (!data.author || !data.stats) return null;
 
@@ -258,7 +252,7 @@ const TrendingCastItem: React.FC<{
                       color: '#0052FF',
                       letterSpacing: '0.02em',
                     }}>
-                      Post Coin
+                      {!isMobile && "Post Coin"}
                     </span>
                   </div>
                 )}
@@ -278,17 +272,45 @@ const TrendingCastItem: React.FC<{
             </div>
 
             {/* Post Content with Mentions */}
-            <p style={{
-              fontSize: '15px',
-              lineHeight: '1.5',
-              color: colors.textPrimary,
-              marginTop: '2px',
+            <div style={{
+              position: 'relative',
               marginBottom: '8px',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
             }}>
-              {formatText(data.content || '')}
-            </p>
+              <p style={{
+                fontSize: '15px',
+                lineHeight: '1.5',
+                color: colors.textPrimary,
+                marginTop: '2px',
+                marginBottom: '0',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                display: '-webkit-box',
+                WebkitLineClamp: isExpanded ? 'unset' : 5,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}>
+                {formatText(data.content || '')}
+              </p>
+              {data.content && data.content.length > 280 && (
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsExpanded(!isExpanded);
+                  }}
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    color: '#5B8DEF',
+                    cursor: 'pointer',
+                    marginTop: '4px',
+                    display: 'inline-block',
+                    padding: '2px 0',
+                  }}
+                >
+                  {isExpanded ? 'Show less' : 'Show more'}
+                </div>
+              )}
+            </div>
 
             {/* Recasts / Quote Casts in Embeds */}
             {data.embeds && data.embeds.map((embed: any, idx: number) => {
@@ -346,7 +368,8 @@ const TrendingCastItem: React.FC<{
                 display: 'grid',
                 gap: '4px',
                 gridTemplateColumns: data.images.length > 1 ? 'repeat(2, 1fr)' : '1fr',
-                maxWidth: '320px', // Reduced to ~2/3 size
+                width: '100%',
+                maxWidth: '100%',
               }}>
                 {data.images!.map((img: string, idx: number) => (
                   <div
@@ -387,9 +410,8 @@ const TrendingCastItem: React.FC<{
               </div>
             )}
 
-            {/* Links Preview - Moved below Images */}
             {data.embeds && data.embeds.length > 0 && (
-              <div style={{ marginTop: '8px', maxWidth: '380px' }}>
+              <div style={{ marginTop: '8px', width: '100%', maxWidth: '100%' }}>
                 {data.embeds.filter((e: any) => e.url && !isImageUrl(e.url) && !isVideoUrl(e.url) && !e.castId).map((e: any, i: number) => {
                   if (e.url.startsWith('zoraCoin:') || e.url.startsWith('ethereum:')) return null;
                   return (
@@ -714,43 +736,29 @@ export const SocialPage: React.FC = () => {
   }, []);
 
   // Infinite Scroll State
-  const [visibleCount, setVisibleCount] = useState(15);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const observerTarget = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  const PAGE_SIZE = 30;
 
-  // Filter full dataset first, then slice for display
-  const allFilteredItems = useMemo(() => {
-    // Clone array to avoid mutating state
+  // Derived visible items (just basic sorting on loaded items)
+  const sortedFeedItems = useMemo(() => {
     let items = [...feedItems];
-
-    // Sort
     if (sortBy === 'newest') {
-      items.sort((a, b) => {
-        const timeA = new Date(a.timestamp || 0).getTime();
-        const timeB = new Date(b.timestamp || 0).getTime();
-        return timeB - timeA;
-      });
+      items.sort((a, b) => b.timestamp! - a.timestamp!);
     } else if (sortBy === 'oldest') {
-      items.sort((a, b) => {
-        const timeA = new Date(a.timestamp || 0).getTime();
-        const timeB = new Date(b.timestamp || 0).getTime();
-        return timeA - timeB;
-      });
+      items.sort((a, b) => a.timestamp! - b.timestamp!);
     }
-    // Rank is default
     return items;
   }, [feedItems, sortBy]);
-
-  // Derived visible items
-  const sortedFeedItems = useMemo(() => {
-    return allFilteredItems.slice(0, visibleCount);
-  }, [allFilteredItems, visibleCount]);
 
   // Observer for loading more
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((prev) => Math.min(prev + 15, allFilteredItems.length));
+        if (entries[0].isIntersecting && !loading && hasMore) {
+          loadTrendingCasts(false, page + 1);
         }
       },
       { threshold: 0.1 }
@@ -765,308 +773,151 @@ export const SocialPage: React.FC = () => {
         observer.unobserve(observerTarget.current);
       }
     };
-  }, [allFilteredItems.length]); // Dependency on length so we keep observing if list grows
+  }, [loading, hasMore, page]);
 
 
   const mountedRef = useRef(true);
 
   // Load data on mount
   useEffect(() => {
-    // Reset mounted ref on each mount (important for StrictMode)
+    // Reset mounted ref on each mount
     mountedRef.current = true;
 
-    loadTrendingCasts(true);
+    // Reset pagination when filters change
+    setPage(1);
+    setHasMore(true);
+    setFeedItems([]);
+    loadTrendingCasts(true, 1);
 
     return () => {
       mountedRef.current = false;
     };
   }, [timeRange, filterByBaseAppCoin]);
 
-  const loadTrendingCasts = async (showLoading: boolean = true) => {
+  const loadTrendingCasts = async (showLoading: boolean = true, pageNum: number = 1) => {
     if (!mountedRef.current) return;
 
     try {
-      if (showLoading) {
+      if (showLoading && pageNum === 1) {
         setLoading(true);
       }
-      setError(null);
-      console.log('[SocialPage] Starting to load casts...');
+      if (pageNum === 1) setError(null);
 
-      // Direct API call - no requestManager
-      // Increase limit to 800 to show all posts with >15 likes
-      const casts = await socialApi.getTrending(800, timeRange).catch((err) => {
+      console.log(`[SocialPage] Loading casts page ${pageNum}...`);
+
+      const casts = await socialApi.getTrending(PAGE_SIZE, timeRange, pageNum).catch((err) => {
         console.warn('[SocialPage] getTrending failed:', err);
         return [];
       });
 
       console.log('[SocialPage] Fetched casts:', casts.length);
 
-      // Always update state if component is still mounted
       if (mountedRef.current) {
-        if (casts && casts.length > 0) {
-          const MIN_VALID_TIMESTAMP = 1577836800000; // Jan 1, 2020 in ms
+        // If we got fewer items than requested, we've reached the end
+        if (casts.length < PAGE_SIZE) {
+          setHasMore(false);
+        } else {
+          setHasMore(true);
+        }
+
+        if (casts.length > 0) {
+          const MIN_VALID_TIMESTAMP = 1577836800000;
           const items = casts
             .filter((cast) => {
-              // Must have 5+ likes (lowered from 15)
+              // Filters...
               if (cast.stats.likes < 5) return false;
 
-              // Parse timestamp
               let ts: number;
-              if (typeof cast.timestamp === 'number') {
-                ts = cast.timestamp;
-              } else if (typeof cast.timestamp === 'string') {
+              if (typeof cast.timestamp === 'number') ts = cast.timestamp;
+              else if (typeof cast.timestamp === 'string') {
                 const parsedDate = new Date(cast.timestamp).getTime();
                 ts = isNaN(parsedDate) ? parseInt(cast.timestamp, 10) || 0 : parsedDate;
-              } else {
-                ts = 0;
-              }
+              } else ts = 0;
 
-              // Convert seconds to milliseconds if needed
-              if (ts > 0 && ts < 1e12) {
-                ts = ts * 1000;
-              }
-
-              // Filter out invalid timestamps (before 2020 or 0)
-              if (ts < MIN_VALID_TIMESTAMP) {
-                console.log('[SocialPage] Filtering out cast with invalid timestamp:', cast.author?.username, ts);
-                return false;
-              }
+              if (ts > 0 && ts < 1e12) ts = ts * 1000;
+              if (ts < MIN_VALID_TIMESTAMP) return false;
 
               return true;
             })
-            // Filter by Base App Coin if enabled
             .filter((cast) => {
-              if (filterByBaseAppCoin) {
-                return cast.isBaseAppCoin === true;
-              }
+              if (filterByBaseAppCoin) return cast.isBaseAppCoin === true;
               return true;
             })
-            .map((cast, index) => trendingCastToFeedItem(cast, index))
-            // Secondary filter: remove posts with empty time (invalid date display)
+            .map((cast, index) => trendingCastToFeedItem(cast, (pageNum - 1) * PAGE_SIZE + index))
             .filter((item) => {
-              if (!item.time || item.time.trim() === '') {
-                console.log('[SocialPage] Filtering out item with empty time:', item.author?.name);
-                return false;
-              }
+              if (!item.time || item.time.trim() === '') return false;
               return true;
             });
-          setFeedItems(items);
+
+          if (pageNum === 1) {
+            setFeedItems(items);
+          } else {
+            setFeedItems(prev => [...prev, ...items]);
+          }
+          setPage(pageNum);
           setError(null);
-        } else {
-          setError('No trending casts available. The data may still be loading.');
+        } else if (pageNum === 1) {
+          setError('No trending casts available.');
           setFeedItems([]);
         }
+
         setLoading(false);
-        console.log('[SocialPage] State updated, loading set to false');
       }
     } catch (err: any) {
       console.error('[SocialPage] Error loading trending casts:', err);
       if (mountedRef.current) {
-        setError(err.message || 'Failed to load trending casts');
-        setFeedItems([]);
+        // Only set error on first page load
+        if (pageNum === 1) {
+          setError(err.message || 'Failed to load trending casts');
+          setFeedItems([]);
+        }
         setLoading(false);
-        console.log('[SocialPage] Error handled, loading set to false');
       }
     }
   };
 
 
-  // --- Native Lightbox with Swipe Support ---
-  const NativeLightbox: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    images: string[];
-    initialIndex: number;
-  }> = ({ isOpen, onClose, images, initialIndex }) => {
-    const [[page, direction], setPage] = useState([initialIndex, 0]);
 
-    // Keep page state in sync with external initialIndex when opening
-    useEffect(() => {
-      if (isOpen) {
-        setPage([initialIndex, 0]);
-      }
-    }, [isOpen, initialIndex]);
-
-    useEffect(() => {
-      if (isOpen) {
-        document.body.style.overflow = 'hidden';
-      } else {
-        document.body.style.overflow = '';
-      }
-      return () => { document.body.style.overflow = ''; };
-    }, [isOpen]);
-
-    const paginate = (newDirection: number) => {
-      const newPage = page + newDirection;
-      if (newPage >= 0 && newPage < images.length) {
-        setPage([newPage, newDirection]);
-      }
-    };
-
-    if (!isOpen) return null;
-
-    const variants = {
-      enter: (direction: number) => {
-        return {
-          x: direction > 0 ? 300 : -300,
-          opacity: 0
-        };
-      },
-      center: {
-        zIndex: 1,
-        x: 0,
-        opacity: 1
-      },
-      exit: (direction: number) => {
-        return {
-          zIndex: 0,
-          x: direction < 0 ? 300 : -300,
-          opacity: 0
-        };
-      }
-    };
-
-    const swipeConfidenceThreshold = 10000;
-    const swipePower = (offset: number, velocity: number) => {
-      return Math.abs(offset) * velocity;
-    };
-
-    return (
-      <AnimatePresence>
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 10000,
-            background: 'rgba(0,0,0,0.95)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'column',
-          }}
-          onClick={onClose}
-        >
-          <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <AnimatePresence initial={false} custom={direction} mode="popLayout">
-              <motion.img
-                key={page}
-                src={images[page]}
-                custom={direction}
-                variants={variants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{
-                  x: { type: "spring", stiffness: 300, damping: 30 },
-                  opacity: { duration: 0.2 }
-                }}
-                drag="x"
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={0.7}
-                onDragEnd={(_, { offset, velocity }) => {
-                  const swipe = swipePower(offset.x, velocity.x);
-
-                  if (swipe < -swipeConfidenceThreshold) {
-                    paginate(1); // Swipe Left -> Next
-                  } else if (swipe > swipeConfidenceThreshold) {
-                    paginate(-1); // Swipe Right -> Prev
-                  } else if (Math.abs(offset.y) > 150) {
-                    // Vertical swipe detection (basic)
-                    onClose();
-                  }
-                }}
-                // Add separate vertical drag listener logic if needed, but drag="x" locks axis.
-                // To handle both, we might just rely on a simple click to close or add a specific dismiss button.
-                // But user asked for swipe. Let's try to enable free drag or handle Y close differently.
-                // For now, let's stick to X swipe for gallery navigation. To close, user can tap background or use a close button.
-                // Actually, a dedicated close button is safer.
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  objectFit: 'contain',
-                  userSelect: 'none',
-                  position: 'absolute',
-                  cursor: 'grab'
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            </AnimatePresence>
-          </div>
-
-          {/* Controls Overlay */}
-          <div style={{
-            position: 'absolute',
-            bottom: '40px',
-            left: 0,
-            right: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '12px',
-            pointerEvents: 'none'
-          }}>
-            {/* Dots */}
-            {images.length > 1 && (
-              <div style={{ display: 'flex', gap: '8px', pointerEvents: 'auto' }}>
-                {images.map((_, i) => (
-                  <div
-                    key={i}
-                    onClick={(e) => { e.stopPropagation(); setPage([i, i > page ? 1 : -1]); }}
-                    style={{
-                      width: '8px', height: '8px', borderRadius: '50%',
-                      background: i === page ? '#fff' : 'rgba(255,255,255,0.3)',
-                      cursor: 'pointer', transition: 'background 0.2s'
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-
-            <button
-              onClick={(e) => { e.stopPropagation(); onClose(); }}
-              style={{
-                pointerEvents: 'auto',
-                background: 'rgba(255,255,255,0.2)',
-                backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: 'white',
-                borderRadius: '24px',
-                padding: '8px 24px',
-                fontSize: '14px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Close
-            </button>
-          </div>
-
-          {/* Left/Right Click Zones for Desktop */}
-          {images.length > 1 && (
-            <>
-              <div
-                style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '15%', zIndex: 10, cursor: 'pointer' }}
-                onClick={(e) => { e.stopPropagation(); paginate(-1); }}
-              />
-              <div
-                style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '15%', zIndex: 10, cursor: 'pointer' }}
-                onClick={(e) => { e.stopPropagation(); paginate(1); }}
-              />
-            </>
-          )}
-
-        </motion.div>
-      </AnimatePresence>
-    );
-  };
 
   if (loading && feedItems.length === 0) {
     return (
       <PageContainer fullWidth>
-        <LoadingSpinner color={colors.textSecondary} />
+        <div style={{ maxWidth: '520px', margin: '0 auto', paddingTop: '20px' }}>
+          {[...Array(5)].map((_, i) => (
+            <div key={i} style={{
+              padding: '16px',
+              borderBottom: `1px solid ${colors.border}`,
+              background: 'transparent'
+            }}>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                {/* Avatar Skeleton */}
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '50%',
+                  background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                  flexShrink: 0
+                }} />
+                <div style={{ flex: 1 }}>
+                  {/* Header Skeleton */}
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                    <div style={{ width: '120px', height: '16px', borderRadius: '4px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }} />
+                    <div style={{ width: '80px', height: '16px', borderRadius: '4px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }} />
+                  </div>
+                  {/* Content Skeleton */}
+                  <div style={{ width: '100%', height: '14px', borderRadius: '4px', marginBottom: '6px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }} />
+                  <div style={{ width: '90%', height: '14px', borderRadius: '4px', marginBottom: '6px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }} />
+                  <div style={{ width: '60%', height: '14px', borderRadius: '4px', marginBottom: '12px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }} />
+
+                  {/* Actions Skeleton */}
+                  <div style={{ display: 'flex', gap: '24px' }}>
+                    <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }} />
+                    <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }} />
+                    <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </PageContainer>
     );
   }
@@ -1105,7 +956,7 @@ export const SocialPage: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
-                    padding: '8px 12px',
+                    padding: isMobile ? '8px' : '8px 12px',
                     background: isMenuOpen ? colors.bgButtonHover : colors.bgButton,
                     borderRadius: '12px',
                     border: 'none',
@@ -1118,9 +969,9 @@ export const SocialPage: React.FC = () => {
                 >
                   <Calendar size={16} />
                   <span>
-                    {timeRange === 'trending' ? 'Trending' :
+                    {timeRange === 'trending' ? (isMobile ? 'Trend' : 'Trending') :
                       timeRange === '24h' ? '24h' :
-                        timeRange === '7d' ? '7 Days' : '30 Days'}
+                        timeRange === '7d' ? (isMobile ? '7d' : '7 Days') : (isMobile ? '30d' : '30 Days')}
                   </span>
                   <ChevronDown size={14} style={{
                     opacity: 0.5,
@@ -1238,7 +1089,7 @@ export const SocialPage: React.FC = () => {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  padding: '8px 12px',
+                  padding: isMobile ? '8px' : '8px 12px',
                   borderRadius: '12px',
                   background: filterByBaseAppCoin ? 'rgba(0, 82, 255, 0.1)' : colors.bgButton,
                   border: filterByBaseAppCoin ? '1px solid #0052FF' : '1px solid transparent',
@@ -1314,12 +1165,13 @@ export const SocialPage: React.FC = () => {
                   onClick={handleCastClick}
                   onAvatarClick={handleAvatarClick}
                   onImageClick={handleImageClick}
+                  isMobile={isMobile}
                 />
               )
             ))}
 
             {/* Loading Sentinel */}
-            {sortedFeedItems.length < allFilteredItems.length && (
+            {hasMore && (
               <div ref={observerTarget} style={{ height: '40px', width: '100%', display: 'flex', justifyContent: 'center', padding: '10px' }}>
                 <LoadingSpinner color={colors.textSecondary} />
               </div>
@@ -1334,7 +1186,7 @@ export const SocialPage: React.FC = () => {
             }}>
               <div style={{ marginBottom: '12px' }}>No trending casts found</div>
               <button
-                onClick={() => loadTrendingCasts(true)}
+                onClick={() => loadTrendingCasts(true, 1)}
                 style={{
                   padding: '8px 24px',
                   background: colors.bgButton,

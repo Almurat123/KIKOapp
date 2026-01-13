@@ -288,35 +288,6 @@ const SCHEMA_DEFINITIONS: ModelDefinition[] = [
         ]
     },
     {
-        prismaName: 'watchedWallet',
-        dbName: 'watched_wallets',
-        columns: [
-            { name: 'id', type: 'SERIAL' },
-            { name: 'user_id', type: 'TEXT' },
-            { name: 'address', type: 'TEXT' },
-            { name: 'alias', type: 'TEXT' },
-            { name: 'labels', type: 'TEXT[]' },
-            { name: 'chain', type: 'TEXT', default: "'eth'" },
-            { name: 'created_at', type: 'TIMESTAMP', default: 'NOW()' },
-            { name: 'updated_at', type: 'TIMESTAMP', default: 'NOW()' }
-        ],
-        uniques: [['user_id', 'address']]
-    },
-    {
-        prismaName: 'walletStats',
-        dbName: 'wallet_stats',
-        columns: [
-            { name: 'address', type: 'TEXT' },
-            { name: 'win_rate', type: 'DOUBLE PRECISION' },
-            { name: 'total_pnl', type: 'DOUBLE PRECISION' },
-            { name: 'total_value', type: 'DOUBLE PRECISION' },
-            { name: 'sharpe_ratio', type: 'DOUBLE PRECISION' },
-            { name: 'max_drawdown', type: 'DOUBLE PRECISION' },
-            { name: 'last_updated', type: 'TIMESTAMP', default: 'NOW()' }
-        ],
-        pk: ['address']
-    },
-    {
         prismaName: 'walletTransaction',
         dbName: 'wallet_transactions',
         columns: [
@@ -429,18 +400,6 @@ const SCHEMA_DEFINITIONS: ModelDefinition[] = [
             { name: 'publishedAt', type: 'TIMESTAMP' },
             { name: 'createdAt', type: 'TIMESTAMP', default: 'NOW()' },
             { name: 'updatedAt', type: 'TIMESTAMP', default: 'NOW()' }
-        ]
-    },
-    {
-        prismaName: 'suggestionEvent',
-        dbName: 'SuggestionEvent',
-        columns: [
-            { name: 'id', type: 'TEXT' },
-            { name: 'userId', type: 'TEXT' },
-            { name: 'strategy', type: 'TEXT', default: "'heuristic'" },
-            { name: 'inputContext', type: 'JSONB' },
-            { name: 'outputResult', type: 'JSONB' },
-            { name: 'createdAt', type: 'TIMESTAMP', default: 'NOW()' }
         ]
     },
     {

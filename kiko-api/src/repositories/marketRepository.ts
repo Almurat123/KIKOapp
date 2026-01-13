@@ -29,7 +29,6 @@ export interface TrendingTokenData {
   address: string;
   name: string;
   symbol: string;
-  network: string;
   imageUrl?: string;
   price?: number;
   priceChange5m?: number;
@@ -146,8 +145,8 @@ export async function saveTrends(tokens: TrendingTokenData[]): Promise<void> {
           update: {
             name: token.name,
             symbol: token.symbol,
-            network: token.network,
             imageUrl: token.imageUrl || null,
+
             price: token.price ? new Decimal(token.price) : null,
             priceChange24h: token.priceChange24h ? new Decimal(token.priceChange24h) : null,
             rank: token.rank,
@@ -158,8 +157,8 @@ export async function saveTrends(tokens: TrendingTokenData[]): Promise<void> {
             address: token.address,
             name: token.name,
             symbol: token.symbol,
-            network: token.network,
             imageUrl: token.imageUrl || null,
+
             price: token.price ? new Decimal(token.price) : null,
             priceChange24h: token.priceChange24h ? new Decimal(token.priceChange24h) : null,
             rank: token.rank

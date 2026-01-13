@@ -869,9 +869,7 @@ export async function getCandlestickData(
   } catch (error: any) {
     const duration = Date.now() - startTime;
     console.error(`[DexScreener] ✗ Error fetching candlestick data after ${duration}ms:`, error.message);
-    if (error.stack) {
-      console.error(`[DexScreener] Stack:`, error.stack);
-    }
+    // Security: Stack trace logging removed in production
     return [];
   }
 }

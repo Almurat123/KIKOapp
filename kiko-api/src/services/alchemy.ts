@@ -63,7 +63,7 @@ function getSplTokenSymbol(mint: string): string {
 // Get Alchemy API key
 const getAlchemyApiKey = () => {
   const key = env.apiKeys.alchemy || process.env.ALCHEMY_API_KEY || '';
-  console.log(`[Alchemy] API Key loaded: ${key ? (key.slice(0, 5) + '...') : 'MISSING'}`);
+  // Security: API key logging removed to prevent exposure
   return key;
 };
 

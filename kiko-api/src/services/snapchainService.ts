@@ -5,7 +5,32 @@
  * Primary service for fetching Farcaster data via Hub API
  */
 
+import prisma from '../db/prisma.js';
+
 const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
+
+/**
+ * Fetch with timeout wrapper
+ */
+async function fetchWithTimeout(url: string, options: any = {}, timeout = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'User-Agent': 'KiKo/1.0',
+        ...(options.headers || {})
+      },
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
 
 /**
  * High-quality user FIDs - Active Farcaster users with good content
@@ -149,61 +174,113 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
  * Fetch user data by FID
  */
 export async function getUserDataByFid(fid: number): Promise<HubUserData> {
-  try {
-    const url = `${HUB_URL}/v1/userDataByFid?fid=${fid}`;
-    const response = await fetch(url);
-    if (!response.ok) return { fid };
+  const MAX_RETRIES = 3;
+  let lastError: any;
 
-    const data = await response.json();
-    const messages = (data as any).messages || [];
-
-    const userData: HubUserData = { fid };
-
-    // Also fetch verifications (ETH addresses)
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const verificationsUrl = `${HUB_URL}/v1/verificationsByFid?fid=${fid}`;
-      const verResponse = await fetch(verificationsUrl);
-      if (verResponse.ok) {
-        const verData = await verResponse.json();
-        if ((verData as any).messages) {
-          // Extract ETH addresses from verification adds
-          userData.verifications = (verData as any).messages
-            .filter((m: any) => m.data.type === 'MESSAGE_TYPE_VERIFICATION_ADD_ETH_ADDRESS')
-            .map((m: any) => m.data.verificationAddAddressBody.address);
-        }
-      }
-    } catch (e) {
-      // Ignore verification fetch errors
-    }
+      const url = `${HUB_URL}/v1/userDataByFid?fid=${fid}`;
+      const response = await fetchWithTimeout(url, {}, 5000);
 
-    messages.forEach((msg: any) => {
-      if (msg.data.type === 'MESSAGE_TYPE_USER_DATA_ADD') {
-        const body = msg.data.userDataBody;
-        switch (body.type) {
-          case 'USER_DATA_TYPE_DISPLAY':
-            userData.displayName = body.value;
-            break;
-          case 'USER_DATA_TYPE_BIO':
-            userData.bio = body.value;
-            break;
-          case 'USER_DATA_TYPE_PFP':
-            userData.pfp = body.value;
-            break;
-          case 'USER_DATA_TYPE_USERNAME':
-            userData.username = body.value;
-            break;
+      if (response.status === 429) {
+        // Rate limited, wait and retry
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        continue;
+      }
+
+      if (!response.ok) return { fid };
+
+      const data = await response.json();
+      const messages = (data as any).messages || [];
+
+      const userData: HubUserData = { fid };
+
+      // Also fetch verifications (ETH addresses)
+      try {
+        const verificationsUrl = `${HUB_URL}/v1/verificationsByFid?fid=${fid}`;
+        const verResponse = await fetchWithTimeout(verificationsUrl, {}, 3000);
+        if (verResponse.ok) {
+          const verData = await verResponse.json();
+          if ((verData as any).messages) {
+            userData.verifications = (verData as any).messages
+              .filter((m: any) => m.data.type === 'MESSAGE_TYPE_VERIFICATION_ADD_ETH_ADDRESS')
+              .map((m: any) => m.data.verificationAddAddressBody.address);
+          }
         }
+      } catch (e) { }
+
+      messages.forEach((msg: any) => {
+        if (msg.data.type === 'MESSAGE_TYPE_USER_DATA_ADD') {
+          const body = msg.data.userDataBody;
+          switch (body.type) {
+            case 'USER_DATA_TYPE_DISPLAY':
+              userData.displayName = body.value;
+              break;
+            case 'USER_DATA_TYPE_BIO':
+              userData.bio = body.value;
+              break;
+            case 'USER_DATA_TYPE_PFP':
+              userData.pfp = body.value;
+              break;
+            case 'USER_DATA_TYPE_USERNAME':
+              userData.username = body.value;
+              break;
+          }
+        }
+      });
+
+      return userData;
+
+    } catch (error: any) {
+      lastError = error;
+      if (error?.code === 'ECONNRESET' || error?.message?.includes('fetch failed') || error?.name === 'AbortError') {
+        // Network error or timeout, retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      // Other errors, break
+      break;
+    }
+  }
+
+  // If we failed after retries, try DB fallback
+  console.warn(`[Snapchain] Hub failed for fid ${fid}, trying DB fallback...`);
+
+  try {
+    // Query DB for any existing valid author data for this FID
+    const cachedEntry = await prisma.trendingCast.findFirst({
+      where: {
+        fid,
+        authorUsername: { not: { startsWith: 'fid' } },
+        authorDisplayName: { not: { startsWith: 'User ' } },
+      },
+      select: {
+        authorUsername: true,
+        authorDisplayName: true,
+        authorAvatar: true,
+        authorBio: true,
+        authorTwitter: true,
       }
     });
 
-    return userData;
-  } catch (error: any) {
-    if (error?.code === 'ECONNRESET' || error?.message?.includes('fetch failed')) {
-      return { fid };
+    if (cachedEntry && cachedEntry.authorUsername) {
+      console.log(`[Snapchain] Using DB cached data for fid ${fid}: @${cachedEntry.authorUsername}`);
+      return {
+        fid,
+        username: cachedEntry.authorUsername || undefined,
+        displayName: cachedEntry.authorDisplayName || undefined,
+        pfp: cachedEntry.authorAvatar || undefined,
+        bio: cachedEntry.authorBio || undefined,
+        twitter: cachedEntry.authorTwitter || undefined,
+      };
     }
-    console.warn(`[Snapchain] Failed to fetch user data for fid ${fid}: ${error?.message || 'Unknown error'}`);
-    return { fid };
+  } catch (dbError) {
+    // DB query failed, fall through to mock
   }
+
+  // No cached data, return minimal mock
+  console.warn(`[Snapchain] No cached data for fid ${fid}, returning mock`);
+  return { fid };
 }
 
 /**

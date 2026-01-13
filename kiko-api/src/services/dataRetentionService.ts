@@ -8,9 +8,8 @@ interface DefaultPolicy {
 
 const DEFAULT_POLICIES: DefaultPolicy[] = [
     { tableName: 'ChatMessage', retentionDays: 30, description: 'AI chat history' },
-    { tableName: 'MessageChunk', retentionDays: 30, description: 'Streaming chunks for messages' },
+    { tableName: 'MessageChunk', retentionDays: 3, description: 'Streaming chunks for messages' },
     { tableName: 'ModerationLog', retentionDays: 60, description: 'Input/Output moderation logs' },
-    { tableName: 'SuggestionEvent', retentionDays: 30, description: 'User suggestion tracking' },
     { tableName: 'TrendingCast', retentionDays: 7, description: 'Farcaster trending casts' },
     { tableName: 'WalletTransaction', retentionDays: 90, description: 'Tracked wallet transaction history' },
     // Cache handled internally, JudgeDecision permanent
@@ -84,12 +83,6 @@ export async function runCleanup() {
                         where: { createdAt: { lt: cutoffDate } }
                     });
                     deletedCount = modResult.count;
-                    break;
-                case 'SuggestionEvent':
-                    const suggResult = await prisma.suggestionEvent.deleteMany({
-                        where: { createdAt: { lt: cutoffDate } }
-                    });
-                    deletedCount = suggResult.count;
                     break;
                 case 'TrendingCast':
                     // TrendingCast uses 'updatedAt' for recency usually, or we can use timestamp

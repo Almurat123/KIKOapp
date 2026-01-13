@@ -314,7 +314,7 @@ export const tokenApi = {
     async getTrendingLive(
         chain: string = 'eth',
         duration: TrendingDuration = '24h',
-        limit: number = 50
+        limit: number = 100
     ): Promise<TokenSearchResult[]> {
         return fetchApi<TokenSearchResult[]>(
             `/api/tokens/trending/live?chain=${chain}&duration=${duration}&limit=${limit}`
@@ -525,9 +525,10 @@ export const socialApi = {
      * Data is refreshed every 10 minutes from Snapchain Hub
      * @param limit - Maximum number of casts to return
      */
-    async getTrending(limit: number = 50, timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending'): Promise<TrendingCast[]> {
+    async getTrending(limit: number = 50, timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending', page: number = 1): Promise<TrendingCast[]> {
         const params = new URLSearchParams();
         if (limit) params.append('limit', limit.toString());
+        if (page) params.append('page', page.toString());
         params.append('timeRange', timeRange);
 
         // Use local endpoint which serves cached/DB data (Save-then-Display pattern)

@@ -8,6 +8,34 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============= Master Tables =============
+
+model Chain {
+  id          Int      @id
+  name        String   @unique
+  symbol      String
+  rpcUrl      String?
+  explorerUrl String?
+  logoUrl     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Token {
+  id        String   @id @default(cuid())
+  chainId   Int
+  address   String
+  symbol    String
+  name      String?
+  decimals  Int?
+  logoUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([chainId, address])
+  @@index([symbol])
+}
+
 model User {
   id                  String                 @id @default(cuid())
   privyDid            String                 @unique
@@ -131,33 +159,6 @@ model PolymarketCopyConfig {
   @@index([userId])
 }
 
-model WatchedWallet {
-  id        Int      @id @default(autoincrement())
-  userId    String   @map("user_id")
-  address   String
-  alias     String?
-  labels    String[] @default([])
-  chain     String   @default("eth")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@unique([userId, address])
-  @@index([userId])
-  @@index([address])
-  @@map("watched_wallets")
-}
-
-model WalletStats {
-  address     String   @id
-  winRate     Float    @map("win_rate")
-  totalPnl    Float    @map("total_pnl")
-  totalValue  Float    @map("total_value")
-  sharpeRatio Float    @map("sharpe_ratio")
-  maxDrawdown Float    @map("max_drawdown")
-  lastUpdated DateTime @default(now()) @map("last_updated")
-
-  @@map("wallet_stats")
-}
 
 model WalletTransaction {
   id             Int      @id @default(autoincrement())
@@ -231,7 +232,6 @@ model PolymarketAction {
   type        String
   status      String
   marketTitle String
-  marketSlug  String
   outcome     String
   assetId     String?
   orderId     String?
@@ -379,18 +379,6 @@ model NewsArticle {
   @@index([createdAt])
 }
 
-model SuggestionEvent {
-  id           String   @id @default(cuid())
-  userId       String
-  strategy     String   @default("heuristic")
-  inputContext Json?
-  outputResult Json
-  createdAt    DateTime @default(now())
-
-  @@index([userId])
-  @@index([createdAt])
-}
-
 model ModerationLog {
   id        String   @id @default(cuid())
   userId    String?
@@ -532,8 +520,8 @@ model TrendingToken {
   address        String
   name           String
   symbol         String
-  network        String
   imageUrl       String?  @map("image_url")
+
   price          Decimal?
   priceChange5m  Decimal? @map("price_change_5m")
   priceChange1h  Decimal? @map("price_change_1h")

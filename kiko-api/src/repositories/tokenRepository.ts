@@ -35,8 +35,8 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
               address: token.address,
               name: token.name,
               symbol: token.symbol,
-              network: token.network,
               imageUrl: token.imageUrl || null,
+
               price: token.price ?? null,
               priceChange5m: token.priceChange5m ?? null,
               priceChange1h: token.priceChange1h ?? null,
@@ -85,7 +85,7 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
       address: row.address,
       name: row.name,
       symbol: row.symbol,
-      network: row.network,
+      network: chain, // Derive from chain parameter since not stored in DB
       imageUrl: row.imageUrl || undefined,
       price: row.price ? Number(row.price) : undefined,
       priceChange5m: row.priceChange5m ? Number(row.priceChange5m) : undefined,

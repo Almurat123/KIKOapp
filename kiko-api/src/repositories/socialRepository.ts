@@ -121,6 +121,35 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             authorTwitter: cast.author.twitter || null,
                         }
                     });
+
+                    // AUTO-FIX: If this cast has valid author data (not mock), propagate to all other entries for this FID
+                    const isValidAuthorData = cast.author.username &&
+                        !cast.author.username.startsWith('fid') &&
+                        cast.author.displayName &&
+                        !cast.author.displayName.startsWith('User ') &&
+                        cast.author.avatar &&
+                        !cast.author.avatar.includes('placehold.co');
+
+                    if (isValidAuthorData) {
+                        await tx.trendingCast.updateMany({
+                            where: {
+                                fid: cast.fid,
+                                hash: { not: cast.hash }, // Don't update the one we just upserted
+                                OR: [
+                                    { authorUsername: { startsWith: 'fid' } },
+                                    { authorDisplayName: { startsWith: 'User ' } },
+                                    { authorAvatar: { startsWith: 'https://placehold.co' } },
+                                ]
+                            },
+                            data: {
+                                authorUsername: cast.author.username,
+                                authorDisplayName: cast.author.displayName,
+                                authorAvatar: cast.author.avatar,
+                                authorBio: cast.author.bio || null,
+                                authorTwitter: cast.author.twitter || null,
+                            }
+                        });
+                    }
                 }
 
                 // Prune old low-quality data
@@ -157,31 +186,43 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
 
 export async function getTrendingCasts(
     limit: number = 50,
-    timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending'
+    timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending',
+    offset: number = 0
 ): Promise<TrendingCast[]> {
     try {
         const cacheKey = 'social:trending:casts:24h';
+        const FULL_LIST_LIMIT = 500;
+
+        // 1. Try Cache
         if (timeRange === 'trending') {
-            const cached = await get(cacheKey);
-            if (cached) {
-                const casts = JSON.parse(cached) as TrendingCast[];
-                return casts.slice(0, limit);
-            }
+            try {
+                const cached = await get(cacheKey);
+                if (cached) {
+                    const casts = JSON.parse(cached) as TrendingCast[];
+                    return casts.slice(offset, offset + limit);
+                }
+            } catch (ignore) { }
         }
 
+        // 2. Cache Miss: Fetch FULL list (up to 500) from DB to repopulate cache
+        // We always query for 'trending' (24h) logic if timeRange is trending, to fill cache correctly
         const Jan1_2021 = new Date(1609459200000);
         let where: any = { timestamp: { gt: Jan1_2021 } };
 
+        // Determine params for DB query
+        let queryLimit = limit;
         if (timeRange === 'trending') {
+            queryLimit = FULL_LIST_LIMIT; // Fetch full list for cache
             const cutoff = new Date(Date.now() - (24 * 60 * 60 * 1000));
             where = {
                 OR: [
                     { timestamp: { gte: cutoff } },
                     { likes: { gt: 5 } }
                 ],
-                timestamp: { gt: Jan1_2021 }
+                timestamp: { gt: Jan1_2021, lte: new Date() } // Ensure no future dates
             };
         } else {
+            // Use specific time range logic (no caching for non-trending usually, or different keys)
             let days = 1;
             if (timeRange === '7d') days = 7;
             if (timeRange === '30d') days = 30;
@@ -192,7 +233,8 @@ export async function getTrendingCasts(
         const rows = await prisma.trendingCast.findMany({
             where,
             orderBy: [{ likes: 'desc' }, { heatScore: 'desc' }, { updatedAt: 'desc' }],
-            take: limit
+            take: queryLimit,
+            // No offset/skip here! We fetch from 0 to FULL_LIMIT or limit
         });
 
         const casts: TrendingCast[] = rows.map((row, index) => ({
@@ -225,11 +267,14 @@ export async function getTrendingCasts(
             coinValue: row.coinValue ? String(row.coinValue) : undefined,
         }));
 
+        // 3. Update Cache (Only for trending)
         if (timeRange === 'trending' && casts.length > 0) {
             await set(cacheKey, JSON.stringify(casts), 180);
         }
 
-        return casts;
+        // 4. Return Requested Slice
+        return casts.slice(offset, offset + limit);
+
     } catch (error) {
         console.error('[SocialRepo] Error getting trending casts:', error);
         return [];

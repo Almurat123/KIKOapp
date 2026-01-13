@@ -22,12 +22,14 @@ export async function socialRoutes(fastify: FastifyInstance) {
   // To refresh data, use POST /api/social/refresh
   fastify.get('/trending', async (request, reply) => {
     try {
-      const query = request.query as { limit?: string, timeRange?: 'trending' | '24h' | '7d' | '30d' };
+      const query = request.query as { limit?: string, page?: string, timeRange?: 'trending' | '24h' | '7d' | '30d' };
       const limit = query.limit ? parseInt(query.limit, 10) : 50;
+      const page = query.page ? parseInt(query.page, 10) : 1;
+      const offset = (page - 1) * limit;
       const timeRange = query.timeRange || 'trending';
 
       // Always get data from local storage (database/cache)
-      const trendingCasts = await getTrendingCasts(limit, timeRange);
+      const trendingCasts = await getTrendingCasts(limit, timeRange, offset);
 
       return reply.send({
         success: true,

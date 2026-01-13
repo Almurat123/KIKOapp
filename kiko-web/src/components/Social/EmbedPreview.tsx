@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { ExternalLink, Video } from 'lucide-react';
 
 interface EmbedPreviewProps {
@@ -19,8 +19,27 @@ interface OGPData {
 export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
     const [data, setData] = useState<OGPData | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isVisible, setIsVisible] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Lazy load observer
+    useEffect(() => {
+        const observer = new IntersectionObserver(([entry]) => {
+            if (entry.isIntersecting) {
+                setIsVisible(true);
+                observer.disconnect();
+            }
+        }, { rootMargin: '200px' }); // Load when item is 200px from viewport
+
+        if (containerRef.current) {
+            observer.observe(containerRef.current);
+        }
+
+        return () => observer.disconnect();
+    }, []);
 
     useEffect(() => {
+        if (!isVisible) return; // Don't fetch until visible
         const fetchOGP = async () => {
             try {
                 // Check if it's a zoraCoin or obscure protocol, skip
@@ -46,7 +65,11 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
         };
 
         if (url) fetchOGP();
-    }, [url]);
+    }, [url, isVisible]);
+
+    if (!isVisible) {
+        return <div ref={containerRef} style={{ height: '80px', marginTop: '12px' }} />;
+    }
 
     if (!data && !loading) return null;
 

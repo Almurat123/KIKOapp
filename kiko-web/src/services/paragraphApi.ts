@@ -9,7 +9,7 @@ import { ParagraphAPI } from '@paragraph_xyz/sdk';
 
 // Initialize the Paragraph API client
 const apiKey = import.meta.env.VITE_PARAGRAPH_API_KEY;
-console.log('[ParagraphAPI] Initializing with API key present:', !!apiKey, apiKey ? `(Length: ${apiKey.length})` : '(Missing)');
+// Security: API key logging removed to prevent exposure
 const paragraphClient = new ParagraphAPI(apiKey);
 
 // Publication slug for KiKo content (the @handle from paragraph.xyz/@your-slug)

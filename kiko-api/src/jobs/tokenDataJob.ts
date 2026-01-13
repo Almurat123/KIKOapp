@@ -32,7 +32,7 @@ const REFRESH_INTERVAL_MINUTES = 5;
 // Delay between chains in milliseconds (spread load)
 const CHAIN_DELAY_MS = 5000; // 5 seconds between each chain (reduced from 30s)
 // Number of tokens to fetch per chain
-const TOKENS_PER_CHAIN = 50;
+const TOKENS_PER_CHAIN = 100;
 
 /**
  * Refresh trending tokens for a single chain

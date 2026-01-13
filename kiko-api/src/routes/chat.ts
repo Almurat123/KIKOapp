@@ -9,6 +9,7 @@ import * as chatRepo from '../repositories/chatRepository.js';
 import { trackChatMessage } from '../services/userActivityService.js';
 import prisma from '../db/prisma.js';
 import { redact } from '../utils/sanitizer.js';
+import { sanitizedErrorResponse } from '../utils/securityUtils.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -57,7 +58,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error creating session:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'createSession'));
             }
         }
     );
@@ -84,7 +85,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error listing sessions:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'listSessions'));
             }
         }
     );
@@ -119,7 +120,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error getting session:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'getSession'));
             }
         }
     );
@@ -150,7 +151,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error updating session:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'updateSession'));
             }
         }
     );
@@ -181,7 +182,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error deleting session:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'deleteSession'));
             }
         }
     );
@@ -287,7 +288,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error sending message:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'sendMessage'));
             }
         }
     );
@@ -321,7 +322,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error getting messages:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'getMessages'));
             }
         }
     );
@@ -363,7 +364,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error getting task:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'getTask'));
             }
         }
     );
@@ -409,7 +410,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error stopping task:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'stopTask'));
             }
         }
     );
@@ -452,7 +453,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error getting chunks:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'getChunks'));
             }
         }
     );
@@ -484,7 +485,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
             } catch (error: any) {
                 fastify.log.error('Error generating suggestions:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'getSuggestions'));
             }
         }
     );
@@ -516,7 +517,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 return reply.send({ success: true });
             } catch (error: any) {
                 fastify.log.error('Error logging moderation:', error);
-                return reply.code(500).send({ error: error.message });
+                return reply.code(500).send(sanitizedErrorResponse(error, 'logModeration'));
             }
         }
     );

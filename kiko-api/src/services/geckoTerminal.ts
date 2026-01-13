@@ -658,11 +658,8 @@ export async function getTrendingTokens(
     console.log(`[GeckoTerminal] Returning ${result.length} tokens (requested: ${limit})`);
     return result;
   } catch (error) {
-    console.error('[GeckoTerminal] Error fetching trending tokens:', error);
-    if (error instanceof Error) {
-      console.error('[GeckoTerminal] Error details:', error.message);
-      console.error('[GeckoTerminal] Stack:', error.stack);
-    }
+    console.error('[GeckoTerminal] Error fetching trending tokens:', error instanceof Error ? error.message : error);
+    // Security: Stack trace logging removed in production
     return [];
   }
 }
