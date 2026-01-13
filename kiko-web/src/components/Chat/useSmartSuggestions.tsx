@@ -1,47 +1,36 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { SuggestionItem } from './ChatInputSuggestions';
-// Use the engine (tsx for icon support)
-import { SuggestionEngine, type SuggestionContext } from './SuggestionEngine.tsx';
-import { loadFromCache } from '../../services/trendingService';
+import type { SuggestionGroup, SuggestionItem } from './ChatInputSuggestions';
+import { SuggestionEngine } from './SuggestionEngine';
+import { ParamMemory } from './CommandRegistry';
 
 const HISTORY_KEY = 'kiko-recent-items';
 
 export const useSmartSuggestions = (
-    onSend: (text: string) => void,
+    _onSend: (text: string) => void,
     onSetInput: (text: string) => void
 ) => {
-    const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
+    // UI State
+    const [suggestions, setSuggestions] = useState<SuggestionGroup[] | SuggestionItem[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
+
+    // Engine State
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-    // 1. Context Gathering (History & Trending)
-    const getContext = useCallback((): SuggestionContext => {
-        // Load history from localStorage
-        let history: string[] = [];
-        try {
-            history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-        } catch (e) {
-            console.warn('Failed to parse history from localStorage', e);
-        }
+    const handleCommit = useCallback((committedText: string) => {
+        // 1. Save parameters from the committed command
+        ParamMemory.extractAndSave(committedText);
 
-        // Load trending from cache (aggregator)
-        const chains = ['eth', 'solana', 'base', 'bsc'];
-        const trending: { symbol: string; address?: string }[] = [];
-        chains.forEach(chain => {
-            const cached = loadFromCache(chain);
-            if (cached) {
-                cached.slice(0, 3).forEach(t => {
-                    if (!trending.find(ex => ex.symbol === t.symbol)) {
-                        trending.push({ symbol: t.symbol, address: t.address });
-                    }
-                });
-            }
-        });
+        // 2. Save to history
+        addToHistory(committedText);
 
-        return { history, trending: trending.slice(0, 10) };
-    }, []);
+        // 3. Update input
+        onSetInput(committedText);
 
-    // 2. Intent Detection with Debounce (100ms)
+        // 4. Hide suggestions
+        setShowSuggestions(false);
+    }, [onSetInput]);
+
+    // Intent Detection
     const detectIntent = useCallback((text: string) => {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
@@ -52,25 +41,21 @@ export const useSmartSuggestions = (
                 return;
             }
 
-            const context = getContext();
-            const results = SuggestionEngine.getSuggestions(
-                text,
-                (t) => {
-                    addToHistory(t);
-                    onSend(t);
-                },
-                onSetInput,
-                context
-            );
+            const results = SuggestionEngine.getSuggestions(text, handleCommit);
 
             setSuggestions(results);
             setShowSuggestions(results.length > 0);
-        }, 100);
-    }, [onSend, onSetInput, getContext]);
+        }, 50); // Fast response (50ms)
+    }, [handleCommit]);
 
-    // 3. History Management
+    const openSuggestions = useCallback(() => {
+        const results = SuggestionEngine.getSuggestions('', handleCommit, { mode: 'focus' });
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
+    }, [handleCommit]);
+
+    // History Management
     const addToHistory = (text: string) => {
-        // Simple address/symbol extractor for history
         const addrMatch = text.match(/0x[a-fA-F0-9]{40}/i) || text.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
         if (addrMatch) {
             try {
@@ -83,7 +68,7 @@ export const useSmartSuggestions = (
         }
     };
 
-    // Cleanup timer on unmount
+    // Cleanup
     useEffect(() => {
         return () => {
             if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -95,6 +80,7 @@ export const useSmartSuggestions = (
         showSuggestions,
         setSuggestions,
         setShowSuggestions,
-        detectIntent
+        detectIntent,
+        openSuggestions
     };
 };

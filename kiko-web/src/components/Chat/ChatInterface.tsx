@@ -8,9 +8,8 @@ import { toast, Toaster } from 'sonner';
 import { MessageBubble } from './MessageBubble';
 import { WelcomeScreen } from './WelcomeScreen';
 import { CustomAISettingsModal } from './CustomAISettingsModal';
-import { ChatInputSuggestions, type SuggestionItem } from './ChatInputSuggestions';
-import { SuggestionEngine, type SuggestionContext } from './SuggestionEngine.tsx';
-import { loadFromCache } from '../../services/trendingService';
+import { ChatInputSuggestions } from './ChatInputSuggestions';
+import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { useSidebar } from '../Layout/Layout';
 import { useThemeContext } from '../../contexts/ThemeContext';
 // Use global ChainContext for app-wide chain state
@@ -191,9 +190,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const [selectedModel, setSelectedModel] = useState(getInitialModel);
 
-    // Suggestions State
-    const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
+    // Suggestions State (Managed by Hook)
+    const {
+        suggestions,
+        showSuggestions,
+        setShowSuggestions,
+        setSuggestions,
+        detectIntent,
+        openSuggestions
+    } = useSmartSuggestions(
+        () => { }, // onSend is unused in hook now
+        setInput
+    );
 
     // Delegation state for instant trades (delegation is handled by DelegatedActionRequest component)
     const [showDelegationModal, setShowDelegationModal] = useState(false);
@@ -1252,6 +1260,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const handleInputFocus = () => {
         scrollToBottom();
+        if (!input || input.trim().length === 0) {
+            openSuggestions();
+        } else {
+            detectIntent(input);
+        }
     };
 
     // silentMode: if true, doesn't trigger visual stopping state (for conversation switches)
@@ -1437,63 +1450,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     };
 
-    // 1. Context Gathering (History & Trending)
-    const getContext = useCallback((): SuggestionContext => {
-        let history: string[] = [];
-        try {
-            history = JSON.parse(localStorage.getItem('kiko-recent-items') || '[]');
-        } catch (e) {
-            logger.warn('Failed to parse history from localStorage', e);
-        }
+    // Context Gathering (Handled by Hook now)
 
-        const chains = ['eth', 'solana', 'base', 'bsc'];
-        const trending: { symbol: string; address?: string }[] = [];
-        chains.forEach(chain => {
-            const cached = loadFromCache(chain);
-            if (cached) {
-                cached.slice(0, 3).forEach(t => {
-                    if (!trending.find(ex => ex.symbol === t.symbol)) {
-                        trending.push({ symbol: t.symbol, address: t.address });
-                    }
-                });
-            }
-        });
-
-        return { history, trending: trending.slice(0, 10) };
-    }, []);
-
-    // Intent Detection Logic
-    const detectIntent = useCallback((text: string) => {
-        if (!text || text.trim().length === 0) {
-            setSuggestions([]);
-            setShowSuggestions(false);
-            return;
-        }
-
-        const context = getContext();
-        const results = SuggestionEngine.getSuggestions(
-            text,
-            (t) => {
-                // Add to history
-                try {
-                    const history = JSON.parse(localStorage.getItem('kiko-recent-items') || '[]');
-                    const addrMatch = t.match(/0x[a-fA-F0-9]{40}/i) || t.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
-                    if (addrMatch) {
-                        const newHistory = [addrMatch[0], ...history.filter((a: string) => a !== addrMatch[0])].slice(0, 10);
-                        localStorage.setItem('kiko-recent-items', JSON.stringify(newHistory));
-                    }
-                } catch (e) {
-                    logger.warn('Failed to save to history', e);
-                }
-                handleSend(t);
-            },
-            setInput,
-            context
-        );
-
-        setSuggestions(results);
-        setShowSuggestions(results.length > 0);
-    }, [handleSend, getContext]);
+    // Intent Detection (Handled by Hook)
     // Process pending swap message from LaunchpadCard
     useEffect(() => {
         if (pendingSwapMessage && !isStreaming && !isThinking) {
@@ -1810,10 +1769,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 item.action();
                                 setShowSuggestions(false);
                                 setSuggestions([]);
-                                // If action updated input but didn't send (e.g. pre-fill), focus textarea
-                                if (!item.action.toString().includes('handleSend')) {
-                                    textareaRef.current?.focus();
-                                }
+                                textareaRef.current?.focus();
                             }}
                         />
                         <div className={styles.textareaContainer}>

@@ -85,6 +85,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
     suggestions: smartSuggestions,
     showSuggestions: showSmartSuggestions,
     detectIntent,
+    openSuggestions,
     setShowSuggestions: setShowSmartSuggestions
   } = useSmartSuggestions(
     (text) => {
@@ -160,7 +161,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
               <textarea
                 value={inputValue}
                 onChange={handleInput}
-                onFocus={() => setIsFocused(true)}
+                onFocus={() => {
+                  setIsFocused(true);
+                  if (!inputValue || inputValue.trim().length === 0) openSuggestions();
+                }}
                 onBlur={() => setIsFocused(false)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask anything..."

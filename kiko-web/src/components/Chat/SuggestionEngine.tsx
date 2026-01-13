@@ -1,544 +1,785 @@
-import type { SuggestionItem } from './ChatInputSuggestions';
-import {
-    Layers, Shield, BarChart3, History, ArrowRightLeft,
-    Search, Globe, Wallet, Flame, Star, MessageCircle,
-    Activity, TrendingUp, Info
-} from 'lucide-react'; // Icons
+import type { SuggestionGroup, SuggestionItem } from './ChatInputSuggestions';
+import { COMMAND_REGISTRY, ParamMemory, type CommandDef } from './CommandRegistry';
 
-export type Intent =
-    | 'SWAP' | 'ANALYZE' | 'PNL' | 'COPY'
-    | 'SECURITY' | 'MARKET' | 'EARLY_BUYER'
-    | 'SOCIAL' | 'POLYMARKET' | 'WALLET' | 'SEARCH'
-    | 'UNKNOWN';
-
-export const IntentValues = {
-    SWAP: 'SWAP' as Intent,
-    ANALYZE: 'ANALYZE' as Intent,
-    PNL: 'PNL' as Intent,
-    COPY: 'COPY' as Intent,
-    SECURITY: 'SECURITY' as Intent,
-    MARKET: 'MARKET' as Intent,
-    EARLY_BUYER: 'EARLY_BUYER' as Intent,
-    SOCIAL: 'SOCIAL' as Intent,
-    POLYMARKET: 'POLYMARKET' as Intent,
-    WALLET: 'WALLET' as Intent,
-    SEARCH: 'SEARCH' as Intent,
-    UNKNOWN: 'UNKNOWN' as Intent,
-};
-
-export interface SuggestionContext {
-    history: string[]; // Recent addresses/symbols
-    trending: { symbol: string; address?: string }[]; // Market trending
+interface MatchResult {
+    command: CommandDef;
+    score: number;
+    type: 'nlu' | 'exact' | 'prefix' | 'alias' | 'fuzzy' | 'intent' | 'context' | 'popular';
+    indices?: number[];
+    extractedParams?: Record<string, string>;
+    displayLabel?: string; // What user sees (natural language prediction)
+    commitText?: string; // What gets inserted into the input
+    subLabel?: string; // Secondary line in UI (e.g., executable command)
+    dedupeKey?: string;
 }
 
-export interface SlotState {
-    intent: Intent;
-    amount?: string;
-    tokenIn?: string;
-    tokenOut?: string;
-    address?: string;
-    query?: string;
-    isComplete: boolean;
+export interface GetSuggestionsOptions {
+    mode?: 'typing' | 'focus';
+}
+
+const RECENT_ITEMS_KEY = 'kiko-recent-items';
+
+// Intent patterns for natural language understanding
+const INTENT_PATTERNS: Record<string, RegExp[]> = {
+    'swap': [
+        /\b(buy|sell|trade|exchange|swap|convert)\b/i,
+        /\bwant to (buy|sell|trade|get)\b/i,
+        /\b(i want|need|looking for)\b.*\b(token|coin|crypto)\b/i,
+        /(买|卖|交易|兑换|换|swap|交换)/i
+    ],
+    'token info': [
+        /\b(what is|tell me about|info|details|check)\b/i,
+        /\b(token|coin|contract)\b.*\b(info|details|about)\b/i,
+        /(代币|token|合约).*(信息|详情|是什么|介绍|查一下)/i
+    ],
+    'chart': [
+        /\b(chart|price|graph|show)\b/i,
+        /\b(how much|price of)\b/i,
+        /(价格|走势|k线|图表|曲线|chart)/i
+    ],
+    'analyze pnl': [
+        /\b(pnl|profit|loss|gains|earnings|performance)\b/i,
+        /\b(my|check my|show my)\b.*\b(profit|loss|pnl)\b/i,
+        /(盈亏|收益|亏损|pnl|赚了|亏了)/i
+    ],
+    'wallet info': [
+        /\b(wallet|balance|portfolio|holdings)\b/i,
+        /\b(my|check my|show my)\b.*\b(wallet|balance)\b/i,
+        /(钱包|余额|资产|持仓|portfolio)/i
+    ],
+    'get trending tokens': [
+        /\b(trending|hot|popular|top)\b.*\b(token|coin)\b/i,
+        /\b(what'?s|show me)\b.*\b(hot|trending|popular)\b/i,
+        /(热门|趋势|热度|trending|top).*(代币|token|币)/i
+    ],
+    'token risk': [
+        /\b(safe|risk|scam|rug|check|verify)\b/i,
+        /\bis this (safe|legit|real)\b/i,
+        /(风险|安全|骗局|rug|貔貅|查风险|查安全|靠谱吗)/i
+    ]
+};
+
+// Usage frequency tracker
+class UsageTracker {
+    private static STORAGE_KEY = 'kiko-command-usage';
+
+    static track(commandName: string) {
+        try {
+            const usage = this.getAll();
+            usage[commandName] = (usage[commandName] || 0) + 1;
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(usage));
+        } catch (e) {
+            console.warn('Failed to track usage:', e);
+        }
+    }
+
+    static getAll(): Record<string, number> {
+        try {
+            const data = localStorage.getItem(this.STORAGE_KEY);
+            return data ? JSON.parse(data) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    static getScore(commandName: string): number {
+        const usage = this.getAll();
+        return usage[commandName] || 0;
+    }
 }
 
 export class SuggestionEngine {
-    private static EVM_ADDR_REGEX = /0x[a-fA-F0-9]{40}/;
-    private static SOL_ADDR_REGEX = /[1-9A-HJ-NP-Za-km-z]{32,44}/;
-    private static AMOUNT_REGEX = /\b(\d+(?:\.\d+)?)\b/;
+    private static hasCJK(text: string): boolean {
+        return /[\u4e00-\u9fff]/.test(text);
+    }
 
-    // Basic Intent Matchers 
-    private static INTENT_PATTERNS = {
-        [IntentValues.EARLY_BUYER]: /\b(early|buyer|insider|whale|holder|first)\b/i,
-        [IntentValues.SOCIAL]: /\b(farcaster|fc|cast|zora|nft|social|trending|warpcast)\b/i,
-        [IntentValues.POLYMARKET]: /\b(poly|market|pm|bet|predict|election|event)\b/i,
-        [IntentValues.WALLET]: /\b(gas|fee|balance|fav|favorite|my|wallet|infrastructure)\b/i,
-        [IntentValues.SEARCH]: /\b(search|find|news|web|google|who|what|how)\b/i,
-        [IntentValues.SWAP]: /\b(buy|sell|swap|trade|swp|trde|swa|exchange|convert)\b/i,
-        [IntentValues.ANALYZE]: /\b(check|analyze|risk|safe|scrn|screen|detect|audit|scan)\b/i,
-        [IntentValues.PNL]: /\b(pnl|profit|wallet|history|perf|balance|bal|roi)\b/i,
-        [IntentValues.COPY]: /\b(copy|follow|track|cp|fllw|mirror)\b/i,
-        [IntentValues.SECURITY]: /\b(audit|revoke|approve|hack|scam)\b/i,
-        [IntentValues.MARKET]: /\b(price|chart|vol|volume|liq|liquidity|depth|cap|fdv)\b/i,
-    };
+    private static shortAddress(address: string): string {
+        if (address.length <= 12) return address;
+        return `${address.slice(0, 6)}…${address.slice(-4)}`;
+    }
 
-    /**
-     * Identifies the primary intent and extracts currently filled slots.
-     */
-    public static parse(text: string): SlotState {
-        const lowerText = text.toLowerCase().trim();
-        let detectedIntent = IntentValues.UNKNOWN;
-
-        // 1. Detect Intent
-        for (const [intent, pattern] of Object.entries(this.INTENT_PATTERNS)) {
-            if (pattern.test(lowerText)) {
-                detectedIntent = intent as Intent;
-                break;
-            }
+    private static safeReadRecentItems(): string[] {
+        try {
+            const raw = localStorage.getItem(RECENT_ITEMS_KEY);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+        } catch {
+            return [];
         }
+    }
 
-        // 2. Default to ANALYZE if address detected without intent
-        const hasAddress = this.EVM_ADDR_REGEX.test(text) || this.SOL_ADDR_REGEX.test(text);
-        if (detectedIntent === IntentValues.UNKNOWN && hasAddress) {
-            detectedIntent = IntentValues.ANALYZE;
+    private static findCommand(name: string): CommandDef | undefined {
+        return COMMAND_REGISTRY.find(c => c.name === name);
+    }
+
+    private static stableHash(value: string): string {
+        let hash = 0;
+        for (let i = 0; i < value.length; i++) {
+            hash = (hash * 31 + value.charCodeAt(i)) | 0;
         }
-
-        // 3. Extract Slots
-        const slots: SlotState = { intent: detectedIntent, isComplete: false };
-
-        if (detectedIntent === IntentValues.SWAP) {
-            const amountMatch = text.match(this.AMOUNT_REGEX);
-            if (amountMatch) slots.amount = amountMatch[1];
-
-            const words = lowerText.split(/\s+/);
-            const commonTokens = ['eth', 'sol', 'usdc', 'usdt', 'btc', 'wif', 'bonk', 'pepe', 'base'];
-            const potentialTokens = words.filter(w => !this.INTENT_PATTERNS[IntentValues.SWAP].test(w) && !this.AMOUNT_REGEX.test(w));
-
-            for (const word of potentialTokens) {
-                if (commonTokens.includes(word) || word.length > 2) {
-                    if (!slots.tokenIn) slots.tokenIn = word.toUpperCase();
-                    else if (word.toUpperCase() !== slots.tokenIn) slots.tokenOut = word.toUpperCase();
-                }
-            }
-            slots.isComplete = !!(slots.amount && slots.tokenIn && slots.tokenOut);
-        } else {
-            const addrMatch = text.match(this.EVM_ADDR_REGEX) || text.match(this.SOL_ADDR_REGEX);
-            if (addrMatch) {
-                slots.address = addrMatch[0];
-                slots.isComplete = true;
-            }
-
-            if (!slots.address) {
-                const words = text.split(/\s+/).filter(w =>
-                    !Object.values(this.INTENT_PATTERNS).some(p => p.test(w))
-                );
-                if (words.length > 0) slots.query = words.join(' ');
-            }
-        }
-        return slots;
+        return Math.abs(hash).toString(36);
     }
 
     public static getSuggestions(
         text: string,
-        onSend: (text: string) => void,
-        onSetInput: (text: string) => void,
-        context: SuggestionContext
-    ): SuggestionItem[] {
-        if (!text || text.trim().length === 0) return [];
-
-        const slots = this.parse(text);
-        if (slots.intent === IntentValues.UNKNOWN && !slots.address) return [];
-
-        const suggestions: SuggestionItem[] = [];
-
-        switch (slots.intent) {
-            case IntentValues.SWAP:
-                this.buildSwapSuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
-            case IntentValues.ANALYZE:
-            case IntentValues.SECURITY:
-            case IntentValues.MARKET:
-                this.buildAnalyzeSuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
-            case IntentValues.PNL:
-                this.buildPnlSuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
-            case IntentValues.COPY:
-                this.buildCopySuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
-            case IntentValues.EARLY_BUYER:
-                this.buildEarlyBuyerSuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
-            case IntentValues.SOCIAL:
-                this.buildSocialSuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
-            case IntentValues.POLYMARKET:
-                this.buildPolymarketSuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
-            case IntentValues.WALLET:
-                this.buildWalletSuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
-            case IntentValues.SEARCH:
-                this.buildSearchSuggestions(slots, suggestions, onSend, onSetInput, context);
-                break;
+        onCommit: (text: string) => void,
+        options: GetSuggestionsOptions = {}
+    ): SuggestionGroup[] {
+        const mode = options.mode ?? 'typing';
+        if (!text || text.trim().length === 0) {
+            if (mode !== 'focus') return [];
+            const matches = this.getPopularSuggestions();
+            const items = matches.slice(0, 5).map(m => this.buildSuggestionItem(m, onCommit));
+            return items.length > 0 ? [{ label: 'COMMANDS', items }] : [];
         }
 
-        return suggestions.slice(0, 5);
-    }
+        const input = text.toLowerCase().trim();
+        const matches: MatchResult[] = [];
 
-    private static buildSwapSuggestions(
-        slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        onSetInput: (text: string) => void,
-        context: SuggestionContext
-    ) {
-        if (slots.isComplete) {
-            items.push({
-                id: 'swap-ready-exec',
-                label: `Swap ${slots.amount} ${slots.tokenIn} -> ${slots.tokenOut}`,
-                subLabel: 'Click to <em>Execute</em> Trade',
-                icon: <ArrowRightLeft size={16} />,
-                action: () => onSend(`Swap ${slots.amount} ${slots.tokenIn} to ${slots.tokenOut}`),
-                highlight: true
-            });
-            items.push({
-                id: 'swap-sim',
-                label: 'Simulate Trade (Fees & Slip)',
-                subLabel: `Check impact for ${slots.amount} ${slots.tokenIn}`,
-                icon: <Layers size={16} />,
-                action: () => onSend(`Simulate swap ${slots.amount} ${slots.tokenIn} to ${slots.tokenOut}`),
-            });
-        } else if (!slots.amount) {
-            items.push({
-                id: 'swap-amt',
-                label: 'Swap [Amount] ETH for [Token]',
-                subLabel: 'Missing: <em>Amount</em>',
-                icon: <ArrowRightLeft size={16} />,
-                action: () => onSetInput('Swap 0.1 '),
-            });
-        } else if (!slots.tokenIn) {
-            items.push({
-                id: 'swap-token-in',
-                label: `Swap ${slots.amount} [Token] for ...`,
-                subLabel: 'Missing: <em>Input Token</em>',
-                icon: <ArrowRightLeft size={16} />,
-                action: () => onSetInput(`Swap ${slots.amount} ETH `),
-            });
-        } else {
-            const targets = context.trending.length > 0 ? context.trending : [{ symbol: 'USDC' }, { symbol: 'WIF' }];
-            targets.forEach(t => {
-                items.push({
-                    id: `swap-to-${t.symbol}`,
-                    label: `Swap ${slots.amount} ${slots.tokenIn} for ${t.symbol}`,
-                    subLabel: `Market Trending ${t.symbol}`,
-                    icon: <BarChart3 size={16} />,
-                    action: () => onSend(`Swap ${slots.amount} ${slots.tokenIn} for ${t.address || t.symbol}`),
-                });
-            });
+        // 1. Extract entities for context awareness
+        const entities = this.extractEntities(text);
+        const memory = ParamMemory.loadAll();
+
+        // 2. Natural language prediction suggestions (Google-style)
+        matches.push(...this.matchByNLU(text, entities, memory));
+
+        // 3. Command name/alias matching (traditional IDE-style)
+        for (const cmd of COMMAND_REGISTRY) {
+            const match = this.calculateMatch(input, cmd, entities);
+            if (match) matches.push(match);
         }
-    }
 
-    private static buildAnalyzeSuggestions(
-        slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        onSetInput: (text: string) => void,
-        context: SuggestionContext
-    ) {
-        if (slots.address) {
-            const addrShort = slots.address.slice(0, 6) + '...';
-            items.push({
-                id: 'analyze-sec',
-                label: `Security Scan: ${addrShort}`,
-                subLabel: 'Run Audit & Risk Check',
-                icon: <Shield size={16} />,
-                action: () => onSend(`Check ${slots.address}`),
-                highlight: true
-            });
-            items.push({
-                id: 'analyze-mkt',
-                label: `Market Data: ${addrShort}`,
-                subLabel: 'View Price, Chart & Volume',
-                icon: <BarChart3 size={16} />,
-                action: () => onSend(`Check price and chart for ${slots.address}`),
-            });
-            items.push({
-                id: 'analyze-soc',
-                label: `Social Search: ${addrShort}`,
-                subLabel: 'Search Web & Farcaster',
-                icon: <Globe size={16} />,
-                action: () => onSend(`Search web for ${slots.address}`),
-            });
-        } else {
-            context.history.filter(a => a.startsWith('0x')).forEach(addr => {
-                items.push({
-                    id: `analyze-hist-${addr}`,
-                    label: `Analyze Recent: ${addr.slice(0, 8)}...`,
-                    subLabel: 'From your history',
-                    icon: <History size={16} />,
-                    action: () => onSend(`Check ${addr}`),
-                });
-            });
-            items.push({
-                id: 'analyze-prompt',
-                label: 'Analyze [Address]',
-                subLabel: 'Paste a contract address to check <em>safety</em>',
-                icon: <Shield size={16} />,
-                action: () => onSetInput('Check '),
-            });
+        // 4. Lightweight intent matching (fallback)
+        const intentMatches = this.matchByIntent(input);
+        matches.push(...intentMatches);
+
+        // 5. Context-based suggestions (smart defaults)
+        if (entities.address) {
+            matches.push(...this.getAddressContextSuggestions(entities.address));
         }
-    }
-
-    private static buildPnlSuggestions(
-        slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        onSetInput: (text: string) => void,
-        context: SuggestionContext
-    ) {
-        if (slots.address) {
-            const addrShort = slots.address.slice(0, 6) + '...';
-            items.push({
-                id: 'pnl-overview',
-                label: `PnL Overview: ${addrShort}`,
-                subLabel: 'Total Profit & ROI Performance',
-                icon: <BarChart3 size={16} />,
-                action: () => onSend(`Analyze wallet ${slots.address} pnl`),
-                highlight: true
-            });
-            items.push({
-                id: 'pnl-hist',
-                label: `Trade History: ${addrShort}`,
-                subLabel: 'View Recent Transactions',
-                icon: <History size={16} />,
-                action: () => onSend(`Show recent trades for ${slots.address}`),
-            });
-        } else {
-            const recentWallets = context.history.filter(a => a.startsWith('0x')).slice(0, 2);
-            recentWallets.forEach(addr => {
-                items.push({
-                    id: `pnl-hist-${addr}`,
-                    label: `Check Recent PnL: ${addr.slice(0, 8)}...`,
-                    subLabel: 'From your wallet history',
-                    icon: <History size={16} />,
-                    action: () => onSend(`Analyze wallet ${addr} pnl`),
-                });
-            });
-            items.push({
-                id: 'pnl-prompt',
-                label: 'Check PnL for [Address]',
-                subLabel: 'Missing: <em>Wallet Address</em>',
-                icon: <BarChart3 size={16} />,
-                action: () => onSetInput('PnL '),
-            });
+        if (entities.amount) {
+            matches.push(...this.getAmountContextSuggestions(entities.amount));
         }
-    }
 
-    private static buildCopySuggestions(
-        slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        onSetInput: (text: string) => void,
-        context: SuggestionContext
-    ) {
-        if (slots.address) {
-            items.push({
-                id: 'copy-ready',
-                label: `Copy Trade: ${slots.address.slice(0, 8)}...`,
-                subLabel: 'Click to start tracking',
-                icon: <ArrowRightLeft size={16} />,
-                action: () => onSend(`Copy trade wallet ${slots.address}`),
-                highlight: true
-            });
-            items.push({
-                id: 'copy-analyze',
-                label: `Analyze Trader: ${slots.address.slice(0, 8)}...`,
-                subLabel: 'Check Win Rate before copying',
-                icon: <BarChart3 size={16} />,
-                action: () => onSend(`Analyze wallet ${slots.address} performance`),
-            });
-        } else {
-            const recentWallets = context.history.filter(a => a.startsWith('0x')).slice(0, 2);
-            recentWallets.forEach(addr => {
-                items.push({
-                    id: `copy-hist-${addr}`,
-                    label: `Copy Trade Recent: ${addr.slice(0, 8)}...`,
-                    subLabel: 'From your wallet history',
-                    icon: <History size={16} />,
-                    action: () => onSend(`Copy trade wallet ${addr}`),
-                });
-            });
-            items.push({
-                id: 'copy-prompt',
-                label: 'Copy Trade [Address]',
-                subLabel: 'Missing: <em>Target Wallet</em>',
-                icon: <ArrowRightLeft size={16} />,
-                action: () => onSetInput('Copy '),
-            });
+        // 6. If still no good matches, show popular commands
+        if (matches.length === 0 || matches.every(m => m.score < 200)) {
+            matches.push(...this.getPopularSuggestions());
         }
-    }
 
-    private static buildEarlyBuyerSuggestions(
-        slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        onSetInput: (text: string) => void,
-        context: SuggestionContext
-    ) {
-        if (slots.address) {
-            const addrShort = slots.address.slice(0, 6) + '...';
-            items.push({
-                id: 'early-buyer-ready',
-                label: `Early Buyer Scan: ${addrShort}`,
-                subLabel: 'Find first holders & insider activity',
-                icon: <History size={16} />,
-                action: () => onSend(`Get early buyers for ${slots.address}`),
-                highlight: true
-            });
-            items.push({
-                id: 'creator-analysis',
-                label: `Analyze Creator: ${addrShort}`,
-                subLabel: 'Check deployer risk & history',
-                icon: <Shield size={16} />,
-                action: () => onSend(`Analyze creator of ${slots.address}`),
-            });
-        } else {
-            context.history.filter(a => a.startsWith('0x')).forEach(addr => {
-                items.push({
-                    id: `early-hist-${addr}`,
-                    label: `Early Buyers: ${addr.slice(0, 8)}...`,
-                    subLabel: 'Scan your recent tokens',
-                    icon: <History size={16} />,
-                    action: () => onSend(`Get early buyers for ${addr}`),
-                });
-            });
-            items.push({
-                id: 'early-buyer-prompt',
-                label: 'Early Buyer [Address]',
-                subLabel: 'Missing: <em>Token Address</em>',
-                icon: <History size={16} />,
-                action: () => onSetInput('Early Buyer '),
-            });
-        }
-    }
-
-    private static buildSocialSuggestions(
-        slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        _onSetInput: (text: string) => void,
-        _context: SuggestionContext
-    ) {
-        items.push({
-            id: 'fc-trending',
-            label: 'Trending Farcaster Casts',
-            subLabel: 'See what is viral on Warpcast',
-            icon: <MessageCircle size={16} />,
-            action: () => onSend('Get trending farcaster casts'),
-            highlight: true
+        // 7. Apply usage frequency boost
+        const usage = UsageTracker.getAll();
+        matches.forEach(m => {
+            const usageBoost = (usage[m.command.name] || 0) * 5;
+            m.score += usageBoost;
         });
-        items.push({
-            id: 'zora-trending',
-            label: 'Trending on Zora',
-            subLabel: 'Discover viral NFT collections',
-            icon: <Flame size={16} />,
-            action: () => onSend('Get trending zora mints'),
+
+        // 8. Sort and deduplicate
+        matches.sort((a, b) => b.score - a.score);
+        const seen = new Set<string>();
+        const unique = matches.filter(m => {
+            const key = m.dedupeKey || m.commitText || m.displayLabel || m.command.name;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
         });
-        if (slots.query) {
-            items.push({
-                id: 'fc-search',
-                label: `Search Farcaster: "${slots.query}"`,
-                subLabel: 'Find casts by keyword',
-                icon: <Search size={16} />,
-                action: () => onSend(`Search farcaster casts for ${slots.query}`),
-            });
-        }
+
+        // 9. Build UI items
+        const items = unique.slice(0, 7).map(m => this.buildSuggestionItem(m, onCommit));
+
+        return items.length > 0 ? [{ label: 'COMMANDS', items }] : [];
     }
 
-    private static buildPolymarketSuggestions(
-        slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        _onSetInput: (text: string) => void,
-        _context: SuggestionContext
-    ) {
-        items.push({
-            id: 'pm-trending',
-            label: 'Trending Markets',
-            subLabel: 'View top prediction markets',
-            icon: <TrendingUp size={16} />,
-            action: () => onSend('Get trending polymarket markets'),
-            highlight: true
-        });
-        items.push({
-            id: 'pm-whale',
-            label: 'Polymarket Whale Watch',
-            subLabel: 'See where big money is betting',
-            icon: <Activity size={16} />,
-            action: () => onSend('Get polymarket whale activity'),
-        });
-        if (slots.query) {
-            items.push({
-                id: 'pm-search',
-                label: `Search Markets: "${slots.query}"`,
-                subLabel: 'Search events on Polymarket',
-                icon: <Search size={16} />,
-                action: () => onSend(`Search polymarket for ${slots.query}`),
-            });
+    /**
+     * Traditional IDE-style matching (exact, prefix, fuzzy)
+     */
+    private static calculateMatch(input: string, cmd: CommandDef, entities: any): MatchResult | null {
+        const cmdName = cmd.name.toLowerCase();
+        const firstToken = input.split(/\s+/)[0] || input;
+
+        // Exact match
+        if (cmdName === input) {
+            return {
+                command: cmd,
+                score: 1000,
+                type: 'exact',
+                indices: Array.from({ length: cmdName.length }, (_, i) => i),
+                extractedParams: entities
+            };
         }
+
+        // Leading command match (when user already typed args): "swap 0.01 ..."
+        if (input.startsWith(`${cmdName} `) || input === cmdName) {
+            return {
+                command: cmd,
+                score: 800,
+                type: 'prefix',
+                indices: Array.from({ length: cmdName.length }, (_, i) => i),
+                extractedParams: entities
+            };
+        }
+
+        // Exact alias match
+        for (const alias of cmd.aliases) {
+            if (alias.toLowerCase() === input) {
+                return {
+                    command: cmd,
+                    score: 950,
+                    type: 'alias',
+                    extractedParams: entities
+                };
+            }
+        }
+
+        // Leading alias match (when user already typed args): "buy 0.01 ..." -> swap
+        for (const alias of cmd.aliases) {
+            const a = alias.toLowerCase();
+            if (input.startsWith(`${a} `) || firstToken === a) {
+                return {
+                    command: cmd,
+                    score: 780,
+                    type: 'alias',
+                    extractedParams: entities
+                };
+            }
+        }
+
+        // Prefix match
+        if (cmdName.startsWith(firstToken)) {
+            return {
+                command: cmd,
+                score: 500 + firstToken.length * 10,
+                type: 'prefix',
+                indices: Array.from({ length: firstToken.length }, (_, i) => i),
+                extractedParams: entities
+            };
+        }
+
+        // Alias prefix
+        for (const alias of cmd.aliases) {
+            if (alias.toLowerCase().startsWith(firstToken)) {
+                return {
+                    command: cmd,
+                    score: 450 + firstToken.length * 10,
+                    type: 'alias',
+                    extractedParams: entities
+                };
+            }
+        }
+
+        // Word start match
+        const words = cmdName.split(' ');
+        for (let i = 0; i < words.length; i++) {
+            if (words[i].startsWith(input)) {
+                const offset = words.slice(0, i).join(' ').length + (i > 0 ? 1 : 0);
+                return {
+                    command: cmd,
+                    score: 400 + input.length * 5,
+                    type: 'prefix',
+                    indices: Array.from({ length: input.length }, (_, j) => offset + j),
+                    extractedParams: entities
+                };
+            }
+        }
+
+        // Fuzzy match
+        if (firstToken.length >= 2) {
+            const fuzzy = this.fuzzyMatch(firstToken, cmdName);
+            if (fuzzy.score > 0) {
+                return {
+                    command: cmd,
+                    score: fuzzy.score,
+                    type: 'fuzzy',
+                    indices: fuzzy.indices,
+                    extractedParams: entities
+                };
+            }
+        }
+
+        return null;
     }
 
-    private static buildWalletSuggestions(
-        _slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        _onSetInput: (text: string) => void,
-        _context: SuggestionContext
-    ) {
-        items.push({
-            id: 'wallet-gas',
-            label: 'Check Gas Prices',
-            subLabel: 'Current fees on Eth, Base, Solana',
-            icon: <Flame size={16} />,
-            action: () => onSend('Check gas prices'),
-            highlight: true
-        });
-        items.push({
-            id: 'wallet-fav',
-            label: 'My Favorites',
-            subLabel: 'Quick access to tracked wallets',
-            icon: <Star size={16} />,
-            action: () => onSend('Show my favorite tokens'),
-        });
-        items.push({
-            id: 'wallet-info',
-            label: 'Wallet Overview',
-            subLabel: 'Balances and token assets',
-            icon: <Wallet size={16} />,
-            action: () => onSend('Show my wallet info'),
-        });
+    /**
+     * Natural language "query prediction" that maps to project commands + slots.
+     * The user sees a natural-language completion, but selecting inserts an executable command string.
+     */
+    private static matchByNLU(
+        rawText: string,
+        entities: {
+            address?: string;
+            amount?: string;
+            tokenIn?: string;
+            tokenOut?: string;
+            tokens?: string[];
+            tokenCandidates?: Array<{ token: string; index: number }>;
+        },
+        memory: Record<string, string>
+    ): MatchResult[] {
+        const text = rawText.trim();
+        const isZh = this.hasCJK(text);
+
+        const hasSignal =
+            text.length >= 2 ||
+            Boolean(entities.address) ||
+            Boolean(entities.amount) ||
+            Boolean(entities.tokenIn) ||
+            Boolean(entities.tokenOut);
+        if (!hasSignal) return [];
+
+        const recent = this.safeReadRecentItems();
+        const lastAddress = recent[0];
+        const refersToLast = /(这个|这(个)?(币|代币|合约)|它|该(币|代币|合约)|this( token)?|that( token)?)/i.test(text);
+
+        const resolvedAddress =
+            entities.address ||
+            (refersToLast ? lastAddress : undefined) ||
+            (/(my|我的).*(wallet|address|钱包|地址)/i.test(text) ? (memory.wallet || lastAddress) : undefined);
+
+        const results: MatchResult[] = [];
+
+        const push = (match: MatchResult | null) => {
+            if (!match) return;
+            results.push(match);
+        };
+
+        const build = (cmdName: string, commitText: string, displayLabel: string, score: number): MatchResult | null => {
+            const cmd = this.findCommand(cmdName);
+            if (!cmd) return null;
+            return {
+                command: cmd,
+                score,
+                type: 'nlu',
+                displayLabel,
+                commitText,
+                subLabel: commitText,
+                dedupeKey: `${cmd.name}|${commitText}`
+            };
+        };
+
+        // Utility intents
+        if (/(help|\?|\bcommands?\b|what can you do|怎么用|帮助|指令|命令)/i.test(text)) {
+            push(build('help', 'help', isZh ? '查看可用命令' : 'Show available commands', 900));
+        }
+        if (/(gas|gwei|手续费|燃料费|gas 价格)/i.test(text)) {
+            push(build('gas price', 'gas price', isZh ? '查看当前 Gas 价格' : 'Check current gas price', 880));
+        }
+        if (/(trending casts|farcaster|\bcasts\b|fc|热(门)?动态|热门(动态|帖子))/i.test(text)) {
+            push(build('trending casts', 'trending casts', isZh ? '查看热门 Farcaster 动态' : 'Show trending Farcaster casts', 820));
+        }
+        if (/(polymarket|prediction markets|预测市场|押注|博彩|市场趋势)/i.test(text)) {
+            push(build('polymarket trending', 'polymarket trending', isZh ? '查看热门预测市场' : 'Show trending prediction markets', 820));
+        }
+        if (/(trending|hot|popular|top).*(token|coin)|热门(代币|币)|趋势(代币|币)/i.test(text)) {
+            push(build('get trending tokens', 'get trending tokens', isZh ? '查看热门代币' : 'Show trending tokens', 860));
+        }
+
+        // Address-centric intents
+        if (resolvedAddress) {
+            const short = this.shortAddress(resolvedAddress);
+            if (/(风险|安全|骗局|rug|scam|safe|verify|check)/i.test(text)) {
+                push(build('token risk', `token risk ${resolvedAddress}`, isZh ? `检查 ${short} 是否安全/有风险` : `Check token risk for ${short}`, 930));
+            }
+            if (/(信息|详情|是什么|介绍|token info|contract|details|about|what is)/i.test(text)) {
+                push(build('token info', `token info ${resolvedAddress}`, isZh ? `查看 ${short} 代币信息` : `Get token info for ${short}`, 920));
+            }
+            if (/(价格|走势|k线|图表|chart|price|graph|show)/i.test(text)) {
+                push(build('chart', `chart ${resolvedAddress}`, isZh ? `查看 ${short} 价格图表` : `Show chart for ${short}`, 920));
+            }
+            if (/(早期|early buyers|sniper|first buyers)/i.test(text)) {
+                push(build('early buyers', `early buyers ${resolvedAddress}`, isZh ? `分析 ${short} 早期买家` : `Analyze early buyers for ${short}`, 860));
+            }
+            if (/(跟单|copy|follow trader|copy trade)/i.test(text)) {
+                push(build('copy trade', `copy trade ${resolvedAddress}`, isZh ? `跟单 ${short}` : `Copy trade ${short}`, 860));
+            }
+
+            // If user pasted an address but didn't specify intent, still provide strong defaults.
+            if (!/(风险|安全|骗局|rug|scam|safe|verify|check|信息|详情|是什么|介绍|token info|contract|details|about|what is|价格|走势|k线|图表|chart|price|graph|show|早期|early buyers|sniper|first buyers|跟单|copy|follow trader|copy trade)/i.test(text)) {
+                push(build('chart', `chart ${resolvedAddress}`, isZh ? `查看 ${short} 价格图表` : `Show chart for ${short}`, 700));
+                push(build('token info', `token info ${resolvedAddress}`, isZh ? `查看 ${short} 代币信息` : `Get token info for ${short}`, 680));
+                push(build('token risk', `token risk ${resolvedAddress}`, isZh ? `检查 ${short} 风险` : `Check token risk for ${short}`, 660));
+                push(build('early buyers', `early buyers ${resolvedAddress}`, isZh ? `分析 ${short} 早期买家` : `Analyze early buyers for ${short}`, 640));
+            }
+        }
+
+        // Wallet-centric intents
+        const resolvedWallet = /(my|我的).*(wallet|address|钱包|地址)/i.test(text) ? (resolvedAddress || memory.wallet || lastAddress) : undefined;
+        if (/(pnl|profit|loss|盈亏|收益|亏损|赚了|亏了)/i.test(text) && resolvedWallet) {
+            const short = this.shortAddress(resolvedWallet);
+            push(build('analyze pnl', `analyze pnl ${resolvedWallet}`, isZh ? `分析钱包 ${short} 的盈亏` : `Analyze PNL for ${short}`, 900));
+        }
+        if (/(wallet|balance|portfolio|holdings|钱包|余额|资产|持仓)/i.test(text) && resolvedWallet) {
+            const short = this.shortAddress(resolvedWallet);
+            push(build('wallet info', `wallet info ${resolvedWallet}`, isZh ? `查看钱包 ${short} 的资产/余额` : `Show wallet info for ${short}`, 880));
+        }
+        if (/(list copy trades|my copies|copy configs|列出跟单|我的跟单)/i.test(text)) {
+            push(build('list copy trades', 'list copy trades', isZh ? '列出我的跟单配置' : 'List my copy trade configs', 820));
+        }
+
+        // Swap intent (slot-filling)
+        if (INTENT_PATTERNS.swap.some(r => r.test(text))) {
+            const swapCandidates = this.buildSwapNLUSuggestions(text, entities, memory, isZh);
+            results.push(...swapCandidates);
+        }
+
+        return results;
     }
 
-    private static buildSearchSuggestions(
-        slots: SlotState,
-        items: SuggestionItem[],
-        onSend: (text: string) => void,
-        _onSetInput: (text: string) => void,
-        _context: SuggestionContext
-    ) {
-        if (slots.query) {
-            items.push({
-                id: 'search-web',
-                label: `Web Search: "${slots.query}"`,
-                subLabel: 'Search the global web for news',
-                icon: <Globe size={16} />,
-                action: () => onSend(`Search the web for ${slots.query}`),
-                highlight: true
+    private static buildSwapNLUSuggestions(
+        text: string,
+        entities: {
+            amount?: string;
+            tokenIn?: string;
+            tokenOut?: string;
+            tokens?: string[];
+            tokenCandidates?: Array<{ token: string; index: number }>;
+        },
+        memory: Record<string, string>,
+        isZh: boolean
+    ): MatchResult[] {
+        const cmd = this.findCommand('swap');
+        if (!cmd) return [];
+
+        const results: MatchResult[] = [];
+
+        const defaultAmount = entities.amount || memory.amount || '0.01';
+        const tokens = entities.tokens || [];
+
+        const isBuy = /(buy|购买|买入|买)\b/i.test(text) || /买/.test(text);
+        const isSell = /(sell|卖出|卖)\b/i.test(text) || /卖/.test(text);
+        const hasToWord = /\b(to|into|for)\b/i.test(text) || /(换成|换为|到|兑成|兑换成)/.test(text);
+
+        let tokenIn = entities.tokenIn;
+        let tokenOut = entities.tokenOut;
+
+        // Prefer ordering by appearance when available
+        const ordered = (entities.tokenCandidates || []).slice().sort((a, b) => a.index - b.index).map(t => t.token);
+        const orderedTokens = ordered.length > 0 ? ordered : tokens;
+
+        // Explicit "A TOKEN to TOKEN" patterns
+        const explicit = text.match(/(\d+(?:\.\d+)?)\s*([A-Za-z]{2,10})\s*(to|for|into|换成|换为|到|兑成|兑换成)\s*([A-Za-z]{2,10})/i);
+        if (explicit) {
+            const amount = explicit[1];
+            const tIn = explicit[2].toUpperCase();
+            const tOut = explicit[4].toUpperCase();
+            tokenIn = tIn;
+            tokenOut = tOut;
+            const commit = `swap ${amount} ${tIn} to ${tOut}`;
+            results.push({
+                command: cmd,
+                score: 980,
+                type: 'nlu',
+                displayLabel: isZh ? `把 ${amount} ${tIn} 换成 ${tOut}` : `Swap ${amount} ${tIn} to ${tOut}`,
+                commitText: commit,
+                subLabel: commit,
+                extractedParams: { amount, tokenIn: tIn, tokenOut: tOut },
+                dedupeKey: `${cmd.name}|${commit}`
             });
-        } else if (slots.address) {
-            items.push({
-                id: 'search-info',
-                label: `Token Info: ${slots.address.slice(0, 8)}...`,
-                subLabel: 'Get fundamentals, website & supply',
-                icon: <Info size={16} />,
-                action: () => onSend(`Get info for ${slots.address}`),
-                highlight: true
+            return results;
+        }
+
+        // Heuristic based on tokens in text
+        if (orderedTokens.length >= 2) {
+            tokenIn = orderedTokens[0];
+            tokenOut = hasToWord ? orderedTokens[orderedTokens.length - 1] : orderedTokens[1];
+        } else if (orderedTokens.length === 1) {
+            const only = orderedTokens[0];
+            if (isBuy) {
+                tokenOut = only;
+                tokenIn = memory.tokenIn || 'USDC';
+            } else if (isSell) {
+                tokenIn = only;
+                tokenOut = memory.tokenOut || 'USDC';
+            } else if (hasToWord) {
+                tokenOut = only;
+                tokenIn = memory.tokenIn || 'ETH';
+            } else {
+                tokenIn = only;
+                tokenOut = memory.tokenOut || 'USDC';
+            }
+        }
+
+        const popularOut = ['USDC', 'ETH', 'SOL', 'USDT'];
+        const popularIn = ['ETH', 'USDC', 'SOL'];
+
+        const build = (amount: string, tIn: string, tOut: string, score: number) => {
+            const commit = `swap ${amount} ${tIn} to ${tOut}`;
+            results.push({
+                command: cmd,
+                score,
+                type: 'nlu',
+                displayLabel: isZh ? `把 ${amount} ${tIn} 换成 ${tOut}` : `Swap ${amount} ${tIn} to ${tOut}`,
+                commitText: commit,
+                subLabel: commit,
+                extractedParams: { amount, tokenIn: tIn, tokenOut: tOut },
+                dedupeKey: `${cmd.name}|${commit}`
             });
-        } else {
-            items.push({
-                id: 'market-overview',
-                label: 'Market Overview',
-                subLabel: 'Overall crypto health and sentiment',
-                icon: <BarChart3 size={16} />,
-                action: () => onSend('Provide market overview'),
-            });
-            items.push({
-                id: 'market-cal',
-                label: 'Economic Calendar',
-                subLabel: 'Upcoming macro events (CPI, Fed)',
-                icon: <Activity size={16} />,
-                action: () => onSend('Show economic calendar'),
+        };
+
+        if (tokenIn && tokenOut) {
+            build(defaultAmount, tokenIn, tokenOut, 940);
+            return results;
+        }
+
+        // Fill missing slots with smart defaults
+        if (!tokenIn && tokenOut) {
+            const candidates = [memory.tokenIn, ...popularIn].filter(Boolean) as string[];
+            candidates.slice(0, 2).forEach((tIn, idx) => build(defaultAmount, tIn, tokenOut!, 820 - idx * 20));
+            return results;
+        }
+
+        if (tokenIn && !tokenOut) {
+            const outs = [memory.tokenOut, ...popularOut].filter(Boolean) as string[];
+            outs.filter(o => o !== tokenIn).slice(0, 3).forEach((tOut, idx) => build(defaultAmount, tokenIn!, tOut, 820 - idx * 20));
+            return results;
+        }
+
+        // No tokens at all: propose a few sensible swaps using memory/popular tokens.
+        const fallbackIn = memory.tokenIn || 'ETH';
+        const fallbackOuts = [memory.tokenOut, ...popularOut].filter(Boolean).filter(t => t !== fallbackIn) as string[];
+        fallbackOuts.slice(0, 2).forEach((tOut, idx) => build(defaultAmount, fallbackIn, tOut, 760 - idx * 20));
+
+        return results;
+    }
+
+    /**
+     * Natural language intent matching (Google-style)
+     */
+    private static matchByIntent(input: string): MatchResult[] {
+        const results: MatchResult[] = [];
+
+        for (const [cmdName, patterns] of Object.entries(INTENT_PATTERNS)) {
+            for (const pattern of patterns) {
+                if (pattern.test(input)) {
+                    const cmd = COMMAND_REGISTRY.find(c => c.name === cmdName);
+                    if (cmd) {
+                        results.push({
+                            command: cmd,
+                            score: 350, // Medium-high priority for intent matches
+                            type: 'intent'
+                        });
+                        break; // Only match once per command
+                    }
+                }
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Context-aware suggestions when address is detected
+     */
+    private static getAddressContextSuggestions(address: string): MatchResult[] {
+        const addressCommands = ['token info', 'chart', 'token risk', 'copy trade'];
+        const results: MatchResult[] = [];
+
+        for (const name of addressCommands) {
+            const cmd = COMMAND_REGISTRY.find(c => c.name === name);
+            if (!cmd) continue;
+            const commitText = `${cmd.name} ${address}`;
+            results.push({
+                command: cmd,
+                score: 500, // Medium priority for context matches (NLU may be higher)
+                type: 'context',
+                extractedParams: { address },
+                commitText,
+                subLabel: commitText,
+                dedupeKey: `${cmd.name}|${commitText}`
             });
         }
+
+        return results;
+    }
+
+    /**
+     * Context-aware suggestions when amount is detected
+     */
+    private static getAmountContextSuggestions(amount: string): MatchResult[] {
+        const cmd = COMMAND_REGISTRY.find(c => c.name === 'swap');
+        return cmd ? [{
+            command: cmd,
+            score: 520,
+            type: 'context',
+            extractedParams: { amount },
+            dedupeKey: `swap|amount:${amount}`
+        }] : [];
+    }
+
+    /**
+     * Popular commands fallback
+     */
+    private static getPopularSuggestions(): MatchResult[] {
+        const usage = UsageTracker.getAll();
+        const sorted = Object.entries(usage)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 5)
+            .map(([name]) => name);
+
+        // If no usage history, use defaults
+        const popular = sorted.length > 0 ? sorted : ['swap', 'get trending tokens', 'analyze pnl', 'token info', 'help'];
+
+        const results: MatchResult[] = [];
+
+        popular.forEach((name, idx) => {
+            const cmd = COMMAND_REGISTRY.find(c => c.name === name);
+            if (!cmd) return;
+            results.push({
+                command: cmd,
+                score: 100 - idx,
+                type: 'popular'
+            });
+        });
+
+        return results;
+    }
+
+    /**
+     * Fuzzy subsequence matching
+     */
+    private static fuzzyMatch(input: string, target: string): { score: number, indices: number[] } {
+        let inputIdx = 0;
+        let targetIdx = 0;
+        let score = 0;
+        let consecutive = 0;
+        const indices: number[] = [];
+
+        while (inputIdx < input.length && targetIdx < target.length) {
+            if (input[inputIdx] === target[targetIdx]) {
+                score += 10 + consecutive * 5;
+                consecutive++;
+                indices.push(targetIdx);
+                inputIdx++;
+            } else {
+                consecutive = 0;
+                score -= 1;
+            }
+            targetIdx++;
+        }
+
+        if (inputIdx === input.length) {
+            return { score: Math.max(0, 100 + score), indices };
+        }
+
+        return { score: 0, indices: [] };
+    }
+
+    /**
+     * Extract entities from input
+     */
+    private static extractEntities(text: string) {
+        const result: {
+            address?: string;
+            amount?: string;
+            tokenIn?: string;
+            tokenOut?: string;
+            tokens?: string[];
+            tokenCandidates?: Array<{ token: string; index: number }>;
+        } = {};
+
+        const evmMatch = text.match(/0x[a-fA-F0-9]{40}/i);
+        if (evmMatch) result.address = evmMatch[0];
+
+        if (!result.address) {
+            const solMatch = text.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
+            if (solMatch) result.address = solMatch[0];
+        }
+
+        const amountMatch = text.match(/\b(\d+(?:\.\d+)?)\b/);
+        if (amountMatch) result.amount = amountMatch[0];
+
+        // Token candidates: keep order by appearance, and normalize common synonyms.
+        const stop = new Set(['SWAP', 'TO', 'FOR', 'BUY', 'SELL', 'TRADE', 'TOKEN', 'INFO', 'CHART']);
+        const candidates: Array<{ token: string; index: number }> = [];
+
+        const synonymRules: Array<{ re: RegExp; token: string }> = [
+            { re: /\beth\b|ethereum|weth|以太坊|以太/gi, token: 'ETH' },
+            { re: /\bsol\b|solana|索拉纳|索尔/gi, token: 'SOL' },
+            { re: /\busdc\b|美元币/gi, token: 'USDC' },
+            { re: /\busdt\b|泰达/gi, token: 'USDT' }
+        ];
+
+        for (const rule of synonymRules) {
+            for (const m of text.matchAll(rule.re)) {
+                if (typeof m.index !== 'number') continue;
+                candidates.push({ token: rule.token, index: m.index });
+            }
+        }
+
+        for (const m of text.matchAll(/\b([A-Z]{2,10})\b/g)) {
+            if (typeof m.index !== 'number') continue;
+            const token = m[1].toUpperCase();
+            if (stop.has(token)) continue;
+            candidates.push({ token, index: m.index });
+        }
+
+        candidates.sort((a, b) => a.index - b.index);
+        const seen = new Set<string>();
+        const orderedTokens: string[] = [];
+        const orderedCandidates: Array<{ token: string; index: number }> = [];
+        for (const c of candidates) {
+            if (seen.has(c.token)) continue;
+            seen.add(c.token);
+            orderedTokens.push(c.token);
+            orderedCandidates.push(c);
+        }
+        if (orderedTokens.length > 0) {
+            result.tokens = orderedTokens;
+            result.tokenCandidates = orderedCandidates;
+            result.tokenIn = orderedTokens[0];
+            if (orderedTokens.length >= 2) result.tokenOut = orderedTokens[1];
+        }
+
+        return result;
+    }
+
+    /**
+     * Build UI suggestion item
+     */
+    private static buildSuggestionItem(match: MatchResult, onCommit: (t: string) => void): SuggestionItem {
+        const cmd = match.command;
+        const memory = ParamMemory.loadAll();
+        const extracted = match.extractedParams || {};
+
+        let computedLabel = cmd.pattern;
+
+        cmd.params.forEach(p => {
+            const key = `{${p.name}}`;
+            if (extracted[p.name]) {
+                computedLabel = computedLabel.replace(key, extracted[p.name]);
+            } else if (memory[p.name]) {
+                computedLabel = computedLabel.replace(key, memory[p.name]);
+            }
+        });
+
+        const label = match.displayLabel || computedLabel;
+        const subLabel = match.subLabel;
+        const idSource = match.dedupeKey || match.commitText || match.displayLabel || `${cmd.name}|${label}`;
+        const id = `cmd-${cmd.name}-${this.stableHash(idSource)}`;
+
+        return {
+            id,
+            label,
+            subLabel,
+            action: () => {
+                let finalCmd = match.commitText || cmd.pattern;
+
+                if (!match.commitText) {
+                    cmd.params.forEach(p => {
+                        if (extracted[p.name]) {
+                            finalCmd = finalCmd.replace(`{${p.name}}`, extracted[p.name]);
+                        } else if (memory[p.name]) {
+                            finalCmd = finalCmd.replace(`{${p.name}}`, memory[p.name]);
+                        } else if (p.placeholder) {
+                            finalCmd = finalCmd.replace(`{${p.name}}`, p.placeholder);
+                        }
+                    });
+                }
+
+                // Track usage for personalization
+                UsageTracker.track(cmd.name);
+
+                onCommit(finalCmd);
+            },
+            matchedIndices: match.indices
+        };
     }
 }

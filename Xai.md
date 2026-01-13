@@ -1,213 +1,248 @@
-api] {"level":30,"time":1768307126706,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-8","req":{"method":"GET","url":"/api/chat/ws?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwUEFsR2FodWVyZEVTbWZjX01aOFltc2twWWlRZHJrRTQ5MENUbnJTVnMifQ.eyJzaWQiOiJjbWtjamtxZGkwMTV2bDQwZGtjdWI0amFoIiwiaXNzIjoicHJpdnkuaW8iLCJpYXQiOjE3NjgzMDU3MzEsImF1ZCI6ImNtaTJzcGwwdzAydzBsNzBjcmVjd3Y3bDMiLCJzdWIiOiJkaWQ6cHJpdnk6Y21qMGEzajNmMDA1ZmwyMGM0eGtsNzE5NSIsImV4cCI6MTc2ODMwOTMzMX0.y9gZPt19pYWieEnT7EopvU_QL9nhUxigVgf8Ug1vu5fvdZwirmoti-KpngWfHlyhuXw4xMt_B9bwMfCN7J4cvg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61085},"msg":"incoming request"}
-[api] [ChatWS] Client connected for user did:privy:cmj0a3j3f005fl20c4xkl7195. Total connections for user: 1
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x00256d36db44e37db453206c383d59f6bf23c82a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x0077ae08200c05af9741b38366e26f7b1e7bfe2d
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x0129614474d4b1df7053cc18c4e1cb646c563332
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x01af27cd29eaab7392039c9fae18a5c86938b96a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x04acf03e000f1e982d619c7f40c75ffa32303c77
-[api] {"level":30,"time":1768307128026,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-9","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/all-balances?solanaAddress=BgNm4YDzxb3sMppsticzEN47fCp6k8NwrmofsB9nuXZg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61030},"msg":"incoming request"}
-[api] {"level":30,"time":1768307128027,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-9","res":{"statusCode":204},"responseTime":0.5472499988973141,"msg":"request completed"}
-[api] {"level":30,"time":1768307128028,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-a","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/transactions?chain=base&limit=25","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61156},"msg":"incoming request"}
-[api] {"level":30,"time":1768307128028,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-a","res":{"statusCode":204},"responseTime":0.3322080001235008,"msg":"request completed"}
-[api] {"level":30,"time":1768307128029,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-b","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/all-balances?solanaAddress=BgNm4YDzxb3sMppsticzEN47fCp6k8NwrmofsB9nuXZg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61157},"msg":"incoming request"}
-[api] {"level":30,"time":1768307128029,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-b","res":{"statusCode":204},"responseTime":0.18208299949765205,"msg":"request completed"}
-[api] {"level":30,"time":1768307128029,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-c","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/all-balances?solanaAddress=BgNm4YDzxb3sMppsticzEN47fCp6k8NwrmofsB9nuXZg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61030},"msg":"incoming request"}
-[api] {"level":30,"time":1768307128030,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-d","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/transactions?chain=base&limit=25","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61158},"msg":"incoming request"}
-[api] {"level":30,"time":1768307128030,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-d","res":{"statusCode":204},"responseTime":0.4475410021841526,"msg":"request completed"}
-[api] {"level":30,"time":1768307128031,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-e","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/transactions?chain=base&limit=25","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61156},"msg":"incoming request"}
-[api] {"level":30,"time":1768307128032,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-f","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/all-balances?solanaAddress=BgNm4YDzxb3sMppsticzEN47fCp6k8NwrmofsB9nuXZg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61157},"msg":"incoming request"}
-[api] {"level":30,"time":1768307128036,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-g","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/transactions?chain=base&limit=25","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":61158},"msg":"incoming request"}
-[api] [Alchemy] getWalletTransactions starting for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E on base, limit: 25
-[api] [Alchemy] Using getAssetTransfers for base...
-[api] [Alchemy] Using Scan API for base history...
-[api] [ScanAPI Debug] chain: base, chainId: 8453, etherscanEnabled: true
-[api] [ScanAPI] Available providers for base: [ 'etherscan', 'routescan', 'blockscout' ]
-[api] [Alchemy] getWalletTransactions starting for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E on base, limit: 25
-[api] [Alchemy] Using getAssetTransfers for base...
-[api] [Alchemy] Using Scan API for base history...
-[api] [ScanAPI Debug] chain: base, chainId: 8453, etherscanEnabled: true
-[api] [ScanAPI] Available providers for base: [ 'etherscan', 'routescan', 'blockscout' ]
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x00256d36db44e37db453206c383d59f6bf23c82a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x0077ae08200c05af9741b38366e26f7b1e7bfe2d
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x0129614474d4b1df7053cc18c4e1cb646c563332
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x01af27cd29eaab7392039c9fae18a5c86938b96a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x04acf03e000f1e982d619c7f40c75ffa32303c77
-[api] [DexScreener] No pairs found for 0x0129614474d4b1df7053cc18c4e1cb646c563332
-[api] [DexScreener] Found 1 pairs for 0x0077ae08200c05af9741b38366e26f7b1e7bfe2d
-[api] [DexScreener] Found 1 pairs for 0x00256d36db44e37db453206c383d59f6bf23c82a
-[api] [DexScreener] No pairs found for 0x0129614474d4b1df7053cc18c4e1cb646c563332
-[api] [DexScreener] Found 1 pairs for 0x00256d36db44e37db453206c383d59f6bf23c82a
-[api] [DexScreener] Found 1 pairs for 0x0077ae08200c05af9741b38366e26f7b1e7bfe2d
-[api] [DexScreener] Found 1 pairs for 0x01af27cd29eaab7392039c9fae18a5c86938b96a
-[api] [DexScreener] Found 1 pairs for 0x04acf03e000f1e982d619c7f40c75ffa32303c77
-[api] {"level":30,"time":1768307129022,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-7","res":{"statusCode":200},"responseTime":4141.393541999161,"msg":"request completed"}
-[api] [DexScreener] Found 1 pairs for 0x01af27cd29eaab7392039c9fae18a5c86938b96a
-[api] [DexScreener] Found 1 pairs for 0x04acf03e000f1e982d619c7f40c75ffa32303c77
-[api] {"level":30,"time":1768307129092,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":5458.685165997595,"msg":"request completed"}
-[api] [ScanAPI] Failed to fetch from etherscan for base: Scan API Error: NOTOK
-[api] [ScanAPI] Failed to fetch from etherscan for base: Scan API Error: NOTOK
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x00256d36db44e37db453206c383d59f6bf23c82a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x0077ae08200c05af9741b38366e26f7b1e7bfe2d
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x0129614474d4b1df7053cc18c4e1cb646c563332
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x01af27cd29eaab7392039c9fae18a5c86938b96a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x04acf03e000f1e982d619c7f40c75ffa32303c77
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x00256d36db44e37db453206c383d59f6bf23c82a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x0077ae08200c05af9741b38366e26f7b1e7bfe2d
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x0129614474d4b1df7053cc18c4e1cb646c563332
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x01af27cd29eaab7392039c9fae18a5c86938b96a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x04acf03e000f1e982d619c7f40c75ffa32303c77
-[api] [DexScreener] Found 1 pairs for 0x00256d36db44e37db453206c383d59f6bf23c82a
-[api] [DexScreener] Found 1 pairs for 0x0077ae08200c05af9741b38366e26f7b1e7bfe2d
-[api] [DexScreener] Found 1 pairs for 0x04acf03e000f1e982d619c7f40c75ffa32303c77
-[api] [DexScreener] Found 1 pairs for 0x01af27cd29eaab7392039c9fae18a5c86938b96a
-[api] [DexScreener] No pairs found for 0x0129614474d4b1df7053cc18c4e1cb646c563332
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x2791bca1f2de4661ed88a30c99a7a9449aa84174
-[api] [DexScreener] Found 1 pairs for 0x04acf03e000f1e982d619c7f40c75ffa32303c77
-[api] [DexScreener] Found 1 pairs for 0x01af27cd29eaab7392039c9fae18a5c86938b96a
-[api] [DexScreener] No pairs found for 0x0129614474d4b1df7053cc18c4e1cb646c563332
-[api] [DexScreener] Found 1 pairs for 0x0077ae08200c05af9741b38366e26f7b1e7bfe2d
-[api] [DexScreener] Found 1 pairs for 0x00256d36db44e37db453206c383d59f6bf23c82a
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x2791bca1f2de4661ed88a30c99a7a9449aa84174
-[api] [DexScreener] Found 30 pairs for 0x2791bca1f2de4661ed88a30c99a7a9449aa84174
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x18d0e455b3491e09210292d3953157a4bf104444
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x40c10dc56438c424ba24f102d719b8bb3bef4444
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x44445d8fe10515e7dc63a9331832d5f0264e9431
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x581466363fe17a02ac89f354cb0f4ec3186574df
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x596116dccd760fe9160111e274ae22a6b5966d0e
-[api] [DexScreener] Found 30 pairs for 0x2791bca1f2de4661ed88a30c99a7a9449aa84174
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x18d0e455b3491e09210292d3953157a4bf104444
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x40c10dc56438c424ba24f102d719b8bb3bef4444
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x44445d8fe10515e7dc63a9331832d5f0264e9431
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x581466363fe17a02ac89f354cb0f4ec3186574df
-[api] [DexScreener] Fetching token details: https://api.dexscreener.com/latest/dex/tokens/0x596116dccd760fe9160111e274ae22a6b5966d0e
-[api] [DexScreener] Found 30 pairs for 0x18d0e455b3491e09210292d3953157a4bf104444
-[api] [DexScreener] Found 30 pairs for 0x18d0e455b3491e09210292d3953157a4bf104444
-[api] [DexScreener] Found 2 pairs for 0x44445d8fe10515e7dc63a9331832d5f0264e9431
-[api] [DexScreener] Found 1 pairs for 0x40c10dc56438c424ba24f102d719b8bb3bef4444
-[api] [DexScreener] Found 2 pairs for 0x44445d8fe10515e7dc63a9331832d5f0264e9431
-[api] [DexScreener] Found 1 pairs for 0x581466363fe17a02ac89f354cb0f4ec3186574df
-[api] [DexScreener] Found 1 pairs for 0x596116dccd760fe9160111e274ae22a6b5966d0e
-[api] [DexScreener] Found 1 pairs for 0x40c10dc56438c424ba24f102d719b8bb3bef4444
-[api] [DexScreener] Found 1 pairs for 0x581466363fe17a02ac89f354cb0f4ec3186574df
-[api] [DexScreener] Found 1 pairs for 0x596116dccd760fe9160111e274ae22a6b5966d0e
-[api] [ScanAPI Debug] chain: base, chainId: 8453, etherscanEnabled: true
-[api] [ScanAPI] Available providers for base: [ 'etherscan', 'routescan', 'blockscout' ]
-[api] [ScanAPI Debug] chain: base, chainId: 8453, etherscanEnabled: true
-[api] [ScanAPI] Available providers for base: [ 'etherscan', 'routescan', 'blockscout' ]
-[api] {"level":30,"time":1768307130983,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-f","res":{"statusCode":200},"responseTime":2950.994124997407,"msg":"request completed"}
-[api] {"level":30,"time":1768307131031,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-c","res":{"statusCode":200},"responseTime":3001.7254160009325,"msg":"request completed"}
-[api] [ScanAPI DEBUG] First raw token transfer: {
-[api]   "blockNumber": "40744399",
-[api]   "timeStamp": "1768278145",
-[api]   "hash": "0x969bbc8d08cfe41342160ad4ab3b430fb4091423fa154bab0c54c3e900462892",
-[api]   "nonce": "67",
-[api]   "blockHash": "0x4bf523cf87b6695e7124f02428d7b24fc49a26214dfce11b12932fcc4ef1eda2",
-[api]   "from": "0xd2daa35ae4b2be511c5af00eff156c1221bf02f1",
-[api]   "contractAddress": "0x73c075df1ab92793fd805d6fef83e123f3ddab7a",
-[api]   "to": "0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e",
-[api]   "value": "15000000000000000000",
-[api]   "tokenName": "KAITO KAI",
-[api]   "tokenSymbol": "KAI",
-[api]   "tokenDecimal": "18",
-[api]   "transactionIndex": "21",
-[api]   "gas": "16229528",
-[api]   "gasPrice": "3006517",
-[api]   "gasUsed": "15973642",
-[api]   "cumulativeGasUsed": "20953863",
-[api]   "input": "deprecated",
-[api]   "methodId": "0xac9650d8",
-[api]   "functionName": "multicall(bytes[] data)",
-[api]   "confirmations": "14491"
-[api] }
-[api] [Alchemy DEBUG] First transfer raw data: {
-[api]   "blockNum": "0x26db5cf",
-[api]   "hash": "0x969bbc8d08cfe41342160ad4ab3b430fb4091423fa154bab0c54c3e900462892",
-[api]   "from": "0xd2daa35ae4b2be511c5af00eff156c1221bf02f1",
-[api]   "to": "0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e",
-[api]   "value": 15,
-[api]   "asset": "KAI",
-[api]   "category": "erc20",
-[api]   "rawContract": {
-[api]     "value": null,
-[api]     "address": "0x73c075df1ab92793fd805d6fef83e123f3ddab7a",
-[api]     "decimal": null
-[api]   },
-[api]   "metadata": {
-[api]     "blockTimestamp": "2026-01-13T04:22:25.000Z"
-[api]   }
-[api] }
-[api] [Alchemy DEBUG] First converted transaction: {
-[api]   "txHash": "0x969bbc8d08cfe41342160ad4ab3b430fb4091423fa154bab0c54c3e900462892",
-[api]   "txType": "TRANSFER_IN",
-[api]   "fromAddress": "0xd2daa35ae4b2be511c5af00eff156c1221bf02f1",
-[api]   "toAddress": "0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e",
-[api]   "tokenSymbol": "KAI",
-[api]   "tokenAddress": "0x73c075df1ab92793fd805d6fef83e123f3ddab7a",
-[api]   "amount": "15",
-[api]   "valueUsd": null,
-[api]   "blockNumber": 40744399,
-[api]   "blockTimestamp": "2026-01-13T04:22:25.000Z",
-[api]   "chain": "base"
-[api] }
-[api] [Alchemy] Returning 24 transactions after filtering
-[api] [WalletRoutes] Returning 24 transactions for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
-[api] {"level":30,"time":1768307131383,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-e","res":{"statusCode":200},"responseTime":3351.7507920004427,"msg":"request completed"}
-[api] [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
-[api] [DexScreener Premium] Fetching trending tokens for chain: base, limit: 100
-[api] [DexScreener WS] Connecting to: wss://io.dexscreener.com/dex/screener/v5/pairs/m5/1?rankBy[key]=trendingScoreM5&rankBy[order]=desc&filters[chainIds][0]=base
-[api] [ScanAPI DEBUG] First raw token transfer: {
-[api]   "blockNumber": "40744399",
-[api]   "timeStamp": "1768278145",
-[api]   "hash": "0x969bbc8d08cfe41342160ad4ab3b430fb4091423fa154bab0c54c3e900462892",
-[api]   "nonce": "67",
-[api]   "blockHash": "0x4bf523cf87b6695e7124f02428d7b24fc49a26214dfce11b12932fcc4ef1eda2",
-[api]   "from": "0xd2daa35ae4b2be511c5af00eff156c1221bf02f1",
-[api]   "contractAddress": "0x73c075df1ab92793fd805d6fef83e123f3ddab7a",
-[api]   "to": "0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e",
-[api]   "value": "15000000000000000000",
-[api]   "tokenName": "KAITO KAI",
-[api]   "tokenSymbol": "KAI",
-[api]   "tokenDecimal": "18",
-[api]   "transactionIndex": "21",
-[api]   "gas": "16229528",
-[api]   "gasPrice": "3006517",
-[api]   "gasUsed": "15973642",
-[api]   "cumulativeGasUsed": "20953863",
-[api]   "input": "deprecated",
-[api]   "methodId": "0xac9650d8",
-[api]   "functionName": "multicall(bytes[] data) payable returns (bytes[] results)",
-[api]   "confirmations": "14489"
-[api] }
-[api] [Alchemy DEBUG] First transfer raw data: {
-[api]   "blockNum": "0x26db5cf",
-[api]   "hash": "0x969bbc8d08cfe41342160ad4ab3b430fb4091423fa154bab0c54c3e900462892",
-[api]   "from": "0xd2daa35ae4b2be511c5af00eff156c1221bf02f1",
-[api]   "to": "0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e",
-[api]   "value": 15,
-[api]   "asset": "KAI",
-[api]   "category": "erc20",
-[api]   "rawContract": {
-[api]     "value": null,
-[api]     "address": "0x73c075df1ab92793fd805d6fef83e123f3ddab7a",
-[api]     "decimal": null
-[api]   },
-[api]   "metadata": {
-[api]     "blockTimestamp": "2026-01-13T04:22:25.000Z"
-[api]   }
-[api] }
-[api] [Alchemy DEBUG] First converted transaction: {
-[api]   "txHash": "0x969bbc8d08cfe41342160ad4ab3b430fb4091423fa154bab0c54c3e900462892",
-[api]   "txType": "TRANSFER_IN",
-[api]   "fromAddress": "0xd2daa35ae4b2be511c5af00eff156c1221bf02f1",
-[api]   "toAddress": "0xa386bc9d8f26ab170a847d73226e3e0bceb0fe8e",
-[api]   "tokenSymbol": "KAI",
-[api]   "tokenAddress": "0x73c075df1ab92793fd805d6fef83e123f3ddab7a",
-[api]   "amount": "15",
-[api]   "valueUsd": null,
-[api]   "blockNumber": 40744399,
-[api]   "blockTimestamp": "2026-01-13T04:22:25.000Z",
-[api]   "chain": "base"
-[api] }
-[api] [Alchemy] Returning 24 transactions after filtering
-[api] [WalletRoutes] Returning 24 transactions for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
-[api] {"level":30,"time":1768307132216,"pid":18948,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-g","res":{"statusCode":200},"responseTime":4180.760333999991,"msg":"request completed"}
+# User Input Scenarios for AI Completion System
+
+## 1. SWAP / TRADE Commands (30 variations)
+
+### Basic Swap
+1. Swap 0.01 ETH to 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 at base
+2. Sell 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 to ETH
+3. Swap 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 to ETH at base
+4. Swap USDC to ETH
+5. Swap ETH to USDC
+6. Buy 100 USDC with ETH
+7. Trade 0.5 ETH for USDC
+8. Exchange 1000 USDC to ETH
+9. Convert 0.1 ETH to USDC
+10. Sell all my USDC for ETH
+
+### Partial Input (User typing)
+11. swap 0x833
+12. buy 0x833589
+13. sell USDC
+14. trade 0.5
+15. swap 100
+16. buy ETH
+17. s 0x833
+18. sw
+19. trade
+20. buy
+
+### Natural Language
+21. I want to buy some ETH
+22. Can you swap my USDC to ETH?
+23. Help me trade 0.5 ETH
+24. I need to sell this token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+25. Convert all my ETH to USDC please
+26. Buy me some USDC
+27. Get me 100 USDC
+28. I want to purchase ETH
+29. Sell everything to ETH
+30. Trade my tokens to ETH
+
+## 2. TOKEN INFO / PRICE Commands (25 variations)
+
+### Price Queries
+31. Tell me ETH price
+32. What's the ETH price
+33. What's the price of 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+34. Price of USDC
+35. How much is ETH?
+36. ETH price now
+37. Current price of 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+38. Check ETH price
+39. Show me USDC price
+40. What is the current ETH value?
+
+### Token Info
+41. Token info 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+42. Info about this token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+43. Tell me about ETH
+44. What is this token? 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+45. Details of USDC
+46. Show token details 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+47. Get info on ETH
+48. Token details for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+49. What's this? 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+50. Analyze this token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+
+### Chart / History
+51. Chart for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+52. Show me ETH chart
+53. Price history of USDC
+54. Graph for this token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+55. Historical data for ETH
+
+## 3. COPY TRADE Commands (15 variations)
+
+56. Copy trade this wallet 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+57. When this 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 buy a token buy me $10 TL100% ST50%
+58. Copy trade 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 buy me $10 TL100% ST50%
+59. List my all copy trade config
+60. Mirror this wallet 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+61. Follow this trader 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+62. Copy 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 trades
+63. Set up copy trading for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+64. Start copying 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+65. Show my copy trades
+66. List active copy trades
+67. Stop copy trading 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+68. Pause all copy trades
+69. Delete copy trade config
+70. Update copy trade settings
+
+## 4. RISK / ANALYSIS Commands (15 variations)
+
+71. Check this 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 risk
+72. Check this 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 early buyer
+73. How is the 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 early buyer?
+74. Check this 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 PNL
+75. Risk analysis for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+76. Is this token safe? 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+77. Audit this contract 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+78. Security check 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+79. Who are the early buyers of 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913?
+80. Show me snipers for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+81. Whale holders of 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+82. Top holders 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+83. Contract audit 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+84. Is this a honeypot? 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+85. Rug check 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+
+## 5. POLYMARKET / BETTING Commands (10 variations)
+
+86. Tell me trending bet
+87. I want bet YES at this order
+88. Take a YES order at this order
+89. Sell my YES order
+90. Sell my Bet order
+91. Show me trending predictions
+92. What are the hot bets?
+93. Place a bet on YES
+94. Buy NO shares
+95. Close my position
+
+## 6. TRENDING / MARKET Commands (15 variations)
+
+96. What's the trending token at Bsc?
+97. Bsc trending token
+98. Show me trending tokens
+99. Top tokens on Base
+100. What's hot on Ethereum?
+101. Trending on Solana
+102. Top movers today
+103. Best performing tokens
+104. What's pumping?
+105. Show me gainers
+106. Trending tokens on ETH
+107. Hot tokens right now
+108. What should I buy?
+109. Top 10 tokens
+110. Market overview
+
+## 11. DEGEN TRADER PERSONA (20 variations)
+141. aping into this shitcoin 0x...
+142. wen moon? check chart 0x...
+143. is this a rug? 0x...
+144. snipe this launch 0x...
+145. fomo buying 0x...
+146. bridge to base fast
+147. gas is killing me, check price
+148. any new alpha?
+150. pump it 0x...
+151. sell high buy low 0x...
+152. swap max to 0x...
+153. full send 1 ETH to 0x...
+154. checking honeypot status 0x...
+155. rekt check 0x...
+156. who's buying this trash? 0x...
+157. early entry 0x...
+158. moonbag check 0x...
+159. liquidity locked? 0x...
+160. ape in 0.1 ETH 0x...
+
+## 12. WHALE / INSTITUTIONAL PERSONA (20 variations)
+161. Analyze liquidity depth for 0x...
+162. Large holder distribution 0x...
+163. Monitor large transactions on Base
+164. Executive summary for token 0x...
+165. Risk assessment report 0x...
+166. Verify contract audit 0x...
+167. Portfolio allocation overview
+168. Cross-chain asset breakdown
+169. Simulate volume impact for 100 ETH swap
+170. Check slippage for large order 0x...
+171. Whale wallet movements tracking
+172. Institutional accumulation patterns 0x...
+173. Smart money flow analysis
+174. Top 10 wallet analysis 0x...
+175. Market cap vs FDV ratio 0x...
+176. Treasury analysis 0x...
+177. Governance participation report
+178. Private sale vesting schedule
+179. Liquidity provider analysis
+180. Macro market correlation
+
+## 13. SNIPER / BOT OPERATOR PERSONA (20 variations)
+181. Set auto-buy limit 0x...
+182. Configure copy trade for wallet 0x...
+183. Stop loss settings update
+184. Trailing buy configuration
+185. Max gas price limit set
+186. Anti-rug protection enable
+187. Pending tx pool scan
+188. Front-run protection check
+189. Snipe liquidity add 0x...
+190. Auto-sell on 2x target
+191. Scan new pairs instantly
+192. Filter contracts by verified
+193. Blacklist dev wallet 0x...
+194. Whitelist my wallet
+195. Set bribery fees
+196. Monitor mempool
+197. Rapid fire buy 0x...
+198. Multi-wallet buy execute
+199. Profit taking strategy set
+200. Emergency exit all positions
+
+## 14. DATA ANALYST PERSONA (20 variations)
+201. Export transaction history csv
+202. Graph price vs volume 0x...
+203. Correlation coefficient BTC-ETH
+204. Moving average crossover check
+205. RSI indicator status 0x...
+206. Volume profile analysis
+207. On-chain metrics summary
+208. Holder retention rate 0x...
+209. Average buy price calculation
+210. Realized vs Unrealized PnL
+211. Gas usage efficiency report
+212. Network congestion historical data
+213. Token velocity metrics
+214. Active address count trend
+215. Developer activity GitHub
+216. Social sentiment score vs price
+217. TVL growth rate
+218. Burn rate analysis
+219. Inflation schedule check
+220. Yield farming ROI calc
+
+## 15. SOCIAL / COMMUNITY MANAGER PERSONA (20 variations)
+221. What's the sentiment on Farcaster for 0x...
+222. Identify key influencers talking about 0x...
+223. Viral cast alerts setup
+224. Community engagement metrics
+225. Trending hashtags today
+226. Share price chart to Farcaster
+227. Mention alerts for $TICKER
+228. Top caster analysis
+229. Channel activity report
+230. Bot activity filter
+231. Sentiment timeline graph
+232. Most active time of day
+233. Top engaged users list
+234. Cross-platform trends (X vs FC)
+235. Meme velocity check
+236. Community growth rate
+237. FUD detection alert
+238. Hype cycle stage analysis
+239. Key opinion leader (KOL) tracker
+240. Social volume spike alert
