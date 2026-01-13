@@ -288,19 +288,133 @@ export async function getEvmTokenTransfers(
             // Find chain config
             const chainConfig = Object.values(CHAINS).find(c => c.name.toLowerCase() === chain.toLowerCase());
 
-            return rawTxs.map((tx: any) => ({
-                txHash: tx.hash,
-                txType: tx.from.toLowerCase() === address.toLowerCase() ? 'TRANSFER_OUT' : 'TRANSFER_IN',
-                fromAddress: tx.from,
-                toAddress: tx.to,
-                tokenSymbol: tx.tokenSymbol || chainConfig?.nativeCurrency.symbol || 'ETH',
-                tokenAddress: tx.contractAddress, // Token contract
-                amount: (Number(tx.value) / Math.pow(10, parseInt(tx.tokenDecimal || '18'))).toString(),
-                valueUsd: null,
-                blockNumber: parseInt(tx.blockNumber, 10),
-                blockTimestamp: new Date(parseInt(tx.timeStamp, 10) * 1000),
-                chain: chain.toLowerCase()
-            }));
+            // DEBUG: Log first raw transaction
+            if (rawTxs.length > 0) {
+                console.log('[ScanAPI DEBUG] First raw token transfer:', JSON.stringify(rawTxs[0], null, 2));
+            }
+
+            // Filter and map transactions
+            return rawTxs
+                .filter((tx: any) => {
+                    // Filter out spam/scam tokens
+                    const symbol = tx.tokenSymbol || '';
+                    const name = tx.tokenName || '';
+
+                    // Skip if symbol is empty, "UNKNOWN", or contains suspicious patterns
+                    if (!symbol || symbol === 'UNKNOWN' || symbol.length > 20) return false;
+
+                    // Skip tokens with suspicious names (common scam patterns)
+                    const suspiciousPatterns = [
+                        'visit', 'claim', 'reward', 'airdrop', 'bonus',
+                        'http', 'www', '.com', 'free', 'winner'
+                    ];
+                    const lowerName = name.toLowerCase();
+                    const lowerSymbol = symbol.toLowerCase();
+                    if (suspiciousPatterns.some(p => lowerName.includes(p) || lowerSymbol.includes(p))) {
+                        return false;
+                    }
+
+                    return true;
+                })
+                .map((tx: any) => {
+                    // Parse decimals safely
+                    const decimals = parseInt(tx.tokenDecimal || '18', 10);
+                    const value = tx.value || '0';
+
+                    // Calculate amount correctly
+                    let amount = '0';
+                    try {
+                        // Handle very large numbers using BigInt
+                        const valueBigInt = BigInt(value);
+                        const divisor = BigInt(10 ** decimals);
+                        const amountBigInt = valueBigInt / divisor;
+                        const remainder = valueBigInt % divisor;
+
+                        // Format with decimals
+                        if (remainder === 0n) {
+                            amount = amountBigInt.toString();
+                        } else {
+                            const fractional = Number(remainder) / Number(divisor);
+                            amount = (Number(amountBigInt) + fractional).toFixed(6);
+                        }
+                    } catch (e) {
+                        // Fallback for very large numbers
+                        amount = (Number(value) / Math.pow(10, decimals)).toString();
+                    }
+
+                    return {
+                        txHash: tx.hash,
+                        txType: tx.from.toLowerCase() === address.toLowerCase() ? 'TRANSFER_OUT' : 'TRANSFER_IN',
+                        fromAddress: tx.from,
+                        toAddress: tx.to,
+                        tokenSymbol: tx.tokenSymbol || 'UNKNOWN',
+                        tokenAddress: tx.contractAddress,
+                        amount,
+                        valueUsd: null,
+                        blockNumber: parseInt(tx.blockNumber, 10),
+                        blockTimestamp: new Date(parseInt(tx.timeStamp, 10) * 1000),
+                        chain: chain.toLowerCase()
+                    };
+                });
+
+            // DEBUG: Log first converted transaction
+            const converted = rawTxs
+                .filter((tx: any) => {
+                    const symbol = tx.tokenSymbol || '';
+                    const name = tx.tokenName || '';
+                    if (!symbol || symbol === 'UNKNOWN' || symbol.length > 20) return false;
+                    const suspiciousPatterns = [
+                        'visit', 'claim', 'reward', 'airdrop', 'bonus',
+                        'http', 'www', '.com', 'free', 'winner'
+                    ];
+                    const lowerName = name.toLowerCase();
+                    const lowerSymbol = symbol.toLowerCase();
+                    if (suspiciousPatterns.some(p => lowerName.includes(p) || lowerSymbol.includes(p))) {
+                        return false;
+                    }
+                    return true;
+                })
+                .map((tx: any) => {
+                    const decimals = parseInt(tx.tokenDecimal || '18', 10);
+                    const value = tx.value || '0';
+                    let amount = '0';
+                    try {
+                        const valueBigInt = BigInt(value);
+                        const divisor = BigInt(10 ** decimals);
+                        const amountBigInt = valueBigInt / divisor;
+                        const remainder = valueBigInt % divisor;
+                        if (remainder === 0n) {
+                            amount = amountBigInt.toString();
+                        } else {
+                            const fractional = Number(remainder) / Number(divisor);
+                            amount = (Number(amountBigInt) + fractional).toFixed(6);
+                        }
+                    } catch (e) {
+                        amount = (Number(value) / Math.pow(10, decimals)).toString();
+                    }
+
+                    const txType: WalletTransaction['txType'] = tx.from.toLowerCase() === address.toLowerCase() ? 'TRANSFER_OUT' : 'TRANSFER_IN';
+
+                    return {
+                        txHash: tx.hash,
+                        txType,
+                        fromAddress: tx.from,
+                        toAddress: tx.to,
+                        tokenSymbol: tx.tokenSymbol || 'UNKNOWN',
+                        tokenAddress: tx.contractAddress,
+                        amount,
+                        valueUsd: null,
+                        blockNumber: parseInt(tx.blockNumber, 10),
+                        blockTimestamp: new Date(parseInt(tx.timeStamp, 10) * 1000),
+                        chain: chain.toLowerCase()
+                    };
+                });
+
+            if (converted.length > 0) {
+                console.log('[ScanAPI DEBUG] First converted transaction:', JSON.stringify(converted[0], null, 2));
+            }
+
+            return converted;
 
         } catch (error: any) {
             lastError = error;

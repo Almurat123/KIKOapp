@@ -389,28 +389,51 @@ const KNOWN_DEX_ROUTERS: Record<string, string[]> = {
   'eth': [
     '0x7a250d5630b4cf539739df2c5dacb4c659f2488d', // Uniswap V2 Router
     '0xe592427a0aece92de3edee1f18e0157c05861564', // Uniswap V3 Router
+    '0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45', // Uniswap V3 Router 2
     '0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f', // SushiSwap Router
-    '0x1111111254fb6c44bac0bed2854e76f90643097d', // 1inch Router
+    '0x1111111254fb6c44bac0bed2854e76f90643097d', // 1inch V5 Router
+    '0x1111111254eeb25477b68fb85ed929f73a960582', // 1inch V4 Router
     '0xdef1c0ded9bec7f1a1670819833240f027b25eff', // 0x Exchange Proxy
+    '0xdef189deaef76e379df891899eb5a00a94cbc250', // 0x Exchange Proxy (old)
+    '0x881d40237659c251811cec9c364ef91dc08d300c', // Metamask Swap Router
+    '0x6352a56caadc4f1e25cd6c75970fa768a3304e64', // OpenOcean Router
   ],
   'base': [
     '0x2626664c2603336e57b271c5c0b26f421741e481', // Uniswap V3 Router (Base)
+    '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24', // BaseSwap Router
     '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43', // Aerodrome Router
+    '0x1111111254eeb25477b68fb85ed929f73a960582', // 1inch Router
+    '0xdef1c0ded9bec7f1a1670819833240f027b25eff', // 0x Exchange Proxy
   ],
   'arbitrum': [
     '0xe592427a0aece92de3edee1f18e0157c05861564', // Uniswap V3 Router
+    '0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45', // Uniswap V3 Router 2
     '0x1111111254fb6c44bac0bed2854e76f90643097d', // 1inch Router
+    '0x1111111254eeb25477b68fb85ed929f73a960582', // 1inch V4 Router
+    '0xdef1c0ded9bec7f1a1670819833240f027b25eff', // 0x Exchange Proxy
+    '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506', // SushiSwap Router
   ],
   'optimism': [
     '0xe592427a0aece92de3edee1f18e0157c05861564', // Uniswap V3 Router
+    '0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45', // Uniswap V3 Router 2
+    '0x1111111254eeb25477b68fb85ed929f73a960582', // 1inch Router
+    '0xdef1c0ded9bec7f1a1670819833240f027b25eff', // 0x Exchange Proxy
   ],
   'polygon': [
     '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506', // SushiSwap Router
     '0xa5e0829caced8ffdd4de3c43696c57f7d7a678ff', // QuickSwap Router
+    '0xe592427a0aece92de3edee1f18e0157c05861564', // Uniswap V3 Router
+    '0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45', // Uniswap V3 Router 2
+    '0x1111111254eeb25477b68fb85ed929f73a960582', // 1inch Router
+    '0xdef1c0ded9bec7f1a1670819833240f027b25eff', // 0x Exchange Proxy
   ],
   'bsc': [
     '0x10ed43c718714eb63d5aa57b78b54704e256024e', // PancakeSwap V2 Router
     '0x13f4ea83d0bd40e75c8222255bc855a974568dd4', // PancakeSwap V3 Router
+    '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506', // SushiSwap Router
+    '0x1111111254eeb25477b68fb85ed929f73a960582', // 1inch Router
+    '0xdef1c0ded9bec7f1a1670819833240f027b25eff', // 0x Exchange Proxy
+    '0x6352a56caadc4f1e25cd6c75970fa768a3304e64', // OpenOcean Router
   ],
 };
 
@@ -876,112 +899,111 @@ export async function getWalletTransactions(
     return solTxs;
   }
 
-  // Use Scan API for EVM chains (Etherscan/RouteScan/Blockscout)
+  // Use Alchemy's getAssetTransfers API for EVM chains (more accurate)
   try {
-    const scanApi = await import('./scanApi.js');
+    console.log(`[Alchemy] Using getAssetTransfers for ${chain}...`);
 
-    // Fetch both native and token transactions in parallel
-    const [nativeTxs, tokenTxs] = await Promise.all([
-      scanApi.getEvmTransactions(address, chain, 1, limit).catch(err => {
-        console.warn(`[Alchemy] Failed to fetch EVM native txs: ${err.message}`);
-        return [];
-      }),
-      scanApi.getEvmTokenTransfers(address, chain, 1, limit).catch(err => {
-        console.warn(`[Alchemy] Failed to fetch EVM token transfers: ${err.message}`);
-        return [];
-      })
-    ]);
-
-    // Merge and Deduplicate
-    // Strategy: Create a map of txHash -> Transaction. 
-    // If a collision occurs (same hash), prioritize Token Transfer if the native one looks like a generic call (0 value or just gas).
-
-    const txMap = new Map<string, WalletTransaction>();
-
-    // 1. Add Native Txs first
-    for (const tx of nativeTxs) {
-      txMap.set(tx.txHash, tx);
-    }
-
-    // 2. Overlay Token Txs (Prioritize them for display info)
-    for (const tx of tokenTxs) {
-      // If we already have this hash from native...
-      if (txMap.has(tx.txHash)) {
-        const existing = txMap.get(tx.txHash)!;
-        // If the existing native tx has 0 value, it's likely just the wrapper for this token transfer.
-        // We overwrite it with the token tx which has the useful symbol/amount.
-        if (existing.amount === '0' || existing.amount === '0.0') {
-          txMap.set(tx.txHash, tx);
-        } else {
-          // If native tx has value (e.g. swap ETH -> Token), we might want to keep both or merge?
-          // For a simple list, let's keep the Token one as it's usually what the user cares about (the asset moved).
-          // Or, strictly, a swap is ONE transaction. Showing the token part is usually better than "0 ETH".
-          txMap.set(tx.txHash, tx);
-        }
-      } else {
-        // New transaction (only token transfer, no native found - rare but possible if internal)
-        txMap.set(tx.txHash, tx);
-      }
-    }
-
-    // Convert back to array
-    const mergedTxs = Array.from(txMap.values());
-
-    // Sort by timestamp descending
-    mergedTxs.sort((a, b) => b.blockTimestamp.getTime() - a.blockTimestamp.getTime());
-
-    // Slice to limit
-    const finalTxs = mergedTxs.slice(0, limit);
-
-    // Enrich EVM transactions with price data
-    const tokenAddresses = [...new Set(
-      finalTxs
-        .filter(tx => tx.tokenAddress && tx.tokenSymbol !== 'ETH' && tx.tokenSymbol !== 'BNB')
-        .map(tx => tx.tokenAddress!)
-    )];
-
-    if (tokenAddresses.length > 0) {
-      const priceMap = new Map<string, number>();
-      const tokensToFetch = tokenAddresses.slice(0, 5); // Limit to avoid timeout
-
-      console.log(`[EVM] Fetching prices for ${tokensToFetch.length} tokens on ${chain}...`);
-
-      await Promise.allSettled(
-        tokensToFetch.map(async (addr) => {
-          try {
-            const details = await dexscreener.getTokenDetails(chain, addr);
-            if (details && details.price > 0) {
-              priceMap.set(addr.toLowerCase(), details.price);
-              console.log(`[EVM] Price for ${details.symbol || addr}: $${details.price}`);
-            }
-          } catch (e) {
-            // Ignore price fetch errors
-          }
-        })
-      );
-
-      // Enrich transactions with valueUsd
-      for (const tx of finalTxs) {
-        const amount = parseFloat(tx.amount) || 0;
-        if (amount > 0 && tx.tokenAddress && priceMap.has(tx.tokenAddress.toLowerCase())) {
-          tx.valueUsd = amount * priceMap.get(tx.tokenAddress.toLowerCase())!;
-        }
-      }
-    }
-
-    return finalTxs;
-
-  } catch (error) {
-    console.warn(`[Alchemy] ScanAPI failed for ${chain}, falling back to legacy asset transfers:`, error);
-
-    // Fallback to legacy Alchemy Asset Transfers
+    // Fetch asset transfers using Alchemy API
     const transfers = await getAssetTransfers(address, chain, {
       maxCount: limit,
       category: ['external', 'erc20'],
       order: 'desc',
     });
 
-    return convertToWalletTransactions(transfers, address, chain);
+    if (!transfers || transfers.length === 0) {
+      console.log(`[Alchemy] No transfers found, trying ScanAPI fallback...`);
+      throw new Error('No transfers from Alchemy, trying fallback');
+    }
+
+    // DEBUG: Log first transfer to see data format
+    if (transfers.length > 0) {
+      console.log('[Alchemy DEBUG] First transfer raw data:', JSON.stringify(transfers[0], null, 2));
+    }
+
+    // Convert to WalletTransaction format
+    let transactions = convertToWalletTransactions(transfers, address, chain);
+
+    // DEBUG: Log first converted transaction
+    if (transactions.length > 0) {
+      console.log('[Alchemy DEBUG] First converted transaction:', JSON.stringify(transactions[0], null, 2));
+    }
+
+    // Filter out spam/scam tokens
+    transactions = transactions.filter(tx => {
+      // Keep native transfers
+      if (!tx.tokenAddress) return true;
+
+      const symbol = tx.tokenSymbol || '';
+      const suspiciousPatterns = [
+        'visit', 'claim', 'reward', 'airdrop', 'bonus',
+        'http', 'www', '.com', 'free', 'winner', 'unknown'
+      ];
+
+      // Skip if symbol is suspicious
+      if (!symbol || symbol.length > 20) return false;
+      const lowerSymbol = symbol.toLowerCase();
+      if (suspiciousPatterns.some(p => lowerSymbol.includes(p))) return false;
+
+      return true;
+    });
+
+    console.log(`[Alchemy] Returning ${transactions.length} transactions after filtering`);
+    return transactions;
+
+  } catch (error) {
+    console.warn(`[Alchemy] getAssetTransfers failed, falling back to ScanAPI:`, error);
+
+    // Fallback to Scan API only if Alchemy fails
+    try {
+      const scanApi = await import('./scanApi.js');
+
+      // Fetch both native and token transactions in parallel
+      const [nativeTxs, tokenTxs] = await Promise.all([
+        scanApi.getEvmTransactions(address, chain, 1, limit).catch(err => {
+          console.warn(`[Alchemy] Failed to fetch EVM native txs: ${err.message}`);
+          return [];
+        }),
+        scanApi.getEvmTokenTransfers(address, chain, 1, limit).catch(err => {
+          console.warn(`[Alchemy] Failed to fetch EVM token transfers: ${err.message}`);
+          return [];
+        })
+      ]);
+
+      // Merge and Deduplicate
+      const txMap = new Map<string, WalletTransaction>();
+
+      // 1. Add Native Txs first
+      for (const tx of nativeTxs) {
+        txMap.set(tx.txHash, tx);
+      }
+
+      // 2. Overlay Token Txs (Prioritize them for display info)
+      for (const tx of tokenTxs) {
+        if (txMap.has(tx.txHash)) {
+          const existing = txMap.get(tx.txHash)!;
+          if (existing.amount === '0' || existing.amount === '0.0') {
+            txMap.set(tx.txHash, tx);
+          } else {
+            txMap.set(tx.txHash, tx);
+          }
+        } else {
+          txMap.set(tx.txHash, tx);
+        }
+      }
+
+      // Convert back to array
+      const mergedTxs = Array.from(txMap.values());
+
+      // Sort by timestamp descending
+      mergedTxs.sort((a, b) => b.blockTimestamp.getTime() - a.blockTimestamp.getTime());
+
+      // Slice to limit
+      return mergedTxs.slice(0, limit);
+
+    } catch (scanError) {
+      console.error(`[Alchemy] Both Alchemy and ScanAPI failed:`, scanError);
+      return [];
+    }
   }
 }
 
@@ -1212,7 +1234,8 @@ export async function getPortfolio(
                   symbol: t.symbol || 'UNKNOWN',
                   name: t.name || 'Unknown Token',
                   decimals: t.decimals || 18,
-                  logo: t.metadata?.logo || ''
+                  logo: t.metadata?.logo || '',
+                  price: t.price || undefined // Store Alchemy price if available
                 };
                 tokens.push(tempToken);
                 tokensToEnrich.push(tempToken);
@@ -1221,37 +1244,58 @@ export async function getPortfolio(
 
             results[chainKey] = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
 
-            // Enrich metadata for top 10 tokens per chain
+            // Enrich metadata ONLY for tokens with Alchemy price (top 20)
+            // This reduces unnecessary API calls to DexScreener
             if (tokensToEnrich.length > 0) {
               const chainName = chainKey;
-              await Promise.allSettled(
-                tokensToEnrich.slice(0, 10).map(async (token) => {
-                  try {
-                    const details = await dexscreener.getTokenDetails(chainName, token.contractAddress);
-                    if (details) {
-                      token.symbol = details.symbol || token.symbol;
-                      token.name = details.name || token.name;
-                      token.decimals = details.decimals || token.decimals;
-                      token.logo = details.imageUrl || token.logo;
-                      token.price = details.price; // Store price from DexScreener
-                      (token as any)._enriched = true;
+
+              // First pass: Calculate USD value for tokens with Alchemy price
+              tokensToEnrich.forEach(token => {
+                const balBigInt = BigInt(token.tokenBalance.startsWith('0x') ? token.tokenBalance : '0x0');
+                const balance = Number(balBigInt) / (10 ** token.decimals);
+                token.tokenBalance = balance.toString();
+
+                if (token.price) {
+                  (token as any)._usdValue = balance * token.price;
+                  (token as any)._priceSource = 'alchemy';
+                }
+              });
+
+              // Only enrich top tokens without price (limit to 5 to avoid rate limits)
+              const tokensNeedingPrice = tokensToEnrich
+                .filter(t => !t.price)
+                .slice(0, 5);
+
+              if (tokensNeedingPrice.length > 0) {
+                await Promise.allSettled(
+                  tokensNeedingPrice.map(async (token) => {
+                    try {
+                      const details = await dexscreener.getTokenDetails(chainName, token.contractAddress);
+                      if (details && details.price) {
+                        token.symbol = details.symbol || token.symbol;
+                        token.name = details.name || token.name;
+                        token.logo = details.imageUrl || token.logo;
+                        token.price = details.price;
+                        const balance = parseFloat(token.tokenBalance || '0');
+                        (token as any)._usdValue = balance * details.price;
+                        (token as any)._priceSource = 'dexscreener';
+                      }
+                    } catch (e) {
+                      // Silently fail for tokens we can't enrich
                     }
-                    // Recalculate balance with possibly new decimals
-                    const balBigInt = BigInt(token.tokenBalance.startsWith('0x') ? token.tokenBalance : '0x0');
-                    token.tokenBalance = (Number(balBigInt) / (10 ** token.decimals)).toString();
-                  } catch (e) { }
-                })
-              );
+                  })
+                );
+              }
 
-              // SPAM FILTER: Discard tokens without price data AND no Alchemy metadata/enrichment
+              // SPAM FILTER: Only keep tokens with USD value >= $1
+              // This filters out dust and spam tokens
+              const MIN_USD_VALUE = 1.0;
               results[chainKey].tokens = results[chainKey].tokens.filter(tk => {
-                const hasPrice = tk.price && parseFloat(tk.price.toString()) > 0;
-                const hasMeta = tk.symbol !== 'UNKNOWN';
-                const enriched = (tk as any)._enriched;
+                const usdValue = (tk as any)._usdValue || 0;
+                const hasMeta = tk.symbol && tk.symbol !== 'UNKNOWN';
 
-                // Keep if it has price OR is legitimate metadata + low value/new (maybe?)
-                // User said: "those without price should be filtered out"
-                return hasPrice;
+                // Keep if USD value >= $1 AND has valid metadata
+                return usdValue >= MIN_USD_VALUE && hasMeta;
               });
             }
           }
@@ -1307,7 +1351,8 @@ export async function getPortfolio(
                   symbol: t.symbol || 'UNKNOWN',
                   name: t.name || 'Unknown Token',
                   decimals: t.decimals || 9,
-                  logo: t.metadata?.logo || ''
+                  logo: t.metadata?.logo || '',
+                  price: t.price || undefined // Store Alchemy price if available
                 };
                 tokens.push(tempToken);
                 tokensToEnrich.push(tempToken);
@@ -1315,31 +1360,53 @@ export async function getPortfolio(
             });
             results.solana = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
 
-            // Enrich metadata for top 10 tokens per chain
+            // Enrich metadata ONLY for tokens with Alchemy price (Solana)
             if (tokensToEnrich.length > 0) {
-              await Promise.allSettled(
-                tokensToEnrich.slice(0, 10).map(async (token) => {
-                  try {
-                    const details = await dexscreener.getTokenDetails('solana', token.contractAddress);
-                    if (details) {
-                      token.symbol = details.symbol || token.symbol;
-                      token.name = details.name || token.name;
-                      token.decimals = details.decimals || token.decimals;
-                      token.logo = details.imageUrl || token.logo;
-                      (token as any)._enriched = true;
-                    }
-                    // Recalculate balance with possibly new decimals
-                    const balBigInt = BigInt(token.tokenBalance.startsWith('0x') ? token.tokenBalance : '0x0');
-                    token.tokenBalance = (Number(balBigInt) / (10 ** token.decimals)).toString();
-                  } catch (e) { }
-                })
-              );
+              // First pass: Calculate USD value for tokens with Alchemy price
+              tokensToEnrich.forEach(token => {
+                const balBigInt = BigInt(token.tokenBalance.startsWith('0x') ? token.tokenBalance : '0x0');
+                const balance = Number(balBigInt) / (10 ** token.decimals);
+                token.tokenBalance = balance.toString();
 
-              // SPAM FILTER: Solana
+                if (token.price) {
+                  (token as any)._usdValue = balance * token.price;
+                  (token as any)._priceSource = 'alchemy';
+                }
+              });
+
+              // Only enrich top tokens without price (limit to 5)
+              const tokensNeedingPrice = tokensToEnrich
+                .filter(t => !t.price)
+                .slice(0, 5);
+
+              if (tokensNeedingPrice.length > 0) {
+                await Promise.allSettled(
+                  tokensNeedingPrice.map(async (token) => {
+                    try {
+                      const details = await dexscreener.getTokenDetails('solana', token.contractAddress);
+                      if (details && details.price) {
+                        token.symbol = details.symbol || token.symbol;
+                        token.name = details.name || token.name;
+                        token.logo = details.imageUrl || token.logo;
+                        token.price = details.price;
+                        const balance = parseFloat(token.tokenBalance || '0');
+                        (token as any)._usdValue = balance * details.price;
+                        (token as any)._priceSource = 'dexscreener';
+                      }
+                    } catch (e) {
+                      // Silently fail
+                    }
+                  })
+                );
+              }
+
+              // SPAM FILTER: Only keep tokens with USD value >= $1
+              const MIN_USD_VALUE = 1.0;
               results.solana.tokens = results.solana.tokens.filter(tk => {
-                const hasMeta = tk.symbol !== 'UNKNOWN';
-                const enriched = (tk as any)._enriched;
-                return hasMeta || enriched;
+                const usdValue = (tk as any)._usdValue || 0;
+                const hasMeta = tk.symbol && tk.symbol !== 'UNKNOWN';
+
+                return usdValue >= MIN_USD_VALUE && hasMeta;
               });
             }
           }
