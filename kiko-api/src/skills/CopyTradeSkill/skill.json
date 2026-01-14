@@ -1,0 +1,30 @@
+{
+    "id": "copy_trade",
+    "name": "Copy Trade",
+    "description": "On-chain copy trading management, including creating, listing, deleting, and pausing configs.",
+    "intents": [
+        "COPY_TRADING"
+    ],
+    "tools": [
+        "create_copy_trade_config",
+        "list_copy_trade_configs",
+        "delete_copy_trade_config",
+        "pause_copy_trade_config"
+    ],
+    "examples": {
+        "en": [
+            "Copy trade this wallet: 0x...",
+            "List my copy trade configurations",
+            "Pause my copy trade for 0x...",
+            "Delete my copy trade config",
+            "Stop following this trader"
+        ],
+        "zh": [
+            "跟单此钱包：0x...",
+            "列出我的跟单配置",
+            "暂停 0x... 的跟单",
+            "删除我的跟单配置",
+            "停止跟随此交易员"
+        ]
+    }
+}

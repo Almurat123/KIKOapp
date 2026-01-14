@@ -105,6 +105,21 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
             >
                 <div className={styles.suggestionContent}>
                     {(() => {
+                        // 1. Special rendering for Progressive Paste Prompt
+                        if (item.label.includes('[Paste Contract Address]')) {
+                            const parts = item.label.split('[Paste Contract Address]');
+                            return (
+                                <>
+                                    <span className={styles.suggestionLabel}>
+                                        {parts[0]}
+                                        <span style={{ opacity: 0.5, fontStyle: 'italic' }}>[Paste Contract Address]</span>
+                                        {parts[1]}
+                                    </span>
+                                </>
+                            );
+                        }
+
+                        // 2. Standard Logic (Highlighting or Plain)
                         if (!item.matchedIndices || item.matchedIndices.length === 0) {
                             return (
                                 <>
@@ -116,6 +131,7 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
                             );
                         }
 
+                        // 3. Matched Indices Logic
                         const elements: React.ReactNode[] = [];
                         const sorted = [...item.matchedIndices].sort((a, b) => a - b);
                         let lastIdx = 0;
@@ -133,6 +149,7 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
                         });
 
                         if (lastIdx < item.label.length) elements.push(item.label.slice(lastIdx));
+
                         return (
                             <>
                                 <span className={styles.suggestionLabel}>{elements}</span>

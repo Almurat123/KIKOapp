@@ -18,6 +18,7 @@ async function runCheck(): Promise<void> {
     if (!isRunning) return;
 
     try {
+        console.log('[PositionMonitor] 🔄 Running position check...');
         await checkPositionsForExits();
     } catch (error) {
         console.error('[PositionMonitor] Error checking positions:', error);

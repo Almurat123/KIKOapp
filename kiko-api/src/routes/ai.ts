@@ -786,6 +786,34 @@ NEVER fabricate data.
         }
     );
 
+    // Skills metadata endpoint for frontend
+    fastify.get('/agent/skills', async (request, reply) => {
+        try {
+            const { skillRegistry } = await import('../skills/registry.js');
+            const allSkills = skillRegistry.getAllSkills();
+
+            // Transform skills into frontend-friendly format
+            const skillsMetadata = allSkills.map(skill => ({
+                id: skill.metadata.id,
+                name: skill.metadata.name,
+                description: skill.metadata.description,
+                examples: skill.metadata.examples,
+                tools: skill.metadata.tools
+            }));
+
+            return reply.send({
+                skills: skillsMetadata,
+                count: skillsMetadata.length
+            });
+        } catch (error: any) {
+            fastify.log.error('Error fetching skills:', error);
+            return reply.code(500).send({
+                error: 'Failed to fetch skills',
+                message: error.message
+            });
+        }
+    });
+
     fastify.get('/health', async (request, reply) => {
         try {
             const apiKey = getDeepSeekApiKey();

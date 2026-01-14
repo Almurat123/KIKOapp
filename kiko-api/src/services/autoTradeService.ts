@@ -6,7 +6,7 @@
 import { ethers } from 'ethers';
 import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
-import { onSwapDetected, startWatcher } from './watcherService.js';
+import { onSwapDetected } from './watcherService.js';
 import { executeSwapInstant, executeSellInstant } from './tradeExecutor.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
@@ -22,15 +22,17 @@ import { getSolanaEmbeddedWalletAddress } from './privyWallet.js';
 import { analyzeTradeOpportunity } from './copyTradeAnalysisService.js';
 import { createMessage, createSession } from '../repositories/chatRepository.js';
 import { ChatWebSocketService } from './chatWebSocket.js';
-import { v4 as uuidv4 } from 'uuid';
 import { env } from '../config/env.js';
 import { sendTradeNotification } from './emailService.js';
 import { PrivyClient } from '@privy-io/server-auth';
 import { recordNewTrade } from './leaderWalletStatsService.js';
 import { trackCopyTrade, trackSwap } from './userActivityService.js';
 import { getTokenDetails } from './geckoTerminal.js';
-import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
+import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
+
+// Track positions currently being processed for exit to prevent duplicate attempts
+const positionsBeingExited = new Set<string>();
 
 // ... (previous functions remain)
 
@@ -55,7 +57,6 @@ export async function handleSwapDetected(
 
     const chainConfig = getChainConfig(chainId);
 
-    // Stablecoin/ETH addresses (what we consider "cash out")
     // Stablecoin/ETH addresses (what we consider "cash out")
     const NATIVE_ETH = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
@@ -214,6 +215,7 @@ async function processBuyWithInfo(
     const chainConfig = getChainConfig(chainId);
     const CASH_TOKENS = [
         '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        ZORA_TOKEN,
         chainConfig.wrappedNativeAddress,
         ...chainConfig.stablecoins,
         SOLANA_CONFIG.TOKENS.SOL,
@@ -233,24 +235,24 @@ async function processBuyWithInfo(
 
         if (isStableIn) {
             // USDC/USDT have 6 decimals usually
-            const decimalsIn = normalizeAddress(swap.tokenIn).includes('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913') ? 6 : 18; // Base USDC is 6
-            targetSwapValueUsd = Number(amountInBN) / Math.pow(10, decimalsIn);
+            const decimalsIn = getStablecoinDecimals(swap.tokenIn, chainId);
+            targetSwapValueUsd = formatTokenAmount(amountInBN, decimalsIn);
         } else if (isZoraIn) {
             // ZORA Token price
             const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId);
             const zoraPrice = zoraInfo?.price || 0.0006; // Fallback price for ZORA
-            targetSwapValueUsd = (Number(amountInBN) / 1e18) * zoraPrice;
+            targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraPrice;
         } else {
             // ETH / WETH
             const nativePrice = await getTokenInfo(chainConfig.wrappedNativeAddress, chainId).then(t => t?.price || 2500);
-            targetSwapValueUsd = (Number(amountInBN) / 1e18) * nativePrice;
+            targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativePrice;
         }
         console.log(`[AutoTrade] Calculated value from tokenIn (${swap.tokenIn}): $${targetSwapValueUsd.toFixed(2)}`);
     } else {
         // Fallback to tokenOut
         const amountOutBN = BigInt(swap.amountOut);
         const splitDecimals = tokenInfo.decimals || 18;
-        const formattedAmountOut = Number(amountOutBN) / Math.pow(10, splitDecimals);
+        const formattedAmountOut = formatTokenAmount(amountOutBN, splitDecimals);
         targetSwapValueUsd = formattedAmountOut * tokenInfo.price;
         console.log(`[AutoTrade] Calculated value from tokenOut (${swap.tokenOut}): $${targetSwapValueUsd.toFixed(2)}`);
     }
@@ -355,7 +357,7 @@ ${analysis.rawAnalysis}
                     // 5. Re-check Price (Safety Check)
                     console.log('[AutoTrade] AI approved BUY (FAIL-CLOSED). Re-checking price...');
                     const latestInfo = await getTokenInfo(tokenToBuy, chainId);
-                    if (latestInfo) {
+                    if (latestInfo && tokenInfo.price > 0 && latestInfo.price > 0) {
                         const priceChangeSinceStart = ((latestInfo.price - tokenInfo.price) / tokenInfo.price) * 100;
                         // If price pumped more than 10% during analysis (3-8s), ABORT
                         if (priceChangeSinceStart > 10) {
@@ -422,7 +424,8 @@ ${analysis.rawAnalysis}
                     tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
                     tokenOutMint: tokenToBuy,
                     amountIn: amountInLamports,
-                    slippageBps: config.maxSlippageBps
+                    // Minimum 5% slippage for Solana autotrade due to high volatility
+                    slippageBps: Math.max(config.maxSlippageBps || 500, 500)
                 });
 
             } else {
@@ -445,7 +448,8 @@ ${analysis.rawAnalysis}
                         walletAddress: config.user.walletAddress,
                         tokenOut: tokenToBuy,
                         amountIn: (usdAmount / nativePrice).toFixed(6),
-                        slippage: (config.maxSlippageBps || 50) / 100
+                        // Minimum 5% slippage for Zora autotrade
+                        slippage: Math.max((config.maxSlippageBps || 500), 500) / 100
                     });
                 } else if (launchpad && launchpad.provider === 'fourmeme') {
                     // Four.meme tokens can ONLY be traded via TokenManager2 contract
@@ -456,7 +460,8 @@ ${analysis.rawAnalysis}
                         walletAddress: config.user.walletAddress,
                         tokenAddress: tokenToBuy,
                         bnbAmount,
-                        slippageBps: config.maxSlippageBps,
+                        // Minimum 5% slippage for Four.meme autotrade
+                        slippageBps: Math.max(config.maxSlippageBps || 500, 500),
                     });
                 } else {
                     if (launchpad && launchpad.provider === 'zora' && !isFastExecutionEnabled) {
@@ -465,8 +470,9 @@ ${analysis.rawAnalysis}
 
                     // === BUY WITH RETRY LOGIC (Hardened) ===
                     const baseAmount = usdAmount / nativePrice;
-                    const baseSlippage = config.maxSlippageBps || 300;
-                    const MAX_ALLOWED_SLIPPAGE = 500; // 5% absolute cap for automated escalation
+                    // Minimum 5% slippage for autotrade due to high volatility
+                    const baseSlippage = Math.max(config.maxSlippageBps || 500, 500);
+                    const MAX_ALLOWED_SLIPPAGE = 1500; // 15% cap for buy retry escalation
 
                     try {
                         // Step 1: Try with 100% amount
@@ -523,6 +529,11 @@ ${analysis.rawAnalysis}
                         }
                     }
                 }
+            }
+
+            if (!txHash) {
+                console.warn(`[AutoTrade] ❌ No txHash returned for buy of ${tokenToBuy}. Skipping position creation.`);
+                continue;
             }
 
             // Create position record
@@ -672,7 +683,7 @@ async function executePositionExit(params: {
                 decimals = acc.account.data.parsed.info.tokenAmount.decimals;
             }
 
-            const balanceUsd = (Number(balance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+            const balanceUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
 
             if (balance <= 0n || balanceUsd < 0.1) {
                 console.log(`[AutoTrade] User has negligible balance of ${tokenAddress} ($${balanceUsd.toFixed(4)}), closing DB records only.`);
@@ -692,12 +703,14 @@ async function executePositionExit(params: {
                     tokenInMint: tokenAddress,
                     tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                     amountIn: balance.toString(),
-                    slippageBps: config.maxSlippageBps
+                    // Minimum 5% slippage for Solana autotrade sell
+                    slippageBps: Math.max(config.maxSlippageBps || 500, 500)
                 });
             } catch (e: any) {
                 console.warn(`[AutoTrade] Solana 100% sell failed: ${e.message}. Retrying...`);
                 try {
-                    const highSlippage = Math.max((config.maxSlippageBps || 50) * 2, 500);
+                    // Retry with 15% slippage
+                    const highSlippage = Math.min(Math.max((config.maxSlippageBps || 500) * 2, 1500), 2500);
                     txHash = await executeSolanaSwap({
                         userId: user.privyDid,
                         tokenInMint: tokenAddress,
@@ -713,7 +726,8 @@ async function executePositionExit(params: {
                             tokenInMint: tokenAddress,
                             tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                             amountIn: safeBalance999.toString(),
-                            slippageBps: Math.max((config.maxSlippageBps || 50) * 1.5, 300)
+                            // Partial sell with 15% slippage
+                            slippageBps: Math.min(Math.max((config.maxSlippageBps || 500) * 2, 1500), 2500)
                         });
                         isPartialSell = true;
                     } catch (e2: any) {
@@ -737,7 +751,8 @@ async function executePositionExit(params: {
                                 tokenInMint: tokenAddress,
                                 tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                                 amountIn: remainingBalance.toString(),
-                                slippageBps: 1000
+                                // Higher slippage for dust sweep (20%)
+                                slippageBps: 2000
                             });
                         }
                     }
@@ -759,7 +774,7 @@ async function executePositionExit(params: {
             ]);
             balance = bal;
             decimals = Number(dec);
-            const balanceUsd = (Number(balance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+            const balanceUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
 
             if (balance <= 0n || balanceUsd < 0.1) {
                 console.log(`[AutoTrade] Negligible EVM balance, closing DB records.`);
@@ -773,26 +788,34 @@ async function executePositionExit(params: {
             let isPartialSell = false;
             try {
                 const safeBalance = balance > 0n ? balance - 1n : 0n;
+                // For autotrade, use minimum 5% slippage due to high market volatility
+                const initialSlippage = Math.max(config.maxSlippageBps || 500, 500);
+                console.log(`[AutoTrade] Attempting sell with ${initialSlippage} bps (${(initialSlippage / 100).toFixed(1)}%) slippage...`);
+
                 txHash = await executeSellInstant({
                     userId: user.privyDid,
                     walletAddress: user.walletAddress,
                     tokenToSell: tokenAddress,
                     amountToSell: safeBalance.toString(),
                     chainId: chainId,
-                    slippageBps: config.maxSlippageBps,
+                    slippageBps: initialSlippage,
                     tokenDecimals: decimals
                 });
             } catch (e: any) {
                 console.warn(`[AutoTrade] EVM sell failed: ${e.message}. Retrying partial...`);
                 try {
                     const safeBalance999 = (balance * 999n) / 1000n;
+                    // Retry with 15% slippage, capped at 25% max
+                    const retrySlippage = Math.min(Math.max((config.maxSlippageBps || 500) * 2, 1500), 2500);
+                    console.log(`[AutoTrade] Retrying with ${retrySlippage} bps (${(retrySlippage / 100).toFixed(1)}%) slippage...`);
+
                     txHash = await executeSellInstant({
                         userId: user.privyDid,
                         walletAddress: user.walletAddress,
                         tokenToSell: tokenAddress,
                         amountToSell: safeBalance999.toString(),
                         chainId: chainId,
-                        slippageBps: Math.max((config.maxSlippageBps || 50) * 1.5, 300),
+                        slippageBps: retrySlippage,
                         tokenDecimals: decimals
                     });
                     isPartialSell = true;
@@ -816,7 +839,7 @@ async function executePositionExit(params: {
             if (txHash) {
                 try {
                     const remainingBalance = await contract.balanceOf(user.walletAddress);
-                    const dustUsd = (Number(remainingBalance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+                    const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                     if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
                         await executeSellInstant({
                             userId: user.privyDid,
@@ -824,7 +847,8 @@ async function executePositionExit(params: {
                             tokenToSell: tokenAddress,
                             amountToSell: remainingBalance.toString(),
                             chainId: chainId,
-                            slippageBps: 1000,
+                            // Higher slippage for dust sweep (20%) since amount is small
+                            slippageBps: 2000,
                             tokenDecimals: decimals
                         });
                     }
@@ -848,7 +872,7 @@ async function executePositionExit(params: {
 
             // Tracking
             trackCopyTrade(userId);
-            const sellVolUsd = (Number(balance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+            const sellVolUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
             trackSwap(userId, sellVolUsd);
 
             // Notify
@@ -858,7 +882,7 @@ async function executePositionExit(params: {
                         type: 'success',
                         tokenSymbol: tokenInfo.symbol,
                         tokenAddress: tokenAddress,
-                        amount: (Number(balance) / (10 ** decimals)).toFixed(6),
+                        amount: formatTokenAmount(balance, decimals).toFixed(6),
                         usdValue: sellVolUsd.toFixed(2),
                         txHash: txHash,
                         chainId: chainId,
@@ -873,6 +897,23 @@ async function executePositionExit(params: {
 
     } catch (error) {
         console.error(`[AutoTrade] ❌ Error in executePositionExit:`, error);
+
+        // Close the position to prevent infinite retry loops
+        // This happens when the token is a honeypot or has other issues preventing sells
+        try {
+            await prisma.position.updateMany({
+                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
+                data: {
+                    status: 'closed',
+                    exitReason: 'exit_failed',
+                    closedAt: new Date(),
+                },
+            });
+            console.log(`[AutoTrade] ⚠️  Marked position as closed (exit_failed) to prevent retry loop for ${tokenAddress}`);
+        } catch (dbErr) {
+            console.error(`[AutoTrade] Failed to update position status:`, dbErr);
+        }
+
         return null;
     }
 }
@@ -910,26 +951,30 @@ async function handleTargetSell(
         if (positions.length === 0 || !tokenInfo) return;
 
         // Leader stat tracking (only for mirror sell)
-        const balanceForStats = positions.reduce((sum, p) => sum + parseFloat(p.entryAmount), 0);
-        const balanceUsdForStats = balanceForStats * (tokenInfo?.price || 0);
+        const balanceUsdForStats = positions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
 
-        await executePositionExit({
-            userId: config.userId,
-            tokenAddress: tokenToSell,
-            chainId,
-            exitReason: 'mirror_sell',
-            tokenInfo,
-            config: { ...config, user: (config as any).user }
-        });
+        const positionIds = positions.map(p => p.id);
+        if (positionIds.some(id => positionsBeingExited.has(id))) {
+            console.log(`[AutoTrade] ⏭️  Mirror sell skipped - position already being processed for ${config.userId}`);
+            return;
+        }
+
+        positionIds.forEach(id => positionsBeingExited.add(id));
+        try {
+            await executePositionExit({
+                userId: config.userId,
+                tokenAddress: tokenToSell,
+                chainId,
+                exitReason: 'mirror_sell',
+                tokenInfo,
+                config: { ...config, user: (config as any).user }
+            });
+        } finally {
+            positionIds.forEach(id => positionsBeingExited.delete(id));
+        }
     }));
 }
-
-
-
-// Quick RPC provider for Balance checks (Base)
-const RPC_URL = 'https://mainnet.base.org';
-const provider = new ethers.JsonRpcProvider(RPC_URL);
 
 
 /**
@@ -968,7 +1013,12 @@ export async function checkPositionsForExits(): Promise<void> {
         },
     });
 
-    if (positions.length === 0) return;
+    if (positions.length === 0) {
+        console.log('[PositionMonitor] No open positions to check');
+        return;
+    }
+
+    console.log(`[PositionMonitor] Checking ${positions.length} open position(s)...`);
 
     // Batch fetch configs for efficiency
     const configIds = [...new Set(positions.map(p => p.configId))];
@@ -978,6 +1028,12 @@ export async function checkPositionsForExits(): Promise<void> {
     const configMap = new Map(configs.map(c => [c.id, c]));
 
     for (const position of positions) {
+        // Skip if this position is already being processed
+        if (positionsBeingExited.has(position.id)) {
+            console.log(`[PositionMonitor] ⏭️  Skipping position ${position.id} - already being processed`);
+            continue;
+        }
+
         try {
             // Get current price (Silent mode to avoid log spam)
             const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, { verbose: false });
@@ -1003,28 +1059,44 @@ export async function checkPositionsForExits(): Promise<void> {
             if (config.takeProfitPct && profitLossPct >= config.takeProfitPct) {
                 console.log(`[AutoTrade] 📈 Take profit triggered for position ${position.id}: ${profitLossPct.toFixed(2)}%`);
 
-                await executePositionExit({
-                    userId: position.userId,
-                    tokenAddress: position.tokenAddress,
-                    chainId: position.chainId,
-                    exitReason: 'take_profit',
-                    tokenInfo,
-                    config: { ...config, user: position.user }
-                });
+                // Mark as being processed
+                positionsBeingExited.add(position.id);
+
+                try {
+                    await executePositionExit({
+                        userId: position.userId,
+                        tokenAddress: position.tokenAddress,
+                        chainId: position.chainId,
+                        exitReason: 'take_profit',
+                        tokenInfo,
+                        config: { ...config, user: position.user }
+                    });
+                } finally {
+                    // Always remove from set, even if exit fails
+                    positionsBeingExited.delete(position.id);
+                }
             }
 
             // Check stop loss
             else if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
                 console.log(`[AutoTrade] 📉 Stop loss triggered for position ${position.id}: ${profitLossPct.toFixed(2)}%`);
 
-                await executePositionExit({
-                    userId: position.userId,
-                    tokenAddress: position.tokenAddress,
-                    chainId: position.chainId,
-                    exitReason: 'stop_loss',
-                    tokenInfo,
-                    config: { ...config, user: position.user }
-                });
+                // Mark as being processed
+                positionsBeingExited.add(position.id);
+
+                try {
+                    await executePositionExit({
+                        userId: position.userId,
+                        tokenAddress: position.tokenAddress,
+                        chainId: position.chainId,
+                        exitReason: 'stop_loss',
+                        tokenInfo,
+                        config: { ...config, user: position.user }
+                    });
+                } finally {
+                    // Always remove from set, even if exit fails
+                    positionsBeingExited.delete(position.id);
+                }
             }
 
         } catch (error) {
@@ -1043,6 +1115,31 @@ function getChainSlug(chainId: number) {
         900: { dexScreener: 'solana', geckoTerminal: 'solana' },
     };
     return chains[chainId] || chains[8453];
+}
+
+function formatTokenAmount(amount: bigint, decimals: number): number {
+    const formatted = ethers.formatUnits(amount, decimals);
+    const value = Number(formatted);
+    if (!Number.isFinite(value)) {
+        console.warn('[AutoTrade] Token amount overflow; treating as 0');
+        return 0;
+    }
+    return value;
+}
+
+function getStablecoinDecimals(tokenAddress: string, chainId: number): number {
+    if (chainId === 900) {
+        return 6;
+    }
+
+    const normalized = normalizeAddress(tokenAddress);
+    const sixDecimalStables = new Set([
+        normalizeAddress('0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'), // ETH USDC
+        normalizeAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7'), // ETH USDT
+        normalizeAddress('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913') // Base USDC
+    ]);
+
+    return sixDecimalStables.has(normalized) ? 6 : 18;
 }
 
 /**

@@ -237,6 +237,20 @@ function detectContractAddress(text: string): string | null {
 }
 
 /**
+ * Detect copy trade keywords
+ * This prevents copy trade commands from being misclassified as swap intents
+ */
+function hasCopyTradeKeywords(text: string): boolean {
+    const copyTradeKeywords = [
+        'copy trade', 'copytrade', 'copy-trade',
+        'mirror trade', 'follow trade',
+        '跟单', '复制交易', '镜像交易'
+    ];
+    const lowerText = text.toLowerCase();
+    return copyTradeKeywords.some(keyword => lowerText.includes(keyword));
+}
+
+/**
  * Detect swap keywords
  */
 function hasSwapKeywords(text: string): boolean {
@@ -246,6 +260,14 @@ function hasSwapKeywords(text: string): boolean {
         'exchange for', 'convert to'
     ];
     const lowerText = text.toLowerCase();
+
+    // CRITICAL: Exclude copy trade commands from swap detection
+    // "copy trade" contains "trade" but should NOT trigger swap intent
+    if (hasCopyTradeKeywords(text)) {
+        console.log('[IntentParser] Copy trade detected, skipping swap keywords check');
+        return false;
+    }
+
     return swapKeywords.some(keyword => lowerText.includes(keyword));
 }
 
@@ -449,7 +471,10 @@ async function parseDetailedIntentAI(
         const hasSwap = hasSwapKeywords(userMessage);
         const tokenSymbols = extractTokenSymbols(userMessage);
 
-        if (intent.action === 'swap' || hasSwap || contractAddress) {
+        // CRITICAL: Don't force swap intent for copy trade commands
+        const isCopyTrade = hasCopyTradeKeywords(userMessage);
+
+        if ((intent.action === 'swap' || hasSwap || contractAddress) && !isCopyTrade) {
             // If AI didn't detect swap but we did, override it
             if (intent.action !== 'swap' && (hasSwap || contractAddress)) {
                 intent.action = 'swap';
@@ -551,8 +576,12 @@ function parseDetailedIntentHeuristic(
     let isSellOperation = false;
 
     // Detect swap
+    // CRITICAL: Copy trade commands should NOT be classified as swap intents
+    // even if they contain a contract address (which is the TARGET WALLET, not a token)
     const isStrategyCondition = /\b(when|if|once|whenever)\b/i.test(userMessage);
-    if ((hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) && !isStrategyCondition) {
+    const isCopyTradeCommand = hasCopyTradeKeywords(userMessage);
+
+    if ((hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) && !isStrategyCondition && !isCopyTradeCommand) {
         action = 'swap';
 
         // Detect if this is a SELL operation (selling the contract address token)

@@ -17,6 +17,8 @@ export const useSmartSuggestions = (
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     const handleCommit = useCallback((committedText: string) => {
+        console.log('[useSmartSuggestions] handleCommit called with:', committedText);
+
         // 1. Save parameters from the committed command
         ParamMemory.extractAndSave(committedText);
 
@@ -26,22 +28,42 @@ export const useSmartSuggestions = (
         // 3. Update input
         onSetInput(committedText);
 
-        // 4. Hide suggestions
-        setShowSuggestions(false);
+        // 4. DIRECTLY trigger next suggestions after a small delay
+        // (bypassing useEffect which isn't firing reliably)
+        console.log('[useSmartSuggestions] Scheduling direct detectIntent for:', committedText);
+        setTimeout(() => {
+            console.log('[useSmartSuggestions] Direct detectIntent firing for:', committedText);
+            if (!committedText || committedText.trim().length === 0) {
+                setSuggestions([]);
+                setShowSuggestions(false);
+                return;
+            }
+            // Re-fetch suggestions for the new input
+            const results = SuggestionEngine.getSuggestions(committedText, handleCommit);
+            console.log('[useSmartSuggestions] Direct got results:', results);
+            setSuggestions(results);
+            setShowSuggestions(results.length > 0);
+        }, 100);
     }, [onSetInput]);
 
     // Intent Detection
     const detectIntent = useCallback((text: string) => {
+        console.log('[useSmartSuggestions] detectIntent called with:', text);
+
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
         debounceTimerRef.current = setTimeout(() => {
+            console.log('[useSmartSuggestions] Debounce timeout fired for:', text);
+
             if (!text || text.trim().length === 0) {
+                console.log('[useSmartSuggestions] Empty text, clearing suggestions');
                 setSuggestions([]);
                 setShowSuggestions(false);
                 return;
             }
 
             const results = SuggestionEngine.getSuggestions(text, handleCommit);
+            console.log('[useSmartSuggestions] Got results:', results);
 
             setSuggestions(results);
             setShowSuggestions(results.length > 0);

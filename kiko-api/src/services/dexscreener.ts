@@ -940,7 +940,7 @@ export async function getTrendingTokensPremium(
 
       // Step 2b: Organic high-volume search discovery (Your previous improvement)
       const ORGANIC_SEARCH_TERMS: Record<string, string[]> = {
-        'base': ['uniswap', 'aerodrome', 'zora', 'base', 'weth', 'usdc'],
+        'base': ['uniswap', 'aerodrome', 'base', 'weth', 'usdc', 'zora'],
         'ethereum': ['uniswap', 'ethereum', 'weth', 'usdc', 'usdt'],
         'solana': ['raydium', 'jupiter', 'pump', 'sol', 'usdc'],
         'bsc': ['pancakeswap', 'bnb', 'wbnb', 'usdt', 'busd'],
@@ -1089,7 +1089,29 @@ export async function getTrendingTokensPremium(
     const duration = Date.now() - startTime;
     console.log(`[DexScreener Premium] ✓ Found ${finalTokens.length} trending tokens for ${normalizedChainId} in ${duration}ms`);
 
-    return finalTokens;
+    // Step 6: Deduplicate by symbol (keep highest liquidity to filter out copycats)
+    // This prevents confusion when copycat tokens have the same symbol as official ones
+    const symbolMap = new Map<string, TokenSearchResult>();
+    for (const token of finalTokens) {
+      const sym = (token.symbol || '').toUpperCase();
+      if (!sym) continue;
+
+      const existing = symbolMap.get(sym);
+      const tokenLiq = typeof token.liquidity === 'number' ? token.liquidity : 0;
+      const existingLiq = existing ? (typeof existing.liquidity === 'number' ? existing.liquidity : 0) : 0;
+
+      if (!existing || tokenLiq > existingLiq) {
+        symbolMap.set(sym, token);
+      }
+    }
+
+    const deduplicatedTokens = Array.from(symbolMap.values());
+    const removedCount = finalTokens.length - deduplicatedTokens.length;
+    if (removedCount > 0) {
+      console.log(`[DexScreener Premium] Removed ${removedCount} duplicate-symbol tokens (kept highest liquidity)`);
+    }
+
+    return deduplicatedTokens;
 
   } catch (error: any) {
     const duration = Date.now() - startTime;

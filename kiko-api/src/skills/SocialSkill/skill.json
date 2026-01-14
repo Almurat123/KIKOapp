@@ -1,0 +1,29 @@
+{
+    "id": "social_farcaster",
+    "name": "Social (Farcaster)",
+    "description": "Farcaster social data, trending casts, user profiles, and cast search.",
+    "intents": [
+        "SOCIAL_SENSING"
+    ],
+    "tools": [
+        "get_trending_casts",
+        "get_farcaster_user",
+        "search_farcaster_casts"
+    ],
+    "examples": {
+        "en": [
+            "What's trending on Farcaster?",
+            "Search for casts about $DEGEN",
+            "Find user @dwr.eth on Farcaster",
+            "Show latest discussion about Base",
+            "Who are the top posters today?"
+        ],
+        "zh": [
+            "Farcaster 上现在的热门内容是什么？",
+            "搜索关于 $DEGEN 的帖子",
+            "在 Farcaster 上查找用户 @dwr.eth",
+            "显示关于 Base 的最新讨论",
+            "今天谁是热门发布者？"
+        ]
+    }
+}

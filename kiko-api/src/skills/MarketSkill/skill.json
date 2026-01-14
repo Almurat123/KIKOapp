@@ -1,0 +1,30 @@
+{
+    "id": "market_macro",
+    "name": "Market & Macro",
+    "description": "Global market overview, economic data, gas prices, and web search for news.",
+    "intents": [
+        "MARKET_ANALYSIS"
+    ],
+    "tools": [
+        "web_search",
+        "get_market_overview",
+        "get_economic_calendar",
+        "get_gas_price"
+    ],
+    "examples": {
+        "en": [
+            "How is the crypto market doing today?",
+            "Search for the latest Base network news",
+            "What are the current gas prices on Ethereum?",
+            "Are there any major economic events this week?",
+            "Give me a market overview"
+        ],
+        "zh": [
+            "今天加密市场表现如何？",
+            "搜索最新的 Base 网络新闻",
+            "以太坊现在的 gas 费是多少？",
+            "本周有什么重大的经济事件吗？",
+            "给我一个市场概览"
+        ]
+    }
+}

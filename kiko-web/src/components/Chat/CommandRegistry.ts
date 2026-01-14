@@ -230,11 +230,16 @@ export const ParamMemory = {
             this.save('address', solMatch[0]);
         }
 
-        // Extract token symbols (simple heuristic: uppercase 2-6 letter words)
-        const tokenMatches = text.match(/\b([A-Z]{2,10})\b/g);
+        // Extract token symbols (simple heuristic: uppercase 2-10 letter words)
+        // Blacklist common short words that aren't tokens
+        const blacklist = ['AI', 'ME', 'US', 'OK', 'GO', 'I'];
+        const tokenMatches = (text.match(/\b([A-Z]{2,10})\b/g) || [])
+            .filter(t => !blacklist.includes(t) || text.includes(t + ' address') || text.includes('token ' + t));
+
         if (tokenMatches && tokenMatches.length >= 2) {
             // Assume first is tokenIn, second is tokenOut in swap context
-            if (text.toLowerCase().includes('swap') || text.toLowerCase().includes('to')) {
+            const lower = text.toLowerCase();
+            if (lower.includes('swap') || lower.includes('to ') || lower.includes('for ')) {
                 this.save('tokenIn', tokenMatches[0]);
                 this.save('tokenOut', tokenMatches[1]);
             }

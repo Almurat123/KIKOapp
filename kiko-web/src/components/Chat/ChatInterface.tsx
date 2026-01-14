@@ -194,8 +194,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const {
         suggestions,
         showSuggestions,
-        setShowSuggestions,
-        setSuggestions,
         detectIntent,
         openSuggestions
     } = useSmartSuggestions(
@@ -1519,8 +1517,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     };
 
-    // Auto-resize when input is set programmatically (e.g., from AI analyze)
+    // Auto-resize when input is set programmatically (e.g., from AI analyze or suggestions)
     useEffect(() => {
+        console.log('[ChatInterface] useEffect fired! input:', input, 'length:', input.length);
+        console.log('[ChatInterface] Active element:', document.activeElement);
+        console.log('[ChatInterface] Textarea ref:', textareaRef.current);
+        console.log('[ChatInterface] Are they equal?', document.activeElement === textareaRef.current);
+
         if (textareaRef.current && input) {
             autoResizeTextarea(textareaRef.current);
         }
@@ -1528,7 +1531,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (!input && scrollContainerRef.current) {
             scrollContainerRef.current.style.paddingBottom = '140px';
         }
-    }, [input]);
+
+
+        // TRIGGER SUGGESTIONS on input change (removed focus check for progressive suggestions)
+        if (input.length > 0) {
+            console.log('[ChatInterface] Calling detectIntent with:', input);
+            detectIntent(input);
+            // Re-focus to ensure next step works
+            setTimeout(() => textareaRef.current?.focus(), 0);
+        }
+    }, [input, detectIntent]);
 
     // Handle pending AI prompt from other pages
     useEffect(() => {
@@ -1767,8 +1779,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             isVisible={showSuggestions}
                             onSelect={(item) => {
                                 item.action();
-                                setShowSuggestions(false);
-                                setSuggestions([]);
+                                // DO NOT clear suggestions here. 
+                                // The input change will trigger the hook to either:
+                                // 1. Show new suggestions (next step)
+                                // 2. Clear suggestions (if no matches)
                                 textareaRef.current?.focus();
                             }}
                         />

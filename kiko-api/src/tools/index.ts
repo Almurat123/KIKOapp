@@ -1,44 +1,40 @@
 import { toolRegistry } from './registry.js';
-import { GetTokenInfoTool } from './tokenInfo.js';
-import { GetTrendingTokensTool } from './trendingTokens.js';
-import { WebSearchTool } from './webSearch.js';
-import { PrepareSwapTransactionTool } from './swapTransaction.js';
-import { SimulateSwapTool } from './simulateSwap.js';
+import { GetTokenInfoTool } from '../skills/TokenSkill/index.js';
+import { GetTrendingTokensTool } from '../skills/TokenSkill/index.js';
+import { WebSearchTool } from '../skills/MarketSkill/index.js';
+import { PrepareSwapTransactionTool, SimulateSwapTool } from '../skills/SwapSkill/index.js';
 
-import { GetWalletInfoTool } from './walletInfo.js';
-import { GetGasPriceTool } from './gasPrice.js';
-import { GetTokenPriceTool } from './tokenPrice.js';
-import { GetHistoricalPriceTool } from './historicalPrice.js';
-import { CheckTokenRiskTool } from './tokenRisk.js';
-import { GetTrendingCastsTool, GetFarcasterUserTool, SearchFarcasterCastsTool } from './farcasterTools.js';
-import { GetZoraTrendingTool, GetZoraProfileTool } from './zoraTools.js';
-import { GetEarlyBuyersTool, AnalyzeCreatorTool } from './tokenAnalysisTools.js';
-import { GetUserFavoritesTool } from './userFavorites.js';
-import { GetMarketOverviewTool } from './marketOverview.js';
-import { GetEconomicCalendarTool } from './economicCalendar.js';
-import { CreateCopyTradeConfigTool, ListCopyTradeConfigsTool, DeleteCopyTradeConfigTool, PauseCopyTradeConfigTool } from './copyTradeTools.js';
+import { GetWalletInfoTool } from '../skills/WalletSkill/index.js';
+import { GetGasPriceTool } from '../skills/MarketSkill/index.js';
+import { GetTokenPriceTool } from '../skills/TokenSkill/index.js';
+import { GetHistoricalPriceTool } from '../skills/TokenSkill/index.js';
+import { CheckTokenRiskTool } from '../skills/RiskSkill/index.js';
+import { GetTrendingCastsTool, GetFarcasterUserTool, SearchFarcasterCastsTool } from '../skills/SocialSkill/index.js';
+import { GetZoraTrendingTool, GetZoraProfileTool } from '../skills/ZoraSkill/index.js';
+import { GetEarlyBuyersTool, AnalyzeCreatorTool } from '../skills/TokenSkill/index.js';
+import { GetUserFavoritesTool } from '../skills/WalletSkill/index.js';
+import { GetMarketOverviewTool } from '../skills/MarketSkill/index.js';
+import { GetEconomicCalendarTool } from '../skills/MarketSkill/index.js';
+import { CreateCopyTradeConfigTool, ListCopyTradeConfigsTool, DeleteCopyTradeConfigTool, PauseCopyTradeConfigTool } from '../skills/CopyTradeSkill/index.js';
 import {
     GetPolymarketTrendingTool as PMTrending,
     GetPolymarketTrendingMarketsTool as PMTrendingMarkets,
     GetPolymarketEventTool as PMEvent,
     SearchPolymarketTool as PMSearch,
-    GetNewMarketsTool as PMNew
-} from './polymarketTools.js';
-import { GetMarketActivityTool, GetWhaleWatchTool } from './polymarketTradeTools.js';
-import {
+    GetNewMarketsTool as PMNew,
+    GetMarketActivityTool,
+    GetWhaleWatchTool,
     CreatePolymarketCopyConfigTool,
     ListPolymarketPositionsTool,
-    GetPolymarketTraderStatsTool
-} from './polymarketCopyTools.js';
-import {
+    GetPolymarketTraderStatsTool,
     CheckPolymarketReadinessTool,
     SetupPolymarketCredentialsTool,
     CheckPolymarketApprovalsTool,
     PlacePolymarketOrderTool,
     WithdrawPolymarketPositionTool,
     CancelPolymarketOrderTool
-} from './polymarketDirectTrading.js';
-import { AnalyzeWalletPnlTool } from './dunePnlTools.js';
+} from '../skills/PolymarketSkill/index.js';
+import { AnalyzeWalletPnlTool } from '../skills/WalletSkill/index.js';
 
 // Register all tools here
 toolRegistry.register(GetTokenInfoTool);
@@ -102,22 +98,20 @@ toolRegistry.register(AnalyzeWalletPnlTool);
 
 // Tool Exports
 export * from './registry.js';
-export * from './tokenInfo.js';
-export * from './trendingTokens.js';
-export * from './webSearch.js';
-export * from './swapTransaction.js';
-export * from './simulateSwap.js';
-export * from './marketOverview.js';
-export * from './economicCalendar.js';
+export * from '../skills/TokenSkill/index.js';
+export * from '../skills/TokenSkill/index.js';
+export * from '../skills/MarketSkill/index.js';
+export * from '../skills/SwapSkill/index.js';
+export * from '../skills/MarketSkill/index.js';
+export * from '../skills/MarketSkill/index.js';
 
-export * from './walletInfo.js';
-export * from './gasPrice.js';
-export * from './tokenPrice.js';
-export * from './historicalPrice.js';
-export * from './tokenRisk.js';
-export * from './farcasterTools.js';
-export * from './zoraTools.js';
-export * from './userFavorites.js';
-export * from './copyTradeTools.js';
-export * from './polymarketTools.js';
-export * from './dunePnlTools.js';
+export * from '../skills/WalletSkill/index.js';
+export * from '../skills/TokenSkill/index.js';
+export * from '../skills/TokenSkill/index.js';
+export * from '../skills/RiskSkill/index.js';
+export * from '../skills/SocialSkill/index.js';
+export * from '../skills/ZoraSkill/index.js';
+export * from '../skills/WalletSkill/index.js';
+export * from '../skills/CopyTradeSkill/index.js';
+export * from '../skills/PolymarketSkill/index.js';
+export * from '../skills/WalletSkill/index.js';

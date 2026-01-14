@@ -30,6 +30,7 @@ import { polymarketRoutes } from './routes/polymarket.js';
 import { zoraRoutes } from './routes/zora.js';
 import { rpcRoutes } from './routes/rpc.js';
 import { zoraProxyRoutes } from './routes/zora-proxy.js';
+import { aiRoutes } from './routes/ai.js';
 import { initAutoTradeService } from './services/autoTradeService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
 import { isPrivyConfigured } from './services/privyWallet.js';
@@ -169,6 +170,7 @@ fastify.register(async (fastify) => {
     fastify.register(zoraRoutes, { prefix: '/api/zora' });
     fastify.register(rpcRoutes, { prefix: '/api/rpc' });
     fastify.register(zoraProxyRoutes, { prefix: '/api/zora-proxy' });
+    fastify.register(aiRoutes, { prefix: '/api/ai' });
     registerUserRoutes(fastify); // User settings routes
 });
 

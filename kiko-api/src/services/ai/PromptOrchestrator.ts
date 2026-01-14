@@ -3,6 +3,7 @@ import { MODEL_MODULES, MODEL_SAFETY } from './prompts/models.js';
 import { INTENT_MODULES } from './prompts/intents.js';
 import { generateToolPrompt } from './toolPromptGenerator.js';
 import type { IntentType, ModelType, OrchestratorOptions, UserContext } from './types.js';
+import { skillRegistry } from '../../skills/registry.js';
 
 export class PromptOrchestrator {
     /**
@@ -37,11 +38,28 @@ export class PromptOrchestrator {
             modules.push(MODEL_MODULES.grok);
         }
 
-        // 3. INTENT LAYER
-        // Dynamic based on task
-        const intentModule = INTENT_MODULES[intent];
-        if (intentModule) {
-            modules.push(intentModule);
+
+        // 3. INTENT LAYER (Hybrid: Skills + Legacy Fallback)
+        // First, try to load skill-specific prompts for the intent
+        const intentStr = String(intent).toUpperCase();
+        const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+
+        if (matchedSkills.length > 0) {
+            // Use skill prompts (new system)
+            console.log(`[PromptOrchestrator] 🎯 Intent "${intent}" matched ${matchedSkills.length} skill(s): ${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+            for (const skill of matchedSkills) {
+                if (skill.prompt) {
+                    console.log(`[PromptOrchestrator] 📝 Injecting prompt from skill: ${skill.metadata.name} (${skill.prompt.length} chars)`);
+                    modules.push(skill.prompt);
+                }
+            }
+        } else {
+            // Fallback to legacy INTENT_MODULES if no skill matches
+            console.log(`[PromptOrchestrator] ⚠️ No skills matched intent "${intent}", using legacy INTENT_MODULES`);
+            const intentModule = INTENT_MODULES[intent];
+            if (intentModule) {
+                modules.push(intentModule);
+            }
         }
 
         return this.assemble(modules);
