@@ -213,6 +213,7 @@ async function processBuyWithInfo(
     // Logic: if tokenIn is cash, use it. Otherwise use tokenOut.
 
     const chainConfig = getChainConfig(chainId);
+    const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
     const CASH_TOKENS = [
         '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
         ZORA_TOKEN,
@@ -223,7 +224,6 @@ async function processBuyWithInfo(
         SOLANA_CONFIG.TOKENS.USDT
     ].map(s => normalizeAddress(s));
 
-    const ZORA_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
     const isTokenInCash = CASH_TOKENS.includes(normalizeAddress(swap.tokenIn));
     let targetSwapValueUsd = 0;
 
