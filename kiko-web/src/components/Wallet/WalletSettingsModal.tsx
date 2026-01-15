@@ -65,36 +65,39 @@ const FollowKikoButton: React.FC = () => {
       return;
     }
 
-    // Get Farcaster FID if available
+    // Get Farcaster FID from Privy user object
     const farcasterAccount = user.linkedAccounts?.find(
       (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
     );
     const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
 
-    // If user has no Farcaster, always show "Follow" button (can't verify)
+    // If user has no Farcaster account linked, can't check follow status
     if (!fid) {
       setIsFollowing(false);
       setLoading(false);
       return;
     }
 
-    // User HAS Farcaster - check localStorage first for quick return
+    // Check localStorage first for quick return
     if (localStorage.getItem('kiko-farcaster-follow-dismissed') === 'true') {
       setIsFollowing(true);
       setLoading(false);
       return;
     }
 
-    // Check API for actual follow status
+    // Check API for actual follow status using FID from Privy
     try {
       const response = await fetch(`/api/social/is-following/${fid}`);
       const data = await response.json();
       if (data.success && data.data.isFollowing) {
         setIsFollowing(true);
         localStorage.setItem('kiko-farcaster-follow-dismissed', 'true');
+      } else {
+        setIsFollowing(false);
       }
     } catch (error) {
       console.warn('[WalletSettings] Follow check failed', error);
+      setIsFollowing(false);
     }
     setLoading(false);
   }, [user]);
