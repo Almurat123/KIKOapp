@@ -702,8 +702,8 @@ async function executePositionExit(params: {
                     tokenInMint: tokenAddress,
                     tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                     amountIn: balance.toString(),
-                    // Minimum 5% slippage for Solana autotrade sell
-                    slippageBps: Math.max(config.maxSlippageBps || 500, 500)
+                    // IMPROVED: 10% slippage for Solana autotrade sell
+                    slippageBps: Math.max(config.maxSlippageBps || 1000, 1000)
                 });
             } catch (e: any) {
                 console.warn(`[AutoTrade] Solana 100% sell failed: ${e.message}. Retrying...`);
@@ -787,8 +787,8 @@ async function executePositionExit(params: {
             let isPartialSell = false;
             try {
                 const safeBalance = balance > 0n ? balance - 1n : 0n;
-                // For autotrade, use minimum 5% slippage due to high market volatility
-                const initialSlippage = Math.max(config.maxSlippageBps || 500, 500);
+                // IMPROVED: 10% slippage for autotrade sell
+                const initialSlippage = Math.max(config.maxSlippageBps || 1000, 1000);
                 console.log(`[AutoTrade] Attempting sell with ${initialSlippage} bps (${(initialSlippage / 100).toFixed(1)}%) slippage...`);
 
                 txHash = await executeSellInstant({
