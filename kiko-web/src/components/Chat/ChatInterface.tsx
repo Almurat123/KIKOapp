@@ -95,7 +95,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Safari iOS 26 keyboard fix - provides inputTop when keyboard is open
     const safariKeyboard = useSafariKeyboardFix();
 
-    const { user, authenticated } = usePrivy();
+    const { user, authenticated, getAccessToken } = usePrivy();
     const { wallets } = useWallets();
     // Use global chain context instead of Wagmi's useChainId
     // this ensures AI knows about selected chain even if wallet is on different chain
@@ -273,18 +273,28 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             if (fid) {
                 try {
-                    // Check if we already synced this session
-                    const storageKey = `kiko-farcaster-synced-${fid}`;
+                    // Check if we already synced this session (v2 to invalidate old bad cache)
+                    const storageKey = `kiko-farcaster-synced-v2-${fid}`;
                     if (sessionStorage.getItem(storageKey)) return;
 
-                    await fetch('/api/users/farcaster', {
+                    const authToken = await getAccessToken();
+                    const response = await fetch('/api/users/farcaster', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
                         body: JSON.stringify({ fid, username })
                     });
 
-                    sessionStorage.setItem(storageKey, 'true');
-                    logger.debug('[ChatInterface] Synced Farcaster profile:', { fid, username });
+                    if (response.ok) {
+                        await response.json(); // Consume body
+                        sessionStorage.setItem(storageKey, 'true'); // Only cache on success
+                        logger.debug('[ChatInterface] Synced Farcaster profile:', { fid, username });
+                    } else {
+                        const errorText = await response.text();
+                        logger.warn('[ChatInterface] Failed to sync Farcaster profile:', { status: response.status, error: errorText });
+                    }
                 } catch (error) {
                     logger.warn('[ChatInterface] Failed to sync Farcaster profile:', error);
                 }
