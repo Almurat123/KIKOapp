@@ -470,13 +470,12 @@ ${analysis.rawAnalysis}
 
                     // === BUY WITH RETRY LOGIC (Hardened) ===
                     const baseAmount = usdAmount / nativePrice;
-                    // Minimum 5% slippage for autotrade due to high volatility
-                    const baseSlippage = Math.max(config.maxSlippageBps || 500, 500);
-                    const MAX_ALLOWED_SLIPPAGE = 1500; // 15% cap for buy retry escalation
+                    // IMPROVED: Higher base slippage for volatile tokens (10% minimum)
+                    const baseSlippage = Math.max(config.maxSlippageBps || 1000, 1000);
 
                     try {
-                        // Step 1: Try with 100% amount
-                        console.log(`[AutoTrade] Buy Step 1: 100% amount (${baseAmount.toFixed(6)} ETH), slippage ${Math.min(baseSlippage, MAX_ALLOWED_SLIPPAGE)}bps`);
+                        // Step 1: Try with 100% amount, 10% slippage
+                        console.log(`[AutoTrade] Buy Step 1: 100% amount (${baseAmount.toFixed(6)} ETH), slippage ${baseSlippage}bps (10%)`);
                         txHash = await executeSwapInstant({
                             userId: config.user.privyDid,
                             walletAddress: config.user.walletAddress,
@@ -484,17 +483,17 @@ ${analysis.rawAnalysis}
                             tokenOut: tokenToBuy,
                             amountIn: baseAmount.toFixed(6),
                             chainId,
-                            slippageBps: Math.min(baseSlippage, MAX_ALLOWED_SLIPPAGE),
+                            slippageBps: baseSlippage,
                         });
                     } catch (buyErr1: any) {
                         console.warn(`[AutoTrade] Buy Step 1 failed: ${buyErr1.message}. Delaying 1s...`);
                         await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
 
                         try {
-                            // Step 2: Try with 99% amount + slightly higher slippage (capped)
+                            // Step 2: Try with 99% amount + 15% slippage
                             const amount99 = baseAmount * 0.99;
-                            const slippage2 = Math.min(Math.max(baseSlippage * 1.5, 450), MAX_ALLOWED_SLIPPAGE);
-                            console.log(`[AutoTrade] Buy Step 2: 99% amount (${amount99.toFixed(6)} ETH), slippage ${slippage2}bps`);
+                            const slippage2 = 1500; // 15%
+                            console.log(`[AutoTrade] Buy Step 2: 99% amount (${amount99.toFixed(6)} ETH), slippage ${slippage2}bps (15%)`);
                             txHash = await executeSwapInstant({
                                 userId: config.user.privyDid,
                                 walletAddress: config.user.walletAddress,
@@ -509,10 +508,10 @@ ${analysis.rawAnalysis}
                             await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
 
                             try {
-                                // Step 3: Final attempt with 98% amount + capped slippage
+                                // Step 3: Final attempt with 98% amount + 20% slippage
                                 const amount98 = baseAmount * 0.98;
-                                const slippage3 = Math.min(Math.max(baseSlippage * 2, 600), MAX_ALLOWED_SLIPPAGE);
-                                console.log(`[AutoTrade] Buy Step 3: 98% amount (${amount98.toFixed(6)} ETH), slippage ${slippage3}bps`);
+                                const slippage3 = 2000; // 20%
+                                console.log(`[AutoTrade] Buy Step 3: 98% amount (${amount98.toFixed(6)} ETH), slippage ${slippage3}bps (20%)`);
                                 txHash = await executeSwapInstant({
                                     userId: config.user.privyDid,
                                     walletAddress: config.user.walletAddress,

@@ -317,7 +317,26 @@ export class ZoraSniperService {
                 chainId: CHAIN_ID,
             };
 
-            return await sendTransaction(params.userId, params.accessToken, tx);
+            const txHash = await sendTransaction(params.userId, params.accessToken, tx);
+            console.log(`[ZoraSniper] 🟢 Transaction sent: ${txHash}. Waiting for confirmation...`);
+
+            try {
+                // Hardcoded RPC for Base (Zora usually on Base) or use env
+                const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
+                const receipt = await provider.waitForTransaction(txHash, 1);
+
+                if (!receipt || receipt.status === 0) {
+                    console.error(`[ZoraSniper] ❌ Transaction REVERTED on-chain: ${txHash}`);
+                    throw new Error(`Transaction reverted on-chain: ${txHash}`);
+                }
+                console.log(`[ZoraSniper] ✅ Transaction confirmed: ${txHash}`);
+            } catch (err: any) {
+                console.warn(`[ZoraSniper] Failed to confirm tx status (might still be valid):`, err);
+                // If it was a revert error detected above, re-throw it
+                if (err.message && err.message.includes('reverted')) throw err;
+            }
+
+            return txHash;
         } catch (error) {
             console.error(`[ZoraSniper] FastSwap Error: `, error);
             throw error;
