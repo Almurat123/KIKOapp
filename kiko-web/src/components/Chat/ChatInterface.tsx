@@ -277,8 +277,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     const storageKey = `kiko-farcaster-synced-v2-${fid}`;
                     if (sessionStorage.getItem(storageKey)) return;
 
+                    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
                     const authToken = await getAccessToken();
-                    const response = await fetch('/api/users/farcaster', {
+                    const response = await fetch(`${API_BASE_URL}/api/users/farcaster`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
