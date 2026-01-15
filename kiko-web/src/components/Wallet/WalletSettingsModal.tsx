@@ -107,19 +107,49 @@ const FollowKikoButton: React.FC = () => {
     checkFollowStatus();
   }, [checkFollowStatus]);
 
-  // Re-check when user returns to tab (after clicking follow)
+  // Re-check when user returns to tab (after clicking follow) - MOBILE COMPATIBLE
   React.useEffect(() => {
     if (!hasClickedFollow) return;
 
+    // Visibility change (works on most browsers)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         checkFollowStatus();
       }
     };
 
+    // Focus event (backup for mobile)
+    const handleFocus = () => {
+      checkFollowStatus();
+    };
+
+    // Pageshow event (for iOS Safari bfcache)
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        checkFollowStatus();
+      }
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
+
+    // Polling fallback for mobile (every 3 seconds for 30 seconds after clicking)
+    let pollCount = 0;
+    const maxPolls = 10;
+    const pollInterval = setInterval(() => {
+      pollCount++;
+      checkFollowStatus();
+      if (pollCount >= maxPolls) {
+        clearInterval(pollInterval);
+      }
+    }, 3000);
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+      clearInterval(pollInterval);
     };
   }, [hasClickedFollow, checkFollowStatus]);
 
