@@ -473,6 +473,23 @@ ${analysis.rawAnalysis}
                     // IMPROVED: Higher base slippage for volatile tokens (10% minimum)
                     const baseSlippage = Math.max(config.maxSlippageBps || 1000, 1000);
 
+                    // PRE-CHECK: Insufficient Balance Check (EVM Only)
+                    if (chainId !== 900) {
+                        try {
+                            const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+                            const balance = await provider.getBalance(config.user.walletAddress);
+                            const requiredParams = ethers.parseEther(baseAmount.toFixed(18));
+                            const gasBuffer = ethers.parseEther("0.002"); // ~ $5-6 for gas
+
+                            if (balance < (requiredParams + gasBuffer)) {
+                                console.warn(`[AutoTrade] ⏭️ Skipping: Insufficient balance for ${config.userId}. Has ${ethers.formatEther(balance)} ETH, needs ${baseAmount.toFixed(5)} + gas.`);
+                                continue;
+                            }
+                        } catch (balErr) {
+                            console.warn(`[AutoTrade] Balance check failed, proceeding anyway:`, balErr);
+                        }
+                    }
+
                     try {
                         // Step 1: Try with 100% amount, 10% slippage
                         console.log(`[AutoTrade] Buy Step 1: 100% amount (${baseAmount.toFixed(6)} ETH), slippage ${baseSlippage}bps (10%)`);
@@ -532,6 +549,12 @@ ${analysis.rawAnalysis}
 
             if (!txHash) {
                 console.warn(`[AutoTrade] ❌ No txHash returned for buy of ${tokenToBuy}. Skipping position creation.`);
+                continue;
+            }
+
+            // CRITICAL: Ensure price is valid before creating position to avoid infinite PNL
+            if (!tokenInfo.price || tokenInfo.price <= 0) {
+                console.error(`[AutoTrade] ❌ Invalid entry price for ${tokenToBuy}: ${tokenInfo.price}. Skipping position record.`);
                 continue;
             }
 

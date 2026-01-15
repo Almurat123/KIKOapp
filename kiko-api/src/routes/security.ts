@@ -8,7 +8,7 @@ import { env } from '../config/env.js';
 import { get, set } from '../cache/redis.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 import { validateAddress } from '../utils/validation.js';
-import { CheckTokenRiskTool } from '../tools/tokenRisk.js';
+import { CheckTokenRiskTool } from '../skills/RiskSkill/index.js';
 
 const SECURITY_CACHE_TTL = env.cacheConfig.securityCacheTtl;
 
@@ -499,4 +499,3 @@ export async function securityRoutes(fastify: FastifyInstance) {
     }
   });
 }
-

@@ -69,7 +69,8 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         data: quote.data!,
         value: quote.value || '0',
         chainId,
-        gas: quote.estimatedGas,
+        // Add 20% buffer to gas estimate
+        gas: quote.estimatedGas ? Math.floor(Number(quote.estimatedGas) * 1.2).toString() : undefined,
         // We let Privy/RPC handle raw gas estimation optimization or use quote's estimate
     });
 

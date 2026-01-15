@@ -23,7 +23,7 @@
     "sec:flows": "tsx scripts/security/fund-flows.ts",
     "sec:fingerprints": "tsx scripts/security/bytecode-fingerprint.ts",
     "sec:metrics": "tsx scripts/security/security-metrics.ts",
-    "test:tools": "tsx scripts/test-tools.ts",
+    "test:tools": "tsx src/scripts/testAllTools.ts",
     "sec:slither": "slither contracts/**/*.sol --exclude-dependencies --json slither.json",
     "sec:myth": "myth analyze contracts/Token.sol --max-depth 50 --solver-timeout 60",
     "sec:fuzz": "forge test --mc TokenTest --ffi",

@@ -5,11 +5,11 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 // Import all tools
-import { GetTokenInfoTool } from '../tools/tokenInfo.js';
-import { GetTrendingTokensTool } from '../tools/trendingTokens.js';
-import { CheckTokenRiskTool } from '../tools/tokenRisk.js';
-import { GetZoraTrendingTool, GetZoraProfileTool } from '../tools/zoraTools.js';
-import { GetEarlyBuyersTool, AnalyzeCreatorTool } from '../tools/tokenAnalysisTools.js';
+import { GetTokenInfoTool } from '../skills/TokenSkill/tools/tokenInfo.js';
+import { GetTrendingTokensTool } from '../skills/TokenSkill/tools/trendingTokens.js';
+import { CheckTokenRiskTool } from '../skills/RiskSkill/tools/tokenRisk.js';
+import { GetZoraTrendingTool, GetZoraProfileTool } from '../skills/ZoraSkill/tools/zoraTools.js';
+import { GetEarlyBuyersTool, AnalyzeCreatorTool } from '../skills/TokenSkill/tools/tokenAnalysisTools.js';
 
 const testBscToken = '0x1a5F9d77CA46646cD4937fD8d093F460B66F4444'; // 老子 on BSC
 const testCreator = '0x3ef8f695054010a27a9d72fbb6320ddf73038766';

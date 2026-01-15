@@ -1,4 +1,4 @@
-import { GetZoraTrendingTool, GetZoraProfileTool } from '../tools/zoraTools.js';
+import { GetZoraTrendingTool, GetZoraProfileTool } from '../skills/ZoraSkill/tools/zoraTools.js';
 import * as dotenv from 'dotenv';
 dotenv.config();
 

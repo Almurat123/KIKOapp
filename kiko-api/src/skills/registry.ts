@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Skill, SkillMetadata, SkillRegistry } from './types.js';
-import { TOOL_DEFINITIONS } from '../services/ai/prompts/core.js';
+import { toolRegistry } from '../tools/registry.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -10,7 +10,6 @@ const __dirname = path.dirname(__filename);
 
 class Registry implements SkillRegistry {
     private skills: Map<string, Skill> = new Map();
-    private toolDefinitionsRaw: string = TOOL_DEFINITIONS; // Fallback to core definitions initially
 
     constructor() {
         // Auto-load skills on instantiation
@@ -77,14 +76,58 @@ class Registry implements SkillRegistry {
     }
 
     /**
-     * Currently returns the global TOOL_DEFINITIONS string.
-     * TODO: Future improvement - generate this dynamically from registered tool definitions
-     * to only show relevant tools for active skills.
+     * Returns a tool definition block for the given skills.
+     * The canonical source of tool schemas is `toolRegistry` (not prompt-layer static strings).
      */
     getToolDefinitionsForSkills(skillIds: string[]): string {
-        // For now, we return the global definition as fallback/simplification 
-        // until we fully migrate individual tool definitions into skills.
-        return this.toolDefinitionsRaw;
+        const wantedToolNames = new Set<string>();
+        for (const id of skillIds) {
+            const skill = this.getSkill(id);
+            if (!skill) continue;
+            for (const toolName of skill.metadata.tools || []) {
+                wantedToolNames.add(toolName);
+            }
+        }
+
+        const definitions = toolRegistry.getAllDefinitions();
+        const filtered = wantedToolNames.size > 0
+            ? definitions.filter(d => wantedToolNames.has(d.name))
+            : definitions;
+
+        if (filtered.length === 0) {
+            return '**AVAILABLE TOOLS (Auto-Generated)**\n\n**No tools available.**';
+        }
+
+        const lines: string[] = [
+            '**AVAILABLE TOOLS (Auto-Generated)**',
+            '',
+            'The following tools are available for use. Each tool has a name, description, and required parameters.',
+            ''
+        ];
+
+        for (const def of filtered) {
+            lines.push(`### \`${def.name}\``);
+            lines.push(`${def.description}`);
+
+            if (def.parameters && def.parameters.properties) {
+                const props = Object.entries(def.parameters.properties);
+                const required = def.parameters.required || [];
+
+                if (props.length > 0) {
+                    lines.push('**Parameters:**');
+                    for (const [name, schema] of props) {
+                        const isRequired = required.includes(name);
+                        const typeStr = (schema as any).type || 'any';
+                        const desc = (schema as any).description || '';
+                        lines.push(`- \`${name}\` (${typeStr}${isRequired ? ', required' : ''}): ${desc}`);
+                    }
+                }
+            }
+
+            lines.push('');
+        }
+
+        return lines.join('\n');
     }
 }
 

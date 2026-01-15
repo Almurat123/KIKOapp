@@ -4,7 +4,7 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-import { GetEarlyBuyersTool, AnalyzeCreatorTool } from '../tools/tokenAnalysisTools.js';
+import { GetEarlyBuyersTool, AnalyzeCreatorTool } from '../skills/TokenSkill/tools/tokenAnalysisTools.js';
 
 const testAddress = '0x1a5F9d77CA46646cD4937fD8d093F460B66F4444'; // 老子 on BSC
 const testChain = 'bsc';

@@ -8,7 +8,7 @@
 import { prisma } from '../../db/prisma.js';
 import * as dexScreener from '../dexscreener.js';
 import * as geckoTerminal from '../geckoTerminal.js';
-import { checkTokenSecurity } from '../../tools/tokenRisk.js';
+import { checkTokenSecurity } from '../../skills/RiskSkill/tools/tokenRisk.js';
 import { DecisionEngineInput, DecisionEngineOutput, TokenData, SecurityData } from '../../types/judgeTypes.js';
 import { saveJudgeDecision } from '../../repositories/judgeRepository.js';
 
