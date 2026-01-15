@@ -14,10 +14,50 @@ interface WalletSettingsModalProps {
 
 // Inline component for Kiko Follow Button
 const FollowKikoButton: React.FC = () => {
-  const { user } = usePrivy();
+  const { user, getAccessToken } = usePrivy();
   const [isFollowing, setIsFollowing] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [hasClickedFollow, setHasClickedFollow] = React.useState(false);
+
+  // Sync Farcaster FID to backend (fallback in case ChatInterface didn't trigger)
+  React.useEffect(() => {
+    const syncFarcasterProfile = async () => {
+      if (!user) return;
+
+      const farcasterAccount = user.linkedAccounts?.find(
+        (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
+      );
+      const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
+      const username = (farcasterAccount as any)?.username || (user as any).farcaster?.username;
+
+      if (fid) {
+        try {
+          const storageKey = `kiko-farcaster-synced-v2-${fid}`;
+          if (sessionStorage.getItem(storageKey)) return;
+
+          const authToken = await getAccessToken();
+          const response = await fetch('/api/users/farcaster', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ fid, username })
+          });
+
+          if (response.ok) {
+            await response.json();
+            sessionStorage.setItem(storageKey, 'true');
+            console.log('[WalletSettings] Synced Farcaster FID:', fid);
+          }
+        } catch (error) {
+          console.warn('[WalletSettings] Failed to sync Farcaster FID:', error);
+        }
+      }
+    };
+
+    syncFarcasterProfile();
+  }, [user, getAccessToken]);
 
   const checkFollowStatus = React.useCallback(async () => {
     if (!user) {
