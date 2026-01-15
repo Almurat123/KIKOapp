@@ -1,6 +1,8 @@
 export type IntentType =
     | 'TRADING'
+    | 'COPY_TRADING'
     | 'MARKET_ANALYSIS'
+    | 'PREDICTION_MARKETS'
     | 'SOCIAL_SENSING'
     | 'RISK_SCAN'
     | 'GENERAL_CHAT';

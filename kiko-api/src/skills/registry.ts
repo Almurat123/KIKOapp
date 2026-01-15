@@ -16,6 +16,37 @@ class Registry implements SkillRegistry {
         this.loadSkills();
     }
 
+    private parseSkillFrontmatter(skillMd: string): { name?: string; description?: string; body: string } | null {
+        // Minimal YAML frontmatter parser (supports only `key: value` lines).
+        // This avoids adding a YAML dependency while still supporting the Agent Skills convention.
+        const normalized = skillMd.replace(/\r\n/g, '\n');
+        if (!normalized.startsWith('---\n')) return null;
+
+        const endIdx = normalized.indexOf('\n---\n', 4);
+        if (endIdx === -1) return null;
+
+        const fmRaw = normalized.slice(4, endIdx).trim();
+        const body = normalized.slice(endIdx + '\n---\n'.length).trimStart();
+
+        const out: Record<string, string> = {};
+        for (const line of fmRaw.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+            const match = trimmed.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
+            if (!match) continue;
+            const key = match[1];
+            let value = match[2].trim();
+            value = value.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
+            out[key] = value;
+        }
+
+        return {
+            name: out.name,
+            description: out.description,
+            body,
+        };
+    }
+
     private loadSkills() {
         console.log('[SkillRegistry] Loading skills...');
 
@@ -33,16 +64,44 @@ class Registry implements SkillRegistry {
 
     private loadSkillFromDir(dir: string) {
         try {
+            const skillMdPath = path.join(dir, 'SKILL.md');
             const jsonPath = path.join(dir, 'skill.json');
             const promptPath = path.join(dir, 'prompt.md');
 
-            if (!fs.existsSync(jsonPath) || !fs.existsSync(promptPath)) {
-                // Not a valid skill directory
-                return;
+            const hasSkillMd = fs.existsSync(skillMdPath);
+            const hasLegacy = fs.existsSync(jsonPath) && fs.existsSync(promptPath);
+            if (!hasSkillMd && !hasLegacy) return;
+
+            // Prefer Agent Skills-style SKILL.md if present, otherwise fall back to legacy files.
+            let frontmatter: { name?: string; description?: string; body: string } | null = null;
+            let prompt = '';
+            if (hasSkillMd) {
+                const skillMd = fs.readFileSync(skillMdPath, 'utf-8');
+                frontmatter = this.parseSkillFrontmatter(skillMd);
+                prompt = (frontmatter?.body || skillMd).trim();
+            } else {
+                prompt = fs.readFileSync(promptPath, 'utf-8').trim();
             }
 
-            const metadata: SkillMetadata = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-            const prompt = fs.readFileSync(promptPath, 'utf-8');
+            // Metadata: prefer legacy `skill.json` (richer structure), but allow SKILL.md-only skills.
+            let metadata: SkillMetadata | null = null;
+            if (fs.existsSync(jsonPath)) {
+                metadata = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+            } else if (frontmatter?.name) {
+                metadata = {
+                    id: frontmatter.name,
+                    name: frontmatter.name,
+                    description: frontmatter.description || '',
+                    intents: [],
+                    tools: [],
+                    examples: { en: [], zh: [] },
+                };
+            }
+
+            if (!metadata) return;
+            if (frontmatter?.description && !metadata.description) {
+                metadata.description = frontmatter.description;
+            }
 
             const skill: Skill = {
                 metadata,

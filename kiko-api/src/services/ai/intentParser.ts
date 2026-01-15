@@ -10,7 +10,9 @@ import { v4 as uuidv4 } from 'uuid';
 // High-level intent types (for system prompt selection)
 export type HighLevelIntentType =
     | 'TRADING'
+    | 'COPY_TRADING'
     | 'MARKET_ANALYSIS'
+    | 'PREDICTION_MARKETS'
     | 'SOCIAL_SENSING'
     | 'RISK_SCAN'
     | 'GENERAL_CHAT';
@@ -343,6 +345,22 @@ function parseHighLevelIntentHeuristic(
     const contractAddress = detectContractAddress(userMessage);
     const hasSwap = hasSwapKeywords(userMessage);
     const tokenSymbols = extractTokenSymbols(userMessage);
+
+    // COPY TRADING intent (must run before TRADING)
+    if (hasCopyTradeKeywords(userMessage)) {
+        return {
+            type: 'COPY_TRADING',
+            confidence: 0.95,
+        };
+    }
+
+    // PREDICTION MARKETS intent (Polymarket)
+    if (/\b(polymarket|prediction\s*market|prediction|betting|bet\s+on|odds)\b/i.test(userMessage)) {
+        return {
+            type: 'PREDICTION_MARKETS',
+            confidence: 0.9,
+        };
+    }
 
     // TRADING intent
     if (hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
@@ -773,7 +791,9 @@ export async function parseIntent(
 
     // Step 3: Map detailed intent to high-level (if mismatch, trust detailed)
     const mappedHighLevel = DETAILED_TO_HIGH_LEVEL[detailed.action] || highLevel.type;
-    if (mappedHighLevel !== highLevel.type) {
+    // Avoid downgrading a specific high-level intent (e.g. COPY_TRADING / PREDICTION_MARKETS)
+    // to GENERAL_CHAT just because detailed parsing fell back to `general_query`.
+    if (mappedHighLevel !== highLevel.type && detailed.action !== 'general_query') {
         console.log(`[IntentParser] High-level intent corrected: ${highLevel.type} -> ${mappedHighLevel}`);
         highLevel.type = mappedHighLevel;
     }

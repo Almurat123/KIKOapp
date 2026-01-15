@@ -12,6 +12,7 @@ import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { useSidebar } from '../Layout/Layout';
 import { useThemeContext } from '../../contexts/ThemeContext';
+import { FarcasterFollowModal } from './FarcasterFollowModal';
 // Use global ChainContext for app-wide chain state
 import { useChain } from '../../contexts/ChainContext';
 import { extractStrategiesFromMessages } from '../../utils/strategyExtractor';
@@ -195,7 +196,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         suggestions,
         showSuggestions,
         detectIntent,
-        openSuggestions
+        openSuggestions,
+        closeSuggestions
     } = useSmartSuggestions(
         () => { }, // onSend is unused in hook now
         setInput
@@ -207,7 +209,56 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [customSettings, setCustomSettings] = useState<any | null>(null); // Using any for now to avoid importing type, or we can import if exported
+    const [customSettings, setCustomSettings] = useState<any | null>(null);
+
+    // Farcaster Follow Modal state
+    const [showFollowModal, setShowFollowModal] = useState(false);
+
+    const handleDismissFollow = () => {
+        localStorage.setItem('kiko-farcaster-follow-dismissed', 'true');
+        setShowFollowModal(false);
+    };
+
+    // Check Farcaster follow status on mount or when user changes
+    useEffect(() => {
+        const checkFollowStatus = async () => {
+            // 1. If already dismissed, don't show
+            if (localStorage.getItem('kiko-farcaster-follow-dismissed') === 'true') {
+                return;
+            }
+
+            // 2. Only show for authenticated users
+            if (!authenticated || !user) {
+                return;
+            }
+
+            // 3. Try to get Farcaster FID from Privy
+            const farcasterAccount = user.linkedAccounts?.find(
+                (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
+            );
+
+            const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
+
+            if (fid) {
+                try {
+                    const response = await fetch(`/api/social/is-following/${fid}`);
+                    const data = await response.json();
+                    if (data.success && data.data.isFollowing) {
+                        // Already following, mark as dismissed and don't show
+                        localStorage.setItem('kiko-farcaster-follow-dismissed', 'true');
+                        return;
+                    }
+                } catch (error) {
+                    logger.warn('[ChatInterface] Failed to check Farcaster follow status:', error);
+                }
+            }
+
+            // 4. If we reached here, they are not following and haven't dismissed
+            setShowFollowModal(true);
+        };
+
+        checkFollowStatus();
+    }, [authenticated, user]);
 
     // Load custom settings
     useEffect(() => {
@@ -1796,6 +1847,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 onChange={handleInputChange}
                                 onKeyDown={handleKeyDown}
                                 onFocus={handleInputFocus}
+                                onBlur={() => {
+                                    // No timeout needed - onMouseDown in suggestions prevents blur for clicks
+                                    closeSuggestions();
+                                }}
                                 onCompositionStart={handleCompositionStart}
                                 onCompositionEnd={handleCompositionEnd}
                             />
@@ -1871,6 +1926,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 isOpen={isSettingsOpen}
                 onClose={() => setIsSettingsOpen(false)}
             />
+
+            {showFollowModal && authenticated && (
+                <FarcasterFollowModal onDismiss={handleDismissFollow} />
+            )}
 
             {showDelegationModal && (
                 <DelegatedActionRequest

@@ -55,6 +55,7 @@ import { getFilteredTools } from '../services/ai/toolPreRouter.js';
 import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.js';
 import { executeDirectSwap } from '../services/directSwapExecutor.js';
 import { ragClient } from '../services/ragClient.js';
+import { skillRegistry } from '../skills/registry.js';
 
 export class ChatWorker {
     private isRunning = false;
@@ -312,13 +313,11 @@ export class ChatWorker {
         // Get user message for tool filtering
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
 
-        // Create filtered tool definitions for the LLM
-        const filteredToolDefs = getFilteredTools(lastUserMessage);
-        const toolDefinitions = filteredToolDefs.map(def => ({
-            type: 'function',
-            function: def
-        }));
-        console.log(`[ChatWorker] Filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
+        // Base tool filtering (keyword/category based).
+        // We will further narrow this set once we know the user's high-level intent (skills gating).
+        const baseToolDefs = getFilteredTools(lastUserMessage);
+        let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
+        console.log(`[ChatWorker] Base filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
 
         // RAG INTEGRATION: Fetch context for general queries
         // If query looks like "how to", "what is", "explain", etc.
@@ -424,6 +423,31 @@ export class ChatWorker {
 
             // Use high-level intent for system prompt selection
             const intent: IntentType = parsedIntent.highLevel.type;
+
+            // Skills-level tool gating (single source of truth: `skill.json` -> metadata.tools).
+            // Apply once (intent is stable for this task) to prevent tool drift and wrong-tool selection.
+            if (iteration === 1) {
+                const intentStr = String(intent).toUpperCase();
+                const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+                const allowedToolNames = new Set<string>();
+                for (const skill of matchedSkills) {
+                    for (const name of skill.metadata.tools || []) {
+                        allowedToolNames.add(name);
+                    }
+                }
+                // Always keep `web_search` as a safe fallback (consistent with ToolPreRouter).
+                allowedToolNames.add('web_search');
+
+                if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
+                    const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
+                    if (gated.length > 0) {
+                        toolDefinitions = gated.map(def => ({ type: 'function', function: def }));
+                        console.log(`[ChatWorker] Skill-gated to ${toolDefinitions.length} tools for intent=${intentStr} skills=${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+                    } else {
+                        console.warn(`[ChatWorker] Skill gating produced 0 tools for intent=${intentStr}; falling back to base tool set`);
+                    }
+                }
+            }
 
             // Log detailed intent for debugging
 

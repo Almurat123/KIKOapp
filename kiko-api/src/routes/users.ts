@@ -151,8 +151,64 @@ export async function registerUserRoutes(app: FastifyInstance) {
     );
 
     // =============================================
-    // Wallet Export Tracking
+    // Farcaster Profile Sync
     // =============================================
+
+    interface FarcasterSyncBody {
+        fid: number;
+        username?: string;
+    }
+
+    /**
+     * POST /api/users/farcaster
+     * Sync Farcaster profile from Privy login
+     * Called by frontend after Farcaster login to save FID for direct messaging
+     */
+    app.post<{ Body: FarcasterSyncBody }>(
+        '/api/users/farcaster',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Body: FarcasterSyncBody }>, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                if (!userId) {
+                    return reply.status(401).send({ success: false, error: 'Unauthorized' });
+                }
+
+                const { fid, username } = request.body;
+                if (!fid) {
+                    return reply.status(400).send({ success: false, error: 'fid is required' });
+                }
+
+                console.log(`[Farcaster] Syncing FID ${fid} for user ${userId}`);
+
+                // Update user with Farcaster info
+                const user = await prisma.user.update({
+                    where: { privyDid: userId },
+                    data: {
+                        farcasterFid: fid,
+                        farcasterUsername: username || null
+                    }
+                });
+
+                console.log(`[Farcaster] ✅ Synced FID ${fid} (${username}) for user ${user.id}`);
+
+                return {
+                    success: true,
+                    data: {
+                        fid: user.farcasterFid,
+                        username: user.farcasterUsername
+                    }
+                };
+            } catch (error: any) {
+                console.error('[Farcaster] Error syncing profile:', error);
+                return reply.status(500).send({ success: false, error: error.message });
+            }
+        }
+    );
+
+    // =============================================
+    // Wallet Export Tracking
+    // ==============================================
 
     /**
      * GET /api/users/wallet-exports

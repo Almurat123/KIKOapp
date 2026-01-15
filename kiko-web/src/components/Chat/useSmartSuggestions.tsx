@@ -97,12 +97,17 @@ export const useSmartSuggestions = (
         };
     }, []);
 
+    const closeSuggestions = useCallback(() => {
+        setShowSuggestions(false);
+    }, []);
+
     return {
         suggestions,
         showSuggestions,
         setSuggestions,
         setShowSuggestions,
         detectIntent,
-        openSuggestions
+        openSuggestions,
+        closeSuggestions
     };
 };

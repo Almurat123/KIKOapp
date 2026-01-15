@@ -58,7 +58,10 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
         await withRetry(async () => {
             // Prisma doesn't support transaction-level isolation easily without $transaction
             // We'll use $transaction for the bulk upsert and cleanup
+            // Set timeout to 60s to handle high volume of writes (prevent P2028)
             await prisma.$transaction(async (tx) => {
+                const processedAuthorFids = new Set<number>();
+
                 for (let i = 0; i < sortedCasts.length; i++) {
                     const cast = sortedCasts[i];
                     const likes = typeof cast.stats.likes === 'number' ? cast.stats.likes : parseInt(String(cast.stats.likes)) || 0;
@@ -123,6 +126,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                     });
 
                     // AUTO-FIX: If this cast has valid author data (not mock), propagate to all other entries for this FID
+                    // OPTIMIZATION: Only do this once per batch per FID to save DB calls
                     const isValidAuthorData = cast.author.username &&
                         !cast.author.username.startsWith('fid') &&
                         cast.author.displayName &&
@@ -130,7 +134,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                         cast.author.avatar &&
                         !cast.author.avatar.includes('placehold.co');
 
-                    if (isValidAuthorData) {
+                    if (isValidAuthorData && !processedAuthorFids.has(cast.fid)) {
                         await tx.trendingCast.updateMany({
                             where: {
                                 fid: cast.fid,
@@ -149,6 +153,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                                 authorTwitter: cast.author.twitter || null,
                             }
                         });
+                        processedAuthorFids.add(cast.fid);
                     }
                 }
 
@@ -164,6 +169,9 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                         isBaseAppCoin: false
                     }
                 });
+            }, {
+                timeout: 60000, // 60 seconds (default is 5s)
+                maxWait: 5000
             });
         });
 
@@ -431,5 +439,77 @@ export async function hybridSearchCasts(
     } catch (error) {
         console.error('[SocialRepo] Error in hybrid search:', error);
         return [];
+    }
+}
+/**
+ * Fetch a Farcaster profile by username, with caching
+ */
+export async function getFarcasterProfile(username: string): Promise<any | null> {
+    const cacheKey = `fc:profile:${username.toLowerCase()}`;
+
+    try {
+        // 1. Check DB Cache table
+        const cached = await prisma.cache.findUnique({
+            where: { key: cacheKey }
+        });
+
+        if (cached && cached.expiresAt && cached.expiresAt > new Date()) {
+            return JSON.parse(cached.value);
+        }
+
+        // 2. Cache miss or expired, fetch from Neynar
+        const { getUserByUsername } = await import('../services/neynarService.js');
+        const profile = await getUserByUsername(username);
+
+        if (profile) {
+            // 3. Save to Cache table (expires in 24 hours)
+            const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            await prisma.cache.upsert({
+                where: { key: cacheKey },
+                update: {
+                    value: JSON.stringify(profile),
+                    expiresAt,
+                    updatedAt: new Date()
+                },
+                create: {
+                    key: cacheKey,
+                    value: JSON.stringify(profile),
+                    expiresAt,
+                    updatedAt: new Date()
+                }
+            });
+            return profile;
+        }
+
+        // If fetch failed but we have stale cache, return it as fallback
+        if (cached && cached.value) {
+            return JSON.parse(cached.value);
+        }
+
+        return null;
+    } catch (error) {
+        console.error(`[SocialRepo] Error getting Farcaster profile for ${username}:`, error);
+        return null;
+    }
+}
+
+/**
+ * Check if a user follows the Kiko account on Farcaster
+ */
+export async function checkUserFollowsKiko(fid: number): Promise<boolean> {
+    try {
+        const { checkIsFollowing } = await import('../services/neynarService.js');
+
+        // 1. Get Kiko's FID (cached via getFarcasterProfile)
+        const kikoProfile = await getFarcasterProfile('kikoapp');
+        if (!kikoProfile) return false;
+
+        const kikoFid = kikoProfile.fid;
+
+        // 2. Check if user follows Kiko
+        return await checkIsFollowing(fid, kikoFid);
+    } catch (error) {
+        console.error(`[SocialRepo] Error checking if FID ${fid} follows Kiko:`, error);
+        return false;
     }
 }

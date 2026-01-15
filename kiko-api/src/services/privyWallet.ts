@@ -106,6 +106,12 @@ export async function getEmbeddedWalletAddress(userId: string): Promise<string |
  * Get user's Solana embedded wallet address
  */
 export async function getSolanaEmbeddedWalletAddress(userId: string): Promise<string | null> {
+    // SIMULATION MODE: Return dummy wallet for test user
+    if (process.env.SIMULATION_MODE === 'true' && userId.includes('test-user-simulation-123')) {
+        console.log('[PrivyWallet] 🧪 SIMULATION: Returning mock Solana wallet address');
+        return 'MockSolanaWalletAddress111111111111111111111';
+    }
+
     const client = getPrivyClient();
 
     try {

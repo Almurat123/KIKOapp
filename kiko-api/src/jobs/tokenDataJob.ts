@@ -44,8 +44,22 @@ import { set } from '../cache/redis.js';
  * Refresh trending tokens for a single chain
  * Uses DexScreener Premium (WebSocket) as primary source for accurate trending
  */
+// In-memory lock to prevent concurrent refreshes for the same chain
+// This prevents race conditions where multiple jobs/API calls try to delete/insert for the same chain simultaneously
+const refreshLocks = new Map<string, boolean>();
+
 async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = false): Promise<void> {
+  // Check if a refresh is already in progress for this chain
+  if (refreshLocks.get(chain.id)) {
+    console.log(`[TokenJob] Skipping refresh for ${chain.name} - update already in progress`);
+    return;
+  }
+
+  // Acquire lock
+  refreshLocks.set(chain.id, true);
+
   try {
+
     const REFRESH_5M_MS = 4.5 * 60 * 1000; // 4.5 minutes
 
     // Smart Refresh: Check if we have fresh data in database
@@ -95,6 +109,9 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
 
   } catch (error) {
     console.error(`[TokenJob] Error refreshing ${chain.name}:`, error instanceof Error ? error.message : error);
+  } finally {
+    // Release lock
+    refreshLocks.set(chain.id, false);
   }
 }
 

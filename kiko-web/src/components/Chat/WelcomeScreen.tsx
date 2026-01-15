@@ -30,6 +30,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
   const [isFocused, setIsFocused] = useState(false);
   const [inputValue, setInputValue] = useState('');
 
+
   // Load selected model from localStorage or use default
   const getInitialModel = () => {
     try {
@@ -122,10 +123,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
     }
   };
 
-
-
-
-
   return (
     <div className={`${styles.welcomeContainer} ${styles[resolvedTheme]}`}>
       {/* Background Ambient Light */}
@@ -139,9 +136,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
         <div className={styles.heroText}>
           <h1 className={styles.heroTitle}>I am KIKO.</h1>
           <h2 className={styles.heroSubTitleSecondary}>The on-chain analyst.</h2>
-
         </div>
-
 
 
         {/* Floating Input */}

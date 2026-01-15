@@ -3,7 +3,13 @@
     "name": "Token Swap",
     "description": "Exchange tokens on DEX (Base, Eth, Sol, BNB)",
     "intents": ["TRADING"],
-    "tools": ["prepare_swap_transaction", "simulate_swap"],
+    "tools": [
+        "prepare_swap_transaction",
+        "simulate_swap",
+        "get_wallet_info",
+        "get_token_info",
+        "check_token_risk"
+    ],
     "examples": {
         "en": [
             "swap 0.1 ETH to USDC",

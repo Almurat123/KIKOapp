@@ -15,6 +15,12 @@ export interface SolanaSwapParams {
 export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
     const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 100 } = params;
 
+    // === SIMULATION MODE ===
+    if (process.env.SIMULATION_MODE === 'true') {
+        console.log('[SolanaExecutor] 🧪 SIMULATION MODE: Skipping actual trade execution');
+        return `5SimulatedSignature${Date.now()}${Math.random().toString(36).substring(7)}`;
+    }
+
     // CRITICAL: Use the SAME wallet for building and signing!
     // Try user's delegated wallet first, fallback to server wallet
     let walletAddress: string;

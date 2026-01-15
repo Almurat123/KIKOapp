@@ -41,6 +41,8 @@ model User {
   privyDid            String                 @unique
   walletAddress       String                 @unique
   solanaWalletAddress String?
+  farcasterFid        Int?                   // Farcaster ID for direct messaging
+  farcasterUsername   String?                // Farcaster username
   createdAt           DateTime               @default(now())
   email               String?                @unique
   referralCode        String?                @unique

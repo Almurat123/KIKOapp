@@ -112,6 +112,12 @@ interface SellTokenParams {
 export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
     const { userId, walletAddress, tokenAddress, bnbAmount, minAmount = '0', slippageBps = 300 } = params;
 
+    // === SIMULATION MODE ===
+    if (process.env.SIMULATION_MODE === 'true') {
+        console.log('[FourMeme] 🧪 SIMULATION MODE: Skipping actual trade execution');
+        return `0xSIMULATION_FOURMEME_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    }
+
     console.log(`[FourMeme] 🔶 Buying token ${tokenAddress.slice(0, 10)}... with ${bnbAmount} BNB`);
 
     const chainId = 56; // BSC

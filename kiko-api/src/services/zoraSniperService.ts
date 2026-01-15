@@ -127,6 +127,12 @@ export class ZoraSniperService {
         amountIn: string;
         slippage?: number;
     }) {
+        // === SIMULATION MODE ===
+        if (process.env.SIMULATION_MODE === 'true') {
+            console.log('[ZoraSniper] 🧪 SIMULATION MODE: Skipping actual trade execution');
+            return `0xSIMULATION_ZORA_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        }
+
         console.log(`[ZoraSniper] ⚡ Executing FastSwap for ${params.tokenOut}...`);
 
         try {

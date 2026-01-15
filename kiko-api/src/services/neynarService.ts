@@ -238,9 +238,99 @@ export async function getUsersNeynar(fids: number[]): Promise<any[]> {
     }
 }
 
+/**
+ * Fetch user details by username using Neynar API
+ */
+export async function getUserByUsername(username: string): Promise<any | null> {
+    const apiKey = process.env.NEYNAR_API_KEY;
+
+    if (!apiKey) {
+        return null;
+    }
+
+    try {
+        const url = new URL(`${NEYNAR_API_BASE}/farcaster/user/by_username`);
+        url.searchParams.set('username', username);
+
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            console.warn(`[Neynar] User by username fetch failed: ${response.status}`);
+            return null;
+        }
+
+        const data = await response.json() as { user: any };
+        const u = data.user;
+
+        if (!u) {
+            return null;
+        }
+
+        return {
+            fid: u.fid,
+            username: u.username,
+            displayName: u.display_name,
+            pfp: u.pfp_url,
+            bio: u.profile?.bio?.text,
+            followers: u.follower_count,
+            following: u.following_count,
+            verifications: u.verifications
+        };
+    } catch (error: any) {
+        console.error('[Neynar] User by username error:', error.message);
+        return null;
+    }
+}
+
+/**
+ * Check if a user follows another user on Farcaster
+ */
+export async function checkIsFollowing(fid: number, targetFid: number): Promise<boolean> {
+    const apiKey = process.env.NEYNAR_API_KEY;
+
+    if (!apiKey) {
+        return false;
+    }
+
+    try {
+        const url = new URL(`${NEYNAR_API_BASE}/farcaster/user/bulk`);
+        url.searchParams.set('fids', String(targetFid));
+        url.searchParams.set('viewer_fid', String(fid));
+
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            return false;
+        }
+
+        const data = await response.json() as { users: any[] };
+        const u = data.users?.[0];
+
+        // viewer_context.following is true if viewer_fid follows the user in bulk request
+        return !!u?.viewer_context?.following;
+    } catch (error: any) {
+        console.error('[Neynar] Check following error:', error.message);
+        return false;
+    }
+}
+
 export default {
     searchCastsNeynar,
     getTrendingFeed,
     isNeynarConfigured,
-    getUsersNeynar
+    getUsersNeynar,
+    getUserByUsername,
+    checkIsFollowing
 };

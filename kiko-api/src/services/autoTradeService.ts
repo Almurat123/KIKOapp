@@ -30,6 +30,7 @@ import { trackCopyTrade, trackSwap } from './userActivityService.js';
 import { getTokenDetails } from './geckoTerminal.js';
 import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
+import { warpcastService } from './warpcastService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
@@ -67,6 +68,45 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
     }
 }
 
+// Duplicate swap detection cache (prevents processing same swap twice)
+const recentSwaps = new Map<string, number>(); // swapKey -> timestamp
+const SWAP_DEDUP_WINDOW_MS = 60000; // 1 minute
+
+/**
+ * Generate unique key for a swap to detect duplicates
+ */
+function getSwapKey(targetWallet: string, swap: DecodedSwap, chainId: number): string {
+    return `${targetWallet}-${swap.tokenIn}-${swap.tokenOut}-${swap.amountIn}-${swap.amountOut}-${chainId}`;
+}
+
+/**
+ * Check if this swap was recently processed
+ */
+function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: number): boolean {
+    const key = getSwapKey(targetWallet, swap, chainId);
+    const lastSeen = recentSwaps.get(key);
+
+    if (lastSeen && Date.now() - lastSeen < SWAP_DEDUP_WINDOW_MS) {
+        console.log(`[AutoTrade] ⏭️ Skipping duplicate swap (last seen ${Date.now() - lastSeen}ms ago)`);
+        return true;
+    }
+
+    // Mark as seen
+    recentSwaps.set(key, Date.now());
+
+    // Cleanup old entries (prevent memory leak)
+    if (recentSwaps.size > 1000) {
+        const now = Date.now();
+        for (const [k, timestamp] of recentSwaps.entries()) {
+            if (now - timestamp > SWAP_DEDUP_WINDOW_MS) {
+                recentSwaps.delete(k);
+            }
+        }
+    }
+
+    return false;
+}
+
 // ... (previous functions remain)
 
 /**
@@ -86,6 +126,11 @@ export async function handleSwapDetected(
         amountOut: swap.amountOut
     });
 
+    // Check for duplicate swap
+    if (isDuplicateSwap(targetWallet, swap, chainId)) {
+        return; // Skip duplicate
+    }
+
     const chainConfig = getChainConfig(chainId);
 
     // Stablecoin/ETH addresses (what we consider "cash out")
@@ -96,7 +141,7 @@ export async function handleSwapDetected(
     // Normalize all to lowercase for comparison
     const CASH_TOKENS = [
         NATIVE_ETH,
-        ZORA_TOKEN,
+        // ZORA_TOKEN, // Remove ZORA from cash tokens so it's treated as a tradable asset
         chainConfig.wrappedNativeAddress,
         ...chainConfig.stablecoins,
         // Add Solana Cash Tokens
@@ -513,7 +558,7 @@ ${analysis.rawAnalysis}
                     const baseSlippage = Math.max(config.maxSlippageBps || 1000, 1000);
 
                     // PRE-CHECK: Insufficient Balance Check (EVM Only)
-                    if (chainId !== 900) {
+                    if (chainId !== 900 && process.env.SIMULATION_MODE !== 'true') {
                         try {
                             const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
                             const balance = await provider.getBalance(config.user.walletAddress);
@@ -670,6 +715,26 @@ ${analysis.rawAnalysis}
                 console.error('[AutoTrade] Failed to send success email:', emailError);
             }
 
+            // =================================================================
+            // 🟣 Send Farcaster Direct Cast (Success)
+            // =================================================================
+            try {
+                if (warpcastService.isConfigured() && config.user.farcasterFid) {
+                    const recipientFid = config.user.farcasterFid;
+                    const explorerUrl = getChainConfig(chainId).explorerUrl;
+                    const txLink = `${explorerUrl}/tx/${txHash}`;
+
+                    const message = `🚀 *Trade Executed Successfully!*\n\n🎯 *Target:* ${targetWallet.slice(0, 6)}...\n💎 *Token:* $${tokenInfo.symbol}\n💰 *Amount:* $${usdAmount.toFixed(2)}\n\n🔗 *View Transaction:*\n${txLink}\n\n*Powered by KiKo AI* 🤖`;
+
+                    await warpcastService.sendDirectCast({
+                        recipientFid,
+                        message
+                    });
+                }
+            } catch (fcError) {
+                console.error('[AutoTrade] Failed to send Farcaster DC:', fcError);
+            }
+
         } catch (error: any) {
             console.error(`[AutoTrade] Error processing config ${config.id}:`, error);
 
@@ -687,6 +752,23 @@ ${analysis.rawAnalysis}
                 }
             } catch (emailError) {
                 console.error('[AutoTrade] Failed to send failure email:', emailError);
+            }
+
+            // =================================================================
+            // 🟣 Send Farcaster Direct Cast (Failure)
+            // =================================================================
+            try {
+                if (warpcastService.isConfigured() && config.user.farcasterFid) {
+                    const recipientFid = config.user.farcasterFid;
+                    const message = `⚠️ *Trade Execution Failed*\n\n🎯 *Target:* ${targetWallet.slice(0, 6)}...\n💎 *Token:* $${tokenInfo.symbol || 'Unknown'}\n❌ *Error:* ${error.message?.slice(0, 100)}\n\n*Please check your settings or balance.*\n*Powered by KiKo AI* 🤖`;
+
+                    await warpcastService.sendDirectCast({
+                        recipientFid,
+                        message
+                    });
+                }
+            } catch (fcError) {
+                console.error('[AutoTrade] Failed to send Farcaster DC (Failure):', fcError);
             }
         }
     }
@@ -952,6 +1034,32 @@ async function executePositionExit(params: {
                     });
                 } catch (emailErr) { console.error(`[AutoTrade] Email notification failed:`, emailErr); }
             }
+
+            // =================================================================
+            // 🟣 Send Farcaster Direct Cast (Sell Success)
+            // =================================================================
+            try {
+                if (warpcastService.isConfigured() && user.farcasterFid) {
+                    const recipientFid = user.farcasterFid;
+                    const explorerUrl = getChainConfig(chainId).explorerUrl;
+                    const txLink = `${explorerUrl}/tx/${txHash}`;
+                    const reasonMap: Record<string, string> = {
+                        'mirror_sell': 'Target sold 📉',
+                        'take_profit': 'Take Profit 🎯',
+                        'stop_loss': 'Stop Loss 🛑',
+                        'manual': 'Manual Exit 🛠️'
+                    };
+
+                    const message = `💰 *Position Closed Successfully!*\n\n💎 *Token:* $${tokenInfo.symbol}\n📉 *Reason:* ${reasonMap[exitReason] || exitReason}\n💵 *Value:* $${sellVolUsd.toFixed(2)}\n\n🔗 *View Transaction:*\n${txLink}\n\n*Powered by KiKo AI* 🤖`;
+
+                    await warpcastService.sendDirectCast({
+                        recipientFid,
+                        message
+                    });
+                }
+            } catch (fcError) {
+                console.error('[AutoTrade] Failed to send Farcaster DC (Exit):', fcError);
+            }
         }
 
         return txHash;
@@ -971,6 +1079,23 @@ async function executePositionExit(params: {
                 },
             });
             console.log(`[AutoTrade] ⚠️  Marked position as closed (exit_failed) to prevent retry loop for ${tokenAddress}`);
+
+            // =================================================================
+            // 🟣 Send Farcaster Direct Cast (Exit Failure)
+            // =================================================================
+            try {
+                if (warpcastService.isConfigured() && user.farcasterFid) {
+                    const recipientFid = user.farcasterFid;
+                    const message = `⚠️ *Position Exit Failed*\n\n💎 *Token:* $${tokenInfo?.symbol || 'Unknown'}\n📈 *Requested:* ${exitReason}\n❌ *Error:* ${error instanceof Error ? error.message.slice(0, 100) : 'Unknown error'}\n\n*Position marked as closed to avoid loops. Please check manually.*`;
+
+                    await warpcastService.sendDirectCast({
+                        recipientFid,
+                        message
+                    });
+                }
+            } catch (fcError) {
+                console.error('[AutoTrade] Failed to send Farcaster DC (Exit Failure):', fcError);
+            }
         } catch (dbErr) {
             console.error(`[AutoTrade] Failed to update position status:`, dbErr);
         }

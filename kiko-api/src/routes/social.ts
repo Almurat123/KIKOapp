@@ -9,7 +9,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { getTrendingCasts, searchCasts, hybridSearchCasts } from '../repositories/socialRepository.js';
+import { getTrendingCasts, searchCasts, hybridSearchCasts, getFarcasterProfile, checkUserFollowsKiko } from '../repositories/socialRepository.js';
 import { getQualityUsersStats } from '../repositories/qualityUsersRepository.js';
 import { env } from '../config/env.js';
 import snapchainService from '../services/snapchainService.js';
@@ -261,6 +261,52 @@ export async function socialRoutes(fastify: FastifyInstance) {
         error: 'Database error',
         message: error.message,
       });
+    }
+  });
+
+  // GET /api/social/profile/:username
+  // Fetch a Farcaster profile by username (cached 24h)
+  fastify.get('/profile/:username', async (request, reply) => {
+    try {
+      const { username } = request.params as { username: string };
+      if (!username) {
+        return reply.status(400).send({ success: false, error: 'Username is required' });
+      }
+
+      const profile = await getFarcasterProfile(username);
+
+      if (!profile) {
+        return reply.status(404).send({ success: false, error: 'Profile not found' });
+      }
+
+      return reply.send({
+        success: true,
+        data: profile
+      });
+    } catch (error) {
+      throw handleDatabaseError(error as Error);
+    }
+  });
+
+  // GET /api/social/is-following/:fid
+  // Check if a user follows the Kiko account
+  fastify.get('/is-following/:fid', async (request, reply) => {
+    try {
+      const { fid } = request.params as { fid: string };
+      const fidNum = parseInt(fid, 10);
+
+      if (isNaN(fidNum)) {
+        return reply.status(400).send({ success: false, error: 'Invalid FID' });
+      }
+
+      const isFollowing = await checkUserFollowsKiko(fidNum);
+
+      return reply.send({
+        success: true,
+        data: { isFollowing }
+      });
+    } catch (error) {
+      throw handleDatabaseError(error as Error);
     }
   });
 }

@@ -17,8 +17,24 @@ interface ExecuteSwapParams {
 /**
  * Execute an instant swap using 0x API for quotes and Privy for execution
  */
+// ... (imports)
+
 export async function executeSwapInstant(params: ExecuteSwapParams): Promise<string> {
     const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = 50 } = params;
+
+    // === SIMULATION MODE ===
+    if (process.env.SIMULATION_MODE === 'true') {
+        console.log('[TradeExecutor] 🧪 SIMULATION MODE: Skipping actual trade execution');
+        console.log('[TradeExecutor] 🧪 Would execute swap:', {
+            user: walletAddress,
+            tokenIn,
+            tokenOut,
+            amountIn,
+            chainId
+        });
+        // Return a mock TX Hash
+        return `0xSIMULATION_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    }
 
     // CRITICAL VALIDATION: Prevent same token swap
     if (tokenIn.toLowerCase() === tokenOut.toLowerCase()) {

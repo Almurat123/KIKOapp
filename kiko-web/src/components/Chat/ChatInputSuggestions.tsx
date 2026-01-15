@@ -70,6 +70,15 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isVisible, flatItems, selectedIndex, onSelect]);
 
+    // Scroll selected item into view
+    useEffect(() => {
+        if (!isVisible) return;
+        const selectedEl = document.querySelector(`.${styles.suggestionItemSelected}`);
+        if (selectedEl) {
+            selectedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }, [selectedIndex, isVisible]);
+
     if (!isVisible || (Array.isArray(suggestions) && suggestions.length === 0)) return null;
 
     const renderGroups = () => {
@@ -98,6 +107,10 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
                     isSelected && styles.suggestionItemSelected
                 )}
                 onClick={() => onSelect(item)}
+                onMouseDown={(e) => {
+                    // CRITICAL: Prevent input blur event from firing before click
+                    e.preventDefault();
+                }}
                 onMouseEnter={() => {
                     const idx = flatItems.findIndex(i => i.id === item.id);
                     if (idx !== -1) setSelectedIndex(idx);

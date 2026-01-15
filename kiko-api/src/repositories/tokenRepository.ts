@@ -46,7 +46,8 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
               liquidity: token.liquidity ?? null,
               fdv: token.fdv ?? null,
               rank: index + 1,
-            }))
+            })),
+            skipDuplicates: true
           });
         }
       });
