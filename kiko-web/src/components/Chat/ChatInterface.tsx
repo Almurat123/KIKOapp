@@ -260,6 +260,40 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         checkFollowStatus();
     }, [authenticated, user]);
 
+    // Sync Farcaster FID to backend
+    useEffect(() => {
+        const syncFarcasterProfile = async () => {
+            if (!user) return;
+
+            const farcasterAccount = user.linkedAccounts?.find(
+                (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
+            );
+            const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
+            const username = (farcasterAccount as any)?.username || (user as any).farcaster?.username;
+
+            if (fid) {
+                try {
+                    // Check if we already synced this session
+                    const storageKey = `kiko-farcaster-synced-${fid}`;
+                    if (sessionStorage.getItem(storageKey)) return;
+
+                    await fetch('/api/users/farcaster', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ fid, username })
+                    });
+
+                    sessionStorage.setItem(storageKey, 'true');
+                    logger.debug('[ChatInterface] Synced Farcaster profile:', { fid, username });
+                } catch (error) {
+                    logger.warn('[ChatInterface] Failed to sync Farcaster profile:', error);
+                }
+            }
+        };
+
+        syncFarcasterProfile();
+    }, [user]);
+
     // Load custom settings
     useEffect(() => {
         const loadCustomSettings = () => {
