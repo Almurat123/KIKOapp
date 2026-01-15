@@ -82,9 +82,15 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
             console.log(`[TradeExecutor] Waiting for buy tx ${txHash} to confirm before approving...`);
 
             const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
-            await provider.waitForTransaction(txHash, 1);
+            const receipt = await provider.waitForTransaction(txHash, 1);
 
-            console.log(`[TradeExecutor] Buy confirmed. Auto-approving ${tokenOut} for Permit2...`);
+            // CRITICAL: Check if the buy transaction actually succeeded
+            if (!receipt || receipt.status === 0) {
+                console.error(`[TradeExecutor] ❌ Buy transaction REVERTED on-chain: ${txHash}`);
+                throw new AppError(500, `Buy transaction reverted on-chain: ${txHash}`, 'TRANSACTION_REVERTED');
+            }
+
+            console.log(`[TradeExecutor] Buy confirmed (status: ${receipt.status}). Auto-approving ${tokenOut} for Permit2...`);
 
             // Approve Max Uint
             const MAX_UINT = '115792089237316195423570985008687907853269984665640564039457584007913129639935';
@@ -118,9 +124,14 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
             }
 
             console.log(`[TradeExecutor] Auto-approval complete.`);
-        } catch (err) {
+        } catch (err: any) {
+            // Re-throw transaction revert errors - these are critical failures
+            if (err?.code === 'TRANSACTION_REVERTED' || err?.message?.includes('reverted')) {
+                console.error('[TradeExecutor] ❌ Buy transaction failed, re-throwing error');
+                throw err;
+            }
+            // Only swallow approval-related errors (buy succeeded but approval failed)
             console.warn('[TradeExecutor] Failed to auto-approve token after buy:', err);
-            // Don't fail the whole function, as the buy succeeded
         }
     }
 

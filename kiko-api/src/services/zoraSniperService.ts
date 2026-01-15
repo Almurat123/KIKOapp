@@ -297,8 +297,13 @@ export class ZoraSniperService {
 
                     console.log(`[ZoraSniper] 🛡️ Price Check: Market: $${marketPrice.toFixed(6)}, Quote: $${quotePrice.toFixed(6)}, Deviation: ${(deviation * 100).toFixed(2)}%`);
 
-                    if (deviation > 0.1) {
-                        console.warn(`[ZoraSniper] ⚠️ HIGH SLIPPAGE DETECTED! Quote price is ${(deviation * 100).toFixed(2)}% above market price.`);
+                    // ABORT if slippage is too high (> 50% above market)
+                    if (deviation > 0.5) {
+                        const errorMsg = `[ZoraSniper] ❌ ABORTING! Price deviation ${(deviation * 100).toFixed(2)}% is too high (max 50%). Quote price $${quotePrice.toFixed(6)} vs market $${marketPrice.toFixed(6)}`;
+                        console.error(errorMsg);
+                        throw new Error(errorMsg);
+                    } else if (deviation > 0.1) {
+                        console.warn(`[ZoraSniper] ⚠️ HIGH SLIPPAGE WARNING! Quote price is ${(deviation * 100).toFixed(2)}% above market price.`);
                     }
                 } catch (priceCheckError) {
                     console.warn(`[ZoraSniper] Price check skipped due to error:`, priceCheckError);
@@ -378,8 +383,13 @@ export class ZoraSniperService {
 
                     console.log(`[ZoraSniper] 🛡️ Price Check: Market: $${marketPrice.toFixed(6)}, Quote: $${quotePrice.toFixed(6)}, Deviation: ${(deviation * 100).toFixed(2)}% `);
 
-                    if (deviation > 0.1) {
-                        console.warn(`[ZoraSniper] ⚠️ HIGH SLIPPAGE DETECTED! Sell quote price is ${(deviation * 100).toFixed(2)}% below market price.`);
+                    // ABORT if slippage is too high (> 50% below market for sells)
+                    if (deviation > 0.5) {
+                        const errorMsg = `[ZoraSniper] ❌ ABORTING SELL! Price deviation ${(deviation * 100).toFixed(2)}% is too high (max 50%). Quote price $${quotePrice.toFixed(6)} vs market $${marketPrice.toFixed(6)}`;
+                        console.error(errorMsg);
+                        throw new Error(errorMsg);
+                    } else if (deviation > 0.1) {
+                        console.warn(`[ZoraSniper] ⚠️ HIGH SLIPPAGE WARNING! Sell quote price is ${(deviation * 100).toFixed(2)}% below market price.`);
                     }
                 } catch (priceCheckError) {
                     console.warn(`[ZoraSniper] Price check skipped due to error: `, priceCheckError);
