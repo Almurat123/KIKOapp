@@ -11,7 +11,7 @@ const DEXSCREENER_TOKEN_PROFILES_URL = 'https://api.dexscreener.com/token-profil
 const DEXSCREENER_TOKEN_BOOSTS_URL = 'https://api.dexscreener.com/token-boosts/top/v1';
 
 // Import TokenSearchResult type for compatibility with GeckoTerminal
-import type { TokenSearchResult } from './geckoTerminal.js';
+import { getTrendingTokens as getGeckoTrendingTokens, type TokenSearchResult } from './geckoTerminal.js';
 import { fetchTrendingAddresses, isWSSupportedChain } from './dexscreenerWS.js';
 
 export interface DexScreenerToken {
@@ -900,10 +900,11 @@ export async function getTrendingTokensPremium(
 
     let trendingAddresses: string[] = [];
     const isWSAvailable = isWSSupportedChain(normalizedChainId);
+    const WS_ONLY_CHAINS = new Set(['base', 'bsc']);
 
     // Note: Solana WebSocket returns binary protobuf data that can't be reliably parsed
     // with regex - extracted addresses are invalid. Skip WebSocket for Solana.
-    const useWebSocket = isWSAvailable && normalizedChainId !== 'solana';
+    const useWebSocket = isWSAvailable && WS_ONLY_CHAINS.has(normalizedChainId);
 
     // Step 1: Try to get trending addresses from WebSocket (Most accurate for EVM chains)
     if (useWebSocket) {
@@ -1105,10 +1106,43 @@ export async function getTrendingTokensPremium(
       }
     }
 
-    const deduplicatedTokens = Array.from(symbolMap.values());
+    let deduplicatedTokens = Array.from(symbolMap.values());
     const removedCount = finalTokens.length - deduplicatedTokens.length;
     if (removedCount > 0) {
       console.log(`[DexScreener Premium] Removed ${removedCount} duplicate-symbol tokens (kept highest liquidity)`);
+    }
+
+    // Step 7: Backfill after symbol-dedupe to try to reach requested limit
+    if (deduplicatedTokens.length < limit) {
+      const existingAddresses = new Set(deduplicatedTokens.map(t => t.address.toLowerCase()));
+
+      try {
+        const fallbackTokens = await getTrendingTokensByChain(chainId, limit, '6h');
+        for (const token of fallbackTokens) {
+          if (deduplicatedTokens.length >= limit) break;
+          if (!existingAddresses.has(token.address.toLowerCase())) {
+            deduplicatedTokens.push(token);
+            existingAddresses.add(token.address.toLowerCase());
+          }
+        }
+      } catch (fallbackError) {
+        console.warn(`[DexScreener Premium] Post-dedupe DexScreener fill error:`, fallbackError);
+      }
+
+      if (deduplicatedTokens.length < limit) {
+        try {
+          const geckoTokens = await getGeckoTrendingTokens(chainId, limit, '5m', 1000);
+          for (const token of geckoTokens) {
+            if (deduplicatedTokens.length >= limit) break;
+            if (!existingAddresses.has(token.address.toLowerCase())) {
+              deduplicatedTokens.push(token);
+              existingAddresses.add(token.address.toLowerCase());
+            }
+          }
+        } catch (geckoError) {
+          console.warn(`[DexScreener Premium] Post-dedupe Gecko fill error:`, geckoError);
+        }
+      }
     }
 
     return deduplicatedTokens;

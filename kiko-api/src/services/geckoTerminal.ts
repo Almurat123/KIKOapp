@@ -495,10 +495,11 @@ export type TrendingDuration = '5m' | '1h' | '6h' | '24h';
 export async function getTrendingTokens(
   network: string = 'eth',
   limit: number = 50,
-  duration: TrendingDuration = '24h'
+  duration: TrendingDuration = '24h',
+  minLiquidityUsd: number = MIN_LIQUIDITY_USD
 ): Promise<TokenSearchResult[]> {
   try {
-    console.log(`[GeckoTerminal] Fetching TRENDING tokens for network: ${network}, limit: ${limit}, duration: ${duration}`);
+    console.log(`[GeckoTerminal] Fetching TRENDING tokens for network: ${network}, limit: ${limit}, duration: ${duration}, minLiquidity: ${minLiquidityUsd}`);
 
     // Map network name to Gecko Terminal network identifier
     const networkMap: Record<string, string> = {
@@ -575,7 +576,7 @@ export async function getTrendingTokens(
 
         // Filter out low-liquidity tokens (likely spam or manipulation)
         const liquidity = parseFloat(attributes.reserve_in_usd) || 0;
-        if (liquidity < MIN_LIQUIDITY_USD) {
+        if (liquidity < minLiquidityUsd) {
           console.log(`[GeckoTerminal] Skipping ${baseToken.symbol} - low liquidity: $${liquidity.toFixed(2)}`);
           continue;
         }
@@ -651,7 +652,7 @@ export async function getTrendingTokens(
     // Convert Map to array while preserving insertion order
     const tokens = Array.from(tokenMap.values());
 
-    console.log(`[GeckoTerminal] Extracted ${tokens.length} trending tokens (filtered by liquidity >= $${MIN_LIQUIDITY_USD})`);
+    console.log(`[GeckoTerminal] Extracted ${tokens.length} trending tokens (filtered by liquidity >= $${minLiquidityUsd})`);
 
     // Return up to limit tokens, keeping trending order
     const result = tokens.slice(0, limit);

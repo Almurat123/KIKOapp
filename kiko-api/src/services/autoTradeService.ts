@@ -1035,7 +1035,45 @@ export async function checkPositionsForExits(): Promise<void> {
         }
 
         try {
-            // Get current price (Silent mode to avoid log spam)
+            // STEP 1: Check on-chain balance first (detect manual sells or dust)
+            let shouldCheckBalance = true;
+            if (position.chainId !== 900) { // Skip Solana for now (different balance check)
+                try {
+                    const chainConfig = getChainConfig(position.chainId);
+                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+                    const tokenContract = new ethers.Contract(
+                        position.tokenAddress,
+                        ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
+                        provider
+                    );
+
+                    const [balance, decimals] = await Promise.all([
+                        tokenContract.balanceOf(position.user.walletAddress),
+                        tokenContract.decimals().catch(() => 18)
+                    ]);
+
+                    const balanceUsd = formatTokenAmount(balance, decimals) * (await getTokenInfo(position.tokenAddress, position.chainId, { verbose: false }))?.price || 0;
+
+                    // If balance is essentially zero (< $0.10), close position
+                    if (balance === 0n || balanceUsd < 0.1) {
+                        console.log(`[PositionMonitor] 🧹 Auto-closing position ${position.id.slice(0, 8)} - Zero balance detected (user sold or dust remaining)`);
+                        await prisma.position.update({
+                            where: { id: position.id },
+                            data: {
+                                status: 'closed',
+                                exitReason: balance === 0n ? 'balance_empty' : 'balance_dust',
+                                closedAt: new Date()
+                            }
+                        });
+                        continue; // Skip TP/SL checks for this position
+                    }
+                } catch (balanceError) {
+                    console.warn(`[PositionMonitor] Failed to check balance for ${position.id}:`, balanceError);
+                    // Continue to TP/SL checks even if balance check fails
+                }
+            }
+
+            // STEP 2: Get current price (Silent mode to avoid log spam)
             const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, { verbose: false });
             if (!tokenInfo) continue;
 
