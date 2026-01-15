@@ -32,8 +32,9 @@ const FollowKikoButton: React.FC = () => {
 
       if (fid) {
         try {
+          // Check if we already synced (localStorage persists across sessions)
           const storageKey = `kiko-farcaster-synced-v2-${fid}`;
-          if (sessionStorage.getItem(storageKey)) return;
+          if (localStorage.getItem(storageKey)) return;
 
           const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
           const authToken = await getAccessToken();
@@ -48,7 +49,7 @@ const FollowKikoButton: React.FC = () => {
 
           if (response.ok) {
             await response.json();
-            sessionStorage.setItem(storageKey, 'true');
+            localStorage.setItem(storageKey, 'true'); // Persist across sessions
             console.log('[WalletSettings] Synced Farcaster FID:', fid);
           }
         } catch (error) {

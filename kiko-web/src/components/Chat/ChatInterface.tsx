@@ -273,9 +273,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             if (fid) {
                 try {
-                    // Check if we already synced this session (v2 to invalidate old bad cache)
+                    // Check if we already synced (localStorage persists across sessions)
                     const storageKey = `kiko-farcaster-synced-v2-${fid}`;
-                    if (sessionStorage.getItem(storageKey)) return;
+                    if (localStorage.getItem(storageKey)) return;
 
                     const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
                     const authToken = await getAccessToken();
@@ -290,7 +290,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                     if (response.ok) {
                         await response.json(); // Consume body
-                        sessionStorage.setItem(storageKey, 'true'); // Only cache on success
+                        localStorage.setItem(storageKey, 'true'); // Persist across sessions
                         logger.debug('[ChatInterface] Synced Farcaster profile:', { fid, username });
                     } else {
                         const errorText = await response.text();
