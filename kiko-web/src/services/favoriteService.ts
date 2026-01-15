@@ -1,5 +1,6 @@
 import { fetchApi } from './api';
 import { apiCache } from '../utils/apiCache';
+import { getAuthToken } from '../utils/authToken';
 
 export interface FavoriteToken {
     id: number;
@@ -28,6 +29,13 @@ export const favoriteApi = {
     // Get all favorites - fetchApi returns FavoriteToken[] directly
     getFavorites: async (userId?: string): Promise<FavoriteToken[]> => {
         try {
+            // Guard: check for auth token first
+            const token = await getAuthToken();
+            if (!token) {
+                console.log('[favoriteApi] No auth token, skipping getFavorites');
+                return [];
+            }
+
             const result = await fetchApi<FavoriteToken[]>('/api/favorites', {
                 headers: {
                     ...(userId ? { 'x-user-id': userId } : {}),
@@ -90,6 +98,12 @@ export const favoriteApi = {
     // Check if favorite - backend returns { success: true, data: { isFavorite: boolean } }
     checkFavorite: async (chain: string, address: string, userId?: string): Promise<boolean> => {
         try {
+            // Guard: check for auth token first
+            const token = await getAuthToken();
+            if (!token) {
+                return false;
+            }
+
             const result = await fetchApi<{ isFavorite: boolean }>(
                 `/api/favorites/check?chain=${chain}&address=${address}`,
                 { headers: { ...(userId ? { 'x-user-id': userId } : {}) } }

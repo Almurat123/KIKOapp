@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
+import { usePrivy } from '@privy-io/react-auth';
 import { TokenDetailPage } from './TokenDetailPage';
 import { tokenApi, type TokenSearchResult } from '../services/api';
 import { favoriteApi } from '../services/favoriteService';
@@ -550,6 +551,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   searchQuery: externalSearchQuery,
   onSearchChange: externalOnSearchChange,
 }) => {
+  const { authenticated } = usePrivy();
   // Page visibility detection
   const { isVisible } = usePageVisibility();
   const isTabVisible = useTabVisibility();
@@ -856,6 +858,12 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   // Fetch favorites when tab changes to favorites or on mount
   useEffect(() => {
     const loadFavorites = async () => {
+      if (!authenticated) {
+        console.log('[TokensPage] Skipping favorites load - not authenticated');
+        setFavoriteAddresses(new Set());
+        return;
+      }
+
       try {
         const favs = await favoriteApi.getFavorites();
         console.log('[TokensPage] Loaded favorites:', favs);
@@ -870,7 +878,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
     // Always load initially and when tab becomes favorites
     loadFavorites();
-  }, [activeTab]);
+  }, [activeTab, authenticated]);
 
   // Filter and sort tokens
   const filteredAndSortedTokens = useMemo(() => {
@@ -984,6 +992,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
   // Refresh favorites callback - called when returning from detail page
   const refreshFavorites = useCallback(async () => {
+    if (!authenticated) return;
+
     try {
       const favs = await favoriteApi.getFavorites();
       console.log('[TokensPage] Refreshed favorites on return:', favs.length);
@@ -992,7 +1002,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     } catch (err) {
       console.error('Failed to refresh favorites', err);
     }
-  }, []);
+  }, [authenticated]);
 
   // Infinite scroll observer
   useEffect(() => {

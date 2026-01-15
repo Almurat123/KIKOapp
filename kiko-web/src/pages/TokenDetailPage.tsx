@@ -12,6 +12,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { favoriteApi } from '../services/favoriteService';
+import { usePrivy } from '@privy-io/react-auth';
 import { useSidebar } from '../components/Layout/Layout';
 
 import { GeckoTerminalChart } from '../components/Chart/GeckoTerminalChart';
@@ -119,6 +120,7 @@ const TwitterIcon = () => (
 );
 
 export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack }) => {
+  const { authenticated } = usePrivy();
   const sidebar = useSidebar();
 
   const [copied, setCopied] = useState(false);
@@ -159,6 +161,8 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   useEffect(() => {
     if (token.chain && token.address) {
       const checkFav = async () => {
+        if (!authenticated) return;
+
         try {
           const normalizedChain = token.chain.toLowerCase();
           const status = await favoriteApi.checkFavorite(normalizedChain, token.address);
@@ -168,11 +172,11 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
 
       checkFav();
     }
-  }, [token.chain, token.address]);
+  }, [token.chain, token.address, authenticated]);
 
   // Handle Favorite Toggle
   const toggleFavorite = async () => {
-    if (loadingFav) return;
+    if (!authenticated || loadingFav) return;
 
     // Optimistic Update
     const previousState = isFavorite;
