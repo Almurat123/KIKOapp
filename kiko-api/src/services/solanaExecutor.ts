@@ -53,7 +53,25 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     // 2. Execute Transaction
     const signature = await sendSolanaTransaction(userId, quote.swapTransaction);
 
-    console.log(`[SolanaExecutor] Swap Executed: https://solscan.io/tx/${signature}`);
+    console.log(`[SolanaExecutor] Transaction sent: ${signature}. Confirming...`);
+
+    // 3. Wait for confirmation
+    const connection = getSolanaConnection();
+    try {
+        const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+
+        if (confirmation.value.err) {
+            console.error(`[SolanaExecutor] ❌ Transaction FAILED on-chain: ${signature}`, confirmation.value.err);
+            throw new AppError(500, `Solana swap failed on-chain: ${signature}`, 'TRANSACTION_FAILED');
+        }
+
+        console.log(`[SolanaExecutor] ✅ Swap confirmed: https://solscan.io/tx/${signature}`);
+    } catch (confirmErr: any) {
+        // If confirmation times out or fails, still return signature but log warning
+        if (confirmErr?.code === 'TRANSACTION_FAILED') throw confirmErr;
+        console.warn(`[SolanaExecutor] ⚠️ Could not confirm tx (may still succeed): ${confirmErr.message}`);
+    }
+
     return signature;
 }
 

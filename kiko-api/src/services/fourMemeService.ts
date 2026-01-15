@@ -144,8 +144,18 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
         chainId,
     });
 
-    console.log(`[FourMeme] ✅ Buy transaction sent: ${txHash}`);
+    console.log(`[FourMeme] Transaction sent: ${txHash}. Waiting for confirmation...`);
 
+    // Wait for confirmation and check status
+    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+    const receipt = await provider.waitForTransaction(txHash, 1);
+
+    if (!receipt || receipt.status === 0) {
+        console.error(`[FourMeme] ❌ Buy transaction REVERTED: ${txHash}`);
+        throw new Error(`FourMeme buy reverted on-chain: ${txHash}`);
+    }
+
+    console.log(`[FourMeme] ✅ Buy confirmed: ${txHash}`);
     return txHash;
 }
 
@@ -186,8 +196,18 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
         chainId,
     });
 
-    console.log(`[FourMeme] ✅ Sell transaction sent: ${txHash}`);
+    console.log(`[FourMeme] Sell transaction sent: ${txHash}. Waiting for confirmation...`);
 
+    // Wait for confirmation and check status
+    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+    const receipt = await provider.waitForTransaction(txHash, 1);
+
+    if (!receipt || receipt.status === 0) {
+        console.error(`[FourMeme] ❌ Sell transaction REVERTED: ${txHash}`);
+        throw new Error(`FourMeme sell reverted on-chain: ${txHash}`);
+    }
+
+    console.log(`[FourMeme] ✅ Sell confirmed: ${txHash}`);
     return txHash;
 }
 
