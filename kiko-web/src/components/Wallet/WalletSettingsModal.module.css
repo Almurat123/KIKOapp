@@ -114,3 +114,53 @@
 .disconnectButton:active {
     transform: scale(0.98);
 }
+
+/* Community Section Styles */
+.followButton {
+    width: 100%;
+    padding: 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #27272a;
+    color: #f4f4f5;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+:global(.light) .followButton {
+    background: #f4f4f5;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #18181b;
+}
+
+.followButton:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.1);
+}
+
+.followButton:active {
+    transform: scale(0.98);
+}
+
+.successButton {
+    width: 100%;
+    padding: 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #27272a;
+    color: #10b981;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: default;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+:global(.light) .successButton {
+    background: #f4f4f5;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
