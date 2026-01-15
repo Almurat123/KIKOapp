@@ -34,7 +34,38 @@ import { moralisService } from './moralisService.js';
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
 
-// ... (previous functions remain)
+// Per-user trade locks to prevent concurrent trade execution for same user
+const userTradeLocks = new Map<string, Promise<any>>();
+
+/**
+ * Execute a function with per-user locking to prevent concurrent trades
+ * This ensures a user can only have ONE trade executing at a time
+ */
+async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+    // Wait for any existing trade to complete
+    const existingLock = userTradeLocks.get(userId);
+    if (existingLock) {
+        console.log(`[AutoTrade] Waiting for existing trade lock for user ${userId.slice(0, 10)}...`);
+        try {
+            await existingLock;
+        } catch {
+            // Ignore errors from previous trade, we just need to wait for it
+        }
+    }
+
+    // Create new lock
+    const lockPromise = fn();
+    userTradeLocks.set(userId, lockPromise);
+
+    try {
+        return await lockPromise;
+    } finally {
+        // Clean up lock after completion
+        if (userTradeLocks.get(userId) === lockPromise) {
+            userTradeLocks.delete(userId);
+        }
+    }
+}
 
 // ... (previous functions remain)
 
@@ -369,6 +400,14 @@ ${analysis.rawAnalysis}
                 // If 'analyze_only', we just proceed regardless of decision
             }
             // =================================================================
+
+            // === CONCURRENCY CONTROL (Simple Check) ===
+            // Check if this user already has a trade pending - skip if so
+            const userLockKey = `trade:${config.userId}`;
+            if (userTradeLocks.has(userLockKey)) {
+                console.log(`[AutoTrade] ⏭️ Skipping: User ${config.userId.slice(0, 10)} already has a pending trade`);
+                continue;
+            }
 
             // Calculate how much to buy in token units
             const usdAmount = config.buyAmountUsd;
@@ -1206,15 +1245,31 @@ function getStablecoinDecimals(tokenAddress: string, chainId: number): number {
  * Get token information from external API with multi-provider fallback
  */
 // ... (getTokenInfo signature)
-export async function getTokenInfo(tokenAddress: string, chainId: number, options: { verbose?: boolean } = { verbose: true }): Promise<any> {
-    const { verbose } = options;
+// Cache to reduce API calls and speed up detection
+const tokenInfoCache = new Map<string, { data: any, timestamp: number }>();
+const CACHE_TTL = 30 * 1000; // 30 seconds
+
+export async function getTokenInfo(tokenAddress: string, chainId: number, options: { verbose?: boolean; forceRefresh?: boolean } = { verbose: true, forceRefresh: false }): Promise<any> {
+    const { verbose, forceRefresh } = options;
+    const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
+
+    // 1. Check Cache
+    if (!forceRefresh) {
+        const cached = tokenInfoCache.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+            if (verbose) console.log(`[AutoTrade] Cache hit for ${tokenInfoCache.get(cacheKey)?.data.symbol}`);
+            return cached.data;
+        }
+    }
+
     const chainSlug = getChainSlug(chainId);
     const dsSlug = chainSlug.dexScreener;
     const gtSlug = chainSlug.geckoTerminal;
 
     // --- STEP 0: Request Jitter ---
     // Add a random delay to prevent synchronized burst blocks
-    const jitter = Math.floor(Math.random() * 300) + 200; // 200-500ms
+    // Reduced jitter if cached data was stale but close
+    const jitter = Math.floor(Math.random() * 200) + 100; // 100-300ms
     await new Promise(resolve => setTimeout(resolve, jitter));
 
     if (verbose) {
@@ -1225,6 +1280,8 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
     const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
     const MAX_RETRIES = 3;
     let dsError: any = null;
+
+    let successResult: any = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -1254,7 +1311,7 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
             const data = await res.json() as any;
             if (data.pairs && data.pairs.length > 0) {
                 const pair = data.pairs.find((p: any) => p.chainId === dsSlug) || data.pairs[0];
-                const result = {
+                successResult = {
                     price: parseFloat(pair.priceUsd),
                     symbol: pair.baseToken.symbol,
                     name: pair.baseToken.name,
@@ -1268,8 +1325,11 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
                     websites: pair.info?.websites || [],
                     provider: 'dexscreener'
                 };
-                if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (DexScreener) - ${result.symbol} $${result.price}`);
-                return result;
+                if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (DexScreener) - ${successResult.symbol} $${successResult.price}`);
+
+                // Cache Result
+                tokenInfoCache.set(cacheKey, { data: successResult, timestamp: Date.now() });
+                return successResult;
             }
 
             // If no pairs found, don't retry dexscreener, move to fallback
@@ -1279,8 +1339,9 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
         } catch (e: any) {
             dsError = e;
             if (attempt < MAX_RETRIES && (e.message === '429' || e.name === 'AbortError')) {
-                // Wait longer for 429s (1.5s, 3s)
-                const wait = e.message === '429' ? 1500 * attempt : 500 * attempt;
+                // Exponential Backoff: 1s, 2s, 4s...
+                const wait = 1000 * Math.pow(2, attempt - 1);
+                console.log(`[AutoTrade] Retrying DexScreener in ${wait}ms...`);
                 await new Promise(resolve => setTimeout(resolve, wait));
                 continue;
             }
@@ -1388,9 +1449,48 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
 async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: number) {
     if (!tokenInfo) return { passed: false, reason: 'No token info' };
 
+    // =========================================================================
+    // 🛡️ HONEYPOT DETECTION (Fast Mode)
+    // Fast mode: Only check liquidity (quick but less thorough)
+    // Normal mode: Additional checks for volume ratio, token age, etc.
+    // =========================================================================
+    const MIN_LIQUIDITY_FAST = 500; // $500 minimum for fast mode
+    const MIN_LIQUIDITY_NORMAL = 1000; // $1000 minimum for normal mode
+    const MIN_VOLUME_RATIO = 0.01; // Volume should be at least 1% of liquidity
+
+    const isFastMode = config.fastExecutionEnabled !== false; // Default to fast
+
+    if (isFastMode) {
+        // FAST MODE: Quick liquidity check only
+        if (tokenInfo.liquidity < MIN_LIQUIDITY_FAST) {
+            return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${tokenInfo.liquidity?.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
+        }
+    } else {
+        // NORMAL MODE: More thorough checks
+        if (tokenInfo.liquidity < MIN_LIQUIDITY_NORMAL) {
+            return { passed: false, reason: `[HONEYPOT] Liquidity $${tokenInfo.liquidity?.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
+        }
+
+        // Check volume/liquidity ratio (very low volume relative to liquidity = suspicious)
+        if (tokenInfo.volume24h > 0 && tokenInfo.liquidity > 0) {
+            const volumeRatio = tokenInfo.volume24h / tokenInfo.liquidity;
+            if (volumeRatio < MIN_VOLUME_RATIO) {
+                return { passed: false, reason: `[HONEYPOT] Suspicious volume ratio: ${(volumeRatio * 100).toFixed(2)}%` };
+            }
+        }
+
+        // Check token age (very new tokens are higher risk)
+        if (tokenInfo.pairCreatedAt) {
+            const ageMinutes = (Date.now() - tokenInfo.pairCreatedAt) / (1000 * 60);
+            if (ageMinutes < 5) {
+                return { passed: false, reason: `[HONEYPOT] Token too new: ${ageMinutes.toFixed(1)} mins old` };
+            }
+        }
+    }
+    // =========================================================================
+
     // 1. Min Target Buy Value (Copy trade filter)
     // If target bought only $5 worth, and min is $100 -> Skip.
-    // Assuming config has minTargetValueUsd (user requested this previously).
     if (config.minTargetValueUsd && targetSwapValueUsd < config.minTargetValueUsd) {
         return { passed: false, reason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min $${config.minTargetValueUsd}` };
     }
@@ -1403,8 +1503,10 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
         return { passed: false, reason: `MCap $${tokenInfo.marketCap} > max $${config.maxMarketCap}` };
     }
 
-    // 3. Volume
-    // ... logic ...
+    // 3. User-defined Liquidity filter (overrides honeypot defaults if set)
+    if (config.minLiquidityUsd && tokenInfo.liquidity < config.minLiquidityUsd) {
+        return { passed: false, reason: `Liquidity $${tokenInfo.liquidity} < min $${config.minLiquidityUsd}` };
+    }
 
     return { passed: true };
 }

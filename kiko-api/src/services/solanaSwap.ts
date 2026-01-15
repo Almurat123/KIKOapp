@@ -54,7 +54,7 @@ const JUPITER_PUBLIC_API = 'https://public.jupiterapi.com';
 // Documentation: https://station.jup.ag/docs/ultra/get-order
 const JUPITER_ULTRA_API = 'https://api.jup.ag/ultra/v1';
 
-const FETCH_TIMEOUT = 15000; // 15 seconds timeout
+const FETCH_TIMEOUT = 30000; // 30 seconds timeout
 
 // Get Jupiter API key from environment
 const getJupiterApiKey = (): string | undefined => {
