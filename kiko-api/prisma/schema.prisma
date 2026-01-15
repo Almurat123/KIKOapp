@@ -8,8 +8,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============= Master Tables =============
-
 model Chain {
   id          Int      @id
   name        String   @unique
@@ -41,8 +39,8 @@ model User {
   privyDid            String                 @unique
   walletAddress       String                 @unique
   solanaWalletAddress String?
-  farcasterFid        Int?                   // Farcaster ID for direct messaging
-  farcasterUsername   String?                // Farcaster username
+  farcasterFid        Int?
+  farcasterUsername   String?
   createdAt           DateTime               @default(now())
   email               String?                @unique
   referralCode        String?                @unique
@@ -160,7 +158,6 @@ model PolymarketCopyConfig {
   @@index([targetWallet])
   @@index([userId])
 }
-
 
 model WalletTransaction {
   id             Int      @id @default(autoincrement())
@@ -523,7 +520,6 @@ model TrendingToken {
   name           String
   symbol         String
   imageUrl       String?  @map("image_url")
-
   price          Decimal?
   priceChange5m  Decimal? @map("price_change_5m")
   priceChange1h  Decimal? @map("price_change_1h")
