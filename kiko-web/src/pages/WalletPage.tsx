@@ -392,7 +392,10 @@ export default function WalletPage() {
 
         for (const endpoint of endpoints) {
           try {
-            const connection = new Connection(endpoint, 'confirmed');
+            const connection = new Connection(endpoint, {
+              commitment: 'confirmed',
+              wsEndpoint: 'wss://mainnet.helius-rpc.com/?api-key=2dff82b2-9157-4896-9438-646ab1b0c89b'
+            });
             const pubKey = new PublicKey(solanaWallet.address);
             balance = await connection.getBalance(pubKey);
             success = true;
@@ -507,7 +510,10 @@ export default function WalletPage() {
           return;
         }
 
-        const allBalances = await getAllChainBalances(walletAddress, solanaWallet?.address);
+        // IMPORTANT: Always use EVM address for API authentication
+        // Pass Solana address as optional parameter for Solana-specific calls
+        const primaryAddress = evmAddress || walletAddress;
+        const allBalances = await getAllChainBalances(primaryAddress!, solanaWallet?.address);
         if (!allBalances) {
           if (!cancelled) {
             setHoldings([]);
@@ -651,8 +657,10 @@ export default function WalletPage() {
       setTransactionsLoading(true);
       try {
         const chainName = getChainName(chainId);
-        console.log('[WalletPage] Fetching transactions:', { walletAddress, chainName, reqId });
-        const txData = await getWalletTransactions(walletAddress, {
+        // Use EVM address for auth, but use correct chain-specific address for data
+        const addressForApi = evmAddress || walletAddress;
+        console.log('[WalletPage] Fetching transactions:', { walletAddress: addressForApi, chainName, reqId });
+        const txData = await getWalletTransactions(addressForApi!, {
           chain: chainName,
           limit: 25,
         });

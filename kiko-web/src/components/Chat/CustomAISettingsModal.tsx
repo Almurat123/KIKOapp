@@ -25,6 +25,11 @@ export interface CustomAISettings {
     copyTradeAIMode: 'disabled' | 'analyze_only' | 'auto_decide';
     // Fast Swap
     fastSwapMode: boolean;
+    // Copy trade safety
+    copyTradeTokenCooldownMinutes: number | '';
+    minMarketCapUsd: number | '';
+    minLiquidityUsd: number | '';
+    minTargetValueUsd: number | '';
 }
 
 interface CustomAISettingsModalProps {
@@ -47,6 +52,10 @@ const DEFAULT_SETTINGS: CustomAISettings = {
     // Copy Trade AI Analysis default
     copyTradeAIMode: 'disabled',
     fastSwapMode: false,
+    copyTradeTokenCooldownMinutes: 60,
+    minMarketCapUsd: '',
+    minLiquidityUsd: '',
+    minTargetValueUsd: '',
 };
 
 const USER_ROLE_OPTIONS = [
@@ -91,6 +100,12 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
         settingsRef.current = settings;
     }, [settings]);
 
+    const normalizeNumber = (value: number | '') => {
+        if (value === '' || value === null || value === undefined) return null;
+        const num = Number(value);
+        return Number.isFinite(num) ? num : null;
+    };
+
     const saveSettingsToApi = async (currentSettings: CustomAISettings) => {
         try {
             // Persist to localStorage immediately
@@ -101,7 +116,13 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
             if (authenticated) {
                 const token = await getAccessToken();
                 if (token) {
-                    await saveUserSettings(token, currentSettings);
+                    await saveUserSettings(token, {
+                        ...currentSettings,
+                        copyTradeTokenCooldownMinutes: normalizeNumber(currentSettings.copyTradeTokenCooldownMinutes),
+                        minMarketCapUsd: normalizeNumber(currentSettings.minMarketCapUsd),
+                        minLiquidityUsd: normalizeNumber(currentSettings.minLiquidityUsd),
+                        minTargetValueUsd: normalizeNumber(currentSettings.minTargetValueUsd),
+                    });
                 }
             }
             logger.log('Settings saved successfully');
@@ -218,6 +239,66 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     <p className={styles.headerDesc}>
                         High-speed transaction execution bypassing manual confirmations.
                     </p>
+                </div>
+
+                <div className={styles.section}>
+                    <div className={styles.sectionTitle}>Copy Trade Safety</div>
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Repeat Buy Cooldown (minutes)</label>
+                        <input
+                            className={styles.input}
+                            type="number"
+                            min={0}
+                            value={settings.copyTradeTokenCooldownMinutes}
+                            onChange={e => setSettings(prev => ({
+                                ...prev,
+                                copyTradeTokenCooldownMinutes: e.target.value === '' ? '' : Number(e.target.value)
+                            }))}
+                            placeholder="60"
+                        />
+                    </div>
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Min Market Cap (USD)</label>
+                        <input
+                            className={styles.input}
+                            type="number"
+                            min={0}
+                            value={settings.minMarketCapUsd}
+                            onChange={e => setSettings(prev => ({
+                                ...prev,
+                                minMarketCapUsd: e.target.value === '' ? '' : Number(e.target.value)
+                            }))}
+                            placeholder="Optional"
+                        />
+                    </div>
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Min Liquidity (USD)</label>
+                        <input
+                            className={styles.input}
+                            type="number"
+                            min={0}
+                            value={settings.minLiquidityUsd}
+                            onChange={e => setSettings(prev => ({
+                                ...prev,
+                                minLiquidityUsd: e.target.value === '' ? '' : Number(e.target.value)
+                            }))}
+                            placeholder="Optional"
+                        />
+                    </div>
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Min Target Buy Value (USD)</label>
+                        <input
+                            className={styles.input}
+                            type="number"
+                            min={0}
+                            value={settings.minTargetValueUsd}
+                            onChange={e => setSettings(prev => ({
+                                ...prev,
+                                minTargetValueUsd: e.target.value === '' ? '' : Number(e.target.value)
+                            }))}
+                            placeholder="Optional"
+                        />
+                    </div>
                 </div>
 
                 {/* Trading Preferences Section */}

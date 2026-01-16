@@ -566,15 +566,20 @@ export async function getSolanaQuote(
         } else {
           // Jupiter TX build failed - fallback to Raydium if available
           console.warn('[Solana Swap] Jupiter transaction build failed, trying Raydium fallback...');
-          const raydiumQuote = validQuotes.find(q => q.aggregator === 'raydium');
-          if (raydiumQuote) {
+
+          // CRITICAL: Don't use the stale raydium quote from the parallel fetch!
+          // It might be 5-10 seconds old by now, causing 0x9ca deadline errors.
+          // Re-fetch a FRESH Raydium quote.
+          const freshRaydiumQuote = await getRaydiumQuote(inputMint, outputMint, amount, slippageBps, undefined);
+
+          if (freshRaydiumQuote) {
             const isInputSol = inputMint === SOLANA_NATIVE_MINT || inputMint === 'SOL';
             const isOutputSol = outputMint === SOLANA_NATIVE_MINT || outputMint === 'SOL';
-            const raydiumTx = await getRaydiumSwapTransaction(raydiumQuote, userAddress, isInputSol, isOutputSol);
+            const raydiumTx = await getRaydiumSwapTransaction(freshRaydiumQuote, userAddress, isInputSol, isOutputSol);
             if (raydiumTx) {
-              raydiumQuote.swapTransaction = raydiumTx;
-              bestQuote = raydiumQuote; // Switch to Raydium
-              console.log('[Solana Swap] Successfully fell back to Raydium');
+              freshRaydiumQuote.swapTransaction = raydiumTx;
+              bestQuote = freshRaydiumQuote; // Switch to Raydium
+              console.log('[Solana Swap] Successfully fell back to FRESH Raydium quote');
             }
           }
         }

@@ -84,6 +84,10 @@ model UserSettings {
   priceDeviationCheck  Boolean  @default(true)
   copyTradeAIMode      String   @default("disabled")
   fastSwapMode         Boolean  @default(false)
+  copyTradeTokenCooldownMinutes Int?   @default(60)
+  minMarketCapUsd     Float?
+  minLiquidityUsd     Float?
+  minTargetValueUsd   Float?
   updatedAt            DateTime @updatedAt
   createdAt            DateTime @default(now())
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)

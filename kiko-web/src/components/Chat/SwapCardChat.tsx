@@ -93,6 +93,29 @@ function swapDataToToken(
   });
 
   try {
+    // Map native token symbols to chain-specific native tokens
+    const nativeTokenMap: Record<number, string> = {
+      1: 'ETH',      // Ethereum
+      56: 'BNB',     // BSC
+      137: 'POL',    // Polygon
+      8453: 'ETH',   // Base
+      42161: 'ETH',  // Arbitrum
+      10: 'ETH',     // Optimism
+      900: 'SOL',    // Solana
+    };
+
+    // If the symbol is a generic native token (ETH, BNB, etc.) but we're on a different chain,
+    // map it to the correct native token for this chain
+    let symbol = tokenData.symbol;
+    const isLikelyNativeToken = ['ETH', 'BNB', 'MATIC', 'POL', 'SOL'].includes(symbol.toUpperCase());
+    if (isLikelyNativeToken && nativeTokenMap[chainId]) {
+      const correctNativeSymbol = nativeTokenMap[chainId];
+      if (symbol.toUpperCase() !== correctNativeSymbol.toUpperCase()) {
+        logger.debug(`[swapDataToToken] Mapping ${symbol} -> ${correctNativeSymbol} for chain ${chainId}`);
+        symbol = correctNativeSymbol;
+      }
+    }
+
     // Normalize ETH placeholder address to zero address
     const normalizeAddress = (addr?: string): string | undefined => {
       if (!addr) return addr;
@@ -117,11 +140,11 @@ function swapDataToToken(
     // For native tokens, match by symbol since addresses can vary (0x0000... or 0xEeee...)
     const foundToken = commonTokens.find(t => {
       if (tokenData.address && isNativeAddress(tokenData.address)) {
-        // For native tokens, match by symbol
-        return t.symbol.toLowerCase() === tokenData.symbol.toLowerCase();
+        // For native tokens, match by symbol (use mapped symbol)
+        return t.symbol.toUpperCase() === symbol.toUpperCase();
       }
-      // For other tokens, match by symbol
-      return t.symbol.toLowerCase() === tokenData.symbol.toLowerCase();
+      // For other tokens, match by symbol (use mapped symbol)
+      return t.symbol.toUpperCase() === symbol.toUpperCase();
     });
 
     logger.debug('[swapDataToToken] Found token:', foundToken?.symbol);
@@ -236,6 +259,22 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
       try {
         // Helper to resolve token data
         const resolveToken = async (data: SwapCardData['tokenIn'] | SwapCardData['tokenOut']): Promise<Token | null> => {
+          // Handle string input (e.g., just "ETH" or "USDC")
+          if (typeof data === 'string') {
+            const symbol = data;
+            const token = swapDataToToken({ symbol, name: symbol } as any, activeChainId);
+            if (!token) {
+              logger.warn('[SwapCardChat] Could not resolve token from string:', symbol);
+            }
+            return token;
+          }
+
+          // Add safety check for undefined data or symbol
+          if (!data || !data.symbol) {
+            logger.warn('[SwapCardChat] Token data is missing or incomplete:', data);
+            return null;
+          }
+
           // Special handling for native tokens - use COMMON_TOKENS directly
           const nativeTokens = ['ETH', 'BNB', 'MATIC', 'AVAX', 'FTM', 'SOL'];
           const isNativeToken = nativeTokens.includes(data.symbol.toUpperCase());
@@ -317,7 +356,7 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
 
         const tokenIn = await resolveToken(initialData.tokenIn);
         const tokenOut = await resolveToken(initialData.tokenOut);
-        const amountIn = initialData.tokenIn.amount.replace(/,/g, '');
+        const amountIn = initialData.tokenIn?.amount?.replace(/,/g, '') || '';
 
         if (tokenIn && tokenOut) {
           // IMPORTANT: Update activeChainId FIRST before setting initialTokens
@@ -357,6 +396,7 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
       chainId={activeChainId}
       onSwapSuccess={onSwapSuccess}
       onSwapError={onSwapError}
+      initialTokenIn={initialTokens?.tokenIn || null}
       initialTokenOut={initialTokens?.tokenOut || null}
       initialAmountIn={initialTokens?.amountIn}
       isGenerating={!initialTokens}

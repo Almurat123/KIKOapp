@@ -10,6 +10,25 @@ import { parseUnits } from 'viem';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 /**
+ * Validate address format for both EVM and Solana chains
+ * @param address - Address to validate
+ * @param chainId - Chain ID to determine validation type
+ * @returns true if address format is valid
+ */
+function isValidAddress(address: string, chainId: number): boolean {
+    // Solana chain (chainId 900)
+    if (chainId === 900) {
+        // Solana addresses are base58 encoded, typically 32-44 characters
+        // Valid base58 characters: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
+        return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+    }
+
+    // EVM chains (Ethereum, BSC, Base, etc.)
+    // Must be 0x followed by 40 hex characters
+    return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+/**
  * 获取最优 Swap 报价
  * @param params - 交换参数
  * @returns 最优报价或 null
@@ -376,12 +395,13 @@ export async function getUserBalance(
                     137: 'polygon',
                     43114: 'avalanche',
                     250: 'fantom',
+                    900: 'solana', // Solana
                 };
                 const chain = chainIdToName[chainId] || 'eth';
 
                 // Use the correct API endpoint: GET /api/wallets/:address/balance
                 // Validate address format to prevent path injection
-                if (!/^0x[a-fA-F0-9]{40}$/.test(userAddress)) {
+                if (!isValidAddress(userAddress, chainId)) {
                     throw new Error('Invalid wallet address format');
                 }
                 const sanitizedAddress = encodeURIComponent(userAddress);
@@ -525,10 +545,11 @@ export async function getWalletPortfolio(
                     137: 'polygon',
                     43114: 'avalanche',
                     250: 'fantom',
+                    900: 'solana', // Solana
                 };
                 const chain = chainIdToName[chainId] || 'eth';
 
-                if (!/^0x[a-fA-F0-9]{40}$/.test(userAddress)) {
+                if (!isValidAddress(userAddress, chainId)) {
                     throw new Error('Invalid wallet address format');
                 }
                 const sanitizedAddress = encodeURIComponent(userAddress);

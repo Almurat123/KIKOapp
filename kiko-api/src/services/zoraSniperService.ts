@@ -93,7 +93,7 @@ export class ZoraSniperService {
                 platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
             };
 
-            const quote = await createTradeCall(tradeParams);
+            const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'snipe');
 
             // 2. Prepare transaction for Privy
             const tx = {
@@ -113,6 +113,24 @@ export class ZoraSniperService {
             console.error(`[ZoraSniper] Execution Error: `, error);
             throw error;
         }
+    }
+
+    private async createTradeCallWithRetry(tradeParams: any, maxAttempts = 2, context = 'swap') {
+        let lastError: any;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                if (attempt > 1) {
+                    const backoffMs = 400 * attempt;
+                    console.warn(`[ZoraSniper] Quote retry ${attempt}/${maxAttempts} (${context}), waiting ${backoffMs}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, backoffMs));
+                }
+                return await createTradeCall(tradeParams);
+            } catch (error) {
+                lastError = error;
+                console.warn(`[ZoraSniper] Quote attempt ${attempt}/${maxAttempts} failed (${context}):`, error);
+            }
+        }
+        throw lastError;
     }
 
     /**
@@ -147,7 +165,7 @@ export class ZoraSniperService {
                 const balances = await zoraService.getUserBalances(params.walletAddress);
                 if (balances && balances.length > 0) {
                     console.log(`[ZoraSniper] 💼 User Zora Portfolio: ${balances.length} coins tracked.`);
-                    const currentBalance = balances.find((b: any) => b.address.toLowerCase() === params.tokenOut.toLowerCase());
+                    const currentBalance = balances.find((b: any) => b?.address && b.address.toLowerCase() === params.tokenOut.toLowerCase());
                     if (currentBalance) {
                         console.log(`[ZoraSniper] 💰 Current holding of ${coin?.symbol || 'output token'}: ${ethers.formatUnits(currentBalance.balance, 18)}`);
                     }
@@ -165,7 +183,7 @@ export class ZoraSniperService {
             let zoraBalance = BigInt(0);
             try {
                 const balances = await zoraService.getUserBalances(params.walletAddress);
-                const zoraBalanceObj = balances.find((b: any) => b.address.toLowerCase() === ZORA_TOKEN_ADDRESS.toLowerCase());
+                const zoraBalanceObj = balances.find((b: any) => b?.address && b.address.toLowerCase() === ZORA_TOKEN_ADDRESS.toLowerCase());
 
                 if (zoraBalanceObj) {
                     zoraBalance = BigInt(zoraBalanceObj.balance);
@@ -277,7 +295,7 @@ export class ZoraSniperService {
                 inputLabel = `${params.amountIn} ETH`;
             }
 
-            const quote = await createTradeCall(tradeParams);
+            const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'fastSwap');
 
             // 4. Logging Quote Details (with null safety)
             const quoteData = (quote as any).quote;
@@ -380,7 +398,7 @@ export class ZoraSniperService {
                 platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
             };
 
-            const quote = await createTradeCall(tradeParams);
+            const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'fastSell');
 
             // 2. Logging Quote Details (with null safety)
             const quoteData = (quote as any).quote;

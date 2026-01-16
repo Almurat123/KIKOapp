@@ -103,8 +103,6 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   // Ref to track if auto-execution has been attempted to prevent loops
   const hasAutoExecutedRef = React.useRef(false);
 
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmReady, setConfirmReady] = useState(false);
   // Internal state for smooth blur transition
   // Show overlay if generating OR if we have initial data that hasn't been populated yet
 
@@ -114,7 +112,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const evmSwap = useSwap({
     chainId: isSolana ? 1 : chainId, // Fallback to Ethereum if Solana
     slippageBps: 50,
-    userAddress,
+    userAddress: isSolana ? undefined : userAddress, // Don't pass address to EVM hook on Solana chain
     // Pass initial tokens to avoid race condition where tokens are set
     // This ensures the hook initializes with correct tokens from the start
     initialTokenIn: !isSolana ? (initialTokenIn ?? undefined) : undefined,
@@ -215,8 +213,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   const { login, authenticated, getAccessToken } = usePrivy();
 
   useEffect(() => {
-    // Reset confirmation when quote/spender or amount changes
-    setConfirmReady(false);
+    // Confirmation modal removed - no need to reset anything
   }, [
     (swapState?.quote as any)?.allowanceTarget,
     (swapState?.quote as any)?.to,
@@ -256,7 +253,6 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
         if (data.success && data.txHash) {
           onSwapSuccess?.(data.txHash);
-          setConfirmReady(false);
           return;
         } else {
           if (import.meta.env.DEV) {
@@ -309,7 +305,6 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     } else if (result?.error) {
       onSwapError?.(result.error);
     }
-    setConfirmReady(false);
   };
 
   const handleExecuteSwap = async () => {
@@ -329,14 +324,9 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       ? (swapState?.quote as any)?.allowanceTarget || (swapState?.quote as any)?.to || ''
       : '';
 
-    // SKIP confirmation if Auto-Execute (AI) OR Fast Swap Mode (User Setting) is enabled
-    const shouldSkipConfirm = autoExecute || (fastSwapMode && chainId === 8453);
-
-    if (!confirmReady && !shouldSkipConfirm) {
-      setConfirmOpen(true);
-      return;
-    }
-    if (!isSolana && !spender && !shouldSkipConfirm) {
+    // Execute swap directly without confirmation modal
+    // (Confirmation modal removed per user request)
+    if (!isSolana && !spender) {
       // Note: Fast swap backend handles spender internally or doesn't need it (server signing)
       // But if we are client side we need it.
       if (!fastSwapMode) {
@@ -718,18 +708,15 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
                       if (isNative) {
                         // For native tokens, we must subtract gas
-                        // Use float math here (acceptable for gas buffer calculation)
                         const balance = parseFloat(displayInfo.userBalance);
                         const gasBuffer = 0.01; // Reserve 0.01 ETH/SOL for gas
                         const maxAmount = Math.max(0, balance - gasBuffer);
 
-                        // Format back to string, respecting decimals
-                        const decimals = isSolana ? 9 : 18; // Native decimals
-                        maxAmountStr = maxAmount.toFixed(decimals).replace(/\.?0+$/, '');
+                        // Use high precision (9 for Solana, 18 for EVM)
+                        const precision = isSolana ? 9 : 18;
+                        maxAmountStr = maxAmount.toFixed(precision).replace(/\.?0+$/, '');
                       } else {
-                        // For Tokens: Use the exact balance string directly!
-                        // This avoids any float precision loss (e.g. 0.321099 -> 0.3210989999)
-                        // No subtraction needed for tokens
+                        // For Tokens: Use the full balance string directly to avoid precision loss
                         maxAmountStr = displayInfo.userBalance;
                       }
 
@@ -901,66 +888,6 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
           </button>
         </div>
 
-        {/* Safety confirmation modal */}
-        {confirmOpen && typeof document !== 'undefined' && createPortal(
-          <div className={styles.modalOverlay} onClick={() => setConfirmOpen(false)}>
-            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-              <div className={styles.modalHeader}>
-                <h3 className={styles.modalTitle}>Review & Confirm</h3>
-                <button className={styles.modalCloseButton} onClick={() => setConfirmOpen(false)}>
-                  <X size={20} />
-                </button>
-              </div>
-              <div className={styles.confirmBody}>
-                {!isSolana && (
-                  <div className={styles.confirmRow}>
-                    <span>Spender</span>
-                    <code className={styles.confirmCode}>
-                      {(swapState?.quote as any)?.allowanceTarget || (swapState?.quote as any)?.to || 'N/A'}
-                    </code>
-                  </div>
-                )}
-                <div className={styles.confirmRow}>
-                  <span>Chain</span>
-                  <span>{swapState?.tokenIn?.chainId || chainId}</span>
-                </div>
-                <div className={styles.confirmRow}>
-                  <span>Pay</span>
-                  <span>{amountIn} {tokenInSymbol}</span>
-                </div>
-                <div className={styles.confirmRow}>
-                  <span>Receive</span>
-                  <span>{amountOut} {tokenOutSymbol}</span>
-                </div>
-                <div className={styles.confirmNote}>
-                  仅本次授权金额（+5%缓冲）。请确认链、代币与 Spender 地址，陌生地址请取消。
-                </div>
-                <label className={styles.confirmCheck}>
-                  <input
-                    type="checkbox"
-                    checked={confirmReady}
-                    onChange={(e) => setConfirmReady(e.target.checked)}
-                  />
-                  <span>我已核对上述信息，愿意继续</span>
-                </label>
-                <div className={styles.confirmActions}>
-                  <button onClick={() => setConfirmOpen(false)} className={styles.cancelBtn}>取消</button>
-                  <button
-                    disabled={!confirmReady}
-                    className={styles.swapConfirmBtn}
-                    onClick={async () => {
-                      setConfirmOpen(false);
-                      await handleExecuteSwap();
-                    }}
-                  >
-                    确认并继续
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
 
         {showRouteSelector && (
           <div className={styles.routeDropdown}>

@@ -7,10 +7,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useWallets, usePrivy } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
-// Note: VersionedTransaction type will be provided by Privy wallet
-// We'll use 'any' type for now until @solana/web3.js is installed
-type VersionedTransaction = any;
-import { getSolanaSwapQuote, executeSolanaSwap, type SolanaSwapQuote } from '@/services/solanaSwapService';
+import { getSolanaSwapQuote, type SolanaSwapQuote } from '@/services/solanaSwapService';
 import { getCommonTokens } from '@/services/tokenDataService';
 import type { Token } from '@/types/swap';
 
@@ -60,7 +57,7 @@ export function useSolanaSwap({
   userAddress,
   aggregator = 'auto',
 }: UseSolanaSwapParams): UseSolanaSwapReturn {
-  const { user } = usePrivy();
+  const { user, getAccessToken } = usePrivy();
   const { wallets: privyWallets } = useWallets();
 
   // Get Privy embedded Solana wallets using the Solana-specific hook
@@ -272,7 +269,11 @@ export function useSolanaSwap({
 
   useEffect(() => {
     const fetchBalance = async () => {
-      if (!activeWallet?.walletInstance?.publicKey) {
+      // For Privy embedded wallets, use address directly
+      // For external wallets, use walletInstance.publicKey
+      const walletAddress = activeWallet?.address;
+
+      if (!walletAddress) {
         setSolanaBalance('0');
         setTokenBalances({});
         return;
@@ -285,12 +286,14 @@ export function useSolanaSwap({
 
         const connection = new Connection(rpcUrl, 'confirmed');
 
-        const publicKey = new PublicKey(activeWallet.walletInstance.publicKey.toString());
+        // Use wallet address directly (works for both embedded and external wallets)
+        const publicKey = new PublicKey(walletAddress);
 
         // Fetch SOL balance
         const balance = await connection.getBalance(publicKey);
-        const solBalance = (balance / 1e9).toFixed(4);
+        const solBalance = (balance / 1e9).toFixed(9).replace(/\.?0+$/, '');
         setSolanaBalance(solBalance);
+        console.log('[useSolanaSwap] SOL balance:', solBalance);
 
         // Fetch SPL token balances using parsed RPC method (no @solana/spl-token needed)
         try {
@@ -313,7 +316,7 @@ export function useSolanaSwap({
               const decimals = parsedInfo.tokenAmount.decimals;
 
               // Calculate balance using the decimals from the parsed data
-              const balance = (Number(amount) / Math.pow(10, decimals)).toFixed(4);
+              const balance = (Number(amount) / Math.pow(10, decimals)).toFixed(decimals).replace(/\.?0+$/, '');
               balances[mint] = balance;
 
               console.log(`[useSolanaSwap] Token ${mint.slice(0, 8)}...: ${balance} (decimals: ${decimals})`);
@@ -486,126 +489,50 @@ export function useSolanaSwap({
     setState(prev => ({ ...prev, isExecuting: true, error: null }));
 
     try {
-      // Get the wallet instance
-      const walletInstance = (activeWallet as any)?.walletInstance;
+      console.log('[useSolanaSwap] Executing swap via backend auto-trade service...');
 
-      if (!walletInstance) {
-        throw new Error('Wallet instance not found');
+      // Get JWT token for authentication
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error('Please sign in to execute swaps');
       }
 
-      // Check if wallet is connected (has publicKey)
-      if (!walletInstance.publicKey) {
-        console.log('[useSolanaSwap] Wallet not connected, connecting...');
-        try {
-          await walletInstance.connect();
-          console.log('[useSolanaSwap] Wallet connected, publicKey:', walletInstance.publicKey?.toString());
-        } catch (connectError) {
-          console.error('[useSolanaSwap] Failed to connect wallet:', connectError);
-          throw new Error('Failed to connect wallet. Please try connecting your wallet first.');
-        }
-      }
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-      // Check if wallet has sendTransaction method
-      if (typeof walletInstance.signAndSendTransaction !== 'function') {
-        throw new Error('Wallet does not support sending transactions');
-      }
-
-      console.log('[useSolanaSwap] Executing swap transaction...');
-
-      const result = await executeSolanaSwap(
-        state.quote,
-        async (transaction: VersionedTransaction) => {
-          {
-            // Use signTransaction + sendRawTransaction for better compatibility
-            console.log('[useSolanaSwap] Signing transaction...');
-            console.log('[useSolanaSwap] Transaction:', transaction);
-            console.log('[useSolanaSwap] Transaction version:', transaction.version);
-
-            try {
-              // Check if wallet supports signTransaction
-              if (typeof walletInstance.signTransaction !== 'function') {
-                throw new Error('Wallet does not support transaction signing. Please try a different wallet like Phantom or Solflare.');
-              }
-
-              // Sign the transaction (this will prompt user for approval)
-              console.log('[useSolanaSwap] Calling signTransaction...');
-              const signedTx = await walletInstance.signTransaction(transaction);
-              console.log('[useSolanaSwap] Transaction signed successfully');
-
-              // Send the signed transaction using Solana RPC
-              const { Connection } = await import('@solana/web3.js');
-              // Use Alchemy Solana API for better reliability
-              // Use Alchemy Solana API for better reliability or fallback to public RPC
-              const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-              const rpcUrl = `${API_BASE_URL}/api/rpc/solana`;
-
-              const connection = new Connection(rpcUrl, 'confirmed');
-
-              const signature = await connection.sendRawTransaction(signedTx.serialize(), {
-                skipPreflight: false,
-                preflightCommitment: 'confirmed',
-                maxRetries: 3,
-              });
-
-              console.log('[useSolanaSwap] Transaction sent, signature:', signature);
-
-              // Wait for confirmation using polling (Alchemy HTTP doesn't support WebSocket subscriptions)
-              console.log('[useSolanaSwap] Waiting for confirmation...');
-              let confirmed = false;
-              for (let i = 0; i < 30; i++) {
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-                const status = await connection.getSignatureStatus(signature);
-                if (status?.value?.confirmationStatus === 'confirmed' ||
-                  status?.value?.confirmationStatus === 'finalized') {
-                  confirmed = true;
-                  console.log('[useSolanaSwap] Transaction confirmed');
-                  break;
-                }
-              }
-
-              if (!confirmed) {
-                console.warn('[useSolanaSwap] Transaction confirmation timeout, but transaction was sent');
-              }
-
-              return signature;
-            } catch (txError: any) {
-              console.error('[useSolanaSwap] Transaction error:', txError);
-
-              // Check if it's a VersionedTransaction compatibility issue
-              if (txError.message?.includes('Unexpected error') || txError.message?.includes('Unknown')) {
-                throw new Error(
-                  'Your wallet may not support this type of Solana transaction. ' +
-                  'Please try using Phantom or Solflare wallet instead. ' +
-                  'OKX Wallet has known compatibility issues with Solana swaps.'
-                );
-              }
-
-              throw txError;
-            }
-          }
+      // Use the execute-instant endpoint which supports Solana via autoTradeService
+      const response = await fetch(`${API_BASE_URL}/api/swap/execute-instant`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
         },
-        activeWallet.address // Pass user address
-      );
+        body: JSON.stringify({
+          tokenIn: state.tokenIn.address,
+          tokenOut: state.tokenOut.address,
+          amountIn: state.amountIn,
+          chainId: 900, // Solana
+          slippageBps,
+        }),
+      });
 
-      if (result.success) {
-        setState(prev => ({
-          ...prev,
-          isExecuting: false,
-          error: null,
-          amountIn: '',
-          amountOut: '',
-          quote: null,
-        }));
-        return { success: true, txHash: result.txHash };
-      } else {
-        console.error('[useSolanaSwap] Swap failed:', result.error);
-        setState(prev => ({
-          ...prev,
-          isExecuting: false,
-          error: result.error || 'Transaction failed',
-        }));
-        return { success: false, error: result.error || 'Transaction failed' };
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Swap failed on backend');
       }
+
+      console.log('[useSolanaSwap] Swap successful via backend:', data.data);
+
+      setState(prev => ({
+        ...prev,
+        isExecuting: false,
+        error: null,
+        amountIn: '',
+        amountOut: '',
+        quote: null,
+      }));
+
+      return { success: true, txHash: data.data.txHash };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Transaction failed';
       console.error('[useSolanaSwap] Error executing swap:', error);
@@ -616,7 +543,8 @@ export function useSolanaSwap({
       }));
       return { success: false, error: message };
     }
-  }, [state.quote, state.tokenIn, state.tokenOut, activeWallet]);
+  }, [state.quote, state.tokenIn, state.tokenOut, state.amountIn, activeWallet, allWallets, slippageBps, getAccessToken]);
+
 
   // Get available tokens for Solana
   const getAvailableTokens = useCallback((): Token[] => {

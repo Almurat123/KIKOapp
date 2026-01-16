@@ -856,17 +856,26 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     const { executeSolanaSwap } = await import('../services/solanaExecutor.js');
                     const { getSolanaTokenMetadata } = await import('../utils/solanaToken.js');
 
-                    // Get metadata to determine decimals (Jupiter quote needs atomic units)
-                    const metadata = await getSolanaTokenMetadata(tokenOut);
-                    const decimals = metadata?.decimals || 9;
+                    // Get metadata for BOTH tokens to determine decimals
+                    const tokenInMetadata = await getSolanaTokenMetadata(tokenIn);
+                    const tokenOutMetadata = await getSolanaTokenMetadata(tokenOut);
+                    const tokenInDecimals = tokenInMetadata?.decimals || 9;
+                    const tokenOutDecimals = tokenOutMetadata?.decimals || 9;
 
-                    // Convert amount to atomic units
+                    console.log('[Swap Execute Instant] Token metadata:', {
+                        tokenIn,
+                        tokenInDecimals,
+                        tokenOut,
+                        tokenOutDecimals,
+                    });
+
+                    // Convert amount to atomic units using the INPUT token's decimals
                     const { toWei } = await import('../services/zeroEx.js');
-                    const amountInAtomic = toWei(resolvedAmountIn, 9); // Input is always SOL (9 decimals) for Buy
+                    const amountInAtomic = toWei(resolvedAmountIn, tokenInDecimals);
 
                     const txHash = await executeSolanaSwap({
                         userId,
-                        tokenInMint: 'So11111111111111111111111111111111111111112', // SOL
+                        tokenInMint: tokenIn, // Use actual tokenIn, not hardcoded SOL
                         tokenOutMint: tokenOut,
                         amountIn: amountInAtomic,
                         slippageBps,

@@ -5,18 +5,18 @@ description: Token research and due diligence (info/price/trending/early buyers/
 
 **INTENT: TOKEN ANALYSIS**
 
-1. **Holistic View**:
-   - Don't just look at price. Combine **Price** (`get_token_price`) + **Trend** (`get_trending_tokens`) + **Macro** Context.
-   - If user asks about a token without a specific address, try to resolve it via `get_token_info` (by symbol) or ask for clarification if ambiguous.
+Purpose:
+- Provide concise token analysis and context (not trading execution).
 
-2. **Token Due Diligence**:
-   - If analyzing a specific token, check these fundamental metrics:
-     * `get_token_info`: Check Fully Diluted Valuation (FDV) and Liquidity. Low liquidity relative to FDV is a red flag.
-     * `get_early_buyers`: Check for "Smart Money" or snipers. A high concentration of snipers or fresh wallets is suspicious.
-     * `analyze_creator`: Check the deployer's history. Has this creator deployed other scams (rug pulls)?
-     * `get_historical_price`: Check price trend over time (e.g. "price yesterday", "last week").
+Decision rules:
+- If the symbol is ambiguous or non-major, ask for a contract address.
+- If the user asks for a quick metric (price/liquidity/FDV), answer briefly without extra commentary.
+- Only do multi-step due diligence (early buyers/creator/history) when the user explicitly asks for analysis or risk signals.
 
-3. **Narrative & Explanation**:
-   - Explain *why* a token might be moving.
-   - If `get_trending_tokens` shows a token is hot, mention its volume and price change.
-   - Always warn users about high risks if liquidity is low (<$50k) or the creator has a bad reputation.
+Guardrails:
+- Avoid long tool chains by default; keep it result-first.
+- If the user intent is clearly trading execution, defer to SwapSkill.
+
+Examples:
+- “Analyze 0x…” -> brief fundamentals + key risks.
+- “Price of SOL” -> return price and one-line context.

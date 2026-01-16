@@ -1,7 +1,8 @@
 import { PROMPT_MODULES } from './prompts/core.js';
 import { MODEL_MODULES, MODEL_SAFETY } from './prompts/models.js';
 import { INTENT_MODULES } from './prompts/intents.js';
-import { generateToolPrompt } from './toolPromptGenerator.js';
+import { V2_PROMPT_MODULES } from './prompts/v2/index.js';
+import { generateToolList, generateToolPrompt } from './toolPromptGenerator.js';
 import type { IntentType, ModelType, OrchestratorOptions, UserContext } from './types.js';
 import { skillRegistry } from '../../skills/registry.js';
 
@@ -16,49 +17,83 @@ export class PromptOrchestrator {
     ): string {
         const modules: string[] = [];
 
-        // 1. CORE LAYER (Always present, Fixed Order)
-        // Identity -> Safety (Model-Specific) -> Tools (Static + Dynamic) -> Rules -> Edge Cases
-        modules.push(PROMPT_MODULES.IDENTITY);
+        const promptVersion = (process.env.PROMPT_SYSTEM_VERSION || 'v2').toLowerCase();
 
-        // Use model-specific safety: DeepSeek (minimal) vs Grok (comprehensive)
-        const modelSafety = MODEL_SAFETY[model] || PROMPT_MODULES.SAFETY_COMPLIANCE;
-        modules.push(modelSafety);
+        if (promptVersion === 'v2') {
+            // CORE + MODEL ADAPTER
+            modules.push(V2_PROMPT_MODULES.CORE);
+            const modelAdapter = V2_PROMPT_MODULES.MODEL_ADAPTER[model];
+            if (modelAdapter) modules.push(modelAdapter);
 
-        modules.push(PROMPT_MODULES.TOOL_DIRECTIVE);
-        // Dynamic tool definitions from registry (Single Source of Truth)
-        modules.push(generateToolPrompt());
-        modules.push(PROMPT_MODULES.KIKO_RULES);
-        modules.push(PROMPT_MODULES.EDGE_CASES);
+            // TOOL LIST (keep system prompt small; full schemas are sent via requestBody.tools)
+            modules.push(generateToolList());
 
-        // 2. MODEL LAYER
-        // DeepSeek vs Grok personalities (includes detailed tool directives)
-        if (model === 'deepseek') {
-            modules.push(MODEL_MODULES.deepseek);
-        } else if (model === 'grok') {
-            modules.push(MODEL_MODULES.grok);
-        }
+            // INTENT POLICY
+            modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
 
+            // TRADING POLICY (only for trading intent)
+            if (intent === 'TRADING') {
+                modules.push(V2_PROMPT_MODULES.TRADING_POLICY);
+            }
 
-        // 3. INTENT LAYER (Hybrid: Skills + Legacy Fallback)
-        // First, try to load skill-specific prompts for the intent
-        const intentStr = String(intent).toUpperCase();
-        const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
-
-        if (matchedSkills.length > 0) {
-            // Use skill prompts (new system)
-            console.log(`[PromptOrchestrator] 🎯 Intent "${intent}" matched ${matchedSkills.length} skill(s): ${matchedSkills.map(s => s.metadata.id).join(', ')}`);
-            for (const skill of matchedSkills) {
-                if (skill.prompt) {
-                    console.log(`[PromptOrchestrator] 📝 Injecting prompt from skill: ${skill.metadata.name} (${skill.prompt.length} chars)`);
-                    modules.push(skill.prompt);
+            // SKILLS (intent-matched)
+            const intentStr = String(intent).toUpperCase();
+            const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+            if (matchedSkills.length > 0) {
+                console.log(`[PromptOrchestrator] 🎯 Intent "${intent}" matched ${matchedSkills.length} skill(s): ${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+                for (const skill of matchedSkills) {
+                    if (skill.prompt) {
+                        console.log(`[PromptOrchestrator] 📝 Injecting prompt from skill: ${skill.metadata.name} (${skill.prompt.length} chars)`);
+                        modules.push(skill.prompt);
+                    }
+                }
+            } else {
+                console.log(`[PromptOrchestrator] ⚠️ No skills matched intent "${intent}", using legacy INTENT_MODULES`);
+                const intentModule = INTENT_MODULES[intent];
+                if (intentModule) {
+                    modules.push(intentModule);
                 }
             }
+
+            // OUTPUT POLICY
+            modules.push(V2_PROMPT_MODULES.OUTPUT_POLICY);
         } else {
-            // Fallback to legacy INTENT_MODULES if no skill matches
-            console.log(`[PromptOrchestrator] ⚠️ No skills matched intent "${intent}", using legacy INTENT_MODULES`);
-            const intentModule = INTENT_MODULES[intent];
-            if (intentModule) {
-                modules.push(intentModule);
+            // 1. CORE LAYER (v1)
+            modules.push(PROMPT_MODULES.IDENTITY);
+
+            // Use model-specific safety: DeepSeek (minimal) vs Grok (comprehensive)
+            const modelSafety = MODEL_SAFETY[model] || PROMPT_MODULES.SAFETY_COMPLIANCE;
+            modules.push(modelSafety);
+
+            modules.push(PROMPT_MODULES.TOOL_DIRECTIVE);
+            modules.push(generateToolPrompt());
+            modules.push(PROMPT_MODULES.KIKO_RULES);
+            modules.push(PROMPT_MODULES.EDGE_CASES);
+
+            // 2. MODEL LAYER
+            if (model === 'deepseek') {
+                modules.push(MODEL_MODULES.deepseek);
+            } else if (model === 'grok') {
+                modules.push(MODEL_MODULES.grok);
+            }
+
+            // 3. INTENT LAYER (Hybrid: Skills + Legacy Fallback)
+            const intentStr = String(intent).toUpperCase();
+            const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+            if (matchedSkills.length > 0) {
+                console.log(`[PromptOrchestrator] 🎯 Intent "${intent}" matched ${matchedSkills.length} skill(s): ${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+                for (const skill of matchedSkills) {
+                    if (skill.prompt) {
+                        console.log(`[PromptOrchestrator] 📝 Injecting prompt from skill: ${skill.metadata.name} (${skill.prompt.length} chars)`);
+                        modules.push(skill.prompt);
+                    }
+                }
+            } else {
+                console.log(`[PromptOrchestrator] ⚠️ No skills matched intent "${intent}", using legacy INTENT_MODULES`);
+                const intentModule = INTENT_MODULES[intent];
+                if (intentModule) {
+                    modules.push(intentModule);
+                }
             }
         }
 
@@ -145,87 +180,57 @@ USER_QUERY_END
 
         if (ctx.toolConfig && Object.keys(ctx.toolConfig).length > 0) {
             parts.push(`\n[USER_PREFERENCES_MODULE]`);
-            parts.push(`The user has explicitly configured the following settings in the 'AI Settings' module. You MUST respect these settings:`);
+            parts.push(`Apply these settings as hard constraints unless they conflict with safety or law:`);
 
             const config = ctx.toolConfig as any;
 
-            // User Role
             if (config.userRole && config.userRole !== 'default') {
                 const roleMap: Record<string, string> = {
-                    'beginner': 'a Beginner in crypto',
-                    'trader': 'an experienced Trader',
-                    'developer': 'a Developer'
+                    beginner: 'a beginner',
+                    trader: 'an experienced trader',
+                    developer: 'a developer'
                 };
                 const roleName = roleMap[config.userRole] || config.userRole;
-                parts.push(`- User Role: The user is ${roleName}. Adjust your explanation accordingly.`);
+                parts.push(`- Role: The user is ${roleName}. Adjust explanation depth.`);
             }
 
-            // Check Token Before Swap - STRENGTHENED
-            if (config.checkTokenBeforeSwap) {
-                parts.push(`- Security Check: MANDATORY. You MUST call 'check_token_risk' before ANY swap, even for well-known tokens. Do not skip this step.`);
-            } else {
-                parts.push(`- Security Check: Optional. Only check token risk if the token seems suspicious or unknown.`);
-            }
-
-            // Quick Swap Mode - STRICT WORKFLOW & SAFETY OVERRIDE
             if (config.quickSwapMode) {
-                parts.push(`- Quick Swap Mode: ENABLED.
-  * GOAL: Maximum speed. Overrides standard safety caution.
-  * SAFETY PROTOCOL:
-    - HARD BLOCKER (STOP): Honeypot detected OR Buy/Sell Tax > 80%.
-    - SOFT WARNING (PROCEED): Low Liquidity, Low FDV, Price Deviation, Unverified.
-  * ACTION:
-    - If no HARD BLOCKER, you MUST call 'prepare_swap_transaction' IMMEDIATELY.
-    - IGNORE "Price Deviation" warnings in this mode.
-  * CONSTRAINTS:
-    - DO NOT output "Token Information" block.
-    - DO NOT output "Security Scan" details.
-    - DO NOT ask for confirmation.
-  * FINAL RESPONSE FORMAT: Just the result, e.g. "✅ Swap Prepared: [Amount] [Token]"`);
+                parts.push(`- Quick mode: Enabled. Prioritize speed and result-first responses.`);
             }
 
-            // Swap Method - CRITICAL FIX
+            if (config.checkTokenBeforeSwap) {
+                parts.push(`- Risk check: Required before swaps unless explicitly exempted by a policy exception.`);
+            } else {
+                parts.push(`- Risk check: Only when user asks about risk/safety or when clearly suspicious.`);
+            }
+
             if (config.swapMethod === 'allowance_trade' || config.swap_method === 'allowance') {
-                parts.push(`- Swap Method: ALLOWANCE TRADE MODE.
-  * When calling 'prepare_swap_transaction', you MUST set execute=true.
-  * The swap will be executed automatically without user confirmation.`);
+                parts.push(`- Swap execution: Allowance trade mode (execute immediately when preparing).`);
             } else {
-                parts.push(`- Swap Method: SWAP CARD MODE (Default).
-  * When calling 'prepare_swap_transaction', you MUST set execute=false.
-  * This will show a swap card for the user to review and confirm manually.
-  * NEVER set execute=true unless the user explicitly enabled Allowance Trade.`);
+                parts.push(`- Swap execution: Review mode (prepare only, user confirms).`);
             }
 
-            // Default Swap Amount - MANDATORY
             if (config.defaultSwapAmount) {
-                const unit = config.defaultSwapUnit === 'usd' ? 'USD' : 'native tokens (e.g., ETH, SOL, BNB)';
-                parts.push(`- Default Swap Amount: ${config.defaultSwapAmount} ${unit}.
-  * CRITICAL: If the user does not specify an amount in their message (e.g. "Buy TokenX"), YOU MUST USE THIS DEFAULT AMOUNT (${config.defaultSwapAmount} ${unit}).
-  * DO NOT ask "How much would you like to buy?". Proceed with the default amount immediately.`);
+                const unit = config.defaultSwapUnit === 'usd' ? 'USD' : 'native token units';
+                parts.push(`- Default amount: ${config.defaultSwapAmount} ${unit} when user omits amount.`);
             }
 
-            // Slippage Settings - NEW
             if (config.slippageMode === 'custom' && config.customSlippage) {
-                parts.push(`- Slippage: User has set CUSTOM slippage of ${config.customSlippage}%. Always use this value in 'prepare_swap_transaction'.`);
+                parts.push(`- Slippage: Custom ${config.customSlippage}%.`);
             } else {
-                parts.push(`- Slippage: AUTO mode. Use reasonable defaults (0.5% for stables, 1-3% for volatile tokens).`);
+                parts.push(`- Slippage: Auto defaults.`);
             }
 
-            // MEV Protection - NEW
             if (config.mevProtection) {
-                parts.push(`- MEV Protection: ENABLED. When preparing swaps, prefer private/protected transaction routes to prevent front-running.`);
+                parts.push(`- MEV protection: Enabled.`);
             }
 
-            // Price Deviation Check
             if (config.priceDeviationCheck) {
-                parts.push(`- Price Deviation Check: ENABLED. Before swapping, verify the token price is within reasonable range.
-  * If token price deviates more than 50% from market average, WARN the user and do not proceed.
-  * This protects against dead pools and scam tokens.`);
+                parts.push(`- Price deviation check: Enabled. Warn and halt if deviation is excessive.`);
             }
 
-            // Copy Trade AI Mode
             if (config.copyTradeAIMode && config.copyTradeAIMode !== 'disabled') {
-                parts.push(`- Copy Trade AI: ${config.copyTradeAIMode === 'analyze_only' ? 'Analyze Only' : 'Auto Decide'} mode.`);
+                parts.push(`- Copy trade AI: ${config.copyTradeAIMode === 'analyze_only' ? 'Analyze only' : 'Auto decide'} mode.`);
             }
         }
 

@@ -31,6 +31,12 @@ export const walletService = {
     async verifyAccess(userId: string, address: string): Promise<boolean> {
         const normalizedAddress = address.toLowerCase();
 
+        console.log('[verifyAccess] Checking access:', {
+            userId,
+            requestedAddress: address,
+            normalizedAddress
+        });
+
         // Check if it's the user's primary wallet or solana wallet
         const user = await prisma.user.findFirst({
             where: {
@@ -42,12 +48,24 @@ export const walletService = {
         });
 
         if (user) {
+            console.log('[verifyAccess] Found user:', {
+                userId: user.id,
+                walletAddress: user.walletAddress,
+                solanaWalletAddress: user.solanaWalletAddress,
+                walletMatch: user.walletAddress.toLowerCase() === normalizedAddress,
+                solanaMatch: user.solanaWalletAddress?.toLowerCase() === normalizedAddress
+            });
+
             if (user.walletAddress.toLowerCase() === normalizedAddress ||
                 user.solanaWalletAddress?.toLowerCase() === normalizedAddress) {
+                console.log('[verifyAccess] ✅ Access granted');
                 return true;
             }
+        } else {
+            console.log('[verifyAccess] ❌ User not found');
         }
 
+        console.log('[verifyAccess] ❌ Access denied');
         return false;
     }
 };

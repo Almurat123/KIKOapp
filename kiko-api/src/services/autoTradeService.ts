@@ -340,10 +340,54 @@ async function processBuyWithInfo(
     // Process each config
     for (const config of configs) {
         try {
-            const filterResult = await passesFilters(tokenInfo, config, targetSwapValueUsd);
+            const userSettings = config.user?.id
+                ? await prisma.userSettings.findUnique({ where: { userId: config.user.id } })
+                : null;
+
+            const effectiveConfig = {
+                ...config,
+                minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
+                minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
+                minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
+            };
+
+            const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
 
             if (!filterResult.passed) {
                 console.log(`[AutoTrade] ⏭️ Skipping for user ${config.userId}: ${filterResult.reason}`);
+                continue;
+            }
+
+            const cooldownMinutes = userSettings?.copyTradeTokenCooldownMinutes ?? 60;
+            if (cooldownMinutes > 0) {
+                const recentBuy = await prisma.position.findFirst({
+                    where: {
+                        userId: config.userId,
+                        tokenAddress: tokenToBuy,
+                        createdAt: { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) }
+                    },
+                    orderBy: { createdAt: 'desc' }
+                });
+
+                if (recentBuy) {
+                    console.log(`[AutoTrade] ⏭️ Skipping: ${tokenToBuy} already bought within ${cooldownMinutes}m for user ${config.userId}`);
+                    continue;
+                }
+            }
+
+            // Anti-spam: skip repeated buys of the same token within a cooldown window
+            const cooldownMs = 60 * 60 * 1000; // 1 hour
+            const recentBuy = await prisma.position.findFirst({
+                where: {
+                    userId: config.userId,
+                    tokenAddress: tokenToBuy,
+                    createdAt: { gte: new Date(Date.now() - cooldownMs) }
+                },
+                orderBy: { createdAt: 'desc' }
+            });
+
+            if (recentBuy) {
+                console.log(`[AutoTrade] ⏭️ Skipping: ${tokenToBuy} already bought within 1h for user ${config.userId}`);
                 continue;
             }
 
@@ -518,23 +562,28 @@ ${analysis.rawAnalysis}
                 if (ethInfo) nativePrice = ethInfo.price;
 
                 // SPECIALIZED ZORA INTERACTION - Parallelize checks for speed
-                const [launchpad, userSettings] = await Promise.all([
-                    detectLaunchpadToken(tokenToBuy, chainId),
-                    config.user.id ? prisma.userSettings.findUnique({ where: { userId: config.user.id } }) : Promise.resolve(null)
-                ]);
+                const launchpad = await detectLaunchpadToken(tokenToBuy, chainId);
                 const isFastExecutionEnabled = userSettings?.fastSwapMode === true;
+
+                let useStandardSwap = true;
 
                 if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
                     console.log(`[AutoTrade] ⚡ Zora token detected and Fast Execution ON for user ${config.userId}. Using specialized Zora interaction.`);
-                    txHash = await zoraSniperService.fastSwap({
-                        userId: config.user.privyDid,
-                        accessToken: '', // Privy server-side doesn't need token if configured
-                        walletAddress: config.user.walletAddress,
-                        tokenOut: tokenToBuy,
-                        amountIn: (usdAmount / nativePrice).toFixed(6),
-                        // Minimum 5% slippage for Zora autotrade
-                        slippage: Math.max((config.maxSlippageBps || 500), 500) / 100
-                    });
+                    try {
+                        txHash = await zoraSniperService.fastSwap({
+                            userId: config.user.privyDid,
+                            accessToken: '', // Privy server-side doesn't need token if configured
+                            walletAddress: config.user.walletAddress,
+                            tokenOut: tokenToBuy,
+                            amountIn: (usdAmount / nativePrice).toFixed(6),
+                            // Minimum 5% slippage for Zora autotrade
+                            slippage: Math.max((config.maxSlippageBps || 500), 500) / 100
+                        });
+                        useStandardSwap = !txHash;
+                    } catch (zoraErr: any) {
+                        console.warn(`[AutoTrade] Zora fast swap failed, falling back to standard route: ${zoraErr?.message || zoraErr}`);
+                        useStandardSwap = true;
+                    }
                 } else if (launchpad && launchpad.provider === 'fourmeme') {
                     // Four.meme tokens can ONLY be traded via TokenManager2 contract
                     console.log(`[AutoTrade] 🔶 Four.meme token detected. Using TokenManager2 buyTokenAMAP...`);
@@ -547,9 +596,15 @@ ${analysis.rawAnalysis}
                         // Minimum 5% slippage for Four.meme autotrade
                         slippageBps: Math.max(config.maxSlippageBps || 500, 500),
                     });
-                } else {
+                    useStandardSwap = false;
+                }
+
+                if (useStandardSwap) {
                     if (launchpad && launchpad.provider === 'zora' && !isFastExecutionEnabled) {
                         console.log(`[AutoTrade] Zora token detected but Fast Execution is OFF for user ${config.userId}. Using standard 0x swap.`);
+                    }
+                    if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
+                        console.log(`[AutoTrade] Falling back to standard swap after Zora fast swap failure for user ${config.userId}.`);
                     }
 
                     // === BUY WITH RETRY LOGIC (Hardened) ===
@@ -1621,11 +1676,14 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
     }
 
     // 2. Market Cap / FDV
-    if (config.minMarketCap && tokenInfo.marketCap < config.minMarketCap) {
-        return { passed: false, reason: `MCap $${tokenInfo.marketCap} < min $${config.minMarketCap}` };
+    const minMarketCapUsd = config.minMarketCapUsd ?? config.minMarketCap;
+    const maxMarketCapUsd = config.maxMarketCapUsd ?? config.maxMarketCap;
+
+    if (minMarketCapUsd && tokenInfo.marketCap < minMarketCapUsd) {
+        return { passed: false, reason: `MCap $${tokenInfo.marketCap} < min $${minMarketCapUsd}` };
     }
-    if (config.maxMarketCap && tokenInfo.marketCap > config.maxMarketCap) {
-        return { passed: false, reason: `MCap $${tokenInfo.marketCap} > max $${config.maxMarketCap}` };
+    if (maxMarketCapUsd && tokenInfo.marketCap > maxMarketCapUsd) {
+        return { passed: false, reason: `MCap $${tokenInfo.marketCap} > max $${maxMarketCapUsd}` };
     }
 
     // 3. User-defined Liquidity filter (overrides honeypot defaults if set)

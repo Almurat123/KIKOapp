@@ -22,6 +22,10 @@ interface UserSettingsBody {
     priceDeviationCheck?: boolean;
     copyTradeAIMode?: string;
     fastSwapMode?: boolean;
+    copyTradeTokenCooldownMinutes?: number | null;
+    minMarketCapUsd?: number | null;
+    minLiquidityUsd?: number | null;
+    minTargetValueUsd?: number | null;
 }
 
 interface WalletExportBody {
@@ -121,6 +125,10 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         priceDeviationCheck: body.priceDeviationCheck,
                         copyTradeAIMode: body.copyTradeAIMode,
                         fastSwapMode: body.fastSwapMode,
+                        copyTradeTokenCooldownMinutes: body.copyTradeTokenCooldownMinutes ?? undefined,
+                        minMarketCapUsd: body.minMarketCapUsd ?? undefined,
+                        minLiquidityUsd: body.minLiquidityUsd ?? undefined,
+                        minTargetValueUsd: body.minTargetValueUsd ?? undefined,
                     },
                     create: {
                         userId: user.id,
@@ -136,6 +144,10 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         priceDeviationCheck: body.priceDeviationCheck ?? true,
                         copyTradeAIMode: body.copyTradeAIMode || 'disabled',
                         fastSwapMode: body.fastSwapMode ?? false,
+                        copyTradeTokenCooldownMinutes: body.copyTradeTokenCooldownMinutes ?? 60,
+                        minMarketCapUsd: body.minMarketCapUsd ?? null,
+                        minLiquidityUsd: body.minLiquidityUsd ?? null,
+                        minTargetValueUsd: body.minTargetValueUsd ?? null,
                     }
                 });
 

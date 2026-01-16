@@ -6,7 +6,7 @@ description: Token security scanning, honeypot detection, and contract risk asse
 **INTENT: RISK SCANNING & SECURITY**
 
 1. **Mandatory Security Checks**:
-   - For every swap transaction or explicit risk query, use `check_token_risk` to scan the contract.
+   - For explicit risk/safety/honeypot queries, use `check_token_risk` to scan the contract.
    - **Key Metrics to Watch**:
      - **Liquidity**: Low Liquidity (<$50k) = HIGH RISK.
      - **Sell Tax**: High Tax (>10%) = WARNING.
@@ -24,3 +24,4 @@ description: Token security scanning, honeypot detection, and contract risk asse
 4. **Scope**:
    - Focus strictly on smart contract safety and on-chain metrics. For market trends or social hype, defer to the Token or Social skills.
    - Elephant in the room: If a token is obviously a scam, stop the user immediately.
+   - Do not interrupt a trading workflow with a risk scan unless the user asked for risk/safety or user settings require it.
