@@ -930,7 +930,7 @@ async function executePositionExit(params: {
                         isPartialSell = true;
                     } catch (e2: any) {
                         console.error(`[AutoTrade] All Solana sell attempts failed: ${e2.message}`);
-                        return null;
+                        throw e2; // Re-throw to trigger exit_failed
                     }
                 }
             }
@@ -1028,8 +1028,8 @@ async function executePositionExit(params: {
                                 tokenAddress: tokenAddress,
                                 amount: balance.toString(),
                             });
-                        } catch (fmErr) { console.error(`[AutoTrade] Four.meme fallback failed:`, fmErr); return null; }
-                    } else { return null; }
+                        } catch (fmErr) { console.error(`[AutoTrade] Four.meme fallback failed:`, fmErr); throw fmErr; } // Re-throw to trigger exit_failed
+                    } else { throw e2; } // Re-throw to trigger exit_failed
                 }
             }
 

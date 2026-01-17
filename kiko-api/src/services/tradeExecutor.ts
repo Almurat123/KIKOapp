@@ -230,7 +230,7 @@ export async function executeSellInstant({
         data: best.data,
         value: best.value || '0',
         chainId,
-        gas: best.gasEstimate.toString(),
+        gas: Math.floor(Number(best.gasEstimate) * 1.3).toString(), // Add 30% buffer for complex aggregator routes
     });
 
     console.log('[TradeExecutor] Sell broadcasted, waiting for confirmation:', txHash);

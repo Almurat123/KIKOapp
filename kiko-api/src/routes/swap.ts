@@ -1179,7 +1179,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                             data: finalQuote.data,
                             value: finalQuote.value || '0',
                             chainId: validatedChainId,
-                            gas: finalQuote.gasEstimate?.toString(),
+                            gas: finalQuote.gasEstimate ? Math.floor(Number(finalQuote.gasEstimate) * 1.3).toString() : undefined, // 30% buffer for complex routes
                         });
 
                         console.log(`[Swap Execute Instant] Transaction sent (attempt ${retryCount + 1}):`, txHash);
