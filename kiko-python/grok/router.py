@@ -482,9 +482,17 @@ get_token_early_buyers_tool = tool(
                 "type": "integer",
                 "description": "Number of early buyers to return. Default is 10.",
                 "default": 10
+            },
+            "start_time": {
+                "type": "string",
+                "description": "Optional start time filter (ISO string or unix seconds). Example: '2026-01-01T00:00:00Z' or '1704067200'."
+            },
+            "end_time": {
+                "type": "string",
+                "description": "Optional end time filter (ISO string or unix seconds). Example: '2026-01-08T00:00:00Z' or '1704672000'."
             }
         },
-        "required": ["address", "chain"]
+        "required": ["address"]
     }
 )
 
@@ -1114,13 +1122,19 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
                 address = arguments.get("address", "")
                 chain = arguments.get("chain", "eth")
                 limit = arguments.get("limit", 10)
+                start_time = arguments.get("start_time")
+                end_time = arguments.get("end_time")
                 
                 if not address:
                     return json.dumps({"error": "Token address is required"})
                 
                 response = await http_client.get(
                     f"{KIKO_API_BASE}/api/tokens/{chain}/{address}/early-buyers",
-                    params={"limit": limit}
+                    params={
+                        "limit": limit,
+                        **({"start_time": start_time} if start_time else {}),
+                        **({"end_time": end_time} if end_time else {}),
+                    }
                 )
                 if response.status_code == 200:
                     data = response.json()
@@ -1350,10 +1364,18 @@ async def chat_completions(
         # Filter out tool role messages - they're handled by chat.append(tool_result) in previous turns
         filtered_messages = [msg for msg in request.messages if msg.role != "tool"]
         
-        # Limit to recent messages to prevent context overflow
-        # Keep last 15 messages = system + ~7 exchanges (user + assistant pairs)
+        # Limit message history to prevent context overflow.
+        # IMPORTANT: Always preserve the latest system message (Node.js provides the v2 prompt + skills injection).
         max_messages = 15
-        messages_to_add = filtered_messages[-max_messages:] if len(filtered_messages) > max_messages else filtered_messages
+        last_system = None
+        for m in reversed(filtered_messages):
+            if m.role == "system":
+                last_system = m
+                break
+
+        non_system = [m for m in filtered_messages if m.role != "system"]
+        tail = non_system[-(max_messages - 1):] if len(non_system) > (max_messages - 1) else non_system
+        messages_to_add = ([last_system] if last_system else []) + tail
         
         if len(request.messages) > len(messages_to_add):
             removed_count = len(request.messages) - len(messages_to_add)

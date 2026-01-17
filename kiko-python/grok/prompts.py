@@ -40,6 +40,21 @@ Recommended response shapes:
 # Combined System Prompt
 SYSTEM_PROMPT = f"{CORE_SYSTEM_PROMPT}\n\n{OUTPUT_POLICY}"
 
+# Tool Definitions (used by /chat/write_news only)
+# Note: /v1/chat/completions uses tool schemas passed to xai-sdk (CUSTOM_TOOLS + web_search/x_search).
+TOOL_DEFINITIONS = """
+- web_search: Search the public web for recent info (news, announcements, docs).
+- x_search: Search X/Twitter for real-time narratives and community discussion.
+- get_token_info: Fetch token metadata (price/liquidity/volume) from KiKo backend.
+- check_token_risk: Run a token security scan (honeypot, tax, ownership, risk flags).
+- get_trending_tokens: Get trending tokens list.
+- fetch_farcaster_trending: Fetch Farcaster trending casts/topics.
+- search_farcaster_casts: Search Farcaster casts by keyword.
+- get_polymarket_trending: Get trending Polymarket events.
+- search_polymarket: Search Polymarket events by keyword.
+- get_polymarket_event: Fetch a specific Polymarket event details.
+""".strip()
+
 # News Writer Prompt (kept for /chat/write_news endpoint)
 NEWS_WRITER_PROMPT = """
 # 🧠 Web3 Hot Token Analysis Reporter
