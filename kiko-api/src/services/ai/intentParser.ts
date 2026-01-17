@@ -278,13 +278,18 @@ function hasSwapKeywords(text: string): boolean {
  */
 function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: string } {
     const commonTokens = ['ETH', 'USDC', 'USDT', 'DAI', 'WBTC', 'BTC', 'BNB', 'MATIC', 'AVAX', 'SOL'];
-    const upperText = text.toUpperCase();
-    const found: string[] = [];
+    const tokenAlternatives = [...commonTokens].sort((a, b) => b.length - a.length);
+    const tokenPattern = new RegExp(`\\b(${tokenAlternatives.join('|')})\\b`, 'gi');
 
-    for (const token of commonTokens) {
-        if (upperText.includes(token)) {
-            found.push(token);
-        }
+    // Preserve appearance order in the user's text (do not use the static commonTokens order).
+    const foundOrdered: string[] = [];
+    const seen = new Set<string>();
+    for (const match of text.matchAll(tokenPattern)) {
+        const token = String(match[1] || '').toUpperCase();
+        if (!token || seen.has(token)) continue;
+        seen.add(token);
+        foundOrdered.push(token);
+        if (foundOrdered.length >= 2) break;
     }
 
     // Pattern: "ETH to USDC" or "swap ETH for USDC"
@@ -316,17 +321,17 @@ function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: strin
         };
     }
 
-    if (found.length >= 2) {
+    if (foundOrdered.length >= 2) {
         return {
-            tokenIn: found[0],
-            tokenOut: found[1],
+            tokenIn: foundOrdered[0],
+            tokenOut: foundOrdered[1],
         };
     }
 
     // If only one token found and it's a native token, it's likely tokenIn for a buy
-    if (found.length === 1 && ['ETH', 'BNB', 'SOL', 'MATIC', 'AVAX'].includes(found[0])) {
+    if (foundOrdered.length === 1 && ['ETH', 'BNB', 'SOL', 'MATIC', 'AVAX'].includes(foundOrdered[0])) {
         return {
-            tokenIn: found[0],
+            tokenIn: foundOrdered[0],
             tokenOut: undefined,
         };
     }
@@ -345,6 +350,12 @@ function parseHighLevelIntentHeuristic(
     const contractAddress = detectContractAddress(userMessage);
     const hasSwap = hasSwapKeywords(userMessage);
     const tokenSymbols = extractTokenSymbols(userMessage);
+    const hasRisk = /\b(risk|safe|honeypot|security|scan|check.*safe|is.*safe)\b/i.test(userMessage);
+
+    // Trade verbs (more specific than the broader swap keyword check)
+    // Used to distinguish "risk-only" questions that include a contract address.
+    const hasTradeVerb = /\b(swap|trade|exchange|convert|buy|sell|purchase|ape)\b/i.test(userMessage) ||
+        /\b(兑换|交易|买|购买|卖|卖出)\b/i.test(userMessage);
 
     // COPY TRADING intent (must run before TRADING)
     if (hasCopyTradeKeywords(userMessage)) {
@@ -362,6 +373,16 @@ function parseHighLevelIntentHeuristic(
         };
     }
 
+    // RISK_SCAN intent (risk-only questions)
+    // If user asks "is it safe/honeypot/rug" and does NOT ask to trade, prioritize risk scanning
+    // even if they provided a contract address.
+    if (hasRisk && !hasTradeVerb) {
+        return {
+            type: 'RISK_SCAN',
+            confidence: 0.9,
+        };
+    }
+
     // TRADING intent
     if (hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
         return {
@@ -371,7 +392,7 @@ function parseHighLevelIntentHeuristic(
     }
 
     // RISK_SCAN intent
-    if (/\b(risk|safe|honeypot|security|scan|check.*safe|is.*safe)\b/i.test(userMessage)) {
+    if (hasRisk) {
         return {
             type: 'RISK_SCAN',
             confidence: 0.85,
@@ -585,6 +606,7 @@ function parseDetailedIntentHeuristic(
     const hasSwap = hasSwapKeywords(userMessage);
     const tokenSymbols = extractTokenSymbols(userMessage);
     const isSolana = contractAddress && !contractAddress.startsWith('0x') && contractAddress.length >= 32;
+    const hasRiskKeywords = /\b(risk|safe|honeypot|security|scan|check.*safe|is.*safe)\b/i.test(userMessage);
 
     // Default intent
     let action: DetailedIntentType = 'general_query';
@@ -599,7 +621,11 @@ function parseDetailedIntentHeuristic(
     const isStrategyCondition = /\b(when|if|once|whenever)\b/i.test(userMessage);
     const isCopyTradeCommand = hasCopyTradeKeywords(userMessage);
 
-    if ((hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) && !isStrategyCondition && !isCopyTradeCommand) {
+    // If user asks "is 0x... safe/honeypot?" (risk-only), do NOT treat it as a swap intent.
+    if ((hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) &&
+        !isStrategyCondition &&
+        !isCopyTradeCommand &&
+        !(hasRiskKeywords && !hasSwap)) {
         action = 'swap';
 
         // Detect if this is a SELL operation (selling the contract address token)
@@ -642,7 +668,6 @@ function parseDetailedIntentHeuristic(
             // English keywords
             'all': 'all',
             '100%': 'all',
-            '100': 'all',  // Only if followed by %
             'half': '50%',
             '50%': '50%',
             'quarter': '25%',
@@ -690,11 +715,12 @@ function parseDetailedIntentHeuristic(
 
         // Fall back to numeric amount parsing
         if (!amount) {
-            amount = userMessage.match(/(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB)/i)?.[1] ||
-                userMessage.match(/for\s+(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB)/i)?.[1] ||
-                userMessage.match(/swap\s+(\d+\.?\d*)/i)?.[1] ||
-                userMessage.match(/(?:buy|sell)\s+(\d+\.?\d*)/i)?.[1] ||
-                userMessage.match(/(\d+\.?\d*)\s+(?:worth|of)/i)?.[1];
+            // Prefer patterns with explicit asset units (prevents matching "0x..." as amount).
+            amount = userMessage.match(/(?:^|\s)(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB)\b/i)?.[1] ||
+                userMessage.match(/for\s+(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB)\b/i)?.[1] ||
+                userMessage.match(/\bswap\s+(\d+\.?\d*)(?:\s|$)/i)?.[1] ||
+                userMessage.match(/\b(?:buy|sell)\s+(\d+\.?\d*)(?:\s|$)/i)?.[1] ||
+                userMessage.match(/(\d+\.?\d*)\s+(?:worth|of)\b/i)?.[1];
         }
 
         console.log('[IntentParser] Amount parsing result:', {
@@ -704,7 +730,7 @@ function parseDetailedIntentHeuristic(
         });
     }
     // Detect token security
-    else if (/\b(risk|safe|honeypot|security|scan|check.*safe|is.*safe)\b/i.test(userMessage)) {
+    else if (hasRiskKeywords) {
         action = 'token_security';
     }
     // Detect token info
@@ -757,7 +783,7 @@ function parseDetailedIntentHeuristic(
         token_in: tokenIn,
         token_out: tokenOut,
         amount,
-        amount_asset: amount ? (isSellOperation ? tokenIn : (tokenOut || 'USDC')) : undefined,
+        amount_asset: action === 'swap' && amount ? (tokenIn || undefined) : undefined,
     };
 }
 

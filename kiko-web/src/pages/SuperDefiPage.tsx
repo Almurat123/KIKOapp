@@ -1424,7 +1424,14 @@ export const SuperDefiPage: React.FC = () => {
         }
         const chains = Array.isArray(chainsData) ? chainsData : [];
 
-        setProtocols(protocols.slice(0, 50));
+        // Filter to only show DEX protocols (Decentralized Exchanges)
+        const dexProtocols = protocols.filter(p =>
+          p.category?.toLowerCase() === 'dexes' ||
+          p.category?.toLowerCase() === 'dex'
+        );
+        console.log('[SuperDefiPage] DEX protocols filtered:', dexProtocols.length, 'from', protocols.length);
+
+        setProtocols(dexProtocols.slice(0, 50));
         setChains(chains);
         setOverview(overviewData);
         setError(null);

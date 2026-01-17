@@ -14,7 +14,7 @@
 }
 
 .title {
-    font-size: 14px;
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     color: #f4f4f5;
 }
@@ -39,10 +39,10 @@
 }
 
 .description {
-    font-size: 12px;
+    font-size: var(--settings-desc-fs);
     color: #a1a1aa;
-    margin: 0 0 12px 0;
-    line-height: 1.5;
+    margin: 0 0 16px 0;
+    line-height: 1.6;
 }
 
 :global(.light) .description {
@@ -51,13 +51,18 @@
 
 .button {
     width: 100%;
-    padding: 10px 16px;
-    border-radius: 8px;
-    border: none;
-    font-size: 13px;
+    height: var(--settings-input-height);
+    padding: 0 20px;
+    border-radius: var(--settings-input-radius);
+    border: 0.5px solid var(--liquid-glass-border);
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: var(--liquid-glass-shadow);
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .button:disabled {
@@ -66,44 +71,31 @@
 }
 
 .authorizeButton {
-    background: #3f3f46;
     color: #f4f4f5;
-    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 :global(.light) .authorizeButton {
-    background: #e4e4e7;
-    color: #18181b;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #4b5563;
 }
 
 .authorizeButton:hover:not(:disabled) {
-    background: #52525b;
-    transform: translateY(-1px);
-}
-
-:global(.light) .authorizeButton:hover:not(:disabled) {
-    background: #d4d4d8;
+    background: var(--liquid-glass-hover-bg);
+    border-color: var(--liquid-glass-hover-border);
+    transform: scale(1.02);
 }
 
 .revokeButton {
-    background: #3f3f46;
-    color: #f4f4f5;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-:global(.light) .revokeButton {
-    background: #e4e4e7;
-    color: #18181b;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.05);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
 .revokeButton:hover:not(:disabled) {
-    background: #52525b;
-}
-
-:global(.light) .revokeButton:hover:not(:disabled) {
-    background: #d4d4d8;
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    transform: scale(1.02);
 }
 
 .error {
@@ -135,4 +127,190 @@
     to {
         transform: rotate(360deg);
     }
+}
+
+/* Modal Stylings for Polymarket/Wallet Actions */
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal {
+    background: #18181b;
+    border-radius: 20px;
+    padding: 24px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+    color: #f4f4f5;
+}
+
+:global(.light) .modal {
+    background: #ffffff;
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.1);
+    color: #18181b;
+}
+
+.modalTitle {
+    font-size: var(--settings-title-fs);
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: #f4f4f5;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.modalTitle::before {
+    content: '';
+    display: block;
+    width: 4px;
+    height: 18px;
+    background: var(--settings-accent);
+    border-radius: 4px;
+}
+
+:global(.light) .modalTitle {
+    color: #18181b;
+}
+
+.modalSubtitle {
+    font-size: var(--settings-label-fs);
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #d4d4d8;
+}
+
+:global(.light) .modalSubtitle {
+    color: #3f3f46;
+}
+
+.modalDescription {
+    color: #a1a1aa;
+    margin-bottom: 24px;
+    line-height: 1.6;
+    font-size: var(--settings-desc-fs);
+}
+
+:global(.light) .modalDescription {
+    color: #71717a;
+}
+
+.modalInputGroup {
+    margin-bottom: 24px;
+    text-align: left;
+}
+
+.modalLabel {
+    font-size: 12px;
+    color: #71717a;
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.modalInput {
+    width: 100%;
+    height: var(--settings-input-height);
+    padding: 0 16px;
+    border-radius: var(--settings-input-radius);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    color: #f4f4f5;
+    font-size: var(--settings-label-fs);
+    outline: none;
+    transition: all 0.2s;
+}
+
+:global(.light) .modalInput {
+    border-color: rgba(0, 0, 0, 0.1);
+    background: #f9fafb;
+    color: #18181b;
+}
+
+.modalInput:focus {
+    border-color: var(--switch-green);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.modalActions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.secondaryButton {
+    flex: 1;
+    height: var(--settings-input-height);
+    padding: 0 20px;
+    border-radius: var(--settings-input-radius);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+    color: #a1a1aa;
+    font-size: var(--settings-label-fs);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+:global(.light) .secondaryButton {
+    background: #f4f4f5;
+    border-color: rgba(0, 0, 0, 0.08);
+    color: #71717a;
+}
+
+.secondaryButton:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #f4f4f5;
+}
+
+.primaryButton {
+    flex: 1;
+    height: var(--settings-input-height);
+    padding: 0 20px;
+    border-radius: var(--settings-input-radius);
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(10px) saturate(180%);
+    -webkit-backdrop-filter: blur(10px) saturate(180%);
+    border: 0.5px solid var(--liquid-glass-border);
+    color: #f4f4f5;
+    font-size: var(--settings-label-fs);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.primaryButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.primaryButtonEnabled {
+    background: var(--switch-green);
+    color: white;
+    border-color: transparent;
+}
+
+.primaryButtonEnabled:hover {
+    filter: brightness(1.1);
+    transform: scale(1.02);
 }

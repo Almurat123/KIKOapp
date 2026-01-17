@@ -8,7 +8,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
-import { useAccount, useBalance, useDisconnect, useChainId } from 'wagmi';
+import { useAccount, useBalance, useDisconnect, useChainId, usePublicClient } from 'wagmi';
 import { useChain } from '../contexts/ChainContext';
 import { ChainSwitcher } from '../components/Chain/ChainSwitcher';
 import { getAddress } from 'viem';
@@ -133,11 +133,25 @@ const TokenIcon = ({ src, alt, symbol, className, fallbackClassName }: { src?: s
   );
 };
 
+// Global cache to persist across navigations
+interface WalletCache {
+  address: string;
+  fingerprint: {
+    nonce: number;
+    nativeBalanceWei: string;
+    timestamp: number;
+  };
+  holdings: TokenHolding[];
+}
+
+let globalBalanceCache: WalletCache | null = null;
+
 export default function WalletPage() {
   const { authenticated, ready, logout, user, getAccessToken } = usePrivy();
   const { address: evmAddress } = useAccount();
   const { disconnect: wagmiDisconnect } = useDisconnect();
   const { currentChain } = useChain();
+  const publicClient = usePublicClient();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSendOpen, setIsSendOpen] = useState(false);
@@ -357,12 +371,14 @@ export default function WalletPage() {
 
   // Reset state immediately when chain changes to prevent stale data
   useEffect(() => {
-    console.log('[WalletPage] Chain changed to', chainId, '- resetting state');
-    setHoldings([]);
-    setCachedHoldings([]);
+    console.log('[WalletPage] Chain changed to', chainId, '- resetting transactions only');
+    // Don't clear holdings/cache/loading here - fetchBalances handles smart caching
+    // setHoldings([]); 
+    // setCachedHoldings([]);
+    // setLoading(true);
+
     setTransactions([]);
     setCachedTransactions([]);
-    setLoading(true);
     setTransactionsLoading(true);
     setError(null);
   }, [chainId]);
@@ -480,13 +496,6 @@ export default function WalletPage() {
     }
 
     if (!authenticated || !isConnected || !walletAddress) {
-      console.log('[WalletPage] Early exit - missing auth/connection/wallet:', {
-        authenticated,
-        isConnected,
-        walletAddress,
-        chainId,
-        isSolana,
-      });
       setHoldings([]);
       setLoading(false);
       return;
@@ -496,26 +505,72 @@ export default function WalletPage() {
     const reqId = ++balanceReqId.current;
 
     const fetchBalances = async () => {
-      setLoading(true);
+      // 1. Optimistic Cache Load (Instant Render)
+      const cached = globalBalanceCache;
+      let hasLoadedCache = false;
+
+      if (cached && cached.address === walletAddress) {
+        console.log('[WalletPage] Cache hit, loading instantly:', cached.holdings.length, 'assets');
+        setHoldings(cached.holdings);
+        setCachedHoldings(cached.holdings);
+        setLoading(false); // Immediate interaction
+        hasLoadedCache = true;
+      } else {
+        setLoading(true);
+      }
+
       setError(null);
 
       try {
-        console.log('[WalletPage] Fetching all-chain balances for:', walletAddress);
+        const primaryAddress = evmAddress || walletAddress;
 
-        if (!walletAddress) {
-          if (!cancelled) {
-            setHoldings([]);
-            setLoading(false);
+        // 2. Fetch Fingerprint (Always try for EVM) to check validity OR prepare for new cache
+        let currentNonce = 0;
+        let currentNativeBalance = BigInt(0);
+        let fingerprintFetched = false;
+
+        if (publicClient && !isSolana) {
+          try {
+            // Parallel fetch for speed
+            const [nonce, balance] = await Promise.all([
+              publicClient.getTransactionCount({ address: primaryAddress as Address }),
+              publicClient.getBalance({ address: primaryAddress as Address })
+            ]);
+
+            currentNonce = nonce;
+            currentNativeBalance = balance;
+            fingerprintFetched = true;
+          } catch (e) {
+            console.warn('[WalletPage] Fingerprint fetch failed', e);
           }
-          return;
         }
 
-        // IMPORTANT: Always use EVM address for API authentication
-        // Pass Solana address as optional parameter for Solana-specific calls
-        const primaryAddress = evmAddress || walletAddress;
+        // 3. Smart Fingerprint Check
+        let needsRefresh = true;
+
+        if (hasLoadedCache && cached && fingerprintFetched && !isSolana) {
+          // Compare with cache fingerprint
+          const isNonceSame = cached.fingerprint.nonce === currentNonce;
+          const isBalanceSame = cached.fingerprint.nativeBalanceWei === currentNativeBalance.toString();
+
+          if (isNonceSame && isBalanceSame) {
+            console.log('[WalletPage] Smart Fingerprint Match (Nonce + Balance) - Skipping Refresh');
+            needsRefresh = false;
+          } else {
+            console.log('[WalletPage] Fingerprint Changed! Refreshing...', {
+              oldNonce: cached.fingerprint.nonce, newNonce: currentNonce,
+              oldBal: cached.fingerprint.nativeBalanceWei, newBal: currentNativeBalance.toString()
+            });
+          }
+        }
+
+        if (!needsRefresh) return;
+
+        console.log('[WalletPage] Fetching all-chain balances for:', walletAddress);
+
         const allBalances = await getAllChainBalances(primaryAddress!, solanaWallet?.address);
         if (!allBalances) {
-          if (!cancelled) {
+          if (!cancelled && !hasLoadedCache) {
             setHoldings([]);
             setLoading(false);
             setError('Failed to fetch balance data.');
@@ -615,6 +670,19 @@ export default function WalletPage() {
         if (reqId === balanceReqId.current) {
           setHoldings(allTokenHoldings);
           setCachedHoldings(allTokenHoldings);
+
+          // Update Global Cache
+          if (!isSolana) { // Only cache fingerprint for EVM for now (or improve for Sol later)
+            globalBalanceCache = {
+              address: walletAddress,
+              holdings: allTokenHoldings,
+              fingerprint: {
+                nonce: currentNonce,
+                nativeBalanceWei: currentNativeBalance.toString(),
+                timestamp: Date.now()
+              }
+            };
+          }
         }
       } catch (err) {
         console.error('[WalletPage] Error in fetchBalances:', err);
@@ -632,10 +700,7 @@ export default function WalletPage() {
     return () => {
       cancelled = true;
     };
-    // Note: nativeBalance is NOT in deps - we use it inside the effect but don't want to refetch when it changes
-    // We only refetch when chain/wallet/connection state changes
-    // IMPORTANT: chainId is in deps to trigger refetch when network switches
-  }, [ready, authenticated, isConnected, walletAddress, chainId, isSolana]);
+  }, [ready, authenticated, isConnected, walletAddress, chainId, isSolana, publicClient]);
 
   // Fetch transaction history
   useEffect(() => {
@@ -737,10 +802,10 @@ export default function WalletPage() {
         <div className={styles.connectWalletCard}>
           <Shield size={32} strokeWidth={2} className={styles.connectWalletIcon} />
           <h2 className={styles.connectWalletTitle}>
-            Connect Wallet
+            Login to KIKO
           </h2>
           <p className={styles.connectWalletText}>
-            Connect your wallet to view your portfolio and manage your assets.
+            Login to KIKO to view your portfolio and manage your assets.
           </p>
         </div>
       </div>

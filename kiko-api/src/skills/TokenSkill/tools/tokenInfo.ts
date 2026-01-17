@@ -58,19 +58,45 @@ export const GetTokenInfoTool: Tool = {
             const dexData = await dexscreener.getTokenDetails(args.chain, args.address);
 
             if (dexData) {
+                const launchpadProvider = (launchpad as any)?.provider;
                 return {
                     source: 'DexScreener',
                     ...dexData,
                     chainId: chainId, // Ensure numeric chainId
-                    launchpad
+                    launchpad,
+                    isLaunchpad: !!launchpad,
+                    launchpadProvider,
+                    // Normalized aliases (stable fields for prompts/skills)
+                    tokenAddress: dexData.address,
+                    tokenSymbol: dexData.symbol,
+                    tokenName: dexData.name,
+                    priceUsd: dexData.price,
+                    liquidityUsd: dexData.liquidity,
+                    fdvUsd: dexData.fdv,
+                    volume24hUsd: dexData.volume24h,
+                    priceChange24hPct: dexData.priceChange24h,
+                    poolAddress: dexData.poolAddress
                 };
             }
 
             if (tokenData) {
+                const launchpadProvider = (launchpad as any)?.provider;
                 return {
                     ...tokenData,
                     chainId: chainId, // Ensure numeric chainId
-                    launchpad
+                    launchpad,
+                    isLaunchpad: !!launchpad,
+                    launchpadProvider,
+                    // Normalized aliases where available (best-effort)
+                    tokenAddress: (tokenData as any).address || args.address,
+                    tokenSymbol: (tokenData as any).symbol,
+                    tokenName: (tokenData as any).name,
+                    priceUsd: (tokenData as any).price,
+                    liquidityUsd: (tokenData as any).liquidity,
+                    fdvUsd: (tokenData as any).fdv,
+                    volume24hUsd: (tokenData as any).volume24h,
+                    priceChange24hPct: (tokenData as any).priceChange24h,
+                    poolAddress: (tokenData as any).poolAddress
                 };
             }
 
@@ -79,6 +105,8 @@ export const GetTokenInfoTool: Tool = {
                     address: args.address,
                     chainId,
                     launchpad,
+                    isLaunchpad: true,
+                    launchpadProvider: (launchpad as any)?.provider,
                     source: 'LaunchpadDetector'
                 };
             }

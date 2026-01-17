@@ -72,11 +72,18 @@ export interface CachedData {
     timestamp: number;
 }
 
+export type TrendingTimeframe = '5m' | '1h' | '24h';
+
+function cacheKey(chain: string, timeframe?: TrendingTimeframe): string {
+    // Backward-compatible: if timeframe is omitted, behave like old key.
+    return timeframe ? `${CACHE_KEY_PREFIX}${chain}:${timeframe}` : `${CACHE_KEY_PREFIX}${chain}`;
+}
+
 /**
  * Save tokens to local storage with timestamp
  */
-export function saveToCache(chain: string, tokens: TokenSearchResult[]) {
-    const key = `${CACHE_KEY_PREFIX}${chain}`;
+export function saveToCache(chain: string, tokens: TokenSearchResult[], timeframe?: TrendingTimeframe) {
+    const key = cacheKey(chain, timeframe);
     const data: CachedData = {
         tokens,
         timestamp: Date.now(),
@@ -91,8 +98,8 @@ export function saveToCache(chain: string, tokens: TokenSearchResult[]) {
 /**
  * Load tokens from local storage if valid
  */
-export function loadFromCache(chain: string): TokenSearchResult[] | null {
-    const key = `${CACHE_KEY_PREFIX}${chain}`;
+export function loadFromCache(chain: string, timeframe?: TrendingTimeframe): TokenSearchResult[] | null {
+    const key = cacheKey(chain, timeframe);
     try {
         const item = localStorage.getItem(key);
         if (!item) return null;
@@ -136,6 +143,5 @@ export function sortTokensByTrending(tokens: TokenSearchResult[]): TokenSearchRe
         return scoreB - scoreA;
     });
 }
-
 
 

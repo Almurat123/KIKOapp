@@ -1,12 +1,25 @@
+"""
+Lightweight Knowledge Base using OpenAI Embeddings
+Replaces heavy sentence-transformers with OpenAI API
+"""
 import os
 from langchain_community.vectorstores import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
+
 
 class KnowledgeBase:
     def __init__(self, persist_directory: str = "./chroma_db"):
-        self.embedding_function = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L12-v2"
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is required for embeddings")
+        
+        # Use OpenAI's lightweight embedding model
+        # text-embedding-3-small: $0.02 / 1M tokens, 1536 dimensions
+        self.embedding_function = OpenAIEmbeddings(
+            model="text-embedding-3-small",
+            openai_api_key=api_key
         )
+        
         self.persist_directory = persist_directory
         self.vectorstore = Chroma(
             persist_directory=persist_directory,

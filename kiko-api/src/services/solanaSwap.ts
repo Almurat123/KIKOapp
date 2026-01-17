@@ -314,12 +314,21 @@ async function getRaydiumQuote(
     const url = `${RAYDIUM_SWAP_HOST}/compute/swap-base-in?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}&txVersion=V0`;
 
     const quoteStartTime = Date.now();
+    const controller = new AbortController();
+    // Use a very aggressive timeout for Raydium (2.5s) to prevent blocking Jupiter
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 2500);
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     console.log(`[Raydium API] Quote took ${Date.now() - quoteStartTime}ms`);
 

@@ -205,7 +205,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         <button
                             className={styles.desktopProfileBtn}
                             onClick={handleProfileClick}
-                            title={authenticated ? "Wallet Profile" : "Connect Wallet"}
+                            title={authenticated ? "Wallet Profile" : "Login"}
                         >
                             <span className={styles.desktopProfileAvatar}>
                                 {avatarUrl ? (

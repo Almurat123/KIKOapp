@@ -17,35 +17,32 @@
 .toast {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 14px 18px;
-    border-radius: 16px;
-    /* Liquid Glass Effect */
-    background: rgba(30, 30, 32, 0.85);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.3),
-        0 2px 8px rgba(0, 0, 0, 0.2),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    color: #f4f4f5;
-    font-size: 14px;
+    padding: 12px 20px;
+    border-radius: var(--settings-input-radius, 14px);
+
+    /* Extreme Minimalist Design */
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(12px) saturate(160%);
+    -webkit-backdrop-filter: blur(12px) saturate(160%);
+    border: 1px solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow);
+
+    color: var(--text-primary);
+    font-size: var(--settings-label-fs, 15px);
     font-weight: 500;
     min-width: 280px;
-    max-width: 400px;
+    max-width: 440px;
     pointer-events: auto;
-    animation: slideIn 0.3s ease-out;
+    animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
 }
 
 :global(.light) .toast {
-    background: rgba(255, 255, 255, 0.9);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.1),
-        0 2px 8px rgba(0, 0, 0, 0.05),
-        inset 0 1px 0 rgba(255, 255, 255, 0.8);
-    color: #18181b;
+    background: var(--liquid-glass-bg);
+    border: 1px solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow);
+    color: var(--text-primary);
 }
 
 @keyframes slideIn {
@@ -68,9 +65,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 600;
     flex-shrink: 0;
+    margin-right: 12px;
 }
 
 /* Message */
@@ -79,48 +77,39 @@
     line-height: 1.4;
 }
 
-/* Close Button */
-.closeBtn {
-    background: transparent;
-    border: none;
-    color: #71717a;
-    font-size: 12px;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-}
-
-.closeBtn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #f4f4f5;
-}
-
-:global(.light) .closeBtn:hover {
-    background: rgba(0, 0, 0, 0.05);
-    color: #18181b;
-}
-
-/* Toast Types */
 .success .icon {
-    background: rgba(16, 185, 129, 0.2);
+    background: rgba(16, 185, 129, 0.1);
     color: #10b981;
 }
 
 .error .icon {
-    background: rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.1);
     color: #ef4444;
 }
 
 .warning .icon {
-    background: rgba(245, 158, 11, 0.2);
+    background: rgba(245, 158, 11, 0.1);
     color: #f59e0b;
 }
 
 .info .icon {
-    background: rgba(59, 130, 246, 0.2);
+    background: rgba(59, 130, 246, 0.1);
     color: #3b82f6;
+}
+
+.spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Mobile Adjustments */

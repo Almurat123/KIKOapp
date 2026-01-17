@@ -369,6 +369,19 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     hasEnoughBalance &&
     !error;
 
+  // DEBUG: Diagnose why button is disabled
+  if (!canExecute && !isLoading && !isExecuting && amountIn !== '0') {
+    console.log('[SwapCard] Button disabled because:', {
+      amountIn,
+      amountOut,
+      isLoading,
+      isExecuting,
+      hasEnoughBalance,
+      error,
+      canExecute
+    });
+  }
+
   // Check if approval is needed (only for EVM chains, Solana doesn't need approval)
   const needsApproval = !isSolana &&
     swapState?.tokenIn?.address &&

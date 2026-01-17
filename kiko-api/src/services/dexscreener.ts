@@ -13,6 +13,7 @@ const DEXSCREENER_TOKEN_BOOSTS_URL = 'https://api.dexscreener.com/token-boosts/t
 // Import TokenSearchResult type for compatibility with GeckoTerminal
 import { getTrendingTokens as getGeckoTrendingTokens, type TokenSearchResult } from './geckoTerminal.js';
 import { fetchTrendingAddresses, isWSSupportedChain } from './dexscreenerWS.js';
+import { computeTrendingScore } from './trendingScore.js';
 
 export interface DexScreenerToken {
   address: string;
@@ -1056,24 +1057,29 @@ export async function getTrendingTokensPremium(
       }
     }
 
-    // Step 4: Re-collect tokens and maintain trending order
-    // trendingAddresses contains the sequence from DexScreener WebSocket
-    const finalTokens: TokenSearchResult[] = [];
-    for (const addr of trendingAddresses) {
-      const token = enrichedTokensMap.get(addr.toLowerCase());
-      if (token) {
-        finalTokens.push(token);
-        if (finalTokens.length >= limit) break;
-      }
-    }
+    // Step 4: Score & sort (multi-factor, multi-window) instead of relying on WS order.
+    // WS is used only as a discovery source (it can be flaky / 403).
+    const scored = Array.from(enrichedTokensMap.values()).map((t) => ({
+      token: t,
+      score: computeTrendingScore(t),
+    }));
 
-    // Step 5: Fill with fallback tokens if we don't have enough
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const bLiq = typeof b.token.liquidity === 'number' ? b.token.liquidity : 0;
+      const aLiq = typeof a.token.liquidity === 'number' ? a.token.liquidity : 0;
+      return bLiq - aLiq;
+    });
+
+    let finalTokens: TokenSearchResult[] = scored.map(s => s.token).slice(0, limit);
+
+    // Step 5: Fill with free sources if we don't have enough
     if (finalTokens.length < limit) {
-      console.log(`[DexScreener Premium] Only ${finalTokens.length} tokens from WebSocket, filling to ${limit}...`);
-      try {
-        const fallbackTokens = await getTrendingTokensByChain(chainId, limit, '6h');
-        const existingAddresses = new Set(finalTokens.map(t => t.address.toLowerCase()));
+      console.log(`[DexScreener Premium] Only ${finalTokens.length} enriched tokens, filling to ${limit}...`);
+      const existingAddresses = new Set(finalTokens.map(t => t.address.toLowerCase()));
 
+      try {
+        const fallbackTokens = await getTrendingTokensByChain(chainId, limit * 2, '6h');
         for (const token of fallbackTokens) {
           if (finalTokens.length >= limit) break;
           if (!existingAddresses.has(token.address.toLowerCase())) {
@@ -1081,71 +1087,36 @@ export async function getTrendingTokensPremium(
             existingAddresses.add(token.address.toLowerCase());
           }
         }
-        console.log(`[DexScreener Premium] Filled to ${finalTokens.length} tokens with fallback`);
       } catch (fallbackError) {
-        console.warn(`[DexScreener Premium] Fallback fill error:`, fallbackError);
+        console.warn(`[DexScreener Premium] DexScreener fill error:`, fallbackError);
+      }
+
+      if (finalTokens.length < limit) {
+        try {
+          const geckoTokens = await getGeckoTrendingTokens(chainId, limit * 2, '5m', 1000, 10);
+          for (const token of geckoTokens) {
+            if (finalTokens.length >= limit) break;
+            if (!existingAddresses.has(token.address.toLowerCase())) {
+              finalTokens.push(token);
+              existingAddresses.add(token.address.toLowerCase());
+            }
+          }
+        } catch (geckoError) {
+          console.warn(`[DexScreener Premium] Gecko fill error:`, geckoError);
+        }
       }
     }
 
     const duration = Date.now() - startTime;
     console.log(`[DexScreener Premium] ✓ Found ${finalTokens.length} trending tokens for ${normalizedChainId} in ${duration}ms`);
 
-    // Step 6: Deduplicate by symbol (keep highest liquidity to filter out copycats)
-    // This prevents confusion when copycat tokens have the same symbol as official ones
-    const symbolMap = new Map<string, TokenSearchResult>();
-    for (const token of finalTokens) {
-      const sym = (token.symbol || '').toUpperCase();
-      if (!sym) continue;
-
-      const existing = symbolMap.get(sym);
-      const tokenLiq = typeof token.liquidity === 'number' ? token.liquidity : 0;
-      const existingLiq = existing ? (typeof existing.liquidity === 'number' ? existing.liquidity : 0) : 0;
-
-      if (!existing || tokenLiq > existingLiq) {
-        symbolMap.set(sym, token);
-      }
+    // Step 6: Optional symbol de-dupe (only if we still have >= limit).
+    // Keeping duplicates is better for "always return 100" and closer to Dex raw pair lists.
+    if (finalTokens.length > limit) {
+      finalTokens = finalTokens.slice(0, limit);
     }
 
-    let deduplicatedTokens = Array.from(symbolMap.values());
-    const removedCount = finalTokens.length - deduplicatedTokens.length;
-    if (removedCount > 0) {
-      console.log(`[DexScreener Premium] Removed ${removedCount} duplicate-symbol tokens (kept highest liquidity)`);
-    }
-
-    // Step 7: Backfill after symbol-dedupe to try to reach requested limit
-    if (deduplicatedTokens.length < limit) {
-      const existingAddresses = new Set(deduplicatedTokens.map(t => t.address.toLowerCase()));
-
-      try {
-        const fallbackTokens = await getTrendingTokensByChain(chainId, limit, '6h');
-        for (const token of fallbackTokens) {
-          if (deduplicatedTokens.length >= limit) break;
-          if (!existingAddresses.has(token.address.toLowerCase())) {
-            deduplicatedTokens.push(token);
-            existingAddresses.add(token.address.toLowerCase());
-          }
-        }
-      } catch (fallbackError) {
-        console.warn(`[DexScreener Premium] Post-dedupe DexScreener fill error:`, fallbackError);
-      }
-
-      if (deduplicatedTokens.length < limit) {
-        try {
-          const geckoTokens = await getGeckoTrendingTokens(chainId, limit, '5m', 1000);
-          for (const token of geckoTokens) {
-            if (deduplicatedTokens.length >= limit) break;
-            if (!existingAddresses.has(token.address.toLowerCase())) {
-              deduplicatedTokens.push(token);
-              existingAddresses.add(token.address.toLowerCase());
-            }
-          }
-        } catch (geckoError) {
-          console.warn(`[DexScreener Premium] Post-dedupe Gecko fill error:`, geckoError);
-        }
-      }
-    }
-
-    return deduplicatedTokens;
+    return finalTokens;
 
   } catch (error: any) {
     const duration = Date.now() - startTime;

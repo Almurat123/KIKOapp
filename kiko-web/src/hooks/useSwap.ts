@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
-import { useWriteContract, useSendTransaction, useSwitchChain, useChainId } from 'wagmi';
+import { useWriteContract, useSendTransaction, useSwitchChain, useChainId, usePublicClient } from 'wagmi';
 import { formatUnits, erc20Abi } from 'viem';
 import type { Address } from 'viem';
 import type { Token, SwapState, PriceData, SwapQuote } from '@/types/swap';
@@ -129,6 +129,7 @@ export function useSwap(options: UseSwapOptions = {}) {
   const { sendTransactionAsync } = useSendTransaction();
   const { switchChainAsync } = useSwitchChain();
   const currentChainId = useChainId();
+  const publicClient = usePublicClient();
 
   // Use Privy to track authentication state
   const { authenticated } = usePrivy();
@@ -386,8 +387,30 @@ export function useSwap(options: UseSwapOptions = {}) {
     const fetchingForToken = state.tokenIn.address;
 
     try {
-      // Pass token decimals to ensure correct parsing even if API response is missing decimals
-      const balance = await getUserBalance(userAddress, fetchingForToken, chainId, state.tokenIn.decimals);
+      let balance = 0n;
+
+      // Use direct RPC fetch if available (faster and more reliable than backend for fresh swaps)
+      if (publicClient) {
+        const isNative = fetchingForToken === '0x0000000000000000000000000000000000000000' ||
+          fetchingForToken === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+
+        if (isNative) {
+          balance = await publicClient.getBalance({ address: userAddress as Address });
+        } else {
+          balance = await publicClient.readContract({
+            address: fetchingForToken as Address,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [userAddress as Address]
+          }) as bigint;
+        }
+      } else {
+        // Fallback to API
+        const apiBalance = await getUserBalance(userAddress, fetchingForToken, chainId, state.tokenIn.decimals);
+        if (apiBalance) {
+          balance = BigInt(apiBalance);
+        }
+      }
 
       // RACE CONDITION FIX: Check if token has changed since we started the fetch
       // Use the REF (not state) because state is captured at callback creation time (stale closure)
@@ -395,44 +418,32 @@ export function useSwap(options: UseSwapOptions = {}) {
         return; // Token changed during fetch, discard result
       }
 
-      if (balance) {
-        // balance is a hex string, convert to human-readable
-        const balanceNum = BigInt(balance);
-        const decimals = state.tokenIn.decimals || 18;
-        const formatted = formatUnits(balanceNum, decimals);
+      const decimals = state.tokenIn.decimals || 18;
+      const formatted = formatUnits(balance, decimals);
 
-        console.log('[useSwap] Balance FULL PRECISION:', {
-          token: state.tokenIn.symbol,
-          hexBalance: balance,
-          bigIntBalance: balanceNum.toString(),
-          decimals,
-          formattedBalance: formatted,
-        });
+      console.log('[useSwap] Balance Fetched (Direct RPC):', {
+        token: state.tokenIn.symbol,
+        balance: balance.toString(),
+        formatted,
+        isRPC: !!publicClient
+      });
 
-        setUserBalance(prev => {
-          // Only update if balance actually changed
-          if (prev !== formatted) {
-            return formatted;
-          }
-          return prev;
-        });
-      } else if (retryCount < 3) {
-        // Auth token might not be ready yet, retry after a short delay
-        console.log('[useSwap] Balance returned null, retrying in 1 second...', { retryCount });
-        setTimeout(() => {
-          fetchUserBalance(retryCount + 1);
-        }, 1000);
-      } else {
-        console.warn('[useSwap] Balance fetch failed after 3 retries');
-      }
+      setUserBalance(prev => {
+        // Only update if balance actually changed
+        if (prev !== formatted) {
+          return formatted;
+        }
+        return prev;
+      });
+
     } catch (error) {
       // Only log non-network errors as errors
       if (!(error instanceof TypeError && error.message.includes('Failed to fetch'))) {
         console.error('[useSwap] fetchUserBalance failed', error);
       }
-      // Don't reset balance to '0' on network errors, keep previous value
     }
-  }, [userAddress, state.tokenIn?.address, chainId]); // Only depend on address
+  }, [userAddress, state.tokenIn?.address, chainId, publicClient]);
+
 
   const checkUserApproval = useCallback(async () => {
     if (!userAddress || !state.tokenIn) return;
@@ -801,14 +812,32 @@ export function useSwap(options: UseSwapOptions = {}) {
       state.tokenIn?.address === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 
     let hasEnoughBalance = false;
+    let balanceRequired = amountInNum;
+
     if (isNativeToken) {
-      // For native tokens, reserve 0.001 ETH for gas (conservative estimate)
-      // Base/L2s have lower gas, but 0.001 is safe for all chains
-      const gasBuffer = 0.001;
-      hasEnoughBalance = balanceNum >= (amountInNum + gasBuffer);
+      // Logic for Native tokens (ETH, MATIC, BNB, etc.)
+      const isL2 = chainId === 8453 || chainId === 42161 || chainId === 10; // Base, Arb, OP
+      // For L2s, gas is cheap (use 0.0001). For Mainnet use 0.001.
+      const gasBuffer = isL2 ? 0.0001 : 0.001;
+
+      // If user is swapping MAX (amountIn ~ balance), we don't apply buffer on top of amount
+      // because amountIn is likely already (balance - buffer) calculated by the Max button logic.
+      // But we can't easily know if 'Max' was clicked here.
+      // So we just ensure balance >= amount + buffer.
+      balanceRequired = amountInNum + gasBuffer;
+      hasEnoughBalance = balanceNum >= balanceRequired;
     } else {
-      // For ERC-20 tokens, no gas buffer needed (gas paid in ETH)
+      // For ERC-20 tokens
       hasEnoughBalance = balanceNum >= amountInNum;
+    }
+
+    if (!hasEnoughBalance && amountInNum > 0) {
+      console.warn('[useSwap] Insufficient balance:', {
+        balance: balanceNum,
+        required: balanceRequired,
+        isNative: isNativeToken,
+        chainId
+      });
     }
 
     // Calculate gas cost in USD (gasEstimate is in wei, nativeTokenPrice is in USD)

@@ -77,6 +77,22 @@ html {
   --accent-color: #18181b;
   --accent-hover: #27272a;
 
+  /* Minimalist Design Tokens */
+  --switch-green: #10b981;
+  --liquid-glass-bg: rgba(255, 255, 255, 0.95);
+  --liquid-glass-border: rgba(0, 0, 0, 0.08);
+  --liquid-glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --liquid-glass-hover-bg: rgba(255, 255, 255, 1);
+  --liquid-glass-hover-border: rgba(0, 0, 0, 0.12);
+
+  /* Settings Design System */
+  --settings-input-height: 48px;
+  --settings-input-radius: 14px;
+  --settings-title-fs: 17px;
+  --settings-label-fs: 15px;
+  --settings-desc-fs: 13px;
+  --settings-accent: #10b981;
+
   /* Base styles */
   color: var(--text-primary);
   background-color: var(--bg-primary);
@@ -175,6 +191,13 @@ html.dark {
   --accent-color: #fafafa;
   --accent-hover: #e4e4e7;
 
+  /* Liquid Glass Variables - Dark */
+  --liquid-glass-bg: rgba(255, 255, 255, 0.05);
+  --liquid-glass-border: rgba(255, 255, 255, 0.15);
+  --liquid-glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
+  --liquid-glass-hover-bg: rgba(255, 255, 255, 0.12);
+  --liquid-glass-hover-border: rgba(255, 255, 255, 0.25);
+
   color: var(--text-primary);
   background-color: var(--bg-primary);
 }
@@ -213,6 +236,24 @@ html.light {
 
   --accent-color: #18181b;
   --accent-hover: #27272a;
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --liquid-glass-bg: rgba(24, 24, 27, 0.9);
+      --liquid-glass-border: rgba(255, 255, 255, 0.08);
+      --liquid-glass-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      --liquid-glass-hover-bg: rgba(30, 30, 34, 0.98);
+      --liquid-glass-hover-border: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  :global(.dark) {
+    --liquid-glass-bg: rgba(24, 24, 27, 0.9);
+    --liquid-glass-border: rgba(255, 255, 255, 0.08);
+    --liquid-glass-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    --liquid-glass-hover-bg: rgba(30, 30, 34, 0.98);
+    --liquid-glass-hover-border: rgba(255, 255, 255, 0.12);
+  }
 
   color: var(--text-primary);
   background-color: var(--bg-primary);

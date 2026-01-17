@@ -128,6 +128,7 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
         }
     };
 
+
     // Not ready or not authenticated
     if (!ready || !authenticated) {
         return null;
@@ -135,53 +136,8 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
 
     const isAuthorized = readiness?.hasCredentials === true;
 
-    const warningModalStyle: React.CSSProperties = {
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.9)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-    };
-
-    const warningContentStyle: React.CSSProperties = {
-        background: 'var(--bg-card)',
-        borderRadius: '16px',
-        padding: '24px',
-        maxWidth: '400px',
-        width: '90%',
-        textAlign: 'center',
-        border: '1px solid var(--border-color)',
-        boxShadow: 'none',
-        color: 'var(--text-primary)',
-    };
-
-    const inputStyle: React.CSSProperties = {
-        width: '100%',
-        padding: '12px',
-        margin: '16px 0',
-        borderRadius: '8px',
-        border: '1px solid var(--border-color)',
-        background: 'transparent',
-        color: 'var(--text-primary)',
-        fontSize: '14px',
-        outline: 'none',
-    };
-
-    // Keyframes animation for spinner (inline styles don't support @keyframes)
-    const spinnerKeyframes = `
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-    `;
-
     return (
         <>
-            <style>{spinnerKeyframes}</style>
             <div className={styles.container}>
                 <div className={styles.header}>
                     <span className={styles.title}>
@@ -200,7 +156,7 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
                 </p>
 
                 {readiness?.usdcBalance && (
-                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '8px 0 0 0' }}>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 0 0' }}>
                         USDC Balance: {readiness.usdcBalance}
                     </p>
                 )}
@@ -226,26 +182,26 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
                 </button>
 
                 {showWarning && (
-                    <div style={warningModalStyle} onClick={() => setShowWarning(false)}>
-                        <div style={warningContentStyle} onClick={(e) => e.stopPropagation()}>
-                            <div style={{ fontSize: '24px', marginBottom: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>Polymarket</div>
-                            <h3 style={{ color: 'var(--text-primary)', margin: '0 0 12px 0', fontSize: '18px' }}>
+                    <div className={styles.modalOverlay} onClick={() => setShowWarning(false)}>
+                        <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                            <div className={styles.modalTitle}>Polymarket</div>
+                            <h3 className={styles.modalSubtitle}>
                                 Enable Polymarket Trading
                             </h3>
-                            <p style={{ color: 'var(--text-secondary)', margin: '0 0 20px 0', lineHeight: 1.5, fontSize: '14px' }}>
+                            <p className={styles.modalDescription}>
                                 This will create API credentials for Polymarket trading on Polygon network.<br /><br />
                                 <strong>Requirements:</strong><br />
                                 • USDC on Polygon for trading<br />
                                 • Token approvals will be required
                             </p>
 
-                            <div style={{ marginBottom: '20px', textAlign: 'left' }}>
-                                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                            <div className={styles.modalInputGroup}>
+                                <label className={styles.modalLabel}>
                                     Type "Confirm" to proceed:
                                 </label>
                                 <input
                                     type="text"
-                                    style={inputStyle}
+                                    className={styles.modalInput}
                                     value={confirmText}
                                     onChange={(e) => setConfirmText(e.target.value)}
                                     placeholder="Confirm"
@@ -253,40 +209,16 @@ export const PolymarketAuthButton: React.FC<PolymarketAuthButtonProps> = ({
                                 />
                             </div>
 
-                            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                            <div className={styles.modalActions}>
                                 <button
-                                    style={{
-                                        padding: '10px 20px',
-                                        borderRadius: '8px',
-                                        border: 'none',
-                                        background: '#3f3f46',
-                                        color: '#f4f4f5',
-                                        cursor: isLoading ? 'not-allowed' : 'pointer',
-                                        fontWeight: 500,
-                                        flex: 1,
-                                        opacity: isLoading ? 0.5 : 1,
-                                    }}
+                                    className={styles.secondaryButton}
                                     onClick={() => setShowWarning(false)}
                                     disabled={isLoading}
                                 >
                                     Cancel
                                 </button>
                                 <button
-                                    style={{
-                                        padding: '10px 20px',
-                                        borderRadius: '8px',
-                                        border: 'none',
-                                        background: confirmText === 'Confirm' ? '#52525b' : '#3f3f46',
-                                        color: confirmText === 'Confirm' ? '#f4f4f5' : 'rgba(244, 244, 245, 0.5)',
-                                        cursor: (confirmText === 'Confirm' && !isLoading) ? 'pointer' : 'not-allowed',
-                                        fontWeight: 500,
-                                        flex: 1,
-                                        opacity: isLoading ? 0.7 : 1,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '8px',
-                                    }}
+                                    className={`${styles.primaryButton} ${confirmText === 'Confirm' && !isLoading ? styles.primaryButtonEnabled : ''}`}
                                     onClick={handleConfirmAuthorize}
                                     disabled={confirmText !== 'Confirm' || isLoading}
                                 >

@@ -45,17 +45,22 @@ export const SimulateSwapTool: Tool = {
             const result = await response.json() as any;
 
             // Basic safety check from simulation
-            const priceImpact = result.quote?.priceImpact || 0;
-            const isRisky = parseFloat(priceImpact) > 10;
+            const priceImpact = Number(result.quote?.priceImpact || 0);
+            const isRisky = priceImpact > 10;
             const expectedOut = result.quote?.amountOutHuman || '0';
+            const feeHuman = result.quote?.totalFeeHuman || '0';
 
             return {
                 expected_out: expectedOut,
+                expected_out_human: expectedOut,
                 price_impact: `${priceImpact}%`,
+                price_impact_pct: priceImpact,
                 is_safe: !isRisky && parseFloat(expectedOut) > 0,
                 path: result.quote?.path || 'direct',
-                fee: result.quote?.totalFeeHuman || '0',
-                warning: isRisky ? '🚨 HIGH PRICE IMPACT! This trade is risky.' : null
+                fee: feeHuman,
+                fee_human: feeHuman,
+                warning: isRisky ? '🚨 HIGH PRICE IMPACT! This trade is risky.' : null,
+                quote_ok: true
             };
         } catch (error: any) {
             return { error: error.message || 'Simulation failed' };

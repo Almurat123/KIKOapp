@@ -28,18 +28,27 @@
 }
 
 .connectWalletCard {
-  background: var(--bg-card);
-  border-radius: 24px;
+  background: var(--liquid-glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--liquid-glass-border);
+  border-radius: 32px;
   padding: 48px 32px;
   text-align: center;
-  box-shadow: none;
-  max-width: 360px;
+  box-shadow: var(--liquid-glass-shadow);
+  max-width: 400px;
   width: 100%;
-  border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
+  transition: all 0.3s ease;
+}
+
+.connectWalletCard:hover {
+  background: var(--liquid-glass-hover-bg);
+  border-color: var(--liquid-glass-hover-border);
+  transform: translateY(-4px);
 }
 
 /* Removed manual overrides - simplified to use vars */
@@ -55,22 +64,20 @@
 }
 
 .connectWalletTitle {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 800;
   margin: 0;
-  color: #1a1a1a;
-  letter-spacing: -0.01em;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 
 /* Removed manual overrides - simplified to use vars */
 
 .connectWalletText {
-  color: #666;
-  font-size: 15px;
-  line-height: 1.5;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.6;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* Removed manual overrides - simplified to use vars */
@@ -210,10 +217,12 @@
 }
 
 .portfolioLabel {
-  font-size: 11px;
+  font-size: var(--settings-desc-fs);
   color: #a1a1aa;
-  font-weight: 500;
+  font-weight: 600;
   margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 :global(.light) .portfolioLabel {
@@ -221,12 +230,11 @@
 }
 
 .portfolioValue {
-  font-size: 25px;
-  /* Reduced from 28px (-10%) */
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 800;
   color: #f4f4f5;
-  letter-spacing: -1px;
-  line-height: 1;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
   margin-bottom: 6px;
 }
 
@@ -700,20 +708,29 @@
 
 .sectionHeader {
   padding: 12px 0;
-  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
-  display: flex;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
 }
 
-/* Remove old sectionTitle styles as removed from JSX, or keep if used elsewhere */
 .sectionTitle {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary, #1a1a1a);
+  font-size: var(--settings-title-fs);
+  font-weight: 700;
+  color: #f4f4f5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   transition: color 0.3s ease;
+}
+
+.sectionTitle::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 18px;
+  background: var(--settings-accent);
+  border-radius: 4px;
 }
 
 :global(.light) .sectionTitle {
@@ -816,20 +833,19 @@
 .table th {
   text-align: left;
   padding: 10px 12px;
-  font-size: 10px;
+  font-size: var(--settings-desc-fs);
   color: var(--text-secondary, #666666);
   font-weight: 600;
-  text-transform: uppercase;
   border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.05));
   white-space: nowrap;
   transition: color 0.3s ease, border-color 0.3s ease;
 }
 
 .table td {
-  padding: 12px;
-  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.03));
-  color: var(--text-primary, #1a1a1a);
-  font-size: 12px;
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.03));
+  color: var(--text-primary, #f4f4f5);
+  font-size: var(--settings-label-fs);
   white-space: nowrap;
   transition: color 0.3s ease, border-color 0.3s ease, background-color 0.3s ease;
 }
@@ -1419,14 +1435,12 @@
 .toggleContainer {
   display: flex;
   align-items: center;
-  background: #18181b;
-  /* #f4f4f5 in light mode */
+  background: rgba(255, 255, 255, 0.03);
   padding: 4px;
-  border-radius: 12px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   width: 100%;
   flex: 1;
-  /* Make it fill the container */
   margin-right: 0;
 }
 
@@ -1440,13 +1454,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
+  height: 36px;
+  padding: 0 16px;
+  font-size: var(--settings-desc-fs);
+  font-weight: 600;
   color: var(--text-secondary);
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
   width: 100%;
@@ -1462,11 +1477,9 @@
 }
 
 .toggleButton.active {
-  background: #27272a;
-  /* #ffffff in light mode */
-  color: var(--text-primary);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  font-weight: 600;
+  background: #ffffff;
+  color: #000000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 :global(.light) .toggleButton.active {
@@ -1483,9 +1496,9 @@
 }
 
 .cardTitle {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary, #1a1a1a);
+  font-size: var(--settings-label-fs);
+  font-weight: 700;
+  color: var(--text-primary, #f4f4f5);
 }
 
 /* Removed manual overrides - simplified to use vars */
@@ -1502,10 +1515,10 @@
 }
 
 .cardDescription {
-  font-size: 13px;
-  color: var(--text-secondary, #666);
+  font-size: var(--settings-desc-fs);
+  color: var(--text-secondary, #a1a1aa);
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.6;
 }
 
 /* Removed manual overrides - simplified to use vars */
@@ -1523,10 +1536,10 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 44px;
-  border-radius: 14px;
-  font-weight: 600;
-  font-size: 15px;
+  height: var(--settings-input-height);
+  border-radius: var(--settings-input-radius);
+  font-weight: 700;
+  font-size: var(--settings-label-fs);
   cursor: pointer;
 
   /* Liquid Glass Style */
@@ -1568,6 +1581,7 @@
 .actionBtnPrimary,
 .actionBtnSecondary {
   /* Inherit base glass style, specialized colors if needed, but unified is cleaner */
+  background: var(--liquid-glass-bg);
 }
 
 /* Prediction Orders Grid (Responsive Flex Wrap) */
@@ -1667,6 +1681,7 @@
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -1809,6 +1824,7 @@
   margin-bottom: 4px;
   display: -webkit-box;
   -webkit-line-clamp: 1;
+  line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

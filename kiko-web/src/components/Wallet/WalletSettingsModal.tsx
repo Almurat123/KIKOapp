@@ -250,7 +250,7 @@ export const WalletSettingsModal: React.FC<WalletSettingsModalProps> = ({
             onClick={onDisconnect}
             className={styles.disconnectButton}
           >
-            Disconnect Wallet
+            Logout
           </button>
         </div>
       </div>

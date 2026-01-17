@@ -66,7 +66,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
 
             // 1. Validate inputs (basic)
             if (isNaN(parseFloat(args.amount_in)) || parseFloat(args.amount_in) <= 0) {
-                return { error: 'Invalid amount. Please provide a positive number.' };
+                return { error: 'Invalid amount. Please provide a positive number.', mode: 'error' };
             }
 
             // 2. CODE-LEVEL SAFETY GATE (MANDATORY - Cannot be bypassed by LLM)
@@ -183,6 +183,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                                 slippage: args.slippage || 0.5
                             }
                         },
+                        mode: 'execute_client',
+                        requires_user_confirmation: false,
                         summary: `Executing instant swap: ${args.amount_in} ${args.token_in} → ${args.token_out} on chain ${args.chain_id}. Transaction will be submitted automatically.`
                     };
                 }
@@ -219,6 +221,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                                 return {
                                     success: true,
                                     txHash: zoraResult.txHash,
+                                    mode: 'executed',
+                                    requires_user_confirmation: false,
                                     summary: `✅ Zora Fast Swap executed! ${args.amount_in} ETH → ${args.token_out}. Transaction: ${zoraResult.txHash.slice(0, 10)}...`,
                                     method: 'zora_sdk'
                                 };
@@ -255,6 +259,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         console.error('[PrepareSwapTransaction] Backend swap failed:', errorMsg);
                         return {
                             error: `Swap failed: ${errorMsg}`,
+                            mode: 'error',
                             details: result
                         };
                     }
@@ -265,6 +270,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     return {
                         success: true,
                         txHash: result.data?.txHash,
+                        mode: 'executed',
+                        requires_user_confirmation: false,
                         summary: `✅ Swap executed successfully! ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash?.slice(0, 10)}...`,
                         data: result.data
                     };
@@ -282,6 +289,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                                 slippage: args.slippage || 0.5
                             }
                         },
+                        mode: 'execute_client',
+                        requires_user_confirmation: false,
                         summary: `Executing instant swap: ${args.amount_in} ${args.token_in} → ${args.token_out} on chain ${args.chain_id}. Transaction will be submitted automatically.`,
                         fallbackReason: fetchError.message
                     };
@@ -300,12 +309,14 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         slippage: args.slippage || 0.5
                     }
                 },
+                mode: 'prepared',
+                requires_user_confirmation: true,
                 summary: `Prepared swap for ${args.amount_in} ${args.token_in} to ${args.token_out} on chain ${args.chain_id}. Please confirm the transaction details in the card.`
             };
 
         } catch (error: any) {
             console.error('[PrepareSwapTransaction] Error:', error);
-            return { error: `Failed to prepare swap: ${error.message}` };
+            return { error: `Failed to prepare swap: ${error.message}`, mode: 'error' };
         }
     }
 };

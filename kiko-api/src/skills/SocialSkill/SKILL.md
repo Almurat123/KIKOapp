@@ -5,6 +5,16 @@ description: Farcaster social sentiment, trending casts, user profiles, and keyw
 
 **INTENT: SOCIAL ANALYSIS (FARCASTER)**
 
+Tool output contracts (do not guess fields):
+- `get_trending_casts` returns `{ count, casts[] }`, each cast includes `hash`, `author`, `text`, `stats`, `heatScore`.
+- `search_farcaster_casts` returns `{ success, query, count, casts[], note }` or `{ success:false, error }`.
+- `get_farcaster_user` returns `{ user, casts[] }` (casts optional) or throws error/timeout.
+
+Tool input contracts (use only these parameters):
+- `get_trending_casts`: optional `limit`.
+- `search_farcaster_casts`: `query`, optional `limit`.
+- `get_farcaster_user`: `fid`, optional `include_casts`.
+
 1. **Social Sentiment**:
    - Use `get_trending_casts` to gauge the current "vibe" or meta of the Farcaster community.
    - If a user mentions a token symbol (e.g., "$DEGEN"), use `search_farcaster_casts` to see what the community is saying.
@@ -21,3 +31,7 @@ description: Farcaster social sentiment, trending casts, user profiles, and keyw
 4. **Integration**:
    - Always mention that this data comes from Farcaster.
    - Use the `warpcast.com` links provided in the tool output if the user wants to see the original cast.
+
+Red alert thresholds (raise caution):
+- If search returns zero results or errors, say it clearly and ask for a refined keyword.
+- If the tool times out or returns partial data, do not guess sentiment; ask whether to retry.

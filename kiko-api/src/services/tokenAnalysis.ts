@@ -47,10 +47,23 @@ export interface EarlyBuyer {
 export async function getEarlyBuyers(
     tokenAddress: string,
     chain: string,
-    limit: number = 10
+    limit: number = 10,
+    options?: {
+        startTimeMs?: number;
+        endTimeMs?: number;
+    }
 ): Promise<EarlyBuyer[]> {
     const chainLower = chain.toLowerCase();
     const isSolana = chainLower === 'solana' || chainLower === 'sol';
+    const startTimeMs = options?.startTimeMs;
+    const endTimeMs = options?.endTimeMs;
+
+    const isWithinRange = (ts: Date) => {
+        const ms = ts.getTime();
+        if (startTimeMs && ms < startTimeMs) return false;
+        if (endTimeMs && ms > endTimeMs) return false;
+        return true;
+    };
 
     if (isSolana) {
         console.log(`[TokenAnalysis] Fetching early buyers for Solana mint: ${tokenAddress}`);
@@ -68,9 +81,12 @@ export async function getEarlyBuyers(
                     if (!buyerAddr || buyerAddr === tokenAddress) continue;
                     if (seen.has(buyerAddr)) continue;
 
+                    const ts = new Date(transfer.block_time * 1000);
+                    if (!isWithinRange(ts)) continue;
+
                     buyers.push({
                         address: buyerAddr,
-                        timestamp: new Date(transfer.block_time * 1000),
+                        timestamp: ts,
                         amount: (transfer.amount / Math.pow(10, transfer.token_decimals || 9)).toString(),
                         txHash: transfer.tx_hash,
                         pnlUsd: 0,
@@ -109,22 +125,25 @@ export async function getEarlyBuyers(
                     maxCount: limit * 20
                 });
 
-                if (alchemyTransfers && alchemyTransfers.length > 0) {
-                    const seen = new Set<string>();
-                    const buyers: EarlyBuyer[] = [];
+            if (alchemyTransfers && alchemyTransfers.length > 0) {
+                const seen = new Set<string>();
+                const buyers: EarlyBuyer[] = [];
 
-                    for (const tx of alchemyTransfers) {
-                        const buyerAddr = tx.to;
-                        if (!buyerAddr || seen.has(buyerAddr)) continue;
+                for (const tx of alchemyTransfers) {
+                    const buyerAddr = tx.to;
+                    if (!buyerAddr || seen.has(buyerAddr)) continue;
 
-                        buyers.push({
-                            address: buyerAddr,
-                            timestamp: tx.metadata?.blockTimestamp ? new Date(tx.metadata.blockTimestamp) : new Date(),
-                            amount: tx.value?.toString() || '0',
-                            txHash: tx.hash,
-                            pnlUsd: 0,
-                            isSmart: false
-                        });
+                    const ts = tx.metadata?.blockTimestamp ? new Date(tx.metadata.blockTimestamp) : new Date();
+                    if (!isWithinRange(ts)) continue;
+
+                    buyers.push({
+                        address: buyerAddr,
+                        timestamp: ts,
+                        amount: tx.value?.toString() || '0',
+                        txHash: tx.hash,
+                        pnlUsd: 0,
+                        isSmart: false
+                    });
                         seen.add(buyerAddr);
                         if (buyers.length >= limit) break;
                     }
@@ -158,6 +177,8 @@ export async function getEarlyBuyers(
                         timestamp = parsed;
                     }
                 } catch (e) { }
+
+                if (!isWithinRange(timestamp)) continue;
 
                 earlyBuyersList.push({
                     address: buyerAddr,

@@ -15,20 +15,34 @@
     color: #18181b;
 }
 
-/* Grouped Layout Styles */
+.content {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
 .group {
     display: flex;
     flex-direction: column;
-    gap: 12px;
 }
 
 .groupTitle {
-    font-size: 13px;
-    font-weight: 600;
-    color: #a1a1aa;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0 0 4px 4px;
+    font-size: var(--settings-title-fs);
+    font-weight: 700;
+    color: #f4f4f5;
+    margin: 0 0 20px 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.groupTitle::before {
+    content: '';
+    display: block;
+    width: 4px;
+    height: 18px;
+    background: var(--settings-accent);
+    border-radius: 4px;
 }
 
 :global(.light) .groupTitle {
@@ -61,7 +75,7 @@
 }
 
 .itemTitle {
-    font-size: 15px;
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     color: #f4f4f5;
 }
@@ -71,10 +85,10 @@
 }
 
 .itemDescription {
-    font-size: 13px;
+    font-size: var(--settings-desc-fs);
     color: #a1a1aa;
     margin: 0;
-    line-height: 1.4;
+    line-height: 1.6;
 }
 
 :global(.light) .itemDescription {
@@ -95,20 +109,24 @@
 
 .disconnectButton {
     width: 100%;
-    padding: 14px;
-    border-radius: 14px;
-    border: 1px solid rgba(239, 68, 68, 0.2);
+    height: var(--settings-input-height);
+    padding: 0 20px;
+    border-radius: var(--settings-input-radius);
+    border: 0.5px solid rgba(239, 68, 68, 0.2);
     background: rgba(239, 68, 68, 0.1);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
     color: #ef4444;
-    font-size: 15px;
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .disconnectButton:hover {
     background: rgba(239, 68, 68, 0.15);
-    transform: translateY(-1px);
+    border-color: rgba(239, 68, 68, 0.3);
+    transform: scale(1.02);
 }
 
 .disconnectButton:active {
@@ -118,26 +136,29 @@
 /* Community Section Styles */
 .followButton {
     width: 100%;
-    padding: 14px;
-    border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: #27272a;
+    height: var(--settings-input-height);
+    padding: 0 20px;
+    border-radius: var(--settings-input-radius);
+    background: var(--liquid-glass-bg);
+    border: 0.5px solid var(--liquid-glass-border);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: var(--liquid-glass-shadow);
     color: #f4f4f5;
-    font-size: 15px;
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 :global(.light) .followButton {
-    background: #f4f4f5;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    color: #18181b;
+    color: #4b5563;
 }
 
 .followButton:hover {
-    transform: translateY(-1px);
-    filter: brightness(1.1);
+    background: var(--liquid-glass-hover-bg);
+    border-color: var(--liquid-glass-hover-border);
+    transform: scale(1.02);
 }
 
 .followButton:active {
@@ -146,21 +167,19 @@
 
 .successButton {
     width: 100%;
-    padding: 14px;
-    border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: #27272a;
-    color: #10b981;
-    font-size: 15px;
+    height: var(--settings-input-height);
+    padding: 0 20px;
+    border-radius: var(--settings-input-radius);
+    background: var(--liquid-glass-bg);
+    border: 0.5px solid var(--liquid-glass-border);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    color: var(--switch-green);
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     cursor: default;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-}
-
-:global(.light) .successButton {
-    background: #f4f4f5;
-    border: 1px solid rgba(0, 0, 0, 0.08);
 }

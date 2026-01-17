@@ -3,33 +3,29 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    padding: 12px 16px;
-    background: #3f3f46;
-    /* Lighter than list bg (#27272a) */
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
+    height: var(--settings-input-height);
+    padding: 0 20px;
+    background: var(--liquid-glass-bg);
+    border: 0.5px solid var(--liquid-glass-border);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: var(--liquid-glass-shadow);
+    border-radius: var(--settings-input-radius);
     color: #f4f4f5;
-    font-size: 14px;
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 :global(.light) .recoveryButton {
-    background: #e4e4e7;
-    /* Darker than list (#f4f4f5) */
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    color: #18181b;
+    color: #4b5563;
 }
 
 .recoveryButton:hover {
-    background: #52525b;
-    transform: translateY(-1px);
-}
-
-:global(.light) .recoveryButton:hover {
-    background: #d4d4d8;
-    color: #000000;
+    background: var(--liquid-glass-hover-bg);
+    border-color: var(--liquid-glass-hover-border);
+    transform: scale(1.02);
 }
 
 .recoveryButton:active {

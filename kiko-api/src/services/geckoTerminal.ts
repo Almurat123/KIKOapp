@@ -58,6 +58,23 @@ async function fetchWithRetry(
         });
 
         clearTimeout(timeoutId);
+
+        // Handle rate limiting / transient server errors with backoff
+        if ((response.status === 429 || response.status >= 500) && attempt < retries) {
+          const retryAfter = response.headers.get('retry-after');
+          const retryAfterMs = retryAfter ? Number(retryAfter) * 1000 : NaN;
+          const delay = Math.max(
+            1000,
+            Number.isFinite(retryAfterMs)
+              ? retryAfterMs
+              : BASE_RETRY_DELAY * Math.pow(2, attempt)
+          );
+
+          console.log(`[fetchWithRetry] Attempt ${attempt + 1} got ${response.status}, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
         return response;
       } catch (fetchError: any) {
         clearTimeout(timeoutId);
@@ -496,7 +513,8 @@ export async function getTrendingTokens(
   network: string = 'eth',
   limit: number = 50,
   duration: TrendingDuration = '24h',
-  minLiquidityUsd: number = MIN_LIQUIDITY_USD
+  minLiquidityUsd: number = MIN_LIQUIDITY_USD,
+  maxPages: number = 5
 ): Promise<TokenSearchResult[]> {
   try {
     console.log(`[GeckoTerminal] Fetching TRENDING tokens for network: ${network}, limit: ${limit}, duration: ${duration}, minLiquidity: ${minLiquidityUsd}`);
@@ -519,8 +537,6 @@ export async function getTrendingTokens(
 
     // Extract unique tokens from trending pools
     const tokenMap = new Map<string, TokenSearchResult>();
-    const maxPages = 5; // Fetch up to 5 pages to get enough unique tokens
-
     for (let page = 1; page <= maxPages && tokenMap.size < limit; page++) {
       // Use trending_pools endpoint with duration parameter
       // Supported durations: 5m, 1h, 6h, 24h

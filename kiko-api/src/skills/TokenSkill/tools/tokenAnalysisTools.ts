@@ -8,7 +8,7 @@ import * as creatorAnalysis from '../../../services/creatorAnalysis.js';
 export const GetEarlyBuyersTool: Tool = {
     definition: {
         name: 'get_early_buyers',
-        description: 'Get the earliest buyers of a token. Useful for analyzing who bought first and potential insider/whale activity. Works on EVM chains and Solana.',
+        description: 'Get the earliest buyers of a token. Useful for analyzing who bought first and potential insider/whale activity. Supports optional time range. Works on EVM chains and Solana.',
         parameters: {
             type: 'object',
             properties: {
@@ -25,14 +25,38 @@ export const GetEarlyBuyersTool: Tool = {
                     type: 'number',
                     description: 'Number of early buyers to return (default 10, max 20)',
                     default: 10
+                },
+                start_time: {
+                    type: 'string',
+                    description: 'Optional start time (ISO string or unix seconds) to filter buyers by time range.'
+                },
+                end_time: {
+                    type: 'string',
+                    description: 'Optional end time (ISO string or unix seconds) to filter buyers by time range.'
                 }
             },
             required: ['address', 'chain']
         }
     },
-    handler: async ({ address, chain, limit = 10 }) => {
+    handler: async ({ address, chain, limit = 10, start_time, end_time }) => {
         try {
-            const buyers = await tokenAnalysis.getEarlyBuyers(address, chain, Math.min(limit, 20));
+            const parseTime = (value?: string) => {
+                if (!value) return undefined;
+                const num = Number(value);
+                if (!Number.isNaN(num)) {
+                    return num < 1e12 ? num * 1000 : num;
+                }
+                const parsed = Date.parse(value);
+                return Number.isNaN(parsed) ? undefined : parsed;
+            };
+
+            const startTimeMs = parseTime(start_time);
+            const endTimeMs = parseTime(end_time);
+
+            const buyers = await tokenAnalysis.getEarlyBuyers(address, chain, Math.min(limit, 20), {
+                startTimeMs,
+                endTimeMs
+            });
 
             if (!buyers || buyers.length === 0) {
                 return {

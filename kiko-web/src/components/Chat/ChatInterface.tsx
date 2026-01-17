@@ -4,8 +4,8 @@ import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { DelegatedActionRequest } from '../Privy/DelegatedActionRequest';
 import { useAccount, useBalance } from 'wagmi';
-import { toast, Toaster } from 'sonner';
 import { MessageBubble } from './MessageBubble';
+import { toast } from '../Toast';
 import { WelcomeScreen } from './WelcomeScreen';
 import { CustomAISettingsModal } from './CustomAISettingsModal';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
@@ -95,7 +95,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Safari iOS 26 keyboard fix - provides inputTop when keyboard is open
     const safariKeyboard = useSafariKeyboardFix();
 
-    const { user, authenticated, getAccessToken } = usePrivy();
+    const { user, authenticated, login, getAccessToken } = usePrivy();
     const { wallets } = useWallets();
     // Use global chain context instead of Wagmi's useChainId
     // this ensures AI knows about selected chain even if wallet is on different chain
@@ -1390,6 +1390,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const isSubmittingRef = useRef(false);
 
     const handleSend = async (text: string = input, existingMessageId?: string) => {
+        if (!authenticated) {
+            toast.info('Login to KIKO to start chatting.');
+            try {
+                login();
+            } catch (e) {
+                logger.warn('Failed to trigger login:', e);
+            }
+            return;
+        }
         if (isSubmittingRef.current) return;
         if (!text.trim()) return;
 
@@ -1439,7 +1448,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 currentConvId = await onNewConversation(text);
             }
             if (!currentConvId) {
-                toast.error('Failed to create chat session');
+                if (!authenticated) {
+                    toast.error('Session expired. Login to KIKO to create chat session.');
+                } else {
+                    toast.error('Unable to create chat session. Please refresh and try again.');
+                }
                 return;
             }
 
@@ -2016,8 +2029,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 />
             )}
 
-            {/* Toaster for swap notifications */}
-            <Toaster position="top-center" richColors duration={5000} />
         </div>
     );
 };

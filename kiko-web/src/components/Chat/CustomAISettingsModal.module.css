@@ -38,12 +38,12 @@
 }
 
 .sectionTitle {
-    font-size: 15px;
+    font-size: var(--settings-title-fs);
     font-weight: 700;
-    margin-bottom: 12px;
+    margin-bottom: 20px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
     color: #f4f4f5;
     letter-spacing: -0.01em;
 }
@@ -64,10 +64,10 @@
 .sectionTitle::before {
     content: '';
     display: block;
-    width: 3px;
-    height: 16px;
-    background: #646cff;
-    border-radius: 2px;
+    width: 4px;
+    height: 18px;
+    background: var(--settings-accent);
+    border-radius: 4px;
 }
 
 .headerRow {
@@ -85,7 +85,7 @@
 }
 
 .headerTitle {
-    font-size: 14px;
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     color: #ffffff;
 }
@@ -108,9 +108,9 @@
 }
 
 .headerDesc {
-    font-size: 13px;
-    line-height: 1.5;
-    color: #71717a;
+    font-size: var(--settings-desc-fs);
+    line-height: 1.6;
+    color: #a1a1aa;
 }
 
 @media (max-width: 768px) {
@@ -145,9 +145,10 @@
 }
 
 .label {
-    font-size: 13px;
+    font-size: var(--settings-label-fs);
     font-weight: 600;
     color: #f4f4f5;
+    margin-bottom: 4px;
 }
 
 :global(.light) .label {
@@ -160,13 +161,27 @@
     align-items: stretch;
 }
 
+@media (max-width: 768px) {
+    .amountRow {
+        gap: 8px;
+    }
+
+    .amountRow>.input,
+    .amountRow>.unitSelect {
+        flex: 1 1 0;
+        min-width: 0;
+        width: 0;
+    }
+}
+
 .input {
     flex: 1;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 14px;
+    border-radius: var(--settings-input-radius);
+    height: var(--settings-input-height);
+    padding: 0 16px;
+    font-size: var(--settings-label-fs);
     color: #ffffff;
     transition: all 0.2s ease;
 }
@@ -178,6 +193,8 @@
         font-size: 12px;
         /* Smaller input font */
         border-radius: 8px;
+        height: 32px;
+        /* Match CustomSelect trigger height */
     }
 }
 
@@ -189,8 +206,8 @@
 
 .input:focus {
     outline: none;
-    border-color: #646cff;
-    box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.15);
+    border-color: var(--switch-green);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
 }
 
 .toggleSwitch {
@@ -263,8 +280,8 @@
 }
 
 input:checked+.slider {
-    background-color: #646cff;
-    border-color: #646cff;
+    background-color: var(--switch-green);
+    border-color: var(--switch-green);
 }
 
 input:checked+.slider:before {
@@ -283,6 +300,7 @@ input:checked+.slider:before {
 
 .unitSelect {
     flex: 1;
+    min-width: 0;
 }
 
 .slippageInputRow {

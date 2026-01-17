@@ -88,14 +88,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems: NavItem[] = [
     chatItem,
     {
-      id: 'news',
-      icon: Newspaper,
-      label: 'News',
-    },
-    {
       id: 'social',
       icon: Users,
       label: 'Social',
+    },
+    {
+      id: 'market-tokens',
+      icon: Coins,
+      label: 'Tokens',
+    },
+    {
+      id: 'trade',
+      icon: RefreshCw,
+      label: 'Trade',
+    },
+    {
+      id: 'news',
+      icon: Newspaper,
+      label: 'News',
     },
     {
       id: 'market-overview',
@@ -108,19 +118,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Chains',
     },
     {
-      id: 'market-tokens',
-      icon: Coins,
-      label: 'Tokens',
-    },
-    {
       id: 'defi',
       icon: Layers,
       label: 'SuperDefi',
-    },
-    {
-      id: 'trade',
-      icon: RefreshCw,
-      label: 'Trade',
     },
   ];
 
