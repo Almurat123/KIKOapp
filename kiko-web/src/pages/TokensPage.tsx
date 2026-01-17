@@ -11,7 +11,8 @@ import { requestManager } from '../utils/requestManager';
 import {
   calculateTrendingScore,
   loadFromCache,
-  saveToCache
+  saveToCache,
+  type TrendingTimeframe
 } from '../services/trendingService';
 
 // --- Types ---
@@ -64,6 +65,79 @@ interface Token {
 }
 
 // --- Helper Functions ---
+
+function logScore(n: number): number {
+  return Math.log10(Math.max(0, n) + 1);
+}
+
+function momentumScore(pct: number): number {
+  const safe = Number.isFinite(pct) ? pct : 0;
+  return Math.tanh(safe / 50);
+}
+
+function getTimeframeChangeValue(t: Token, timeframe: TrendingTimeframe): string {
+  if (timeframe === '1h') return t.c1h;
+  if (timeframe === '24h') return t.c24h;
+  return t.c5m;
+}
+
+function getTimeframeChangeLabel(timeframe: TrendingTimeframe): string {
+  if (timeframe === '1h') return '1H';
+  if (timeframe === '24h') return '24H';
+  return '5M';
+}
+
+function getTimeframeChangeColumn(timeframe: TrendingTimeframe): keyof Token {
+  if (timeframe === '1h') return 'c1h';
+  if (timeframe === '24h') return 'c24h';
+  return 'c5m';
+}
+
+function computeTimeframeScore(t: Token, timeframe: TrendingTimeframe): number {
+  const volume = logScore(t.volumeRaw || 0);
+  const txns = logScore(t.txns || 0);
+  const liquidity = logScore(t.liquidityRaw || 0);
+
+  // "5m" 模式更偏新币/爆发：新池加成（但很小，避免刷子占满榜单）
+  const isNewBonus =
+    t.isNew ? 0.40 :
+      (t.ageRaw > 0 && (Date.now() - t.ageRaw) < 6 * 60 * 60 * 1000) ? 0.20 :
+        0;
+
+  if (timeframe === '5m') {
+    // 成交密度：偏好“交易活跃，但流动性还没那么大”的爆发盘（用24h数据做近似）。
+    const density =
+      (0.7 * txns + 0.3 * volume) -
+      (0.55 * liquidity);
+
+    return (
+      0.40 * momentumScore(t.c5mRaw || 0) +
+      0.30 * density +
+      0.18 * txns +
+      0.07 * volume +
+      0.05 * liquidity +
+      0.12 * isNewBonus
+    );
+  }
+
+  if (timeframe === '1h') {
+    return (
+      0.40 * momentumScore(t.c1hRaw || 0) +
+      0.10 * momentumScore(t.c5mRaw || 0) +
+      0.25 * txns +
+      0.20 * volume +
+      0.05 * liquidity
+    );
+  }
+
+  // 24h
+  return (
+    0.35 * momentumScore(t.c24hRaw || 0) +
+    0.30 * volume +
+    0.20 * txns +
+    0.15 * liquidity
+  );
+}
 
 // Subscript digits for displaying zero count
 const SUBSCRIPT_DIGITS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
@@ -365,14 +439,16 @@ const TokenRow = React.memo(({
   token: t,
   index: i,
   isMobile,
+  timeframe,
   onTokenClick
 }: {
   token: Token;
   index: number;
   isMobile: boolean;
+  timeframe: TrendingTimeframe;
   onTokenClick: (token: Token) => void;
 }) => {
-  const changeValue = t.c5m;
+  const changeValue = getTimeframeChangeValue(t, timeframe);
   const isPositive = changeValue.startsWith('+');
   const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
 
@@ -402,7 +478,11 @@ const TokenRow = React.memo(({
               src={t.imageUrl || `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`}
               alt={t.name}
               className={styles.tokenIcon}
+              loading="lazy"
+              decoding="async"
               onError={(e) => {
+                if (e.currentTarget.dataset.fallbackApplied === '1') return;
+                e.currentTarget.dataset.fallbackApplied = '1';
                 e.currentTarget.src = `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`;
               }}
             />
@@ -410,6 +490,8 @@ const TokenRow = React.memo(({
               src={getChainLogo(t.chain)}
               alt={t.chain}
               className={styles.chainLogo}
+              loading="lazy"
+              decoding="async"
               onError={(e) => {
                 e.currentTarget.style.display = 'none';
                 if (e.currentTarget.parentElement) {
@@ -567,6 +649,9 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   const [selectedChain, setSelectedChain] = useState<string>(
     localStorage.getItem('kiko-selected-chain') || 'all'
   );
+  const [timeframe, setTimeframe] = useState<TrendingTimeframe>(
+    (localStorage.getItem('kiko-trending-timeframe') as TrendingTimeframe) || '5m'
+  );
   const [showChainDropdown, setShowChainDropdown] = useState(false); // Chain dropdown visibility
   const [visibleCount, setVisibleCount] = useState(30);
   const loadingRef = useRef<HTMLDivElement>(null);
@@ -602,7 +687,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
         // 1. Load from Cache first (Instant display)
         FETCH_CHAINS.forEach((chain) => {
-          const cached = loadFromCache(chain);
+          const cached = loadFromCache(chain, timeframe);
           if (cached && cached.length > 0) {
             const cachedTokens = cached.map((token) => convertApiTokenToToken(token, tokenId++));
             currentTokens = [...currentTokens, ...cachedTokens];
@@ -610,8 +695,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         });
 
         if (currentTokens.length > 0) {
-          // GLOBAL TRENDING SORT: Sort by trendingScore descending
-          currentTokens.sort((a, b) => b.trendingScore - a.trendingScore);
+          // Rank by selected timeframe
+          currentTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
 
           // Assign unique IDs for the table display AFTER sorting
           const displayTokens = currentTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
@@ -625,11 +710,11 @@ export const TokensPage: React.FC<TokensPageProps> = ({
           if (!mountedRef.current) return [];
 
           try {
-            const data = await tokenApi.getTrendingLive(chain, '5m', 100);
+            const data = await tokenApi.getTrendingLive(chain, timeframe, 100);
 
             if (mountedRef.current && data && data.length > 0) {
               // Save to cache
-              saveToCache(chain, data);
+              saveToCache(chain, data, timeframe);
 
               // Convert to internal tokens
               // We'll assign IDs later after aggregation
@@ -644,9 +729,9 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         const results = await Promise.all(fetchPromises);
         let freshTokens = results.flat();
 
-        // GLOBAL TRENDING SORT: Rank tokens from all chains by popularity
+        // Rank tokens from all chains by selected timeframe
         if (freshTokens.length > 0) {
-          freshTokens.sort((a, b) => b.trendingScore - a.trendingScore);
+          freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
         }
 
         // Batch update
@@ -684,7 +769,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       });
       chainRequestIdsRef.current.clear();
     };
-  }, []); // Empty dependency array - load only once on mount
+  }, [timeframe]); // Reload when timeframe changes
 
   // 30-second polling for real-time updates
   useEffect(() => {
@@ -702,7 +787,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         const promises = FETCH_CHAINS.map(async (chain) => {
           if (!mountedRef.current) return [];
           try {
-            const data = await tokenApi.getTrendingLive(chain, '5m', 100);
+            const data = await tokenApi.getTrendingLive(chain, timeframe, 100);
             if (mountedRef.current && data && data.length > 0) {
               return data.map((token) => convertApiTokenToToken(token, 0));
             }
@@ -716,8 +801,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         let freshTokens = results.flat();
 
         if (mountedRef.current && freshTokens.length > 0) {
-          // GLOBAL TRENDING SORT: Keep the list ranked by popularity across all chains
-          freshTokens.sort((a, b) => b.trendingScore - a.trendingScore);
+          // Keep the list ranked by selected timeframe
+          freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
 
           const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
           setAllTokens(displayTokens);
@@ -733,7 +818,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     const intervalId = setInterval(pollData, POLL_INTERVAL);
 
     return () => clearInterval(intervalId);
-  }, [isPageActive]);
+  }, [isPageActive, timeframe]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -825,6 +910,14 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   useEffect(() => {
     localStorage.setItem('kiko-selected-chain', selectedChain);
   }, [selectedChain]);
+
+  // Persist selected timeframe + reset view state
+  useEffect(() => {
+    localStorage.setItem('kiko-trending-timeframe', timeframe);
+    setVisibleCount(30);
+    setSortBy(null);
+    setSortDirection('desc');
+  }, [timeframe]);
 
   // Detect screen size
   useEffect(() => {
@@ -966,12 +1059,12 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         return sortDirection === 'asc' ? aNum - bNum : bNum - aNum;
       });
     } else {
-      // Default: Keep API order (DexScreener's trending rank)
-      // Do NOT re-sort by trendingScore as it changes the original order
+      // Default: rank by selected timeframe (so chain switch + timeframe switch feels responsive)
+      filtered.sort((a, b) => computeTimeframeScore(b as Token, timeframe) - computeTimeframeScore(a as Token, timeframe));
     }
 
     return filtered;
-  }, [tokens, allTokens, searchQuery, sortBy, sortDirection, selectedChain, activeTab, favoriteAddresses]);
+  }, [tokens, allTokens, searchQuery, sortBy, sortDirection, selectedChain, activeTab, favoriteAddresses, timeframe]);
 
   const handleSort = (column: keyof Token) => {
     if (sortBy === column) {
@@ -1008,6 +1101,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   useEffect(() => {
     if (!loadingRef.current || filteredAndSortedTokens.length <= visibleCount) return;
 
+    const root = document.querySelector('[data-scroll-container="app"]') as Element | null;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
@@ -1015,7 +1109,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
           setVisibleCount((prev) => prev + 30);
         }
       },
-      { threshold: 0.1, rootMargin: '100px' }
+      { threshold: 0.1, rootMargin: '200px', root }
     );
 
     observer.observe(loadingRef.current);
@@ -1165,8 +1259,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     );
   }
 
-  // Fixed to 5m timeframe
-  const getChangeColumn = () => 'c5m';
+  const getChangeColumn = () => getTimeframeChangeColumn(timeframe);
 
   return (
     <PageContainer fullWidth className={styles.container}>
@@ -1232,7 +1325,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                       <div className={`${styles.thContent} ${styles.thContentRight}`}>Price</div>
                     </th>
                     <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                      <div className={`${styles.thContent} ${styles.thContentRight}`}>5M</div>
+                      <div className={`${styles.thContent} ${styles.thContentRight}`}>{getTimeframeChangeLabel(timeframe)}</div>
                     </th>
                     <th className={`${styles.th} ${styles.thRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
                       <div className={`${styles.thContent} ${styles.thContentRight}`}>Age</div>
@@ -1354,54 +1447,68 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                       : 'Trending'}
                   </h2>
 
-                  <div className={styles.chainSelector}>
-                    <button
-                      className={styles.chainSelectorBtn}
-                      onClick={() => setShowChainDropdown(!showChainDropdown)}
-                    >
-                      {selectedChain === 'all' ? (
-                        null
-                      ) : (
-                        <img
-                          src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
-                          alt={selectedChain}
-                          className={styles.chainSelectorIcon}
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                      )}
-                      <span>{selectedChain === 'all' ? 'All' : CHAIN_OPTIONS.find(c => c.id === selectedChain)?.id}</span>
-                      <ChevronDown size={14} />
-                    </button>
-                    {showChainDropdown && (
-                      <div className={styles.chainDropdown}>
-                        {CHAIN_OPTIONS.map(chain => (
-                          <button
-                            key={chain.id}
-                            className={`${styles.chainOption} ${selectedChain === chain.id ? styles.chainOptionActive : ''}`}
-                            onClick={() => {
-                              setSelectedChain(chain.id);
-                              setShowChainDropdown(false);
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className={styles.timeframeSelector}>
+                      {(['5m', '1h', '24h'] as TrendingTimeframe[]).map((tf) => (
+                        <button
+                          key={tf}
+                          className={`${styles.timeframeBtn} ${timeframe === tf ? styles.timeframeBtnActive : ''}`}
+                          onClick={() => setTimeframe(tf)}
+                        >
+                          {tf.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className={styles.chainSelector}>
+                      <button
+                        className={styles.chainSelectorBtn}
+                        onClick={() => setShowChainDropdown(!showChainDropdown)}
+                      >
+                        {selectedChain === 'all' ? (
+                          null
+                        ) : (
+                          <img
+                            src={CHAIN_OPTIONS.find(c => c.id === selectedChain)?.logo}
+                            alt={selectedChain}
+                            className={styles.chainSelectorIcon}
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
                             }}
-                          >
-                            {chain.logo ? (
-                              <img
-                                src={chain.logo}
-                                alt={chain.name}
-                                className={styles.chainOptionIcon}
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none';
-                                }}
-                              />
-                            ) : (
-                              <span className={styles.allChainsIcon}>⛓</span>
-                            )}
-                            <span>{chain.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                          />
+                        )}
+                        <span>{selectedChain === 'all' ? 'All' : CHAIN_OPTIONS.find(c => c.id === selectedChain)?.id}</span>
+                        <ChevronDown size={14} />
+                      </button>
+                      {showChainDropdown && (
+                        <div className={styles.chainDropdown}>
+                          {CHAIN_OPTIONS.map(chain => (
+                            <button
+                              key={chain.id}
+                              className={`${styles.chainOption} ${selectedChain === chain.id ? styles.chainOptionActive : ''}`}
+                              onClick={() => {
+                                setSelectedChain(chain.id);
+                                setShowChainDropdown(false);
+                              }}
+                            >
+                              {chain.logo ? (
+                                <img
+                                  src={chain.logo}
+                                  alt={chain.name}
+                                  className={styles.chainOptionIcon}
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              ) : (
+                                <span className={styles.allChainsIcon}>⛓</span>
+                              )}
+                              <span>{chain.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <table className={styles.table}>
@@ -1441,7 +1548,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                         onClick={() => handleSort(getChangeColumn() as keyof Token)}
                       >
                         <div className={`${styles.thContent} ${styles.thContentRight}`}>
-                          5M
+                          {getTimeframeChangeLabel(timeframe)}
                           <SortIcon column={getChangeColumn() as keyof Token} />
                         </div>
                       </th>
@@ -1486,6 +1593,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                         token={t}
                         index={i}
                         isMobile={isMobile}
+                        timeframe={timeframe}
                         onTokenClick={handleTokenClick}
                       />
                     ))}

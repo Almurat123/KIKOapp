@@ -1,248 +1,825 @@
-# User Input Scenarios for AI Completion System
-
-## 1. SWAP / TRADE Commands (30 variations)
-
-### Basic Swap
-1. Swap 0.01 ETH to 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 at base
-2. Sell 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 to ETH
-3. Swap 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 to ETH at base
-4. Swap USDC to ETH
-5. Swap ETH to USDC
-6. Buy 100 USDC with ETH
-7. Trade 0.5 ETH for USDC
-8. Exchange 1000 USDC to ETH
-9. Convert 0.1 ETH to USDC
-10. Sell all my USDC for ETH
-
-### Partial Input (User typing)
-11. swap 0x833
-12. buy 0x833589
-13. sell USDC
-14. trade 0.5
-15. swap 100
-16. buy ETH
-17. s 0x833
-18. sw
-19. trade
-20. buy
-
-### Natural Language
-21. I want to buy some ETH
-22. Can you swap my USDC to ETH?
-23. Help me trade 0.5 ETH
-24. I need to sell this token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-25. Convert all my ETH to USDC please
-26. Buy me some USDC
-27. Get me 100 USDC
-28. I want to purchase ETH
-29. Sell everything to ETH
-30. Trade my tokens to ETH
-
-## 2. TOKEN INFO / PRICE Commands (25 variations)
-
-### Price Queries
-31. Tell me ETH price
-32. What's the ETH price
-33. What's the price of 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-34. Price of USDC
-35. How much is ETH?
-36. ETH price now
-37. Current price of 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-38. Check ETH price
-39. Show me USDC price
-40. What is the current ETH value?
-
-### Token Info
-41. Token info 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-42. Info about this token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-43. Tell me about ETH
-44. What is this token? 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-45. Details of USDC
-46. Show token details 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-47. Get info on ETH
-48. Token details for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-49. What's this? 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-50. Analyze this token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-
-### Chart / History
-51. Chart for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-52. Show me ETH chart
-53. Price history of USDC
-54. Graph for this token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-55. Historical data for ETH
-
-## 3. COPY TRADE Commands (15 variations)
-
-56. Copy trade this wallet 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-57. When this 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 buy a token buy me $10 TL100% ST50%
-58. Copy trade 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 buy me $10 TL100% ST50%
-59. List my all copy trade config
-60. Mirror this wallet 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-61. Follow this trader 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-62. Copy 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 trades
-63. Set up copy trading for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-64. Start copying 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-65. Show my copy trades
-66. List active copy trades
-67. Stop copy trading 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-68. Pause all copy trades
-69. Delete copy trade config
-70. Update copy trade settings
-
-## 4. RISK / ANALYSIS Commands (15 variations)
-
-71. Check this 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 risk
-72. Check this 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 early buyer
-73. How is the 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 early buyer?
-74. Check this 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 PNL
-75. Risk analysis for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-76. Is this token safe? 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-77. Audit this contract 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-78. Security check 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-79. Who are the early buyers of 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913?
-80. Show me snipers for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-81. Whale holders of 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-82. Top holders 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-83. Contract audit 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-84. Is this a honeypot? 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-85. Rug check 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-
-## 5. POLYMARKET / BETTING Commands (10 variations)
-
-86. Tell me trending bet
-87. I want bet YES at this order
-88. Take a YES order at this order
-89. Sell my YES order
-90. Sell my Bet order
-91. Show me trending predictions
-92. What are the hot bets?
-93. Place a bet on YES
-94. Buy NO shares
-95. Close my position
-
-## 6. TRENDING / MARKET Commands (15 variations)
-
-96. What's the trending token at Bsc?
-97. Bsc trending token
-98. Show me trending tokens
-99. Top tokens on Base
-100. What's hot on Ethereum?
-101. Trending on Solana
-102. Top movers today
-103. Best performing tokens
-104. What's pumping?
-105. Show me gainers
-106. Trending tokens on ETH
-107. Hot tokens right now
-108. What should I buy?
-109. Top 10 tokens
-110. Market overview
-
-## 11. DEGEN TRADER PERSONA (20 variations)
-141. aping into this shitcoin 0x...
-142. wen moon? check chart 0x...
-143. is this a rug? 0x...
-144. snipe this launch 0x...
-145. fomo buying 0x...
-146. bridge to base fast
-147. gas is killing me, check price
-148. any new alpha?
-150. pump it 0x...
-151. sell high buy low 0x...
-152. swap max to 0x...
-153. full send 1 ETH to 0x...
-154. checking honeypot status 0x...
-155. rekt check 0x...
-156. who's buying this trash? 0x...
-157. early entry 0x...
-158. moonbag check 0x...
-159. liquidity locked? 0x...
-160. ape in 0.1 ETH 0x...
-
-## 12. WHALE / INSTITUTIONAL PERSONA (20 variations)
-161. Analyze liquidity depth for 0x...
-162. Large holder distribution 0x...
-163. Monitor large transactions on Base
-164. Executive summary for token 0x...
-165. Risk assessment report 0x...
-166. Verify contract audit 0x...
-167. Portfolio allocation overview
-168. Cross-chain asset breakdown
-169. Simulate volume impact for 100 ETH swap
-170. Check slippage for large order 0x...
-171. Whale wallet movements tracking
-172. Institutional accumulation patterns 0x...
-173. Smart money flow analysis
-174. Top 10 wallet analysis 0x...
-175. Market cap vs FDV ratio 0x...
-176. Treasury analysis 0x...
-177. Governance participation report
-178. Private sale vesting schedule
-179. Liquidity provider analysis
-180. Macro market correlation
-
-## 13. SNIPER / BOT OPERATOR PERSONA (20 variations)
-181. Set auto-buy limit 0x...
-182. Configure copy trade for wallet 0x...
-183. Stop loss settings update
-184. Trailing buy configuration
-185. Max gas price limit set
-186. Anti-rug protection enable
-187. Pending tx pool scan
-188. Front-run protection check
-189. Snipe liquidity add 0x...
-190. Auto-sell on 2x target
-191. Scan new pairs instantly
-192. Filter contracts by verified
-193. Blacklist dev wallet 0x...
-194. Whitelist my wallet
-195. Set bribery fees
-196. Monitor mempool
-197. Rapid fire buy 0x...
-198. Multi-wallet buy execute
-199. Profit taking strategy set
-200. Emergency exit all positions
-
-## 14. DATA ANALYST PERSONA (20 variations)
-201. Export transaction history csv
-202. Graph price vs volume 0x...
-203. Correlation coefficient BTC-ETH
-204. Moving average crossover check
-205. RSI indicator status 0x...
-206. Volume profile analysis
-207. On-chain metrics summary
-208. Holder retention rate 0x...
-209. Average buy price calculation
-210. Realized vs Unrealized PnL
-211. Gas usage efficiency report
-212. Network congestion historical data
-213. Token velocity metrics
-214. Active address count trend
-215. Developer activity GitHub
-216. Social sentiment score vs price
-217. TVL growth rate
-218. Burn rate analysis
-219. Inflation schedule check
-220. Yield farming ROI calc
-
-## 15. SOCIAL / COMMUNITY MANAGER PERSONA (20 variations)
-221. What's the sentiment on Farcaster for 0x...
-222. Identify key influencers talking about 0x...
-223. Viral cast alerts setup
-224. Community engagement metrics
-225. Trending hashtags today
-226. Share price chart to Farcaster
-227. Mention alerts for $TICKER
-228. Top caster analysis
-229. Channel activity report
-230. Bot activity filter
-231. Sentiment timeline graph
-232. Most active time of day
-233. Top engaged users list
-234. Cross-platform trends (X vs FC)
-235. Meme velocity check
-236. Community growth rate
-237. FUD detection alert
-238. Hype cycle stage analysis
-239. Key opinion leader (KOL) tracker
-240. Social volume spike alert
+TOKEN INFO
+PRICE
+5M
+AGE
+VOL / LIQ
+TXNS
+1
+WebKey DAOBSC
+wkeyDAO
+HOT
+WebKey DAO
+$6.72
+-0.4%	1y	
+VOL:$11.5M
+LIQ:$3.2M
+52969
+104133
+2
+BNBshareBSC
+SHARE
+HOT
+BNBshare
+$0.001760
++7.6%	5d	
+VOL:$5.7M
+LIQ:$173K
+11966
+11304
+3
+RiverBSC
+RIVER
+HOT
+River
+$20.86
+-1.7%	3mo	
+VOL:$7.2M
+LIQ:$237K
+18403
+17146
+4
+BIG DONBSC
+BIG DON
+HOT
+BIG DON
+$0.0348
++0.0%	2d	
+VOL:$21.8M
+LIQ:$574K
+11869
+11673
+5
+上等马BSC
+上等马
+NEW
+上等马
+$0.0₃8164
++12.2%	4h	
+VOL:$1.9M
+LIQ:$106K
+8580
+6994
+6
+World Liberty Financial USDBSC
+USD1
+HOT
+World Liberty Financial USD
+$0.9991
+-0.0%	9mo	
+VOL:$13.9M
+LIQ:$3.8M
+20412
+20383
+7
+我踏马来了BSC
+我踏马来了
+HOT
+我踏马来了
+$0.0237
++0.2%	16d	
+VOL:$7.3M
+LIQ:$1.1M
+13953
+13120
+8
+BNB48 Club TokenBSC
+KOGE
+HOT
+BNB48 Club Token
+$48.00
++0.0%	8mo	
+VOL:$38.9M
+LIQ:$12.1M
+13692
+13662
+9
+人生K线BSC
+人生K线
+HOT
+人生K线
+$0.008778
++0.1%	1mo	
+VOL:$5.3M
+LIQ:$680K
+13244
+12536
+10
+ChainOpera AIBSC
+COAI
+HOT
+ChainOpera AI
+$0.4369
+-0.1%	3mo	
+VOL:$5.9M
+LIQ:$2.1M
+12059
+12166
+11
+Bluwhale AIBSC
+BLUAI
+HOT
+Bluwhale AI
+$0.006384
+-0.5%	2mo	
+VOL:$2.3M
+LIQ:$582K
+11619
+11791
+12
+EGL1BSC
+EGL1
+HOT
+EGL1
+$0.0273
++0.0%	7mo	
+VOL:$10.1M
+LIQ:$902K
+6526
+6701
+13
+黑马BSC
+黑马
+HOT
+黑马
+$0.004362
+-1.5%	8d	
+VOL:$2.9M
+LIQ:$421K
+9611
+8477
+14
+Quack AI TokenBSC
+Q
+HOT
+Quack AI Token
+$0.0176
+-0.1%	4mo	
+VOL:$3.0M
+LIQ:$1.1M
+9213
+9509
+15
+COREONMCPBSC
+COM
+HOT
+COREONMCP
+$0.0117
++0.0%	3mo	
+VOL:$8.0M
+LIQ:$466K
+4680
+4737
+16
+错版马BSC
+哭哭马
+HOT
+错版马
+$0.004539
++6.5%	7d	
+VOL:$2.4M
+LIQ:$326K
+5586
+4644
+17
+BNB AttestationBSC
+BAS
+HOT
+BNB Attestation
+$0.005283
++0.1%	5mo	
+VOL:$1.8M
+LIQ:$1.1M
+10336
+10405
+18
+AITECHBSC
+AITECH
+HOT
+AITECH
+$0.0106
++0.0%	2y	
+VOL:$2.9M
+LIQ:$694K
+7580
+6926
+19
+MOBSC
+MO
+HOT
+MO
+$0.0₃5590
++8.7%	4d	
+VOL:$984K
+LIQ:$110K
+4178
+3137
+20
+雪球BSC
+雪球
+HOT
+雪球
+$0.0610
++0.5%	26d	
+VOL:$3.3M
+LIQ:$1.1M
+8269
+3858
+21
+山野万里 你是我藏在微风里的欢喜BSC
+山野万里 你是我藏在微风里的欢喜
+HOT
+山野万里 你是我藏在微风里的欢喜
+$0.003098
+-1.5%	2d	
+VOL:$2.1M
+LIQ:$261K
+5520
+4566
+22
+cocoBSC
+COCO
+HOT
+coco
+$0.0926
++0.0%	1mo	
+VOL:$1.8M
+LIQ:$161K
+5363
+3127
+23
+ARKBSC
+ARK
+HOT
+ARK
+$11.90
++0.0%	4mo	
+VOL:$3.3M
+LIQ:$68.0M
+18490
+18361
+24
+现代万梗图BSC
+现代万梗图
+NEW
+现代万梗图
+$0.0₃9843
++7.2%	3h	
+VOL:$1.1M
+LIQ:$118K
+2351
+1543
+25
+7BSC
+7
+NEW
+7
+$0.0₃1981
++16.7%	25m	
+VOL:$280K
+LIQ:$50K
+1692
+1733
+26
+DRAGONBSC
+DRAGON
+HOT
+DRAGON
+$0.0113
++0.8%	2mo	
+VOL:$403K
+LIQ:$449K
+7900
+5906
+27
+以和为贵BSC
+以和为贵
+HOT
+以和为贵
+$0.0₃4823
++1.0%	2d	
+VOL:$784K
+LIQ:$97K
+3911
+2587
+28
+STBL_Token - STBL Governance TokenBSC
+STBL
+HOT
+STBL_Token - STBL Governance Token
+$0.0558
++0.1%	4mo	
+VOL:$2.2M
+LIQ:$2.6M
+5645
+5872
+29
+AsterBSC
+ASTER
+HOT
+Aster
+$0.7245
+-0.0%	3mo	
+VOL:$3.0M
+LIQ:$1.4M
+4126
+4123
+30
+币安人生BSC
+币安人生
+HOT
+币安人生
+$0.2320
++1.0%	3mo	
+VOL:$4.3M
+LIQ:$5.8M
+4873
+4132
+31
+BugsCoinBSC
+BGSC
+HOT
+BugsCoin
+$0.0₃7806
+-0.0%	6mo	
+VOL:$989K
+LIQ:$515K
+4056
+4405
+32
+暴力雪球BSC
+暴力雪球
+HOT
+暴力雪球
+$0.001375
+-2.4%	1d	
+VOL:$888K
+LIQ:$138K
+3794
+2209
+33
+悟空BSC
+悟空
+NEW
+悟空
+$0.0₃5932
++2.2%	21h	
+VOL:$388K
+LIQ:$89K
+2764
+1638
+34
+最暗黑马BSC
+最暗黑马
+HOT
+最暗黑马
+$0.0₃1810
++0.0%	1d	
+VOL:$325K
+LIQ:$52K
+3897
+1682
+35
+Binance bibiBSC
+bibi
+HOT
+Binance bibi
+$0.005540
+-3.2%	4mo	
+VOL:$1.8M
+LIQ:$571K
+2671
+2470
+36
+FistTokenBSC
+FIST
+HOT
+FistToken
+$0.6197
+-0.3%	4y	
+VOL:$975K
+LIQ:$1.0M
+2727
+2959
+37
+UnibaseBSC
+UB
+HOT
+Unibase
+$0.0363
+-3.6%	4mo	
+VOL:$1.6M
+LIQ:$2.2M
+3439
+3298
+38
+MYXBSC
+MYX
+HOT
+MYX
+$5.06
+-0.8%	8mo	
+VOL:$1.2M
+LIQ:$6.4M
+4505
+4500
+39
+OLYBSC
+OLY
+HOT
+OLY
+$3.87
++0.0%	5mo	
+VOL:$412K
+LIQ:$12.7M
+10678
+5412
+40
+VIRUSBSC
+VIRUS
+HOT
+VIRUS
+$0.004174
+-7.8%	17d	
+VOL:$984K
+LIQ:$261K
+2974
+1731
+41
+安BSC
+安
+HOT
+安
+$0.0333
++0.0%	4d	
+VOL:$788K
+LIQ:$558K
+2269
+2029
+42
+三维威廉泰尔企鹅BSC
+恶俗企鹅
+HOT
+三维威廉泰尔企鹅
+$0.002518
+-0.1%	2mo	
+VOL:$580K
+LIQ:$360K
+2333
+1696
+43
+DOYRBSC
+DOYR
+HOT
+DOYR
+$0.0₃9512
++0.1%	1mo	
+VOL:$419K
+LIQ:$215K
+1931
+1560
+44
+牛马打工人BSC
+牛马
+HOT
+牛马打工人
+$0.0₃4528
+-4.5%	6d	
+VOL:$264K
+LIQ:$100K
+2003
+1871
+45
+OverlayBSC
+OVL
+HOT
+Overlay
+$0.0750
+-0.9%	5mo	
+VOL:$361K
+LIQ:$548K
+2428
+2230
+46
+💀BSC
+💀
+HOT
+💀
+$0.0₃2069
+-1.6%	5d	
+VOL:$447K
+LIQ:$259K
+1665
+1832
+47
+1BSC
+1
+HOT
+1
+$0.0₃1466
++1.2%	2d	
+VOL:$245K
+LIQ:$37K
+1227
+958
+48
+9BSC
+9
+HOT
+9
+$1.61
++0.0%	2mo	
+VOL:$431K
+LIQ:$2.1M
+2801
+2897
+49
+哈基米BSC
+哈基米
+HOT
+哈基米
+$0.0420
++0.0%	3mo	
+VOL:$1.2M
+LIQ:$1.9M
+1869
+1373
+50
+金铲子BSC
+金铲子
+HOT
+金铲子
+$0.0₃3312
+-3.3%	6d	
+VOL:$260K
+LIQ:$95K
+1459
+1203
+51
+4BSC
+4
+HOT
+4
+$0.0271
++0.6%	3mo	
+VOL:$648K
+LIQ:$1.5M
+1726
+1570
+52
+春节暗号  解冻刘德华BSC
+AEAEAEEOO
+HOT
+春节暗号 解冻刘德华
+$0.0₃3167
+-1.6%	2d	
+VOL:$254K
+LIQ:$75K
+1145
+976
+53
+BULLABSC
+BULLA
+HOT
+BULLA
+$0.0310
++0.0%	7mo	
+VOL:$313K
+LIQ:$866K
+1837
+1801
+54
+OKZOOBSC
+AIOT
+HOT
+OKZOO
+$0.0863
++0.0%	8mo	
+VOL:$669K
+LIQ:$2.6M
+1549
+1729
+55
+Bless TokenBSC
+BLESS
+HOT
+Bless Token
+$0.0113
++0.3%	3mo	
+VOL:$279K
+LIQ:$583K
+1247
+1232
+56
+MITOBSC
+MITO
+HOT
+MITO
+$0.0764
++0.0%	4mo	
+VOL:$128K
+LIQ:$251K
+1362
+1336
+57
+PlanckBSC
+PLANCK
+HOT
+Planck
+$0.009543
+-0.3%	2mo	
+VOL:$112K
+LIQ:$295K
+1411
+1454
+58
+DOGSHITBSC
+DOGSHIT
+HOT
+DOGSHIT
+$0.0₃7209
+-2.0%	8d	
+VOL:$222K
+LIQ:$105K
+1038
+662
+59
+毒球BSC
+毒球
+HOT
+毒球
+$0.0₃2657
+-2.5%	1d	
+VOL:$198K
+LIQ:$59K
+2877
+2047
+60
+ASPECTABSC
+ASP
+HOT
+ASPECTA
+$0.0491
+-0.1%	5mo	
+VOL:$128K
+LIQ:$382K
+999
+1050
+61
+CRY CRY HORSEBSC
+哭哭马
+HOT
+CRY CRY HORSE
+$0.0₃5967
+-0.1%	2d	
+VOL:$67K
+LIQ:$90K
+822
+866
+62
+BBSC
+B
+HOT
+B
+$0.2188
+-0.1%	9mo	
+VOL:$403K
+LIQ:$2.8M
+831
+1377
+63
+PaluBSC
+PALU
+HOT
+Palu
+$0.002399
+-1.3%	3mo	
+VOL:$212K
+LIQ:$470K
+949
+631
+64
+Codatta XNYBSC
+XNY
+HOT
+Codatta XNY
+$0.003387
+-0.0%	5mo	
+VOL:$78K
+LIQ:$605K
+1068
+1191
+65
+CZBSC
+CZ
+CZ
+$0.0119
++0.2%	1d	
+VOL:$105K
+LIQ:$19K
+7970
+3023
+66
+CREPEBSC
+CREPE
+HOT
+CREPE
+$0.0₄1751
++0.0%	7mo	
+VOL:$107K
+LIQ:$968K
+1492
+663
+67
+White MonkeyBSC
+WM
+HOT
+White Monkey
+$0.001904
+-0.1%	2mo	
+VOL:$101K
+LIQ:$325K
+633
+942
+68
+PancakeSwap TokenBSC
+Cake
+HOT
+PancakeSwap Token
+$2.11
++0.0%	2y	
+VOL:$445K
+LIQ:$1.3M
+1823
+3513
+69
+WIKI CATBSC
+WKC
+HOT
+WIKI CAT
+$0.0₇7850
+-0.1%	3y	
+VOL:$90K
+LIQ:$1.3M
+1117
+692
+70
+SHISABSC
+SHISA
+SHISA
+$0.0₃8385
++0.5%	26d	
+VOL:$71K
+LIQ:$112K
+543
+343
+71
+mubarakBSC
+mubarak
+HOT
+mubarak
+$0.0218
+-0.2%	10mo	
+VOL:$111K
+LIQ:$1.8M
+462
+589
+72
+你崛起吧BSC
+你崛起吧
+你崛起吧
+$0.0₃5035
+0%	1d	
+VOL:$51K
+LIQ:$86K
+3324
+3045
+73
+quqBSC
+quq
+quq
+$0.002205
++0.0%	10mo	
+VOL:$1K
+LIQ:$198K
+18
+46
+74
+CAKEBSC
+CAKE
+CAKE
+$0.003379
++0.3%	1mo	
+VOL:$246
+LIQ:$135K
+53
+87
+75
+Wrapped EtherBSC
+WBNB
+Wrapped Ether
+$931.44
+0%	-	
+VOL:$0
+LIQ:$9K
+13
+2

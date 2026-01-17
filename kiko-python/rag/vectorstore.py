@@ -3,7 +3,7 @@ Lightweight Knowledge Base using OpenAI Embeddings
 Replaces heavy sentence-transformers with OpenAI API
 """
 import os
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 
 

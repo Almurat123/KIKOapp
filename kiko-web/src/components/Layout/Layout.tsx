@@ -217,7 +217,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         </button>
                     </div>
 
-                    <div className={styles.content}>
+                    <div className={styles.content} data-scroll-container="app">
                         {children}
                     </div>
                 </main>
@@ -227,4 +227,3 @@ export const Layout: React.FC<LayoutProps> = ({
         </SidebarContext.Provider>
     );
 };
-
