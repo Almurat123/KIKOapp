@@ -110,7 +110,14 @@ function computeTimeframeScore(t: Token, timeframe: TrendingTimeframe): number {
       (0.7 * txns + 0.3 * volume) -
       (0.55 * liquidity);
 
-    return (
+    // 年龄衰减：5m 榜单强烈偏新币；越老衰减越大（缺失时间按“偏老”处理）
+    const ageHours = t.ageRaw > 0 ? (Date.now() - t.ageRaw) / (60 * 60 * 1000) : Number.POSITIVE_INFINITY;
+    const baseAgeFactor = Number.isFinite(ageHours)
+      ? (0.15 + 0.85 * Math.exp(-ageHours / 72))
+      : 0.35;
+    const ageFactor = Math.min(1.25, baseAgeFactor * (t.isNew ? 1.15 : 1));
+
+    const rawScore = (
       0.40 * momentumScore(t.c5mRaw || 0) +
       0.30 * density +
       0.18 * txns +
@@ -118,6 +125,7 @@ function computeTimeframeScore(t: Token, timeframe: TrendingTimeframe): number {
       0.05 * liquidity +
       0.12 * isNewBonus
     );
+    return rawScore * ageFactor;
   }
 
   if (timeframe === '1h') {

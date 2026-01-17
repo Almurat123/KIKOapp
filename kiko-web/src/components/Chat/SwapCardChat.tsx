@@ -214,13 +214,12 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
     // Solana-specific tokens
     // Solana-specific tokens
     const solanaTokens = ['SOL', 'USDC-SOL', 'USDT-SOL', 'RAY', 'SRM', 'JUP', 'BONK', 'WIF'];
-    const isSolanaToken = (token?: any) => {
+    const isSolanaToken = (token?: any, symbol?: string) => {
       if (!token) return false;
-      const symbol = token.symbol?.toUpperCase();
       const address = token.address;
 
-      // Check explicit Solana symbols
-      if (symbol === 'SOL' || solanaTokens.includes(symbol)) return true;
+      // Check explicit Solana symbols using pre-extracted symbol
+      if (symbol === 'SOL' || (symbol && solanaTokens.includes(symbol))) return true;
 
       // Check address format (Solana addresses are Base58 and don't start with 0x)
       if (address && typeof address === 'string') {
@@ -230,7 +229,7 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
       return false;
     };
 
-    if (isSolanaToken(initialData?.tokenIn) || isSolanaToken(initialData?.tokenOut)) {
+    if (isSolanaToken(initialData?.tokenIn, tokenInSymbol) || isSolanaToken(initialData?.tokenOut, tokenOutSymbol)) {
       return 900; // Force Solana
     }
 

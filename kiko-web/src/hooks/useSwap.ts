@@ -441,6 +441,16 @@ export function useSwap(options: UseSwapOptions = {}) {
       if (!(error instanceof TypeError && error.message.includes('Failed to fetch'))) {
         console.error('[useSwap] fetchUserBalance failed', error);
       }
+
+      // Implement retry logic with exponential backoff
+      const MAX_RETRIES = 3;
+      if (retryCount < MAX_RETRIES) {
+        const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+        console.log(`[useSwap] Retrying fetchUserBalance in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        setTimeout(() => {
+          fetchUserBalance(retryCount + 1);
+        }, delay);
+      }
     }
   }, [userAddress, state.tokenIn?.address, chainId, publicClient]);
 
