@@ -22,8 +22,27 @@ from jose import jwt
 # Load environment variables
 load_dotenv()
 
-from rag.vectorstore import KnowledgeBase
-kb = KnowledgeBase()
+kb = None
+
+
+def get_kb():
+    """
+    Lazy-load the RAG KnowledgeBase.
+    IMPORTANT: We must not import `rag.vectorstore` at module import time, otherwise the whole Grok service
+    fails to mount when optional RAG dependencies (e.g. `langchain_chroma`) are not installed.
+    """
+    global kb
+    if kb is not None:
+        return kb
+    try:
+        from rag.vectorstore import KnowledgeBase  # type: ignore
+        kb = KnowledgeBase()
+        return kb
+    except Exception as e:
+        # Missing optional deps or missing OPENAI_API_KEY should not kill Grok chat.
+        print(f"[RAG] Disabled (KnowledgeBase init failed): {e}")
+        kb = None
+        return None
 
 app = FastAPI(title="Grok API Service", version="1.0.0")
 
@@ -585,7 +604,9 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
         headers["Authorization"] = f"Bearer {auth_token}"
     
     try:
-        async with httpx.AsyncClient(timeout=30.0) as http_client:
+        # IMPORTANT: Many KiKo backend endpoints require user auth (Privy JWT).
+        # If we don't forward Authorization, tool calls will silently fail (401) and look "broken" to the LLM.
+        async with httpx.AsyncClient(timeout=30.0, headers=headers) as http_client:
             if tool_name == "check_token_risk":
                 address = arguments.get("address", "")
                 chain = arguments.get("chain", "ethereum")
@@ -1242,8 +1263,12 @@ async def fetch_rag_context(query: str) -> str:
         
     print(f"[RAG] 🔍 Informational query detected: '{query[:50]}...'")
     try:
+        local_kb = get_kb()
+        if not local_kb:
+            return ""
+
         # Direct internal call to KnowledgeBase
-        results = kb.query_with_score(query, k=4)
+        results = local_kb.query_with_score(query, k=4)
         
         if results:
             # Format results into a single context string

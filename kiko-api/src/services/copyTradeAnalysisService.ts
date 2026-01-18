@@ -16,6 +16,7 @@ export interface AnalysisResult {
         socialScore: number;
     };
     rawAnalysis: string;
+    judgeDecisionId?: string;
 }
 
 /**
@@ -55,7 +56,8 @@ export async function analyzeTradeOpportunity(
                 tokenAgeHours: layers.stage_layer.contract_age_minutes / 60,
                 socialScore: layers.token_intelligence_layer.token_intelligence_score * 100
             },
-            rawAnalysis: final.ai_rationale || 'Analysis completed by multi-layer judge engine.'
+            rawAnalysis: final.ai_rationale || 'Analysis completed by multi-layer judge engine.',
+            judgeDecisionId: engine.decision_id,
         };
 
     } catch (error: any) {

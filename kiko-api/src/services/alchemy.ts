@@ -10,6 +10,10 @@ import * as helius from './helius.js';
 import * as scanApi from './scanApi.js';
 import * as solscan from './solscan.js';
 import * as dexscreener from './dexscreener.js';
+import * as geckoTerminal from './geckoTerminal.js';
+import { getSolanaTokenMetadata } from '../utils/solanaToken.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Alchemy network endpoints
 const ALCHEMY_NETWORKS: Record<string, string> = {
@@ -119,11 +123,13 @@ export interface TokenBalance {
   decimals?: number;
   logo?: string;
   price?: number;
+  valueUsd?: number;
 }
 
 export interface WalletBalance {
   ethBalance: string;
   ethBalanceFormatted: number;
+  ethPrice?: number;
   tokens: TokenBalance[];
 }
 
@@ -175,7 +181,7 @@ export async function getAssetTransfers(
       const apiKey = getAlchemyApiKey();
 
       if (!apiKey) {
-        console.error('[Alchemy] No API key configured! Set ALCHEMY_API_KEY environment variable.');
+        logger.error(LogCode.SYS_ERROR, 'Alchemy API key not configured');
         return null;
       }
 
@@ -190,7 +196,7 @@ export async function getAssetTransfers(
 
       // If we only have contractAddresses and no wallet address, we do one call
       if (!address && contractAddresses && contractAddresses.length > 0) {
-        console.log(`[Alchemy] Fetching asset transfers for contractAddresses:`, contractAddresses);
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching asset transfers for contractAddresses', { count: contractAddresses.length });
         const requestBody = {
           id: 1,
           jsonrpc: '2.0',
@@ -205,7 +211,7 @@ export async function getAssetTransfers(
             withMetadata: true,
           }],
         };
-        console.log(`[Alchemy] Request body:`, JSON.stringify(requestBody));
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Alchemy request body', { method: 'alchemy_getAssetTransfers', id: 1 });
 
         const response = await fetch(url, {
           method: 'POST',
@@ -214,14 +220,14 @@ export async function getAssetTransfers(
         });
         if (!response.ok) {
           const err = await response.text();
-          console.error(`[Alchemy] API error: ${response.status} ${err}`);
+          logger.error(LogCode.API_FETCH_FAILED, 'Alchemy API error', { status: response.status, error: err.substring(0, 200) });
           return null;
         }
         const data = await response.json() as { result?: { transfers: AssetTransfer[] }, error?: any };
         if (data.error) {
-          console.error(`[Alchemy] RPC Error:`, JSON.stringify(data.error));
+          logger.error(LogCode.API_FETCH_FAILED, 'Alchemy RPC Error', { error: data.error });
         }
-        console.log(`[Alchemy] Received ${data.result?.transfers?.length || 0} transfers`);
+        logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy transfers received', { count: data.result?.transfers?.length || 0 });
         return data.result?.transfers || [];
       }
 
@@ -271,7 +277,10 @@ export async function getAssetTransfers(
       });
 
       if (!incomingResponse.ok || !outgoingResponse.ok) {
-        console.error(`[Alchemy] Failed to fetch asset transfers: ${incomingResponse.statusText || outgoingResponse.statusText}`);
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch asset transfers from Alchemy', {
+          incomingStatus: incomingResponse.status,
+          outgoingStatus: outgoingResponse.status
+        });
         return null;
       }
 
@@ -283,7 +292,7 @@ export async function getAssetTransfers(
 
       return [...incomingTransfers, ...outgoingTransfers];
     } catch (e: any) {
-      console.error('[Alchemy] Error fetching asset transfers:', e.message);
+      logger.error(LogCode.API_FETCH_FAILED, 'Error fetching asset transfers from Alchemy', { error: e.message });
       return null;
     }
   };
@@ -291,11 +300,11 @@ export async function getAssetTransfers(
   const tryScanApi = async () => {
     // If no address, Scan API (Etherscan) usually can't do generic tokentx without it
     if (!address) {
-      console.warn(`[Alchemy] Scan API requires a wallet address. Skipping.`);
+      logger.warn(LogCode.API_FETCH_FAILED, 'Scan API requires a wallet address');
       return [];
     }
     // Use Etherscan-compatible Scan API for EVM history
-    console.log(`[Alchemy] Using Scan API for ${chain} history...`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Using Scan API for background history', { chain });
 
     // We need both native and token transfers to match Alchemy's getAssetTransfers behavior
     // 1. Get Native Transactions
@@ -346,8 +355,8 @@ export async function getAssetTransfers(
   if (address) {
     try {
       transfers = await tryScanApi();
-    } catch (e) {
-      console.warn(`[Alchemy] Scan API failed, falling back to direct Alchemy/fallback:`, e instanceof Error ? e.message : e);
+    } catch (e: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Scan API failed, falling back to direct Alchemy', { error: e.message });
       transfers = [];
     }
   }
@@ -522,7 +531,7 @@ export async function getSolanaTokenBalance(walletAddress: string, mintAddress: 
     ]) as { value: Array<{ account: { data: { parsed: { info: any } } } }> } | null;
 
     if (!result || !result.value || result.value.length === 0) {
-      console.log(`[Alchemy] No SPL token account found for mint ${mintAddress.slice(0, 10)}...`);
+      logger.info(LogCode.API_FETCH_SUCCESS, 'No SPL token account found for mint', { mint: mintAddress.slice(0, 10) });
       return 0;
     }
 
@@ -531,10 +540,10 @@ export async function getSolanaTokenBalance(walletAddress: string, mintAddress: 
     const info = tokenAccount.account.data.parsed.info;
     const uiAmount = parseFloat(info.tokenAmount.uiAmountString) || 0;
 
-    console.log(`[Alchemy] Direct SPL balance for ${mintAddress.slice(0, 10)}...: ${uiAmount}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Direct SPL balance fetched', { mint: mintAddress.slice(0, 10), amount: uiAmount });
     return uiAmount;
   } catch (error: any) {
-    console.error(`[Alchemy] Error fetching Solana token balance:`, error.message);
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching Solana token balance', { error: error.message, mint: mintAddress.slice(0, 10) });
     return 0;
   }
 }
@@ -571,10 +580,10 @@ export async function resolveENSAddress(ensName: string): Promise<string | null>
     const url = `https://eth-mainnet.g.alchemy.com/v2/${apiKey}`;
     const provider = new JsonRpcProvider(url);
     const address = await provider.resolveName(ensName);
-    console.log(`[ENS] Resolved ${ensName} -> ${address}`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'ENS name resolved to address', { ensName, address });
     return address;
   } catch (error: any) {
-    console.error(`[ENS] Failed to resolve ${ensName}:`, error.message);
+    logger.error(LogCode.API_FETCH_FAILED, 'Failed to resolve ENS name', { ensName, error: error.message });
     return null;
   }
 }
@@ -640,13 +649,13 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
           });
         }
       } catch (err: any) {
-        console.warn('[Solana] Helius history failed, trying Solscan...', err.message);
+        logger.warn(LogCode.API_FETCH_FAILED, 'Solana Helius history failed, trying Solscan', { error: err.message });
       }
     }
 
     // Try Solscan as backup
     if (solscan.isConfigured()) {
-      console.log(`[Solana] Trying Solscan backup for ${address}...`);
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'Trying Solscan backup for Solana history', { address: address.slice(0, 10) });
       try {
         const res = await solscan.getAddressTransactions(address, limit);
         if (res.success && res.data && res.data.length > 0) {
@@ -665,12 +674,12 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
           }));
         }
       } catch (err: any) {
-        console.warn('[Solana] Solscan fallback failed:', err.message);
+        logger.warn(LogCode.API_FETCH_FAILED, 'Solana Solscan fallback failed', { error: err.message });
       }
     }
 
     // Fallback to basic RPC if Helius not configured
-    console.warn('[Solana] Helius not configured, using basic RPC (limited data)');
+    logger.warn(LogCode.API_FETCH_FAILED, 'Helius not configured for Solana history, using basic RPC');
     const url = getAlchemyUrl('solana');
 
     const response = await fetch(url, {
@@ -823,7 +832,7 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
     if (tokenAddresses.length > 0) {
       const tokensToFetch = tokenAddresses.slice(0, 5); // Limit to avoid timeout
 
-      console.log(`[Solana] Fetching prices for ${tokensToFetch.length} tokens...`);
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching Solana prices for history enrichment', { count: tokensToFetch.length });
 
       await Promise.allSettled(
         tokensToFetch.map(async (addr) => {
@@ -831,7 +840,7 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
             const details = await dexscreener.getTokenDetails('solana', addr);
             if (details && details.price > 0) {
               priceMap.set(addr, details.price);
-              console.log(`[Solana] Price for ${details.symbol || addr}: $${details.price}`);
+              logger.debug(LogCode.API_FETCH_SUCCESS, 'Solana history price fetched', { symbol: details.symbol || addr, price: details.price });
             }
           } catch (e) {
             // Ignore price fetch errors
@@ -865,8 +874,8 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
     }
 
     return uniqueTxs;
-  } catch (error) {
-    console.error('[Solana] Transaction history error:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Solana transaction history error', { error: error.message });
     return [];
   }
 }
@@ -890,18 +899,18 @@ export async function getWalletTransactions(
     chain = chainOrOptions;
   }
 
-  console.log(`[Alchemy] getWalletTransactions starting for ${address} on ${chain}, limit: ${limit}`);
+  logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching wallet transactions', { address: address.slice(0, 10), chain, limit });
   const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
 
   if (isSolana) {
     const solTxs = await getSolanaTransactions(address, limit);
-    console.log(`[Alchemy] getSolanaTransactions returned ${solTxs.length} txs`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Solana transactions fetched', { count: solTxs.length });
     return solTxs;
   }
 
   // Use Alchemy's getAssetTransfers API for EVM chains (more accurate)
   try {
-    console.log(`[Alchemy] Using getAssetTransfers for ${chain}...`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Using Alchemy Asset Transfers', { chain });
 
     // Fetch asset transfers using Alchemy API
     const transfers = await getAssetTransfers(address, chain, {
@@ -911,22 +920,16 @@ export async function getWalletTransactions(
     });
 
     if (!transfers || transfers.length === 0) {
-      console.log(`[Alchemy] No transfers found, trying ScanAPI fallback...`);
+      logger.info(LogCode.API_FETCH_SUCCESS, 'No transfers found on Alchemy, trying ScanAPI fallback', { chain });
       throw new Error('No transfers from Alchemy, trying fallback');
     }
 
-    // DEBUG: Log first transfer to see data format
-    if (transfers.length > 0) {
-      console.log('[Alchemy DEBUG] First transfer raw data:', JSON.stringify(transfers[0], null, 2));
-    }
+    // Data format debugging logs removed in favor of structured logging above
 
     // Convert to WalletTransaction format
     let transactions = convertToWalletTransactions(transfers, address, chain);
 
-    // DEBUG: Log first converted transaction
-    if (transactions.length > 0) {
-      console.log('[Alchemy DEBUG] First converted transaction:', JSON.stringify(transactions[0], null, 2));
-    }
+    // Converted transaction debugging logs removed
 
     // Filter out spam/scam tokens
     transactions = transactions.filter(tx => {
@@ -947,7 +950,7 @@ export async function getWalletTransactions(
       return true;
     });
 
-    console.log(`[Alchemy] Returning ${transactions.length} transactions after filtering`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Wallet transactions filtered and ready', { count: transactions.length });
     return transactions;
 
   } catch (error) {
@@ -960,11 +963,11 @@ export async function getWalletTransactions(
       // Fetch both native and token transactions in parallel
       const [nativeTxs, tokenTxs] = await Promise.all([
         scanApi.getEvmTransactions(address, chain, 1, limit).catch(err => {
-          console.warn(`[Alchemy] Failed to fetch EVM native txs: ${err.message}`);
+          logger.warn(LogCode.API_FETCH_FAILED, 'ScanAPI fetch native txs failed', { error: err.message });
           return [];
         }),
         scanApi.getEvmTokenTransfers(address, chain, 1, limit).catch(err => {
-          console.warn(`[Alchemy] Failed to fetch EVM token transfers: ${err.message}`);
+          logger.warn(LogCode.API_FETCH_FAILED, 'ScanAPI fetch token transfers failed', { error: err.message });
           return [];
         })
       ]);
@@ -1000,8 +1003,8 @@ export async function getWalletTransactions(
       // Slice to limit
       return mergedTxs.slice(0, limit);
 
-    } catch (scanError) {
-      console.error(`[Alchemy] Both Alchemy and ScanAPI failed:`, scanError);
+    } catch (scanError: any) {
+      logger.error(LogCode.API_FETCH_FAILED, 'Both Alchemy and ScanAPI failed for wallet transactions', { error: scanError.message });
       return [];
     }
   }
@@ -1053,10 +1056,399 @@ export async function getTokenMetadata(chain: string, address: string): Promise<
       const json = await response.json();
       return json.result;
     }
-  } catch (e) {
-    console.error(`[Alchemy] Error fetching metadata for ${address} on ${chain}:`, e);
+  } catch (e: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching token metadata from Alchemy', { error: e.message, address });
   }
   return null;
+}
+
+const STABLECOIN_SYMBOLS = new Set([
+  'USDC',
+  'USDBC',
+  'USDT',
+  'DAI',
+  'FRAX',
+  'TUSD',
+  'FDUSD',
+  'USDE',
+  'USD',
+]);
+
+function getStablecoinPrice(symbol?: string): number | undefined {
+  if (!symbol) return undefined;
+  return STABLECOIN_SYMBOLS.has(symbol.toUpperCase()) ? 1 : undefined;
+}
+
+async function fetchSolanaTokenAccounts(address: string): Promise<TokenBalance[]> {
+  try {
+    const alchemyUrl = getAlchemyUrl('solana');
+    const response = await fetch(alchemyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getTokenAccountsByOwner',
+        params: [
+          address,
+          { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+          { encoding: 'jsonParsed' },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Alchemy Solana RPC ${response.status}`);
+    }
+
+    const json = await response.json() as { result?: { value?: Array<{ account?: { data?: { parsed?: { info?: any } } } }> } };
+    const result = json?.result;
+    if (!result) {
+      throw new Error('Alchemy Solana RPC missing result');
+    }
+
+    const accounts = result?.value || [];
+    const tokens: TokenBalance[] = [];
+
+    for (const entry of accounts) {
+      const info = entry?.account?.data?.parsed?.info;
+      const mint = info?.mint as string | undefined;
+      const amountInfo = info?.tokenAmount;
+      const uiAmountString = amountInfo?.uiAmountString as string | undefined;
+      const decimals = typeof amountInfo?.decimals === 'number' ? amountInfo.decimals : 0;
+
+      if (!mint || !uiAmountString || uiAmountString === '0') continue;
+
+      const known = SPL_TOKEN_METADATA[mint];
+      let symbol: string | undefined = known?.symbol;
+      let name: string | undefined = known?.name;
+
+      if (!symbol) {
+        const meta = await getSolanaTokenMetadata(mint);
+        symbol = meta?.symbol;
+        name = meta?.name;
+      }
+
+      tokens.push({
+        contractAddress: mint,
+        tokenBalance: uiAmountString,
+        symbol: symbol || 'UNKNOWN',
+        name: name || 'Unknown Token',
+        decimals,
+      });
+    }
+
+    return tokens;
+  } catch (error: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, 'Solana token account fallback failed', {
+      error: error.message,
+      address: address.slice(0, 10),
+    });
+    try {
+      const result = await rpcManager.callRpc('solana', 'getTokenAccountsByOwner', [
+        address,
+        { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+        { encoding: 'jsonParsed' },
+      ]) as { value?: Array<{ account?: { data?: { parsed?: { info?: any } } } }> };
+
+      const accounts = result?.value || [];
+      const tokens: TokenBalance[] = [];
+      for (const entry of accounts) {
+        const info = entry?.account?.data?.parsed?.info;
+        const mint = info?.mint as string | undefined;
+        const amountInfo = info?.tokenAmount;
+        const uiAmountString = amountInfo?.uiAmountString as string | undefined;
+        const decimals = typeof amountInfo?.decimals === 'number' ? amountInfo.decimals : 0;
+
+        if (!mint || !uiAmountString || uiAmountString === '0') continue;
+
+        const known = SPL_TOKEN_METADATA[mint];
+        let symbol: string | undefined = known?.symbol;
+        let name: string | undefined = known?.name;
+
+        if (!symbol) {
+          const meta = await getSolanaTokenMetadata(mint);
+          symbol = meta?.symbol;
+          name = meta?.name;
+        }
+
+        tokens.push({
+          contractAddress: mint,
+          tokenBalance: uiAmountString,
+          symbol: symbol || 'UNKNOWN',
+          name: name || 'Unknown Token',
+          decimals,
+        });
+      }
+      return tokens;
+    } catch (rpcError: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Solana token account RPC fallback failed', {
+        error: rpcError.message,
+        address: address.slice(0, 10),
+      });
+      return [];
+    }
+  }
+}
+
+const PRICE_CACHE_TTL_MS = 2 * 60 * 1000;
+const MAX_FALLBACK_TOKENS = 20;
+const MAX_PRICE_TOKENS_SOLANA = 25;
+const SOL_BALANCE_CACHE_TTL_MS = 60 * 1000;
+const tokenPriceCache = new Map<string, { price: number; timestamp: number }>();
+const tokenPriceInFlight = new Map<string, Promise<number | undefined>>();
+const solanaBalanceCache = new Map<string, { tokens: TokenBalance[]; nativeBalance?: number; timestamp: number }>();
+
+function priceCacheKey(chain: string, address: string): string {
+  return `${chain.toLowerCase()}:${address.toLowerCase()}`;
+}
+
+function getCachedTokenPrice(chain: string, address: string): number | undefined {
+  const key = priceCacheKey(chain, address);
+  const cached = tokenPriceCache.get(key);
+  if (!cached) return undefined;
+  if (Date.now() - cached.timestamp > PRICE_CACHE_TTL_MS) {
+    tokenPriceCache.delete(key);
+    return undefined;
+  }
+  return cached.price;
+}
+
+function setCachedTokenPrice(chain: string, address: string, price: number) {
+  const key = priceCacheKey(chain, address);
+  tokenPriceCache.set(key, { price, timestamp: Date.now() });
+}
+
+async function fetchAlchemyPricesByAddress(
+  apiKey: string,
+  network: string,
+  addresses: string[]
+): Promise<Record<string, number>> {
+  if (!apiKey || addresses.length === 0) return {};
+  const url = `https://api.g.alchemy.com/prices/v1/${apiKey}/tokens/by-address`;
+  const body = {
+    addresses: addresses.map(address => ({ network, address })),
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) return {};
+    const json = await response.json();
+    if (!Array.isArray(json?.data)) return {};
+
+    const results: Record<string, number> = {};
+    json.data.forEach((entry: any) => {
+      const address = entry?.address?.toLowerCase();
+      const prices = Array.isArray(entry?.prices) ? entry.prices : [];
+      const usd = prices.find((p: any) => String(p?.currency || '').toUpperCase() === 'USD');
+      const value = usd?.value ? parseFloat(usd.value) : undefined;
+      if (address && typeof value === 'number' && !Number.isNaN(value) && value > 0) {
+        results[address] = value;
+      }
+    });
+
+    return results;
+  } catch (e: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Prices API failed', {
+      error: e.message,
+      network,
+    });
+    return {};
+  }
+}
+
+async function fetchFallbackTokenPrice(chain: string, address: string): Promise<number | undefined> {
+  const cached = getCachedTokenPrice(chain, address);
+  if (cached !== undefined) return cached;
+
+  const key = priceCacheKey(chain, address);
+  const inflight = tokenPriceInFlight.get(key);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const ds = await dexscreener.getTokenDetails(chain, address);
+    if (ds?.price && ds.price > 0) return ds.price;
+    const gt = await geckoTerminal.getTokenDetails(chain, address);
+    if (gt?.price && gt.price > 0) return gt.price;
+    return undefined;
+  })();
+
+  tokenPriceInFlight.set(key, promise);
+  const price = await promise;
+  tokenPriceInFlight.delete(key);
+  if (price !== undefined) {
+    setCachedTokenPrice(chain, address, price);
+  }
+  return price;
+}
+
+async function fetchTokenPrices(
+  apiKey: string,
+  chain: string,
+  network: string,
+  addresses: string[]
+): Promise<Record<string, number>> {
+  const results: Record<string, number> = {};
+  const normalized = addresses.map(addr => addr.toLowerCase());
+  const missing: string[] = [];
+
+  normalized.forEach((addr, index) => {
+    const cached = getCachedTokenPrice(chain, addr);
+    if (cached !== undefined) {
+      results[addr] = cached;
+    } else {
+      missing.push(addresses[index]);
+    }
+  });
+
+  if (missing.length === 0) return results;
+
+  const batchSize = 25;
+  for (let i = 0; i < missing.length; i += batchSize) {
+    const batch = missing.slice(i, i + batchSize);
+    const priceMap = await fetchAlchemyPricesByAddress(apiKey, network, batch);
+    Object.entries(priceMap).forEach(([addr, price]) => {
+      results[addr.toLowerCase()] = price;
+      setCachedTokenPrice(chain, addr, price);
+    });
+  }
+
+  const stillMissing = missing.filter(addr => results[addr.toLowerCase()] === undefined).slice(0, MAX_FALLBACK_TOKENS);
+  const fallbackBatchSize = 5;
+  for (let i = 0; i < stillMissing.length; i += fallbackBatchSize) {
+    const batch = stillMissing.slice(i, i + fallbackBatchSize);
+    const settled = await Promise.allSettled(
+      batch.map(addr => fetchFallbackTokenPrice(chain, addr))
+    );
+    settled.forEach((entry, idx) => {
+      if (entry.status === 'fulfilled' && entry.value !== undefined) {
+        results[batch[idx].toLowerCase()] = entry.value;
+      }
+    });
+  }
+
+  return results;
+}
+
+const CHAIN_KEY_ALIASES: Record<string, string> = {
+  'matic-mainnet': 'polygon',
+  'sol': 'solana',
+};
+
+function normalizeChainKey(chain: string): string {
+  const lower = chain.toLowerCase();
+  return CHAIN_KEY_ALIASES[lower] || lower;
+}
+
+async function fetchEvmNativeBalance(
+  chain: string,
+  address: string
+): Promise<{ balanceHex: string; balanceFormatted: number } | null> {
+  try {
+    const balanceHex = await rpcManager.getNativeBalance(address, chain);
+    const balanceBigInt = BigInt(balanceHex);
+    return {
+      balanceHex,
+      balanceFormatted: Number(balanceBigInt) / 1e18,
+    };
+  } catch (error: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, 'RPC native balance failed', {
+      chain,
+      error: error.message,
+    });
+  }
+
+  const infuraUrl = getInfuraUrl(chain);
+  if (!infuraUrl) return null;
+
+  try {
+    const response = await fetch(infuraUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getBalance',
+        params: [address, 'latest'],
+      }),
+    });
+
+    if (!response.ok) return null;
+    const json = await response.json();
+    const balanceHex = json?.result;
+    if (!balanceHex) return null;
+    const balanceBigInt = BigInt(balanceHex);
+    return {
+      balanceHex,
+      balanceFormatted: Number(balanceBigInt) / 1e18,
+    };
+  } catch (error: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, 'Infura native balance failed', {
+      chain,
+      error: error.message,
+    });
+    return null;
+  }
+}
+
+async function getTokenMetadataBatch(
+  chain: string,
+  addresses: string[]
+): Promise<Record<string, any>> {
+  const uniqueAddresses = Array.from(
+    new Set(addresses.map(addr => addr.toLowerCase()))
+  );
+  if (uniqueAddresses.length === 0) return {};
+
+  const url = getAlchemyUrl(chain);
+  const addressById = new Map<number, string>();
+  const payload = uniqueAddresses.map((addr, index) => {
+    const id = index + 1;
+    addressById.set(id, addr);
+    return {
+      jsonrpc: '2.0',
+      id,
+      method: 'alchemy_getTokenMetadata',
+      params: [addr],
+    };
+  });
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) return {};
+
+    const json = await response.json();
+    if (!Array.isArray(json)) return {};
+
+    const results: Record<string, any> = {};
+    json.forEach(entry => {
+      const addr = addressById.get(entry?.id);
+      if (addr && entry?.result) {
+        results[addr] = entry.result;
+      }
+    });
+
+    return results;
+  } catch (e: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Batch token metadata fetch failed', {
+      error: e.message,
+      chain,
+    });
+    return {};
+  }
 }
 
 /**
@@ -1091,8 +1483,8 @@ async function fetchCoinbasePrices(): Promise<Partial<Record<string, number>>> {
           results['optimism'] = price;
         }
       }
-    } catch (e) {
-      console.warn(`[Alchemy] Failed to fetch Coinbase price for ${symbol}`, e);
+    } catch (e: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch Coinbase price', { symbol, error: e.message });
     }
   }));
 
@@ -1138,8 +1530,8 @@ async function getNativePrices(): Promise<Record<string, number>> {
         }
       }
     }
-  } catch (e) {
-    console.warn('[Alchemy] Failed to fetch native prices from DexScreener, using fallbacks', e);
+  } catch (e: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch native prices from DexScreener', { error: e.message });
   }
 
   // Overwrite with Coinbase prices (more reliable for native assets)
@@ -1174,6 +1566,22 @@ export async function getPortfolio(
     const targetNetworks = chains.map(c => networkMap[c.toLowerCase()]).filter(Boolean);
     const evmNetworks = targetNetworks.filter(n => n !== 'solana-mainnet');
     const results: Record<string, WalletBalance> = {};
+    const parseTokenBalance = (balance: string | null | undefined): bigint => {
+      if (!balance) return 0n;
+      try {
+        return BigInt(balance);
+      } catch {
+        return 0n;
+      }
+    };
+    const formatTokenBalance = (rawBalance: bigint, decimals: number): string => {
+      if (decimals <= 0) return rawBalance.toString();
+      const divisor = 10n ** BigInt(decimals);
+      const whole = rawBalance / divisor;
+      const fraction = rawBalance % divisor;
+      const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
+      return fractionStr ? `${whole}.${fractionStr}` : whole.toString();
+    };
 
     // 1. Fetch EVM Portfolio
     if (evmNetworks.length > 0) {
@@ -1207,18 +1615,22 @@ export async function getPortfolio(
           for (const network of Object.keys(networkGroups)) {
             // Map matic-mainnet or others back to our standard keys
             let chainKey = Object.keys(networkMap).find(key => networkMap[key] === network) || network;
-            if (network === 'matic-mainnet') chainKey = 'polygon';
+            chainKey = normalizeChainKey(chainKey);
+
+            const tokenAddresses = networkGroups[network]
+              .filter((t: any) => t.tokenAddress)
+              .map((t: any) => t.tokenAddress as string);
+            const metadataByAddress = await getTokenMetadataBatch(chainKey, tokenAddresses);
 
             let ethBalance = '0';
             let ethBalanceFormatted = 0;
             let ethPrice = NATIVE_PRICES[chainKey] || 0;
             const tokens: TokenBalance[] = [];
-            const tokensToEnrich: any[] = [];
 
             networkGroups[network].forEach((t: any) => {
               const isNative = t.tokenAddress === null;
-              const hexBalance = t.tokenBalance || '0x0';
-              const balanceBigInt = BigInt(hexBalance);
+              const hexBalance = t.tokenBalance || '0';
+              const balanceBigInt = parseTokenBalance(hexBalance);
 
               if (balanceBigInt === 0n) return;
 
@@ -1228,80 +1640,57 @@ export async function getPortfolio(
                 ethBalanceFormatted = Number(balanceBigInt) / (10 ** decimals);
                 ethPrice = t.price || NATIVE_PRICES[chainKey] || 0;
               } else {
+                const meta = metadataByAddress[(t.tokenAddress as string).toLowerCase()];
+                const decimals = meta?.decimals ?? 18;
+                const symbol = meta?.symbol || 'UNKNOWN';
+                const name = meta?.name || 'Unknown Token';
+                const logo = meta?.logo || '';
+                const formattedBalance = formatTokenBalance(balanceBigInt, decimals);
+                const alchemyPrice = typeof t.price === 'number' ? t.price : undefined;
+                const stablePrice = getStablecoinPrice(symbol);
+                const tokenPrice = alchemyPrice ?? stablePrice;
                 const tempToken = {
                   contractAddress: t.tokenAddress,
-                  tokenBalance: hexBalance,
-                  symbol: t.symbol || 'UNKNOWN',
-                  name: t.name || 'Unknown Token',
-                  decimals: t.decimals || 18,
-                  logo: t.metadata?.logo || '',
-                  price: t.price || undefined // Store Alchemy price if available
+                  tokenBalance: formattedBalance,
+                  symbol,
+                  name,
+                  decimals,
+                  logo,
+                  price: tokenPrice // Store Alchemy/stablecoin price if applicable
                 };
                 tokens.push(tempToken);
-                tokensToEnrich.push(tempToken);
               }
             });
 
             results[chainKey] = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
 
-            // Enrich metadata ONLY for tokens with Alchemy price (top 20)
-            // This reduces unnecessary API calls to DexScreener
-            if (tokensToEnrich.length > 0) {
-              const chainName = chainKey;
+            if (tokens.length > 0) {
+              const tokensMissingPrice = tokens
+                .filter(t => t.price === undefined)
+                .map(t => t.contractAddress);
 
-              // First pass: Calculate USD value for tokens with Alchemy price
-              tokensToEnrich.forEach(token => {
-                const balBigInt = BigInt(token.tokenBalance.startsWith('0x') ? token.tokenBalance : '0x0');
-                const balance = Number(balBigInt) / (10 ** token.decimals);
-                token.tokenBalance = balance.toString();
+              if (tokensMissingPrice.length > 0) {
+                const priceMap = await fetchTokenPrices(apiKey, chainKey, network, tokensMissingPrice);
+                tokens.forEach(token => {
+                  const price = priceMap[token.contractAddress.toLowerCase()];
+                  if (price !== undefined) {
+                    token.price = price;
+                  }
+                });
+              }
 
-                if (token.price) {
-                  (token as any)._usdValue = balance * token.price;
-                  (token as any)._priceSource = 'alchemy';
+              tokens.forEach(token => {
+                if (token.price !== undefined && token.valueUsd === undefined) {
+                  const balance = parseFloat(token.tokenBalance || '0');
+                  token.valueUsd = balance * token.price;
                 }
               });
 
-              // Only enrich top tokens without price (limit to 5 to avoid rate limits)
-              const tokensNeedingPrice = tokensToEnrich
-                .filter(t => !t.price)
-                .slice(0, 5);
-
-              if (tokensNeedingPrice.length > 0) {
-                await Promise.allSettled(
-                  tokensNeedingPrice.map(async (token) => {
-                    try {
-                      const details = await dexscreener.getTokenDetails(chainName, token.contractAddress);
-                      if (details && details.price) {
-                        token.symbol = details.symbol || token.symbol;
-                        token.name = details.name || token.name;
-                        token.logo = details.imageUrl || token.logo;
-                        token.price = details.price;
-                        const balance = parseFloat(token.tokenBalance || '0');
-                        (token as any)._usdValue = balance * details.price;
-                        (token as any)._priceSource = 'dexscreener';
-                      }
-                    } catch (e) {
-                      // Silently fail for tokens we can't enrich
-                    }
-                  })
-                );
-              }
-
-              // SPAM FILTER: Only keep tokens with USD value >= $1
-              // This filters out dust and spam tokens
-              const MIN_USD_VALUE = 1.0;
-              results[chainKey].tokens = results[chainKey].tokens.filter(tk => {
-                const usdValue = (tk as any)._usdValue || 0;
-                const hasMeta = tk.symbol && tk.symbol !== 'UNKNOWN';
-
-                // Keep if USD value >= $1 AND has valid metadata
-                return usdValue >= MIN_USD_VALUE && hasMeta;
-              });
             }
           }
         }
       } else {
-        console.error(`[Alchemy Portfolio] EVM API Error: ${response.status}`);
+        logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API error', { status: response.status });
       }
     }
 
@@ -1331,12 +1720,11 @@ export async function getPortfolio(
             let ethBalanceFormatted = 0;
             let ethPrice = NATIVE_PRICES.solana || 0;
             const tokens: TokenBalance[] = [];
-            const tokensToEnrich: any[] = [];
 
             json.data.tokens.forEach((t: any) => {
               const isNative = t.tokenAddress === null;
-              const hexBalance = t.tokenBalance || '0x0';
-              const balanceBigInt = BigInt(hexBalance);
+              const hexBalance = t.tokenBalance || '0';
+              const balanceBigInt = parseTokenBalance(hexBalance);
 
               if (balanceBigInt === 0n) return;
 
@@ -1345,88 +1733,127 @@ export async function getPortfolio(
                 ethBalanceFormatted = Number(balanceBigInt) / (10 ** (t.decimals || 9));
                 ethPrice = t.price || NATIVE_PRICES.solana || 0;
               } else {
+                const cachedMeta = SPL_TOKEN_METADATA[t.tokenAddress as string];
+                const decimals = t.decimals ?? cachedMeta?.decimals ?? 9;
+                const symbol = t.symbol || cachedMeta?.symbol || 'UNKNOWN';
+                const name = t.name || cachedMeta?.name || 'Unknown Token';
+                const stablePrice = getStablecoinPrice(symbol);
+                const formattedBalance = formatTokenBalance(balanceBigInt, decimals);
                 const tempToken = {
                   contractAddress: t.tokenAddress,
-                  tokenBalance: hexBalance,
-                  symbol: t.symbol || 'UNKNOWN',
-                  name: t.name || 'Unknown Token',
-                  decimals: t.decimals || 9,
+                  tokenBalance: formattedBalance,
+                  symbol,
+                  name,
+                  decimals,
                   logo: t.metadata?.logo || '',
-                  price: t.price || undefined // Store Alchemy price if available
+                  price: t.price || stablePrice || undefined
                 };
                 tokens.push(tempToken);
-                tokensToEnrich.push(tempToken);
               }
             });
+            if (tokens.length === 0) {
+              if (helius.isHeliusConfigured()) {
+                const cached = solanaBalanceCache.get(solAddr);
+                if (cached && Date.now() - cached.timestamp < SOL_BALANCE_CACHE_TTL_MS) {
+                  if (cached.nativeBalance && ethBalance === '0') {
+                    ethBalance = `0x${cached.nativeBalance.toString(16)}`;
+                    ethBalanceFormatted = cached.nativeBalance / 1e9;
+                  }
+                  tokens.push(...cached.tokens);
+                } else {
+                  const heliusBalances = await helius.getFungibleTokenBalances(solAddr, 200);
+                  if (heliusBalances.nativeBalance && ethBalance === '0') {
+                    ethBalance = `0x${heliusBalances.nativeBalance.toString(16)}`;
+                    ethBalanceFormatted = heliusBalances.nativeBalance / 1e9;
+                  }
+                  heliusBalances.tokens.forEach(token => {
+                    const formattedBalance = formatTokenBalance(BigInt(token.balance), token.decimals);
+                    tokens.push({
+                      contractAddress: token.mint,
+                      tokenBalance: formattedBalance,
+                      symbol: token.symbol,
+                      name: token.name,
+                      decimals: token.decimals,
+                      logo: token.logo || '',
+                    });
+                  });
+                  solanaBalanceCache.set(solAddr, {
+                    tokens: [...tokens],
+                    nativeBalance: heliusBalances.nativeBalance,
+                    timestamp: Date.now(),
+                  });
+                }
+              }
+            }
+            if (tokens.length === 0) {
+              const fallbackTokens = await fetchSolanaTokenAccounts(solAddr);
+              if (fallbackTokens.length > 0) {
+                tokens.push(...fallbackTokens);
+              }
+            }
             results.solana = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
 
-            // Enrich metadata ONLY for tokens with Alchemy price (Solana)
-            if (tokensToEnrich.length > 0) {
-              // First pass: Calculate USD value for tokens with Alchemy price
-              tokensToEnrich.forEach(token => {
-                const balBigInt = BigInt(token.tokenBalance.startsWith('0x') ? token.tokenBalance : '0x0');
-                const balance = Number(balBigInt) / (10 ** token.decimals);
-                token.tokenBalance = balance.toString();
+            if (tokens.length > 0) {
+              const tokensMissingPrice = tokens
+                .filter(t => t.price === undefined)
+                .sort((a, b) => parseFloat(b.tokenBalance || '0') - parseFloat(a.tokenBalance || '0'))
+                .slice(0, MAX_PRICE_TOKENS_SOLANA)
+                .map(t => t.contractAddress);
 
-                if (token.price) {
-                  (token as any)._usdValue = balance * token.price;
-                  (token as any)._priceSource = 'alchemy';
+              if (tokensMissingPrice.length > 0) {
+                const priceMap = await fetchTokenPrices(apiKey, 'solana', 'solana-mainnet', tokensMissingPrice);
+                tokens.forEach(token => {
+                  const price = priceMap[token.contractAddress.toLowerCase()];
+                  if (price !== undefined) {
+                    token.price = price;
+                  }
+                });
+              }
+
+              tokens.forEach(token => {
+                if (token.price !== undefined && token.valueUsd === undefined) {
+                  const balance = parseFloat(token.tokenBalance || '0');
+                  token.valueUsd = balance * token.price;
                 }
               });
 
-              // Only enrich top tokens without price (limit to 5)
-              const tokensNeedingPrice = tokensToEnrich
-                .filter(t => !t.price)
-                .slice(0, 5);
-
-              if (tokensNeedingPrice.length > 0) {
-                await Promise.allSettled(
-                  tokensNeedingPrice.map(async (token) => {
-                    try {
-                      const details = await dexscreener.getTokenDetails('solana', token.contractAddress);
-                      if (details && details.price) {
-                        token.symbol = details.symbol || token.symbol;
-                        token.name = details.name || token.name;
-                        token.logo = details.imageUrl || token.logo;
-                        token.price = details.price;
-                        const balance = parseFloat(token.tokenBalance || '0');
-                        (token as any)._usdValue = balance * details.price;
-                        (token as any)._priceSource = 'dexscreener';
-                      }
-                    } catch (e) {
-                      // Silently fail
-                    }
-                  })
-                );
-              }
-
-              // SPAM FILTER: Only keep tokens with USD value >= $1
-              const MIN_USD_VALUE = 1.0;
-              results.solana.tokens = results.solana.tokens.filter(tk => {
-                const usdValue = (tk as any)._usdValue || 0;
-                const hasMeta = tk.symbol && tk.symbol !== 'UNKNOWN';
-
-                return usdValue >= MIN_USD_VALUE && hasMeta;
-              });
             }
           }
         }
-      } catch (e) {
-        console.error('[Alchemy Portfolio] Solana fetch failed:', e);
+      } catch (e: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio Solana fetch failed', { error: e.message });
       }
     }
 
     // Ensure all requested chains have at least empty values
-    chains.forEach(c => {
-      if (!results[c]) {
-        const defaultPrice = NATIVE_PRICES[c.toLowerCase()] || 0;
-        results[c] = { ethBalance: '0', ethBalanceFormatted: 0, ethPrice: defaultPrice, tokens: [] } as any;
+    for (const c of chains) {
+      const chainKey = normalizeChainKey(c);
+      if (!results[chainKey]) {
+        const defaultPrice = NATIVE_PRICES[chainKey.toLowerCase()] || 0;
+        if (chainKey !== 'solana') {
+          const fallback = await fetchEvmNativeBalance(chainKey, address);
+          if (fallback) {
+            results[chainKey] = {
+              ethBalance: fallback.balanceHex,
+              ethBalanceFormatted: fallback.balanceFormatted,
+              ethPrice: defaultPrice,
+              tokens: [],
+            } as any;
+            continue;
+          }
+        }
+        results[chainKey] = {
+          ethBalance: '0',
+          ethBalanceFormatted: 0,
+          ethPrice: defaultPrice,
+          tokens: [],
+        } as any;
       }
-    });
+    }
 
     return results;
-  } catch (error) {
-    console.error('[Alchemy Portfolio] Critical Error:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio critical error', { error: error.message });
     throw error;
   }
 }

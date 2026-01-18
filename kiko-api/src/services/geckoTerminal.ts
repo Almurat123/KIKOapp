@@ -3,6 +3,9 @@
  * Documentation: https://docs.geckoterminal.com/
  */
 
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
+
 const GECKO_TERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 
 /**
@@ -70,7 +73,12 @@ async function fetchWithRetry(
               : BASE_RETRY_DELAY * Math.pow(2, attempt)
           );
 
-          console.log(`[fetchWithRetry] Attempt ${attempt + 1} got ${response.status}, retrying in ${delay}ms...`);
+          logger.throttled(LogCode.API_RATE_LIMIT, `External API requested retry`, {
+            status: response.status,
+            attempt: attempt + 1,
+            delayMs: delay,
+            url: url.split('?')[0] // Log base URL only to avoid leaking query params
+          });
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -98,7 +106,11 @@ async function fetchWithRetry(
         // For timeout, retry with exponential backoff
         if (attempt < retries) {
           const delay = BASE_RETRY_DELAY * Math.pow(2, attempt);
-          console.log(`[fetchWithRetry] Attempt ${attempt + 1} failed (timeout), retrying in ${delay}ms...`);
+          logger.warn(LogCode.API_TIMEOUT, `External API request timed out, retrying`, {
+            attempt: attempt + 1,
+            delayMs: delay,
+            url: url.split('?')[0]
+          });
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -113,7 +125,12 @@ async function fetchWithRetry(
       ) {
         if (attempt < retries) {
           const delay = BASE_RETRY_DELAY * Math.pow(2, attempt);
-          console.log(`[fetchWithRetry] Attempt ${attempt + 1} failed (network error), retrying in ${delay}ms...`);
+          logger.warn(LogCode.API_FETCH_FAILED, `External API network error, retrying`, {
+            error: error.message,
+            attempt: attempt + 1,
+            delayMs: delay,
+            url: url.split('?')[0]
+          });
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -266,8 +283,11 @@ export async function searchTokens(query: string, network?: string): Promise<Tok
     }
 
     return Array.from(tokenMap.values());
-  } catch (error) {
-    console.error('Error searching tokens:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error searching tokens on GeckoTerminal', {
+      query,
+      error: error.message
+    });
     return [];
   }
 }
@@ -335,11 +355,13 @@ export async function getTokenDetails(
 
     if (!poolsResponse.ok) {
       const errorText = await poolsResponse.text().catch(() => '');
-      console.error(`[getTokenDetails] GeckoTerminal API error:`, {
+      logger.error(LogCode.API_FETCH_FAILED, `GeckoTerminal API error fetching token pools`, {
         status: poolsResponse.status,
         statusText: poolsResponse.statusText,
         error: errorText.substring(0, 500),
         url: poolsUrl,
+        address,
+        network
       });
       return null;
     }
@@ -517,7 +539,7 @@ export async function getTrendingTokens(
   maxPages: number = 5
 ): Promise<TokenSearchResult[]> {
   try {
-    console.log(`[GeckoTerminal] Fetching TRENDING tokens for network: ${network}, limit: ${limit}, duration: ${duration}, minLiquidity: ${minLiquidityUsd}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching trending tokens', { network, limit, duration, minLiquidityUsd });
 
     // Map network name to Gecko Terminal network identifier
     const networkMap: Record<string, string> = {
@@ -542,19 +564,19 @@ export async function getTrendingTokens(
       // Supported durations: 5m, 1h, 6h, 24h
       const url = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/trending_pools?page=${page}&include=base_token&duration=${duration}`;
 
-      console.log(`[GeckoTerminal] Requesting trending page ${page} (${duration}): ${url}`);
+      logger.debug(LogCode.API_FETCH_SUCCESS, `Requesting trending page`, { page, duration, url });
 
       const response = await fetchWithRetry(url);
 
       if (!response.ok) {
-        console.error(`[GeckoTerminal] API error on page ${page}: ${response.status} ${response.statusText}`);
+        logger.error(LogCode.API_FETCH_FAILED, `API error on trending page`, { page, status: response.status, statusText: response.statusText });
         break; // Stop if we hit an error
       }
 
       const data = await response.json();
 
       if (!(data as any).data || !Array.isArray((data as any).data) || (data as any).data.length === 0) {
-        console.log(`[GeckoTerminal] No more pools on page ${page}`);
+        logger.debug(LogCode.API_FETCH_SUCCESS, `No more pools on page`, { page });
         break; // No more data
       }
 
@@ -593,7 +615,7 @@ export async function getTrendingTokens(
         // Filter out low-liquidity tokens (likely spam or manipulation)
         const liquidity = parseFloat(attributes.reserve_in_usd) || 0;
         if (liquidity < minLiquidityUsd) {
-          console.log(`[GeckoTerminal] Skipping ${baseToken.symbol} - low liquidity: $${liquidity.toFixed(2)}`);
+          logger.throttled(LogCode.API_FETCH_SUCCESS, `Skipping low liquidity token`, { symbol: baseToken.symbol, liquidity });
           continue;
         }
 
@@ -656,7 +678,7 @@ export async function getTrendingTokens(
         });
       }
 
-      console.log(`[GeckoTerminal] Page ${page}: Found ${(data as any).data.length} pools, ${tokenMap.size} unique tokens so far`);
+      logger.debug(LogCode.API_FETCH_SUCCESS, `Processed page`, { page, poolCount: (data as any).data.length, uniqueTokensSoFar: tokenMap.size });
 
       // Add a small delay between requests to avoid rate limiting
       if (page < maxPages && tokenMap.size < limit) {
@@ -664,18 +686,20 @@ export async function getTrendingTokens(
       }
     }
 
-    // Keep trending order (trending_pools already returns in trending order)
-    // Convert Map to array while preserving insertion order
     const tokens = Array.from(tokenMap.values());
-
-    console.log(`[GeckoTerminal] Extracted ${tokens.length} trending tokens (filtered by liquidity >= $${minLiquidityUsd})`);
-
-    // Return up to limit tokens, keeping trending order
     const result = tokens.slice(0, limit);
-    console.log(`[GeckoTerminal] Returning ${result.length} tokens (requested: ${limit})`);
+
+    logger.info(LogCode.API_FETCH_SUCCESS, `Trending tokens fetch complete`, {
+      network,
+      count: result.length,
+      limit
+    });
     return result;
-  } catch (error) {
-    console.error('[GeckoTerminal] Error fetching trending tokens:', error instanceof Error ? error.message : error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching trending tokens', {
+      network,
+      error: error.message
+    });
     // Security: Stack trace logging removed in production
     return [];
   }
@@ -737,7 +761,7 @@ export async function getPoolsByDex(
   sortBy: PoolSortOption = 'h24_volume_usd_desc'
 ): Promise<TokenSearchResult[]> {
   try {
-    console.log(`[GeckoTerminal] Fetching pools for DEX: ${dex} on network: ${network}, limit: ${limit}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching pools by DEX', { dex, network, limit });
 
     // Map network name to Gecko Terminal network identifier
     const networkMap: Record<string, string> = {
@@ -760,7 +784,7 @@ export async function getPoolsByDex(
     const networkDexMap = DEX_ID_MAP[geckoNetwork] || {};
     const dexId = networkDexMap[dexLower] || dexLower;
 
-    console.log(`[GeckoTerminal] Using DEX ID: ${dexId} for network: ${geckoNetwork}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, `Using DEX ID for network`, { dexId, geckoNetwork });
 
     // Extract unique tokens from pools
     const tokenMap = new Map<string, TokenSearchResult>();
@@ -769,19 +793,19 @@ export async function getPoolsByDex(
     for (let page = 1; page <= maxPages && tokenMap.size < limit; page++) {
       const url = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/dexes/${dexId}/pools?page=${page}&include=base_token&sort=${sortBy}`;
 
-      console.log(`[GeckoTerminal] Requesting DEX pools page ${page}: ${url}`);
+      logger.debug(LogCode.API_FETCH_SUCCESS, `Requesting DEX pools page`, { page, url });
 
       const response = await fetchWithRetry(url);
 
       if (!response.ok) {
-        console.error(`[GeckoTerminal] API error on page ${page}: ${response.status} ${response.statusText}`);
+        logger.error(LogCode.API_FETCH_FAILED, `API error on DEX pools page`, { page, status: response.status, statusText: response.statusText });
         break;
       }
 
       const data = await response.json();
 
       if (!(data as any).data || !Array.isArray((data as any).data) || (data as any).data.length === 0) {
-        console.log(`[GeckoTerminal] No more pools on page ${page}`);
+        logger.debug(LogCode.API_FETCH_SUCCESS, `No more DEX pools on page`, { page });
         break;
       }
 
@@ -875,7 +899,7 @@ export async function getPoolsByDex(
         });
       }
 
-      console.log(`[GeckoTerminal] DEX pools page ${page}: Found ${(data as any).data.length} pools, ${tokenMap.size} unique tokens so far`);
+      logger.debug(LogCode.API_FETCH_SUCCESS, `DEX pools processed page`, { page, poolCount: (data as any).data.length, uniqueTokensSoFar: tokenMap.size });
 
       // Small delay between requests
       if (page < maxPages && tokenMap.size < limit) {
@@ -884,14 +908,19 @@ export async function getPoolsByDex(
     }
 
     const tokens = Array.from(tokenMap.values());
-    console.log(`[GeckoTerminal] Extracted ${tokens.length} tokens from ${dex} on ${network}`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'DEX tokens fetch complete', {
+      network,
+      dex,
+      count: tokens.length
+    });
 
     return tokens.slice(0, limit);
-  } catch (error) {
-    console.error('[GeckoTerminal] Error fetching pools by DEX:', error);
-    if (error instanceof Error) {
-      console.error('[GeckoTerminal] Error details:', error.message);
-    }
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching pools by DEX', {
+      network,
+      dex,
+      error: error.message
+    });
     return [];
   }
 }
@@ -906,7 +935,7 @@ function aggregateCandles(
   sourceTimeframe: string
 ): any[] {
   if (candles.length === 0) {
-    console.warn(`[aggregateCandles] Empty input candles array`);
+    logger.warn(LogCode.API_FETCH_FAILED, `Empty input candles array for aggregation`);
     return [];
   }
 
@@ -925,12 +954,16 @@ function aggregateCandles(
   const sourceIntervalSeconds = sourceSeconds[sourceTimeframe] || 3600;
   const ratio = Math.floor(targetSeconds / sourceIntervalSeconds);
 
-  console.log(`[aggregateCandles] Aggregating ${candles.length} ${sourceTimeframe} candles to ${targetTimeframe}`);
-  console.log(`[aggregateCandles] Target interval: ${targetSeconds}s, Source interval: ${sourceIntervalSeconds}s, Ratio: ${ratio}`);
+  logger.debug(LogCode.API_FETCH_SUCCESS, `Aggregating candles`, {
+    count: candles.length,
+    from: sourceTimeframe,
+    to: targetTimeframe,
+    ratio
+  });
 
   if (ratio <= 1) {
     // No aggregation needed, but still return a copy
-    console.log(`[aggregateCandles] No aggregation needed (ratio <= 1), returning ${candles.length} candles`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, `No aggregation needed`, { count: candles.length });
     return [...candles];
   }
 
@@ -965,7 +998,7 @@ function aggregateCandles(
     .sort((a, b) => a.time - b.time); // Sort by time first
 
   if (validCandles.length === 0) {
-    console.warn(`[aggregateCandles] No valid candles after validation`);
+    logger.warn(LogCode.API_FETCH_FAILED, `No valid candles found after pre-aggregation validation`);
     return [];
   }
 
@@ -1002,7 +1035,7 @@ function aggregateCandles(
     grouped.get(groupTime)!.push(candle);
   }
 
-  console.log(`[aggregateCandles] Grouped ${validCandles.length} valid candles into ${grouped.size} time groups`);
+  logger.debug(LogCode.API_FETCH_SUCCESS, `Grouped valid candles into time groups`, { sourceCount: validCandles.length, groupCount: grouped.size });
 
   // Aggregate each group with improved precision
   for (const [groupTime, groupCandles] of Array.from(grouped.entries()).sort((a, b) => a[0] - b[0])) {
@@ -1035,7 +1068,7 @@ function aggregateCandles(
 
     // Final validation: ensure high >= low
     if (high < low) {
-      console.warn(`[aggregateCandles] Invalid OHLC at ${groupTime}: high=${high} < low=${low}, correcting...`);
+      logger.warn(LogCode.SYS_ERROR, `Invalid OHLC values detected`, { time: groupTime, high, low });
       high = Math.max(high, Math.max(open, close));
       low = Math.min(low, Math.min(open, close));
     }
@@ -1060,7 +1093,7 @@ function aggregateCandles(
     });
   }
 
-  console.log(`[aggregateCandles] Aggregated ${validCandles.length} candles into ${aggregated.length} candles`);
+  logger.info(LogCode.API_FETCH_SUCCESS, `Aggregated candles successfully`, { sourceCount: validCandles.length, aggregatedCount: aggregated.length });
 
   // Final sort by time to ensure chronological order
   aggregated.sort((a, b) => a.time - b.time);
@@ -1075,7 +1108,7 @@ function aggregateCandles(
       }
     }
     if (gaps.length > 0) {
-      console.warn(`[aggregateCandles] ⚠ Detected ${gaps.length} gaps in aggregated data (largest: ${Math.max(...gaps)}s)`);
+      logger.throttled(LogCode.API_FETCH_FAILED, `Detected gaps in aggregated candlestick data`, { gapCount: gaps.length, maxGapSecs: Math.max(...gaps) });
     }
   }
 
@@ -1095,8 +1128,7 @@ export async function getCandlestickData(
   const startTime = Date.now();
 
   try {
-    console.log(`[getCandlestickData] ===== Starting data fetch =====`);
-    console.log(`[getCandlestickData] Input: network=${network}, pairAddress=${pairAddress}, timeframe=${timeframe}, limit=${limit}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Starting candlestick data fetch', { network, pairAddress, timeframe, limit });
 
     // Validate inputs
     if (!network || !pairAddress) {
@@ -1105,7 +1137,7 @@ export async function getCandlestickData(
 
     if (limit < 1 || limit > 1000) {
       limit = Math.max(1, Math.min(1000, limit));
-      console.warn(`[getCandlestickData] Limit adjusted to ${limit}`);
+      logger.warn(LogCode.SYS_ERROR, `Candlestick limit adjusted`, { limit });
     }
 
     // Map network names to Gecko Terminal format
@@ -1185,23 +1217,18 @@ export async function getCandlestickData(
       adjustedLimit = Math.min(Math.max(adjustedLimit, 100), 365);
     }
 
-    console.log(`[getCandlestickData] Limit calculation: requested=${limit}, multiplier=${multiplier}, adjusted=${adjustedLimit}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, `Candlestick limit calculation`, { requested: limit, multiplier, adjusted: adjustedLimit });
 
     // CRITICAL: Gecko Terminal API has a maximum limit of 1000
     // Cap adjustedLimit to prevent 400 Bad Request errors
     if (adjustedLimit > 1000) {
-      console.warn(`[getCandlestickData] Adjusted limit ${adjustedLimit} exceeds API maximum (1000), capping at 1000`);
+      logger.warn(LogCode.SYS_ERROR, `Adjusted limit exceeds API maximum, capping at 1000`, { adjustedLimit });
       adjustedLimit = 1000;
     }
 
     const url = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/pools/${pairAddress}/ohlcv/${geckoTimeframe}?limit=${adjustedLimit}`;
 
-    console.log(`[getCandlestickData] ===== Fetching candlestick data =====`);
-    console.log(`[getCandlestickData] Network: ${network} -> ${geckoNetwork}`);
-    console.log(`[getCandlestickData] Pair Address: ${pairAddress}`);
-    console.log(`[getCandlestickData] Timeframe: ${timeframe} -> ${geckoTimeframe}`);
-    console.log(`[getCandlestickData] Limit: ${limit}`);
-    console.log(`[getCandlestickData] Full URL: ${url}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, `Candlestick request URL`, { url });
 
     let response: Response;
     try {
@@ -1213,13 +1240,13 @@ export async function getCandlestickData(
       });
     } catch (error: any) {
       if (error instanceof GeckoTerminalError) {
-        console.error(`[getCandlestickData] ✗ ${error.type} error: ${error.message}`);
+        logger.error(LogCode.API_FETCH_FAILED, `GeckoTerminal error during candlestick fetch`, { type: error.type, message: error.message });
         if (error.type === 'network' || error.type === 'timeout') {
           // Network/timeout errors should be thrown to allow fallback to DexScreener
           throw error;
         }
       } else {
-        console.error(`[getCandlestickData] ✗ Unexpected error:`, error);
+        logger.error(LogCode.API_FETCH_FAILED, `Unexpected error during candlestick fetch`, { error: error.message });
         throw new GeckoTerminalError(
           `Unexpected error: ${error.message}`,
           'network',
@@ -1231,23 +1258,17 @@ export async function getCandlestickData(
       return [];
     }
 
-    console.log(`[getCandlestickData] Response status: ${response.status} ${response.statusText}`);
-    console.log(`[getCandlestickData] Response headers:`, {
-      contentType: response.headers.get('content-type'),
-      contentLength: response.headers.get('content-length'),
-    });
+    logger.debug(LogCode.API_FETCH_SUCCESS, `Candlestick response status`, { status: response.status, statusText: response.statusText });
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
       const errorMessage = `Gecko Terminal API error ${response.status}: ${response.statusText}`;
-      console.error(`[getCandlestickData] ✗ ${errorMessage}`);
-      console.error(`[getCandlestickData] Error response body:`, errorText.substring(0, 500));
-      console.error(`[getCandlestickData] Request URL was: ${url}`);
+      logger.error(LogCode.API_FETCH_FAILED, errorMessage, { url });
 
       // Try to parse error as JSON for more details
       try {
         const errorJson = JSON.parse(errorText);
-        console.error(`[getCandlestickData] Error JSON:`, JSON.stringify(errorJson, null, 2));
+        logger.debug(LogCode.API_FETCH_FAILED, `API error JSON details`, { errorJson });
       } catch (e) {
         // Not JSON, already logged as text
       }
@@ -1263,61 +1284,40 @@ export async function getCandlestickData(
 
     const data = await response.json() as any;
 
-    console.log(`[getCandlestickData] Response structure:`, {
+    logger.debug(LogCode.API_FETCH_SUCCESS, `Candlestick response structure`, {
       hasData: !!data?.data,
-      hasAttributes: !!data?.data?.attributes,
-      hasOhlcvList: !!data?.data?.attributes?.ohlcv_list,
-      ohlcvLength: data?.data?.attributes?.ohlcv_list?.length || 0,
-      responseKeys: data ? Object.keys(data) : [],
-      dataKeys: data?.data ? Object.keys(data.data) : null,
-      attributesKeys: data?.data?.attributes ? Object.keys(data.data.attributes) : null,
+      count: data?.data?.attributes?.ohlcv_list?.length || 0
     });
 
     // Log full response for debugging (truncated if too long)
     const responseStr = JSON.stringify(data);
     if (responseStr.length > 1000) {
-      console.log(`[getCandlestickData] Response preview (first 1000 chars):`, responseStr.substring(0, 1000));
+      logger.debug(LogCode.API_FETCH_SUCCESS, `Candlestick response preview`, { preview: responseStr.substring(0, 1000) });
     } else {
-      console.log(`[getCandlestickData] Full response:`, data);
+      logger.debug(LogCode.API_FETCH_SUCCESS, `Candlestick full response`, { data });
     }
 
     // Validate response structure
     if (!data || typeof data !== 'object') {
-      console.error(`[getCandlestickData] ✗ Invalid response format:`, typeof data);
-      console.error(`[getCandlestickData] Response value:`, data);
+      logger.error(LogCode.API_FETCH_FAILED, `Invalid response format from GeckoTerminal`, { type: typeof data });
       return [];
     }
 
     if (!data?.data || !data?.data?.attributes) {
-      console.warn(`[getCandlestickData] ⚠ Missing data.attributes in response`);
-      console.warn(`[getCandlestickData] Available keys in data:`, data ? Object.keys(data) : []);
-      if (data?.data) {
-        console.warn(`[getCandlestickData] Available keys in data.data:`, Object.keys(data.data));
-      }
-      if (data?.errors) {
-        console.warn(`[getCandlestickData] API errors:`, data.errors);
-      }
+      logger.warn(LogCode.API_FETCH_FAILED, `Missing data.attributes in response`, { data: responseStr.substring(0, 200) });
       return [];
     }
 
     const ohlcvList = data.data.attributes.ohlcv_list;
 
     if (!Array.isArray(ohlcvList)) {
-      console.warn(`[getCandlestickData] ⚠ ohlcv_list is not an array:`, typeof ohlcvList);
-      console.warn(`[getCandlestickData] ohlcv_list value:`, ohlcvList);
-      console.warn(`[getCandlestickData] Available attributes keys:`, Object.keys(data.data.attributes));
+      logger.warn(LogCode.API_FETCH_FAILED, `ohlcv_list is not an array`, { type: typeof ohlcvList });
       return [];
     }
 
     if (ohlcvList.length === 0) {
-      console.warn(`[getCandlestickData] ⚠ Empty ohlcv_list for pool ${pairAddress}`);
-      console.warn(`[getCandlestickData] Network: ${geckoNetwork}, Timeframe: ${geckoTimeframe}, Requested limit: ${adjustedLimit}`);
-      console.warn(`[getCandlestickData] This might mean:`);
-      console.warn(`  - Pool ${pairAddress} is too new and has no historical data`);
-      console.warn(`  - Timeframe ${geckoTimeframe} is not available for this pool`);
-      console.warn(`  - Pool may have been removed or is inactive`);
-      console.warn(`  - Token may not have enough trading activity for ${originalTimeframe} timeframe`);
-      console.warn(`[getCandlestickData] Will try smaller limits and DexScreener fallback...`);
+      logger.warn(LogCode.API_FETCH_FAILED, `Empty ohlcv_list for pool`, { pairAddress, network: geckoNetwork, timeframe: geckoTimeframe });
+      // Will try smaller limits and DexScreener fallback...
 
       // Try with progressively smaller limits if the requested limit was too high
       // This is especially important for new tokens with limited history
@@ -1329,12 +1329,12 @@ export async function getCandlestickData(
             ? [500, 200, 100, 50, 25, 10]  // For m5/m15, try larger limits first
             : [200, 100, 50, 25, 10];
 
-        console.log(`[getCandlestickData] No data with limit ${adjustedLimit}, trying smaller limits: ${retryLimits.join(', ')}`);
+        logger.info(LogCode.API_FETCH_SUCCESS, `No data with initial limit, attempting retries with smaller limits`, { adjustedLimit, retryLimits });
 
         for (const retryLimit of retryLimits) {
           if (retryLimit >= adjustedLimit) continue;
 
-          console.log(`[getCandlestickData] Retrying with limit ${retryLimit} for ${originalTimeframe} timeframe...`);
+          logger.debug(LogCode.API_FETCH_SUCCESS, `Retrying candlestick fetch with smaller limit`, { retryLimit, originalTimeframe });
           const retryUrl = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/pools/${pairAddress}/ohlcv/${geckoTimeframe}?limit=${retryLimit}`;
           try {
             const retryResponse = await fetchWithRetry(retryUrl, {
@@ -1345,14 +1345,14 @@ export async function getCandlestickData(
             }, 2); // Use fewer retries for retry attempts
 
             if (!retryResponse.ok) {
-              console.warn(`[getCandlestickData] Retry with limit ${retryLimit} failed: ${retryResponse.status}`);
+              logger.warn(LogCode.API_FETCH_FAILED, `Retry with smaller limit failed`, { retryLimit, status: retryResponse.status });
               continue;
             }
 
             const retryData = await retryResponse.json() as any;
 
             if (retryData?.data?.attributes?.ohlcv_list && Array.isArray(retryData.data.attributes.ohlcv_list) && retryData.data.attributes.ohlcv_list.length > 0) {
-              console.log(`[getCandlestickData] ✓ Retry successful with limit ${retryLimit}, got ${retryData.data.attributes.ohlcv_list.length} candles`);
+              logger.info(LogCode.API_FETCH_SUCCESS, `Retry successful with smaller limit`, { retryLimit, count: retryData.data.attributes.ohlcv_list.length });
 
               // Process the retry data
               const retryOhlcvList = retryData.data.attributes.ohlcv_list;
@@ -1404,7 +1404,7 @@ export async function getCandlestickData(
               }
 
               if (result.length > 0) {
-                console.log(`[getCandlestickData] ✓ Processed ${result.length} valid candles from retry`);
+                logger.info(LogCode.API_FETCH_SUCCESS, `Processed valid retry candles`, { count: result.length });
 
                 // For m1, return directly without aggregation
                 if (originalTimeframe === 'm1') {
@@ -1431,18 +1431,18 @@ export async function getCandlestickData(
                 }
                 return result.slice(-limit);
               } else {
-                console.warn(`[getCandlestickData] Retry with limit ${retryLimit} returned data but processing resulted in 0 valid candles`);
+                logger.warn(LogCode.API_FETCH_FAILED, `Retry returned data but no valid candles found`, { retryLimit });
               }
             } else {
-              console.log(`[getCandlestickData] Retry with limit ${retryLimit} returned no data`);
+              logger.debug(LogCode.API_FETCH_SUCCESS, `Retry returned no data`, { retryLimit });
             }
           } catch (retryError: any) {
-            console.warn(`[getCandlestickData] Retry with limit ${retryLimit} error:`, retryError.message);
+            logger.warn(LogCode.API_FETCH_FAILED, `Retry attempt error`, { retryLimit, error: retryError.message });
             continue;
           }
         }
 
-        console.warn(`[getCandlestickData] All retry attempts failed for ${originalTimeframe} timeframe`);
+        logger.warn(LogCode.API_FETCH_FAILED, `All retry attempts failed for timeframe`, { timeframe: originalTimeframe });
       }
 
       return [];
@@ -1515,7 +1515,7 @@ export async function getCandlestickData(
         // If price change is >50%, mark as suspicious but don't reject
         // (could be legitimate market movement)
         if (priceChange > 0.5) {
-          console.warn(`[getCandlestickData] Large price movement detected at index ${index}: ${(priceChange * 100).toFixed(2)}% (${prevClose} -> ${close})`);
+          logger.warn(LogCode.SYS_ERROR, `Large price movement detected in candle`, { index, changePct: (priceChange * 100).toFixed(2), prevClose, close });
         }
       }
 
@@ -1583,7 +1583,7 @@ export async function getCandlestickData(
       }
 
       if (gaps.length > 0) {
-        console.warn(`[getCandlestickData] ⚠ Detected ${gaps.length} data gaps (largest: ${Math.max(...gaps)}s)`);
+        logger.throttled(LogCode.API_FETCH_FAILED, `Detected data gaps in candlestick response`, { gapCount: gaps.length, maxGapSecs: Math.max(...gaps) });
       }
     }
 
@@ -1591,16 +1591,16 @@ export async function getCandlestickData(
       console.warn(`[getCandlestickData] Filtered out ${invalidCount} invalid candles`);
     }
     if (duplicateCount > 0) {
-      console.warn(`[getCandlestickData] Found ${duplicateCount} duplicate timestamps (kept latest)`);
+      logger.warn(LogCode.API_FETCH_FAILED, `Found duplicate timestamps`, { count: duplicateCount });
     }
 
     // If we need a different interval than what Gecko Terminal provides,
     // aggregate the data (e.g., m5 from minute data, h4 from hour data)
     if (originalTimeframe !== geckoTimeframe && result.length > 0) {
-      console.log(`[getCandlestickData] Aggregating ${result.length} ${geckoTimeframe} candles to ${originalTimeframe}...`);
+      logger.debug(LogCode.API_FETCH_SUCCESS, `Aggregating candles`, { from: geckoTimeframe, to: originalTimeframe, count: result.length });
       const aggregatedResult = aggregateCandles(result, originalTimeframe, geckoTimeframe);
       const duration = Date.now() - startTime;
-      console.log(`[getCandlestickData] ✓ Aggregated ${result.length} ${geckoTimeframe} candles to ${aggregatedResult.length} ${originalTimeframe} candles in ${duration}ms`);
+      logger.info(LogCode.API_FETCH_SUCCESS, `Candlestick aggregation complete`, { durationMs: duration, count: aggregatedResult.length });
 
       // If aggregation resulted in fewer candles than requested, return all we have
       // Don't slice if we have fewer than requested - this means the token has limited history
@@ -1608,25 +1608,24 @@ export async function getCandlestickData(
       if (aggregatedResult.length <= limit) {
         // Return all aggregated candles if we have fewer than requested
         finalAggregated = aggregatedResult;
-        console.log(`[getCandlestickData] Returning all ${finalAggregated.length} aggregated candles (requested ${limit}, but token has limited history)`);
+        logger.info(LogCode.API_FETCH_SUCCESS, `Returning aggregated candles`, { count: finalAggregated.length, requested: limit });
       } else {
         // Take the most recent candles if we have more than requested
         finalAggregated = aggregatedResult.slice(-limit);
       }
 
-      // If aggregation resulted in too few candles, log a warning
       if (finalAggregated.length < limit * 0.5 && result.length > finalAggregated.length) {
-        console.warn(`[getCandlestickData] ⚠ Aggregation resulted in only ${finalAggregated.length} candles (requested ${limit}), but we have ${result.length} base candles`);
-        console.warn(`[getCandlestickData] This might indicate:`);
-        console.warn(`  - Token is very new or has sparse data`);
-        console.warn(`  - Data time gaps (missing candles in source data)`);
-        console.warn(`  - Sample times: first=${result[0]?.time}, last=${result[result.length - 1]?.time}`);
-        console.warn(`  - Time span: ${(result[result.length - 1]?.time - result[0]?.time) / 3600} hours`);
+        logger.warn(LogCode.API_FETCH_FAILED, `Aggregation resulted in few candles`, {
+          count: finalAggregated.length,
+          requested: limit,
+          sourceCount: result.length,
+          first: result[0]?.time,
+          last: result[result.length - 1]?.time
+        });
       }
 
       if (finalAggregated.length === 0) {
-        console.error(`[getCandlestickData] ✗ Aggregation resulted in 0 candles! Original data had ${result.length} candles`);
-        console.error(`[getCandlestickData] Sample original data:`, result.slice(0, 3));
+        logger.error(LogCode.API_FETCH_FAILED, `Aggregation resulted in 0 candles`, { sourceCount: result.length });
       }
 
       return finalAggregated;
@@ -1638,25 +1637,29 @@ export async function getCandlestickData(
     if (result.length <= limit) {
       // Return all candles if we have fewer than requested (token has limited history)
       finalResult = result;
-      console.log(`[getCandlestickData] Returning all ${finalResult.length} candles (requested ${limit}, but token has limited history)`);
+      logger.info(LogCode.API_FETCH_SUCCESS, `Returning all candles`, { count: finalResult.length, requested: limit });
     } else {
       // Take the most recent candles if we have more than requested
       finalResult = result.slice(-limit);
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[getCandlestickData] ✓ Processed ${result.length} valid candles, returning ${finalResult.length} (${invalidCount} invalid filtered) in ${duration}ms`);
+    logger.info(LogCode.API_FETCH_SUCCESS, `Candlestick data fetch complete`, {
+      count: finalResult.length,
+      durationMs: duration,
+      requested: limit
+    });
 
     if (invalidCount > 0) {
       console.warn(`[getCandlestickData] Filtered out ${invalidCount} invalid candles`);
     }
 
     if (finalResult.length < limit * 0.5) {
-      console.warn(`[getCandlestickData] ⚠ Only ${finalResult.length} candles returned (requested ${limit}), token may have limited history`);
-      if (finalResult.length > 0) {
-        const timeSpan = (finalResult[finalResult.length - 1]?.time - finalResult[0]?.time) / 3600;
-        console.warn(`[getCandlestickData] Time span: ${timeSpan.toFixed(2)} hours`);
-      }
+      logger.warn(LogCode.API_FETCH_FAILED, `Only few candles returned`, {
+        count: finalResult.length,
+        requested: limit,
+        timeSpanHours: finalResult.length > 0 ? (finalResult[finalResult.length - 1]?.time - finalResult[0]?.time) / 3600 : 0
+      });
     }
 
     return finalResult;

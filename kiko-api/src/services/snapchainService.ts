@@ -6,6 +6,8 @@
  */
 
 import prisma from '../db/prisma.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
 
@@ -139,7 +141,7 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
     const url = `${HUB_URL}/v1/castsByFid?fid=${fid}&pageSize=${pageSize}&reverse=true`;
     const response = await fetch(url);
     if (!response.ok) {
-      console.error(`Error fetching casts for fid ${fid}: ${response.status}`);
+      logger.error(LogCode.API_FETCH_FAILED, 'Error fetching casts from Snapchain Hub', { fid, status: response.status });
       return [];
     }
     const data = await response.json();
@@ -165,7 +167,7 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
       return [];
     }
     // Log other errors briefly
-    console.warn(`[Snapchain] Failed to fetch casts for fid ${fid}: ${error?.message || 'Unknown error'}`);
+    logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch casts from Snapchain Hub', { fid, error: error?.message || 'Unknown error' });
     return [];
   }
 }
@@ -244,7 +246,7 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData> {
   }
 
   // If we failed after retries, try DB fallback
-  console.warn(`[Snapchain] Hub failed for fid ${fid}, trying DB fallback...`);
+  logger.warn(LogCode.API_FETCH_FAILED, 'Snapchain Hub failed after retries, trying DB fallback', { fid });
 
   try {
     // Query DB for any existing valid author data for this FID
@@ -264,7 +266,7 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData> {
     });
 
     if (cachedEntry && cachedEntry.authorUsername) {
-      console.log(`[Snapchain] Using DB cached data for fid ${fid}: @${cachedEntry.authorUsername}`);
+      logger.info(LogCode.SYS_INFO, 'Using DB cached data for FID from Snapchain', { fid, username: cachedEntry.authorUsername });
       return {
         fid,
         username: cachedEntry.authorUsername || undefined,
@@ -279,7 +281,7 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData> {
   }
 
   // No cached data, return minimal mock
-  console.warn(`[Snapchain] No cached data for fid ${fid}, returning mock`);
+  logger.warn(LogCode.SYS_INFO, 'No cached data for FID in Snapchain, returning mock', { fid });
   return { fid };
 }
 
@@ -386,7 +388,7 @@ export async function getTrendingCasts(
   minEngagement: number = 1,
   maxAgeDays: number = 7
 ): Promise<CastWithReactions[]> {
-  console.log(`[Snapchain] Fetching trending casts from FID ${startFid} to ${endFid} (last ${maxAgeDays} days)...`);
+  logger.info(LogCode.WTC_SCAN_STARTED, 'Fetching trending casts from Snapchain Hub', { startFid, endFid, maxAgeDays });
   const results: CastWithReactions[] = [];
   const batchSize = 20;
   const now = Date.now();
@@ -464,7 +466,7 @@ export async function getTrendingCasts(
         if (error?.code === 'ECONNRESET' || error?.message?.includes('fetch failed')) {
           return [];
         }
-        console.warn(`[Snapchain] Error processing FID ${fid}: ${error?.message || 'Unknown error'}`);
+        logger.warn(LogCode.API_FETCH_FAILED, 'Error processing FID in Snapchain trending', { fid, error: error?.message || 'Unknown error' });
         return [];
       }
     });
@@ -493,7 +495,7 @@ export async function getTrendingCasts(
     };
   }).sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0));
 
-  console.log(`[Snapchain] Found ${sortedResults.length} recent casts with engagement`);
+  logger.info(LogCode.API_FETCH_SUCCESS, 'Found regular engagement casts via Snapchain', { count: sortedResults.length });
   return sortedResults;
 }
 
@@ -573,8 +575,8 @@ export async function getCastByIdWithReactions(fid: number, hash: string): Promi
       score: 1000, // High score to ensure it stays
       weightedScore: 1000
     };
-  } catch (error) {
-    console.error(`[Snapchain] Error fetching cast ${hash}:`, error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching specific cast from Snapchain', { hash, error: error.message });
     return null;
   }
 }
@@ -584,10 +586,10 @@ export async function getCastByIdWithReactions(fid: number, hash: string): Promi
  * but here we iterate known quality users or use a known public API)
  */
 export async function getTrendingFromQualityUsers(
-  maxAgeDays: number = 14,
+  maxAgeDays: number = 7,
   minEngagement: number = 1
 ): Promise<CastWithReactions[]> {
-  console.log(`[Snapchain] Fetching from ${QUALITY_FIDS.length} quality users (last ${maxAgeDays} days)...`);
+  logger.info(LogCode.WTC_SCAN_STARTED, 'Fetching quality FIDs casts from Snapchain', { count: QUALITY_FIDS.length, maxAgeDays });
   const results: CastWithReactions[] = [];
   const now = Date.now();
   const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
@@ -640,7 +642,7 @@ export async function getTrendingFromQualityUsers(
     return { ...r, weightedScore: r.score * timeMultiplier };
   }).sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0));
 
-  console.log(`[Snapchain] Found ${sortedResults.length} casts from quality users`);
+  logger.info(LogCode.API_FETCH_SUCCESS, 'Casts from quality users fetched via Snapchain', { count: sortedResults.length });
   return sortedResults;
 }
 

@@ -11,6 +11,8 @@ import * as geckoTerminal from '../geckoTerminal.js';
 import { checkTokenSecurity } from '../../skills/RiskSkill/tools/tokenRisk.js';
 import { DecisionEngineInput, DecisionEngineOutput, TokenData, SecurityData } from '../../types/judgeTypes.js';
 import { saveJudgeDecision } from '../../repositories/judgeRepository.js';
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
 
 // Layer evaluators
 import { evaluateUserSizeLayer } from './userSizeLayer.js';
@@ -43,8 +45,7 @@ export async function runJudgeEngine(
     userAmountUsd: number,
     targetWallet?: string
 ): Promise<DecisionEngineOutput> {
-    console.log(`[Judge Engine] Starting analysis for ${tokenAddress} on chain ${chainId}`);
-    console.log(`[Judge Engine] User amount: $${userAmountUsd}, Target wallet: ${targetWallet || 'N/A'}`);
+    logger.info(LogCode.SYS_INFO, 'Judge Engine: Starting analysis', { tokenAddress, chainId, userAmountUsd, targetWallet: targetWallet || 'N/A' });
 
     const startTime = Date.now();
 
@@ -70,8 +71,11 @@ export async function runJudgeEngine(
             input.chain.toLowerCase()
         );
 
-        console.log(`[Judge Engine] Detected launchpad: ${input.launchpad_type}`);
-        console.log(`[Judge Engine] Liquidity: $${tokenData.liquidity.toLocaleString()}, Age: ${calculateContractAgeMinutes(tokenData.pairCreatedAt).toFixed(0)} min`);
+        logger.debug(LogCode.SYS_INFO, 'Judge Engine: Data Gathered', {
+            launchpad: input.launchpad_type,
+            liquidity: tokenData.liquidity,
+            ageMinutes: calculateContractAgeMinutes(tokenData.pairCreatedAt)
+        });
 
         // === PHASE 2: Evaluate Each Layer ===
 
@@ -115,7 +119,7 @@ export async function runJudgeEngine(
         });
 
         const duration = Date.now() - startTime;
-        console.log(`[Judge Engine] Completed in ${duration}ms. Final decision: ${finalDecision.decision}`);
+        logger.info(LogCode.SYS_INFO, 'Judge Engine: Analysis completed', { decision: finalDecision.decision, durationMs: duration });
 
         // Build output
         const output: DecisionEngineOutput = {
@@ -134,30 +138,31 @@ export async function runJudgeEngine(
 
         // === PHASE 4: AI Rationale (Optional but Helpful) ===
         try {
-            console.log(`[Judge Engine] Generating AI Rationale for ${tokenData.symbol}...`);
+            logger.debug(LogCode.SYS_INFO, 'Judge Engine: Generating AI Rationale', { symbol: tokenData.symbol });
             output.decision_engine.final_decision.ai_rationale = await generateJudgeRationale(
                 tokenAddress,
                 tokenData.name,
                 finalDecision.decision,
                 output.decision_engine.layers
             );
-        } catch (aiError) {
-            console.warn('[Judge Engine] AI Rationale generation failed:', aiError);
+        } catch (aiError: any) {
+            logger.warn(LogCode.SYS_INFO, 'Judge Engine: AI Rationale generation failed', { error: aiError.message });
         }
 
         // Save to database for ML/DL training
         try {
             const decisionId = await saveJudgeDecision(output, duration);
-            console.log(`[Judge Engine] Saved to database with ID: ${decisionId}`);
-        } catch (dbError) {
-            console.error('[Judge Engine] Failed to save to database:', dbError);
+            logger.debug(LogCode.SYS_INFO, 'Judge Engine: Decision saved to DB', { decisionId });
+            output.decision_engine.decision_id = decisionId;
+        } catch (dbError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Judge Engine: Failed to save to database', { error: dbError.message });
             // Continue anyway - don't fail the decision because of DB error
         }
 
         return output;
 
     } catch (error: any) {
-        console.error('[Judge Engine] Error:', error);
+        logger.error(LogCode.SYS_ERROR, 'Judge Engine: Critical Error', { error: error.message });
         throw error;
     }
 }
@@ -242,7 +247,7 @@ async function evaluateTokenIntelligence(
     const twitterUrl = tokenData.socials?.find(s => s.type === 'twitter')?.url;
     const websiteUrl = tokenData.websites?.[0]?.url;
 
-    console.log(`[Token Intelligence] Twitter: ${twitterUrl || 'N/A'}, Website: ${websiteUrl || 'N/A'}`);
+    logger.debug(LogCode.SYS_INFO, 'Judge Engine: Token Intelligence links', { twitterUrl, websiteUrl });
 
     // === CALL GROK FOR REAL ANALYSIS ===
     let grokAnalysis;
@@ -253,8 +258,8 @@ async function evaluateTokenIntelligence(
             twitterUrl,
             websiteUrl
         );
-    } catch (error) {
-        console.error('[Token Intelligence] Grok analysis failed:', error);
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Judge Engine: Grok analysis failed', { error: error.message });
         // Fallback values if Grok is unavailable
         grokAnalysis = {
             twitter: {

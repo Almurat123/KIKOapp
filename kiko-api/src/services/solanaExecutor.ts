@@ -3,6 +3,8 @@ import { getSolanaConnection, SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getServerSolanaWalletAddress, sendSolanaTransaction, getDelegatedSolanaWallet } from './privyWallet.js';
 import { getSolanaQuote } from './solanaSwap.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 export interface SolanaSwapParams {
     userId: string;
@@ -17,7 +19,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
-        console.log('[SolanaExecutor] 🧪 SIMULATION MODE: Skipping actual trade execution');
+        logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: SIMULATION MODE swap', { tokenOutMint });
         return `5SimulatedSignature${Date.now()}${Math.random().toString(36).substring(7)}`;
     }
 
@@ -27,13 +29,13 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     const delegatedWallet = await getDelegatedSolanaWallet(userId);
     if (delegatedWallet) {
         walletAddress = delegatedWallet.address;
-        console.log(`[SolanaExecutor] Using user's delegated wallet: ${walletAddress.slice(0, 10)}...`);
+        logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Using delegated wallet', { address: walletAddress });
     } else {
         walletAddress = await getServerSolanaWalletAddress();
-        console.log(`[SolanaExecutor] Using server wallet (no delegation): ${walletAddress.slice(0, 10)}...`);
+        logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Using server wallet', { address: walletAddress });
     }
 
-    console.log(`[SolanaExecutor] Executing Swap: ${amountIn} of ${tokenInMint} -> ${tokenOutMint} using auto-router...`);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Executing Swap', { tokenInMint, tokenOutMint, amountIn });
 
     // 1. Get Quote & Transaction (Unified)
     // using 'auto' aggregator to try Jupiter first, then Raydium
@@ -54,12 +56,12 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
         throw new AppError(500, `Solana Swap Failed: Quote found from ${quote.aggregator} but failed to build transaction`, 'SWAP_BUILD_FAILED');
     }
 
-    console.log(`[SolanaExecutor] Swap prepared via ${quote.aggregator} (Out: ${quote.outAmount})`);
+    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Swap prepared', { aggregator: quote.aggregator, outAmount: quote.outAmount });
 
     // 2. Refresh Blockhash & Execute Transaction
     // CRITICAL: Raydium/Jupiter quotes might have stale blockhashes (TTL ~1min)
     // To prevent "Blockhash not found" errors, we deserialize and inject a FRESH blockhash
-    console.log('[SolanaExecutor] Refreshing blockhash before sending...');
+    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Refreshing blockhash before sending');
 
     // We need to pass the base64 string to sendSolanaTransaction first
     // But since sendSolanaTransaction handles deserialization, we should modify it there or do it here.
@@ -74,7 +76,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
 
     // Fetch fresh blockhash
     const { blockhash, lastValidBlockHeight } = await blockhashConnection.getLatestBlockhash('finalized');
-    console.log(`[SolanaExecutor] Fresh blockhash: ${blockhash}`);
+    logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Fresh blockhash obtained', { blockhash });
 
     // Update blockhash
     transaction.message.recentBlockhash = blockhash;
@@ -84,13 +86,12 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
 
     const signature = await sendSolanaTransaction(userId, freshTransactionBase64);
 
-    console.log(`[SolanaExecutor] Transaction sent: ${signature}. Confirming...`);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Transaction sent', { signature });
 
-    // 3. Wait for confirmation using polling (HTTP-compatible)
     // Alchemy HTTP RPC doesn't support WebSocket methods like signatureSubscribe
     const connection = getSolanaConnection();
     try {
-        console.log(`[SolanaExecutor] Polling for confirmation (max 30s)...`);
+        logger.debug(LogCode.SYS_INFO, 'SolanaExecutor: Polling for confirmation', { signature });
 
         let confirmed = false;
         const maxAttempts = 30; // 30 seconds max
@@ -105,22 +106,22 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
                 confirmed = true;
 
                 if (status.value.err) {
-                    console.error(`[SolanaExecutor] ❌ Transaction FAILED on-chain: ${signature}`, status.value.err);
+                    logger.error(LogCode.EXE_TX_REVERTED, 'SolanaExecutor: Transaction FAILED on-chain', { signature, error: status.value.err });
                     throw new AppError(500, `Solana swap failed on-chain: ${signature}`, 'TRANSACTION_FAILED');
                 }
 
-                console.log(`[SolanaExecutor] ✅ Swap confirmed: https://solscan.io/tx/${signature}`);
+                logger.info(LogCode.EXE_TX_CONFIRMED, 'SolanaExecutor: Swap confirmed', { signature });
                 break;
             }
         }
 
         if (!confirmed) {
-            console.warn(`[SolanaExecutor] ⚠️ Confirmation timeout after 30s, but tx may still succeed: ${signature}`);
+            logger.warn(LogCode.EXE_TX_REVERTED, 'SolanaExecutor: Confirmation timeout', { signature });
         }
     } catch (confirmErr: any) {
         // If confirmation times out or fails, still return signature but log warning
         if (confirmErr?.code === 'TRANSACTION_FAILED') throw confirmErr;
-        console.warn(`[SolanaExecutor] ⚠️ Could not confirm tx (may still succeed): ${confirmErr.message}`);
+        logger.warn(LogCode.SYS_ERROR, 'SolanaExecutor: Could not confirm tx', { signature, error: confirmErr.message });
     }
 
     return signature;

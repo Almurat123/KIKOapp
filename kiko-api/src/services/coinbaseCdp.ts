@@ -7,6 +7,9 @@
 
 import { env } from '../config/env.js';
 import type { TokenBalance, WalletBalance } from './alchemy.js';
+import { logger } from '../utils/logger.js';
+import { getSolanaTokenMetadata } from '../utils/solanaToken.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const COINBASE_CDP_API_BASE_URL = '/platform/v2';
 const COINBASE_CDP_API_HOST = 'api.cdp.coinbase.com';
@@ -56,8 +59,8 @@ async function generateCdpJwt(
       // For now, we'll require the SDK to be installed
       throw new Error('@coinbase/cdp-sdk package is required. Install it with: npm install @coinbase/cdp-sdk');
     }
-  } catch (error) {
-    console.error('[CoinbaseCDP] Error generating JWT:', error);
+  } catch (error: any) {
+    logger.error(LogCode.SYS_ERROR, 'CoinbaseCDP: Error generating JWT', { error: error.message });
     throw error;
   }
 }
@@ -126,8 +129,8 @@ function formatTokenBalance(rawBalance: string, decimals: number): string {
     const remainder = balance % divisor;
     const remainderStr = remainder.toString().padStart(decimals, '0');
     return `${whole}.${remainderStr}`;
-  } catch (error) {
-    console.error('[CoinbaseCDP] Error formatting balance:', error);
+  } catch (error: any) {
+    logger.error(LogCode.SYS_ERROR, 'CoinbaseCDP: Error formatting balance', { error: error.message });
     return '0';
   }
 }
@@ -148,7 +151,7 @@ export async function getEvmTokenBalances(
     const apiKeySecret = getCoinbaseCdpApiKeySecret();
 
     if (!apiKeyId || !apiKeySecret) {
-      console.warn('[CoinbaseCDP] API key ID or Secret not configured. Need COINBASE_CDP_API_KEY_ID and COINBASE_CDP_API_KEY_SECRET');
+      logger.warn(LogCode.SYS_INFO, 'CoinbaseCDP: API key not configured');
       return [];
     }
 
@@ -157,7 +160,7 @@ export async function getEvmTokenBalances(
     const network = CHAIN_ID_MAP[chainId];
 
     if (!network) {
-      console.warn(`[CoinbaseCDP] Chain ID ${chainId} is not supported by Coinbase CDP API. Supported: ethereum (1), base (8453)`);
+      logger.warn(LogCode.SYS_INFO, 'CoinbaseCDP: Chain ID not supported', { chainId });
       return [];
     }
 
@@ -165,7 +168,7 @@ export async function getEvmTokenBalances(
     const requestPath = `${COINBASE_CDP_API_BASE_URL}/evm/token-balances/${network}/${address}`;
     const url = `https://${COINBASE_CDP_API_HOST}${requestPath}`;
 
-    console.log(`[CoinbaseCDP] Fetching EVM token balances for chain ${chainId} (${network}): ${url}`);
+    logger.debug(LogCode.SYS_INFO, 'CoinbaseCDP: Fetching EVM balances', { chainId, network });
 
     // Generate JWT Bearer Token
     const jwt = await generateCdpJwt(
@@ -187,27 +190,19 @@ export async function getEvmTokenBalances(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(
-        `[CoinbaseCDP] API error for EVM balances:`,
-        {
-          chainId,
-          network,
-          url,
-          status: response.status,
-          statusText: response.statusText,
-          errorText: errorText.substring(0, 500),
-        }
-      );
+      logger.error(LogCode.API_FETCH_FAILED, 'CoinbaseCDP API error (EVM)', {
+        chainId,
+        network,
+        status: response.status,
+        error: errorText.substring(0, 500),
+      });
       return [];
     }
 
     const data = await response.json() as CoinbaseEvmTokenBalancesResponse;
     const balances = data.balances || [];
 
-    console.log(`[CoinbaseCDP] EVM token balances response for ${address} on chain ${chainId} (${network}):`, {
-      balancesCount: balances.length,
-      balances: balances.slice(0, 5),
-    });
+    logger.debug(LogCode.SYS_INFO, 'CoinbaseCDP: Received EVM balances', { count: balances.length });
 
     // DEBUG: Log USDC/stablecoin raw data to diagnose incorrect balance issues
     const stablecoins = balances.filter((b) =>
@@ -246,10 +241,10 @@ export async function getEvmTokenBalances(
       return balance > 0;
     });
 
-    console.log(`[CoinbaseCDP] Filtered EVM token balances: ${filtered.length} out of ${tokenBalances.length}`);
+    logger.debug(LogCode.SYS_INFO, 'CoinbaseCDP: Filtered EVM balances', { count: filtered.length });
     return filtered;
-  } catch (error) {
-    console.error('[CoinbaseCDP] Error fetching EVM token balances:', error);
+  } catch (error: any) {
+    logger.error(LogCode.SYS_ERROR, 'CoinbaseCDP: Error fetching EVM balances', { error: error.message });
     return [];
   }
 }
@@ -268,7 +263,7 @@ export async function getSolanaTokenBalances(
     const apiKeySecret = getCoinbaseCdpApiKeySecret();
 
     if (!apiKeyId || !apiKeySecret) {
-      console.warn('[CoinbaseCDP] API key ID or Secret not configured for Solana');
+      logger.warn(LogCode.SYS_INFO, 'CoinbaseCDP: API key not configured for Solana');
       return [];
     }
 
@@ -276,7 +271,7 @@ export async function getSolanaTokenBalances(
     const requestPath = `${COINBASE_CDP_API_BASE_URL}/solana/token-balances/${network}/${address}`;
     const url = `https://${COINBASE_CDP_API_HOST}${requestPath}`;
 
-    console.log(`[CoinbaseCDP] Fetching Solana token balances: ${url}`);
+    logger.debug(LogCode.SYS_INFO, 'CoinbaseCDP: Fetching Solana balances', { network });
 
     // Generate JWT Bearer Token
     const jwt = await generateCdpJwt(
@@ -301,21 +296,13 @@ export async function getSolanaTokenBalances(
 
       // 500 errors are common for this beta endpoint, log as warn to indicate fallback will be used
       if (response.status >= 500) {
-        console.warn(
-          `[CoinbaseCDP] Solana API service unavailable (${response.status}). Falling back to Alchemy.`,
-          { network, url: url.split('?')[0] }
-        );
+        logger.warn(LogCode.API_FETCH_FAILED, 'CoinbaseCDP: Solana API unavailable, falling back', { network, status: response.status });
       } else {
-        console.error(
-          '[CoinbaseCDP] API error for Solana balances:',
-          {
-            network,
-            url,
-            status: response.status,
-            statusText: response.statusText,
-            errorText: errorText.substring(0, 500),
-          }
-        );
+        logger.error(LogCode.API_FETCH_FAILED, 'CoinbaseCDP: Solana API error', {
+          network,
+          status: response.status,
+          error: errorText.substring(0, 500),
+        });
       }
       return [];
     }
@@ -323,26 +310,35 @@ export async function getSolanaTokenBalances(
     const data = await response.json() as CoinbaseSolanaTokenBalancesResponse;
     const balances = data.balances || [];
 
-    console.log(`[CoinbaseCDP] Solana token balances response for ${address} on ${network}:`, {
-      balancesCount: balances.length,
-      balances: balances.slice(0, 5),
-    });
+    logger.debug(LogCode.SYS_INFO, 'CoinbaseCDP: Received Solana balances', { count: balances.length });
 
     // Convert to TokenBalance format
-    const tokenBalances: TokenBalance[] = balances.map((balance) => {
-      const decimals = balance.amount.decimals || 9;
+    const tokenBalances: TokenBalance[] = await Promise.all(balances.map(async (balance) => {
+      const mint = balance.token.mintAddress;
+      let decimals = balance.amount.decimals;
+      let symbol = balance.token.symbol;
+      let name = balance.token.name;
+
+      if (decimals === undefined || !symbol || !name) {
+        const meta = await getSolanaTokenMetadata(mint);
+        decimals = decimals ?? meta?.decimals;
+        symbol = symbol || meta?.symbol;
+        name = name || meta?.name;
+      }
+
+      const finalDecimals = decimals ?? 9;
       const rawAmount = balance.amount.amount || '0';
-      const formattedBalance = formatTokenBalance(rawAmount, decimals);
+      const formattedBalance = formatTokenBalance(rawAmount, finalDecimals);
 
       return {
-        contractAddress: balance.token.mintAddress,
+        contractAddress: mint,
         tokenBalance: formattedBalance,
-        symbol: balance.token.symbol,
-        name: balance.token.name,
-        decimals: decimals,
+        symbol: symbol || 'UNKNOWN',
+        name: name || 'Unknown Token',
+        decimals: finalDecimals,
         logo: undefined, // Coinbase CDP API doesn't provide logo_url in this endpoint
       };
-    });
+    }));
 
     // Filter out zero balances
     const filtered = tokenBalances.filter((tb) => {
@@ -350,10 +346,10 @@ export async function getSolanaTokenBalances(
       return balance > 0;
     });
 
-    console.log(`[CoinbaseCDP] Filtered Solana token balances: ${filtered.length} out of ${tokenBalances.length}`);
+    logger.debug(LogCode.SYS_INFO, 'CoinbaseCDP: Filtered Solana balances', { count: filtered.length });
     return filtered;
-  } catch (error) {
-    console.error('[CoinbaseCDP] Error fetching Solana token balances:', error);
+  } catch (error: any) {
+    logger.error(LogCode.SYS_ERROR, 'CoinbaseCDP: Error fetching Solana balances', { error: error.message });
     return [];
   }
 }
@@ -376,8 +372,8 @@ export async function getEvmWalletBalance(
     try {
       const ethBalanceWei = BigInt(nativeBalanceHex);
       ethBalanceFormatted = Number(ethBalanceWei) / 1e18;
-    } catch (error) {
-      console.error('[CoinbaseCDP] Error parsing native balance:', error);
+    } catch (error: any) {
+      logger.error(LogCode.SYS_ERROR, 'CoinbaseCDP: Error parsing native balance', { error: error.message });
     }
   }
 
@@ -407,8 +403,8 @@ export async function getSolanaWalletBalance(
         ? nativeBalanceLamports
         : BigInt(nativeBalanceLamports);
       ethBalanceFormatted = Number(lamports) / 1e9;
-    } catch (error) {
-      console.error('[CoinbaseCDP] Error parsing native SOL balance:', error);
+    } catch (error: any) {
+      logger.error(LogCode.SYS_ERROR, 'CoinbaseCDP: Error parsing native SOL balance', { error: error.message });
     }
   }
 
@@ -418,4 +414,3 @@ export async function getSolanaWalletBalance(
     tokens,
   };
 }
-

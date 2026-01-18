@@ -33,6 +33,7 @@
     "framer-motion": "^12.23.24",
     "fuse.js": "^7.1.0",
     "hls.js": "^1.6.15",
+    "html-to-image": "^1.11.13",
     "lightweight-charts": "^5.0.9",
     "lucide-react": "^0.554.0",
     "qrcode.react": "^4.2.0",

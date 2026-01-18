@@ -4,6 +4,8 @@
  */
 
 import { ethers } from 'ethers';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 import { getChainConfig } from '../config/chainConfig.js';
 
 // Common DEX Router method signatures
@@ -108,7 +110,11 @@ export function decodeSwapFromLogs(
     from: string,
     nativeValue: string = '0'
 ): DecodedSwap | null {
-    console.log(`[TxDecoder] Decoding swap from ${logs.length} logs, from: ${from}, nativeValue: ${nativeValue}`);
+    logger.debug(LogCode.DEC_SWAP_DETECTION, 'Decoding swap from transaction logs', {
+        logCount: logs.length,
+        from,
+        nativeValue
+    });
 
     const transfers: Array<{
         token: string;
@@ -133,13 +139,18 @@ export function decodeSwapFromLogs(
         }
     }
 
-    console.log(`[TxDecoder] Found ${transfers.length} Transfer events`);
+    logger.debug(LogCode.DEC_SWAP_DETECTION, `Found ${transfers.length} Transfer events in logs`);
     for (const t of transfers) {
-        console.log(`  - Token: ${t.token.slice(0, 10)}, from: ${t.from.slice(0, 10)}, to: ${t.to.slice(0, 10)}, amount: ${t.amount}`);
+        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Log transfer detail', {
+            token: t.token,
+            from: t.from,
+            to: t.to,
+            amount: t.amount.toString()
+        });
     }
 
     if (transfers.length < 1) {
-        console.log('[TxDecoder] No transfers found, returning null');
+        logger.debug(LogCode.DEC_SWAP_DETECTION, 'No transfer events found in logs');
         return null;
     }
 
@@ -150,7 +161,7 @@ export function decodeSwapFromLogs(
     // 3. Filter out zero value transfers
 
     const incomingTransfers = transfers.filter(t => t.to.toLowerCase() === from.toLowerCase());
-    console.log(`[TxDecoder] Incoming transfers (to ${from.slice(0, 10)}): ${incomingTransfers.length}`);
+    logger.debug(LogCode.DEC_SWAP_DETECTION, 'Incoming transfers detected', { count: incomingTransfers.length, wallet: from });
 
     // Known router/system addresses to ignore as "tokens"
     const IGNORED_ADDRESSES = [
@@ -169,11 +180,14 @@ export function decodeSwapFromLogs(
     let amountSent = tokenSent?.amount.toString();
     let tokenSentAddress = tokenSent?.token;
 
-    console.log(`[TxDecoder] Analysis - Received: ${tokenReceived?.token?.slice(0, 10) || 'null'}, Sent: ${tokenSentAddress?.slice(0, 10) || 'null'}`);
+    logger.debug(LogCode.DEC_SWAP_DETECTION, 'Transaction logic analysis', {
+        received: tokenReceived?.token,
+        sent: tokenSentAddress
+    });
 
     // Handle Native ETH Sent case (User sent ETH, so no outgoing Transfer event)
     if (!tokenSent && BigInt(nativeValue) > 0) {
-        console.log(`[TxDecoder] No tokenSent found but nativeValue > 0, assuming User SENT ETH/BNB`);
+        logger.debug(LogCode.DEC_SWAP_DETECTION, 'No outgoing token transfer found but native value present; assuming native asset input');
         tokenSentAddress = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'; // Native ETH placeholder
         amountSent = nativeValue;
     }
@@ -182,7 +196,7 @@ export function decodeSwapFromLogs(
     // This happens when the tokenSent goes to a proxy, and the ETH/Result comes back via internal tx (often not logged as Transfer if Native ETH)
     // If we detected a SELL (Token Out from Wallet) but no Token In:
     if (tokenSentAddress && !tokenReceived) {
-        console.log(`[TxDecoder] Found tokenSent (Source) but no tokenReceived. Assuming BUYing ETH (Result).`);
+        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Found source token but no incoming transfer; assuming native asset output');
         return {
             tokenIn: tokenSentAddress, // What user sent
             tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', // Result is ETH
@@ -194,7 +208,11 @@ export function decodeSwapFromLogs(
     }
 
     if (!tokenReceived || !tokenSentAddress || !amountSent) {
-        console.log(`[TxDecoder] Missing required fields: tokenReceived=${!!tokenReceived}, tokenSent=${!!tokenSentAddress}, amountSent=${!!amountSent}`);
+        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Decoding failed: missing required swap fields', {
+            hasReceived: !!tokenReceived,
+            hasSent: !!tokenSentAddress,
+            hasAmount: !!amountSent
+        });
         return null;
     }
 
@@ -204,10 +222,11 @@ export function decodeSwapFromLogs(
     // Standard Case: User Sent A, Received B
     // tokenIn = What Sent (Source)
     // tokenOut = What Received (Result)
-    console.log(`[TxDecoder] ✅ Valid swap detected: ${tokenSentAddress.slice(0, 10)} -> ${tokenReceived.token.slice(0, 10)}`);
-    console.log(`[TxDecoder] RETURNING:`, {
+    logger.info(LogCode.DEC_SUCCESS, 'Swap successfully decoded from logs', {
         tokenIn: tokenSentAddress,
-        tokenOut: tokenReceived.token,
+        tokenOut: tokenReceived.token
+    });
+    logger.debug(LogCode.DEC_SUCCESS, 'Decoded swap values', {
         amountIn: amountSent,
         amountOut: tokenReceived.amount.toString()
     });

@@ -5,6 +5,8 @@
  */
 
 const NEYNAR_API_BASE = 'https://api.neynar.com/v2';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 interface NeynarCast {
     hash: string;
@@ -61,12 +63,12 @@ export async function searchCastsNeynar(
     const apiKey = process.env.NEYNAR_API_KEY;
 
     if (!apiKey) {
-        console.warn('[Neynar] API key not configured, skipping Neynar search');
+        logger.warn(LogCode.SYS_INFO, 'Neynar API key not configured, skipping search');
         return [];
     }
 
     try {
-        console.log(`[Neynar] Searching for: "${query}" (mode: ${mode}, limit: ${limit})`);
+        logger.debug(LogCode.SYS_INFO, 'Neynar: Searching casts', { query, mode, limit });
 
         const url = new URL(`${NEYNAR_API_BASE}/farcaster/cast/search`);
         url.searchParams.set('q', query);
@@ -84,14 +86,14 @@ export async function searchCastsNeynar(
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[Neynar] Search failed: ${response.status} - ${errorText}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'Neynar search failed', { status: response.status, error: errorText });
             return [];
         }
 
         const data = await response.json() as NeynarSearchResponse;
         const casts = data.result?.casts || [];
 
-        console.log(`[Neynar] Found ${casts.length} casts for "${query}"`);
+        logger.debug(LogCode.SYS_INFO, 'Neynar search results', { query, count: casts.length });
 
         // Transform to our standard format
         return casts.map(cast => ({
@@ -115,7 +117,7 @@ export async function searchCastsNeynar(
         }));
 
     } catch (error: any) {
-        console.error('[Neynar] Search error:', error.message);
+        logger.error(LogCode.SYS_ERROR, 'Neynar: Search error', { error: error.message });
         return [];
     }
 }
@@ -127,12 +129,12 @@ export async function getTrendingFeed(limit: number = 25): Promise<any[]> {
     const apiKey = process.env.NEYNAR_API_KEY;
 
     if (!apiKey) {
-        console.warn('[Neynar] API key not configured, skipping trending feed');
+        logger.warn(LogCode.SYS_INFO, 'Neynar API key not configured, skipping trending feed');
         return [];
     }
 
     try {
-        console.log(`[Neynar] Fetching trending feed (limit: ${limit})`);
+        logger.debug(LogCode.SYS_INFO, 'Neynar: Fetching trending feed', { limit });
 
         const url = new URL(`${NEYNAR_API_BASE}/farcaster/feed/trending`);
         url.searchParams.set('limit', String(Math.min(limit, 100)));
@@ -149,14 +151,14 @@ export async function getTrendingFeed(limit: number = 25): Promise<any[]> {
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[Neynar] Feed fetch failed: ${response.status} - ${errorText}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'Neynar feed fetch failed', { status: response.status, error: errorText });
             return [];
         }
 
         const data = await response.json() as { casts: NeynarCast[] };
         const casts = data.casts || [];
 
-        console.log(`[Neynar] Found ${casts.length} trending casts`);
+        logger.debug(LogCode.SYS_INFO, 'Neynar trending casts count', { count: casts.length });
 
         // Transform to our standard format
         return casts.map(cast => ({
@@ -184,7 +186,7 @@ export async function getTrendingFeed(limit: number = 25): Promise<any[]> {
         }));
 
     } catch (error: any) {
-        console.error('[Neynar] Feed error:', error.message);
+        logger.error(LogCode.SYS_ERROR, 'Neynar: Feed error', { error: error.message });
         return [];
     }
 }
@@ -219,7 +221,7 @@ export async function getUsersNeynar(fids: number[]): Promise<any[]> {
         });
 
         if (!response.ok) {
-            console.warn(`[Neynar] Users fetch failed: ${response.status}`);
+            logger.warn(LogCode.API_FETCH_FAILED, 'Neynar: Users bulk fetch failed', { status: response.status });
             return [];
         }
 
@@ -233,7 +235,7 @@ export async function getUsersNeynar(fids: number[]): Promise<any[]> {
             verifications: u.verifications
         }));
     } catch (error: any) {
-        console.error('[Neynar] Users fetch error:', error.message);
+        logger.error(LogCode.SYS_ERROR, 'Neynar: Users fetch error', { error: error.message });
         return [];
     }
 }
@@ -261,7 +263,7 @@ export async function getUserByUsername(username: string): Promise<any | null> {
         });
 
         if (!response.ok) {
-            console.warn(`[Neynar] User by username fetch failed: ${response.status}`);
+            logger.warn(LogCode.API_FETCH_FAILED, 'Neynar: User by username fetch failed', { status: response.status, username });
             return null;
         }
 
@@ -283,7 +285,7 @@ export async function getUserByUsername(username: string): Promise<any | null> {
             verifications: u.verifications
         };
     } catch (error: any) {
-        console.error('[Neynar] User by username error:', error.message);
+        logger.error(LogCode.SYS_ERROR, 'Neynar: User by username error', { error: error.message, username });
         return null;
     }
 }
@@ -321,7 +323,7 @@ export async function checkIsFollowing(fid: number, targetFid: number): Promise<
         // viewer_context.following is true if viewer_fid follows the user in bulk request
         return !!u?.viewer_context?.following;
     } catch (error: any) {
-        console.error('[Neynar] Check following error:', error.message);
+        logger.error(LogCode.SYS_ERROR, 'Neynar: Check following error', { error: error.message, fid, targetFid });
         return false;
     }
 }

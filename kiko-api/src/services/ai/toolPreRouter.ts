@@ -6,6 +6,8 @@
  */
 
 import { ToolDefinition, toolRegistry } from '../../tools/registry.js';
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
 
 interface ToolCategory {
     keywords: RegExp;
@@ -125,7 +127,7 @@ export function getFilteredTools(userMessage: string): ToolDefinition[] {
 
     if (matchedCategories.length === 0) {
         // No specific category matched, return all tools
-        console.log('[ToolPreRouter] No category matched, using all tools');
+        logger.debug(LogCode.SYS_INFO, 'ToolPreRouter: No category matched, using all tools');
         return allTools;
     }
 
@@ -138,8 +140,10 @@ export function getFilteredTools(userMessage: string): ToolDefinition[] {
 
     const filteredTools = allTools.filter(tool => allowedToolNames.has(tool.name));
 
-    console.log(`[ToolPreRouter] Category matched: ${primaryCategory.keywords.source}`);
-    console.log(`[ToolPreRouter] Filtered tools: ${filteredTools.map(t => t.name).join(', ')}`);
+    logger.info(LogCode.SYS_INFO, 'ToolPreRouter: Category matched', {
+        category: primaryCategory.keywords.source,
+        tools: filteredTools.map(t => t.name)
+    });
 
     return filteredTools;
 }
@@ -158,7 +162,7 @@ export function getDirectToolMatch(userMessage: string): string | null {
 
     for (const { pattern, tool } of directMatches) {
         if (pattern.test(userMessage.trim())) {
-            console.log(`[ToolPreRouter] Direct match: ${tool}`);
+            logger.info(LogCode.SYS_INFO, 'ToolPreRouter: Direct tool match', { tool });
             return tool;
         }
     }

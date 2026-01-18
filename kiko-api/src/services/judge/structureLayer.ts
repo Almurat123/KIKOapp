@@ -138,51 +138,51 @@ export function evaluateStructureLayer(
     // Migration risk
     if (features.has_migration) {
         riskScore -= 0.1;
-        reasons.push('有迁移机制 - 存在合约切换风险');
+        reasons.push('Has migration mechanism - contract switch risk');
     }
 
     // LP lock status
     if (features.lp_lock_info === 'locked' || features.lp_lock_info === 'locked_after_migration') {
         riskScore += 0.15;
-        reasons.push('LP 已锁定 - 降低抽池风险');
+        reasons.push('LP locked - reduces rug risk');
     } else if (features.lp_lock_info === 'unlocked') {
         riskScore -= 0.2;
         decision = 'ALLOW_WITH_RISK';
-        reasons.push('⚠️ LP 未锁定 - 存在抽池风险');
+        reasons.push('LP unlocked - rug risk');
     } else if (features.lp_lock_info === 'unknown') {
         riskScore -= 0.1;
-        reasons.push('LP 锁定状态未知');
+        reasons.push('LP lock status unknown');
     }
 
     // Creator fee
     if (features.creator_fee > 0.05) {
         riskScore -= 0.15;
         decision = 'ALLOW_WITH_RISK';
-        reasons.push(`高 Creator Fee (${(features.creator_fee * 100).toFixed(1)}%) - 盘方抽水风险`);
+        reasons.push(`High creator fee (${(features.creator_fee * 100).toFixed(1)}%) - extraction risk`);
     } else if (features.creator_fee > 0) {
         riskScore -= 0.05;
-        reasons.push(`Creator Fee: ${(features.creator_fee * 100).toFixed(1)}%`);
+        reasons.push(`Creator fee: ${(features.creator_fee * 100).toFixed(1)}%`);
     }
 
     // Bonding curve
     if (features.has_bonding_curve) {
-        reasons.push('使用 Bonding Curve - 早期买入有价格优势');
+        reasons.push('Bonding curve - early buys may have price advantage');
         // Neutral - neither good nor bad
     }
 
     // Fixed pool
     if (features.has_fixed_pool) {
         riskScore += 0.1;
-        reasons.push('固定池子 - 无滑点风险');
+        reasons.push('Fixed pool - no slippage risk');
     }
 
     // Metadata quality
     if (features.metadata_quality >= 0.7) {
         riskScore += 0.1;
-        reasons.push('Metadata 完整');
+        reasons.push('Metadata complete');
     } else if (features.metadata_quality < 0.3) {
         riskScore -= 0.1;
-        reasons.push('Metadata 不完整');
+        reasons.push('Metadata incomplete');
     }
 
     // Unknown launchpad penalty
@@ -191,9 +191,9 @@ export function evaluateStructureLayer(
         if (decision === 'ALLOW') {
             decision = 'ALLOW_WITH_RISK';
         }
-        reasons.push('未知发射平台 - 机制风险未知');
+        reasons.push('Unknown launchpad - mechanism risk unknown');
     } else {
-        reasons.unshift(`发射平台: ${launchpadType}`);
+        reasons.unshift(`Launchpad: ${launchpadType}`);
     }
 
     // Clamp score
@@ -202,7 +202,7 @@ export function evaluateStructureLayer(
     // Very low score = BLOCK
     if (riskScore < 0.25) {
         decision = 'BLOCK';
-        reasons.push('结构风险过高');
+        reasons.push('Structure risk too high');
     }
 
     return {

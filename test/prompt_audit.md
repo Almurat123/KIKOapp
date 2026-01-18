@@ -1,6 +1,6 @@
 # Prompt System Audit
 
-- Time (UTC): 2026-01-17T07:48:11.200Z
+- Time (UTC): 2026-01-18T05:25:03.989Z
 - PROMPT_SYSTEM_VERSION: v2 (forced in script)
 
 ## Skills Loaded
@@ -25,7 +25,7 @@ Total: 9
 - parsed: high=TRADING (conf=0.9), detailed=swap
 - contractAddress: none
 - matchedSkills: swap, wallet_portfolio
-- systemPromptChars: 13881
+- systemPromptChars: 16093
 - userPromptChars: 959
 - expectedAgentPlan: TOOL: prepare_swap_transaction (prepare or execute based on user settings)
 
@@ -36,7 +36,7 @@ Total: 9
 - parsed: high=TRADING (conf=0.9), detailed=swap
 - contractAddress: 0x4200…0006
 - matchedSkills: swap, wallet_portfolio
-- systemPromptChars: 13881
+- systemPromptChars: 16093
 - userPromptChars: 991
 - expectedAgentPlan: TOOL: get_token_info (confirm metadata / launchpad) -> TOOL: prepare_swap_transaction (prepare or execute based on user settings)
 
@@ -47,7 +47,7 @@ Total: 9
 - parsed: high=TRADING (conf=0.9), detailed=swap
 - contractAddress: none
 - matchedSkills: swap, wallet_portfolio
-- systemPromptChars: 13881
+- systemPromptChars: 16093
 - userPromptChars: 963
 - expectedAgentPlan: TOOL: prepare_swap_transaction (prepare or execute based on user settings)
 
@@ -58,7 +58,7 @@ Total: 9
 - parsed: high=TRADING (conf=0.9), detailed=swap
 - contractAddress: 0x4200…0006
 - matchedSkills: swap, wallet_portfolio
-- systemPromptChars: 13881
+- systemPromptChars: 16093
 - userPromptChars: 928
 - expectedAgentPlan: ASK: amount to trade
 
@@ -69,7 +69,7 @@ Total: 9
 - parsed: high=RISK_SCAN (conf=0.9), detailed=token_security
 - contractAddress: 0x4200…0006
 - matchedSkills: risk_security
-- systemPromptChars: 6251
+- systemPromptChars: 7463
 - userPromptChars: 992
 - expectedAgentPlan: TOOL: check_token_risk
 
@@ -80,7 +80,7 @@ Total: 9
 - parsed: high=MARKET_ANALYSIS (conf=0.75), detailed=token_info
 - contractAddress: none
 - matchedSkills: market_macro, token_analysis, zora_nfts
-- systemPromptChars: 9576
+- systemPromptChars: 10788
 - userPromptChars: 971
 - expectedAgentPlan: TOOL: search_token (if available) or ask for contract
 
@@ -91,7 +91,7 @@ Total: 9
 - parsed: high=PREDICTION_MARKETS (conf=0.9), detailed=general_query
 - contractAddress: none
 - matchedSkills: polymarket_prediction
-- systemPromptChars: 7271
+- systemPromptChars: 8483
 - userPromptChars: 964
 - expectedAgentPlan: TOOL: polymarket_* (event/odds)
 
@@ -102,7 +102,7 @@ Total: 9
 - parsed: high=COPY_TRADING (conf=0.95), detailed=general_query
 - contractAddress: 0x1234…5678
 - matchedSkills: copy_trade
-- systemPromptChars: 5567
+- systemPromptChars: 6779
 - userPromptChars: 980
 - expectedAgentPlan: TOOL: follow_wallet / copytrade setup (depending on tools)
 
@@ -113,7 +113,7 @@ Total: 9
 - parsed: high=SOCIAL_SENSING (conf=0.8), detailed=social_trending
 - contractAddress: none
 - matchedSkills: social_farcaster
-- systemPromptChars: 5355
+- systemPromptChars: 6567
 - userPromptChars: 962
 - expectedAgentPlan: TOOL: social_trending / social_user_info (depending on query)
 
@@ -124,6 +124,17 @@ Total: 9
 - parsed: high=TRADING (conf=0.9), detailed=swap
 - contractAddress: 7vfCXT…ZzZz
 - matchedSkills: swap, wallet_portfolio
-- systemPromptChars: 13881
+- systemPromptChars: 16093
 - userPromptChars: 790
+- expectedAgentPlan: TOOL: get_token_info (confirm metadata / launchpad) -> TOOL: prepare_swap_transaction (prepare or execute based on user settings)
+
+### Trading narrative (why pumping + should I buy)
+- model: grok
+- query: Why is this token pumping and should I buy? 0x4200000000000000000000000000000000000006
+- context: chain=Base, evm=0x1111…1111, sol=undefined, wallet=connected
+- parsed: high=TRADING (conf=0.9), detailed=swap
+- contractAddress: 0x4200…0006
+- matchedSkills: swap, wallet_portfolio
+- systemPromptChars: 16093
+- userPromptChars: 1017
 - expectedAgentPlan: TOOL: get_token_info (confirm metadata / launchpad) -> TOOL: prepare_swap_transaction (prepare or execute based on user settings)

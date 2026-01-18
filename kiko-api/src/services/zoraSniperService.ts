@@ -4,6 +4,8 @@ const { createTradeCall } = zoraSdk as any;
 import { zoraService, BASE_PLATFORM_REFERRER } from './zoraService.js';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
 import { getChainConfig } from '../config/chainConfig.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const CHAIN_ID = 8453; // Base Mainnet
 const ZORA_TOKEN_ADDRESS = '0x1111111111166b7fe7bd91427724b487980afc69' as `0x${string}`; // ZORA token on Base
@@ -42,17 +44,17 @@ export class ZoraSniperService {
         this.config = config;
         if (this.isListening) return;
 
-        console.log(`[ZoraSniper] 🚀 Starting sniper for wallet ${config.walletAddress}...`);
+        logger.info(LogCode.SYS_STARTUP, 'Starting Zora sniper', { walletAddress: config.walletAddress });
 
         this.factoryContract.on('CoinCreated', async (coinAddress, creator, name, symbol, uri, event) => {
             if (!this.config?.enabled) return;
 
-            console.log(`[ZoraSniper] ✨ New Coin Detected: ${name} (${symbol}) at ${coinAddress} `);
+            logger.info(LogCode.SYS_INFO, 'Zora Sniper: New Coin Detected', { name, symbol, coinAddress });
 
             try {
                 await this.executeSnipe(coinAddress, symbol);
-            } catch (error) {
-                console.error(`[ZoraSniper] ❌ Snipe failed for ${symbol}: `, error);
+            } catch (error: any) {
+                logger.error(LogCode.EXE_TX_REVERTED, 'Zora Sniper: Snipe failed', { symbol, error: error.message });
             }
         });
 
@@ -66,7 +68,7 @@ export class ZoraSniperService {
         this.factoryContract.removeAllListeners('CoinCreated');
         this.isListening = false;
         this.config = null;
-        console.log(`[ZoraSniper] 🛑 Sniper stopped.`);
+        logger.info(LogCode.SYS_STARTUP, 'Zora Sniper stopped');
     }
 
     /**
@@ -74,13 +76,13 @@ export class ZoraSniperService {
      */
     private async executeSnipe(coinAddress: string, symbol: string) {
         if (!this.config || !isPrivyConfigured()) {
-            console.warn(`[ZoraSniper] ⚠️ Sniper or Privy not configured.`);
+            logger.warn(LogCode.SYS_INFO, 'Zora Sniper or Privy not configured');
             return;
         }
 
         const { buyAmountEth, maxSlippage, walletAddress, userId, accessToken } = this.config;
 
-        console.log(`[ZoraSniper] 🎯 Sniping ${symbol} with ${buyAmountEth} ETH...`);
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Sniping coin', { symbol, amountEth: buyAmountEth });
 
         try {
             // 1. Build the trade call using Zora SDK
@@ -106,11 +108,11 @@ export class ZoraSniperService {
             // 3. Execution via Privy server-side signing
             const txHash = await sendTransaction(userId, accessToken, tx);
 
-            console.log(`[ZoraSniper] ✅ Snipe Success! Hash: ${txHash} `);
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Zora Sniper: Success', { symbol, txHash });
             return txHash;
 
-        } catch (error) {
-            console.error(`[ZoraSniper] Execution Error: `, error);
+        } catch (error: any) {
+            logger.error(LogCode.EXE_TX_REVERTED, 'Zora Sniper: Execution Error', { symbol, error: error.message });
             throw error;
         }
     }
@@ -121,13 +123,13 @@ export class ZoraSniperService {
             try {
                 if (attempt > 1) {
                     const backoffMs = 400 * attempt;
-                    console.warn(`[ZoraSniper] Quote retry ${attempt}/${maxAttempts} (${context}), waiting ${backoffMs}ms...`);
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Zora Sniper: Quote retry', { attempt, maxAttempts, context, backoffMs });
                     await new Promise(resolve => setTimeout(resolve, backoffMs));
                 }
                 return await createTradeCall(tradeParams);
-            } catch (error) {
+            } catch (error: any) {
                 lastError = error;
-                console.warn(`[ZoraSniper] Quote attempt ${attempt}/${maxAttempts} failed (${context}):`, error);
+                logger.warn(LogCode.API_FETCH_FAILED, 'Zora Sniper: Quote attempt failed', { attempt, maxAttempts, context, error: error.message });
             }
         }
         throw lastError;
@@ -147,31 +149,30 @@ export class ZoraSniperService {
     }) {
         // === SIMULATION MODE ===
         if (process.env.SIMULATION_MODE === 'true') {
-            console.log('[ZoraSniper] 🧪 SIMULATION MODE: Skipping actual trade execution');
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: SIMULATION MODE swap', { tokenOut: params.tokenOut });
             return `0xSIMULATION_ZORA_${Date.now()}_${Math.random().toString(36).substring(7)}`;
         }
 
-        console.log(`[ZoraSniper] ⚡ Executing FastSwap for ${params.tokenOut}...`);
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Executing FastSwap', { tokenOut: params.tokenOut });
 
         try {
             // 1. Fetch market info for logging and safety
             const coin = await zoraService.getCoinByAddress(params.tokenOut);
             if (coin?.tokenPrice) {
-                console.log(`[ZoraSniper] 📊 Market Info for ${coin.symbol}: Price: $${coin.tokenPrice.priceInUsdc}, MarketCap: ${zoraService.formatMarketCap(coin.marketCap)}`);
+                logger.debug(LogCode.SYS_INFO, 'Zora Sniper Market Info', { symbol: coin.symbol, price: coin.tokenPrice.priceInUsdc, mktCap: coin.marketCap });
             }
 
-            // Optimization: Log user's Zora portfolio
             try {
                 const balances = await zoraService.getUserBalances(params.walletAddress);
                 if (balances && balances.length > 0) {
-                    console.log(`[ZoraSniper] 💼 User Zora Portfolio: ${balances.length} coins tracked.`);
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper Portfolio info', { balanceCount: balances.length });
                     const currentBalance = balances.find((b: any) => b?.address && b.address.toLowerCase() === params.tokenOut.toLowerCase());
                     if (currentBalance) {
-                        console.log(`[ZoraSniper] 💰 Current holding of ${coin?.symbol || 'output token'}: ${ethers.formatUnits(currentBalance.balance, 18)}`);
+                        logger.debug(LogCode.SYS_INFO, 'Zora Sniper current holding', { symbol: coin?.symbol, balance: currentBalance.balance });
                     }
                 }
-            } catch (err) {
-                console.warn('[ZoraSniper] Failed to log portfolio:', err);
+            } catch (err: any) {
+                logger.warn(LogCode.SYS_ERROR, 'Zora Sniper: Failed to log portfolio', { error: err.message });
             }
 
             // Convert slippage from percentage (e.g., 1.5) to decimal (e.g., 0.015)
@@ -192,11 +193,11 @@ export class ZoraSniperService {
                     const minZoraForSwap = ethers.parseUnits('100', 18); // Min 100 ZORA for optimization
                     if (zoraBalance > minZoraForSwap) {
                         useZoraToken = true;
-                        console.log(`[ZoraSniper] 💎 Using ZORA token directly (balance: ${ethers.formatUnits(zoraBalance, 18)} ZORA) - single-hop swap!`);
+                        logger.info(LogCode.SYS_INFO, 'Zora Sniper: Using ZORA token directly', { balance: ethers.formatUnits(zoraBalance, 18) });
                     }
                 }
-            } catch (balanceError) {
-                console.warn(`[ZoraSniper] Could not check ZORA balance via SDK, using provider fallback:`, balanceError);
+            } catch (balanceError: any) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Zora Sniper: Could not check ZORA balance via SDK', { error: balanceError.message });
                 // Fallback to provider check if SDK fails
                 try {
                     const chainConfig = getChainConfig(CHAIN_ID);
@@ -206,8 +207,8 @@ export class ZoraSniperService {
                     if (zoraBalance > ethers.parseUnits('100', 18)) {
                         useZoraToken = true;
                     }
-                } catch (fallbackError) {
-                    console.error('[ZoraSniper] Provider fallback also failed:', fallbackError);
+                } catch (fallbackError: any) {
+                    logger.error(LogCode.SYS_ERROR, 'Zora Sniper: Provider fallback failed', { error: fallbackError.message });
                 }
             }
 
@@ -238,10 +239,10 @@ export class ZoraSniperService {
                     );
 
                     const currentAllowance = await zoraContract.allowance(params.walletAddress, ZORA_ROUTER);
-                    console.log(`[ZoraSniper] ZORA allowance for router: ${ethers.formatUnits(currentAllowance, 18)} ZORA`);
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper: ZORA allowance status', { allowance: ethers.formatUnits(currentAllowance, 18) });
 
                     if (currentAllowance < zoraAmountIn) {
-                        console.log(`[ZoraSniper] 🔓 Approving ZORA token for router...`);
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Approving ZORA token for router');
 
                         // Encode approve function call - approve max amount
                         const MAX_UINT256 = '115792089237316195423570985008687907853269984665640564039457584007913129639935';
@@ -255,16 +256,16 @@ export class ZoraSniperService {
                             chainId: CHAIN_ID
                         });
 
-                        console.log(`[ZoraSniper] ✅ ZORA approval tx: ${approveTxHash}`);
+                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Zora Sniper: ZORA approval sent', { txHash: approveTxHash });
 
                         // Wait for approval to confirm
                         await provider.waitForTransaction(approveTxHash, 1);
-                        console.log(`[ZoraSniper] ✅ ZORA approval confirmed`);
+                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Zora Sniper: ZORA approval confirmed');
                     } else {
-                        console.log(`[ZoraSniper] ✅ ZORA already approved for router`);
+                        logger.debug(LogCode.SYS_INFO, 'Zora Sniper: ZORA already approved');
                     }
-                } catch (approvalError) {
-                    console.error(`[ZoraSniper] Approval failed, falling back to ETH:`, approvalError);
+                } catch (approvalError: any) {
+                    logger.error(LogCode.SYS_ERROR, 'Zora Sniper: Approval failed, falling back to ETH', { error: approvalError.message });
                     // Fall back to ETH if approval fails
                     useZoraToken = false;
                 }
@@ -302,10 +303,13 @@ export class ZoraSniperService {
             const expectedAmountOut = quoteData?.amountOut ? ethers.formatUnits(quoteData.amountOut, 18) : 'N/A';
             const minAmountOut = quoteData?.minAmountOut ? ethers.formatUnits(quoteData.minAmountOut, 18) : 'N/A';
 
-            console.log(`[ZoraSniper] 🔍 Quote Details:`);
-            console.log(`   - Input: ${inputLabel}`);
-            console.log(`   - Expected: ${expectedAmountOut} ${coin?.symbol || 'TOKENS'}`);
-            console.log(`   - Minimum: ${minAmountOut} ${coin?.symbol || 'TOKENS'} (after ${params.slippage || 5}% slippage)`);
+            logger.debug(LogCode.SYS_INFO, 'Zora Sniper Swap Quote Details', {
+                input: inputLabel,
+                expected: expectedAmountOut,
+                symbol: coin?.symbol,
+                min: minAmountOut,
+                slippage: params.slippage || 5
+            });
 
             // 5. Price Deviation Safety Check - skip for now when using ZORA token
             // (Price calculation would need adjustment for ZORA->Token path)
@@ -319,18 +323,18 @@ export class ZoraSniperService {
                     const quotePrice = (parseFloat(params.amountIn) * ethPrice) / parseFloat(expectedAmountOut);
                     const deviation = (quotePrice - marketPrice) / marketPrice;
 
-                    console.log(`[ZoraSniper] 🛡️ Price Check: Market: $${marketPrice.toFixed(6)}, Quote: $${quotePrice.toFixed(6)}, Deviation: ${(deviation * 100).toFixed(2)}%`);
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper Price Check', { marketPrice, quotePrice, deviationPercent: (deviation * 100).toFixed(2) });
 
                     // ABORT if slippage is too high (> 50% above market)
                     if (deviation > 0.5) {
-                        const errorMsg = `[ZoraSniper] ❌ ABORTING! Price deviation ${(deviation * 100).toFixed(2)}% is too high (max 50%). Quote price $${quotePrice.toFixed(6)} vs market $${marketPrice.toFixed(6)}`;
-                        console.error(errorMsg);
+                        const errorMsg = `Zora Sniper: ABORTING BUY! Price deviation ${(deviation * 100).toFixed(2)}% is too high (max 50%). Quote price $${quotePrice.toFixed(6)} vs market $${marketPrice.toFixed(6)}`;
+                        logger.error(LogCode.EXE_TX_REVERTED, errorMsg);
                         throw new Error(errorMsg);
                     } else if (deviation > 0.1) {
-                        console.warn(`[ZoraSniper] ⚠️ HIGH SLIPPAGE WARNING! Quote price is ${(deviation * 100).toFixed(2)}% above market price.`);
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Zora Sniper: HIGH SLIPPAGE WARNING!', { deviationPercent: (deviation * 100).toFixed(2) });
                     }
-                } catch (priceCheckError) {
-                    console.warn(`[ZoraSniper] Price check skipped due to error:`, priceCheckError);
+                } catch (priceCheckError: any) {
+                    logger.warn(LogCode.SYS_ERROR, 'Zora Sniper: Price check skipped', { error: priceCheckError.message });
                 }
             }
 
@@ -342,7 +346,7 @@ export class ZoraSniperService {
             };
 
             const txHash = await sendTransaction(params.userId, params.accessToken, tx);
-            console.log(`[ZoraSniper] 🟢 Transaction sent: ${txHash}. Waiting for confirmation...`);
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper swap transaction sent', { txHash });
 
             try {
                 // Hardcoded RPC for Base (Zora usually on Base) or use env
@@ -350,19 +354,19 @@ export class ZoraSniperService {
                 const receipt = await provider.waitForTransaction(txHash, 1);
 
                 if (!receipt || receipt.status === 0) {
-                    console.error(`[ZoraSniper] ❌ Transaction REVERTED on-chain: ${txHash}`);
+                    logger.error(LogCode.EXE_TX_REVERTED, 'Zora Sniper swap transaction REVERTED', { txHash });
                     throw new Error(`Transaction reverted on-chain: ${txHash}`);
                 }
-                console.log(`[ZoraSniper] ✅ Transaction confirmed: ${txHash}`);
+                logger.info(LogCode.EXE_TX_CONFIRMED, 'Zora Sniper swap confirmed', { txHash });
             } catch (err: any) {
-                console.warn(`[ZoraSniper] Failed to confirm tx status (might still be valid):`, err);
+                logger.warn(LogCode.EXE_TX_REVERTED, 'Zora Sniper: Failed to confirm tx status', { txHash, error: err.message });
                 // If it was a revert error detected above, re-throw it
                 if (err.message && err.message.includes('reverted')) throw err;
             }
 
             return txHash;
-        } catch (error) {
-            console.error(`[ZoraSniper] FastSwap Error: `, error);
+        } catch (error: any) {
+            logger.error(LogCode.EXE_TX_REVERTED, 'Zora Sniper FastSwap Error', { error: error.message });
             throw error;
         }
     }
@@ -378,13 +382,13 @@ export class ZoraSniperService {
         amountIn: string;
         slippage?: number;
     }) {
-        console.log(`[ZoraSniper] ⚡ Executing FastSell for ${params.tokenIn}...`);
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Zora Sniper executing FastSell', { tokenIn: params.tokenIn });
 
         try {
             // 1. Fetch market info for logging
             const coin = await zoraService.getCoinByAddress(params.tokenIn);
             if (coin?.tokenPrice) {
-                console.log(`[ZoraSniper] 📊 Market Info for ${coin.symbol}: Price: $${coin.tokenPrice.priceInUsdc}, MarketCap: ${zoraService.formatMarketCap(coin.marketCap)} `);
+                logger.debug(LogCode.SYS_INFO, 'Zora Sniper Market Info (Sell)', { symbol: coin.symbol, price: coin.tokenPrice.priceInUsdc, mktCap: coin.marketCap });
             }
 
             const slippageDecimal = Math.min((params.slippage || 5) / 100, 0.99);
@@ -405,10 +409,13 @@ export class ZoraSniperService {
             const expectedAmountOutEth = quoteData?.amountOut ? ethers.formatUnits(quoteData.amountOut, 18) : 'N/A';
             const minAmountOutEth = quoteData?.minAmountOut ? ethers.formatUnits(quoteData.minAmountOut, 18) : 'N/A';
 
-            console.log(`[ZoraSniper] 🔍 Quote Details: `);
-            console.log(`   - Input: ${params.amountIn} (base units) ${coin?.symbol || 'TOKENS'} `);
-            console.log(`   - Expected: ${expectedAmountOutEth} ETH`);
-            console.log(`   - Minimum: ${minAmountOutEth} ETH(after ${params.slippage || 5} % slippage)`);
+            logger.debug(LogCode.SYS_INFO, 'Zora Sniper Sell Quote Details', {
+                input: params.amountIn,
+                symbol: coin?.symbol,
+                expectedEth: expectedAmountOutEth,
+                minEth: minAmountOutEth,
+                slippage: params.slippage || 5
+            });
 
             // 3. Price Deviation Safety Check (10% threshold) - only if we have amount data
             if (coin?.tokenPrice?.priceInUsdc && expectedAmountOutEth !== 'N/A') {
@@ -424,18 +431,18 @@ export class ZoraSniperService {
                     const quotePrice = (parseFloat(expectedAmountOutEth) * ethPrice) / tokensInReadable;
                     const deviation = (marketPrice - quotePrice) / marketPrice;
 
-                    console.log(`[ZoraSniper] 🛡️ Price Check: Market: $${marketPrice.toFixed(6)}, Quote: $${quotePrice.toFixed(6)}, Deviation: ${(deviation * 100).toFixed(2)}% `);
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper Sell Price Check', { marketPrice, quotePrice, deviationPercent: (deviation * 100).toFixed(2) });
 
                     // ABORT if slippage is too high (> 50% below market for sells)
                     if (deviation > 0.5) {
-                        const errorMsg = `[ZoraSniper] ❌ ABORTING SELL! Price deviation ${(deviation * 100).toFixed(2)}% is too high (max 50%). Quote price $${quotePrice.toFixed(6)} vs market $${marketPrice.toFixed(6)}`;
-                        console.error(errorMsg);
+                        const errorMsg = `Zora Sniper: ABORTING SELL! Price deviation ${(deviation * 100).toFixed(2)}% is too high (max 50%). Quote price $${quotePrice.toFixed(6)} vs market $${marketPrice.toFixed(6)}`;
+                        logger.error(LogCode.EXE_TX_REVERTED, errorMsg);
                         throw new Error(errorMsg);
                     } else if (deviation > 0.1) {
-                        console.warn(`[ZoraSniper] ⚠️ HIGH SLIPPAGE WARNING! Sell quote price is ${(deviation * 100).toFixed(2)}% below market price.`);
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Zora Sniper: HIGH SELL SLIPPAGE WARNING!', { deviationPercent: (deviation * 100).toFixed(2) });
                     }
-                } catch (priceCheckError) {
-                    console.warn(`[ZoraSniper] Price check skipped due to error: `, priceCheckError);
+                } catch (priceCheckError: any) {
+                    logger.warn(LogCode.SYS_ERROR, 'Zora Sniper Sell: Price check skipped', { error: priceCheckError.message });
                 }
             }
 
@@ -447,8 +454,8 @@ export class ZoraSniperService {
             };
 
             return await sendTransaction(params.userId, params.accessToken, tx);
-        } catch (error) {
-            console.error(`[ZoraSniper] FastSell Error: `, error);
+        } catch (error: any) {
+            logger.error(LogCode.EXE_TX_REVERTED, 'Zora Sniper FastSell Error', { error: error.message });
             throw error;
         }
     }

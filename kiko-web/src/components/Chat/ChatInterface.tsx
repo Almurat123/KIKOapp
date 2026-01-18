@@ -196,7 +196,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         suggestions,
         showSuggestions,
         detectIntent,
-        openSuggestions,
         closeSuggestions
     } = useSmartSuggestions(
         () => { }, // onSend is unused in hook now
@@ -508,27 +507,46 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const resolveTokenAddress = (symbolOrObj: any): string => {
                             if (!symbolOrObj) return '';
 
-                            // If it's already an address string
-                            if (typeof symbolOrObj === 'string' && symbolOrObj.startsWith('0x')) {
-                                return symbolOrObj;
-                            }
-
-                            // If it's an object with address
+                            // If it's an object with address, use that
                             if (typeof symbolOrObj === 'object' && symbolOrObj.address) {
                                 return symbolOrObj.address;
                             }
 
-                            // If it's a symbol string, resolve from COMMON_TOKENS
-                            const symbol = typeof symbolOrObj === 'string' ? symbolOrObj : symbolOrObj?.symbol;
+                            const value = typeof symbolOrObj === 'string' ? symbolOrObj : symbolOrObj?.symbol;
+                            if (!value) return '';
 
-                            // Handle native tokens
-                            if (['ETH', 'BNB', 'MATIC', 'AVAX'].includes(symbol)) {
+                            // 1. Check if it's an EVM address
+                            if (value.startsWith('0x') && value.length === 42) {
+                                return value;
+                            }
+
+                            // 2. Check if it's a Solana address (Base58, 32-44 chars)
+                            // Basic regex for Base58 (alphanumeric, no 0, O, I, l)
+                            if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value)) {
+                                return value;
+                            }
+
+                            // 3. Handle native tokens
+                            if (['ETH', 'BNB', 'MATIC', 'AVAX', 'SOL'].includes(value.toUpperCase())) {
+                                // For Solana, use WSOL or native mint depending on implementation
+                                // But frontend usually handles 'SOL' specially
+                                if (value.toUpperCase() === 'SOL') return 'So11111111111111111111111111111111111111112';
                                 return '0x0000000000000000000000000000000000000000';
                             }
 
-                            // Lookup in COMMON_TOKENS
-                            const common = COMMON_TOKENS[targetChainId]?.find(t => t.symbol === symbol);
-                            return common?.address || '';
+                            // 4. Lookup in COMMON_TOKENS
+                            const common = COMMON_TOKENS[targetChainId]?.find(t => t.symbol === value);
+                            if (common) return common.address;
+
+                            // 5. Fallback: If it looks like it MIGHT be an address (even if regex failed slightly), return it
+                            // This prevents "OG92" from being treated as address if it's clearly too short,
+                            // but allows potential non-standard addresses through.
+                            // However, we must be careful not to return symbols as addresses.
+                            if (value.length > 30) {
+                                return value;
+                            }
+
+                            return '';
                         };
 
                         const tokenInAddress = resolveTokenAddress(actionData.tokenIn || actionData.token_in);
@@ -545,14 +563,27 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             slippageBps
                         });
 
-                        // Update message to show "executing" status
+                        // Update message to show transaction status card
                         setMessages(prev => {
                             const lastMsg = prev[prev.length - 1];
                             if (lastMsg && lastMsg.role === 'assistant') {
+                                // Extract token symbols - handle both string and object formats
+                                const getSymbol = (token: any): string => {
+                                    if (typeof token === 'string') return token;
+                                    return token?.symbol || token?.name || 'Unknown';
+                                };
+
                                 return prev.map((m, idx) => idx === prev.length - 1 ? {
                                     ...m,
-                                    transactionStatus: 'waiting' as const,
-                                    content: m.content + '\n\n⏳ **Executing transaction...**'
+                                    type: 'transaction-status-card',
+                                    data: {
+                                        status: 'pending',
+                                        tokenInSymbol: getSymbol(actionData.tokenIn || actionData.token_in),
+                                        tokenOutSymbol: getSymbol(actionData.tokenOut || actionData.token_out),
+                                        amountIn: String(amountIn),
+                                        chainId: targetChainId,
+                                        isLoading: true
+                                    }
                                 } : m);
                             }
                             return prev;
@@ -568,31 +599,35 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 slippageBps
                             }).then(result => {
                                 if (result.success && result.txHash) {
-                                    // Update message with success status (inline, no toast)
+                                    // Update message with success status
                                     setMessages(prev => {
                                         const lastMsg = prev[prev.length - 1];
-                                        if (lastMsg && lastMsg.role === 'assistant') {
-                                            // Remove the "executing" text and add success
-                                            const baseContent = lastMsg.content.replace(/\n\n⏳ \*\*Executing transaction\.\.\.\*\*$/, '');
+                                        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.type === 'transaction-status-card') {
                                             return prev.map((m, idx) => idx === prev.length - 1 ? {
                                                 ...m,
-                                                content: baseContent + `\n\n✅ **Transaction successful!** [View on Explorer](https://basescan.org/tx/${result.txHash})`,
-                                                transactionStatus: 'success' as const,
-                                                transactionHash: result.txHash
+                                                data: {
+                                                    ...lastMsg.data,
+                                                    status: 'success',
+                                                    txHash: result.txHash,
+                                                    isLoading: false
+                                                }
                                             } : m);
                                         }
                                         return prev;
                                     });
                                 } else {
-                                    // Update message with error status (inline, no toast)
+                                    // Update message with error status
                                     setMessages(prev => {
                                         const lastMsg = prev[prev.length - 1];
-                                        if (lastMsg && lastMsg.role === 'assistant') {
-                                            const baseContent = lastMsg.content.replace(/\n\n⏳ \*\*Executing transaction\.\.\.\*\*$/, '');
+                                        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.type === 'transaction-status-card') {
                                             return prev.map((m, idx) => idx === prev.length - 1 ? {
                                                 ...m,
-                                                content: baseContent + `\n\n❌ **Transaction failed:** ${result.error}`,
-                                                transactionStatus: 'failed' as const
+                                                data: {
+                                                    ...lastMsg.data,
+                                                    status: 'failed',
+                                                    errorMessage: result.error,
+                                                    isLoading: false
+                                                }
                                             } : m);
                                         }
                                         return prev;
@@ -601,12 +636,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }).catch(err => {
                                 setMessages(prev => {
                                     const lastMsg = prev[prev.length - 1];
-                                    if (lastMsg && lastMsg.role === 'assistant') {
-                                        const baseContent = lastMsg.content.replace(/\n\n⏳ \*\*Executing transaction\.\.\.\*\*$/, '');
+                                    if (lastMsg && lastMsg.role === 'assistant' && lastMsg.type === 'transaction-status-card') {
                                         return prev.map((m, idx) => idx === prev.length - 1 ? {
                                             ...m,
-                                            content: baseContent + `\n\n❌ **Transaction error:** ${err.message}`,
-                                            transactionStatus: 'failed' as const
+                                            data: {
+                                                ...lastMsg.data,
+                                                status: 'failed',
+                                                errorMessage: err.message,
+                                                isLoading: false
+                                            }
                                         } : m);
                                     }
                                     return prev;
@@ -1354,9 +1392,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const handleInputFocus = () => {
         scrollToBottom();
-        if (!input || input.trim().length === 0) {
-            openSuggestions();
-        } else {
+        // Only trigger suggestions if there is input (user preference: strictly on matching)
+        if (input && input.trim().length > 0) {
             detectIntent(input);
         }
     };
@@ -1404,11 +1441,56 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
         isSubmittingRef.current = true;
 
+        // ============================================
+        // OPTIMISTIC UI: Update visual state IMMEDIATELY before any API calls
+        // This eliminates perceived delay when sending first message from WelcomeScreen
+        // ============================================
+
+        // 1. Switch to chat view immediately
+        setHasStarted(true);
+
+        // 2. Prepare and show user message immediately
+        const now = new Date();
+        const userMsg: Message = {
+            id: existingMessageId || Date.now().toString(),
+            role: 'user',
+            content: text,
+            timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            date: now.toISOString().split('T')[0],
+            type: 'text',
+        };
+
+        // CRITICAL: Immediately mark this message ID as processed to block the auto-send useEffect
+        processedMessagesRef.current.add(userMsg.id);
+
+        if (!existingMessageId) {
+            setMessages(prev => [...prev, userMsg]);
+        }
+
+        // 3. Show thinking state immediately
+        setIsThinking(true);
+        setThinkingText('Thinking');
+
+        // 4. Clear input immediately
+        setInput('');
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+        }
+
+        // 5. Scroll to bottom
+        userScrolledUpRef.current = false;
+        isAtBottomRef.current = true;
+        setTimeout(() => scrollToBottom(false), 0);
+
         try {
             // Perform client-side moderation check
             const moderationResult = await moderationService.checkInput(text, conversationId, selectedModel?.id);
             if (!moderationResult.safe) {
                 toast.error(moderationResult.reason || 'Message blocked by safety policy');
+                // Revert optimistic UI on moderation failure
+                setIsThinking(false);
+                setMessages(prev => prev.filter(m => m.id !== userMsg.id));
+                if (!conversationId) setHasStarted(false);
                 return;
             }
 
@@ -1421,6 +1503,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             // Prevent sending new messages while stopping
             if (isStopping) {
                 logger.debug('Blocked send - currently stopping');
+                setIsThinking(false);
                 return;
             }
 
@@ -1442,12 +1525,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 logger.warn('Failed to read model from localStorage:', e);
             }
 
-            // 1. Ensure conversation exists
+            // Create conversation in background (after UI is already updated)
             let currentConvId = conversationId;
             if (!currentConvId && onNewConversation) {
                 currentConvId = await onNewConversation(text);
             }
             if (!currentConvId) {
+                // Revert optimistic UI on session creation failure
+                setIsThinking(false);
+                setMessages(prev => prev.filter(m => m.id !== userMsg.id));
+                setHasStarted(false);
                 if (!authenticated) {
                     toast.error('Session expired. Login to KIKO to create chat session.');
                 } else {
@@ -1456,39 +1543,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 return;
             }
 
-            setHasStarted(true);
             stopGeneration();
-
-            // 2. Prepare user message for UI
-            const now = new Date();
-            const userMsg: Message = {
-                id: existingMessageId || Date.now().toString(),
-                role: 'user',
-                content: text,
-                timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                date: now.toISOString().split('T')[0],
-                type: 'text',
-            };
-
-            // CRITICAL: Immediately mark this message ID as processed to block the auto-send useEffect
-            processedMessagesRef.current.add(userMsg.id);
-
-            if (!existingMessageId) {
-                setMessages(prev => [...prev, userMsg]);
-            }
-
-            setInput('');
-            if (textareaRef.current) {
-                textareaRef.current.style.height = 'auto';
-            }
-
             logger.debug('Setting isThinking=true');
-            setIsThinking(true);
-            setThinkingText('Thinking');
-            userScrolledUpRef.current = false;
-            isAtBottomRef.current = true;
-
-            setTimeout(() => scrollToBottom(false), 0);
 
             // 3. WebSocket is already connected globally in App.tsx
             // checks are handled by handleGlobalChatEvent
@@ -1679,6 +1735,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     }, [pendingAIPrompt, onAIPromptSet, handleSend]);
 
+    // Feedback handler lifted to parent to persist state across remounts
+    const handleMessageFeedback = useCallback((messageId: string, feedback: 'like' | 'dislike' | null) => {
+        setMessages(prev => prev.map(msg =>
+            msg.id === messageId ? { ...msg, feedback } : msg
+        ));
+        // Sync to ref immediately for useConversations or other syncs
+        const updated = messagesRef.current.map(msg =>
+            msg.id === messageId ? { ...msg, feedback } : msg
+        );
+        messagesRef.current = updated;
+    }, []);
+
     const formatDateSeparator = (dateStr: string): string => {
         const date = new Date(dateStr);
         const today = new Date();
@@ -1703,6 +1771,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     //     { label: 'Top Gainers', desc: 'Tokens with highest 24h change' },
     //     { label: 'DeFi Yields', desc: 'Best stablecoin APYs' },
     // ];
+
 
     return (
         <div className={`${styles.chatContainer} ${styles[resolvedTheme]}`}>
@@ -1756,6 +1825,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 thinkingText={msg.role === 'assistant' && msg.id === messages[messages.length - 1]?.id ? thinkingText : undefined}
                                 userAddress={walletAddress}
                                 chainId={chainId}
+                                sessionId={conversationId || undefined}
+                                modelId={selectedModel?.id} // Pass current model for pricing calculation
+                                onFeedback={handleMessageFeedback}
                                 onCardAction={(action, data) => {
                                     if (action === 'swap-cancel') {
                                         // Update transaction status to cancelled

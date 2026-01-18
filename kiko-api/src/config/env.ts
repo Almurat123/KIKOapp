@@ -84,6 +84,7 @@ export interface EnvConfig {
         internalWebhookSecret?: string; // Secret for verifying internal Go service requests
     };
     aiModel: string; // AI Model for analysis
+    logLevel?: string; // Log level (debug, info, warn, error)
 }
 
 function validateEnv(): EnvConfig {
@@ -178,6 +179,7 @@ function validateEnv(): EnvConfig {
             internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET,
         },
         aiModel: process.env.AI_MODEL || 'grok-beta',
+        logLevel: process.env.LOG_LEVEL || 'info',
     };
 }
 

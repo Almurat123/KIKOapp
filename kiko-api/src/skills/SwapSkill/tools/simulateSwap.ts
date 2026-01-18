@@ -19,7 +19,9 @@ export const SimulateSwapTool: Tool = {
     },
     handler: async (args, context) => {
         try {
-            const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
+            const API_BASE =
+                process.env.API_BASE_URL ||
+                (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
             const accessToken = context?.accessToken;
 
             const response = await fetch(`${API_BASE}/api/swap/quote`, {

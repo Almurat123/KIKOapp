@@ -20,6 +20,7 @@ import { onSolanaSwapDetected, startSolanaWatcher } from './solanaWatcher.js';
 import { PublicKey } from '@solana/web3.js';
 import { getSolanaEmbeddedWalletAddress } from './privyWallet.js';
 import { analyzeTradeOpportunity } from './copyTradeAnalysisService.js';
+import { updateJudgeOutcome } from '../repositories/judgeRepository.js';
 import { createMessage, createSession } from '../repositories/chatRepository.js';
 import { ChatWebSocketService } from './chatWebSocket.js';
 import { env } from '../config/env.js';
@@ -31,6 +32,8 @@ import { getTokenDetails } from './geckoTerminal.js';
 import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
@@ -46,7 +49,8 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
     // Wait for any existing trade to complete
     const existingLock = userTradeLocks.get(userId);
     if (existingLock) {
-        console.log(`[AutoTrade] Waiting for existing trade lock for user ${userId.slice(0, 10)}...`);
+        logger.throttled(LogCode.WTC_TX_SKIPPED, `Waiting for existing trade lock for user ${userId.slice(0, 10)}...`, { userId });
+        let judgeDecisionId: string | undefined;
         try {
             await existingLock;
         } catch {
@@ -87,7 +91,7 @@ function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: numbe
     const lastSeen = recentSwaps.get(key);
 
     if (lastSeen && Date.now() - lastSeen < SWAP_DEDUP_WINDOW_MS) {
-        console.log(`[AutoTrade] ⏭️ Skipping duplicate swap (last seen ${Date.now() - lastSeen}ms ago)`);
+        logger.throttled(LogCode.WTC_TX_SKIPPED, `Skipping duplicate swap (last seen ${Date.now() - lastSeen}ms ago)`, { targetWallet, chainId });
         return true;
     }
 
@@ -117,13 +121,13 @@ export async function handleSwapDetected(
     swap: DecodedSwap,
     chainId: number
 ): Promise<void> {
-    console.log('[AutoTrade] ========== SWAP DETECTED ==========');
-    console.log('[AutoTrade] Processing swap from target:', {
+    logger.info(LogCode.WTC_SWAP_DETECTED, 'Swap detected on target wallet', {
         wallet: targetWallet,
         tokenIn: swap.tokenIn,
         tokenOut: swap.tokenOut,
         amountIn: swap.amountIn,
-        amountOut: swap.amountOut
+        amountOut: swap.amountOut,
+        chainId
     });
 
     // Check for duplicate swap
@@ -162,7 +166,7 @@ export async function handleSwapDetected(
     const isSell = !isTokenInCash && isTokenOutCash;
     const isTokenToToken = !isTokenInCash && !isTokenOutCash;
 
-    console.log('[AutoTrade] Detection result:', {
+    logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis complete', {
         isBuy,
         isSell,
         isTokenToToken,
@@ -171,20 +175,19 @@ export async function handleSwapDetected(
     });
 
     if (isSell) {
-        console.log('[AutoTrade] 🔴 TARGET IS SELLING - triggering mirror sell');
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });
         await handleTargetSell(targetWallet, swap, chainId);
     } else if (isBuy) {
-        console.log('[AutoTrade] 🟢 TARGET IS BUYING - triggering copy trade');
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
         await handleTargetBuy(targetWallet, swap, chainId);
     } else if (isTokenToToken) {
-        // Regular token-to-token (e.g., BRETT -> DEGEN)
-        console.log('[AutoTrade] ⚡ Parallel lightning trigger: SELL and BUY starting simultaneously');
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
         await Promise.all([
-            handleTargetSell(targetWallet, swap, chainId).catch(e => console.error('[AutoTrade] Sell error:', e)),
-            handleTargetBuy(targetWallet, swap, chainId).catch(e => console.error('[AutoTrade] Buy error:', e))
+            handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', { error: e.message })),
+            handleTargetBuy(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
         ]);
     } else {
-        console.log('[AutoTrade] ⚪ Cash-to-Cash or ignored swap type');
+        logger.throttled(LogCode.WTC_TX_SKIPPED, 'Cash-to-Cash or ignored swap type detected', { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut });
     }
 }
 
@@ -203,7 +206,7 @@ async function handleTargetBuy(
     // I will fix this logic now too: `const tokenToBuy = swap.tokenOut`.
     const tokenToBuy = swap.tokenOut;
 
-    console.log(`[AutoTrade] ⚡ Fast path start for ${tokenToBuy} from ${targetWallet.slice(0, 8)}...`);
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
 
     // 1. FIRST: Check for active configs. If none, exit immediately (No API calls, No Logs)
     const configs = await withRetry(() => prisma.copyTradeConfig.findMany({
@@ -216,7 +219,7 @@ async function handleTargetBuy(
     }));
 
     if (configs.length === 0) {
-        console.log('[AutoTrade] No active configs for this wallet');
+        logger.throttled(LogCode.WTC_TX_SKIPPED, 'No active configurations found for this wallet', { targetWallet, chainId });
         return;
     }
 
@@ -230,7 +233,10 @@ async function handleTargetBuy(
         // 🚨 Fallback: If we detected it as a valid Launchpad token (Clanker/Pump/etc), we might trust it blind
         // because DexScreener is slow to index new pairs.
         if (launchpadResult && launchpadResult.data) {
-            console.log(`[AutoTrade] ⚠️ ${tokenToBuy} missing DexScreener info, but is valid ${launchpadResult.provider.toUpperCase()} launchpad token. Using fallback info.`);
+            logger.warn(LogCode.DEC_FAILED_UNKNOWN_DEX, `${tokenToBuy} missing DexScreener info - using Launchpad fallback`, {
+                provider: launchpadResult.provider,
+                token: tokenToBuy
+            });
 
             // Construct fallback token info using launchpad data when available
             const lpData = launchpadResult.data;
@@ -261,7 +267,7 @@ async function handleTargetBuy(
             return;
         }
 
-        console.log(`[AutoTrade] ⏭️ Skipping for ${targetWallet.slice(0, 10)}: Could not get valid token info/price for ${tokenToBuy}`);
+        logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: No valid token information or price found', { targetWallet, token: tokenToBuy });
         return;
     }
 
@@ -280,7 +286,13 @@ async function processBuyWithInfo(
     tokenInfo: any,
     isFallbackMode: boolean
 ) {
-    console.log(`[AutoTrade] Found ${configs.length} config(s) for BUY. Price: $${tokenInfo.price} (Fallback: ${isFallbackMode})`);
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
+        count: configs.length,
+        price: tokenInfo.price,
+        fallback: isFallbackMode
+    });
+
+    let judgeDecisionId: string | null = null;
 
 
     // Calculate target swap value (buy volume)
@@ -323,14 +335,14 @@ async function processBuyWithInfo(
             const nativePrice = await getTokenInfo(chainConfig.wrappedNativeAddress, chainId).then(t => t?.price || 2500);
             targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativePrice;
         }
-        console.log(`[AutoTrade] Calculated value from tokenIn (${swap.tokenIn}): $${targetSwapValueUsd.toFixed(2)}`);
+        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token input', { valueUsd: targetSwapValueUsd, token: swap.tokenIn });
     } else {
         // Fallback to tokenOut
         const amountOutBN = BigInt(swap.amountOut);
         const splitDecimals = tokenInfo.decimals || 18;
         const formattedAmountOut = formatTokenAmount(amountOutBN, splitDecimals);
         targetSwapValueUsd = formattedAmountOut * tokenInfo.price;
-        console.log(`[AutoTrade] Calculated value from tokenOut (${swap.tokenOut}): $${targetSwapValueUsd.toFixed(2)}`);
+        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token output', { valueUsd: targetSwapValueUsd, token: swap.tokenOut });
     }
 
     // Record Leader Trade Stats (Buy)
@@ -354,7 +366,10 @@ async function processBuyWithInfo(
             const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
 
             if (!filterResult.passed) {
-                console.log(`[AutoTrade] ⏭️ Skipping for user ${config.userId}: ${filterResult.reason}`);
+                logger.info(LogCode.WTC_TX_SKIPPED, `Filter check failed for user`, {
+                    userId: config.userId,
+                    reason: filterResult.reason
+                });
                 continue;
             }
 
@@ -370,7 +385,11 @@ async function processBuyWithInfo(
                 });
 
                 if (recentBuy) {
-                    console.log(`[AutoTrade] ⏭️ Skipping: ${tokenToBuy} already bought within ${cooldownMinutes}m for user ${config.userId}`);
+                    logger.info(LogCode.WTC_TX_SKIPPED, 'Token in cooldown for user', {
+                        userId: config.userId,
+                        token: tokenToBuy,
+                        cooldownMinutes
+                    });
                     continue;
                 }
             }
@@ -387,124 +406,28 @@ async function processBuyWithInfo(
             });
 
             if (recentBuy) {
-                console.log(`[AutoTrade] ⏭️ Skipping: ${tokenToBuy} already bought within 1h for user ${config.userId}`);
+                logger.info(LogCode.WTC_TX_SKIPPED, 'Repeated buy prevention: token recently bought', {
+                    userId: config.userId,
+                    token: tokenToBuy
+                });
                 continue;
             }
-
-            // =================================================================
-            // 🆕 AI Analysis Logic
-            // =================================================================
-            if (config.aiAnalysisMode && config.aiAnalysisMode !== 'disabled') {
-                console.log(`[AutoTrade] AI Analysis Triggered (${config.aiAnalysisMode}) for user ${config.userId}`);
-
-                // 1. Perform Analysis
-                const analysis = await analyzeTradeOpportunity(
-                    tokenToBuy,
-                    chainId,
-                    targetWallet,
-                    config.buyAmountUsd  // Pass real user amount for proper L1-L4 risk assessment
-                );
-
-                // 2. Persist Analysis in DB
-                await prisma.copyTradeAnalysis.create({
-                    data: {
-                        configId: config.id,
-                        tokenAddress: tokenToBuy,
-                        tokenSymbol: tokenInfo.symbol || 'UNKNOWN',
-                        aiDecision: analysis.decision,
-                        confidenceScore: analysis.confidence,
-                        analysisJson: JSON.stringify(analysis),
-                    }
-                });
-
-                // 3. Notify User (Chat System)
-                try {
-                    // Create a new chat session for this alert using PostgreSQL (same DB as messages)
-                    const session = await createSession(
-                        config.user.privyDid,
-                        `🤖 AI Trade Analysis: ${tokenInfo.symbol}`,
-                        env.aiModel
-                    );
-                    const sessionId = session.id;
-
-                    // Format message content
-                    const messageContent = `
-🚨 **Copy Trade Opportunity Detected**
-Target Wallet: \`${targetWallet.slice(0, 6)}...${targetWallet.slice(-4)}\`
-Token: **${tokenInfo.symbol}** (\`${tokenToBuy}\`)
-
-🧠 **AI Decision**: ${analysis.decision === 'BUY' ? '✅ BUY' : '❌ SKIP'}
-**Confidence**: ${analysis.confidence}%
-**Reason**: ${analysis.reason}
-
-**Metrics**:
-- 🚀 Launchpad: ${analysis.metrics.launchpad}
-- 📉 5m Change: ${analysis.metrics.priceChange5m.toFixed(2)}%
-- 💧 Liquidity: $${analysis.metrics.liquidity.toLocaleString()}
-- 📊 Market Cap: $${analysis.metrics.marketCap.toLocaleString()}
-- 🐦 Social Score: ${analysis.metrics.socialScore}/100
-
-${analysis.rawAnalysis}
-                    `.trim();
-
-                    // Save message
-                    await createMessage(sessionId, 'assistant', messageContent);
-
-                    // Push via WebSocket
-                    ChatWebSocketService.getInstance().broadcastToUser(config.user.privyDid, {
-                        type: 'content_block',
-                        sessionId,
-                        data: {
-                            text: messageContent,
-                            final: true
-                        }
-                    });
-                    // This is "retrospective" availability, but we can also push a notification event later.
-
-                } catch (chatError) {
-                    console.error('[AutoTrade] Failed to send chat notification:', chatError);
-                }
-
-                // 4. Act on Decision (if auto_decide)
-                if (config.aiAnalysisMode === 'auto_decide') {
-                    // Fail-Closed: ONLY proceed if decision is precisely 'BUY' (mapped from Judge 'ALLOW')
-                    // 'SKIP' or any other decision stops the trade.
-                    if (analysis.decision !== 'BUY') {
-                        console.log(`[AutoTrade] AI FAIL-CLOSED: Stopping trade for ${config.userId}. Decision: ${analysis.decision}. Reason: ${analysis.reason}`);
-                        continue; // SKIP TRADE
-                    }
-
-                    // 5. Re-check Price (Safety Check)
-                    console.log('[AutoTrade] AI approved BUY (FAIL-CLOSED). Re-checking price...');
-                    const latestInfo = await getTokenInfo(tokenToBuy, chainId);
-                    if (latestInfo && tokenInfo.price > 0 && latestInfo.price > 0) {
-                        const priceChangeSinceStart = ((latestInfo.price - tokenInfo.price) / tokenInfo.price) * 100;
-                        // If price pumped more than 10% during analysis (3-8s), ABORT
-                        if (priceChangeSinceStart > 10) {
-                            console.warn(`[AutoTrade] ⚠️ Price pumped ${priceChangeSinceStart.toFixed(2)}% during analysis. Aborting trade.`);
-                            continue;
-                        }
-                    }
-                }
-                // If 'analyze_only', we just proceed regardless of decision
-            }
-            // =================================================================
 
             // === CONCURRENCY CONTROL (Simple Check) ===
             // Check if this user already has a trade pending - skip if so
             const userLockKey = `trade:${config.userId}`;
             if (userTradeLocks.has(userLockKey)) {
-                console.log(`[AutoTrade] ⏭️ Skipping: User ${config.userId.slice(0, 10)} already has a pending trade`);
+                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping: User already has a pending trade', { userId: config.userId });
                 continue;
             }
 
             // Calculate how much to buy in token units
             const usdAmount = config.buyAmountUsd;
 
-            console.log('[AutoTrade] Would execute BUY:', {
-                user: config.user.walletAddress.slice(0, 10),
-                tokenIn: 'ETH', // Usually buy with ETH
-                // Calculate amountIn (Native) from USD amount
+            logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Executing trade', {
+                userId: config.userId,
+                wallet: config.user.walletAddress,
+                usdAmount
             });
             let nativePrice = 2500; // Fallback
             let txHash = '';
@@ -514,12 +437,12 @@ ${analysis.rawAnalysis}
                 let solAddress: string | null = null;
                 try {
                     solAddress = await getSolanaEmbeddedWalletAddress(config.user.privyDid);
-                } catch (e) {
-                    console.error(`[AutoTrade] Error fetching Solana wallet for ${config.userId}:`, e);
+                } catch (e: any) {
+                    logger.error(LogCode.API_AUTH_FAILED, 'Error fetching Solana wallet from Privy', { userId: config.userId, error: e.message });
                 }
 
                 if (!solAddress) {
-                    console.log(`[AutoTrade] Skipping Solana trade for ${config.userId}: No Solana wallet in Privy.`);
+                    logger.warn(LogCode.API_AUTH_FAILED, 'Skipping Solana trade: No Solana wallet found in Privy', { userId: config.userId });
                     continue;
                 }
 
@@ -530,20 +453,22 @@ ${analysis.rawAnalysis}
                 const amountInLamports = Math.floor((usdAmount / nativePrice) * 1e9).toString();
                 const amountInSol = Number(amountInLamports) / 1e9;
 
-                console.log('[AutoTrade] Solana trade calculation:', {
+                logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Solana trade calculation complete', {
                     buyAmountUsd: usdAmount,
                     solPrice: nativePrice,
                     amountInSol: amountInSol.toFixed(6),
-                    amountInLamports,
-                    tokenToBuy: tokenToBuy.slice(0, 15) + '...',
-                    walletAddress: solAddress.slice(0, 15) + '...'
+                    token: tokenToBuy,
+                    wallet: solAddress
                 });
 
                 // Jupiter requires minimum trade size
                 // We lowered this to $0.5 per user request, but very small trades might still fail with "Route not found"
                 const MIN_TRADE_USD = 0.5;
                 if (usdAmount < MIN_TRADE_USD) {
-                    console.warn(`[AutoTrade] Trade amount $${usdAmount.toFixed(2)} is below minimum $${MIN_TRADE_USD}. Skipping.`);
+                    logger.throttled(LogCode.EXE_MIN_AMOUNT_NOT_MET, 'Trade amount below minimum threshold', {
+                        amountUsd: usdAmount,
+                        minUsd: MIN_TRADE_USD
+                    });
                     continue;
                 }
 
@@ -568,7 +493,7 @@ ${analysis.rawAnalysis}
                 let useStandardSwap = true;
 
                 if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
-                    console.log(`[AutoTrade] ⚡ Zora token detected and Fast Execution ON for user ${config.userId}. Using specialized Zora interaction.`);
+                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Zora token detected with fast execution enabled', { userId: config.userId, token: tokenToBuy });
                     try {
                         txHash = await zoraSniperService.fastSwap({
                             userId: config.user.privyDid,
@@ -581,12 +506,12 @@ ${analysis.rawAnalysis}
                         });
                         useStandardSwap = !txHash;
                     } catch (zoraErr: any) {
-                        console.warn(`[AutoTrade] Zora fast swap failed, falling back to standard route: ${zoraErr?.message || zoraErr}`);
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Zora fast swap failed, falling back to standard route', { userId: config.userId, error: zoraErr.message || zoraErr });
                         useStandardSwap = true;
                     }
                 } else if (launchpad && launchpad.provider === 'fourmeme') {
                     // Four.meme tokens can ONLY be traded via TokenManager2 contract
-                    console.log(`[AutoTrade] 🔶 Four.meme token detected. Using TokenManager2 buyTokenAMAP...`);
+                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - using specialized contract buy', { userId: config.userId, token: tokenToBuy });
                     const bnbAmount = (usdAmount / nativePrice).toFixed(6);
                     txHash = await fourMemeService.buyTokenAMAP({
                         userId: config.user.privyDid,
@@ -601,10 +526,10 @@ ${analysis.rawAnalysis}
 
                 if (useStandardSwap) {
                     if (launchpad && launchpad.provider === 'zora' && !isFastExecutionEnabled) {
-                        console.log(`[AutoTrade] Zora token detected but Fast Execution is OFF for user ${config.userId}. Using standard 0x swap.`);
+                        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Zora token detected but Fast Execution is disabled', { userId: config.userId });
                     }
                     if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
-                        console.log(`[AutoTrade] Falling back to standard swap after Zora fast swap failure for user ${config.userId}.`);
+                        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Falling back to standard swap after Zora fast swap failure', { userId: config.userId });
                     }
 
                     // === BUY WITH RETRY LOGIC (Hardened) ===
@@ -621,17 +546,21 @@ ${analysis.rawAnalysis}
                             const gasBuffer = ethers.parseEther("0.002"); // ~ $5-6 for gas
 
                             if (balance < (requiredParams + gasBuffer)) {
-                                console.warn(`[AutoTrade] ⏭️ Skipping: Insufficient balance for ${config.userId}. Has ${ethers.formatEther(balance)} ETH, needs ${baseAmount.toFixed(5)} + gas.`);
+                                logger.warn(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping: Insufficient balance for user', {
+                                    userId: config.userId,
+                                    has: ethers.formatEther(balance),
+                                    needs: baseAmount.toFixed(5)
+                                });
                                 continue;
                             }
-                        } catch (balErr) {
-                            console.warn(`[AutoTrade] Balance check failed, proceeding anyway:`, balErr);
+                        } catch (balErr: any) {
+                            logger.debug(LogCode.SYS_ERROR, 'Balance check failed, proceeding anyway', { error: balErr.message });
                         }
                     }
 
                     try {
                         // Step 1: Try with 100% amount, 10% slippage
-                        console.log(`[AutoTrade] Buy Step 1: 100% amount (${baseAmount.toFixed(6)} ETH), slippage ${baseSlippage}bps (10%)`);
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 1: 100% amount, 10% slippage', { userId: config.userId, eth: baseAmount.toFixed(6) });
                         txHash = await executeSwapInstant({
                             userId: config.user.privyDid,
                             walletAddress: config.user.walletAddress,
@@ -642,14 +571,14 @@ ${analysis.rawAnalysis}
                             slippageBps: baseSlippage,
                         });
                     } catch (buyErr1: any) {
-                        console.warn(`[AutoTrade] Buy Step 1 failed: ${buyErr1.message}. Delaying 1s...`);
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed, retrying...', { userId: config.userId, error: buyErr1.message });
                         await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
 
                         try {
                             // Step 2: Try with 99% amount + 15% slippage
                             const amount99 = baseAmount * 0.99;
                             const slippage2 = 1500; // 15%
-                            console.log(`[AutoTrade] Buy Step 2: 99% amount (${amount99.toFixed(6)} ETH), slippage ${slippage2}bps (15%)`);
+                            logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 15% slippage', { userId: config.userId, eth: amount99.toFixed(6) });
                             txHash = await executeSwapInstant({
                                 userId: config.user.privyDid,
                                 walletAddress: config.user.walletAddress,
@@ -660,14 +589,14 @@ ${analysis.rawAnalysis}
                                 slippageBps: slippage2,
                             });
                         } catch (buyErr2: any) {
-                            console.warn(`[AutoTrade] Buy Step 2 failed: ${buyErr2.message}. Delaying 1s...`);
+                            logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', { userId: config.userId, error: buyErr2.message });
                             await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
 
                             try {
                                 // Step 3: Final attempt with 98% amount + 20% slippage
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = 2000; // 20%
-                                console.log(`[AutoTrade] Buy Step 3: 98% amount (${amount98.toFixed(6)} ETH), slippage ${slippage3}bps (20%)`);
+                                logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 20% slippage', { userId: config.userId, eth: amount98.toFixed(6) });
                                 txHash = await executeSwapInstant({
                                     userId: config.user.privyDid,
                                     walletAddress: config.user.walletAddress,
@@ -678,7 +607,7 @@ ${analysis.rawAnalysis}
                                     slippageBps: slippage3,
                                 });
                             } catch (buyErr3: any) {
-                                console.error(`[AutoTrade] ❌ All buy steps failed for ${tokenToBuy}: ${buyErr3.message}`);
+                                logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', { userId: config.userId, token: tokenToBuy, error: buyErr3.message });
                                 continue; // Skip to next config
                             }
                         }
@@ -687,13 +616,13 @@ ${analysis.rawAnalysis}
             }
 
             if (!txHash) {
-                console.warn(`[AutoTrade] ❌ No txHash returned for buy of ${tokenToBuy}. Skipping position creation.`);
+                logger.warn(LogCode.EXE_TX_REVERTED, 'No txHash returned for buy. Skipping position creation.', { userId: config.userId, token: tokenToBuy });
                 continue;
             }
 
             // CRITICAL: Ensure price is valid before creating position to avoid infinite PNL
             if (!tokenInfo.price || tokenInfo.price <= 0) {
-                console.error(`[AutoTrade] ❌ Invalid entry price for ${tokenToBuy}: ${tokenInfo.price}. Skipping position record.`);
+                logger.error(LogCode.DEC_FAILED_UNKNOWN_DEX, 'Invalid entry price found, skipping position record to avoid PNL corruption', { token: tokenToBuy, price: tokenInfo.price });
                 continue;
             }
 
@@ -713,11 +642,93 @@ ${analysis.rawAnalysis}
                 },
             });
 
-            console.log(`[AutoTrade] Position created for user ${config.userId}`);
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
 
             // Track User Activity (Copy Trade + Swap Volume)
             trackCopyTrade(config.userId);
             trackSwap(config.userId, usdAmount);
+
+            // =================================================================
+            // 🆕 AI Analysis Logic (Post-Trade)
+            // =================================================================
+            if (config.aiAnalysisMode && config.aiAnalysisMode !== 'disabled') {
+                logger.info(LogCode.DEC_AI_RISK_CHECK, 'AI Analysis triggered for copy trade (post-trade)', {
+                    userId: config.userId,
+                    mode: config.aiAnalysisMode
+                });
+
+                const analysis = await analyzeTradeOpportunity(
+                    tokenToBuy,
+                    chainId,
+                    targetWallet,
+                    config.buyAmountUsd  // Pass real user amount for proper L1-L4 risk assessment
+                );
+                judgeDecisionId = analysis.judgeDecisionId ?? null;
+
+                await prisma.copyTradeAnalysis.create({
+                    data: {
+                        configId: config.id,
+                        tokenAddress: tokenToBuy,
+                        tokenSymbol: tokenInfo.symbol || 'UNKNOWN',
+                        aiDecision: analysis.decision,
+                        confidenceScore: analysis.confidence,
+                        analysisJson: JSON.stringify(analysis),
+                    }
+                });
+
+                try {
+                    const session = await createSession(
+                        config.user.privyDid,
+                        `🤖 AI Trade Analysis: ${tokenInfo.symbol}`,
+                        env.aiModel
+                    );
+                    const sessionId = session.id;
+
+                    const messageContent = `
+✅ **Copy Trade Executed**
+Target Wallet: \`${targetWallet.slice(0, 6)}...${targetWallet.slice(-4)}\`
+Token: **${tokenInfo.symbol}** (\`${tokenToBuy}\`)
+
+🧠 **AI Decision**: ${analysis.decision === 'BUY' ? '✅ BUY' : '❌ SKIP'}
+**Confidence**: ${analysis.confidence}%
+**Reason**: ${analysis.reason}
+
+**Metrics**:
+- 🚀 Launchpad: ${analysis.metrics.launchpad}
+- 📉 5m Change: ${analysis.metrics.priceChange5m.toFixed(2)}%
+- 💧 Liquidity: $${analysis.metrics.liquidity.toLocaleString()}
+- 📊 Market Cap: $${analysis.metrics.marketCap.toLocaleString()}
+- 🐦 Social Score: ${analysis.metrics.socialScore}/100
+
+${analysis.rawAnalysis}
+                    `.trim();
+
+                    await createMessage(sessionId, 'assistant', messageContent);
+
+                    ChatWebSocketService.getInstance().broadcastToUser(config.user.privyDid, {
+                        type: 'content_block',
+                        sessionId,
+                        data: {
+                            text: messageContent,
+                            final: true
+                        }
+                    });
+                } catch (chatError: any) {
+                    logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send chat notification', { userId: config.userId, error: chatError.message });
+                }
+
+                if (judgeDecisionId) {
+                    try {
+                        await updateJudgeOutcome(judgeDecisionId, {
+                            actualExecuted: true,
+                            actualOutcome: 'success',
+                        });
+                    } catch (updateError: any) {
+                        logger.warn(LogCode.SYS_ERROR, 'Failed to update judge outcome', { decisionId: judgeDecisionId, error: updateError.message });
+                    }
+                }
+            }
+            // =================================================================
 
             // =================================================================
             // 📧 Send Email Notification (Success)
@@ -725,7 +736,7 @@ ${analysis.rawAnalysis}
             try {
                 let userEmail = config.user.email;
                 if (!userEmail) {
-                    console.log(`[AutoTrade] 📧 Email missing in DB for ${config.userId}, fetching from Privy...`);
+                    logger.debug(LogCode.API_AUTH_FAILED, 'Email missing in DB, attempting to fetch from Privy provider', { userId: config.userId });
 
                     // Add a timeout to Privy call to prevent hanging the trade process
                     const privyPromise = (async () => {
@@ -741,16 +752,16 @@ ${analysis.rawAnalysis}
                     try {
                         userEmail = await Promise.race([privyPromise, timeoutPromise]);
                         if (userEmail) {
-                            console.log(`[AutoTrade] 📧 Successfully fetched email from Privy for ${config.userId}`);
+                            logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully recovered email from Privy', { userId: config.userId });
                             await prisma.user.update({
                                 where: { id: config.user.id },
                                 data: { email: userEmail }
                             });
                         } else {
-                            console.log(`[AutoTrade] ⚠️ No email found in Privy for user ${config.userId}`);
+                            logger.warn(LogCode.API_AUTH_FAILED, 'No email found in Privy for user', { userId: config.userId });
                         }
                     } catch (e: any) {
-                        console.error(`[AutoTrade] ❌ Failed to fetch email from Privy for ${config.userId}:`, e.message);
+                        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch email from Privy', { userId: config.userId, error: e.message });
                     }
                 }
 
@@ -766,8 +777,8 @@ ${analysis.rawAnalysis}
                         chainId: chainId
                     });
                 }
-            } catch (emailError) {
-                console.error('[AutoTrade] Failed to send success email:', emailError);
+            } catch (emailError: any) {
+                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send success email notification', { userId: config.userId, error: emailError.message });
             }
 
             // =================================================================
@@ -786,12 +797,17 @@ ${analysis.rawAnalysis}
                         message
                     });
                 }
-            } catch (fcError) {
-                console.error('[AutoTrade] Failed to send Farcaster DC:', fcError);
+            } catch (fcError: any) {
+                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send Farcaster DC for successful trade', { userId: config.userId, error: fcError.message });
             }
 
         } catch (error: any) {
-            console.error(`[AutoTrade] Error processing config ${config.id}:`, error);
+            logger.error(LogCode.SYS_ERROR, `Error processing trade configuration`, {
+                configId: config.id,
+                userId: config.userId,
+                error: error.message,
+                stack: error.stack
+            });
 
             // 📧 Send Email Notification (Failure)
             try {
@@ -805,8 +821,8 @@ ${analysis.rawAnalysis}
                         chainId: chainId
                     });
                 }
-            } catch (emailError) {
-                console.error('[AutoTrade] Failed to send failure email:', emailError);
+            } catch (emailError: any) {
+                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send failure email notification', { userId: config.userId, error: emailError.message });
             }
 
             // =================================================================
@@ -822,8 +838,8 @@ ${analysis.rawAnalysis}
                         message
                     });
                 }
-            } catch (fcError) {
-                console.error('[AutoTrade] Failed to send Farcaster DC (Failure):', fcError);
+            } catch (fcError: any) {
+                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send Farcaster failure notification', { userId: config.userId, error: fcError.message });
             }
         }
     }
@@ -847,7 +863,12 @@ async function executePositionExit(params: {
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, tokenInfo, config } = params;
 
-    console.log(`[AutoTrade] 🚪 Executing position exit for ${userId} (${tokenAddress}) - Reason: ${exitReason}`);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Executing position exit', {
+        userId,
+        token: tokenAddress,
+        reason: exitReason,
+        chainId
+    });
 
     let balance = 0n;
     let decimals = 18;
@@ -860,12 +881,12 @@ async function executePositionExit(params: {
             let solAddress: string | null = null;
             try {
                 solAddress = await getSolanaEmbeddedWalletAddress(user.privyDid);
-            } catch (e) {
-                console.error(`[AutoTrade] Error fetching Solana wallet for exit ${userId}:`, e);
+            } catch (e: any) {
+                logger.error(LogCode.API_AUTH_FAILED, 'Error fetching Solana wallet for exit', { userId, error: e.message });
             }
 
             if (!solAddress) {
-                console.log(`[AutoTrade] Skipping Solana sell: No Solana wallet.`);
+                logger.warn(LogCode.API_AUTH_FAILED, 'Skipping Solana sell: No Solana wallet found in Privy', { userId });
                 return null;
             }
 
@@ -884,7 +905,11 @@ async function executePositionExit(params: {
             const balanceUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
 
             if (balance <= 0n || balanceUsd < 0.1) {
-                console.log(`[AutoTrade] User has negligible balance of ${tokenAddress} ($${balanceUsd.toFixed(4)}), closing DB records only.`);
+                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Closing database record for empty or negligible balance', {
+                    userId,
+                    token: tokenAddress,
+                    balanceUsd
+                });
                 await prisma.position.updateMany({
                     where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
                     data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
@@ -892,7 +917,11 @@ async function executePositionExit(params: {
                 return null;
             }
 
-            console.log(`[AutoTrade] Selling ${balance.toString()} on Solana (Value: $${balanceUsd.toFixed(2)})`);
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Selling token on Solana', {
+                userId,
+                balance: balance.toString(),
+                valueUsd: balanceUsd.toFixed(2)
+            });
 
             let isPartialSell = false;
             try {
@@ -905,7 +934,7 @@ async function executePositionExit(params: {
                     slippageBps: Math.max(config.maxSlippageBps || 1000, 1000)
                 });
             } catch (e: any) {
-                console.warn(`[AutoTrade] Solana 100% sell failed: ${e.message}. Retrying...`);
+                logger.warn(LogCode.EXE_TX_REVERTED, 'Solana 100% sell failed, retrying with higher slippage', { userId, error: e.message });
                 try {
                     // Retry with 15% slippage
                     const highSlippage = Math.min(Math.max((config.maxSlippageBps || 500) * 2, 1500), 2500);
@@ -929,7 +958,7 @@ async function executePositionExit(params: {
                         });
                         isPartialSell = true;
                     } catch (e2: any) {
-                        console.error(`[AutoTrade] All Solana sell attempts failed: ${e2.message}`);
+                        logger.error(LogCode.EXE_TX_REVERTED, 'All Solana sell attempts failed', { userId, token: tokenAddress, error: e2.message });
                         throw e2; // Re-throw to trigger exit_failed
                     }
                 }
@@ -954,7 +983,9 @@ async function executePositionExit(params: {
                             });
                         }
                     }
-                } catch (sweepErr) { console.warn(`[AutoTrade] Solana sweep failed:`, sweepErr); }
+                } catch (sweepErr: any) {
+                    logger.debug(LogCode.EXE_TX_REVERTED, 'Solana dust sweep failed', { error: sweepErr.message });
+                }
             }
 
         } else {
@@ -975,7 +1006,7 @@ async function executePositionExit(params: {
             const balanceUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
 
             if (balance <= 0n || balanceUsd < 0.1) {
-                console.log(`[AutoTrade] Negligible EVM balance, closing DB records.`);
+                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', { userId, tokenAddress, balanceUsd });
                 await prisma.position.updateMany({
                     where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
                     data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
@@ -988,7 +1019,7 @@ async function executePositionExit(params: {
                 const safeBalance = balance > 0n ? balance - 1n : 0n;
                 // IMPROVED: 10% slippage for autotrade sell
                 const initialSlippage = Math.max(config.maxSlippageBps || 1000, 1000);
-                console.log(`[AutoTrade] Attempting sell with ${initialSlippage} bps (${(initialSlippage / 100).toFixed(1)}%) slippage...`);
+                logger.debug(LogCode.EXE_TX_BROADCAST, 'Attempting EVM sell with slippage', { userId, slippageBps: initialSlippage });
 
                 txHash = await executeSellInstant({
                     userId: user.privyDid,
@@ -1000,12 +1031,12 @@ async function executePositionExit(params: {
                     tokenDecimals: decimals
                 });
             } catch (e: any) {
-                console.warn(`[AutoTrade] EVM sell failed: ${e.message}. Retrying partial...`);
+                logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', { userId, error: e.message });
                 try {
                     const safeBalance999 = (balance * 999n) / 1000n;
                     // Retry with 15% slippage, capped at 25% max
                     const retrySlippage = Math.min(Math.max((config.maxSlippageBps || 500) * 2, 1500), 2500);
-                    console.log(`[AutoTrade] Retrying with ${retrySlippage} bps (${(retrySlippage / 100).toFixed(1)}%) slippage...`);
+                    logger.debug(LogCode.EXE_TX_BROADCAST, 'Retrying EVM sell with higher slippage', { userId, slippageBps: retrySlippage });
 
                     txHash = await executeSellInstant({
                         userId: user.privyDid,
@@ -1028,7 +1059,10 @@ async function executePositionExit(params: {
                                 tokenAddress: tokenAddress,
                                 amount: balance.toString(),
                             });
-                        } catch (fmErr) { console.error(`[AutoTrade] Four.meme fallback failed:`, fmErr); throw fmErr; } // Re-throw to trigger exit_failed
+                        } catch (fmErr: any) {
+                            logger.error(LogCode.EXE_TX_REVERTED, 'Four.meme fallback sell failed', { userId, token: tokenAddress, error: fmErr.message });
+                            throw fmErr;
+                        } // Re-throw to trigger exit_failed
                     } else { throw e2; } // Re-throw to trigger exit_failed
                 }
             }
@@ -1050,7 +1084,9 @@ async function executePositionExit(params: {
                             tokenDecimals: decimals
                         });
                     }
-                } catch (sweepErr) { console.warn(`[AutoTrade] EVM sweep failed:`, sweepErr); }
+                } catch (sweepErr: any) {
+                    logger.debug(LogCode.EXE_TX_REVERTED, 'EVM dust sweep failed', { error: sweepErr.message });
+                }
             }
         }
 
@@ -1066,7 +1102,7 @@ async function executePositionExit(params: {
                 },
             });
 
-            console.log(`[AutoTrade] ✅ Successfully closed positions for ${userId} via ${exitReason}. Tx: ${txHash}`);
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Position exit executed successfully', { userId, token: tokenAddress, reason: exitReason, txHash });
 
             // Tracking
             trackCopyTrade(userId);
@@ -1087,7 +1123,9 @@ async function executePositionExit(params: {
                         // Add exit reason to notification if possible, but the current template might not support it
                         // Just sending as success sell for now
                     });
-                } catch (emailErr) { console.error(`[AutoTrade] Email notification failed:`, emailErr); }
+                } catch (emailErr: any) {
+                    logger.error(LogCode.API_NOTIFY_FAILED, 'Email notification for sell failed', { userId, error: emailErr.message });
+                }
             }
 
             // =================================================================
@@ -1112,15 +1150,20 @@ async function executePositionExit(params: {
                         message
                     });
                 }
-            } catch (fcError) {
-                console.error('[AutoTrade] Failed to send Farcaster DC (Exit):', fcError);
+            } catch (fcError: any) {
+                logger.error(LogCode.API_NOTIFY_FAILED, 'Farcaster exit notification failed', { userId, error: fcError.message });
             }
         }
 
         return txHash;
 
-    } catch (error) {
-        console.error(`[AutoTrade] ❌ Error in executePositionExit:`, error);
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Critical error during position exit', {
+            userId,
+            token: tokenAddress,
+            error: error.message,
+            stack: error.stack
+        });
 
         // Close the position to prevent infinite retry loops
         // This happens when the token is a honeypot or has other issues preventing sells
@@ -1133,7 +1176,7 @@ async function executePositionExit(params: {
                     closedAt: new Date(),
                 },
             });
-            console.log(`[AutoTrade] ⚠️  Marked position as closed (exit_failed) to prevent retry loop for ${tokenAddress}`);
+            logger.warn(LogCode.EXE_TX_REVERTED, 'Marked position as failed-exit to prevent retry loops', { userId, token: tokenAddress });
 
             // =================================================================
             // 🟣 Send Farcaster Direct Cast (Exit Failure)
@@ -1148,11 +1191,11 @@ async function executePositionExit(params: {
                         message
                     });
                 }
-            } catch (fcError) {
-                console.error('[AutoTrade] Failed to send Farcaster DC (Exit Failure):', fcError);
+            } catch (fcError: any) {
+                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send Farcaster DC for exit failure', { userId: config.user.privyDid, error: fcError.message });
             }
-        } catch (dbErr) {
-            console.error(`[AutoTrade] Failed to update position status:`, dbErr);
+        } catch (dbErr: any) {
+            logger.error(LogCode.SYS_ERROR, 'Failed to update position status during exit failure handler', { error: dbErr.message });
         }
 
         return null;
@@ -1179,7 +1222,7 @@ async function handleTargetSell(
 
     if (configs.length === 0) return;
 
-    console.log(`[AutoTrade] ⚡ Mirror sell: Found ${configs.length} config(s) for ${tokenToSell}`);
+    logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: configs.length, targetWallet });
 
     await Promise.all(configs.map(async (config) => {
         const [positions, tokenInfo] = await Promise.all([
@@ -1197,7 +1240,7 @@ async function handleTargetSell(
 
         const positionIds = positions.map(p => p.id);
         if (positionIds.some(id => positionsBeingExited.has(id))) {
-            console.log(`[AutoTrade] ⏭️  Mirror sell skipped - position already being processed for ${config.userId}`);
+            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
             return;
         }
 
@@ -1227,7 +1270,7 @@ async function handleTargetSell(
  * Initialize the auto trade service
  */
 export function initAutoTradeService(): void {
-    console.log('[AutoTrade] Initializing auto trade service...');
+    logger.info(LogCode.SYS_STARTUP, 'Initializing auto trade service...');
 
     // Register swap callbacks
     onSwapDetected(handleSwapDetected);
@@ -1237,7 +1280,7 @@ export function initAutoTradeService(): void {
     // startWatcher(); // Disabled - webhook is faster and more efficient
     startSolanaWatcher(); // Keep Solana watcher (no webhook alternative)
 
-    console.log('[AutoTrade] Auto trade service initialized (Solana watcher + EVM webhook)');
+    logger.info(LogCode.SYS_STARTUP, 'Auto trade service initialized (Solana watcher + EVM webhook enabled)', { mode: 'hybrid' });
 }
 
 /**
@@ -1255,11 +1298,11 @@ export async function checkPositionsForExits(): Promise<void> {
     });
 
     if (positions.length === 0) {
-        console.log('[PositionMonitor] No open positions to check');
+        logger.throttled(LogCode.SYS_STARTUP, 'No open positions to monitor');
         return;
     }
 
-    console.log(`[PositionMonitor] Checking ${positions.length} open position(s)...`);
+    logger.debug(LogCode.SYS_STARTUP, `Monitoring open positions`, { count: positions.length });
 
     // Batch fetch configs for efficiency
     const configIds = [...new Set(positions.map(p => p.configId))];
@@ -1271,7 +1314,7 @@ export async function checkPositionsForExits(): Promise<void> {
     for (const position of positions) {
         // Skip if this position is already being processed
         if (positionsBeingExited.has(position.id)) {
-            console.log(`[PositionMonitor] ⏭️  Skipping position ${position.id} - already being processed`);
+            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping position check: exit already in progress', { positionId: position.id });
             continue;
         }
 
@@ -1297,7 +1340,11 @@ export async function checkPositionsForExits(): Promise<void> {
 
                     // If balance is essentially zero (< $0.10), close position
                     if (balance === 0n || balanceUsd < 0.1) {
-                        console.log(`[PositionMonitor] 🧹 Auto-closing position ${position.id.slice(0, 8)} - Zero balance detected (user sold or dust remaining)`);
+                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: Zero or dust balance detected on-chain', {
+                            positionId: position.id,
+                            balanceUsd,
+                            reason: balance === 0n ? 'empty' : 'dust'
+                        });
                         await prisma.position.update({
                             where: { id: position.id },
                             data: {
@@ -1308,8 +1355,8 @@ export async function checkPositionsForExits(): Promise<void> {
                         });
                         continue; // Skip TP/SL checks for this position
                     }
-                } catch (balanceError) {
-                    console.warn(`[PositionMonitor] Failed to check balance for ${position.id}:`, balanceError);
+                } catch (balanceError: any) {
+                    logger.debug(LogCode.SYS_ERROR, 'On-chain balance check failed during monitor', { positionId: position.id, error: balanceError.message });
                     // Continue to TP/SL checks even if balance check fails
                 }
             }
@@ -1336,7 +1383,10 @@ export async function checkPositionsForExits(): Promise<void> {
 
             // Check take profit
             if (config.takeProfitPct && profitLossPct >= config.takeProfitPct) {
-                console.log(`[AutoTrade] 📈 Take profit triggered for position ${position.id}: ${profitLossPct.toFixed(2)}%`);
+                logger.info(LogCode.EXE_TX_BROADCAST, 'Take Profit triggered', {
+                    positionId: position.id,
+                    profitLossPct: profitLossPct.toFixed(2)
+                });
 
                 // Mark as being processed
                 positionsBeingExited.add(position.id);
@@ -1358,7 +1408,10 @@ export async function checkPositionsForExits(): Promise<void> {
 
             // Check stop loss
             else if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
-                console.log(`[AutoTrade] 📉 Stop loss triggered for position ${position.id}: ${profitLossPct.toFixed(2)}%`);
+                logger.info(LogCode.EXE_TX_BROADCAST, 'Stop Loss triggered', {
+                    positionId: position.id,
+                    profitLossPct: profitLossPct.toFixed(2)
+                });
 
                 // Mark as being processed
                 positionsBeingExited.add(position.id);
@@ -1378,8 +1431,8 @@ export async function checkPositionsForExits(): Promise<void> {
                 }
             }
 
-        } catch (error) {
-            console.error(`[AutoTrade] Error checking position ${position.id}:`, error);
+        } catch (error: any) {
+            logger.error(LogCode.SYS_ERROR, 'Error monitoring position', { positionId: position.id, error: error.message });
         }
     }
 }
@@ -1400,7 +1453,7 @@ function formatTokenAmount(amount: bigint, decimals: number): number {
     const formatted = ethers.formatUnits(amount, decimals);
     const value = Number(formatted);
     if (!Number.isFinite(value)) {
-        console.warn('[AutoTrade] Token amount overflow; treating as 0');
+        logger.warn(LogCode.SYS_ERROR, 'Token amount overflow during formatting', { amount: amount.toString(), decimals });
         return 0;
     }
     return value;
@@ -1437,7 +1490,7 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
     if (!forceRefresh) {
         const cached = tokenInfoCache.get(cacheKey);
         if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-            if (verbose) console.log(`[AutoTrade] Cache hit for ${tokenInfoCache.get(cacheKey)?.data.symbol}`);
+            logger.debug(LogCode.API_FETCH_SUCCESS, `Cache hit for token info`, { symbol: cached.data.symbol, token: tokenAddress });
             return cached.data;
         }
     }
@@ -1453,7 +1506,7 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
     await new Promise(resolve => setTimeout(resolve, jitter));
 
     if (verbose) {
-        console.log(`[AutoTrade] getTokenInfo: Fetching ${tokenAddress} (Chain: ${chainId}, Jitter: ${jitter}ms)`);
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching token information', { token: tokenAddress, chainId, jitterMs: jitter });
     }
 
     // --- STEP 1: Try DexScreener (Primary) ---
@@ -1475,7 +1528,7 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
             clearTimeout(timeoutId);
 
             if (res.status === 429) {
-                if (verbose) console.warn(`[AutoTrade] DexScreener 429 (Rate Limit) for ${tokenAddress} on attempt ${attempt}`);
+                logger.warn(LogCode.API_RATE_LIMIT, 'DexScreener rate limited', { token: tokenAddress, attempt });
                 throw new Error('429');
             }
 
@@ -1505,7 +1558,7 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
                     websites: pair.info?.websites || [],
                     provider: 'dexscreener'
                 };
-                if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (DexScreener) - ${successResult.symbol} $${successResult.price}`);
+                logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from DexScreener', { symbol: successResult.symbol, price: successResult.price });
 
                 // Cache Result
                 tokenInfoCache.set(cacheKey, { data: successResult, timestamp: Date.now() });
@@ -1513,7 +1566,7 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
             }
 
             // If no pairs found, don't retry dexscreener, move to fallback
-            if (verbose) console.warn(`[AutoTrade] DexScreener: No pairs for ${tokenAddress}`);
+            logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener: No liquid pairs found for token', { token: tokenAddress });
             break;
 
         } catch (e: any) {
@@ -1521,7 +1574,7 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
             if (attempt < MAX_RETRIES && (e.message === '429' || e.name === 'AbortError')) {
                 // Exponential Backoff: 1s, 2s, 4s...
                 const wait = 1000 * Math.pow(2, attempt - 1);
-                console.log(`[AutoTrade] Retrying DexScreener in ${wait}ms...`);
+                logger.debug(LogCode.API_TIMEOUT, 'Retrying DexScreener fetch', { waitMs: wait, attempt });
                 await new Promise(resolve => setTimeout(resolve, wait));
                 continue;
             }
@@ -1530,7 +1583,7 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
     }
 
     // --- STEP 2: Try GeckoTerminal (Fallback) ---
-    if (verbose) console.log(`[AutoTrade] getTokenInfo: DexScreener failed or limited. Falling back to GeckoTerminal for ${tokenAddress}...`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'DexScreener insufficient, attempting GeckoTerminal fallback', { token: tokenAddress });
     try {
         const gtData = await getTokenDetails(gtSlug, tokenAddress);
         if (gtData) {
@@ -1548,16 +1601,16 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
                 websites: gtData.websites || [],
                 provider: 'geckoterminal'
             };
-            if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (GeckoTerminal) - ${result.symbol} $${result.price}`);
+            logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from GeckoTerminal', { symbol: result.symbol, price: result.price });
             return result;
         }
     } catch (gtErr: any) {
-        if (verbose) console.error(`[AutoTrade] getTokenInfo: GeckoTerminal fallback also failed:`, gtErr.message);
+        logger.debug(LogCode.API_FETCH_FAILED, 'GeckoTerminal fallback failed', { token: tokenAddress, error: gtErr.message });
     }
 
     // --- STEP 3: Try ZORA API (For Base chain launchpad tokens) ---
     if (chainId === 8453) {
-        if (verbose) console.log(`[AutoTrade] getTokenInfo: Trying ZORA API fallback for Base token ${tokenAddress}...`);
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Attempting Zora API fallback for Base token', { token: tokenAddress });
         try {
             const zoraUrl = `https://api-sdk.zora.engineering/coin?address=${tokenAddress}&chain=8453`;
             const zoraRes = await fetch(zoraUrl, {
@@ -1578,17 +1631,17 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
                         marketCap: parseFloat(zoraData.marketCap),
                         provider: 'zora'
                     };
-                    if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (Zora) - ${result.symbol} $${result.price}`);
+                    logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from Zora', { symbol: result.symbol, price: result.price });
                     return result;
                 }
             }
-        } catch (e) {
-            if (verbose) console.warn(`[AutoTrade] ZORA API failed for ${tokenAddress}`);
+        } catch (e: any) {
+            logger.debug(LogCode.API_FETCH_FAILED, 'Zora API fallback failed', { token: tokenAddress, error: e.message });
         }
     }
 
     // --- STEP 4: Try Moralis (4th API Fallback) ---
-    if (verbose) console.log(`[AutoTrade] getTokenInfo: Falling back to Moralis (4th API) for ${tokenAddress}...`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Attempting Moralis fallback as final source', { token: tokenAddress });
     try {
         const MORALIS_API_KEY = process.env.MORALIS_API_KEY || '';
         const chain = moralisService.CHAIN_MAPPING[chainId];
@@ -1613,16 +1666,16 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
                         marketCap: 0,
                         provider: 'moralis'
                     };
-                    if (verbose) console.log(`[AutoTrade] getTokenInfo: Success (Moralis) - $${result.price}`);
+                    logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched price from Moralis', { price: result.price });
                     return result;
                 }
             }
         }
-    } catch (e) {
-        if (verbose) console.warn(`[AutoTrade] Moralis price fetch failed for ${tokenAddress}`);
+    } catch (e: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'Moralis price fetch failed', { token: tokenAddress, error: e.message });
     }
 
-    if (verbose) console.error(`[AutoTrade] getTokenInfo: All 4 data sources failed for ${tokenAddress}. Last DS Error: ${dsError?.message}`);
+    logger.error(LogCode.API_FETCH_FAILED, 'All token info data sources failed', { token: tokenAddress, lastError: dsError?.message });
     return null;
 }
 

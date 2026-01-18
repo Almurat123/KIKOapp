@@ -21,6 +21,11 @@ export interface UserContext {
     currentPage?: string;
     pendingSwapToken?: { address: string; symbol: string; chainId: number };
     toolConfig?: any;
+    intentHints?: {
+        conflict?: string;
+        question?: string;
+        labels?: string[];
+    };
 }
 
 export interface OrchestratorOptions {

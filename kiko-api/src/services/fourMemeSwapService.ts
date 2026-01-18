@@ -13,6 +13,8 @@ import {
 } from 'viem';
 import { base, bsc } from 'viem/chains';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Four.Meme Helper V3 Addresses
 const FOURMEME_HELPER = {
@@ -69,7 +71,7 @@ export class FourMemeSwapService {
         chainId: number;
         slippage?: number;
     }): Promise<string> {
-        console.log(`[FourMemeService] ⚡ Executing FastSwap...`);
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Executing Four.Meme FastSwap');
 
         if (!isPrivyConfigured()) {
             throw new Error('Privy not configured');
@@ -93,10 +95,11 @@ export class FourMemeSwapService {
         const [version, tokenManager, quote, , , , , , , , , liquidityAdded] = info;
 
         if (liquidityAdded) {
+            logger.warn(LogCode.EXE_TX_REVERTED, 'Four.Meme: Liquidity already added to DEX', { token: targetToken });
             throw new Error('Liquidity already added to DEX. Use aggregator instead.');
         }
 
-        console.log(`[FourMemeService] Token Info: Version=${version}, Manager=${tokenManager}, Quote=${quote}`);
+        logger.debug(LogCode.SYS_INFO, 'Four.Meme Token Info fetched', { version: version.toString(), manager: tokenManager, quote });
 
         let txData: `0x${string}`;
         let txTo: Address = tokenManager as Address;
@@ -152,7 +155,7 @@ export class FourMemeSwapService {
             });
 
             if (allowance < amountInWei) {
-                console.log(`[FourMemeService] Approving TokenManager...`);
+                logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Approving TokenManager', { token: targetToken });
                 const approveData = encodeFunctionData({
                     abi: ERC20_ABI,
                     functionName: 'approve',
@@ -192,7 +195,7 @@ export class FourMemeSwapService {
             chainId: params.chainId,
         });
 
-        console.log(`[FourMemeService] ✅ Swap Success! Hash: ${txHash}`);
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme Swap Success', { txHash, chainId: params.chainId });
         return txHash;
     }
 }

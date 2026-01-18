@@ -60,7 +60,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
             {/* AI Analysis Mode */}
             <div className={styles.section}>
                 <div className={styles.inputGroup}>
-                    <label className={`${styles.label} ${styles.labelAi}`}>🤖 AI Analysis</label>
+                    <label className={`${styles.label} ${styles.labelAi}`}>Analysis Power by Grok</label>
                     <CustomSelect
                         value={formData.aiAnalysisMode || 'disabled'}
                         onChange={(val: string) => setFormData({ ...formData, aiAnalysisMode: val as any })}
@@ -116,7 +116,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                         />
                     </div>
                     <div className={styles.inputGroup}>
-                        <label className={`${styles.label} ${styles.labelSl}`}>止损 Stop Loss (%)</label>
+                        <label className={`${styles.label} ${styles.labelSl}`}>Stop Loss (%)</label>
                         <input
                             type="number"
                             value={formData.stopLossPct ?? ''}

@@ -9,11 +9,13 @@ import styles from './TradePage.module.css';
 import clsx from 'clsx';
 import { Dialog } from '../components/Dialog/Dialog';
 import { StrategyEditForm } from '../components/Trade/StrategyEditForm';
+import { Activity, TrendingUp } from 'lucide-react';
 
 export const TradePage: React.FC = () => {
   const { resolvedTheme } = useThemeContext();
   const {
     strategies,
+    stats,
     isLoading,
     updateStrategy,
     deleteStrategy,
@@ -62,18 +64,35 @@ export const TradePage: React.FC = () => {
       <div className={clsx(styles.tradePage, resolvedTheme)}>
         <div className={styles.container}>
           {/* Unified Top Bar (Overview & Stats) */}
+          {/* Unified Top Bar (Overview & Stats) */}
           <div className={styles.topBar}>
-            <div className={styles.topBarLeft}>
-              {/* No Title text as requested, just stats or minimal info */}
-              <div className={styles.statBadge}>
-                <span className={styles.statLabel}>Total Strategies</span>
-                <span className={styles.statValue}>{strategies.length}</span>
+            <div className={styles.statsGrid}>
+              <div className={styles.statCard}>
+                <div className={styles.statHeader}>
+                  <span className={styles.statLabel}>Total Executed Trades</span>
+                  <Activity size={20} className={styles.statIcon} />
+                </div>
+                <div>
+                  <div className={styles.statValue}>{stats.totalExecutions}</div>
+                  <div className={styles.statSubtext}>Across all active strategies</div>
+                </div>
               </div>
-              <div className={styles.statBadge}>
-                <span className={styles.statLabel}>Active</span>
-                <span className={clsx(styles.statValue, styles.statActive)}>
-                  {strategies.filter(s => s.status === 'active').length}
-                </span>
+
+              <div className={styles.statCard}>
+                <div className={styles.statHeader}>
+                  <span className={styles.statLabel}>Total PnL</span>
+                  <TrendingUp size={20} className={styles.statIcon} />
+                </div>
+                <div>
+                  <div className={clsx(styles.statValue, {
+                    [styles.statValueGreen]: stats.totalPnL >= 0,
+                    [styles.statValueRed]: stats.totalPnL < 0
+                  })}>
+                    {stats.totalPnL >= 0 ? '+' : ''}
+                    {stats.totalPnL.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                  </div>
+                  <div className={styles.statSubtext}>Realized Profit & Loss</div>
+                </div>
               </div>
             </div>
           </div>

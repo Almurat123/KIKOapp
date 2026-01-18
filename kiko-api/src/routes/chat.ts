@@ -293,6 +293,43 @@ export async function chatRoutes(fastify: FastifyInstance) {
         }
     );
 
+    // Update message feedback
+    fastify.put<{ Params: { sessionId: string; messageId: string }; Body: { feedback: 'like' | 'dislike' | null } }>(
+        '/sessions/:sessionId/messages/:messageId/feedback',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest<{ Params: { sessionId: string; messageId: string }; Body: { feedback: 'like' | 'dislike' | null } }>, reply: FastifyReply) => {
+            try {
+                const userId = (request as any).user?.sub;
+                const { sessionId, messageId } = request.params;
+                const { feedback } = request.body;
+
+                const session = await chatRepo.getSession(sessionId);
+                if (!session) {
+                    return reply.code(404).send({ error: 'Session not found' });
+                }
+                if (session.userId !== userId) {
+                    return reply.code(403).send({ error: 'Access denied' });
+                }
+
+                // Verify message belongs to session
+                const message = await chatRepo.getMessage(messageId);
+                if (!message || message.sessionId !== sessionId) {
+                    return reply.code(404).send({ error: 'Message not found in this session' });
+                }
+
+                const updatedMessage = await chatRepo.updateMessage(messageId, { feedback });
+
+                return reply.send({
+                    success: true,
+                    message: updatedMessage
+                });
+            } catch (error: any) {
+                fastify.log.error('Error updating feedback:', error);
+                return reply.code(500).send(sanitizedErrorResponse(error, 'updateFeedback'));
+            }
+        }
+    );
+
     // Get session messages
     fastify.get<{ Params: { sessionId: string } }>(
         '/sessions/:sessionId/messages',

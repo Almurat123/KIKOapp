@@ -50,6 +50,7 @@ export const GetWalletInfoTool: Tool = {
                     42161: 'arbitrum',
                     10: 'optimism',
                     137: 'polygon',
+                    900: 'solana',
                     43114: 'avalanche',
                     250: 'fantom',
                 };
@@ -57,6 +58,11 @@ export const GetWalletInfoTool: Tool = {
             }
 
             const chain = args.chain || contextChain;
+            if ((chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol') && context?.solanaAddress) {
+                if (!targetAddress || targetAddress.startsWith('0x')) {
+                    targetAddress = context.solanaAddress;
+                }
+            }
 
             // Fallback Logic: Alchemy -> QuickNode
             let balanceData;
@@ -127,9 +133,24 @@ export const GetWalletInfoTool: Tool = {
                 tokens: balanceData.tokens.map((t: any) => ({
                     symbol: t.symbol,
                     balance: t.balance || t.tokenBalance, // Handle both formats
-                    contract: t.contract || t.contractAddress
+                    contract: t.contract || t.contractAddress,
+                    valueUsd: t.valueUsd ?? (() => {
+                        const balance = parseFloat(t.balance || t.tokenBalance || '0');
+                        return t.price ? balance * t.price : undefined;
+                    })()
                 }))
             };
+
+            const nativePriceUsd = balanceData.ethPrice ?? null;
+            const nativeValueUsd = nativePriceUsd
+                ? balanceData.ethBalanceFormatted * nativePriceUsd
+                : null;
+            const tokenValueSum = result.tokens.reduce((sum: number, token: any) => {
+                return sum + (token.valueUsd ?? 0);
+            }, 0);
+            result.nativePriceUsd = nativePriceUsd;
+            result.nativeValueUsd = nativeValueUsd;
+            result.totalValueUsd = (nativeValueUsd ?? 0) + tokenValueSum;
 
             // Fetch history if requested
             if (args.includeHistory) {

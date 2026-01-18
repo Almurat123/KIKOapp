@@ -311,6 +311,22 @@
     color: var(--text-secondary);
 }
 
+.loadMoreBtn {
+    margin-left: 12px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.loadMoreBtn:hover {
+    background: var(--bg-tertiary);
+}
+
 .spinner {
     margin-right: 8px;
     animation: spin 1s linear infinite;

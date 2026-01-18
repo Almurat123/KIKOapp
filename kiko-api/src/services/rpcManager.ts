@@ -43,7 +43,7 @@ export const RPC_ENDPOINTS = {
         'https://solana-rpc.publicnode.com',
         'https://solana.drpc.org',
         `https://rpc.ankr.com/solana/${env.apiKeys.ankr || DEFAULT_ANKR_KEY}`,
-        env.apiKeys.helius ? `https://mainnet.helius-rpc.com/${env.apiKeys.helius}` : '',
+        env.apiKeys.helius ? `https://mainnet.helius-rpc.com/?api-key=${env.apiKeys.helius}` : '',
     ].filter(Boolean),
 };
 

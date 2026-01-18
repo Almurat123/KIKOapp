@@ -9,6 +9,8 @@
  */
 
 import WebSocket from 'ws';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // DexScreener WebSocket base URL
 const WS_BASE_URL = 'wss://io.dexscreener.com/dex/screener/v5/pairs';
@@ -58,14 +60,14 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
 
     // Check if chain is supported
     if (!WS_SUPPORTED_CHAINS.includes(normalizedChain as WSSupportedChain)) {
-        console.warn(`[DexScreener WS] Chain ${chain} not supported for WebSocket, returning empty`);
+        logger.warn(LogCode.SYS_INFO, 'DexScreener WS: Chain not supported', { chain, normalizedChain });
         return [];
     }
 
     // Build WebSocket URL
     const url = `${WS_BASE_URL}/${timeFrame}/1?rankBy[key]=${rankBy}&rankBy[order]=desc&filters[chainIds][0]=${normalizedChain}`;
 
-    console.log(`[DexScreener WS] Connecting to: ${url}`);
+    logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Connecting', { chain: normalizedChain, timeFrame });
 
     return new Promise((resolve, reject) => {
         const startTime = Date.now();
@@ -82,14 +84,14 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
         const timeoutId = setTimeout(() => {
             if (!resolved) {
                 resolved = true;
-                console.warn(`[DexScreener WS] Timeout after ${timeout}ms`);
+                logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener WS: Timeout', { chain: normalizedChain, timeout });
                 ws.close();
                 resolve([]); // Return empty on timeout, don't reject
             }
         }, timeout);
 
         ws.on('open', () => {
-            console.log(`[DexScreener WS] Connected to ${normalizedChain}`);
+            logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Connected', { chain: normalizedChain });
         });
 
         ws.on('message', (data: Buffer) => {
@@ -139,21 +141,21 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
                     const uniqueAddresses = [...new Set(allAddresses)];
 
                     const duration = Date.now() - startTime;
-                    console.log(`[DexScreener WS] Received ${uniqueAddresses.length} unique addresses for ${normalizedChain} in ${duration}ms`);
+                    logger.info(LogCode.SYS_INFO, 'DexScreener WS: Received trending addresses', { chain: normalizedChain, count: uniqueAddresses.length, durationMs: duration });
 
                     resolved = true;
                     clearTimeout(timeoutId);
                     ws.close();
                     resolve(uniqueAddresses);
                 }
-            } catch (error) {
-                console.error(`[DexScreener WS] Error parsing message:`, error);
+            } catch (error: any) {
+                logger.error(LogCode.SYS_ERROR, 'DexScreener WS: Error parsing message', { error: error.message });
             }
         });
 
         ws.on('error', (error) => {
             if (!resolved) {
-                console.error(`[DexScreener WS] Connection error:`, error.message);
+                logger.error(LogCode.SYS_ERROR, 'DexScreener WS: Connection error', { error: error.message, chain: normalizedChain });
                 resolved = true;
                 clearTimeout(timeoutId);
                 resolve([]); // Return empty on error, don't reject
@@ -191,7 +193,7 @@ export async function fetchTrendingAddressesMultiChain(
         return WS_SUPPORTED_CHAINS.includes(normalized as WSSupportedChain);
     });
 
-    console.log(`[DexScreener WS] Fetching trending for chains: ${wsChains.join(', ')}`);
+    logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Fetching multi-chain trending', { chains: wsChains });
 
     // Fetch all chains in parallel
     const promises = wsChains.map(async (chain) => {

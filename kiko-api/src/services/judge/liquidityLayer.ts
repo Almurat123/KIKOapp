@@ -35,7 +35,7 @@ export function evaluateLiquidityLayer(
             slippage_estimate: 0,
             liquidity_risk_score: 0.9,
             liquidity_decision: 'ALLOW',
-            reasons: ['固定池子定价 - 无滑点风险'],
+            reasons: ['Fixed pool pricing - no slippage risk'],
         };
     }
 
@@ -61,19 +61,19 @@ export function evaluateLiquidityLayer(
     if (lpDepthUsd < 1000) {
         riskScore = 0.1;
         decision = 'BLOCK';
-        reasons.push(`池子极浅 ($${lpDepthUsd.toFixed(0)}) - 高 Rug 风险`);
-        reasons.push('任何金额都将造成巨大滑点');
+        reasons.push(`Pool is extremely shallow ($${lpDepthUsd.toFixed(0)}) - high rug risk`);
+        reasons.push('Any amount will cause huge slippage');
 
         // Very shallow pool
     } else if (lpDepthUsd < 5000) {
         riskScore = 0.25;
         if (userAmountUsd > lpDepthUsd * 0.05) {
             decision = 'BLOCK';
-            reasons.push(`用户金额 ($${userAmountUsd}) 占池子 ${(impactRatio * 100).toFixed(1)}%`);
-            reasons.push('预估滑点过高，建议减少金额');
+            reasons.push(`User amount ($${userAmountUsd}) is ${(impactRatio * 100).toFixed(1)}% of pool`);
+            reasons.push('Estimated slippage too high, reduce amount');
         } else {
             decision = 'ALLOW_WITH_RISK';
-            reasons.push(`池子较浅 ($${lpDepthUsd.toFixed(0)}) - 需谨慎`);
+            reasons.push(`Pool is shallow ($${lpDepthUsd.toFixed(0)}) - proceed with caution`);
         }
 
         // Shallow pool
@@ -81,15 +81,15 @@ export function evaluateLiquidityLayer(
         if (slippageEstimate > 0.15) {
             riskScore = 0.35;
             decision = 'ALLOW_WITH_RISK';
-            reasons.push(`预估滑点 ${(slippageEstimate * 100).toFixed(1)}% - 较高`);
+            reasons.push(`Estimated slippage ${(slippageEstimate * 100).toFixed(1)}% - high`);
         } else if (slippageEstimate > 0.05) {
             riskScore = 0.5;
             decision = 'ALLOW_WITH_RISK';
-            reasons.push(`预估滑点 ${(slippageEstimate * 100).toFixed(1)}%`);
+            reasons.push(`Estimated slippage ${(slippageEstimate * 100).toFixed(1)}%`);
         } else {
             riskScore = 0.6;
             decision = 'ALLOW';
-            reasons.push(`池子深度 $${lpDepthUsd.toLocaleString()} - 可接受`);
+            reasons.push(`Pool depth $${lpDepthUsd.toLocaleString()} - acceptable`);
         }
 
         // Medium liquidity
@@ -97,26 +97,26 @@ export function evaluateLiquidityLayer(
         if (slippageEstimate > 0.10) {
             riskScore = 0.55;
             decision = 'ALLOW_WITH_RISK';
-            reasons.push(`预估滑点 ${(slippageEstimate * 100).toFixed(1)}% - 用户金额较大`);
+            reasons.push(`Estimated slippage ${(slippageEstimate * 100).toFixed(1)}% - user amount is large`);
         } else {
             riskScore = 0.7;
             decision = 'ALLOW';
-            reasons.push(`池子深度 $${lpDepthUsd.toLocaleString()} - 良好`);
+            reasons.push(`Pool depth $${lpDepthUsd.toLocaleString()} - good`);
         }
 
         // Deep liquidity
     } else {
         riskScore = 0.85;
         decision = 'ALLOW';
-        reasons.push(`池子深度 $${lpDepthUsd.toLocaleString()} - 充足`);
+        reasons.push(`Pool depth $${lpDepthUsd.toLocaleString()} - strong`);
         if (slippageEstimate > 0.01) {
-            reasons.push(`预估滑点 ${(slippageEstimate * 100).toFixed(2)}%`);
+            reasons.push(`Estimated slippage ${(slippageEstimate * 100).toFixed(2)}%`);
         }
     }
 
     // Add bonding curve note
     if (isBondingCurve) {
-        reasons.push('使用 Bonding Curve - 滑点随购买量增加');
+        reasons.push('Bonding curve - slippage increases with size');
     }
 
     return {

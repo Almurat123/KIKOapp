@@ -39,8 +39,8 @@ export function evaluateStageLayer(
         stage = 'S4';
         riskScore = 0.5;
         decision = 'ALLOW_WITH_RISK';
-        reasons.push('代币已迁移 - 存在合约切换风险');
-        reasons.push('迁移后状态需要额外验证');
+        reasons.push('Token migrated - contract switch risk');
+        reasons.push('Post-migration state needs extra verification');
 
         return {
             stage,
@@ -57,9 +57,9 @@ export function evaluateStageLayer(
         stage = 'S0';
         riskScore = 0.2;
         decision = 'ALLOW_WITH_RISK';
-        reasons.push(`刚创建 (${contractAgeMinutes.toFixed(0)} 分钟) - 极高不确定性`);
-        reasons.push('价格和流动性可能剧烈波动');
-        reasons.push('建议仅小额试探');
+        reasons.push(`Just created (${contractAgeMinutes.toFixed(0)} minutes) - extreme uncertainty`);
+        reasons.push('Price and liquidity may be highly volatile');
+        reasons.push('Recommend a small test size only');
 
     } else if (contractAgeMinutes < 120) {
         // S1: Early (10 min - 2 hours)
@@ -67,10 +67,10 @@ export function evaluateStageLayer(
         riskScore = 0.4;
         decision = 'ALLOW_WITH_RISK';
         const ageDisplay = contractAgeMinutes < 60
-            ? `${contractAgeMinutes.toFixed(0)} 分钟`
-            : `${(contractAgeMinutes / 60).toFixed(1)} 小时`;
-        reasons.push(`早期阶段 (${ageDisplay}) - 高波动性`);
-        reasons.push('Smart Money 入场可能带来机会');
+            ? `${contractAgeMinutes.toFixed(0)} minutes`
+            : `${(contractAgeMinutes / 60).toFixed(1)} hours`;
+        reasons.push(`Early stage (${ageDisplay}) - high volatility`);
+        reasons.push('Smart money entries may create opportunities');
 
     } else if (contractAgeMinutes < 1440) {
         // S2: Mid-term (2 - 24 hours)
@@ -78,8 +78,8 @@ export function evaluateStageLayer(
         riskScore = 0.6;
         decision = 'ALLOW';
         const hours = (contractAgeMinutes / 60).toFixed(1);
-        reasons.push(`中期阶段 (${hours} 小时) - 逐渐稳定`);
-        reasons.push('已有一定交易历史可供参考');
+        reasons.push(`Mid stage (${hours} hours) - stabilizing`);
+        reasons.push('Some trading history is available');
 
     } else {
         // S3: Stable (> 24 hours)
@@ -87,8 +87,8 @@ export function evaluateStageLayer(
         riskScore = 0.8;
         decision = 'ALLOW';
         const days = (contractAgeMinutes / 1440).toFixed(1);
-        reasons.push(`稳定期 (${days} 天) - 相对可预测`);
-        reasons.push('风险相对较低，但可能错过早期收益');
+        reasons.push(`Stable stage (${days} days) - more predictable`);
+        reasons.push('Lower risk but may miss early upside');
     }
 
     return {
@@ -121,11 +121,11 @@ export function calculateContractAgeMinutes(createdAt?: number | string): number
  */
 export function getStageLabel(stage: TokenStage): string {
     const labels: Record<TokenStage, string> = {
-        'S0': '刚创建',
-        'S1': '早期',
-        'S2': '中期',
-        'S3': '稳定期',
-        'S4': '特殊阶段',
+        'S0': 'Just created',
+        'S1': 'Early',
+        'S2': 'Mid',
+        'S3': 'Stable',
+        'S4': 'Special',
     };
     return labels[stage];
 }

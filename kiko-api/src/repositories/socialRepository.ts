@@ -2,6 +2,8 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { get, set, del } from '../cache/redis.js';
 import { TrendingCast } from '../types/social.js';
 import { Decimal } from 'decimal.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 /**
  * Parse formatted coin value strings like "$2.1K", "$1.5M" into raw numbers
@@ -35,18 +37,20 @@ export async function getLastUpdateTime(): Promise<Date | null> {
             }
         });
         return result._max.updatedAt || null;
-    } catch (error) {
-        console.error('[SocialRepo] Error getting last update time:', error);
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'SocialRepo: Error getting last update time', { error: error.message });
         return null;
     }
 }
 
 export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
     if (casts.length === 0) {
-        console.warn('[SocialRepo] Attempted to save empty casts array, skipping to preserve existing data');
+        logger.warn(LogCode.SOC_TRENDING_UPDATED, 'SocialRepo: Attempted to save empty casts array, skipping to preserve existing data');
         return;
     }
 
+    const timerLabel = 'save_trending_casts';
+    logger.startTimer(timerLabel);
     try {
         // Sort by likes before saving to ensure correct order for rank
         const sortedCasts = [...casts].sort((a, b) => {
@@ -180,14 +184,15 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
 
         if (fullMergedList.length > 0) {
             await set('social:trending:casts:24h', JSON.stringify(fullMergedList), 180);
-            console.log(`[SocialRepo] Updated cache with ${fullMergedList.length} merged casts`);
+            logger.info(LogCode.SOC_TRENDING_UPDATED, `SocialRepo: Updated cache with ${fullMergedList.length} merged casts`);
         } else {
             await set('social:trending:casts', JSON.stringify(sortedCasts), 180);
         }
 
-        console.log(`Saved ${sortedCasts.length} trending casts to database`);
-    } catch (error) {
-        console.error('Error saving trending casts:', error);
+        logger.info(LogCode.SOC_TRENDING_UPDATED, `SocialRepo: Saved ${sortedCasts.length} trending casts to database`);
+        logger.endTimer(timerLabel, LogCode.SOC_TRENDING_UPDATED, { count: sortedCasts.length });
+    } catch (error: any) {
+        logger.error(LogCode.SOC_TRENDING_UPDATED, 'SocialRepo: Error saving trending casts', { error: error.message });
         throw error;
     }
 }
@@ -197,6 +202,8 @@ export async function getTrendingCasts(
     timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending',
     offset: number = 0
 ): Promise<TrendingCast[]> {
+    const timerLabel = `get_trending_casts_${timeRange}`;
+    logger.startTimer(timerLabel);
     try {
         const cacheKey = 'social:trending:casts:24h';
         const FULL_LIST_LIMIT = 500;
@@ -281,10 +288,12 @@ export async function getTrendingCasts(
         }
 
         // 4. Return Requested Slice
-        return casts.slice(offset, offset + limit);
+        const result = casts.slice(offset, offset + limit);
+        logger.endTimer(timerLabel, LogCode.SOC_CAST_FETCHED, { timeRange, limit, offset, count: result.length, fromCache: false });
+        return result;
 
-    } catch (error) {
-        console.error('[SocialRepo] Error getting trending casts:', error);
+    } catch (error: any) {
+        logger.error(LogCode.SOC_CAST_FETCHED, 'SocialRepo: Error getting trending casts', { error: error.message });
         return [];
     }
 }
@@ -306,80 +315,137 @@ export async function searchCasts(
         }
 
         const trimmedQuery = query.trim();
-        console.log(`[SocialRepo] Searching casts for: "${trimmedQuery}" (limit: ${limit})`);
+        const timerLabel = `search_casts_${trimmedQuery.slice(0, 10)}`;
+        logger.startTimer(timerLabel);
+        logger.debug(LogCode.SOC_CAST_FETCHED, `SocialRepo: Searching casts for: "${trimmedQuery}" (limit: ${limit})`);
 
-        // Use PostgreSQL full-text search via Prisma raw query
-        const result = await prisma.$queryRaw<any[]>`
-      SELECT 
-        cast_hash as hash,
-        fid,
-        author_username,
-        author_display_name,
-        author_avatar,
-        author_verified,
-        author_bio,
-        author_twitter,
-        author_creator_coin,
-        text,
-        timestamp,
-        embeds,
-        parent_cast_fid,
-        parent_cast_hash,
-        stats_likes,
-        stats_recasts,
-        stats_replies,
-        heat_score,
-        is_base_app_coin,
-        base_app_coin_metadata,
-        coin_value,
-        mentions,
-        ts_rank(search_vector, plainto_tsquery('english', ${trimmedQuery})) as relevance_score
-      FROM trending_casts
-      WHERE 
-        (search_vector @@ plainto_tsquery('english', ${trimmedQuery}))
-        OR (text ILIKE ${'%' + trimmedQuery + '%'})
-        OR (author_username ILIKE ${'%' + trimmedQuery + '%'})
-      ORDER BY 
-        relevance_score DESC,
-        stats_likes DESC,
-        updated_at DESC
-      LIMIT ${limit}
-    `;
+        // Preferred: PostgreSQL full-text search (requires `search_vector`).
+        // Fallback: plain ILIKE/contains search (works even if migrations didn't add `search_vector`).
+        let casts: TrendingCast[] = [];
+        try {
+            const result = await prisma.$queryRaw<any[]>`
+        SELECT 
+          cast_hash as hash,
+          fid,
+          author_username,
+          author_display_name,
+          author_avatar,
+          author_verified,
+          author_bio,
+          author_twitter,
+          author_creator_coin,
+          text,
+          timestamp,
+          embeds,
+          parent_cast_fid,
+          parent_cast_hash,
+          stats_likes,
+          stats_recasts,
+          stats_replies,
+          heat_score,
+          is_base_app_coin,
+          base_app_coin_metadata,
+          coin_value,
+          mentions,
+          ts_rank(search_vector, plainto_tsquery('english', ${trimmedQuery})) as relevance_score
+        FROM trending_casts
+        WHERE 
+          (search_vector @@ plainto_tsquery('english', ${trimmedQuery}))
+          OR (text ILIKE ${'%' + trimmedQuery + '%'})
+          OR (author_username ILIKE ${'%' + trimmedQuery + '%'})
+        ORDER BY 
+          relevance_score DESC,
+          stats_likes DESC,
+          updated_at DESC
+        LIMIT ${limit}
+      `;
 
-        const casts: TrendingCast[] = result.map((row, index) => ({
-            rank: index + 1,
-            hash: row.hash,
-            fid: row.fid,
-            author: {
+            casts = result.map((row, index) => ({
+                rank: index + 1,
+                hash: row.hash,
                 fid: row.fid,
-                username: row.author_username || '',
-                displayName: row.author_display_name || '',
-                avatar: row.author_avatar || '',
-                verified: row.author_verified || false,
-                bio: row.author_bio || undefined,
-                twitter: row.author_twitter || undefined,
-                creatorCoin: row.author_creator_coin ? (typeof row.author_creator_coin === 'string' ? JSON.parse(row.author_creator_coin) : row.author_creator_coin) : undefined,
-            },
-            text: row.text,
-            timestamp: row.timestamp,
-            embeds: row.embeds as any,
-            mentions: row.mentions as any,
-            parentCastId: row.parent_cast_fid ? { fid: row.parent_cast_fid, hash: row.parent_cast_hash || '' } : undefined,
-            stats: {
-                likes: row.stats_likes || 0,
-                recasts: row.stats_recasts || 0,
-                replies: row.stats_replies || 0,
-            },
-            heatScore: Number(row.heat_score) || 0,
-            isBaseAppCoin: row.is_base_app_coin,
-            baseAppCoinMetadata: row.base_app_coin_metadata as any,
-            coinValue: row.coin_value ? String(row.coin_value) : undefined,
-        }));
+                author: {
+                    fid: row.fid,
+                    username: row.author_username || '',
+                    displayName: row.author_display_name || '',
+                    avatar: row.author_avatar || '',
+                    verified: row.author_verified || false,
+                    bio: row.author_bio || undefined,
+                    twitter: row.author_twitter || undefined,
+                    creatorCoin: row.author_creator_coin ? (typeof row.author_creator_coin === 'string' ? JSON.parse(row.author_creator_coin) : row.author_creator_coin) : undefined,
+                },
+                text: row.text,
+                timestamp: row.timestamp,
+                embeds: row.embeds as any,
+                mentions: row.mentions as any,
+                parentCastId: row.parent_cast_fid ? { fid: row.parent_cast_fid, hash: row.parent_cast_hash || '' } : undefined,
+                stats: {
+                    likes: row.stats_likes || 0,
+                    recasts: row.stats_recasts || 0,
+                    replies: row.stats_replies || 0,
+                },
+                heatScore: Number(row.heat_score) || 0,
+                isBaseAppCoin: row.is_base_app_coin,
+                baseAppCoinMetadata: row.base_app_coin_metadata as any,
+                coinValue: row.coin_value ? String(row.coin_value) : undefined,
+            }));
+        } catch (rawError: any) {
+            const message = rawError?.meta?.message || rawError?.message || '';
+            const code = rawError?.meta?.code || rawError?.code || '';
+            const missingVector = String(message).includes('search_vector') || String(code) === '42703';
 
-        console.log(`[SocialRepo] Search found ${casts.length} casts for "${trimmedQuery}"`);
-        return casts;
-    } catch (error) {
-        console.error('[SocialRepo] Error searching casts:', error);
+            if (!missingVector) throw rawError;
+
+            console.warn('[SocialRepo] search_vector missing; falling back to simple search');
+
+            const rows = await prisma.trendingCast.findMany({
+                where: {
+                    OR: [
+                        { text: { contains: trimmedQuery, mode: 'insensitive' } },
+                        { authorUsername: { contains: trimmedQuery, mode: 'insensitive' } },
+                        { authorDisplayName: { contains: trimmedQuery, mode: 'insensitive' } },
+                    ],
+                },
+                orderBy: [{ likes: 'desc' }, { heatScore: 'desc' }, { updatedAt: 'desc' }],
+                take: limit,
+            });
+
+            casts = rows.map((row, index) => ({
+                rank: index + 1,
+                hash: row.hash,
+                fid: row.fid,
+                author: {
+                    fid: row.fid,
+                    username: row.authorUsername || '',
+                    displayName: row.authorDisplayName || '',
+                    avatar: row.authorAvatar || '',
+                    verified: row.authorVerified,
+                    bio: row.authorBio || undefined,
+                    twitter: row.authorTwitter || undefined,
+                    creatorCoin: row.authorCreatorCoin ? JSON.parse(row.authorCreatorCoin) : undefined,
+                },
+                text: row.text,
+                timestamp: row.timestamp,
+                embeds: row.embeds as any,
+                mentions: row.mentions as any,
+                parentCastId: row.parentCastFid ? { fid: row.parentCastFid, hash: row.parentCastHash || '' } : undefined,
+                stats: {
+                    likes: row.likes,
+                    recasts: row.recasts,
+                    replies: row.replies,
+                },
+                heatScore: Number(row.heatScore) || 0,
+                isBaseAppCoin: row.isBaseAppCoin,
+                baseAppCoinMetadata: row.baseAppCoinMetadata as any,
+                coinValue: row.coinValue ? String(row.coinValue) : undefined,
+            }));
+        }
+
+        const result = casts;
+        logger.endTimer(timerLabel, LogCode.SOC_CAST_FETCHED, { query: trimmedQuery, limit, count: result.length });
+        return result;
+    } catch (error: any) {
+        logger.error(LogCode.SOC_CAST_FETCHED, 'SocialRepo: Error searching casts', { error: error.message });
         return [];
     }
 }
@@ -487,8 +553,8 @@ export async function getFarcasterProfile(username: string): Promise<any | null>
         }
 
         return null;
-    } catch (error) {
-        console.error(`[SocialRepo] Error getting Farcaster profile for ${username}:`, error);
+    } catch (error: any) {
+        logger.error(LogCode.SOC_USER_LOOKUP, `SocialRepo: Error getting Farcaster profile for ${username}`, { error: error.message });
         return null;
     }
 }
@@ -507,9 +573,11 @@ export async function checkUserFollowsKiko(fid: number): Promise<boolean> {
         const kikoFid = kikoProfile.fid;
 
         // 2. Check if user follows Kiko
-        return await checkIsFollowing(fid, kikoFid);
-    } catch (error) {
-        console.error(`[SocialRepo] Error checking if FID ${fid} follows Kiko:`, error);
+        const isFollowing = await checkIsFollowing(fid, kikoFid);
+        logger.info(LogCode.SOC_FOLLOW_DETECTED, 'SocialRepo: Checked follow status', { fid, isFollowing });
+        return isFollowing;
+    } catch (error: any) {
+        logger.error(LogCode.SOC_FOLLOW_DETECTED, `SocialRepo: Error checking if FID ${fid} follows Kiko`, { error: error.message });
         return false;
     }
 }

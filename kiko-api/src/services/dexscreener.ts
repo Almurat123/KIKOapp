@@ -14,6 +14,8 @@ const DEXSCREENER_TOKEN_BOOSTS_URL = 'https://api.dexscreener.com/token-boosts/t
 import { getTrendingTokens as getGeckoTrendingTokens, type TokenSearchResult } from './geckoTerminal.js';
 import { fetchTrendingAddresses, isWSSupportedChain } from './dexscreenerWS.js';
 import { computeTrendingScore } from './trendingScore.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 export interface DexScreenerToken {
   address: string;
@@ -169,8 +171,8 @@ export async function searchTokens(query: string): Promise<DexScreenerToken[]> {
         websites: pair.info?.websites,
       };
     });
-  } catch (error) {
-    console.error('Error searching tokens on DexScreener:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error searching tokens on DexScreener', { error: error.message, query });
     return [];
   }
 }
@@ -182,7 +184,7 @@ export async function searchTokens(query: string): Promise<DexScreenerToken[]> {
 export async function getTokenDetails(chainId: string, address: string): Promise<DexScreenerToken | null> {
   try {
     const url = `${DEXSCREENER_BASE_URL}/tokens/${address}`;
-    console.log(`[DexScreener] Fetching token details: ${url}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching token details from DexScreener', { url });
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
@@ -197,18 +199,18 @@ export async function getTokenDetails(chainId: string, address: string): Promise
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn(`[DexScreener] HTTP error ${response.status} for ${address}`);
+      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener token details HTTP error', { status: response.status, address });
       return null;
     }
 
     const data = await response.json() as { pairs?: any[] };
 
     if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
-      console.warn(`[DexScreener] No pairs found for ${address}`);
+      logger.info(LogCode.API_FETCH_SUCCESS, 'No pairs found for token on DexScreener', { address });
       return null;
     }
 
-    console.log(`[DexScreener] Found ${data.pairs.length} pairs for ${address}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Pairs found for token', { count: data.pairs.length, address });
 
     // Get the most liquid pair
     const pair = data.pairs.sort((a: any, b: any) =>
@@ -237,9 +239,9 @@ export async function getTokenDetails(chainId: string, address: string): Promise
     };
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      console.error(`[DexScreener] Request timeout for ${address}`);
+      logger.error(LogCode.API_FETCH_FAILED, 'DexScreener request timeout', { address });
     } else {
-      console.error(`[DexScreener] Error fetching token details for ${address}:`, error.message);
+      logger.error(LogCode.API_FETCH_FAILED, 'Error fetching token details on DexScreener', { address, error: error.message });
     }
     return null;
   }
@@ -259,13 +261,13 @@ export async function getTokenPairAddress(
   tokenAddress: string
 ): Promise<string | null> {
   try {
-    console.log(`[DexScreener] Fetching pair address for ${tokenAddress} on ${network}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching pair address from DexScreener', { tokenAddress, network });
 
     // Map network to DexScreener chain ID
     const chainId = CHAIN_ID_MAP[network.toLowerCase()] || network.toLowerCase();
     const url = `${DEXSCREENER_BASE_URL}/tokens/${tokenAddress}`;
 
-    console.log(`[DexScreener] Request URL: ${url}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'DexScreener request URL', { url });
 
     const response = await fetch(url, {
       headers: {
@@ -276,14 +278,14 @@ export async function getTokenPairAddress(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      console.warn(`[DexScreener] API error: ${response.status} ${response.statusText}`, errorText.substring(0, 200));
+      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener pair address API error', { status: response.status, tokenAddress, error: errorText.substring(0, 200) });
       return null;
     }
 
     const data = await response.json() as { pairs?: any[] };
 
     if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
-      console.warn(`[DexScreener] No pairs found for token ${tokenAddress} on ${network}`);
+      logger.info(LogCode.API_FETCH_SUCCESS, 'No pairs found for token during pair address lookup', { tokenAddress, network });
       return null;
     }
 
@@ -293,7 +295,7 @@ export async function getTokenPairAddress(
     );
 
     if (chainPairs.length === 0) {
-      console.warn(`[DexScreener] No pairs found for chain ${chainId}`);
+      logger.info(LogCode.API_FETCH_SUCCESS, 'No pairs found for specific chain during lookup', { chainName: chainId, tokenAddress });
       return null;
     }
 
@@ -306,14 +308,17 @@ export async function getTokenPairAddress(
     const pairAddress = bestPair.pairAddress;
 
     if (!pairAddress) {
-      console.warn(`[DexScreener] Pair address not found in pair data`);
+      logger.warn(LogCode.API_FETCH_FAILED, 'Pair address not found in DexScreener pair data', { tokenAddress });
       return null;
     }
 
-    console.log(`[DexScreener] ✓ Found pair address: ${pairAddress} (liquidity: $${bestPair.liquidity?.usd || 0})`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Pair address found successfully', {
+      pairAddress,
+      liquidityUsd: parseFloat(bestPair.liquidity?.usd || '0')
+    });
     return pairAddress;
   } catch (error: any) {
-    console.error(`[DexScreener] Error fetching pair address:`, error.message);
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching pair address on DexScreener', { tokenAddress, error: error.message });
     return null;
   }
 }
@@ -329,7 +334,7 @@ export async function getTrendingTokensByChain(
   duration: '5m' | '1h' | '6h' | '24h' = '5m'
 ): Promise<TokenSearchResult[]> {
   try {
-    console.log(`[DexScreener] Fetching trending tokens for chain: ${chainId}, duration: ${duration}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching trending tokens from DexScreener', { chainName: chainId, duration });
 
     // Map our chain ID to DexScreener's chain ID format
     const dexScreenerChainId = CHAIN_ID_MAP[chainId.toLowerCase()] || chainId.toLowerCase();
@@ -363,8 +368,8 @@ export async function getTrendingTokensByChain(
           }
         }
       }
-    } catch (e) {
-      console.warn('[DexScreener] Failed to fetch boosts', e);
+    } catch (e: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch boosts from DexScreener', { error: e.message });
     }
 
     // 2. Search for High Volume Pairs (Seed 2)
@@ -557,12 +562,15 @@ export async function getTrendingTokensByChain(
     // 5. Sort by Score
     scoredTokens.sort((a, b) => b.score - a.score);
 
-    console.log(`[DexScreener] Processed ${tokenCandidates.size} candidates, returning top ${limit}`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Processed DexScreener trending candidates', {
+      candidates: tokenCandidates.size,
+      limit
+    });
 
     return scoredTokens.slice(0, limit);
 
-  } catch (error) {
-    console.error('[DexScreener] Error fetching trending tokens:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching trending tokens from DexScreener', { error: error.message, chainName: chainId });
     return [];
   }
 }
@@ -627,8 +635,12 @@ export async function getCandlestickData(
   const REQUEST_TIMEOUT = 30000; // 30 seconds
 
   try {
-    console.log(`[DexScreener] ===== Fetching candlestick data =====`);
-    console.log(`[DexScreener] Network: ${network}, Pair: ${pairAddress}, Timeframe: ${timeframe}, Limit: ${limit}`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Fetching candlestick data from DexScreener', {
+      network,
+      pairAddress,
+      timeframe,
+      limit
+    });
 
     // Validate inputs
     if (!network || !pairAddress) {
@@ -637,7 +649,7 @@ export async function getCandlestickData(
 
     if (limit < 1 || limit > 1000) {
       limit = Math.max(1, Math.min(1000, limit));
-      console.warn(`[DexScreener] Limit adjusted to ${limit}`);
+      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener limit adjusted', { limit });
     }
 
     // DexScreener API endpoint for pair data
@@ -668,7 +680,11 @@ export async function getCandlestickData(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      console.warn(`[DexScreener] API error: ${response.status} ${response.statusText}`, errorText.substring(0, 200));
+      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener candlestick API error', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText.substring(0, 200)
+      });
       return [];
     }
 
@@ -686,7 +702,7 @@ export async function getCandlestickData(
     }
 
     if (!pair) {
-      console.warn(`[DexScreener] No pair data found`);
+      logger.warn(LogCode.API_FETCH_FAILED, 'No pair data found on DexScreener', { pairAddress, network });
       return [];
     }
 
@@ -704,15 +720,15 @@ export async function getCandlestickData(
         const now = Date.now();
         // Create a simple candle from current price
         priceHistory = [[now, currentPrice]];
-        console.log(`[DexScreener] No price history, using current price: ${currentPrice}`);
+        logger.info(LogCode.API_FETCH_SUCCESS, 'No price history on DexScreener, using current price', { currentPrice });
       } else {
-        console.warn(`[DexScreener] No price history available and no current price`);
+        logger.warn(LogCode.API_FETCH_FAILED, 'No price history or current price available on DexScreener', { pairAddress });
         return [];
       }
     }
 
     if (!Array.isArray(priceHistory) || priceHistory.length === 0) {
-      console.warn(`[DexScreener] No price history available`);
+      logger.warn(LogCode.API_FETCH_FAILED, 'Empty price history on DexScreener', { pairAddress });
       return [];
     }
 
@@ -782,7 +798,11 @@ export async function getCandlestickData(
     // Convert to OHLCV format
     const sortedCandles = Array.from(candles.entries()).sort((a, b) => a[0] - b[0]);
 
-    console.log(`[DexScreener] Grouped ${priceHistory.length} price points into ${sortedCandles.length} candles for ${timeframe} timeframe`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Grouped price points into candles', {
+      pricePoints: priceHistory.length,
+      candles: sortedCandles.length,
+      timeframe
+    });
 
     // Return all candles if we have fewer than requested, otherwise take the most recent
     const candlesToProcess = sortedCandles.length <= limit
@@ -854,11 +874,15 @@ export async function getCandlestickData(
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[DexScreener] ✓ Generated ${deduplicated.length} candles from ${priceHistory.length} price points (requested ${limit}) in ${duration}ms`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Generated candles from price points', {
+      count: deduplicated.length,
+      sourcePoints: priceHistory.length,
+      requested: limit,
+      durationMs: duration
+    });
 
     if (deduplicated.length === 0 && priceHistory.length > 0) {
-      console.warn(`[DexScreener] ⚠ Failed to generate candles from ${priceHistory.length} price points`);
-      console.warn(`[DexScreener] Sample price history:`, priceHistory.slice(0, 3));
+      logger.warn(LogCode.API_FETCH_FAILED, 'Failed to generate candles from price points', { count: priceHistory.length });
     }
 
     // Return all if we have fewer than requested, otherwise take the most recent
@@ -869,7 +893,7 @@ export async function getCandlestickData(
 
   } catch (error: any) {
     const duration = Date.now() - startTime;
-    console.error(`[DexScreener] ✗ Error fetching candlestick data after ${duration}ms:`, error.message);
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching candlestick data on DexScreener', { durationMs: duration, error: error.message });
     // Security: Stack trace logging removed in production
     return [];
   }
@@ -897,7 +921,7 @@ export async function getTrendingTokensPremium(
   const normalizedChainId = CHAIN_ID_MAP[chainId.toLowerCase()] || chainId.toLowerCase();
 
   try {
-    console.log(`[DexScreener Premium] Fetching trending tokens for chain: ${normalizedChainId}, limit: ${limit}`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Fetching premium trending tokens', { chain: normalizedChainId, limit });
 
     let trendingAddresses: string[] = [];
     const isWSAvailable = isWSSupportedChain(normalizedChainId);
@@ -918,17 +942,17 @@ export async function getTrendingTokensPremium(
         });
 
         if (trendingAddresses.length > 0) {
-          console.log(`[DexScreener Premium] Found ${trendingAddresses.length} addresses via WebSocket for ${normalizedChainId}`);
+          logger.info(LogCode.WTC_SWAP_DETECTED, 'Found addresses via WebSocket', { count: trendingAddresses.length, chain: normalizedChainId });
         }
       } catch (wsError: any) {
-        console.warn(`[DexScreener Premium] WebSocket fetch failed: ${wsError.message}`);
+        logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener Premium WebSocket fetch failed', { error: wsError.message });
       }
     }
 
 
     // Step 2: Fallback to Boosts + Search if WS fails or is not supported
     if (trendingAddresses.length === 0) {
-      console.log(`[DexScreener Premium] Using fallback discovery (Boosts + Organic search)`);
+      logger.info(LogCode.API_FETCH_SUCCESS, 'Using fallback discovery (Boosts + Organic search)');
 
       // Step 2a: Fetch token boosts
       let chainBoosts: any[] = [];
@@ -977,7 +1001,7 @@ export async function getTrendingTokensPremium(
     }
 
     if (trendingAddresses.length === 0) {
-      console.warn(`[DexScreener Premium] No trending tokens discovered for ${normalizedChainId}`);
+      logger.warn(LogCode.API_FETCH_FAILED, 'No trending tokens discovered for chain', { chain: normalizedChainId });
       return getTrendingTokensByChain(chainId, limit, '6h');
     }
 
@@ -1052,8 +1076,8 @@ export async function getTrendingTokensPremium(
             });
           }
         }
-      } catch (batchError) {
-        console.error(`[DexScreener Premium] Batch fetch error:`, batchError);
+      } catch (batchError: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'DexScreener Premium Batch fetch error', { error: batchError.message });
       }
     }
 
@@ -1075,7 +1099,7 @@ export async function getTrendingTokensPremium(
 
     // Step 5: Fill with free sources if we don't have enough
     if (finalTokens.length < limit) {
-      console.log(`[DexScreener Premium] Only ${finalTokens.length} enriched tokens, filling to ${limit}...`);
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'Filling enriched tokens to limit', { current: finalTokens.length, target: limit });
       const existingAddresses = new Set(finalTokens.map(t => t.address.toLowerCase()));
 
       try {
@@ -1087,8 +1111,8 @@ export async function getTrendingTokensPremium(
             existingAddresses.add(token.address.toLowerCase());
           }
         }
-      } catch (fallbackError) {
-        console.warn(`[DexScreener Premium] DexScreener fill error:`, fallbackError);
+      } catch (fallbackError: any) {
+        logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener Premium fill error', { error: fallbackError.message });
       }
 
       if (finalTokens.length < limit) {
@@ -1101,14 +1125,18 @@ export async function getTrendingTokensPremium(
               existingAddresses.add(token.address.toLowerCase());
             }
           }
-        } catch (geckoError) {
-          console.warn(`[DexScreener Premium] Gecko fill error:`, geckoError);
+        } catch (geckoError: any) {
+          logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener Premium Gecko fill error', { error: geckoError.message });
         }
       }
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[DexScreener Premium] ✓ Found ${finalTokens.length} trending tokens for ${normalizedChainId} in ${duration}ms`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Premium trending tokens fetch complete', {
+      count: finalTokens.length,
+      chain: normalizedChainId,
+      durationMs: duration
+    });
 
     // Step 6: Optional symbol de-dupe (only if we still have >= limit).
     // Keeping duplicates is better for "always return 100" and closer to Dex raw pair lists.
@@ -1120,7 +1148,7 @@ export async function getTrendingTokensPremium(
 
   } catch (error: any) {
     const duration = Date.now() - startTime;
-    console.error(`[DexScreener Premium] ✗ Global error after ${duration}ms:`, error.message);
+    logger.error(LogCode.API_FETCH_FAILED, 'DexScreener Premium Global error', { durationMs: duration, error: error.message });
     return getTrendingTokensByChain(chainId, limit, '6h');
   }
 }

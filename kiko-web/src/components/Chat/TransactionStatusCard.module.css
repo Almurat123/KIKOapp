@@ -1,0 +1,504 @@
+/* TransactionStatusCard.module.css */
+/* 适配聊天页面的交易状态卡片样式 */
+
+.card {
+    position: relative;
+    width: 100%;
+    max-width: 380px;
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(50px);
+    -webkit-backdrop-filter: blur(50px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: 0 32px 64px -16px rgba(0, 0, 0, 0.8);
+    overflow: hidden;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    margin: 12px 0;
+}
+
+/* Light theme overrides */
+.card.light {
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.1);
+}
+
+/* 背景光晕效果 */
+.glow {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    pointer-events: none;
+    opacity: 0.05;
+    filter: blur(80px);
+}
+
+.glowTop {
+    top: -100px;
+    left: -100px;
+    background: rgb(59, 130, 246);
+}
+
+.glowBottom {
+    bottom: -100px;
+    right: -100px;
+    background: rgb(99, 102, 241);
+}
+
+.light .glow {
+    opacity: 0.03;
+}
+
+/* 交易金额区域 */
+.amountSection {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 32px;
+    margin-top: 8px;
+}
+
+.amountBlock {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.amountLabel {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: rgba(255, 255, 255, 0.2);
+    font-weight: 700;
+    margin: 0;
+}
+
+.light .amountLabel {
+    color: rgba(0, 0, 0, 0.3);
+}
+
+.amountValue {
+    font-size: 28px;
+    font-weight: 300;
+    font-style: italic;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.95);
+    margin: 0;
+}
+
+.light .amountValue {
+    color: rgba(0, 0, 0, 0.9);
+}
+
+.amountValueOut {
+    color: rgba(96, 165, 250, 0.8);
+}
+
+.light .amountValueOut {
+    color: rgba(37, 99, 235, 0.8);
+}
+
+.tokenSymbol {
+    font-size: 16px;
+    font-style: normal;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.1);
+    margin-left: 6px;
+}
+
+.light .tokenSymbol {
+    color: rgba(0, 0, 0, 0.2);
+}
+
+/* 分隔线 */
+.divider {
+    height: 1px;
+    width: 100%;
+    background: linear-gradient(to right,
+            rgba(255, 255, 255, 0.1),
+            rgba(255, 255, 255, 0.05),
+            transparent);
+    margin: 20px 0;
+}
+
+.light .divider {
+    background: linear-gradient(to right,
+            rgba(0, 0, 0, 0.08),
+            rgba(0, 0, 0, 0.04),
+            transparent);
+}
+
+/* 骨架屏 - 金额 */
+.skeletonAmount {
+    height: 28px;
+    width: 160px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.light .skeletonAmount {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* 状态区域 */
+.statusSection {
+    position: relative;
+    padding: 12px 0;
+}
+
+.statusRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.statusLeft {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* 状态图标容器 */
+.iconPending,
+.iconSuccess,
+.iconFailed,
+.iconCancelled {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.iconPending {
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.light .iconPending {
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.iconSuccess {
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.light .iconSuccess {
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.iconFailed {
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.light .iconFailed {
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.iconCancelled {
+    border: 1px solid rgba(156, 163, 175, 0.2);
+    background: rgba(156, 163, 175, 0.05);
+}
+
+.light .iconCancelled {
+    border: 1px solid rgba(156, 163, 175, 0.3);
+    background: rgba(156, 163, 175, 0.08);
+}
+
+/* 图标样式 */
+.stepIcon {
+    width: 14px;
+    height: 14px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.light .stepIcon {
+    color: rgba(0, 0, 0, 0.4);
+}
+
+.successCheckIcon {
+    width: 16px;
+    height: 16px;
+    color: rgba(16, 185, 129, 0.8);
+}
+
+.light .successCheckIcon {
+    color: rgba(16, 185, 129, 0.9);
+}
+
+.failedIcon,
+.cancelledIcon {
+    width: 16px;
+    height: 16px;
+    color: rgba(239, 68, 68, 0.8);
+}
+
+.light .failedIcon {
+    color: rgba(239, 68, 68, 0.9);
+}
+
+.cancelledIcon {
+    color: rgba(156, 163, 175, 0.8);
+}
+
+.light .cancelledIcon {
+    color: rgba(156, 163, 175, 0.9);
+}
+
+/* 状态文本组 */
+.statusTextGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.statusLabel {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.7);
+    margin: 0;
+}
+
+.light .statusLabel {
+    color: rgba(0, 0, 0, 0.7);
+}
+
+.statusSub {
+    font-size: 9px;
+    font-style: italic;
+    color: rgba(255, 255, 255, 0.2);
+    margin: 0;
+}
+
+.light .statusSub {
+    color: rgba(0, 0, 0, 0.3);
+}
+
+/* 成功状态文本 */
+.successLabel {
+    color: rgba(16, 185, 129, 0.8);
+}
+
+.light .successLabel {
+    color: rgba(16, 185, 129, 0.9);
+}
+
+.successSub {
+    color: rgba(16, 185, 129, 0.3);
+}
+
+.light .successSub {
+    color: rgba(16, 185, 129, 0.4);
+}
+
+/* 失败状态文本 */
+.failedLabel {
+    color: rgba(239, 68, 68, 0.8);
+}
+
+.light .failedLabel {
+    color: rgba(239, 68, 68, 0.9);
+}
+
+.failedSub {
+    color: rgba(239, 68, 68, 0.3);
+}
+
+.light .failedSub {
+    color: rgba(239, 68, 68, 0.4);
+}
+
+/* 取消状态文本 */
+.cancelledLabel {
+    color: rgba(156, 163, 175, 0.8);
+}
+
+.light .cancelledLabel {
+    color: rgba(156, 163, 175, 0.9);
+}
+
+.cancelledSub {
+    color: rgba(156, 163, 175, 0.3);
+}
+
+.light .cancelledSub {
+    color: rgba(156, 163, 175, 0.4);
+}
+
+/* 旋转加载图标 */
+.spinningIcon {
+    width: 16px;
+    height: 16px;
+    color: rgba(255, 255, 255, 0.2);
+    animation: spin 2s linear infinite;
+}
+
+.light .spinningIcon {
+    color: rgba(0, 0, 0, 0.2);
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 闪烁图标 */
+.sparkleIcon {
+    width: 16px;
+    height: 16px;
+    color: rgba(16, 185, 129, 0.3);
+    animation: sparkle 2s ease-in-out infinite;
+}
+
+.light .sparkleIcon {
+    color: rgba(16, 185, 129, 0.4);
+}
+
+@keyframes sparkle {
+
+    0%,
+    100% {
+        opacity: 0.3;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+/* 底部哈希区域 */
+.hashSection {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.light .hashSection {
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* 哈希链接 */
+.hashLink {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.2);
+    text-decoration: none;
+    transition: color 0.2s ease;
+    cursor: pointer;
+}
+
+.hashLink:hover {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.light .hashLink {
+    color: rgba(0, 0, 0, 0.3);
+}
+
+.light .hashLink:hover {
+    color: rgba(0, 0, 0, 0.5);
+}
+
+.hashPlaceholder {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.light .hashPlaceholder {
+    color: rgba(0, 0, 0, 0.3);
+}
+
+.externalIcon,
+.chevronIcon {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.2s ease;
+}
+
+.hashLink:hover .externalIcon {
+    transform: translateY(-2px);
+}
+
+/* 哈希值 */
+.hashValue {
+    font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.light .hashValue {
+    color: rgba(0, 0, 0, 0.4);
+}
+
+/* 骨架屏 - 哈希 */
+.skeletonHash {
+    width: 70px;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 999px;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.light .skeletonHash {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .card {
+        max-width: 100%;
+        padding: 16px;
+        border-radius: 20px;
+    }
+
+    .amountValue {
+        font-size: 24px;
+    }
+
+    .tokenSymbol {
+        font-size: 14px;
+    }
+}

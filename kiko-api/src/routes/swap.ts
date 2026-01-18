@@ -36,6 +36,7 @@ import * as coinbaseCdpService from '../services/coinbaseCdp.js';
 import { getTransactionReceipt } from '../services/rpcManager.js';
 import prisma from '../db/prisma.js';
 import { trackSwap } from '../services/userActivityService.js';
+import { runJudgeEngine } from '../services/judge/judgeEngine.js';
 
 // 类型定义
 export interface SwapQuoteRequest {
@@ -821,12 +822,89 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
                 // Handle Solana separately using launchpad service
                 if (validatedChainId === 900) {
+                    // Helper function to resolve Solana token symbols to Mint addresses
+                    const resolveSolanaTokenAddress = (symbolOrAddress: string): string => {
+                        // If it's already a valid Solana address (base58, 32-44 chars), return it
+                        if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(symbolOrAddress)) {
+                            return symbolOrAddress;
+                        }
+
+                        // Common Solana token addresses
+                        const SOLANA_TOKENS: Record<string, string> = {
+                            'SOL': 'So11111111111111111111111111111111111111112', // Wrapped SOL
+                            'WSOL': 'So11111111111111111111111111111111111111112',
+                            'USDC': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+                            'USDT': 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+                            'RAY': '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // Raydium
+                            'SRM': 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt', // Serum
+                            'BONK': 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // Bonk
+                        };
+
+                        const upperSymbol = symbolOrAddress.toUpperCase();
+                        return SOLANA_TOKENS[upperSymbol] || symbolOrAddress;
+                    };
+
+                    // Resolve token symbols to addresses
+                    const resolvedTokenIn = resolveSolanaTokenAddress(tokenIn);
+                    const resolvedTokenOut = resolveSolanaTokenAddress(tokenOut);
+                    const usdcMint = normalizeSolanaTokenAddress('USDC');
+                    const usdtMint = normalizeSolanaTokenAddress('USDT');
+                    const solMint = normalizeSolanaTokenAddress('SOL');
+
+                    console.log('[Swap Execute Instant] Resolved Solana tokens:', {
+                        tokenInOriginal: tokenIn,
+                        tokenInResolved: resolvedTokenIn,
+                        tokenOutOriginal: tokenOut,
+                        tokenOutResolved: resolvedTokenOut,
+                    });
+
                     // Import launchpad service
                     const { solanaLaunchpadSwapService } = await import('../services/solanaLaunchpadSwapService.js');
                     const { findTokenOnAnyChain } = await import('../services/ai/tokenDetector.js');
+                    const { getSolanaTokenMetadata } = await import('../utils/solanaToken.js');
 
-                    // Detect launchpad provider
-                    const tokenInfo = await findTokenOnAnyChain(tokenOut);
+                    const tokenInMetadata = await getSolanaTokenMetadata(resolvedTokenIn);
+                    const tokenInDecimals = tokenInMetadata?.decimals || 9;
+                    const amountInAtomic = toWei(resolvedAmountIn, tokenInDecimals);
+
+                    const isStableOut = resolvedTokenOut === usdcMint || resolvedTokenOut === usdtMint;
+                    const isNativeOut = resolvedTokenOut === solMint;
+
+                    if (!isStableOut && !isNativeOut) {
+                        let tradeUsd = 0;
+                        if (resolvedTokenIn === usdcMint || resolvedTokenIn === usdtMint) {
+                            tradeUsd = parseFloat(resolvedAmountIn);
+                        } else {
+                            const priceQuote = await getSolanaPrice(resolvedTokenIn, usdcMint, amountInAtomic);
+                            if (priceQuote?.outAmount) {
+                                tradeUsd = parseFloat(priceQuote.outAmount) / 1e6;
+                            }
+                        }
+
+                        if (tradeUsd > 0) {
+                            let judgeOutput;
+                            try {
+                                judgeOutput = await runJudgeEngine(
+                                    resolvedTokenOut,
+                                    validatedChainId,
+                                    tradeUsd
+                                );
+                            } catch (judgeError: any) {
+                                console.warn('[Swap Execute Instant] Judge pre-check failed:', judgeError.message);
+                            }
+
+                            if (judgeOutput?.decision_engine.final_decision.decision === 'BLOCK') {
+                                throw new AppError(
+                                    400,
+                                    `AI risk block: ${judgeOutput.decision_engine.final_decision.reasons.join(' | ')}`,
+                                    'AI_RISK_BLOCK'
+                                );
+                            }
+                        }
+                    }
+
+                    // Detect launchpad provider (use resolved address)
+                    const tokenInfo = await findTokenOnAnyChain(resolvedTokenOut);
                     const launchpadProvider = tokenInfo?.launchpad?.provider || null;
 
                     console.log('[Swap Execute Instant] Solana token launchpad:', launchpadProvider);
@@ -834,7 +912,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     if (launchpadProvider === 'pumpfun' || launchpadProvider === 'bonkfun') {
                         const txHash = await solanaLaunchpadSwapService.fastSwap({
                             userId,
-                            mint: tokenOut,
+                            mint: resolvedTokenOut,
                             amount: resolvedAmountIn,
                             isBuy: true, // For Solana instant swap, we assume buy (SOL -> token)
                             provider: launchpadProvider === 'pumpfun' ? 'pumpfun' : 'bonkfun',
@@ -854,29 +932,22 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     console.log('[Swap Execute Instant] Standard Solana token, using Jupiter aggregator...');
 
                     const { executeSolanaSwap } = await import('../services/solanaExecutor.js');
-                    const { getSolanaTokenMetadata } = await import('../utils/solanaToken.js');
-
-                    // Get metadata for BOTH tokens to determine decimals
-                    const tokenInMetadata = await getSolanaTokenMetadata(tokenIn);
-                    const tokenOutMetadata = await getSolanaTokenMetadata(tokenOut);
-                    const tokenInDecimals = tokenInMetadata?.decimals || 9;
+                    // Get metadata for BOTH tokens to determine decimals (use resolved addresses)
+                    const tokenOutMetadata = await getSolanaTokenMetadata(resolvedTokenOut);
                     const tokenOutDecimals = tokenOutMetadata?.decimals || 9;
 
                     console.log('[Swap Execute Instant] Token metadata:', {
-                        tokenIn,
+                        tokenIn: resolvedTokenIn,
                         tokenInDecimals,
-                        tokenOut,
+                        tokenOut: resolvedTokenOut,
                         tokenOutDecimals,
                     });
 
                     // Convert amount to atomic units using the INPUT token's decimals
-                    const { toWei } = await import('../services/zeroEx.js');
-                    const amountInAtomic = toWei(resolvedAmountIn, tokenInDecimals);
-
                     const txHash = await executeSolanaSwap({
                         userId,
-                        tokenInMint: tokenIn, // Use actual tokenIn, not hardcoded SOL
-                        tokenOutMint: tokenOut,
+                        tokenInMint: resolvedTokenIn, // Use resolved address
+                        tokenOutMint: resolvedTokenOut, // Use resolved address
                         amountIn: amountInAtomic,
                         slippageBps,
                     });
@@ -1006,6 +1077,32 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     ? (tokenInUsd / tokenOutUsd)
                     : null;
 
+                const isNativeTokenIn = actualTokenIn.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+                const isNativeTokenOut = actualTokenOut.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+                if (isNativeTokenIn && !isNativeTokenOut) {
+                    const tradeUsd = tokenInUsd ? parseFloat(resolvedAmountIn) * tokenInUsd : 0;
+                    if (tradeUsd > 0) {
+                        let judgeOutput;
+                        try {
+                            judgeOutput = await runJudgeEngine(
+                                resolvedTokenOut,
+                                validatedChainId,
+                                tradeUsd
+                            );
+                        } catch (judgeError: any) {
+                            console.warn('[Swap Execute Instant] Judge pre-check failed:', judgeError.message);
+                        }
+
+                        if (judgeOutput?.decision_engine.final_decision.decision === 'BLOCK') {
+                            throw new AppError(
+                                400,
+                                `AI risk block: ${judgeOutput.decision_engine.final_decision.reasons.join(' | ')}`,
+                                'AI_RISK_BLOCK'
+                            );
+                        }
+                    }
+                }
+
                 // Get Best Quote (Compare 0x and Kyber)
                 const { best: quote } = await getBestQuote({
                     tokenIn,
@@ -1047,8 +1144,6 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 }
 
                 // Determine if this is a BUY (native → token) or SELL (token → native) operation
-                const isNativeTokenIn = actualTokenIn.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-                const isNativeTokenOut = actualTokenOut.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
                 const isBuyingToken = isNativeTokenIn && !isNativeTokenOut; // ETH → Token
                 const isSellingToken = !isNativeTokenIn && isNativeTokenOut; // Token → ETH
 

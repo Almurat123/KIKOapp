@@ -44,16 +44,16 @@ export function evaluateTokenIntelligenceLayer(
     let label: TokenIntelligenceLabel;
     if (score >= 0.75) {
         label = 'strong';
-        reasons.push('项目信息完整，真实性高');
+        reasons.push('Project information is complete and credible');
     } else if (score >= 0.50) {
         label = 'medium';
-        reasons.push('项目信息中等，存在一定风险');
+        reasons.push('Project information is moderate with some risk');
     } else if (score >= 0.25) {
         label = 'weak';
-        reasons.push('项目信息不足，真实性存疑');
+        reasons.push('Project information is limited; credibility is questionable');
     } else {
         label = 'danger';
-        reasons.push('⚠️ 项目信息严重不足或有明显危险信号');
+        reasons.push('Project information is severely lacking or has clear red flags');
     }
 
     // Generate risk tags based on individual scores
@@ -72,10 +72,10 @@ export function evaluateTokenIntelligenceLayer(
     // Social tags
     if (input.socialPresence.score >= 0.7) {
         riskTags.push('strong-social');
-        reasons.push('社交媒体活跃度高');
+        reasons.push('Social presence is strong');
     } else if (input.socialPresence.score < 0.3) {
         riskTags.push('weak-social');
-        reasons.push('社交媒体活跃度低或无活动');
+        reasons.push('Social presence is weak or inactive');
     }
 
     if (input.socialPresence.has_kol_mentions) {

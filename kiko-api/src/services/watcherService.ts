@@ -4,6 +4,8 @@
  */
 
 import prisma from '../db/prisma.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
 
 // Alchemy API for Base
@@ -74,8 +76,8 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
         });
         const data = await response.json() as { result?: any };
         return data.result;
-    } catch (error) {
-        console.error(`[Watcher] Error fetching tx ${txHash} on chain ${chainId}:`, error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction by hash', { txHash, chainId, error: error.message });
         return null;
     }
 }
@@ -98,8 +100,8 @@ export async function fetchTransactionReceipt(txHash: string, chainId: number): 
         });
         const data = await response.json() as { result?: any };
         return data.result;
-    } catch (error) {
-        console.error(`[Watcher] Error fetching receipt ${txHash} on chain ${chainId}:`, error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction receipt', { txHash, chainId, error: error.message });
         return null;
     }
 }
@@ -164,8 +166,8 @@ async function fetchRecentTransactionsRpc(address: string, chainId: number): Pro
         }
 
         return transfers;
-    } catch (error) {
-        console.error(`[Watcher] RPC Scan error on chain ${chainId}:`, error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'RPC Block Scan error', { chainId, error: error.message });
         return [];
     }
 }
@@ -188,7 +190,7 @@ async function fetchRecentTransactions(
 
             // Validation: Check if key is actually present
             if (!ALCHEMY_API_KEY || ALCHEMY_API_KEY.length < 5) {
-                console.warn('[Watcher] ALCHEMY_API_KEY appears invalid or empty');
+                logger.warn(LogCode.API_AUTH_FAILED, 'ALCHEMY_API_KEY appears invalid or empty');
                 throw new Error('Invalid Alchemy Key');
             }
 
@@ -225,10 +227,9 @@ async function fetchRecentTransactions(
                     const data = await response.json() as { error?: any; result?: { transfers?: any[] } };
                     if (!data.error) {
                         const transfers = data.result?.transfers || [];
-                        // console.log(`[Watcher] Alchemy returned ${transfers.length} transfers (Key: ...${ALCHEMY_API_KEY.slice(-4)})`);
                         return transfers;
                     }
-                    console.warn('[Watcher] Alchemy returned error:', data.error);
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy returned error response', { error: data.error });
                     // If logic error (e.g. bad params), don't retry
                     break;
                 } catch (e: any) {
@@ -243,14 +244,13 @@ async function fetchRecentTransactions(
 
             throw lastError || new Error('Alchemy failed after retries');
 
-        } catch (e) {
-            console.warn('[Watcher] Alchemy failed, attempting RPC fallback', e);
+        } catch (e: any) {
+            logger.debug(LogCode.API_FETCH_FAILED, 'Alchemy failed, attempting RPC fallback', { error: e.message });
         }
     }
 
-    // Fallback or Standard for other chains (like BNB)
     const rpcTransfers = await fetchRecentTransactionsRpc(address, chainId);
-    console.log(`[Watcher] RPC returned ${rpcTransfers.length} transfers, first metadata:`, rpcTransfers[0]?.metadata);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'RPC fallback returned transfers', { count: rpcTransfers.length, address });
     return rpcTransfers;
 }
 
@@ -259,14 +259,16 @@ async function fetchRecentTransactions(
  */
 async function checkWallet(wallet: { address: string; chainId: number }): Promise<void> {
     const { address, chainId } = wallet;
-    console.log(`[Watcher] Checking wallet: ${address}`);
+    const timerLabel = `check_wallet_${address.slice(0, 8)}_${chainId}`;
+    logger.startTimer(timerLabel);
+    logger.debug(LogCode.SYS_STARTUP, 'Checking wallet for updates', { address, chainId });
 
     const transfers = await fetchRecentTransactions(address, chainId);
-    console.log(`[Watcher] Found ${transfers.length} recent transfers for ${address.slice(0, 10)}`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Found recent transfers', { count: transfers.length, address: address.slice(0, 10) });
 
     for (const transfer of transfers) {
         const txHash = transfer.hash;
-        console.log(`[Watcher] Checking tx ${txHash?.slice(0, 10)} - Processed: ${processedTxs.has(txHash)}`);
+        logger.debug(LogCode.SYS_STARTUP, 'Checking transaction', { tx: txHash?.slice(0, 10), processed: processedTxs.has(txHash) });
 
         // Skip if already processed (in-memory cache)
         if (processedTxs.has(txHash)) {
@@ -288,7 +290,7 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
         // Only apply timestamp filter if we have a valid timestamp
         // If timestamp is unavailable, we rely on processedTxs cache and DB check to prevent duplicates
         if (txTimestamp > 0 && txTimestamp < STARTUP_TIME - 60000) { // 1 minute grace period
-            console.log(`[Watcher] Skipping old tx (before startup): ${txHash.slice(0, 10)}`);
+            logger.debug(LogCode.WTC_TX_SKIPPED, 'Skipping old transaction (before startup)', { tx: txHash.slice(0, 10) });
             processedTxs.add(txHash);
             continue;
         }
@@ -298,7 +300,7 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
             where: { entryTxHash: txHash }
         });
         if (existingPosition) {
-            console.log(`[Watcher] Skipping tx with existing Position: ${txHash.slice(0, 10)}`);
+            logger.debug(LogCode.WTC_TX_SKIPPED, 'Skipping transaction with existing position', { tx: txHash.slice(0, 10) });
             processedTxs.add(txHash);
             continue;
         }
@@ -310,11 +312,11 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
         ]);
 
         if (!tx || !receipt) {
-            console.log(`[Watcher] Could not fetch tx/receipt for ${txHash.slice(0, 10)}`);
+            logger.warn(LogCode.API_FETCH_FAILED, 'Could not fetch tx or receipt for parsing', { tx: txHash.slice(0, 10) });
             continue;
         }
 
-        console.log(`[Watcher] Parsing tx ${txHash.slice(0, 10)}, from: ${tx.from.slice(0, 10)}, to: ${tx.to?.slice(0, 10)}`);
+        logger.debug(LogCode.SYS_STARTUP, `Parsing transaction fields`, { tx: txHash.slice(0, 10), from: tx.from.slice(0, 10) });
 
         // Try to decode as swap
         const swap = await parseSwapTransaction(
@@ -333,11 +335,12 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
         );
 
         if (swap) {
-            console.log('[Watcher] ✅ Swap detected:', {
+            logger.info(LogCode.WTC_SWAP_DETECTED, 'Swap detected in watched wallet', {
                 wallet: address,
                 tokenIn: swap.tokenIn,
                 tokenOut: swap.tokenOut,
                 dex: swap.dexName,
+                txHash
             });
 
             // Trigger callback
@@ -345,7 +348,7 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
                 await swapCallback(address, swap, chainId);
             }
         } else {
-            console.log(`[Watcher] Not a swap tx: ${txHash.slice(0, 10)}`);
+            logger.debug(LogCode.WTC_TX_SKIPPED, 'Transaction is not a swap', { tx: txHash.slice(0, 10) });
         }
 
         // Mark as processed (NOW safe to cache as we finished trying)
@@ -362,8 +365,9 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
                 }
             },
             data: { lastCheckedTx: transfers[0]?.hash },
-        }).catch(e => console.warn('[Watcher] Could not update lastCheckedTx:', e.message));
+        }).catch((e: any) => logger.warn(LogCode.SYS_ERROR, 'Could not update lastCheckedTx in DB', { error: e.message }));
     }
+    logger.endTimer(timerLabel, LogCode.WTC_SCAN_STARTED, { address, chainId, transferCount: transfers.length });
 }
 
 /**
@@ -372,6 +376,8 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
 async function pollWallets(): Promise<void> {
     if (!isRunning) return;
 
+    const timerLabel = 'poll_wallets_cycle';
+    logger.startTimer(timerLabel);
     try {
         // Get all active tracked wallets
         const wallets = await prisma.trackedWallet.findMany({
@@ -384,7 +390,7 @@ async function pollWallets(): Promise<void> {
         if (evmWallets.length === 0) {
             // No wallets to track
         } else {
-            console.log(`[Watcher] Checking ${evmWallets.length} wallet(s)...`);
+            logger.throttled(LogCode.SYS_STARTUP, 'Polling active EVM wallets', { count: evmWallets.length });
 
             // Check each wallet (sequentially to avoid rate limits)
             for (const wallet of evmWallets) {
@@ -393,8 +399,9 @@ async function pollWallets(): Promise<void> {
                 await new Promise(r => setTimeout(r, 500));
             }
         }
-    } catch (error) {
-        console.error('[Watcher] Poll error:', error);
+        logger.endTimer(timerLabel, LogCode.WTC_SCAN_STARTED, { walletCount: evmWallets.length });
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Wallet polling loop error', { error: error.message });
     }
 
     // Schedule next poll
@@ -408,16 +415,16 @@ async function pollWallets(): Promise<void> {
  */
 export async function startWatcher(): Promise<void> {
     if (isRunning) {
-        console.log('[Watcher] Already running');
+        logger.debug(LogCode.SYS_STARTUP, 'Watcher already running');
         return;
     }
 
     if (!ALCHEMY_API_KEY) {
-        console.warn('[Watcher] No ALCHEMY_API_KEY - Watcher disabled');
+        logger.warn(LogCode.API_AUTH_FAILED, 'ALCHEMY_API_KEY missing - Watcher service disabled');
         return;
     }
 
-    console.log('[Watcher] Starting wallet watcher service...');
+    logger.info(LogCode.SYS_STARTUP, 'Starting wallet watcher service...');
 
     // Pre-populate cache with existing transactions to avoid processing old txs on restart
     try {
@@ -435,12 +442,12 @@ export async function startWatcher(): Promise<void> {
                     processedTxs.add(transfer.hash);
                 }
             }
-            console.log(`[Watcher] Cached ${transfers.length} existing txs for ${wallet.address.slice(0, 10)}`);
+            logger.debug(LogCode.SYS_STARTUP, 'Pre-populated cache for wallet', { address: wallet.address.slice(0, 10), count: transfers.length });
         }
 
-        console.log(`[Watcher] Cache initialized with ${processedTxs.size} transactions`);
-    } catch (error) {
-        console.error('[Watcher] Error pre-populating cache:', error);
+        logger.info(LogCode.SYS_STARTUP, 'Cache initialization complete', { totalTxs: processedTxs.size });
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Error during cache pre-population', { error: error.message });
     }
 
     isRunning = true;
@@ -455,7 +462,7 @@ export async function startWatcher(): Promise<void> {
 export function stopWatcher(): void {
     if (!isRunning) return;
 
-    console.log('[Watcher] Stopping wallet watcher service...');
+    logger.info(LogCode.SYS_STARTUP, 'Stopping wallet watcher service...');
     isRunning = false;
 
     if (pollTimer) {

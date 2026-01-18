@@ -19,6 +19,9 @@ import {
   type SolanaTokenMetadata
 } from '../utils/solanaToken.js';
 import { PublicKey } from '@solana/web3.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
+import { AppError } from '../middleware/errorHandler.js';
 
 export interface SolanaQuote {
   inputMint: string;
@@ -103,11 +106,11 @@ async function getJupiterQuote(
       isUltra = true;
       const takerParam = userAddress ? `&taker=${userAddress}` : '';
       quoteUrl = `${JUPITER_ULTRA_API}/order?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${takerParam}`;
-      console.log('[Jupiter Ultra] Fetching order/quote...');
+      logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Ultra quote', { inputMint, outputMint, amount });
     } else {
       // PUBLIC API: /quote
       quoteUrl = `${JUPITER_PUBLIC_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
-      console.log('[Jupiter Public] Fetching quote...');
+      logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Public quote', { inputMint, outputMint, amount });
     }
 
     const controller = new AbortController();
@@ -121,11 +124,11 @@ async function getJupiterQuote(
     });
 
     clearTimeout(timeoutId);
-    console.log(`[Jupiter API] Quote took ${Date.now() - quoteStartTime}ms`);
+    logger.debug(LogCode.SYS_INFO, 'Jupiter API quote fetched', { duration: `${Date.now() - quoteStartTime}ms` });
 
     if (!quoteResponse.ok) {
       const errorText = await quoteResponse.text();
-      console.error(`[Jupiter API] Request failed: ${quoteResponse.status}`, errorText);
+      logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API request failed', { status: quoteResponse.status, error: errorText });
       return null;
     }
 
@@ -136,7 +139,7 @@ async function getJupiterQuote(
       // Parse ULTRA response
       const ultraData = await quoteResponse.json() as any;
       if (ultraData.error) {
-        console.error('[Jupiter Ultra] API error:', ultraData.error);
+        logger.error(LogCode.API_FETCH_FAILED, 'Jupiter Ultra API error', { error: ultraData.error });
         return null;
       }
       quoteData = {
@@ -163,16 +166,16 @@ async function getJupiterQuote(
     }
 
     if (!quoteData || quoteData.error) {
-      console.error('[Jupiter API] Quote data error:', quoteData?.error);
+      logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API quote data error', { error: quoteData?.error });
       return null;
     }
 
     // Step 2: Swap Transaction Logic (only if needed)
     if (userAddress && !swapTransaction) {
       if (isUltra) {
-        console.warn('[Jupiter Ultra] User address provided but no transaction returned.');
+        logger.warn(LogCode.EXE_TX_BROADCAST, 'Jupiter Ultra: User address provided but no transaction returned');
       } else {
-        console.log('[Jupiter Public] Getting swap transaction...');
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Getting swap transaction');
         const swapResponse = await fetch(`${JUPITER_PUBLIC_API}/swap`, {
           method: 'POST',
           headers,
@@ -188,10 +191,10 @@ async function getJupiterQuote(
         if (swapResponse.ok) {
           const swapData = await swapResponse.json() as { swapTransaction: string };
           swapTransaction = swapData.swapTransaction;
-          console.log('[Jupiter Public] Got swap transaction successfully');
+          logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Got swap transaction successfully');
         } else {
           const errorText = await swapResponse.text();
-          console.error('[Jupiter Public] Swap transaction failed:', errorText);
+          logger.error(LogCode.API_FETCH_FAILED, 'Jupiter Public swap transaction failed', { error: errorText });
         }
       }
     }
@@ -210,8 +213,8 @@ async function getJupiterQuote(
       swapTransaction,
       rawQuoteResponse: quoteData, // Store full response for /swap endpoint
     };
-  } catch (error) {
-    console.error('[Jupiter API] Error fetching quote:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API error fetching quote', { error: error.message });
     return null;
   }
 }
@@ -269,14 +272,14 @@ export async function getJupiterSwapTransaction(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Jupiter API] Swap transaction request failed: ${response.status}`, errorText);
+      logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API swap transaction request failed', { status: response.status, error: errorText });
       return null;
     }
 
     const data = await response.json() as { swapTransaction: string };
     return data.swapTransaction;
-  } catch (error) {
-    console.error('[Jupiter API] Error fetching swap transaction:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API error fetching swap transaction', { error: error.message });
     return null;
   }
 }
@@ -292,8 +295,8 @@ async function getRaydiumPriorityFee(): Promise<string> {
     // For now, return a default value as the endpoint structure may differ
     // Priority fees are typically in microLamports (e.g., "1000" = 0.000001 SOL)
     return '1000'; // Default priority fee in microLamports
-  } catch (error) {
-    console.warn('[Raydium API] Error fetching priority fee:', error);
+  } catch (error: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, 'Raydium API error fetching priority fee', { error: error.message });
     return '1000'; // Default fallback
   }
 }
@@ -330,11 +333,11 @@ async function getRaydiumQuote(
 
     clearTimeout(timeoutId);
 
-    console.log(`[Raydium API] Quote took ${Date.now() - quoteStartTime}ms`);
+    logger.debug(LogCode.SYS_INFO, 'Raydium API quote fetched', { duration: `${Date.now() - quoteStartTime}ms` });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Raydium API] Quote request failed: ${response.status}`, errorText);
+      logger.error(LogCode.API_FETCH_FAILED, 'Raydium API quote request failed', { status: response.status, error: errorText });
       return null;
     }
 
@@ -397,8 +400,8 @@ async function getRaydiumQuote(
     }
 
     return quote;
-  } catch (error) {
-    console.error('[Raydium API] Error fetching quote:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Raydium API error fetching quote', { error: error.message });
     return null;
   }
 }
@@ -437,9 +440,9 @@ async function getRaydiumSwapTransaction(
         const ata = await getAssociatedTokenAddress(mint, owner);
 
         requestBody.inputAccount = ata.toString();
-        process.env.NODE_ENV !== 'production' && console.log('[Raydium API] Added inputAccount (ATA):', requestBody.inputAccount);
-      } catch (error) {
-        console.warn('[Raydium API] Failed to derive input ATA:', error);
+        logger.debug(LogCode.SYS_INFO, 'Raydium API: Added inputAccount (ATA)', { ata: requestBody.inputAccount });
+      } catch (error: any) {
+        logger.warn(LogCode.SYS_INFO, 'Raydium API: Failed to derive input ATA', { error: error.message });
       }
     }
 
@@ -453,7 +456,7 @@ async function getRaydiumSwapTransaction(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Raydium API] Transaction request failed: ${response.status}`, errorText);
+      logger.error(LogCode.API_FETCH_FAILED, 'Raydium API transaction request failed', { status: response.status, error: errorText });
       return null;
     }
 
@@ -463,22 +466,21 @@ async function getRaydiumSwapTransaction(
     };
 
     // Debug: Log the full response to understand structure
-    console.log('[Raydium API] Transaction response:', {
+    logger.debug(LogCode.API_FETCH_SUCCESS, 'Raydium API transaction response', {
       success: data.success,
       hasData: !!data.data,
-      dataLength: data.data?.length,
-      fullResponse: JSON.stringify(data).substring(0, 500) // First 500 chars
+      dataLength: data.data?.length
     });
 
     if (!data.success || !data.data || data.data.length === 0) {
-      console.error('[Raydium API] No transaction data in response');
+      logger.error(LogCode.API_FETCH_FAILED, 'Raydium API: No transaction data in response');
       return null;
     }
 
     // Return the first transaction (Raydium may return multiple transactions)
     return data.data[0].transaction;
-  } catch (error) {
-    console.error('[Raydium API] Error building transaction:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Raydium API error building transaction', { error: error.message });
     return null;
   }
 }
@@ -528,14 +530,14 @@ export async function getSolanaQuote(
     if (aggregator && aggregator !== 'auto') {
       const quote = await getSolanaQuoteFromAggregator(aggregator, inputMint, outputMint, amount, slippageBps, userAddress);
       if (quote) {
-        process.env.NODE_ENV !== 'production' && console.log(`[Solana Swap] Quote from ${aggregator}: ${quote.outAmount}`);
+        logger.info(LogCode.EXE_QUOTE_FETCHED, `Solana Swap: Quote from ${aggregator}`, { outAmount: quote.outAmount });
       }
       return quote;
     }
 
     // Otherwise, fetch quotes from all available aggregators in parallel
     // OPTIMIZATION: Call without userAddress first to get prices rapidly, then build tx for best only
-    console.log('[Solana Swap] Fetching multiple quotes in parallel (Price-First strategy)...');
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Solana Swap: Fetching multiple quotes in parallel');
 
     const startTime = Date.now();
     const quotes = await Promise.allSettled([
@@ -551,7 +553,7 @@ export async function getSolanaQuote(
       .map(q => q.value as SolanaQuote);
 
     if (validQuotes.length === 0) {
-      console.error('[Solana Swap] No valid quotes found from any aggregator');
+      logger.error(LogCode.API_FETCH_FAILED, 'Solana Swap: No valid quotes found from any aggregator');
       return null;
     }
 
@@ -562,11 +564,11 @@ export async function getSolanaQuote(
       return currentAmount > bestAmount ? current : best;
     });
 
-    console.log(`[Solana Swap] Selected ${bestQuote.aggregator} as best route (${Date.now() - startTime}ms)`);
+    logger.info(LogCode.EXE_QUOTE_FETCHED, `Solana Swap: Selected ${bestQuote.aggregator} as best route`, { duration: `${Date.now() - startTime}ms` });
 
     // If userAddress was provided, build the transaction only for the BEST quote
     if (userAddress) {
-      console.log(`[Solana Swap] Building transaction for best quote (${bestQuote.aggregator})...`);
+      logger.debug(LogCode.EXE_TX_BROADCAST, `Solana Swap: Building transaction for best quote (${bestQuote.aggregator})`);
 
       if (bestQuote.aggregator === 'jupiter') {
         const tx = await getJupiterSwapTransaction(bestQuote, userAddress);
@@ -574,7 +576,7 @@ export async function getSolanaQuote(
           bestQuote.swapTransaction = tx;
         } else {
           // Jupiter TX build failed - fallback to Raydium if available
-          console.warn('[Solana Swap] Jupiter transaction build failed, trying Raydium fallback...');
+          logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Jupiter transaction build failed, trying Raydium fallback');
 
           // CRITICAL: Don't use the stale raydium quote from the parallel fetch!
           // It might be 5-10 seconds old by now, causing 0x9ca deadline errors.
@@ -588,7 +590,7 @@ export async function getSolanaQuote(
             if (raydiumTx) {
               freshRaydiumQuote.swapTransaction = raydiumTx;
               bestQuote = freshRaydiumQuote; // Switch to Raydium
-              console.log('[Solana Swap] Successfully fell back to FRESH Raydium quote');
+              logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Successfully fell back to FRESH Raydium quote');
             }
           }
         }
@@ -600,25 +602,25 @@ export async function getSolanaQuote(
           bestQuote.swapTransaction = tx;
         } else {
           // Raydium TX build failed - fallback to Jupiter if available
-          console.warn('[Solana Swap] Raydium transaction build failed, trying Jupiter fallback...');
+          logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Raydium transaction build failed, trying Jupiter fallback');
           const jupiterQuote = validQuotes.find(q => q.aggregator === 'jupiter');
           if (jupiterQuote) {
             const jupiterTx = await getJupiterSwapTransaction(jupiterQuote, userAddress);
             if (jupiterTx) {
               jupiterQuote.swapTransaction = jupiterTx;
               bestQuote = jupiterQuote; // Switch to Jupiter
-              console.log('[Solana Swap] Successfully fell back to Jupiter');
+              logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Successfully fell back to Jupiter');
             }
           }
         }
       }
 
-      console.log(`[Solana Swap] Best quote with transaction complete (${Date.now() - startTime}ms)`);
+      logger.info(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Best quote with transaction complete', { duration: `${Date.now() - startTime}ms` });
     }
 
     return bestQuote;
-  } catch (error) {
-    console.error('[Solana Swap] Error getting best quote:', error);
+  } catch (error: any) {
+    logger.error(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Error getting best quote', { error: error.message });
     return null;
   }
 }
@@ -646,8 +648,8 @@ export async function getSolanaPrice(
       outAmount: quote.outAmount,
       priceImpact: quote.priceImpact,
     };
-  } catch (error) {
-    console.error('[Solana Swap] Error getting price:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Solana Swap: Error getting price', { error: error.message });
     return null;
   }
 }
@@ -661,15 +663,27 @@ export const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export const SOLANA_USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 
 /**
- * Convert native SOL address to wrapped SOL mint
+ * Convert token symbols to Solana Mint addresses
+ * Handles both symbols (SOL, USDC) and addresses (So111..., EPjF...)
  */
 export function normalizeSolanaTokenAddress(address: string): string {
-  // Native SOL is represented as 'So11111111111111111111111111111111111111112' (Wrapped SOL)
-  if (address === 'So11111111111111111111111111111111111111112' ||
-    address === 'SOL' ||
-    address === '') {
-    return SOLANA_NATIVE_MINT;
+  // If it's already a valid Solana address (base58, 32-44 chars), return it
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+    return address;
   }
-  return address;
+
+  // Common Solana token addresses
+  const SOLANA_TOKENS: Record<string, string> = {
+    'SOL': SOLANA_NATIVE_MINT,
+    'WSOL': SOLANA_NATIVE_MINT,
+    'USDC': SOLANA_USDC_MINT,
+    'USDT': SOLANA_USDT_MINT,
+    'RAY': '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // Raydium
+    'SRM': 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt', // Serum
+    'BONK': 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // Bonk
+  };
+
+  const upperSymbol = address.toUpperCase();
+  return SOLANA_TOKENS[upperSymbol] || address;
 }
 

@@ -5,6 +5,8 @@
  */
 
 import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const SOLSCAN_API_KEY = env.apiKeys.solscan || process.env.SOLSCAN_API_KEY || '';
 const BASE_URL = 'https://pro-api.solscan.io/v2.0';
@@ -33,7 +35,7 @@ export async function getAddressTransactions(
     before?: string
 ): Promise<SolscanResponse> {
     if (!SOLSCAN_API_KEY) {
-        console.warn('[Solscan] API key not configured.');
+        logger.warn(LogCode.SYS_INFO, 'Solscan API key not configured');
         return { success: false, data: [] };
     }
 
@@ -55,14 +57,14 @@ export async function getAddressTransactions(
         });
 
         if (!response.ok) {
-            console.error(`[Solscan] Error ${response.status}: ${response.statusText}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'Solscan API error', { status: response.status, statusText: response.statusText });
             return { success: false, data: [] };
         }
 
         const data = await response.json();
         return data as SolscanResponse;
     } catch (error: any) {
-        console.error('[Solscan] Error fetching transactions:', error.message);
+        logger.error(LogCode.SYS_ERROR, 'Solscan: Error fetching transactions', { error: error.message });
         return { success: false, data: [] };
     }
 }
@@ -102,7 +104,7 @@ export async function getTokenTransfers(
     sortOrder: 'asc' | 'desc' = 'asc'
 ): Promise<SolscanTokenTransferResponse> {
     if (!SOLSCAN_API_KEY) {
-        console.warn('[Solscan] API key not configured.');
+        logger.warn(LogCode.SYS_INFO, 'Solscan API key not configured');
         return { success: false, data: [] };
     }
 
@@ -115,7 +117,7 @@ export async function getTokenTransfers(
         });
 
         const url = `${BASE_URL}/token/transfer?${params.toString()}`;
-        console.log(`[Solscan] Fetching token transfers (${sortOrder}): ${tokenAddress}`);
+        logger.debug(LogCode.SYS_INFO, 'Solscan: Fetching token transfers', { tokenAddress, sortOrder });
 
         const response = await fetch(url, {
             headers: {
@@ -126,15 +128,15 @@ export async function getTokenTransfers(
 
         if (!response.ok) {
             const errText = await response.text();
-            console.error(`[Solscan] Error ${response.status}: ${errText}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'Solscan API error', { status: response.status, error: errText });
             return { success: false, data: [] };
         }
 
         const data = await response.json();
-        console.log(`[Solscan] Got ${(data as any).data?.length || 0} transfers for token`);
+        logger.debug(LogCode.SYS_INFO, 'Solscan: Received token transfers', { tokenAddress, count: (data as any).data?.length || 0 });
         return data as SolscanTokenTransferResponse;
     } catch (error: any) {
-        console.error('[Solscan] Error fetching token transfers:', error.message);
+        logger.error(LogCode.SYS_ERROR, 'Solscan: Error fetching token transfers', { error: error.message });
         return { success: false, data: [] };
     }
 }

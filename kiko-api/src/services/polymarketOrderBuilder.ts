@@ -12,6 +12,8 @@
 import { ethers } from 'ethers';
 import { signTypedData } from './privyWallet.js';
 import crypto from 'crypto';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Exchange contract addresses on Polygon
 const CTF_EXCHANGE_ADDRESS = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
@@ -80,7 +82,7 @@ function getPolymarketWallet(): ethers.Wallet {
 
     // Create wallet (no provider needed for signing)
     polymarketWallet = new ethers.Wallet(privateKey);
-    console.log('[PolymarketOrderBuilder] Signer wallet:', polymarketWallet.address.slice(0, 15) + '...');
+    logger.info(LogCode.SYS_STARTUP, 'Polymarket signer wallet initialized', { address: polymarketWallet.address });
 
     return polymarketWallet;
 }
@@ -96,7 +98,7 @@ export function getFunderAddress(): string {
         throw new Error('POLYMARKET_FUNDER_ADDRESS not configured. This is your Polymarket proxy wallet address (visible at polymarket.com/settings)');
     }
 
-    console.log('[PolymarketOrderBuilder] Funder/Proxy wallet:', cachedFunderAddress.slice(0, 15) + '...');
+    logger.info(LogCode.SYS_STARTUP, 'Polymarket funder/proxy wallet initialized', { address: cachedFunderAddress });
     return cachedFunderAddress;
 }
 
@@ -152,10 +154,9 @@ export async function buildSignedOrder(
         signatureType: order.signatureType
     };
 
-    console.log('[PolymarketOrderBuilder] Signing order:', {
-        maker: order.maker.slice(0, 10) + '...',
-        signer: order.signer.slice(0, 10) + '...',
-        tokenId: order.tokenId.slice(0, 20) + '...',
+    logger.debug(LogCode.SYS_INFO, 'Signing Polymarket order', {
+        maker: order.maker,
+        signer: order.signer,
         side: order.side === 0 ? 'BUY' : 'SELL',
         signatureType: order.signatureType === 0 ? 'EOA' : 'POLY_PROXY'
     });
@@ -165,7 +166,7 @@ export async function buildSignedOrder(
 
     if (_userId && !(_userId.startsWith('0x'))) {
         // Sign with Privy if userId looks like a Privy DID
-        console.log('[PolymarketOrderBuilder] Signing with Privy for user:', _userId.slice(0, 15) + '...');
+        logger.debug(LogCode.SYS_INFO, 'Signing with Privy for user', { userId: _userId });
         signature = await signTypedData(_userId, {
             domain,
             types: ORDER_TYPES,
@@ -174,11 +175,11 @@ export async function buildSignedOrder(
         });
     } else {
         // Fallback to server private key (legacy or internal)
-        console.log('[PolymarketOrderBuilder] Signing with server private key...');
+        logger.debug(LogCode.SYS_INFO, 'Signing with server private key');
         signature = await wallet.signTypedData(domain, ORDER_TYPES, message);
     }
 
-    console.log('[PolymarketOrderBuilder] Signature obtained:', signature.slice(0, 20) + '...');
+    logger.info(LogCode.SYS_INFO, 'Polymarket signature obtained');
 
     return {
         ...order,

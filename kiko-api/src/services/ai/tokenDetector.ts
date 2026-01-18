@@ -7,6 +7,8 @@
 import { getTokenDetails as getDexTokenDetails } from '../dexscreener.js';
 import { getTokenDetails as getGeckoTokenDetails } from '../geckoTerminal.js';
 import { detectLaunchpadToken } from './launchpadDetector.js';
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
 
 export interface TokenInfo {
     address: string;
@@ -43,8 +45,10 @@ const CHAIN_SLUG_TO_ID: Record<string, number> = {
  * Find token on any chain using DexScreener global search
  */
 export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | null> {
+    const timerLabel = `find_token_any_${address}`;
+    logger.startTimer(timerLabel);
     try {
-        console.log(`[TokenDetector] Searching for token globally: ${address}`);
+        logger.debug(LogCode.AI_TOKEN_DETECTED, 'TokenDetector: Searching for token globally', { address });
 
         // Use DexScreener global search (fastest for multi-chain)
         const response = await fetch(
@@ -53,7 +57,7 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
         );
 
         if (!response.ok) {
-            console.warn(`[TokenDetector] DexScreener search failed: ${response.status}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'TokenDetector: DexScreener search failed', { status: response.status, address });
             return null;
         }
 
@@ -73,13 +77,13 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
         };
 
         if (!data.pairs || data.pairs.length === 0) {
-            console.log(`[TokenDetector] No pairs found for ${address}, checking launchpad...`);
+            logger.debug(LogCode.SYS_INFO, 'TokenDetector: No pairs found, checking launchpad', { address });
 
             // Even without DEX pairs, check if token is from a launchpad (Zora/Clanker on Base)
             // Assume Base chain for 0x addresses since most launchpad tokens are there
             const launchpadResult = await detectLaunchpadToken(address, 8453);
             if (launchpadResult) {
-                console.log(`[TokenDetector] Found launchpad token without DEX: ${launchpadResult.provider}`);
+                logger.info(LogCode.SYS_INFO, 'TokenDetector: Found launchpad token without DEX', { provider: launchpadResult.provider, address });
                 return {
                     address,
                     symbol: launchpadResult.data?.symbol || 'UNKNOWN',
@@ -102,7 +106,7 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
         );
 
         if (!match || !match.baseToken) {
-            console.log(`[TokenDetector] No exact match found for ${address}`);
+            logger.debug(LogCode.SYS_INFO, 'TokenDetector: No exact match found', { address });
             return null;
         }
 
@@ -138,13 +142,17 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
                 provider: launchpadResult.provider,
                 data: launchpadResult.data,
             };
-            console.log(`[TokenDetector] Found launchpad token: ${tokenInfo.symbol} on ${launchpadResult.provider}`);
+            logger.info(LogCode.SYS_INFO, 'TokenDetector: Found launchpad token', { symbol: tokenInfo.symbol, provider: launchpadResult.provider });
         }
 
-        console.log(`[TokenDetector] Found token: ${tokenInfo.symbol} on ${tokenInfo.chainName} (${tokenInfo.chainId})`);
+        if (tokenInfo) {
+            logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, symbol: tokenInfo.symbol, chain: tokenInfo.chainName });
+        } else {
+            logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, found: false });
+        }
         return tokenInfo;
     } catch (error: any) {
-        console.error(`[TokenDetector] Error finding token:`, error.message);
+        logger.error(LogCode.SYS_ERROR, 'TokenDetector: Error finding token', { address, error: error.message });
         return null;
     }
 }
@@ -153,6 +161,8 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
  * Get token info for a specific chain
  */
 export async function getTokenInfo(address: string, chainId: number): Promise<TokenInfo | null> {
+    const timerLabel = `get_token_info_${address}_${chainId}`;
+    logger.startTimer(timerLabel);
     try {
         const chainMap: Record<number, string> = {
             1: 'ethereum',
@@ -168,7 +178,8 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
 
         const chainSlug = chainMap[chainId];
         if (!chainSlug) {
-            console.warn(`[TokenDetector] Unsupported chainId: ${chainId}`);
+            logger.error(LogCode.SYS_ERROR, 'TokenDetector: Unsupported chainId', { chainId });
+            logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, chainId, error: 'Unsupported chain' });
             return null;
         }
 
@@ -204,13 +215,14 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
                         tokenInfo.name = launchpadResult.data.name;
                     }
 
-                    console.log(`[TokenDetector] Found launchpad token (via Gecko): ${tokenInfo.symbol} on ${launchpadResult.provider}`);
+                    logger.info(LogCode.AI_TOKEN_DETECTED, 'TokenDetector: Found launchpad token (via Gecko)', { symbol: tokenInfo.symbol, provider: launchpadResult.provider });
                 }
 
+                logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, chainId, symbol: tokenInfo.symbol, source: 'gecko' });
                 return tokenInfo;
             }
-        } catch (error) {
-            console.warn(`[TokenDetector] GeckoTerminal failed, trying DexScreener...`);
+        } catch (error: any) {
+            logger.debug(LogCode.AI_TOKEN_DETECTED, 'TokenDetector: GeckoTerminal failed, trying DexScreener', { address, error: error.message });
         }
 
         // Fallback to DexScreener
@@ -244,16 +256,17 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
                     tokenInfo.name = launchpadResult.data.name;
                 }
 
-                console.log(`[TokenDetector] Found launchpad token: ${tokenInfo.symbol} on ${launchpadResult.provider}`);
+                logger.info(LogCode.AI_TOKEN_DETECTED, 'TokenDetector: Found launchpad token', { symbol: tokenInfo.symbol, provider: launchpadResult.provider });
             }
 
+            logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, chainId, symbol: tokenInfo.symbol, source: 'dex' });
             return tokenInfo;
         }
 
         // Last resort: check if it's a launchpad token even if not found on DEX
         const launchpadResult = await detectLaunchpadToken(address, chainId);
         if (launchpadResult) {
-            return {
+            const tokenInfo: TokenInfo = {
                 address,
                 symbol: launchpadResult.data.symbol || 'UNKNOWN',
                 name: launchpadResult.data.name || 'Unknown Token',
@@ -264,11 +277,15 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
                     data: launchpadResult.data,
                 },
             };
+            logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, chainId, symbol: tokenInfo.symbol, launchpad: launchpadResult.provider });
+            return tokenInfo;
         }
 
+        logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, chainId, found: false });
         return null;
     } catch (error: any) {
-        console.error(`[TokenDetector] Error getting token info:`, error.message);
+        logger.error(LogCode.SYS_ERROR, 'TokenDetector: Error getting token info', { address, chainId, error: error.message });
+        logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, chainId, error: error.message });
         return null;
     }
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, Edit, Trash2, Eye, Target, Check, RefreshCw } from 'lucide-react';
+import { Play, Pause, Edit, Trash2, Eye, Target, Check } from 'lucide-react';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import type { TradingStrategy } from '../../hooks/useStrategies';
 import styles from './StrategyCard.module.css';
@@ -13,6 +13,16 @@ interface StrategyCardProps {
   onToggleStatus: (id: string) => void;
   variant?: 'card' | 'row';
 }
+
+// Helper to get chain info
+const getChainInfo = (chainId: number | undefined) => {
+  switch (chainId) {
+    case 8453: return { name: 'Base', icon: '/assets/tokens/base.png', color: '#0052FF' };
+    case 1: return { name: 'Ethereum', icon: '/assets/tokens/eth.png', color: '#627EEA' };
+    case 900: return { name: 'Solana', icon: '/assets/tokens/sol.png', color: '#14F195' }; // Using generic ID for Sol
+    default: return { name: 'Unknown', icon: '/assets/tokens/eth.png', color: '#627EEA' };
+  }
+};
 
 export const StrategyCard: React.FC<StrategyCardProps> = ({
   strategy,
@@ -31,8 +41,11 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
     buyAmountUsd: 0,
     stopLossPct: 0,
     takeProfitPct: 0,
-    mirrorSell: false
+    mirrorSell: false,
+    chainId: strategy.chainId // Fallback to strategy level chainId
   };
+
+  const chainInfo = getChainInfo(config.chainId || strategy.chainId);
 
   const isActive = strategy.status === 'active';
   const status = (strategy.status || 'paused').toUpperCase() === 'PAUSED' ? 'PAUSED' :
@@ -45,13 +58,11 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
       <div className={clsx(styles.cardRow, resolvedTheme)}>
         {/* Identity */}
         <div className={styles.rowIdentity}>
-          <div className={styles.rowIcon}>
-            <div className={styles.iconWrapper}>
-              <RefreshCw size={16} />
-            </div>
+          <div className={styles.rowIcon} style={{ borderColor: `${chainInfo.color}33`, background: `${chainInfo.color}11` }}>
+            <img src={chainInfo.icon} alt={chainInfo.name} style={{ width: '20px', height: '20px', borderRadius: '50%' }} />
           </div>
           <div>
-            <div className={styles.rowName}>Copy Trading</div>
+            <div className={styles.rowName}>Copy Trading <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>on {chainInfo.name}</span></div>
             <div style={{ marginTop: '4px', display: 'inline-block' }}>
               {status === 'DELETED' ? (
                 <span className={styles.statusBadgeDeleted}>DELETED</span>
@@ -152,13 +163,12 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
       {/* Header: Title & Status */}
       <div className={styles.strategyHeader}>
         <div className={styles.strategyTitleSection}>
-          <div className={styles.uintaIcon}>
-            <div className={styles.iconWrapper}>
-              <RefreshCw size={16} />
-            </div>
+          <div className={styles.uintaIcon} style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)', padding: 0, overflow: 'hidden' }}>
+            <img src={chainInfo.icon} alt={chainInfo.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <div>
             <div className={styles.strategyName}>Copy Trading</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500, marginTop: '2px' }}>on {chainInfo.name}</div>
           </div>
         </div>
         {status === 'DELETED' ? (

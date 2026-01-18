@@ -683,6 +683,17 @@ export const chatApi = {
     },
 
     /**
+     * Rate a message (Like/Dislike)
+     */
+    async rateMessage(sessionId: string, messageId: string, feedback: 'like' | 'dislike' | null): Promise<any> {
+        const resp = await chatFetch<any>(`/api/chat/sessions/${sessionId}/messages/${messageId}/feedback`, {
+            method: 'PUT',
+            body: JSON.stringify({ feedback }),
+        });
+        return resp;
+    },
+
+    /**
      * Send a message to a session (starts AI task)
      */
     async sendMessage(sessionId: string, content: string, options: any = {}): Promise<any> {

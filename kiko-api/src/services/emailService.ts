@@ -1,6 +1,8 @@
 
 import { Resend } from 'resend';
 import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 let resend: Resend | null = null;
 
@@ -12,7 +14,7 @@ function getResendClient(): Resend | null {
 
     const apiKey = env.apiKeys.resendApiKey;
     if (!apiKey) {
-        console.warn('[EmailService] RESEND_API_KEY not configured. Email notifications disabled.');
+        logger.warn(LogCode.SYS_INFO, 'Resend API key not configured, email disabled');
         return null;
     }
 
@@ -155,7 +157,7 @@ export async function sendTradeNotification(email: string, data: TradeNotificati
 
         const finalExplorerLink = data.txHash ? `${explorerUrl}${data.txHash}` : 'https://kiko.trade';
 
-        console.log(`[EmailService] 📧 Preparing to send ${data.type} email to ${email} for ${data.tokenSymbol} (${chainName})`);
+        logger.info(LogCode.SYS_INFO, 'EmailService: Preparing to send email', { type: data.type, email, symbol: data.tokenSymbol, chainName });
 
         const result = await client.emails.send({
             from: 'KIKO <notifications@kikoapp.app>',
@@ -170,11 +172,11 @@ export async function sendTradeNotification(email: string, data: TradeNotificati
 
         if (result.error) {
             const errorMsg = String(result.error.message || '');
-            console.error(`[EmailService] ❌ Error sending email to ${email}:`, result.error);
+            logger.error(LogCode.SYS_ERROR, 'EmailService: Error sending email', { email, error: errorMsg });
 
             // Check for verification errors or 403
             if (errorMsg.includes('verified domain') || (result.error as any).statusCode === 403) {
-                console.log('[EmailService] 🛠️ Domain kikoapp.app might not be fully propagated, falling back to onboarding@resend.dev...');
+                logger.info(LogCode.SYS_INFO, 'EmailService: Domain propagation issues, using fallback', { email });
                 const fallbackResult = await client.emails.send({
                     from: 'onboarding@resend.dev',
                     to: email,
@@ -183,16 +185,16 @@ export async function sendTradeNotification(email: string, data: TradeNotificati
                     text: text,
                 });
                 if (fallbackResult.error) {
-                    console.error('[EmailService] ❌ Fallback also failed:', fallbackResult.error);
+                    logger.error(LogCode.SYS_ERROR, 'EmailService: Fallback email failed', { email, error: fallbackResult.error.message });
                 } else {
-                    console.log('[EmailService] ✅ Fallback email sent successfully via resend.dev');
+                    logger.info(LogCode.SYS_INFO, 'EmailService: Fallback email sent successfully', { email });
                 }
             }
         } else {
-            console.log(`[EmailService] ✅ Email sent successfully to ${email}. ID: ${result.data?.id}`);
+            logger.info(LogCode.SYS_INFO, 'EmailService: Email sent successfully', { email, id: result.data?.id });
         }
-    } catch (error) {
-        console.error('[EmailService] Error in sendTradeNotification:', error);
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'EmailService: Unexpected error in sendTradeNotification', { error: error.message });
     }
 }
 

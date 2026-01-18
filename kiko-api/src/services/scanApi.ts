@@ -7,6 +7,8 @@
 import { env } from '../config/env.js';
 import { CHAINS } from '../config/chainConfig.js';
 import { WalletTransaction } from './alchemy.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Scan API Configuration
 const SCAN_PROVIDERS = {
@@ -63,7 +65,7 @@ function getAvailableProviders(chain: string): Array<{ name: string; url: string
     );
     const chainId = chainConfig?.id;
 
-    console.log(`[ScanAPI Debug] chain: ${chainLower}, chainId: ${chainId}, etherscanEnabled: ${SCAN_PROVIDERS.etherscan.enabled}`);
+    logger.debug(LogCode.SYS_INFO, 'ScanAPI Provider Debug', { chain: chainLower, chainId, etherscanEnabled: SCAN_PROVIDERS.etherscan.enabled });
 
     // 1. Etherscan V2 (New Standard) via api.etherscan.io/v2/api
     if (SCAN_PROVIDERS.etherscan.enabled && chainId) {
@@ -116,7 +118,7 @@ function getAvailableProviders(chain: string): Array<{ name: string; url: string
         }
     }
 
-    console.log(`[ScanAPI] Available providers for ${chainLower}:`, providers.map(p => p.name));
+    logger.debug(LogCode.SYS_INFO, 'ScanAPI: Available providers', { chain: chainLower, providers: providers.map(p => p.name) });
     return providers;
 }
 
@@ -133,7 +135,7 @@ export async function getEvmTransactions(
     const providers = getAvailableProviders(chain);
 
     if (providers.length === 0) {
-        console.warn(`[ScanAPI] No Scan API available for chain: ${chain}`);
+        logger.warn(LogCode.API_FETCH_FAILED, 'ScanAPI: No Scan API available for chain', { chain });
         return [];
     }
 
@@ -217,7 +219,7 @@ export async function getEvmTransactions(
             });
 
         } catch (error: any) {
-            console.warn(`[ScanAPI] Failed to fetch from ${provider.name} for ${chain}: ${error.message}`);
+            logger.warn(LogCode.API_FETCH_FAILED, 'ScanAPI: Provider fetch failed', { provider: provider.name, chain, error: error.message });
             lastError = error;
             // Continue to next provider
         }
@@ -239,7 +241,7 @@ export async function getEvmTokenTransfers(
     const providers = getAvailableProviders(chain);
 
     if (providers.length === 0) {
-        console.warn(`[ScanAPI] No Scan API available for chain: ${chain}`);
+        logger.warn(LogCode.API_FETCH_FAILED, 'ScanAPI: No Scan API available for chain', { chain });
         return [];
     }
 
@@ -290,7 +292,7 @@ export async function getEvmTokenTransfers(
 
             // DEBUG: Log first raw transaction
             if (rawTxs.length > 0) {
-                console.log('[ScanAPI DEBUG] First raw token transfer:', JSON.stringify(rawTxs[0], null, 2));
+                logger.debug(LogCode.API_FETCH_SUCCESS, 'ScanAPI: First raw token transfer', { chain, raw: JSON.stringify(rawTxs[0]) });
             }
 
             // Filter and map transactions
@@ -411,7 +413,7 @@ export async function getEvmTokenTransfers(
                 });
 
             if (converted.length > 0) {
-                console.log('[ScanAPI DEBUG] First converted transaction:', JSON.stringify(converted[0], null, 2));
+                logger.debug(LogCode.API_FETCH_SUCCESS, 'ScanAPI: First converted transaction', { chain, converted: JSON.stringify(converted[0]) });
             }
 
             return converted;
@@ -422,6 +424,6 @@ export async function getEvmTokenTransfers(
         }
     }
 
-    console.warn(`[ScanAPI] Failed to fetch token transfers for ${chain}:`, lastError?.message);
+    logger.warn(LogCode.API_FETCH_FAILED, 'ScanAPI: Failed to fetch token transfers', { chain, error: lastError?.message });
     return [];
 }

@@ -1,4 +1,6 @@
 import { ethers } from 'ethers';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 import { getZeroExQuote, toWei, ZeroExQuote } from './zeroEx.js';
 import { sendTransaction } from './privyWallet.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -21,16 +23,18 @@ interface ExecuteSwapParams {
 
 export async function executeSwapInstant(params: ExecuteSwapParams): Promise<string> {
     const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = 50 } = params;
+    const timerLabel = `swap_instant_${walletAddress.slice(0, 8)}_${tokenIn}_${tokenOut}`;
+    logger.startTimer(timerLabel);
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
-        console.log('[TradeExecutor] 🧪 SIMULATION MODE: Skipping actual trade execution');
-        console.log('[TradeExecutor] 🧪 Would execute swap:', {
+        logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Skipping actual trade execution', {
             user: walletAddress,
             tokenIn,
             tokenOut,
             amountIn,
-            chainId
+            chainId,
+            simulation: true
         });
         // Return a mock TX Hash
         return `0xSIMULATION_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -41,7 +45,7 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         throw new AppError(400, 'tokenIn and tokenOut must be different tokens', 'VALIDATION_ERROR');
     }
 
-    console.log('[TradeExecutor] Executing swap:', {
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Executing swap', {
         user: walletAddress.slice(0, 10),
         tokenIn,
         tokenOut,
@@ -77,7 +81,12 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         throw new AppError(400, 'Failed to get sway quote', 'QUOTE_FAILED');
     }
 
-    console.log(`[TradeExecutor] Got quote: sell ${amountIn} -> buy ${quote.buyAmount} (min: ${quote.minBuyAmount})`);
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Received trade quote', {
+        sellAmount: amountIn,
+        buyAmount: quote.buyAmount,
+        minBuyAmount: quote.minBuyAmount,
+        provider: '0x'
+    });
 
     // 2. Execute Transaction via Privy
     const txHash = await sendTransaction(userId, '', {
@@ -90,24 +99,24 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         // We let Privy/RPC handle raw gas estimation optimization or use quote's estimate
     });
 
-    console.log('[TradeExecutor] Swap executed successfully:', txHash);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Swap transaction broadcasted', { txHash, chainId });
 
     // 3. POST-SWAP: Auto-Approve Token for Future Sells
     // User requested we approve the DEX router immediately after buying so selling is instant later
     if (tokenOut && tokenOut.toLowerCase() !== 'eth' && tokenOut.toLowerCase() !== '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
         try {
-            console.log(`[TradeExecutor] Waiting for buy tx ${txHash} to confirm before approving...`);
+            logger.debug(LogCode.EXE_TX_BROADCAST, 'Waiting for buy confirmation before auto-approval', { txHash });
 
             const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
             const receipt = await provider.waitForTransaction(txHash, 1);
 
             // CRITICAL: Check if the buy transaction actually succeeded
             if (!receipt || receipt.status === 0) {
-                console.error(`[TradeExecutor] ❌ Buy transaction REVERTED on-chain: ${txHash}`);
+                logger.error(LogCode.EXE_TX_REVERTED, 'Buy transaction REVERTED on-chain', { txHash, chainId });
                 throw new AppError(500, `Buy transaction reverted on-chain: ${txHash}`, 'TRANSACTION_REVERTED');
             }
 
-            console.log(`[TradeExecutor] Buy confirmed (status: ${receipt.status}). Auto-approving ${tokenOut} for Permit2...`);
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Buy confirmed, starting auto-approvals', { txHash, token: tokenOut });
 
             // Approve Max Uint
             const MAX_UINT = '115792089237316195423570985008687907853269984665640564039457584007913129639935';
@@ -123,13 +132,13 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
                     MAX_UINT,
                     chainId
                 );
-                console.log(`[TradeExecutor] Permit2 approved.`);
+                logger.debug(LogCode.EXE_TX_CONFIRMED, 'Permit2 auto-approved', { token: tokenOut });
             }
 
             // 2. Approve KyberSwap Router (MetaAggregationRouterV2)
             const KYBER_ROUTER = chainConfig.contracts.kyberRouter;
             if (KYBER_ROUTER) {
-                console.log(`[TradeExecutor] Auto-approving ${tokenOut} for KyberSwap...`);
+                logger.debug(LogCode.EXE_TX_BROADCAST, 'Auto-approving token for KyberSwap', { token: tokenOut });
                 await checkAndApproveToken(
                     userId,
                     walletAddress,
@@ -140,18 +149,19 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
                 );
             }
 
-            console.log(`[TradeExecutor] Auto-approval complete.`);
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-approval flow complete');
         } catch (err: any) {
             // Re-throw transaction revert errors - these are critical failures
             if (err?.code === 'TRANSACTION_REVERTED' || err?.message?.includes('reverted')) {
-                console.error('[TradeExecutor] ❌ Buy transaction failed, re-throwing error');
+                logger.error(LogCode.EXE_TX_REVERTED, 'Buy transaction confirmed failure, re-throwing', { error: err.message, txHash });
                 throw err;
             }
             // Only swallow approval-related errors (buy succeeded but approval failed)
-            console.warn('[TradeExecutor] Failed to auto-approve token after buy:', err);
+            logger.warn(LogCode.EXE_TX_REVERTED, 'Auto-approval failed after successful buy', { error: err.message, token: tokenOut });
         }
     }
 
+    logger.endTimer(timerLabel, LogCode.EXE_TX_CONFIRMED, { txHash, tokenIn, tokenOut, amountIn, chainId });
     return txHash;
 }
 
@@ -177,7 +187,9 @@ export async function executeSellInstant({
     slippageBps,
     tokenDecimals = 18
 }: ExecuteSellParams): Promise<string> {
-    console.log('[TradeExecutor] Executing SELL:', {
+    const timerLabel = `sell_instant_${walletAddress.slice(0, 8)}_${tokenToSell}`;
+    logger.startTimer(timerLabel);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Executing SELL', {
         user: walletAddress.slice(0, 10),
         tokenToSell: tokenToSell.slice(0, 10),
         amountToSell,
@@ -209,7 +221,10 @@ export async function executeSellInstant({
         throw new AppError(400, 'Failed to get sell quote from any aggregator', 'QUOTE_FAILED');
     }
 
-    console.log(`[TradeExecutor] Got best quote from ${best.dexName}: sell ${amountToSell} -> receive ${best.amountOutBase} (Wei)`);
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Received best sell quote', {
+        dex: best.dexName,
+        amountOut: best.amountOutBase
+    });
 
     // Check and Approve Allowance if needed
     // Best quote result already normalizes `allowanceTarget`
@@ -233,7 +248,7 @@ export async function executeSellInstant({
         gas: Math.floor(Number(best.gasEstimate) * 1.3).toString(), // Add 30% buffer for complex aggregator routes
     });
 
-    console.log('[TradeExecutor] Sell broadcasted, waiting for confirmation:', txHash);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Sell transaction broadcasted', { txHash, chainId });
 
     // WAIT for confirmation and check status
     const chainConfig = getChainConfig(chainId);
@@ -241,11 +256,11 @@ export async function executeSellInstant({
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
-        console.error('[TradeExecutor] Sell transaction reverted on-chain:', txHash);
+        logger.error(LogCode.EXE_TX_REVERTED, 'Sell transaction REVERTED on-chain', { txHash, chainId });
         throw new AppError(500, `Sell transaction reverted on-chain: ${txHash}`, 'TRANSACTION_REVERTED');
     }
 
-    console.log('[TradeExecutor] Sell confirmed successfully:', txHash);
+    logger.endTimer(timerLabel, LogCode.EXE_TX_CONFIRMED, { txHash, tokenToSell, amountToSell, chainId });
     return txHash;
 }
 
@@ -261,7 +276,7 @@ async function checkAndApproveToken(
     chainId: number
 ) {
     try {
-        console.log(`[TradeExecutor] Checking allowance for ${tokenAddress} -> ${spender}`);
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Checking token allowance', { token: tokenAddress, spender });
 
         // Simple ERC20 ABI for allowance
         const abi = ['function allowance(address owner, address spender) view returns (uint256)'];
@@ -271,10 +286,13 @@ async function checkAndApproveToken(
         const contract = new ethers.Contract(tokenAddress, abi, provider);
 
         const currentAllowance = await contract.allowance(owner, spender);
-        console.log(`[TradeExecutor] Current allowance: ${currentAllowance.toString()}, required: ${amount}`);
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Current token allowance', {
+            current: currentAllowance.toString(),
+            required: amount
+        });
 
         if (currentAllowance < BigInt(amount)) {
-            console.log(`[TradeExecutor] Allowance insufficient. Approving MaxUint256...`);
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Allowance insufficient, triggering approval', { token: tokenAddress });
 
             // Encode approve function call with MaxUint256 for speed and future-proofing
             const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
@@ -286,17 +304,16 @@ async function checkAndApproveToken(
                 value: '0',
                 chainId
             });
-
-            console.log(`[TradeExecutor] Approval sent: ${txHash}. Waiting for confirmation...`);
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Approval transaction broadcasted', { txHash });
 
             // Wait for confirmation (simple polling)
             await provider.waitForTransaction(txHash, 1);
-            console.log(`[TradeExecutor] Approval confirmed.`);
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Token approval confirmed', { token: tokenAddress });
         } else {
-            console.log(`[TradeExecutor] Allowance sufficient.`);
+            logger.debug(LogCode.EXE_TX_CONFIRMED, 'Token allowance already sufficient', { token: tokenAddress });
         }
-    } catch (error) {
-        console.error('[TradeExecutor] Failed to check/approve token:', error);
+    } catch (error: any) {
+        logger.error(LogCode.EXE_TX_REVERTED, 'Failed to check or approve token', { token: tokenAddress, error: error.message });
         throw new AppError(500, 'Failed to approve token', 'APPROVAL_FAILED');
     }
 }

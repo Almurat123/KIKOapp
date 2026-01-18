@@ -6,6 +6,8 @@
 
 import type { UserContext } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
 
 // High-level intent types (for system prompt selection)
 export type HighLevelIntentType =
@@ -57,6 +59,31 @@ export interface HighLevelIntent {
     confidence: number;
 }
 
+export interface IntentLabelScore {
+    label: HighLevelIntentType;
+    confidence: number;
+    evidence: string[];
+    source: 'rule' | 'classifier' | 'llm';
+}
+
+export interface IntentConflict {
+    type: 'risk_trade' | 'multi';
+    labels: HighLevelIntentType[];
+    question: string;
+}
+
+export interface IntentDecision {
+    primary: HighLevelIntentType;
+    confidence: number;
+    labels: Array<{ label: HighLevelIntentType; confidence: number }>;
+    evidence: IntentLabelScore[];
+    routing: {
+        stage: 'rule' | 'classifier' | 'llm' | 'hybrid';
+        reason: string;
+    };
+    conflict?: IntentConflict;
+}
+
 // Detailed intent result (for API routing and tool selection)
 export interface DetailedIntent {
     version: string;
@@ -92,6 +119,9 @@ export interface DetailedIntent {
     // General
     query?: string;
     parameters?: Record<string, any>;
+    // Optional metadata (for traceability)
+    confidence?: number;
+    evidence?: string[];
 }
 
 // Combined result
@@ -105,6 +135,7 @@ export interface ParsedIntent {
         tokenOut?: string;
         amount?: string;
     };
+    decision?: IntentDecision;
 }
 
 // Mapping from detailed intent to high-level intent
@@ -266,11 +297,21 @@ function hasSwapKeywords(text: string): boolean {
     // CRITICAL: Exclude copy trade commands from swap detection
     // "copy trade" contains "trade" but should NOT trigger swap intent
     if (hasCopyTradeKeywords(text)) {
-        console.log('[IntentParser] Copy trade detected, skipping swap keywords check');
+        logger.debug(LogCode.SYS_INFO, 'IntentParser: Copy trade detected, skipping swap keywords check');
         return false;
     }
 
     return swapKeywords.some(keyword => lowerText.includes(keyword));
+}
+
+function hasRiskKeywords(text: string): boolean {
+    return /\b(risk|safe|honeypot|security|scan|check.*safe|is.*safe|scam|rug)\b/i.test(text) ||
+        /\b(风险|安全|蜜罐|诈骗|拉盘|跑路)\b/i.test(text);
+}
+
+function hasTradeVerbs(text: string): boolean {
+    return /\b(swap|trade|exchange|convert|buy|sell|purchase|ape)\b/i.test(text) ||
+        /\b(兑换|交易|买|购买|卖|卖出)\b/i.test(text);
 }
 
 /**
@@ -339,6 +380,252 @@ function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: strin
     return {};
 }
 
+// -----------------------------
+// Lightweight intent classifier
+// -----------------------------
+const STOPWORDS = new Set([
+    'a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'and', 'or', 'is', 'are', 'with', 'at', 'by', 'from',
+    'this', 'that', 'it', 'as', 'be', 'do', 'does', 'did', 'will', 'should', 'can', 'could',
+]);
+
+const INTENT_PROTOTYPES: Record<HighLevelIntentType, string[]> = {
+    TRADING: [
+        'swap eth to usdc',
+        'buy this token',
+        'sell all my tokens',
+        'convert sol to usdc',
+        'swap 100 usdc for eth on base',
+    ],
+    RISK_SCAN: [
+        'is this token safe',
+        'honeypot check',
+        'is it a scam',
+        'security scan token',
+        '风险 安全 蜜罐',
+    ],
+    COPY_TRADING: [
+        'copy trade this wallet',
+        'mirror trades from this address',
+        'follow this wallet',
+        '跟单 复制交易',
+    ],
+    PREDICTION_MARKETS: [
+        'polymarket odds',
+        'betting market question',
+        'prediction market yes no',
+        '赔率 预测市场',
+    ],
+    SOCIAL_SENSING: [
+        'what are people saying on twitter',
+        'farcaster trending',
+        'social sentiment',
+        '社区 热度',
+    ],
+    MARKET_ANALYSIS: [
+        'price chart analysis',
+        'token market cap volume',
+        'market overview',
+        'why is this token pumping',
+    ],
+    GENERAL_CHAT: [
+        'hello',
+        'what is kiko',
+        'help me',
+        'how does this work',
+    ],
+};
+
+function tokenize(text: string): string[] {
+    return text
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter((t) => !STOPWORDS.has(t));
+}
+
+function hashEmbedding(text: string, dims = 128): number[] {
+    const vec = new Array(dims).fill(0);
+    const tokens = tokenize(text);
+    for (const token of tokens) {
+        let hash = 0;
+        for (let i = 0; i < token.length; i += 1) {
+            hash = (hash * 31 + token.charCodeAt(i)) | 0;
+        }
+        const idx = Math.abs(hash) % dims;
+        vec[idx] += 1;
+    }
+    return vec;
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+    let dot = 0;
+    let aNorm = 0;
+    let bNorm = 0;
+    for (let i = 0; i < a.length; i += 1) {
+        dot += a[i] * b[i];
+        aNorm += a[i] * a[i];
+        bNorm += b[i] * b[i];
+    }
+    if (aNorm === 0 || bNorm === 0) return 0;
+    return dot / (Math.sqrt(aNorm) * Math.sqrt(bNorm));
+}
+
+function classifyIntentLight(text: string): { scores: Record<HighLevelIntentType, number>; top: HighLevelIntentType; confidence: number } {
+    const scores: Record<HighLevelIntentType, number> = {
+        TRADING: 0,
+        RISK_SCAN: 0,
+        COPY_TRADING: 0,
+        PREDICTION_MARKETS: 0,
+        SOCIAL_SENSING: 0,
+        MARKET_ANALYSIS: 0,
+        GENERAL_CHAT: 0,
+    };
+
+    const inputVec = hashEmbedding(text);
+    for (const label of Object.keys(INTENT_PROTOTYPES) as HighLevelIntentType[]) {
+        const protoList = INTENT_PROTOTYPES[label];
+        let best = 0;
+        for (const proto of protoList) {
+            const sim = cosineSimilarity(inputVec, hashEmbedding(proto));
+            if (sim > best) best = sim;
+        }
+        // Normalize to 0..1
+        scores[label] = Math.max(0, Math.min(1, best));
+    }
+
+    const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]) as [HighLevelIntentType, number][];
+    const [top, confidence] = sorted[0];
+    return { scores, top, confidence };
+}
+
+function evaluateRuleLayer(userMessage: string, userContext?: UserContext): IntentLabelScore[] {
+    const contractAddress = detectContractAddress(userMessage);
+    const tokenSymbols = extractTokenSymbols(userMessage);
+    const hasSwap = hasSwapKeywords(userMessage);
+    const risk = hasRiskKeywords(userMessage);
+    const tradeVerb = hasTradeVerbs(userMessage);
+
+    const scores: Partial<Record<HighLevelIntentType, IntentLabelScore>> = {};
+    const add = (label: HighLevelIntentType, confidence: number, evidence: string[]) => {
+        const existing = scores[label];
+        if (!existing || confidence > existing.confidence) {
+            scores[label] = { label, confidence, evidence, source: 'rule' };
+        } else {
+            existing.evidence.push(...evidence);
+        }
+    };
+
+    if (hasCopyTradeKeywords(userMessage)) {
+        add('COPY_TRADING', 0.95, ['keyword: copy trade']);
+    }
+    if (/\b(polymarket|prediction\s*market|prediction|betting|bet\s+on|odds)\b/i.test(userMessage)) {
+        add('PREDICTION_MARKETS', 0.9, ['keyword: polymarket/betting']);
+    }
+    if (risk) {
+        add('RISK_SCAN', tradeVerb ? 0.6 : 0.9, ['keyword: risk/safety']);
+    }
+    if (hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
+        add('TRADING', hasSwap ? 0.9 : 0.8, [
+            hasSwap ? 'keyword: swap/trade' : 'token pair/contract address',
+        ]);
+    }
+    if (/\b(trending|social|farcaster|twitter|sentiment|what.*people|what.*saying)\b/i.test(userMessage)) {
+        add('SOCIAL_SENSING', 0.8, ['keyword: social/trending']);
+    }
+    if (/\b(price|chart|trending|volume|liquidity|market.*cap|token.*info|token.*data|analysis)\b/i.test(userMessage)) {
+        add('MARKET_ANALYSIS', 0.75, ['keyword: market analysis']);
+    }
+
+    if (Object.keys(scores).length === 0) {
+        add('GENERAL_CHAT', 0.5, ['fallback: no rule match']);
+    }
+
+    return Object.values(scores).filter(Boolean) as IntentLabelScore[];
+}
+
+function detectIntentConflict(labels: Array<{ label: HighLevelIntentType; confidence: number }>): IntentConflict | undefined {
+    const byLabel = new Map(labels.map((l) => [l.label, l.confidence]));
+    if ((byLabel.get('TRADING') || 0) >= 0.65 && (byLabel.get('RISK_SCAN') || 0) >= 0.65) {
+        return {
+            type: 'risk_trade',
+            labels: ['TRADING', 'RISK_SCAN'],
+            question: 'Do you want to trade now, or only do a safety check first?',
+        };
+    }
+    if (labels.length >= 2 && labels[0].confidence - labels[1].confidence < 0.12) {
+        return {
+            type: 'multi',
+            labels: labels.slice(0, 2).map((l) => l.label),
+            question: 'Do you want market analysis, or do you want to execute a trade?',
+        };
+    }
+    return undefined;
+}
+
+function buildDecision(
+    ruleScores: IntentLabelScore[],
+    classifierScores: ReturnType<typeof classifyIntentLight>,
+    llmLabel?: HighLevelIntentType
+): IntentDecision {
+    const combinedScores: Record<HighLevelIntentType, number> = {
+        TRADING: 0,
+        RISK_SCAN: 0,
+        COPY_TRADING: 0,
+        PREDICTION_MARKETS: 0,
+        SOCIAL_SENSING: 0,
+        MARKET_ANALYSIS: 0,
+        GENERAL_CHAT: 0,
+    };
+
+    for (const label of Object.keys(combinedScores) as HighLevelIntentType[]) {
+        const rule = ruleScores.find((r) => r.label === label);
+        const ruleScore = rule ? rule.confidence : 0;
+        const clfScore = classifierScores.scores[label] || 0;
+        combinedScores[label] = Math.min(1, ruleScore * 0.6 + clfScore * 0.4);
+    }
+
+    if (llmLabel) {
+        combinedScores[llmLabel] = Math.max(combinedScores[llmLabel], 0.75);
+    }
+
+    const labels = Object.entries(combinedScores)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, confidence]) => ({ label: label as HighLevelIntentType, confidence }));
+
+    const conflict = detectIntentConflict(labels);
+    const primary = labels[0].label;
+    const confidence = labels[0].confidence;
+
+    return {
+        primary,
+        confidence,
+        labels,
+        evidence: [
+            ...ruleScores,
+            ...(Object.keys(classifierScores.scores) as HighLevelIntentType[]).map((label) => ({
+                label,
+                confidence: classifierScores.scores[label],
+                evidence: ['embedding similarity'],
+                source: 'classifier' as const,
+            })),
+            ...(llmLabel
+                ? [{
+                    label: llmLabel,
+                    confidence: 0.75,
+                    evidence: ['llm classification'],
+                    source: 'llm' as const,
+                }]
+                : []),
+        ],
+        routing: {
+            stage: llmLabel ? 'llm' : (ruleScores.length > 0 ? 'hybrid' : 'classifier'),
+            reason: llmLabel ? 'LLM fallback for ambiguous intent' : 'Rule + classifier fusion',
+        },
+        conflict,
+    };
+}
+
 /**
  * Parse high-level intent using simple heuristics (fast, no API call)
  */
@@ -350,12 +637,8 @@ function parseHighLevelIntentHeuristic(
     const contractAddress = detectContractAddress(userMessage);
     const hasSwap = hasSwapKeywords(userMessage);
     const tokenSymbols = extractTokenSymbols(userMessage);
-    const hasRisk = /\b(risk|safe|honeypot|security|scan|check.*safe|is.*safe)\b/i.test(userMessage);
-
-    // Trade verbs (more specific than the broader swap keyword check)
-    // Used to distinguish "risk-only" questions that include a contract address.
-    const hasTradeVerb = /\b(swap|trade|exchange|convert|buy|sell|purchase|ape)\b/i.test(userMessage) ||
-        /\b(兑换|交易|买|购买|卖|卖出)\b/i.test(userMessage);
+    const hasRisk = hasRiskKeywords(userMessage);
+    const hasTradeVerb = hasTradeVerbs(userMessage);
 
     // COPY TRADING intent (must run before TRADING)
     if (hasCopyTradeKeywords(userMessage)) {
@@ -428,13 +711,14 @@ function parseHighLevelIntentHeuristic(
 async function parseDetailedIntentAI(
     userMessage: string,
     userContext?: UserContext
-): Promise<DetailedIntent> {
+): Promise<DetailedIntent | null> {
     const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
     const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+    const apiKey = DEEPSEEK_API_KEY;
 
-    if (!DEEPSEEK_API_KEY) {
-        console.warn('[IntentParser] DEEPSEEK_API_KEY not set, falling back to heuristic');
-        return parseDetailedIntentHeuristic(userMessage, userContext);
+    if (!apiKey) {
+        logger.info(LogCode.AI_INTENT_FAILED, 'IntentParser: DEEPSEEK_API_KEY not set, falling back to heuristic');
+        return null;
     }
 
     // Build context-aware system prompt
@@ -472,8 +756,8 @@ async function parseDetailedIntentAI(
 
         if (!response.ok) {
             const error = await response.text();
-            console.error('[IntentParser] DeepSeek API error:', error);
-            return parseDetailedIntentHeuristic(userMessage, userContext);
+            logger.error(LogCode.API_FETCH_FAILED, 'IntentParser: DeepSeek API error', { error });
+            return null;
         }
 
         const data = await response.json() as any;
@@ -550,8 +834,8 @@ async function parseDetailedIntentAI(
             }
 
             // FINAL VALIDATION: Ensure tokenIn and tokenOut are different
-            if (intent.token_in === intent.token_out) {
-                console.warn('[IntentParser] AI set tokenIn === tokenOut, fixing...');
+            if (intent.token_in && intent.token_out && intent.token_in.toLowerCase() === intent.token_out.toLowerCase()) {
+                logger.info(LogCode.SYS_INFO, 'IntentParser: AI set tokenIn === tokenOut, fixing...');
                 if (contractAddress) {
                     intent.token_out = contractAddress;
                     const isSolanaAddress = !contractAddress.startsWith('0x');
@@ -590,8 +874,8 @@ async function parseDetailedIntentAI(
 
         return intent;
     } catch (error: any) {
-        console.error('[IntentParser] Error parsing intent with AI:', error);
-        return parseDetailedIntentHeuristic(userMessage, userContext);
+        logger.error(LogCode.AI_INTENT_FAILED, 'IntentParser: Error parsing intent with AI', { error: error.message });
+        return null;
     }
 }
 
@@ -606,7 +890,7 @@ function parseDetailedIntentHeuristic(
     const hasSwap = hasSwapKeywords(userMessage);
     const tokenSymbols = extractTokenSymbols(userMessage);
     const isSolana = contractAddress && !contractAddress.startsWith('0x') && contractAddress.length >= 32;
-    const hasRiskKeywords = /\b(risk|safe|honeypot|security|scan|check.*safe|is.*safe)\b/i.test(userMessage);
+    const riskKeywords = hasRiskKeywords(userMessage);
 
     // Default intent
     let action: DetailedIntentType = 'general_query';
@@ -625,7 +909,7 @@ function parseDetailedIntentHeuristic(
     if ((hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) &&
         !isStrategyCondition &&
         !isCopyTradeCommand &&
-        !(hasRiskKeywords && !hasSwap)) {
+        !(riskKeywords && !hasSwap)) {
         action = 'swap';
 
         // Detect if this is a SELL operation (selling the contract address token)
@@ -650,9 +934,9 @@ function parseDetailedIntentHeuristic(
         const tokenInLower = tokenIn?.toLowerCase();
         const tokenOutLower = tokenOut?.toLowerCase();
         if (tokenInLower && tokenOutLower && tokenInLower === tokenOutLower) {
-            console.warn('[IntentParser] tokenIn and tokenOut are the same (case-insensitive), fixing...');
+            logger.info(LogCode.SYS_INFO, 'IntentParser: tokenIn and tokenOut are the same, fixing...');
+            // If we have a contract address, it should be tokenOut (buying)
             if (contractAddress) {
-                // If we have a contract address, it should be tokenOut (buying)
                 tokenOut = contractAddress;
                 // Detect native token based on context - check for BNB mention
                 const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56;
@@ -723,14 +1007,14 @@ function parseDetailedIntentHeuristic(
                 userMessage.match(/(\d+\.?\d*)\s+(?:worth|of)\b/i)?.[1];
         }
 
-        console.log('[IntentParser] Amount parsing result:', {
+        logger.debug(LogCode.SYS_INFO, 'IntentParser: Amount parsing result', {
             rawMessage: userMessage.slice(0, 50),
             parsedAmount: amount,
             isSellOperation: isSellOperation
         });
     }
     // Detect token security
-    else if (hasRiskKeywords) {
+    else if (riskKeywords) {
         action = 'token_security';
     }
     // Detect token info
@@ -794,8 +1078,18 @@ export async function parseIntent(
     userMessage: string,
     userContext?: UserContext
 ): Promise<ParsedIntent> {
-    // Step 1: Parse high-level intent (always use heuristic - fast)
-    const highLevel = parseHighLevelIntentHeuristic(userMessage, userContext);
+    const timerLabel = `intent_parsing_${uuidv4().slice(0, 8)}`;
+    logger.startTimer(timerLabel);
+
+    // Step 1: Rule layer + lightweight classifier
+    const ruleScores = evaluateRuleLayer(userMessage, userContext);
+    const classifier = classifyIntentLight(userMessage);
+    let decision = buildDecision(ruleScores, classifier);
+
+    let highLevel: HighLevelIntent = {
+        type: decision.primary,
+        confidence: decision.confidence,
+    };
 
     // Step 2: Parse detailed intent
     let detailed: DetailedIntent;
@@ -803,25 +1097,33 @@ export async function parseIntent(
     // Use AI if:
     // - Confidence is low (< 0.7)
     // - Message is complex (long or contains multiple concepts)
+    // - Rule conflict detected
     const shouldUseAI = highLevel.confidence < 0.7 ||
+        !!decision.conflict ||
         userMessage.length > 100 ||
         /(?:and|also|then|after|when)/i.test(userMessage);
 
     if (shouldUseAI) {
-        console.log('[IntentParser] Using AI for detailed intent parsing');
-        detailed = await parseDetailedIntentAI(userMessage, userContext);
+        logger.debug(LogCode.SYS_INFO, 'IntentParser: Using AI for detailed intent parsing');
+        const aiIntent = await parseDetailedIntentAI(userMessage, userContext);
+        if (aiIntent) {
+            detailed = aiIntent;
+        } else {
+            logger.debug(LogCode.SYS_INFO, 'IntentParser: AI parsing failed, falling back to heuristic for detailed intent parsing');
+            detailed = parseDetailedIntentHeuristic(userMessage, userContext);
+        }
     } else {
-        console.log('[IntentParser] Using heuristic for detailed intent parsing');
+        logger.debug(LogCode.SYS_INFO, 'IntentParser: Using heuristic for detailed intent parsing');
         detailed = parseDetailedIntentHeuristic(userMessage, userContext);
     }
 
     // Step 3: Map detailed intent to high-level (if mismatch, trust detailed)
     const mappedHighLevel = DETAILED_TO_HIGH_LEVEL[detailed.action] || highLevel.type;
-    // Avoid downgrading a specific high-level intent (e.g. COPY_TRADING / PREDICTION_MARKETS)
-    // to GENERAL_CHAT just because detailed parsing fell back to `general_query`.
     if (mappedHighLevel !== highLevel.type && detailed.action !== 'general_query') {
-        console.log(`[IntentParser] High-level intent corrected: ${highLevel.type} -> ${mappedHighLevel}`);
+        logger.debug(LogCode.SYS_INFO, 'IntentParser: High-level intent corrected', { from: highLevel.type, to: mappedHighLevel });
         highLevel.type = mappedHighLevel;
+        highLevel.confidence = Math.max(highLevel.confidence, 0.75);
+        decision = buildDecision(ruleScores, classifier, mappedHighLevel);
     }
 
     // Step 4: Extract additional metadata
@@ -830,6 +1132,17 @@ export async function parseIntent(
     // We ONLY trust what the regex explicitly finds in the user's message
     const contractAddress = detectContractAddress(userMessage);
     const tokenSymbols = extractTokenSymbols(userMessage);
+
+    logger.endTimer(timerLabel, LogCode.AI_INTENT_PARSED, {
+        userAddress: userContext?.userAddress,
+        intent: detailed.action,
+        highLevelIntent: highLevel.type,
+        hasAI: shouldUseAI,
+        confidence: highLevel.confidence,
+        routingStage: decision.routing.stage,
+        conflict: decision.conflict?.type,
+        labels: decision.labels?.slice(0, 3),
+    });
 
     return {
         highLevel,
@@ -841,6 +1154,7 @@ export async function parseIntent(
             tokenOut: detailed.token_out,
             amount: detailed.amount,
         } : undefined,
+        decision,
     };
 }
 

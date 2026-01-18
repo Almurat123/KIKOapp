@@ -6,6 +6,8 @@
  */
 
 import { toolRegistry } from '../../tools/registry.js';
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
 
 /**
  * Generates a formatted tool description block for the system prompt.
@@ -15,7 +17,7 @@ export function generateToolPrompt(): string {
     const definitions = toolRegistry.getAllDefinitions();
 
     if (definitions.length === 0) {
-        console.warn('[ToolPromptGenerator] No tools registered!');
+        logger.error(LogCode.SYS_ERROR, 'ToolPromptGenerator: No tools registered');
         return '**No tools available.**';
     }
 

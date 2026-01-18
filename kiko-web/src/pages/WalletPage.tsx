@@ -722,8 +722,8 @@ export default function WalletPage() {
       setTransactionsLoading(true);
       try {
         const chainName = getChainName(chainId);
-        // Use EVM address for auth, but use correct chain-specific address for data
-        const addressForApi = evmAddress || walletAddress;
+        // Use the correct chain-specific address for data
+        const addressForApi = chainName === 'solana' ? walletAddress : (evmAddress || walletAddress);
         console.log('[WalletPage] Fetching transactions:', { walletAddress: addressForApi, chainName, reqId });
         const txData = await getWalletTransactions(addressForApi!, {
           chain: chainName,
@@ -1418,4 +1418,3 @@ const TradingHistoryItem = ({ tx, styles, walletAddress }: { tx: any; styles: an
     </div>
   );
 };
-

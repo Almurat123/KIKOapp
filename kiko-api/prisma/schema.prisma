@@ -319,6 +319,7 @@ model ChatMessage {
   toolCalls         String?
   toolCallId        String?
   messageIndex      Int
+  feedback          String?        // 'like' | 'dislike' | null
   status            String         @default("complete")
   createdAt         DateTime       @default(now())
   session           ChatSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)

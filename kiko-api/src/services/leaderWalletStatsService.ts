@@ -1,5 +1,7 @@
 import prisma from '../db/prisma.js';
 import { normalizeAddress } from '../utils/address.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 /**
  * Record a new trade execution for a leader wallet
@@ -47,8 +49,8 @@ export async function recordNewTrade(
                 }
             });
         }
-    } catch (error) {
-        console.error(`[LeaderStats] Failed to record new trade for ${address}:`, error);
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'LeaderStats: Failed to record new trade', { address, error: error.message });
     }
 }
 
@@ -69,7 +71,7 @@ export async function recordTradeResult(
         });
 
         if (!current) {
-            console.warn(`[LeaderStats] No stats found to update PnL for ${address}`);
+            logger.warn(LogCode.SYS_INFO, 'LeaderStats: No stats found to update PnL', { address });
             return;
         }
 
@@ -113,7 +115,7 @@ export async function recordTradeResult(
             }
         });
 
-    } catch (error) {
-        console.error(`[LeaderStats] Failed to record trade result for ${address}:`, error);
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'LeaderStats: Failed to record trade result', { address, error: error.message });
     }
 }

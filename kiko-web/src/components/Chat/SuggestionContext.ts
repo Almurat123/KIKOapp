@@ -5,6 +5,7 @@ export type PageContext = 'home' | 'token' | 'social' | 'market' | 'wallet' | 'p
 export interface SuggestionContext {
     currentPage?: PageContext;
     tokenSymbol?: string;         // If on token detail page
+    chainId?: number;             // Current connected chain ID
     recentCommand?: string;       // Last command executed
     mode?: 'focus';               // 'focus' means input got focus with empty text
     // Note: We do NOT auto-read clipboard for privacy reasons

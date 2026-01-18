@@ -7,14 +7,17 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    height: var(--settings-input-height);
+    height: 40px !important;
+    /* Force match input height */
     padding: 0 16px;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: var(--settings-input-radius);
+    border-radius: 12px;
+    /* Match input radius */
     cursor: pointer;
     transition: all 0.2s ease;
     user-select: none;
-    font-size: var(--settings-label-fs);
+    font-size: 14px;
+    /* Match input font size */
     background: rgba(255, 255, 255, 0.05);
     color: #ffffff;
 }
@@ -38,7 +41,7 @@
 }
 
 .trigger:hover {
-    border-color: #646cff;
+    border-color: #10b981;
     background: rgba(255, 255, 255, 0.08);
 }
 
@@ -47,8 +50,8 @@
 }
 
 .triggerOpen {
-    border-color: #646cff;
-    box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.15);
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
 }
 
 .value {

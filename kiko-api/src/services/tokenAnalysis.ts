@@ -8,6 +8,7 @@ import * as helius from './helius.js';
 import * as alchemy from './alchemy.js';
 import * as rpcManager from './rpcManager.js';
 import * as dexscreener from './dexscreener.js';
+import { getSolanaTokenMetadata } from '../utils/solanaToken.js';
 import * as geckoTerminal from './geckoTerminal.js';
 import { WalletTransaction } from './alchemy.js';
 
@@ -75,6 +76,14 @@ export async function getEarlyBuyers(
             let buyers: EarlyBuyer[] = [];
             const seen = new Set<string>();
 
+            let fallbackDecimals: number | null = null;
+            if (result.success && result.data && result.data.length > 0) {
+                if (result.data[0].token_decimals === undefined || result.data[0].token_decimals === null) {
+                    const meta = await getSolanaTokenMetadata(tokenAddress);
+                    fallbackDecimals = meta?.decimals ?? 9;
+                }
+            }
+
             if (result.success && result.data) {
                 for (const transfer of result.data) {
                     const buyerAddr = transfer.to_address;
@@ -84,10 +93,11 @@ export async function getEarlyBuyers(
                     const ts = new Date(transfer.block_time * 1000);
                     if (!isWithinRange(ts)) continue;
 
+                    const decimals = transfer.token_decimals ?? fallbackDecimals ?? 9;
                     buyers.push({
                         address: buyerAddr,
                         timestamp: ts,
-                        amount: (transfer.amount / Math.pow(10, transfer.token_decimals || 9)).toString(),
+                        amount: (transfer.amount / Math.pow(10, decimals)).toString(),
                         txHash: transfer.tx_hash,
                         pnlUsd: 0,
                         isSmart: false

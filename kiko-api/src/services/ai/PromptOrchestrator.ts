@@ -5,6 +5,8 @@ import { V2_PROMPT_MODULES } from './prompts/v2/index.js';
 import { generateToolList, generateToolPrompt } from './toolPromptGenerator.js';
 import type { IntentType, ModelType, OrchestratorOptions, UserContext } from './types.js';
 import { skillRegistry } from '../../skills/registry.js';
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
 
 export class PromptOrchestrator {
     /**
@@ -15,6 +17,8 @@ export class PromptOrchestrator {
         intent: IntentType,
         options?: OrchestratorOptions
     ): string {
+        const timerLabel = `prompt_gen_${intent}_${model}`;
+        logger.startTimer(timerLabel);
         const modules: string[] = [];
 
         const promptVersion = (process.env.PROMPT_SYSTEM_VERSION || 'v2').toLowerCase();
@@ -40,15 +44,15 @@ export class PromptOrchestrator {
             const intentStr = String(intent).toUpperCase();
             const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
             if (matchedSkills.length > 0) {
-                console.log(`[PromptOrchestrator] 🎯 Intent "${intent}" matched ${matchedSkills.length} skill(s): ${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+                logger.info(LogCode.AI_TOOL_FILTERED, 'PromptOrchestrator: Intent matched skills', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
                 for (const skill of matchedSkills) {
                     if (skill.prompt) {
-                        console.log(`[PromptOrchestrator] 📝 Injecting prompt from skill: ${skill.metadata.name} (${skill.prompt.length} chars)`);
+                        logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt', { skill: skill.metadata.name, length: skill.prompt.length });
                         modules.push(skill.prompt);
                     }
                 }
             } else {
-                console.log(`[PromptOrchestrator] ⚠️ No skills matched intent "${intent}", using legacy INTENT_MODULES`);
+                logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent, using legacy modules', { intent });
                 const intentModule = INTENT_MODULES[intent];
                 if (intentModule) {
                     modules.push(intentModule);
@@ -81,15 +85,15 @@ export class PromptOrchestrator {
             const intentStr = String(intent).toUpperCase();
             const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
             if (matchedSkills.length > 0) {
-                console.log(`[PromptOrchestrator] 🎯 Intent "${intent}" matched ${matchedSkills.length} skill(s): ${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+                logger.info(LogCode.SYS_INFO, 'PromptOrchestrator: Intent matched skills (v1)', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
                 for (const skill of matchedSkills) {
                     if (skill.prompt) {
-                        console.log(`[PromptOrchestrator] 📝 Injecting prompt from skill: ${skill.metadata.name} (${skill.prompt.length} chars)`);
+                        logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt (v1)', { skill: skill.metadata.name, length: skill.prompt.length });
                         modules.push(skill.prompt);
                     }
                 }
             } else {
-                console.log(`[PromptOrchestrator] ⚠️ No skills matched intent "${intent}", using legacy INTENT_MODULES`);
+                logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent (v1), using legacy modules', { intent });
                 const intentModule = INTENT_MODULES[intent];
                 if (intentModule) {
                     modules.push(intentModule);
@@ -97,7 +101,9 @@ export class PromptOrchestrator {
             }
         }
 
-        return this.assemble(modules);
+        const finalPrompt = this.assemble(modules);
+        logger.endTimer(timerLabel, LogCode.AI_PROMPT_GENERATED, { model, intent, length: finalPrompt.length });
+        return finalPrompt;
     }
 
     /**
@@ -231,6 +237,19 @@ USER_QUERY_END
 
             if (config.copyTradeAIMode && config.copyTradeAIMode !== 'disabled') {
                 parts.push(`- Copy trade AI: ${config.copyTradeAIMode === 'analyze_only' ? 'Analyze only' : 'Auto decide'} mode.`);
+            }
+        }
+
+        if (ctx.intentHints) {
+            parts.push(`\n[INTENT_HINTS]`);
+            if (ctx.intentHints.labels && ctx.intentHints.labels.length > 0) {
+                parts.push(`- Candidate intents: ${ctx.intentHints.labels.join(', ')}`);
+            }
+            if (ctx.intentHints.conflict) {
+                parts.push(`- Conflict: ${ctx.intentHints.conflict}`);
+            }
+            if (ctx.intentHints.question) {
+                parts.push(`- Ask user: ${ctx.intentHints.question}`);
             }
         }
 

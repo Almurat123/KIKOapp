@@ -9,6 +9,8 @@
 import { PrivyClient } from '@privy-io/server-auth';
 import { AppError } from '../middleware/errorHandler.js';
 import { redact } from '../utils/sanitizer.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -46,7 +48,7 @@ function getPrivyClient(): PrivyClient {
             authorizationKeyId: keyId
         };
 
-        console.log('[PrivyWallet] Authorization Key config:', {
+        logger.info(LogCode.SYS_INFO, 'PrivyWallet Authorization Key config', {
             keyFormat: PRIVY_AUTHORIZATION_KEY.startsWith('wallet-auth:') ? 'wallet-auth' : 'pem',
             keyLength: formattedKey.length,
             keyIdConfigured: !!keyId,
@@ -75,7 +77,7 @@ export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: 
         );
 
         if (!embeddedWallet) {
-            console.warn(`[PrivyWallet] User ${userId} has no embedded wallet`);
+            logger.warn(LogCode.SYS_INFO, 'User has no embedded wallet', { userId });
             return null;
         }
 
@@ -86,8 +88,8 @@ export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: 
             address: walletData.address || '',
             id: walletData.id || walletData.address // Fallback to address if id not present
         };
-    } catch (error) {
-        console.error('[PrivyWallet] Error getting user wallet:', redact(error));
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Error getting user wallet from Privy', { userId, error: error.message });
         throw new AppError(500, 'Failed to get user wallet', 'WALLET_ERROR');
     }
 }
@@ -108,7 +110,7 @@ export async function getEmbeddedWalletAddress(userId: string): Promise<string |
 export async function getSolanaEmbeddedWalletAddress(userId: string): Promise<string | null> {
     // SIMULATION MODE: Return dummy wallet for test user
     if (process.env.SIMULATION_MODE === 'true' && userId.includes('test-user-simulation-123')) {
-        console.log('[PrivyWallet] 🧪 SIMULATION: Returning mock Solana wallet address');
+        logger.info(LogCode.SYS_INFO, '🧪 SIMULATION: Returning mock Solana wallet address', { userId });
         return 'MockSolanaWalletAddress111111111111111111111';
     }
 
@@ -125,13 +127,13 @@ export async function getSolanaEmbeddedWalletAddress(userId: string): Promise<st
         );
 
         if (!solanaWallet) {
-            console.warn(`[PrivyWallet] User ${userId} has no Solana embedded wallet`);
+            logger.warn(LogCode.SYS_INFO, 'User has no Solana embedded wallet', { userId });
             return null;
         }
 
         return (solanaWallet as any).address || null;
-    } catch (error) {
-        console.error('[PrivyWallet] Error getting Solana wallet:', redact(error));
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Error getting Solana wallet from Privy', { userId, error: error.message });
         throw new AppError(500, 'Failed to get Solana wallet', 'WALLET_ERROR');
     }
 }
@@ -194,13 +196,11 @@ export async function sendTransaction(
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
-                console.log('[PrivyWallet] Sending transaction:', {
+                logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Ethereum transaction via Privy', {
                     attempt,
                     from: walletInfo.address?.slice(0, 10),
-                    walletId: walletInfo.id?.slice(0, 15),
                     to: tx.to?.slice(0, 10),
                     chainId: tx.chainId,
-                    valueWei: tx.value,
                 });
 
                 // Use Privy's wallet API to send transaction
@@ -218,7 +218,7 @@ export async function sendTransaction(
                     },
                 });
 
-                console.log('[PrivyWallet] Transaction sent:', response.hash);
+                logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', { txHash: response.hash, chainId: tx.chainId });
 
                 // Add a small delay after sending to allow nonce propagation/indexing
                 // This helps when sending multiple transactions in rapid succession
@@ -238,12 +238,12 @@ export async function sendTransaction(
                 // Retry on nonce errors or transient network failures
                 if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
                     const reason = isNonceError ? 'Nonce error' : 'Network failure';
-                    console.warn(`[PrivyWallet] ${reason} on attempt ${attempt}, retrying in ${RETRY_DELAY_MS}ms...`);
+                    logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${RETRY_DELAY_MS}ms...`);
                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
                     continue;
                 }
 
-                console.error('[PrivyWallet] Transaction failed:', redact(error));
+                logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: error.message, chainId: tx.chainId });
 
                 // Handle specific Privy errors
                 if (error.code === 'insufficient_funds') {
@@ -296,12 +296,12 @@ export async function getOrCreateServerSolanaWallet(): Promise<{ id: string; add
                 id: existingServerWallet.id,
                 address: existingServerWallet.address
             };
-            console.log('[PrivyWallet] Using existing server Solana wallet:', serverSolanaWallet.address.slice(0, 10) + '...');
+            logger.info(LogCode.SYS_INFO, 'Using existing server Solana wallet', { address: serverSolanaWallet.address });
             return serverSolanaWallet;
         }
 
         // Create a new server wallet if none exists
-        console.log('[PrivyWallet] Creating new server Solana wallet...');
+        logger.info(LogCode.SYS_INFO, 'Creating new server Solana wallet...');
         const newWallet = await client.walletApi.create({
             chainType: 'solana'
         });
@@ -310,10 +310,10 @@ export async function getOrCreateServerSolanaWallet(): Promise<{ id: string; add
             id: newWallet.id,
             address: newWallet.address
         };
-        console.log('[PrivyWallet] Created new server Solana wallet:', serverSolanaWallet.address.slice(0, 10) + '...');
+        logger.info(LogCode.SYS_INFO, 'Created new server Solana wallet', { address: serverSolanaWallet.address });
         return serverSolanaWallet;
     } catch (error: any) {
-        console.error('[PrivyWallet] Failed to get/create server wallet:', redact(error));
+        logger.error(LogCode.SYS_ERROR, 'Failed to get/create server wallet', { error: error.message });
         throw new AppError(500, `Failed to get/create server wallet: ${error.message}`, 'SERVER_WALLET_ERROR');
     }
 }
@@ -346,22 +346,19 @@ export async function getDelegatedSolanaWallet(userId: string): Promise<{ id: st
         );
 
         if (!delegatedWallet) {
-            console.log(`[PrivyWallet] User ${userId.slice(0, 10)}... has no delegated Solana wallet`);
+            logger.debug(LogCode.SYS_INFO, 'User has no delegated Solana wallet', { userId });
             return null;
         }
 
         const walletData = delegatedWallet as any;
-        console.log(`[PrivyWallet] Found delegated Solana wallet for user:`, {
-            address: walletData.address?.slice(0, 10) + '...',
-            id: walletData.id?.slice(0, 10) + '...',
-        });
+        logger.debug(LogCode.SYS_INFO, 'Found delegated Solana wallet for user', { address: walletData.address, userId });
 
         return {
             id: walletData.id,
             address: walletData.address
         };
-    } catch (error) {
-        console.error('[PrivyWallet] Error getting delegated wallet:', error);
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'Error getting delegated wallet from Privy', { userId, error: error.message });
         return null;
     }
 }
@@ -385,14 +382,13 @@ export async function sendSolanaTransaction(
         if (!wallet) {
             wallet = await getOrCreateServerSolanaWallet();
             walletSource = 'server';
-            console.log('[PrivyWallet] Using server wallet (user has not delegated)');
+            logger.info(LogCode.SYS_INFO, 'Using server wallet (user has not delegated)', { userId });
         }
 
-        console.log('[PrivyWallet] Sending Solana transaction:', {
+        logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Solana transaction via Privy', {
             walletSource,
-            walletId: wallet.id.slice(0, 10) + '...',
-            walletAddress: wallet.address.slice(0, 10) + '...',
-            userId: userId.slice(0, 10) + '...',
+            address: wallet.address,
+            userId,
         });
 
         // Deserialize transaction
@@ -406,10 +402,10 @@ export async function sendSolanaTransaction(
             transaction: transaction,
         });
 
-        console.log('[PrivyWallet] Solana transaction sent:', response.hash);
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Solana transaction sent via Privy', { txHash: response.hash });
         return response.hash;
     } catch (error: any) {
-        console.error('[PrivyWallet] Solana transaction failed:', redact(error));
+        logger.error(LogCode.EXE_TX_REVERTED, 'Solana transaction failed via Privy', { error: error.message, userId });
         throw new AppError(
             500,
             `Failed to send Solana transaction: ${error.message || 'Unknown error'}`,
@@ -452,9 +448,8 @@ export async function signTypedData(
         throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
     }
 
-    console.log('[PrivyWallet] Signing EIP-712 typed data:', {
-        userId: userId.slice(0, 10) + '...',
-        walletId: walletInfo.id.slice(0, 15) + '...',
+    logger.debug(LogCode.SYS_INFO, 'Signing EIP-712 typed data via Privy', {
+        userId,
         primaryType: typedData.primaryType,
         chainId,
     });
@@ -473,13 +468,11 @@ export async function signTypedData(
             },
         });
 
-        console.log('[PrivyWallet] EIP-712 signature obtained:', {
-            signatureLength: response.signature?.length || 0,
-        });
+        logger.info(LogCode.SYS_INFO, 'EIP-712 signature obtained via Privy', { userId });
 
         return response.signature;
     } catch (error: any) {
-        console.error('[PrivyWallet] EIP-712 signing failed:', redact(error));
+        logger.error(LogCode.SYS_ERROR, 'EIP-712 signing failed via Privy', { error: error.message, userId });
 
         // Handle specific errors
         if (error.message?.includes('not delegated')) {

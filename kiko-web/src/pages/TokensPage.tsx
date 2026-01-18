@@ -848,6 +848,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   useEffect(() => {
     if (!searchQuery.trim()) {
       setTokens([]);
+      setLoading(false);
+      setError(null);
       return;
     }
 
@@ -908,6 +910,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       if (searchRequestIdRef.current) {
         requestManager.cancel(searchRequestIdRef.current);
         searchRequestIdRef.current = null;
+        setLoading(false);
       }
     };
   }, [searchQuery]);
@@ -1124,6 +1127,22 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     return () => observer.disconnect();
   }, [filteredAndSortedTokens.length, visibleCount]);
 
+  // Scroll fallback: some mobile/fast-scroll cases skip IntersectionObserver events.
+  useEffect(() => {
+    const root = document.querySelector('[data-scroll-container="app"]') as HTMLElement | null;
+    if (!root || filteredAndSortedTokens.length <= visibleCount) return;
+
+    const onScroll = () => {
+      const remaining = root.scrollHeight - root.scrollTop - root.clientHeight;
+      if (remaining < 400) {
+        setVisibleCount((prev) => prev + 30);
+      }
+    };
+
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => root.removeEventListener('scroll', onScroll);
+  }, [filteredAndSortedTokens.length, visibleCount]);
+
   const SortIcon: React.FC<{ column: keyof Token }> = ({ column }) => {
     if (sortBy !== column) return null;
     return sortDirection === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />;
@@ -1313,7 +1332,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
         {/* Loading Skeleton */}
         {
-          (loading || initialLoading) && (
+          (loading || initialLoading) && filteredAndSortedTokens.length === 0 && (
             <div className={styles.tableCard}>
               <table className={styles.table}>
                 <colgroup>
@@ -1445,7 +1464,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         }
 
         {
-          filteredAndSortedTokens.length > 0 && !loading && !initialLoading && (
+          filteredAndSortedTokens.length > 0 && (!loading || !searchQuery.trim()) && (
             <>
               <div className={styles.tableCard}>
                 <div className={styles.tableHeader} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1612,6 +1631,13 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                   <div ref={loadingRef} className={styles.infiniteScrollLoader}>
                     <div className={styles.loadingSpinnerSmall}></div>
                     <span>Loading more tokens...</span>
+                    <button
+                      type="button"
+                      className={styles.loadMoreBtn}
+                      onClick={() => setVisibleCount((prev) => prev + 30)}
+                    >
+                      Load more
+                    </button>
                   </div>
                 )}
               </div>

@@ -10,6 +10,8 @@ import { getChainConfig } from '../../config/chainConfig.js';
 import { env } from '../../config/env.js';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { redact } from '../../utils/sanitizer.js';
+import { logger } from '../../utils/logger.js';
+import { LogCode } from '../../config/logRegistry.js';
 
 const LAUNCHPAD_AUTH_PDA = 'WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh';
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
@@ -86,7 +88,7 @@ async function getClankerToken(address: string): Promise<any | null> {
 
         return null; // Stick to API for now to avoid false positives
     } catch (error: any) {
-        console.warn(`[LaunchpadDetector] Clanker check failed for ${address}:`, error.message);
+        logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Clanker check failed', { address, error: error.message });
         return null;
     }
 }
@@ -102,8 +104,8 @@ export async function getParagraphToken(address: string): Promise<any | null> {
     try {
         const sdk = await import('@paragraph_xyz/sdk');
         ParagraphAPI = sdk.ParagraphAPI;
-    } catch (e) {
-        console.warn('[LaunchpadDetector] Failed to load Paragraph SDK:', e);
+    } catch (e: any) {
+        logger.error(LogCode.SYS_ERROR, 'LaunchpadDetector: Failed to load Paragraph SDK', { error: e.message });
         return null;
     }
 
@@ -125,7 +127,8 @@ export async function getParagraphToken(address: string): Promise<any | null> {
                 coinFull = await apiAny.getCoin(coinBasic.id);
             }
         } catch (err: any) {
-            console.warn(`[LaunchpadDetector] Failed to get full coin details for ${coinBasic.id}:`, err.message);
+            logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Failed to get Paragraph coin details', { coinId: coinBasic.id, error: err.message });
+            return null;
         }
 
         const creationDateAttr = coinFull?.metadata?.attributes?.find((a: any) => a.trait_type === 'Token Creation Date')?.value;
@@ -141,7 +144,7 @@ export async function getParagraphToken(address: string): Promise<any | null> {
             createdAt: creationDateAttr ? new Date(creationDateAttr).getTime() : undefined,
         };
 
-        console.log(`[LaunchpadDetector] Returning Paragraph coin data:`, result);
+        logger.info(LogCode.AI_LAUNCHPAD_DETECTED, 'LaunchpadDetector: Returning Paragraph coin data', { result });
         return result;
     } catch (error: any) {
         const statusCode = error?.response?.status || error?.status || error?.statusCode;
@@ -150,10 +153,9 @@ export async function getParagraphToken(address: string): Promise<any | null> {
             return null;
         }
 
-        console.error(`[LaunchpadDetector] Paragraph fetch failed for ${address}:`, redact({
-            message: error?.message || error?.toString(),
-            status: statusCode,
-            apiKeyPresent: !!paragraphApiKey
+        logger.error(LogCode.SYS_ERROR, 'LaunchpadDetector: Paragraph fetch failed', redact({
+            address,
+            error: error.message
         }));
 
         return null;
@@ -178,7 +180,7 @@ async function getFourMemeToken(address: string): Promise<any | null> {
         );
 
         if (!response.ok) {
-            console.warn(`[LaunchpadDetector] Four.meme API responded with status ${response.status} for ${address}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Four.meme API responded with unexpected status', { status: response.status, address });
             return null;
         }
 
@@ -192,7 +194,7 @@ async function getFourMemeToken(address: string): Promise<any | null> {
 
         return null;
     } catch (error: any) {
-        console.warn(`[LaunchpadDetector] Four.meme fetch failed for ${address}:`, error.message, error.cause ? `Cause: ${error.cause}` : '');
+        logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Four.meme fetch failed', { address, error: error.message, cause: error.cause });
         return null;
     }
 }
@@ -255,7 +257,7 @@ async function getPumpFunToken(mintAddress: string): Promise<any | null> {
                 return portalData;
             }
         } else {
-            console.log(`[LaunchpadDetector] PumpPortal fallback failed with status ${portalRes?.status}`);
+            logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: PumpPortal fallback status', { status: portalRes?.status });
         }
 
         // Fallback: Official Raydium V3 API - Often has Pump.fun tokens indexed too
@@ -279,13 +281,13 @@ async function getPumpFunToken(mintAddress: string): Promise<any | null> {
                         decimals: token.decimals
                     };
                 }
-                console.log(`[LaunchpadDetector] Raydium fallback found token ${mintAddress} but Program ID ${token.programId} mismatch (expected Pump.fun). Ignoring.`);
+                logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Raydium fallback Program ID mismatch', { mintAddress, programId: token.programId });
             }
         }
 
         return null;
     } catch (error: any) {
-        console.warn(`[LaunchpadDetector] Pump.fun fetch failed for ${mintAddress}:`, error.message);
+        logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Pump.fun fetch failed', { mintAddress, error: error.message });
         return null;
     }
 }
@@ -330,7 +332,7 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
 
                     // Fallback: Check on-chain metadata for authoritative indicator
                     // This uses the Launchpad Auth PDA (WLHv...) found via SDK reverse stats
-                    console.log(`[LaunchpadDetector] Token ${mintAddress} missing API indicators. Checking on-chain metadata...`);
+                    logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Token missing API indicators, checking on-chain', { mintAddress });
                     const isLaunchpad = await checkLaunchpadAuth(mintAddress);
 
                     if (isLaunchpad) {
@@ -344,7 +346,7 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
                         };
                     }
 
-                    console.log(`[LaunchpadDetector] Token ${mintAddress} found on Raydium but missing LaunchLab indicators and on-chain Auth mismatch. Ignoring.`);
+                    logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Raydium token missing indicators and Auth mismatch', { mintAddress });
                     return null;
                 }
             }
@@ -371,7 +373,7 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
 
         return null;
     } catch (error: any) {
-        console.warn(`[LaunchpadDetector] Solana detection failed for ${mintAddress}:`, error.message);
+        logger.error(LogCode.SYS_ERROR, 'LaunchpadDetector: Solana detection failed', { mintAddress, error: error.message });
         return null;
     }
 }
@@ -393,10 +395,13 @@ export async function detectLaunchpadToken(
     let timeoutId: NodeJS.Timeout | null = null;
     const timeoutPromise = new Promise<null>((resolve) => {
         timeoutId = setTimeout(() => {
-            console.warn(`[LaunchpadDetector] ⏱️ Global timeout (6.0s) for ${address}. Falling back.`);
+            logger.info(LogCode.API_TIMEOUT, 'LaunchpadDetector: Global timeout reached', { address });
             resolve(null);
         }, 6000);
     });
+
+    const timerLabel = `launchpad_det_${address}`;
+    logger.startTimer(timerLabel);
 
     try {
         const result = await Promise.race([
@@ -404,6 +409,8 @@ export async function detectLaunchpadToken(
             timeoutPromise
         ]);
         if (timeoutId) clearTimeout(timeoutId);
+
+        logger.endTimer(timerLabel, LogCode.AI_LAUNCHPAD_DETECTED, { address, chainId, found: !!result });
         return result;
     } catch (err) {
         if (timeoutId) clearTimeout(timeoutId);

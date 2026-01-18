@@ -56,6 +56,8 @@ import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.
 import { executeDirectSwap } from '../services/directSwapExecutor.js';
 import { ragClient } from '../services/ragClient.js';
 import { skillRegistry } from '../skills/registry.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 export class ChatWorker {
     private isRunning = false;
@@ -115,6 +117,66 @@ export class ChatWorker {
         }
 
         return sanitized;
+    }
+
+    private async recordIntentTrace(
+        task: AITask,
+        sessionMessages: any[],
+        parsedIntent: Awaited<ReturnType<typeof parseIntent>>,
+        lastUserMessage: string
+    ) {
+        if (!task.userMessageId) return;
+
+        const messageRecord = sessionMessages.find(m => m.id === task.userMessageId);
+        const existingData = messageRecord?.data || {};
+        const intentTrace = {
+            parsedAt: new Date().toISOString(),
+            input: lastUserMessage,
+            decision: parsedIntent.decision,
+            highLevel: parsedIntent.highLevel,
+            detailed: {
+                action: parsedIntent.detailed.action,
+                token_in: parsedIntent.detailed.token_in,
+                token_out: parsedIntent.detailed.token_out,
+                amount: parsedIntent.detailed.amount,
+                chain_id: parsedIntent.detailed.chain_id,
+            },
+        };
+
+        await this.repo.updateMessage(task.userMessageId, {
+            data: {
+                ...existingData,
+                intentTrace,
+            }
+        });
+
+        // Link follow-up behavior to previous user intent trace if available.
+        const sorted = [...sessionMessages].sort((a, b) => (a.message_index || a.messageIndex || 0) - (b.message_index || b.messageIndex || 0));
+        const currentIndex = sorted.findIndex(m => m.id === task.userMessageId);
+        if (currentIndex > 0) {
+            for (let i = currentIndex - 1; i >= 0; i -= 1) {
+                const prev = sorted[i];
+                if (prev.role === 'user' && prev.data?.intentTrace) {
+                    const prevData = prev.data || {};
+                    await this.repo.updateMessage(prev.id, {
+                        data: {
+                            ...prevData,
+                            followUp: {
+                                nextUserMessageId: task.userMessageId,
+                                nextIntent: parsedIntent.highLevel.type,
+                                at: new Date().toISOString(),
+                            },
+                        }
+                    });
+                    logger.info(LogCode.AI_INTENT_PARSED, 'Intent follow-up recorded', {
+                        previousIntent: prev.data?.intentTrace?.highLevel?.type,
+                        nextIntent: parsedIntent.highLevel.type,
+                        sessionId: task.sessionId,
+                    });
+                    break;
+                }
+            }
+        }
     }
 
 
@@ -234,9 +296,9 @@ export class ChatWorker {
 
             // 3. Process based on model
             if (task.model.includes('deepseek')) {
-                await this.processDeepSeekTask(task, conversationHistory, userId);
+                await this.processDeepSeekTask(task, conversationHistory, userId, messages);
             } else if (task.model.includes('grok')) {
-                await this.processGrokTask(task, conversationHistory, userId);
+                await this.processGrokTask(task, conversationHistory, userId, messages);
             } else {
                 throw new Error(`Unsupported model: ${task.model}`);
             }
@@ -282,7 +344,7 @@ export class ChatWorker {
     /**
      * DeepSeek processing with multi-turn tool support
      */
-    private async processDeepSeekTask(task: AITask, history: any[], userId: string | null = null) {
+    private async processDeepSeekTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = []) {
         let iteration = 0;
         const maxIterations = 10;
         const assistantMessageId = task.assistantMessageId!;
@@ -412,6 +474,9 @@ export class ChatWorker {
                 chainId: task.toolContext?.chainId,
                 isWalletConnected: !!task.toolContext?.walletAddress,
             });
+            if (iteration === 1) {
+                await this.recordIntentTrace(task, sessionMessages, parsedIntent, lastUserMessage);
+            }
 
             if (task.sessionId) {
                 this.ws.broadcastToUser(userId!, {
@@ -472,8 +537,9 @@ export class ChatWorker {
             const fastSwapMode = task.toolContext?.toolConfig?.fastSwapMode === true;
             const isSwapIntent = parsedIntent.detailed.action === 'swap';
             const hasSwapTarget = !!parsedIntent.swapIntent?.tokenOut || !!parsedIntent.contractAddress;
+            const hasExplicitSwapVerb = /\b(swap|buy|sell|trade|exchange|convert|purchase|ape|买|卖|兑换|换)\b/i.test(lastUserMessage);
 
-            if (fastSwapMode && isSwapIntent && hasSwapTarget) {
+            if (fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb) {
                 if (task.sessionId) {
                     this.ws.broadcastToUser(userId!, {
                         type: 'task_status',
@@ -757,6 +823,8 @@ export class ChatWorker {
                     }
                     // Otherwise, continue to normal LLM processing as fallback
                 } // end else (amountIn !== 'all')
+            } else if (fastSwapMode && hasSwapTarget && !hasExplicitSwapVerb) {
+                (task as any).systemInjection = 'FAST SWAP SAFE MODE: User shared a token address without explicit trade intent. Ask a short confirmation question: trade now or analyze? Do not execute any trade without a clear buy/sell instruction.';
             } // end if (fastSwapMode && isSwapIntent && hasSwapTarget)
 
             // Wait for early pre-fetch to complete before building enrichment
@@ -867,6 +935,13 @@ export class ChatWorker {
                 isWalletConnected: !!task.toolContext?.walletAddress,
                 toolConfig: task.toolContext?.toolConfig,
                 balance: task.toolContext?.balance,
+                intentHints: parsedIntent.decision ? {
+                    labels: parsedIntent.decision.labels.map(label => label.label),
+                    conflict: parsedIntent.decision.conflict
+                        ? `${parsedIntent.decision.conflict.type} (${parsedIntent.decision.conflict.labels.join(' vs ')})`
+                        : undefined,
+                    question: parsedIntent.decision.conflict?.question,
+                } : undefined,
             };
 
             // Inject Context into the LATEST User Message
@@ -1666,7 +1741,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
      * Grok processing via grok-service (Python FastAPI)
      * Uses OpenAI-compatible streaming format
      */
-    private async processGrokTask(task: AITask, history: any[], userId: string | null = null) {
+    private async processGrokTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = []) {
         const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
         const assistantMessageId = task.assistantMessageId!;
         let fullContent = '';
@@ -1699,6 +1774,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             chainId: task.toolContext?.chainId,
             isWalletConnected: !!task.toolContext?.walletAddress,
         });
+        await this.recordIntentTrace(task, sessionMessages, parsedIntent, lastUserMessage);
 
         this.ws.broadcastToUser(userId!, {
             type: 'task_status',
@@ -1729,6 +1805,13 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             isWalletConnected: !!task.toolContext?.walletAddress,
             toolConfig: task.toolContext?.toolConfig,
             balance: task.toolContext?.balance,
+            intentHints: parsedIntent.decision ? {
+                labels: parsedIntent.decision.labels.map(label => label.label),
+                conflict: parsedIntent.decision.conflict
+                    ? `${parsedIntent.decision.conflict.type} (${parsedIntent.decision.conflict.labels.join(' vs ')})`
+                    : undefined,
+                question: parsedIntent.decision.conflict?.question,
+            } : undefined,
         };
 
         // Detect and resolve contract address if present (same as DeepSeek)

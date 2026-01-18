@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Check, RotateCcw, ThumbsDown, MoreHorizontal, X as XIcon, ExternalLink, Zap, ChevronUp, ChevronDown } from 'lucide-react';
+import { Copy, Check, ThumbsDown, ThumbsUp, Share2, X as XIcon, ExternalLink, Flame, ChevronUp, ChevronDown } from 'lucide-react';
+import { toast } from 'sonner';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { SwapCardChat } from './SwapCardChat';
 import { StrategyCard } from '../Trade/StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { LaunchpadCard } from '../Launchpad/LaunchpadCard';
+import { TransactionStatusCard } from './TransactionStatusCard';
 import { CitationRenderer } from './CitationRenderer';
 import { getSourceLogoProps, getSourceTitle } from '../../utils/sourceUtils';
 import { logger } from '../../utils/logger';
+import { chatApi } from '../../services/api';
+import { calculateCost, formatCost } from '../../utils/llmPricing';
 import styles from './Chat.module.css';
 import type { Message } from '../../hooks/useConversations';
 
@@ -21,7 +25,10 @@ interface MessageBubbleProps {
     onCardAction?: (action: string, data: any) => void;
     userAddress?: string;
     chainId?: number;
+    sessionId?: string;
     thinkingText?: string;
+    modelId?: string;
+    onFeedback?: (messageId: string, feedback: 'like' | 'dislike' | null) => void;
 }
 
 // Define components outside of render to prevent re-creation on every render
@@ -70,17 +77,44 @@ const MarkdownComponents = {
 };
 
 // Memoized MessageBubble to prevent re-renders during streaming
-const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction, userAddress, chainId, thinkingText }) => {
+const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction, userAddress, chainId, sessionId,
+    thinkingText,
+    modelId,
+    onFeedback
+}: MessageBubbleProps) => {
     const isUser = message.role === 'user';
     const [copied, setCopied] = useState(false);
     const [showCitations, setShowCitations] = useState(false);
     const [showReasoning, setShowReasoning] = useState(true); // 默认展开状态
+    const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(message.feedback || null); // Initial state from message if available
     const { resolvedTheme } = useThemeContext();
 
     const handleCopy = () => {
         navigator.clipboard.writeText(message.content);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleFeedback = async (type: 'like' | 'dislike') => {
+        if (!message.id || !sessionId) return;
+
+        const newFeedback = feedback === type ? null : type;
+        setFeedback(newFeedback); // Optimistic update
+
+        // Notify parent to update local state immediately
+        if (onFeedback) {
+            onFeedback(message.id, newFeedback);
+        }
+
+        try {
+            await chatApi.rateMessage(sessionId, message.id, newFeedback);
+        } catch (error) {
+            console.error('Failed to rate message:', error);
+            setFeedback(feedback); // Revert on error
+            if (onFeedback) {
+                onFeedback(message.id, feedback); // Revert parent
+            }
+        }
     };
 
     // Render card inline if message has card type and data
@@ -158,6 +192,27 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                     );
                 }
                 return null;
+
+            case 'transaction-status-card':
+                return (
+                    <div className={styles.inlineCard}>
+                        <div className={styles.animFluid}>
+                            <div className={styles.cardContent}>
+                                <TransactionStatusCard
+                                    status={message.data?.status || 'pending'}
+                                    txHash={message.data?.txHash}
+                                    tokenInSymbol={message.data?.tokenInSymbol}
+                                    tokenOutSymbol={message.data?.tokenOutSymbol}
+                                    amountIn={message.data?.amountIn}
+                                    amountOut={message.data?.amountOut}
+                                    chainId={message.data?.chainId || chainId}
+                                    errorMessage={message.data?.errorMessage}
+                                    isLoading={message.data?.isLoading}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                );
 
             default:
                 return null;
@@ -259,50 +314,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                             )}
                             {/* Render card inline after content */}
                             {renderCard()}
-
-                            {/* Transaction Status Indicator */}
-                            {message.type === 'swap-card' && message.transactionStatus && (
-                                <div className={styles.transactionStatus}>
-                                    {message.transactionStatus === 'waiting' && (
-                                        <div className={styles.statusWaiting}>
-                                            <span className={styles.statusIcon}>⏳</span>
-                                            <span>Waiting for your transaction...</span>
-                                        </div>
-                                    )}
-                                    {message.transactionStatus === 'success' && (
-                                        <div className={styles.statusSuccess}>
-                                            <span className={styles.statusIcon}>✅</span>
-                                            <span>Transaction successful!</span>
-                                            {message.transactionHash && (
-                                                <a
-                                                    href={`https://etherscan.io/tx/${message.transactionHash}`}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className={styles.txHashLink}
-                                                >
-                                                    View transaction < ExternalLink size={12} />
-                                                </a >
-                                            )}
-                                        </div >
-                                    )}
-                                    {
-                                        message.transactionStatus === 'failed' && (
-                                            <div className={styles.statusFailed}>
-                                                <span className={styles.statusIcon}>❌</span>
-                                                <span>Transaction failed</span>
-                                            </div>
-                                        )
-                                    }
-                                    {
-                                        message.transactionStatus === 'cancelled' && (
-                                            <div className={styles.statusCancelled}>
-                                                <span className={styles.statusIcon}>🚫</span>
-                                                <span>Transaction cancelled</span>
-                                            </div>
-                                        )
-                                    }
-                                </div >
-                            )}
                         </>
                     )}
                 </div >
@@ -316,28 +327,44 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                     {
                         !isUser && (
                             <>
-                                <button className={styles.actionBtn} title="Regenerate">
-                                    <RotateCcw size={14} />
+                                <button
+                                    className={clsx(styles.actionBtn, feedback === 'like' && styles.actionBtnActive)}
+                                    title="Like"
+                                    onClick={() => handleFeedback('like')}
+                                >
+                                    <ThumbsUp size={14} className={feedback === 'like' ? styles.iconActive : ''} fill={feedback === 'like' ? "currentColor" : "none"} />
                                 </button>
-                                <button className={styles.actionBtn} title="Bad response">
-                                    <ThumbsDown size={14} />
+                                <button
+                                    className={clsx(styles.actionBtn, feedback === 'dislike' && styles.actionBtnActive)}
+                                    title="Dislike"
+                                    onClick={() => handleFeedback('dislike')}
+                                >
+                                    <ThumbsDown size={14} className={feedback === 'dislike' ? styles.iconActive : ''} fill={feedback === 'dislike' ? "currentColor" : "none"} />
+                                </button>
+                                <button
+                                    className={styles.actionBtn}
+                                    title="Share"
+                                    onClick={() => {
+                                        // Simple share: copy message content for now, or specific link if available
+                                        navigator.clipboard.writeText(message.content);
+                                        toast.success('Message copied!');
+                                    }}
+                                >
+                                    <Share2 size={14} />
                                 </button>
                             </>
                         )
                     }
-                    <button className={styles.actionBtn} title="More">
-                        <MoreHorizontal size={14} />
-                    </button>
 
-                    {/* Token Usage - Simplified, inline */}
+                    {/* Token Usage - Cost Display */}
                     {
                         !isUser && message.usage && (
                             <div
                                 className={styles.tokenUsage}
                                 title={`Total: ${message.usage.total_tokens} tokens (Prompt: ${message.usage.prompt_tokens}, Completion: ${message.usage.completion_tokens})`}
                             >
-                                <Zap size={13} className={styles.tokenIcon} />
-                                <span>{message.usage.total_tokens}</span>
+                                <Flame size={13} className={styles.tokenIcon} />
+                                <span>{formatCost(calculateCost(modelId, message.usage.prompt_tokens, message.usage.completion_tokens, message.tool_calls?.length || 0))}</span>
                             </div>
                         )
                     }

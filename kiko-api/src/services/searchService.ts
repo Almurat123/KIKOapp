@@ -5,6 +5,8 @@
  */
 
 import { search as duckDuckGoSearch } from 'duck-duck-scrape';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 interface TavilySearchResult {
     title: string;
@@ -68,7 +70,7 @@ async function searchWithTavily(
 
     if (!response.ok) {
         const errorText = await response.text();
-        console.error('[searchService] Tavily API error:', errorText);
+        logger.error(LogCode.API_FETCH_FAILED, 'Tavily API error', { status: response.status, error: errorText });
         throw new Error(`Tavily API error: ${response.status} ${response.statusText}`);
     }
 
@@ -85,7 +87,7 @@ async function searchWithTavily(
     // Extract URLs for citations
     const citations = results.map((r) => r.url);
 
-    console.log(`[searchService] Tavily: Found ${results.length} results for query: "${query}"`);
+    logger.info(LogCode.SYS_INFO, 'Tavily search completed', { query, count: results.length });
 
     return { results, citations };
 }
@@ -95,7 +97,7 @@ async function searchWithTavily(
  */
 async function searchWithDuckDuckGo(query: string, maxResults: number = 5): Promise<{ results: SearchResult[]; citations: string[] }> {
     try {
-        console.log('[searchService] Using DuckDuckGo (free)');
+        logger.debug(LogCode.SYS_INFO, 'Using DuckDuckGo search', { query });
 
         const searchResults = await duckDuckGoSearch(query, {
             safeSearch: 'off' as any, // Valid values: 'off', 'moderate', 'strict' - type might be restrictive
@@ -120,10 +122,10 @@ async function searchWithDuckDuckGo(query: string, maxResults: number = 5): Prom
             }
         }
 
-        console.log(`[searchService] DuckDuckGo: Found ${results.length} results`);
+        logger.info(LogCode.SYS_INFO, 'DuckDuckGo search completed', { query, count: results.length });
         return { results, citations };
     } catch (error: any) {
-        console.error('[searchService] DuckDuckGo search error:', error);
+        logger.error(LogCode.SYS_ERROR, 'DuckDuckGo search error', { error: error.message, query });
         throw new Error(`DuckDuckGo search failed: ${error.message}`);
     }
 }
@@ -143,17 +145,17 @@ export async function searchWeb(
         // Try Tavily first if API key is configured
         const tavilyKey = getTavilyApiKey();
         if (tavilyKey) {
-            console.log('[searchService] Using Tavily API');
+            logger.debug(LogCode.SYS_INFO, 'Using Tavily API');
             try {
                 return await searchWithTavily(query, maxResults);
             } catch (tavilyError: any) {
-                console.warn('[searchService] Tavily failed, falling back to DuckDuckGo:', tavilyError.message);
+                logger.warn(LogCode.SYS_INFO, 'Tavily failed, falling back to DuckDuckGo', { error: tavilyError.message });
                 // Fall through to DuckDuckGo
             }
         }
 
         // Use DuckDuckGo as fallback (or primary if no Tavily key)
-        console.log('[searchService] Using DuckDuckGo (free)');
+        logger.debug(LogCode.SYS_INFO, 'Using DuckDuckGo fallback');
         return await searchWithDuckDuckGo(query, maxResults);
 
     } catch (error: any) {

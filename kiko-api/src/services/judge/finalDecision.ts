@@ -37,7 +37,7 @@ export function makeFinalDecision(input: FinalDecisionInput): FinalDecisionOutpu
             overall_risk_score: input.liquidityLayer.liquidity_risk_score,
             slippage_estimate: input.liquidityLayer.slippage_estimate,
             reasons: [
-                '流动性层阻止 - 池子深度不足或滑点过高',
+                'Liquidity layer block - pool depth too low or slippage too high',
                 ...input.liquidityLayer.reasons,
             ],
         };
@@ -50,7 +50,7 @@ export function makeFinalDecision(input: FinalDecisionInput): FinalDecisionOutpu
             overall_risk_score: input.structureLayer.structure_risk_score,
             slippage_estimate: input.liquidityLayer.slippage_estimate,
             reasons: [
-                '结构层阻止 - Launchpad 机制风险过高',
+                'Structure layer block - launchpad mechanism risk too high',
                 ...input.structureLayer.reasons,
             ],
         };
@@ -70,7 +70,7 @@ export function makeFinalDecision(input: FinalDecisionInput): FinalDecisionOutpu
             overall_risk_score: input.tokenIntelligenceLayer.token_intelligence_score,
             slippage_estimate: input.liquidityLayer.slippage_estimate,
             reasons: [
-                '代币信息层阻止 - 项目信息严重不足或有明显危险信号',
+                'Token intelligence block - project info insufficient or clear red flags',
                 ...input.tokenIntelligenceLayer.reasons,
             ],
         };
@@ -97,7 +97,7 @@ export function makeFinalDecision(input: FinalDecisionInput): FinalDecisionOutpu
             overall_risk_score: overallProjectRisk,
             slippage_estimate: input.liquidityLayer.slippage_estimate,
             reasons: [
-                '用户金额层阻止 - 重仓金额不适合此风险等级',
+                'User size block - position size too large for this risk level',
                 ...userSizeCompatibility.warnings,
             ],
         };
@@ -125,41 +125,41 @@ export function makeFinalDecision(input: FinalDecisionInput): FinalDecisionOutpu
     // Decision tree
     if (riskCount === 0) {
         finalDecision = 'ALLOW';
-        reasons.push('所有层级检查通过 - 风险可控');
+        reasons.push('All layers passed - risk is manageable');
     } else if (riskCount === 1) {
         finalDecision = 'ALLOW_WITH_RISK';
-        reasons.push('发现 1 个风险因素 - 建议谨慎操作');
+        reasons.push('1 risk factor found - proceed with caution');
     } else if (riskCount === 2) {
         finalDecision = 'ALLOW_WITH_RISK';
-        reasons.push('发现 2 个风险因素 - 需要密切关注');
+        reasons.push('2 risk factors found - monitor closely');
     } else {
         finalDecision = 'ALLOW_WITH_RISK';
-        reasons.push(`发现 ${riskCount} 个风险因素 - 高度谨慎`);
+        reasons.push(`Found ${riskCount} risk factors - high caution`);
     }
 
     // Add specific layer warnings
     if (hasLiquidityRisk) {
-        reasons.push(`流动性: ${input.liquidityLayer.reasons[0]}`);
+        reasons.push(`Liquidity: ${input.liquidityLayer.reasons[0]}`);
     }
     if (hasStructureRisk) {
-        reasons.push(`结构: ${input.structureLayer.reasons[0]}`);
+        reasons.push(`Structure: ${input.structureLayer.reasons[0]}`);
     }
     if (hasStageRisk) {
-        reasons.push(`阶段: ${input.stageLayer.reasons[0]}`);
+        reasons.push(`Stage: ${input.stageLayer.reasons[0]}`);
     }
     if (hasTokenIntelRisk) {
-        reasons.push(`代币信息: ${input.tokenIntelligenceLayer.reasons[0]}`);
+        reasons.push(`Token intelligence: ${input.tokenIntelligenceLayer.reasons[0]}`);
     }
     if (hasUserSizeRisk) {
-        reasons.push(`用户金额: ${userSizeCompatibility.warnings[0]}`);
+        reasons.push(`User size: ${userSizeCompatibility.warnings[0]}`);
     }
 
     // Add positive signals
     if (input.tokenIntelligenceLayer.token_intelligence_label === 'strong') {
-        reasons.push('✓ 项目信息完整可靠');
+        reasons.push('Project information is strong and reliable');
     }
     if (input.liquidityLayer.lp_depth_usd > 50000) {
-        reasons.push('✓ 流动性充足');
+        reasons.push('Liquidity is strong');
     }
 
     return {
@@ -169,4 +169,3 @@ export function makeFinalDecision(input: FinalDecisionInput): FinalDecisionOutpu
         reasons,
     };
 }
-

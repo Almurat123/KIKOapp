@@ -199,6 +199,7 @@ export interface DecisionEngineOutput {
         input: DecisionEngineInput;
         layers: DecisionEngineLayers;
         final_decision: FinalDecisionOutput;
+        decision_id?: string;
     };
 }
 

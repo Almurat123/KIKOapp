@@ -9,6 +9,8 @@
  */
 
 import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const ZEROX_BASE_URL = 'https://api.0x.org';
 const ZEROX_API_KEY = env.apiKeys.zeroEx || '';
@@ -253,7 +255,7 @@ export async function getZeroExPrice(
       headers['0x-api-key'] = ZEROX_API_KEY;
     }
 
-    console.log('[0x API] Requesting price from:', url);
+    logger.debug(LogCode.API_FETCH_SUCCESS, '0x API price request', { url });
 
     const response = await fetch(url, {
       method: 'GET',
@@ -262,15 +264,15 @@ export async function getZeroExPrice(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[0x API] Price request failed: ${response.status}`, errorText);
+      logger.error(LogCode.API_FETCH_FAILED, '0x API Price request failed', { status: response.status, error: errorText });
       return null;
     }
 
     const data = await response.json() as ZeroExPrice;
-    console.log('[0x API] Price received successfully');
+    logger.info(LogCode.API_FETCH_SUCCESS, '0x API price received successfully', { sellToken, buyToken, chainId });
     return data;
-  } catch (error) {
-    console.error('[0x API] Error fetching price:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, '0x API price fetch error', { error: error.message });
     return null;
   }
 }
@@ -297,7 +299,7 @@ export async function getZeroExQuote(
     // Validate sellAmount - must be greater than 0
     const sellAmountBigInt = BigInt(sellAmount || '0');
     if (sellAmountBigInt === 0n) {
-      console.error('[0x API] Invalid sellAmount: must be greater than 0', { sellAmount, sellToken, buyToken, chainId });
+      logger.error(LogCode.API_FETCH_FAILED, 'Invalid sellAmount: must be greater than 0', { sellAmount, sellToken, buyToken, chainId });
       return null;
     }
 
@@ -372,14 +374,11 @@ export async function getZeroExQuote(
       : `${baseUrl}${endpoint}?chainId=${chainId}&${params.toString()}`;
 
     // Debug logging
-    console.log('[0x API] URL construction:', {
-      baseUrl,
-      ZEROX_BASE_URL,
-      isChainSpecificBaseUrl,
+    logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Quote requesting', {
       endpoint,
       chainId,
-      url,
-      params: Object.fromEntries(params.entries()),
+      sellToken: normalizeSellToken,
+      buyToken: normalizeBuyToken
     });
 
     const headers: Record<string, string> = {
@@ -394,15 +393,14 @@ export async function getZeroExQuote(
       headers['0x-api-key'] = ZEROX_API_KEY;
     }
 
-    console.log('[0x API] Requesting quote from:', url);
-    console.log('[0x API] Quote request details:', {
+    // Detail logs kept in debug level
+    logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Quote request details', {
       sellToken: normalizeSellToken,
       buyToken: normalizeBuyToken,
       sellAmount,
       slippageBps: Math.round(slippageBps),
       chainId,
       takerAddress: finalTakerAddress,
-      providedTakerAddress: takerAddress,
       endpoint: useLegacyEndpoint ? 'v1' : 'permit2',
     });
 
@@ -418,8 +416,8 @@ export async function getZeroExQuote(
     if (response.ok) {
       try {
         rawData = await response.json();
-      } catch (e) {
-        console.error('[0x API] Failed to parse response JSON:', e);
+      } catch (e: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to parse 0x API response JSON', { error: e.message });
         responseWasOk = false;
       }
     }
@@ -448,8 +446,7 @@ export async function getZeroExQuote(
         // Ignore if we can't read the error
       }
 
-      console.warn(`[0x API] Permit2 endpoint ${responseWasOk ? 'returned empty data' : 'failed'} for chain ${chainId}, trying v1 endpoint as fallback`, {
-        originalError: originalErrorText,
+      logger.warn(LogCode.API_FETCH_FAILED, `0x API Permit2 endpoint failure, trying v1 fallback`, {
         status: response.status,
         chainId,
         hasValidData,
@@ -493,7 +490,7 @@ export async function getZeroExQuote(
         fallbackHeaders['0x-api-key'] = ZEROX_API_KEY;
       }
 
-      console.log('[0x API] Trying v1 fallback:', fallbackUrl);
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'Trying 0x API v1 fallback', { fallbackUrl });
 
       const fallbackResponse = await fetch(fallbackUrl, {
         method: 'GET',
@@ -501,7 +498,7 @@ export async function getZeroExQuote(
       });
 
       if (fallbackResponse.ok) {
-        console.log('[0x API] Fallback to v1 endpoint succeeded');
+        logger.info(LogCode.API_FETCH_SUCCESS, '0x API Fallback to v1 endpoint succeeded');
         rawData = await fallbackResponse.json();
         const data: ZeroExQuote = {
           ...rawData,
@@ -538,20 +535,13 @@ export async function getZeroExQuote(
         errorText = response.statusText;
       }
 
-      console.error(`[0x API] Quote request failed: ${response.status}`, {
+      logger.error(LogCode.API_FETCH_FAILED, `0x API Quote request failed`, {
         status: response.status,
         statusText: response.statusText,
-        errorText,
         errorJson,
-        requestDetails: {
-          sellToken: normalizeSellToken,
-          buyToken: normalizeBuyToken,
-          sellAmount,
-          chainId,
-          endpoint: useLegacyEndpoint ? 'v1' : 'permit2',
-          takerAddress: finalTakerAddress,
-          url,
-        },
+        chainId,
+        sellToken: normalizeSellToken,
+        buyToken: normalizeBuyToken
       });
 
       // For 404 errors, provide more helpful message
@@ -573,14 +563,11 @@ export async function getZeroExQuote(
       rawData = await response.json();
     }
 
-    console.log('[0x API] Quote received successfully');
-    console.log('[0x API] Quote response structure:', {
-      hasTransaction: !!rawData.transaction,
-      hasTo: !!rawData.transaction?.to || !!rawData.to,
-      hasData: !!rawData.transaction?.data || !!rawData.data,
-      hasValue: !!rawData.transaction?.value || !!rawData.value,
-      transactionValue: rawData.transaction?.value || rawData.value,
-      usedEndpoint: useLegacyEndpoint ? 'v1' : 'permit2',
+    logger.info(LogCode.API_FETCH_SUCCESS, '0x API Quote received successfully', {
+      sellToken,
+      buyToken,
+      buyAmount: rawData.buyAmount,
+      usedEndpoint: useLegacyEndpoint ? 'v1' : 'permit2'
     });
 
     // 0x API v2 (permit2) returns { transaction: { to, data, value, ... }, ... }
@@ -595,10 +582,8 @@ export async function getZeroExQuote(
       gasPrice: rawData.transaction?.gasPrice || rawData.gasPrice,
     };
 
-    console.log('[0x API] Flattened quote data:', {
+    logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Flattened quote data', {
       to: data.to?.substring(0, 10),
-      dataLength: data.data?.length,
-      value: data.value,
       buyAmount: data.buyAmount,
     });
 
@@ -606,18 +591,16 @@ export async function getZeroExQuote(
     // If to/data are missing, the token is likely not tradeable via DEX aggregators
     // (e.g., Four.meme tokens that can only be traded via TokenManager contract)
     if (!data.to || !data.data) {
-      console.error('[0x API] ❌ Quote has invalid/missing transaction data:', {
-        to: data.to,
-        dataLength: data.data?.length,
-        buyToken: buyToken,
-        sellToken: sellToken,
+      logger.error(LogCode.API_FETCH_FAILED, '0x API Quote has invalid/missing transaction data', {
+        buyToken,
+        sellToken,
         chainId,
       });
       throw new Error(`0x API error: No valid swap route found for token ${buyToken}. This token may only be tradeable via its native platform (e.g., Four.meme, Pump.fun).`);
     }
 
     if (!data.buyAmount || data.buyAmount === '0') {
-      console.error('[0x API] ❌ Quote has invalid buyAmount:', {
+      logger.error(LogCode.API_FETCH_FAILED, '0x API Quote has invalid buyAmount', {
         buyAmount: data.buyAmount,
         buyToken: buyToken,
         chainId,
@@ -626,8 +609,8 @@ export async function getZeroExQuote(
     }
 
     return data;
-  } catch (error) {
-    console.error('[0x API] Error fetching quote:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, '0x API Error fetching quote', { error: error.message });
     // Re-throw to let the caller handle it
     throw error;
   }
@@ -658,7 +641,7 @@ export async function fetchTokenDecimalsFromRPC(
 
   const rpcUrl = rpcUrls[chainId];
   if (!rpcUrl) {
-    console.warn(`[RPC] No RPC URL for chain ${chainId}, using default decimals`);
+    logger.warn(LogCode.API_FETCH_FAILED, 'No RPC URL for chain, using default decimals', { chainId });
     return DEFAULT_DECIMALS;
   }
 
@@ -679,7 +662,7 @@ export async function fetchTokenDecimalsFromRPC(
     });
 
     if (!response.ok) {
-      console.warn(`[RPC] Failed to fetch decimals for ${tokenAddress}: HTTP ${response.status}`);
+      logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch decimals from RPC', { tokenAddress, status: response.status });
       return DEFAULT_DECIMALS;
     }
 
@@ -687,15 +670,15 @@ export async function fetchTokenDecimalsFromRPC(
     if (data.result && data.result !== '0x') {
       const decimals = parseInt(data.result, 16);
       if (decimals >= 0 && decimals <= 24) {
-        console.log(`[RPC] Fetched decimals for ${tokenAddress}: ${decimals}`);
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetched decimals from RPC', { tokenAddress, decimals });
         return decimals;
       }
     }
 
-    console.warn(`[RPC] Invalid decimals response for ${tokenAddress}:`, data);
+    logger.warn(LogCode.API_FETCH_FAILED, 'Invalid decimals response from RPC', { tokenAddress, data });
     return DEFAULT_DECIMALS;
-  } catch (error) {
-    console.error(`[RPC] Error fetching decimals for ${tokenAddress}:`, error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching decimals from RPC', { tokenAddress, error: error.message });
     return DEFAULT_DECIMALS;
   }
 }
@@ -763,23 +746,21 @@ export async function getZeroExTokenMetadata(
       tokenMetadataCache.set(cacheKey, { data: null, timestamp: Date.now() });
     } else {
       const errorText = await response.text();
-      console.warn(`[0x API] Token metadata request failed: ${response.status}`, errorText);
+      logger.warn(LogCode.API_FETCH_FAILED, '0x API Token metadata request failed', { status: response.status, error: errorText });
     }
-  } catch (error) {
-    console.error('[0x API] Error fetching token metadata:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, '0x API Error fetching token metadata', { error: error.message });
   }
 
   const normalized = tokenAddress.toLowerCase();
-  console.log(`[0x API] Fallback lookup: normalized=${normalized}, chainId=${chainId}, hasChainData=${!!FALLBACK_TOKEN_METADATA[chainId]}`);
   const fallback = FALLBACK_TOKEN_METADATA[chainId]?.[normalized];
   if (fallback) {
-    console.log(`[0x API] Using fallback token metadata for ${fallback.symbol} on chain ${chainId}`);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Using 0x API fallback token metadata', { symbol: fallback.symbol, chainId });
     return fallback;
   }
 
   // If 0x API and fallback both fail, try fetching decimals from RPC
-  console.log(`[0x API] No fallback for ${normalized} on chain ${chainId}, available fallbacks:`, Object.keys(FALLBACK_TOKEN_METADATA[chainId] || {}));
-  console.log(`[0x API] No token metadata available for ${tokenAddress} on chain ${chainId}, trying RPC fallback...`);
+  logger.info(LogCode.API_FETCH_SUCCESS, 'No token metadata available, trying RPC fallback...', { tokenAddress, chainId });
   const decimals = await fetchTokenDecimalsFromRPC(tokenAddress, chainId);
   return {
     symbol: 'UNKNOWN',

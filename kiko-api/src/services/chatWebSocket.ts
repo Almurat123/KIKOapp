@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
 import { requireAuth } from '../middleware/auth.js';
 import { decodeJwt } from 'jose';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 export interface ChatEvent {
     type: 'chunk' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'usage' | 'citations' | 'content_block' | 'client_action';
@@ -35,7 +37,7 @@ export class ChatWebSocketService {
             this.unregisterClient(userId, socket);
         });
 
-        console.log(`[ChatWS] Client connected for user ${userId}. Total connections for user: ${this.clients.get(userId)!.size}`);
+        logger.info(LogCode.WS_CONNECTION_OPENED, 'ChatWS Client connected', { userId, totalConnections: this.clients.get(userId)!.size });
     }
 
     /**
@@ -57,12 +59,15 @@ export class ChatWebSocketService {
     public broadcastToUser(userId: string, event: ChatEvent) {
         const userClients = this.clients.get(userId);
         if (userClients) {
+            const timerLabel = `ws_broadcast_${userId}_${event.type}`;
+            logger.startTimer(timerLabel);
             const payload = JSON.stringify(event);
             userClients.forEach((socket) => {
                 if (socket.readyState === WebSocket.OPEN) {
                     socket.send(payload);
                 }
             });
+            logger.endTimer(timerLabel, LogCode.WS_MESSAGE_SENT, { userId, eventType: event.type, connectionCount: userClients.size });
         }
     }
 
@@ -94,7 +99,7 @@ export async function chatWSRoutes(fastify: FastifyInstance) {
         const token = req.query.token;
 
         if (!token) {
-            console.error('[ChatWS] Rejecting connection: No token provided');
+            logger.error(LogCode.API_AUTH_FAILED, 'ChatWS: Rejecting connection - No token provided');
             connection.socket.close(1008, 'Token required');
             return;
         }
@@ -114,8 +119,8 @@ export async function chatWSRoutes(fastify: FastifyInstance) {
 
             chatWS.registerClient(userId, connection.socket);
 
-        } catch (err) {
-            console.error('[ChatWS] Auth error:', err);
+        } catch (err: any) {
+            logger.error(LogCode.API_AUTH_FAILED, 'ChatWS auth error', { error: err.message });
             connection.socket.close(1008, 'Auth failed');
             return;
         }
@@ -134,7 +139,7 @@ export async function chatWSRoutes(fastify: FastifyInstance) {
     fastify.get('/api/chat/ws/:sessionId', { websocket: true }, (connection: any, req: any) => {
         // Just close it and tell client to use the new one, or handle it for a bit
         // For now, let's log and close so we see which clients are still using it
-        console.warn(`[ChatWS] Legacy sessionId connection attempt: ${req.params.sessionId}`);
+        logger.warn(LogCode.WS_ERROR, 'ChatWS Legacy sessionId connection attempt', { sessionId: req.params.sessionId });
         connection.socket.close(1000, 'Please use /api/chat/ws');
     });
 }

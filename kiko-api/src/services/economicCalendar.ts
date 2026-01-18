@@ -4,6 +4,8 @@
  */
 
 import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 export interface EconomicCalendarEvent {
   id: string;
@@ -50,7 +52,7 @@ async function fetchFromAlphaVantage(): Promise<EconomicCalendarEvent[]> {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn('[EconomicCalendar] Alpha Vantage API error:', response.statusText);
+      logger.warn(LogCode.API_FETCH_FAILED, 'Alpha Vantage API error', { status: response.status, statusText: response.statusText });
       return [];
     }
 
@@ -71,7 +73,7 @@ async function fetchFromAlphaVantage(): Promise<EconomicCalendarEvent[]> {
     };
 
     if (data.Information || data.Note) {
-      console.warn('[EconomicCalendar] Alpha Vantage API limit or error:', data.Information || data.Note);
+      logger.warn(LogCode.API_RATE_LIMIT, 'Alpha Vantage API limit/error', { message: data.Information || data.Note });
       return [];
     }
 
@@ -92,8 +94,8 @@ async function fetchFromAlphaVantage(): Promise<EconomicCalendarEvent[]> {
       currency: event.currency || 'USD',
       source: 'Alpha Vantage',
     }));
-  } catch (error) {
-    console.error('[EconomicCalendar] Error fetching from Alpha Vantage:', error);
+  } catch (error: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Error fetching from Alpha Vantage', { error: error.message });
     return [];
   }
 }
@@ -207,7 +209,7 @@ export async function getEconomicCalendar(): Promise<{
 
   // If no events from API, use schedule-based generation
   if (events.length === 0) {
-    console.log('[EconomicCalendar] Using schedule-based calendar generation');
+    logger.info(LogCode.SYS_INFO, 'Using schedule-based calendar generation');
     events = generateCalendarFromSchedule();
   }
 

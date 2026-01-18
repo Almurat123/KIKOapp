@@ -2,6 +2,8 @@
  * Polymarket Data Service
  * Fetches wallet positions and user stats from Polymarket Data API
  */
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const POLYMARKET_DATA_API = 'https://data-api.polymarket.com';
 
@@ -83,13 +85,13 @@ export async function getWalletPositions(wallet: string): Promise<PolymarketUser
                     positions = positions.filter(p => !closedAssetIds.has(p.assetId));
                 }
             }
-        } catch (e) {
-            console.warn('[PolymarketData] Failed to filter closed positions:', e);
+        } catch (e: any) {
+            logger.warn(LogCode.SYS_ERROR, 'Failed to filter closed Polymarket positions', { wallet, error: e.message });
         }
 
         return positions;
-    } catch (error) {
-        console.error('[PolymarketData] Failed to fetch positions:', error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch Polymarket positions', { wallet, error: error.message });
         return [];
     }
 }
@@ -107,7 +109,7 @@ export async function getWalletStats(wallet: string): Promise<PolymarketUserStat
             }
         });
         if (!response.ok) {
-            console.error(`[PolymarketData] API error: ${response.status}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'Polymarket Data API error (stats)', { status: response.status, wallet });
             return null;
         }
 
@@ -120,8 +122,8 @@ export async function getWalletStats(wallet: string): Promise<PolymarketUserStat
             winRate: parseFloat(data.winRate) || 0,
             positionsCount: data.positionsCount || data.positions?.length || 0
         };
-    } catch (error) {
-        console.error('[PolymarketData] Failed to fetch user stats:', error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch Polymarket user stats', { wallet, error: error.message });
         return null;
     }
 }
@@ -255,13 +257,13 @@ export async function getWalletTrades(wallet: string): Promise<PolymarketTrade[]
 
                 return combined.sort((a, b) => b.timestamp - a.timestamp);
             }
-        } catch (e) {
-            console.warn('[PolymarketData] Failed to merge local actions:', e);
+        } catch (e: any) {
+            logger.warn(LogCode.SYS_ERROR, 'Failed to merge local Polymarket actions', { wallet, error: e.message });
         }
 
         return trades;
-    } catch (error) {
-        console.error('[PolymarketData] Failed to fetch trades:', error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch Polymarket trades', { wallet, error: error.message });
         return [];
     }
 }
@@ -314,8 +316,8 @@ export async function getOpenOrders(wallet: string): Promise<PolymarketOpenOrder
             title: order.title || order.question || 'Order',
             outcome: order.outcome || ''
         }));
-    } catch (error) {
-        console.error('[PolymarketData] Failed to fetch open orders:', error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch Polymarket open orders', { wallet, error: error.message });
         return [];
     }
 }
@@ -346,8 +348,8 @@ export async function getBestBid(tokenId: string): Promise<number | null> {
         }
 
         return null;
-    } catch (error) {
-        console.error('[PolymarketData] Failed to fetch orderbook:', error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch Polymarket orderbook', { tokenId, error: error.message });
         return null;
     }
 }

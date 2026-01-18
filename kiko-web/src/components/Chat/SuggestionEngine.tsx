@@ -23,6 +23,7 @@ type SuggestionStage =
     | 'ARGS_BET_LINK' // "Bet " -> "Bet [Paste Polymarket Link]"
     | 'ARGS_BET_SIDE' // "Bet https://..." -> "YES / NO"
     | 'ARGS_BET_AMOUNT' // "Bet ... YES" -> "With 1 USDC"
+    | 'ADDRESS_DETECTED' // "0x..." -> "Buy / Swap / Copy / Check"
     | 'COMPLETE';
 
 interface MatchResult {
@@ -184,6 +185,10 @@ export class SuggestionEngine {
                 case 'ARGS_BET_AMOUNT':
                     matches.push(...this.getBetAmountSuggestions(text));
                     break;
+
+                case 'ADDRESS_DETECTED':
+                    matches.push(...this.getAddressSuggestions(text));
+                    break;
             }
         }
 
@@ -241,6 +246,10 @@ export class SuggestionEngine {
         );
 
         if (!matchesAnyCommand) {
+            // Check if input is a raw address
+            if (this.hasAddress(lower)) {
+                return 'ADDRESS_DETECTED';
+            }
             return 'IDLE';
         }
 
@@ -461,8 +470,8 @@ export class SuggestionEngine {
     }
 
     private static getAmountSuggestions(currentText: string, context?: SuggestionContext): MatchResult[] {
-        const memory = ParamMemory.loadAll();
-        const baseAmount = memory.amount || '0.01';
+        const { amount: defaultAmount } = this.getUserDefaultSettings(); // Fixed: removed unused token
+        const baseAmount = defaultAmount;
 
         // --- Static Native Token Defaults ---
         // Use context if available and it's a recognized native/stable token, otherwise default to ETH
@@ -631,8 +640,8 @@ export class SuggestionEngine {
 
     private static getCopyAmountSuggestions(text: string): MatchResult[] {
         // text: "Copy Trade 0x..."
-        const memory = ParamMemory.loadAll();
-        const defaultAmount = memory.amount || '0.1'; // Default copy amount
+        const trimmed = text.trim();
+        const { amount: defaultAmount } = this.getUserDefaultSettings();
 
         const results: MatchResult[] = [];
         const amounts = [defaultAmount, '0.5', '1', '5'];
@@ -644,8 +653,8 @@ export class SuggestionEngine {
             const suffix = ` with ${amt} ETH per trade`;
             results.push({
                 id: `copy-amt-${idx}`,
-                label: `${text}${suffix}`,
-                actionText: `${text}${suffix}`,
+                label: `${trimmed}${suffix}`,
+                actionText: `${trimmed}${suffix}`,
                 score: 1000 - (idx * 10),
                 type: 'progressive'
             });
@@ -905,6 +914,107 @@ export class SuggestionEngine {
         return results;
     }
 
+    // --- Helpers for Defaults ---
+
+    private static getUserDefaultSettings() {
+        // Load defaults
+        const memory = ParamMemory.loadAll();
+
+        // Priority: Settings > Memory > System Default ('0.1')
+        let amount = memory.amount || '0.1';
+        let token = 'ETH';
+
+        // 1. Try User Settings (Override)
+        try {
+            const savedSettings = localStorage.getItem('kiko-custom-ai-settings');
+            if (savedSettings) {
+                const parsed = JSON.parse(savedSettings);
+                if (parsed.defaultSwapAmount) {
+                    amount = parsed.defaultSwapAmount.toString();
+                }
+                if (parsed.defaultSwapUnit && parsed.defaultSwapUnit !== 'native') {
+                    token = parsed.defaultSwapUnit.toUpperCase();
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        // 2. Fallback to Memory (if settings didn't explicitly override, or maybe we want memory to take precedence?)
+        // Actually user explicit settings should take precedence over automatic memory.
+        // But if settings are missing (default), memory is good.
+        // For now, let's say settings > memory if settings exists.
+
+        // However, if we just rely on the above logic: 
+        // If user NEVER set settings, `parsed.defaultSwapAmount` might be missing/default.
+        // Let's stick to the logic: Settings (if set) > Memory > '0.1'.
+
+        return { amount, token };
+    }
+
+    // --- Address Action Generators ---
+
+    private static getAddressSuggestions(text: string): MatchResult[] {
+        // text is the raw address, e.g. "0x123..."
+        const cleanAddr = text.trim();
+        const results: MatchResult[] = [];
+
+        // Load defaults
+        // Load defaults
+        const { amount: defaultAmt, token: defaultToken } = this.getUserDefaultSettings();
+        const defaultBuyAmt = defaultAmt;
+
+        // 1. Swap To
+        results.push({
+            id: 'addr-swap',
+            label: `Swap ${defaultAmt} ${defaultToken} to [Address]`,
+            displayText: `Swap ${defaultAmt} ${defaultToken} to [Address]`,
+            actionText: `Swap ${defaultAmt} ${defaultToken} to ${cleanAddr}`,
+            score: 1000,
+            type: 'progressive'
+        });
+
+        // 2. Buy
+        results.push({
+            id: 'addr-buy',
+            label: `Buy ${defaultBuyAmt} ${defaultToken} of [Address]`,
+            displayText: `Buy ${defaultBuyAmt} ${defaultToken} of [Address]`,
+            actionText: `Buy ${defaultBuyAmt} ${defaultToken} of ${cleanAddr}`,
+            score: 950,
+            type: 'progressive'
+        });
+
+        // 3. Copy Trade
+        results.push({
+            id: 'addr-copy',
+            label: 'Copy Trade [Address]',
+            displayText: 'Copy Trade [Address]',
+            actionText: `Copy Trade ${cleanAddr}`,
+            score: 900,
+            type: 'progressive'
+        });
+
+        // 4. Check
+        results.push({
+            id: 'addr-check',
+            label: 'Check [Address]',
+            displayText: 'Check [Address]',
+            actionText: `Check ${cleanAddr}`,
+            score: 850,
+            type: 'progressive'
+        });
+
+        // 5. What's PNL
+        results.push({
+            id: 'addr-what',
+            label: "What's [Address] PNL",
+            displayText: "What's [Address] PNL",
+            actionText: `What's ${cleanAddr} PNL`,
+            score: 800,
+            type: 'progressive'
+        });
+
+        return results;
+    }
+
     // --- Helpers ---
 
     private static isStageSatisfied(stage: SuggestionStage, text: string): boolean {
@@ -972,8 +1082,8 @@ export class SuggestionEngine {
     private static hasAddress(text: string): boolean {
         // Strip everything except alphanumeric to handle newlines/spaces inside addresses
         const clean = text.replace(/[^a-zA-Z0-9]/g, '');
-        // EVM or Solana regex
-        return /0x[a-fA-F0-9]{40}/.test(clean) || /[1-9A-HJ-NP-Za-km-z]{32,44}/.test(clean);
+        // EVM or Solana/General regex (Relaxed Solana to [a-zA-Z0-9] to handle potential typos/variations during input)
+        return /0x[a-fA-F0-9]{40}/.test(clean) || /[a-zA-Z0-9]{32,44}/.test(clean);
     }
 
     private static buildItem(match: MatchResult, onCommit: (t: string) => void): SuggestionItem {

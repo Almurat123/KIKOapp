@@ -114,7 +114,7 @@ export const COMMAND_CONFIGS: CommandConfig[] = [
         actionText: 'Copy Trade ',
         score: 900,
         category: 'trading',
-        stages: ['ARGS_COPY_TARGET', 'ARGS_COPY_AMOUNT', 'ARGS_COPY_CONFIG'],
+        stages: ['ARGS_COPY_TARGET', 'ARGS_COPY_AMOUNT', 'ARGS_CHAIN', 'ARGS_COPY_CONFIG'],
         requiresAddress: true,
         stageConfigs: {
             'ARGS_COPY_TARGET': {

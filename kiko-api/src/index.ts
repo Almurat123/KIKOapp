@@ -9,6 +9,8 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { prisma } from './db/prisma.js';
 import { env } from './config/env.js';
+import { logger } from './utils/logger.js';
+import { LogCode } from './config/logRegistry.js';
 import { testConnection } from './db/connection.js';
 import { initRedis } from './cache/redis.js';
 import { startMarketDataJobs } from './jobs/marketDataJob.js';
@@ -44,6 +46,7 @@ import { registerUserRoutes } from './routes/users.js';
 import { initializePolicies, runCleanup } from './services/dataRetentionService.js';
 import fastifyRawBody from 'fastify-raw-body';
 import helmet from '@fastify/helmet';
+import { tracingHook } from './middleware/tracing.js';
 
 const fastify = Fastify({
     logger: true,
@@ -98,14 +101,17 @@ import { redactUrl } from './utils/sanitizer.js';
 
 // Debug logging hook - only in development
 if (env.nodeEnv === 'development') {
-    fastify.addHook('onRequest', async (request, reply) => {
-        console.log(`[DEBUG] onRequest: ${request.method} ${redactUrl(request.url)}`);
+    fastify.addHook('onRequest', async (request) => {
+        logger.debug(LogCode.SYS_INFO, `onRequest: ${request.method} ${redactUrl(request.url)}`);
     });
 
     fastify.addHook('onResponse', async (request, reply) => {
-        console.log(`[DEBUG] onResponse: ${request.method} ${redactUrl(request.url)} -> ${reply.statusCode}`);
+        logger.debug(LogCode.SYS_INFO, `onResponse: ${request.method} ${redactUrl(request.url)} -> ${reply.statusCode}`);
     });
 }
+
+// Register tracing middleware (must be first)
+fastify.addHook('onRequest', tracingHook);
 
 // Register rate limiter for all routes
 fastify.addHook('onRequest', rateLimiter);
@@ -121,9 +127,9 @@ if (fs.existsSync(publicPath)) {
         root: publicPath,
         prefix: '/', // effectively serves /public/news-covers as /news-covers
     });
-    console.log('[Static] Serving static files from:', publicPath);
+    logger.info(LogCode.SYS_STARTUP, 'Serving static files from:', { path: publicPath });
 } else {
-    console.log('[Static] Public folder not found at:', publicPath, '- skipping static file serving');
+    logger.warn(LogCode.SYS_STARTUP, 'Public folder not found - skipping static file serving', { path: publicPath });
 }
 
 // Register WebSocket plugin
@@ -178,107 +184,99 @@ fastify.register(async (fastify) => {
 async function start() {
     try {
         // Initialize services
-        console.log('Initializing services...');
-        console.log(`Environment: ${env.nodeEnv}`);
-        console.log(`Port: ${env.port}`);
-        console.log(`Database URL: ${env.databaseUrl ? 'configured' : 'missing'}`);
-        console.log(`Privy Server Auth: ${isPrivyConfigured() ? '✅ Configured' : '❌ Not Configured'}`);
+        logger.info(LogCode.SYS_STARTUP, 'Initializing services...', {
+            env: env.nodeEnv,
+            port: env.port,
+            database: env.databaseUrl ? 'configured' : 'missing',
+            privy: isPrivyConfigured() ? '✅ Configured' : '❌ Not Configured'
+        });
 
         // Test database connection
-        console.log('Testing database connection...');
+        logger.debug(LogCode.SYS_STARTUP, 'Testing database connection...');
         const dbConnected = await testConnection();
         if (!dbConnected) {
-            console.warn('⚠️  Database connection failed, but continuing...');
-            console.warn('⚠️  API will still start but database queries may fail');
+            logger.error(LogCode.SYS_ERROR, 'Database connection failed, but continuing...');
         } else {
-            console.log('✅ Database connection successful');
+            logger.info(LogCode.SYS_DB_CONNECTED, 'Database connection successful');
 
             // Initialize Data Retention
             await initializePolicies();
             // Run cleanup asynchronously
-            runCleanup().catch(err => console.error('Initial cleanup failed:', err));
+            runCleanup().catch(err => logger.error(LogCode.SYS_ERROR, 'Initial cleanup failed', { error: err.message }));
         }
 
         // Initialize Redis
-        console.log('Initializing Redis...');
+        logger.debug(LogCode.SYS_STARTUP, 'Initializing Redis...');
         try {
             await initRedis();
-            console.log('✅ Redis initialized');
-        } catch (redisError) {
-            console.warn('⚠️  Redis initialization failed, but continuing...');
-            console.warn('⚠️  Caching will be disabled');
+            logger.info(LogCode.SYS_REDIS_CONNECTED, 'Redis initialized');
+        } catch (redisError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Redis initialization failed, but continuing...', { error: redisError.message });
         }
 
-        // START SERVER FIRST - so health checks pass while background services init
-        console.log(`Starting server on port ${env.port}...`);
+        // START SERVER FIRST
+        logger.info(LogCode.SYS_STARTUP, `Starting server on port ${env.port}...`);
         await fastify.listen({ port: env.port, host: '0.0.0.0' });
-        console.log(`🚀 Server listening on http://localhost:${env.port}`);
-        console.log(`📊 API endpoints available at http://localhost:${env.port}/api`);
-        console.log(`🏥 Health check: http://localhost:${env.port}/health`);
+        logger.info(LogCode.SYS_STARTUP, 'Server listening', {
+            url: `http://localhost:${env.port}`,
+            health: `http://localhost:${env.port}/health`
+        });
 
-        // Now start background services (after server is listening)
-        console.log('Starting background jobs...');
+        // Now start background services
+        logger.debug(LogCode.SYS_STARTUP, 'Starting background jobs...');
         try {
             startMarketDataJobs();
             startTokenDataJobs();
             startSocialDataJobs();
-            console.log('✅ Background jobs started');
-        } catch (jobError) {
-            console.warn('⚠️  Some background jobs failed to start:', jobError);
+            logger.info(LogCode.SYS_STARTUP, 'Background jobs started');
+        } catch (jobError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Some background jobs failed to start', { error: jobError.message });
         }
 
-        // Start auto trade service (copy trading)
-        console.log('Starting auto trade service...');
+        // Start auto trade service
+        logger.debug(LogCode.SYS_STARTUP, 'Starting auto trade service...');
         try {
             initAutoTradeService();
-            console.log('✅ Auto trade service started');
-        } catch (autoTradeError) {
-            console.warn('⚠️  Auto trade service failed to start:', autoTradeError);
+            logger.info(LogCode.SYS_STARTUP, 'Auto trade service started');
+        } catch (autoTradeError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Auto trade service failed to start', { error: autoTradeError.message });
         }
 
         // Start position monitor (TP/SL checking)
-        console.log('Starting position monitor...');
+        logger.debug(LogCode.SYS_STARTUP, 'Starting position monitor...');
         try {
             startPositionMonitor();
-            console.log('✅ Position monitor started');
-        } catch (posMonError) {
-            console.warn('⚠️  Position monitor failed to start:', posMonError);
+            logger.info(LogCode.SYS_STARTUP, 'Position monitor started');
+        } catch (posMonError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Position monitor failed to start', { error: posMonError.message });
         }
 
         // Start Chat Worker
-        console.log('Starting chat worker...');
+        logger.debug(LogCode.SYS_STARTUP, 'Starting chat worker...');
         try {
             chatWorker.start();
-            console.log('✅ Chat worker started');
-        } catch (chatWorkerError) {
-            console.warn('⚠️  Chat worker failed to start:', chatWorkerError);
+            logger.info(LogCode.SYS_STARTUP, 'Chat worker started');
+        } catch (chatWorkerError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Chat worker failed to start', { error: chatWorkerError.message });
         }
 
-        console.log('🎉 All services initialized!');
+        logger.info(LogCode.SYS_STARTUP, '🎉 All services initialized!');
     } catch (error: any) {
-        console.error('❌ Error starting server:', error);
-        if (error.code === 'EADDRINUSE') {
-            console.error(`❌ Port ${env.port} is already in use. Please stop the existing process or use a different port.`);
-            console.error('   You can use: npm run kill-port');
-        } else if (error.message?.includes('DATABASE_URL')) {
-            console.error('❌ Database configuration error. Please check your DATABASE_URL environment variable.');
-        } else {
-            console.error('❌ Unknown error:', error.message || error);
-        }
+        logger.error(LogCode.SYS_ERROR, 'Error starting server', { error: error.message || error });
         process.exit(1);
     }
 }
 
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, shutting down gracefully...');
+    logger.info(LogCode.SYS_SHUTDOWN, 'SIGTERM received, shutting down gracefully...');
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
     process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-    console.log('SIGINT received, shutting down gracefully...');
+    logger.info(LogCode.SYS_SHUTDOWN, 'SIGINT received, shutting down gracefully...');
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
     process.exit(0);

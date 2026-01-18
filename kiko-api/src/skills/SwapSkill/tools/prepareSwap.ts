@@ -104,7 +104,9 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     }
 
                     // 2. SIMULATION CHECK (Price Impact)
-                    const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
+                    const API_BASE =
+                        process.env.API_BASE_URL ||
+                        (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
                     const accessToken = context?.accessToken;
 
                     const quoteResponse = await fetch(`${API_BASE}/api/swap/quote`, {
@@ -189,112 +191,23 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     };
                 }
 
-                try {
-                    const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
-
-                    // Check if this is a Zora token on Base chain - use Zora SDK for optimal execution
-                    // Zora tokens are best swapped via Zora SDK's createTradeCall which uses the bonding curve directly
-                    const isBaseChain = args.chain_id === 8453;
-                    const isZoraToken = context?.tokenLaunchpad === 'zora' || fastSwapMode; // If fastSwapMode, try Zora first
-
-                    if (isBaseChain && isZoraToken && fastSwapMode) {
-                        console.log('[PrepareSwapTransaction] Using Zora SDK for optimized swap...');
-
-                        try {
-                            const zoraResponse = await fetch(`${API_BASE}/api/zora/swap`, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${accessToken}`
-                                },
-                                body: JSON.stringify({
-                                    tokenAddress: args.token_out, // The token we're buying
-                                    buyAmountEth: args.amount_in.toString(),
-                                    maxSlippage: args.slippage || 1.5
-                                })
-                            });
-
-                            const zoraResult = await zoraResponse.json() as { success?: boolean; error?: string; txHash?: string };
-
-                            if (zoraResponse.ok && zoraResult.success && zoraResult.txHash) {
-                                console.log('[PrepareSwapTransaction] Zora swap successful:', zoraResult.txHash);
-                                return {
-                                    success: true,
-                                    txHash: zoraResult.txHash,
-                                    mode: 'executed',
-                                    requires_user_confirmation: false,
-                                    summary: `✅ Zora Fast Swap executed! ${args.amount_in} ETH → ${args.token_out}. Transaction: ${zoraResult.txHash.slice(0, 10)}...`,
-                                    method: 'zora_sdk'
-                                };
-                            } else {
-                                console.warn('[PrepareSwapTransaction] Zora swap failed, falling back to general aggregator:', zoraResult.error);
-                                // Fall through to general aggregator
-                            }
-                        } catch (zoraError: any) {
-                            console.warn('[PrepareSwapTransaction] Zora swap error, falling back to general aggregator:', zoraError.message);
-                            // Fall through to general aggregator
-                        }
-                    }
-
-                    // General aggregator swap (0x/KyberSwap)
-                    const response = await fetch(`${API_BASE}/api/swap/execute-instant`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${accessToken}`
-                        },
-                        body: JSON.stringify({
+                // Return client action for frontend to handle
+                // Frontend will show pending card immediately and execute the swap
+                return {
+                    __client_action: {
+                        type: 'execute_swap_instant',
+                        payload: {
                             tokenIn: args.token_in,
                             tokenOut: args.token_out,
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
-                            slippageBps: Math.round((args.slippage || 0.5) * 100) // Convert percentage to basis points
-                        })
-                    });
-
-                    const result = await response.json() as { success?: boolean; error?: string; message?: string; data?: { txHash?: string } };
-
-                    if (!response.ok || !result.success) {
-                        const errorMsg = result.error || result.message || 'Swap execution failed';
-                        console.error('[PrepareSwapTransaction] Backend swap failed:', errorMsg);
-                        return {
-                            error: `Swap failed: ${errorMsg}`,
-                            mode: 'error',
-                            details: result
-                        };
-                    }
-
-                    console.log('[PrepareSwapTransaction] Backend swap successful:', result);
-
-                    // Return success with transaction hash
-                    return {
-                        success: true,
-                        txHash: result.data?.txHash,
-                        mode: 'executed',
-                        requires_user_confirmation: false,
-                        summary: `✅ Swap executed successfully! ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash?.slice(0, 10)}...`,
-                        data: result.data
-                    };
-                } catch (fetchError: any) {
-                    console.error('[PrepareSwapTransaction] Fetch error:', fetchError);
-                    // Fallback to client action on network error
-                    return {
-                        __client_action: {
-                            type: 'execute_swap_instant',
-                            payload: {
-                                tokenIn: args.token_in,
-                                tokenOut: args.token_out,
-                                amountIn: args.amount_in,
-                                chainId: args.chain_id,
-                                slippage: args.slippage || 0.5
-                            }
-                        },
-                        mode: 'execute_client',
-                        requires_user_confirmation: false,
-                        summary: `Executing instant swap: ${args.amount_in} ${args.token_in} → ${args.token_out} on chain ${args.chain_id}. Transaction will be submitted automatically.`,
-                        fallbackReason: fetchError.message
-                    };
-                }
+                            slippageBps: Math.round((args.slippage || 0.5) * 100)
+                        }
+                    },
+                    mode: 'execute_client',
+                    requires_user_confirmation: false,
+                    summary: `I'll help you swap ${args.amount_in} ${args.token_in} to ${args.token_out} on ${args.chain_id === 900 ? 'Solana' : args.chain_id === 8453 ? 'Base' : args.chain_id === 1 ? 'Ethereum' : `chain ${args.chain_id}`}. Let me prepare the transaction for you.`
+                };
             }
 
             // Fallback: show swap card for manual confirmation

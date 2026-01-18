@@ -380,7 +380,7 @@
 }
 
 .tokenIcon {
-    color: #fbbf24;
+    color: #f97316;
 }
 
 /* Sources Button - Align with others */
@@ -442,6 +442,11 @@
 .actionBtn:active {
     transform: scale(0.92);
     background: rgba(255, 255, 255, 0.15);
+}
+
+.actionBtnActive {
+    background: rgba(255, 255, 255, 0.1);
+    color: #e4e4e7;
 }
 
 .light .actionBtn {

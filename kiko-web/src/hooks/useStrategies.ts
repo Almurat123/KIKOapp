@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
-import { getConfigs, updateConfigStatus, deleteConfig, updateConfig, type CopyTradeConfig } from '../services/copyTradeApi';
+import { getConfigs, updateConfigStatus, deleteConfig, updateConfig, getPositions, type CopyTradeConfig } from '../services/copyTradeApi';
 import { toast } from 'sonner';
 
 export interface ExecutionRecord {
@@ -49,12 +49,9 @@ export interface TradingStrategy {
 
 const STORAGE_KEY = 'kiko-strategies-v2';
 
-
-// Helper function to create demo strategies
-
-
 export const useStrategies = () => {
   const [strategies, setStrategies] = useState<TradingStrategy[]>([]);
+  const [stats, setStats] = useState({ totalExecutions: 0, totalPnL: 0 }); // New stats state
   const [isLoading, setIsLoading] = useState(true);
   const { ready, authenticated } = usePrivy();
 
@@ -67,32 +64,43 @@ export const useStrategies = () => {
     const allStrategies: TradingStrategy[] = [];
 
     // 1. Load Local Mock/Demo Strategies
-    // 1. Load Local Mock/Demo Strategies
-    // try {
-    //   const saved = localStorage.getItem(STORAGE_KEY);
-    //   if (saved) {
-    //     const parsed = JSON.parse(saved);
-    //     if (Array.isArray(parsed)) {
-    //       // STRICTLY filter out any 'copy_trade' types from local storage
-    //       // Copy trades must only come from the backend to avoid "ghosts"
-    //       const localStrats = parsed
-    //         .filter((s: any) => s.type !== 'copy_trade')
-    //         .map((s: any) => ({
-    //           ...s,
-    //           id: String(s.id),
-    //           executionHistory: s.executionHistory || []
-    //         }));
-    //       allStrategies.push(...localStrats);
-    //     }
-    //   }
-    // } catch (e) {
-    //   console.warn('Failed to load local strategies', e);
-    // }
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          // STRICTLY filter out any 'copy_trade' types from local storage
+          // Copy trades must only come from the backend to avoid "ghosts"
+          const localStrats = parsed
+            .filter((s: any) => s.type !== 'copy_trade')
+            .map((s: any) => ({
+              ...s,
+              id: String(s.id),
+              executionHistory: s.executionHistory || []
+            }));
+          allStrategies.push(...localStrats);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load local strategies', e);
+    }
 
-    // 2. Load Real Copy Trade Configs (ONLY if authenticated)
+    // 2. Load Real Copy Trade Configs AND Positions (ONLY if authenticated)
     if (authenticated) {
       try {
-        const configs = await getConfigs();
+        const [configs, positions] = await Promise.all([
+          getConfigs(),
+          getPositions().catch(() => []) // Fail gracefully for positions
+        ]);
+
+        // Calculate Stats
+        const totalExecutions = positions.length;
+        // Assume pnl field is available in position, sum it up. 
+        // If not, default to 0. We might need to adjust field name after user feedback.
+        const totalPnL = positions.reduce((acc: number, pos: any) => acc + (Number(pos.realizedPnL) || 0) + (Number(pos.unrealizedPnL) || 0), 0);
+
+        setStats({ totalExecutions, totalPnL });
+
         const mappedConfigs: TradingStrategy[] = configs.map(config => ({
           id: config.id,
           name: `Follow ${config.targetWallet.slice(0, 6)}...${config.targetWallet.slice(-4)}`,
@@ -116,12 +124,10 @@ export const useStrategies = () => {
           copyTradeConfig: config
         }));
 
-        // Remove any local strategies that conflict with real ones (unlikely given ID format)
-        // or just merge
         allStrategies.push(...mappedConfigs);
 
       } catch (error) {
-        console.warn('[useStrategies] Failed to fetch copy trade configs:', error);
+        console.warn('[useStrategies] Failed to fetch copy trade data:', error);
       }
     }
 
@@ -129,16 +135,12 @@ export const useStrategies = () => {
     allStrategies.sort((a, b) => b.createdAt - a.createdAt);
 
     // SAFETY: Filter out any copy_trade strategies that don't have valid copyTradeConfig
-    // These are "ghost" cards caused by localStorage corruption or bugs
     const validStrategies = allStrategies.filter(s => {
       if (s.type === 'copy_trade') {
         const hasValidConfig = s.copyTradeConfig &&
           s.copyTradeConfig.targetWallet &&
           s.copyTradeConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
-        if (!hasValidConfig) {
-          console.warn('[useStrategies] Filtering out invalid copy_trade strategy:', s.id);
-          return false;
-        }
+        if (!hasValidConfig) return false;
       }
       return true;
     });
@@ -188,7 +190,6 @@ export const useStrategies = () => {
         await updateConfig(id, updates.copyTradeConfig);
       } catch (error) {
         console.error('[useStrategies] Failed to update remote config:', error);
-        // Revert by refetching
         fetchAllStrategies();
       }
     }
@@ -206,8 +207,6 @@ export const useStrategies = () => {
       try {
         await deleteConfig(id);
       } catch (error) {
-        console.error('Failed to delete cloud strategy', error);
-        // Revert on failure
         setStrategies(previousStrategies);
         toast.error('Failed to delete strategy. Please try again.');
       }
@@ -235,8 +234,6 @@ export const useStrategies = () => {
       try {
         await updateConfigStatus(id, newStatus);
       } catch (error) {
-        console.error('Failed to update cloud strategy status', error);
-        // Revert on failure
         setStrategies(previousStrategies);
         toast.error('Failed to update strategy status. Please try again.');
       }
@@ -258,6 +255,7 @@ export const useStrategies = () => {
 
   return {
     strategies,
+    stats, // Export stats
     isLoading,
     createStrategy,
     updateStrategy,
@@ -266,7 +264,6 @@ export const useStrategies = () => {
     addExecutionRecord,
     getStrategy,
     clearAllStrategies,
-    refreshUserStrategies: fetchAllStrategies, // Export refresh
+    refreshUserStrategies: fetchAllStrategies,
   };
 };
-

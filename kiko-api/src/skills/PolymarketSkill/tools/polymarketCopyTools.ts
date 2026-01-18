@@ -52,11 +52,25 @@ export const CreatePolymarketCopyConfigTool: Tool = {
 
         if (!user) {
             console.log(`[Tool] User ${userId} not found, creating new user record...`);
+            // NOTE: In our Prisma schema, `walletAddress` is required and unique.
+            // If the incoming walletAddress is already associated with a different privyDid,
+            // we must avoid violating the unique constraint by using a synthetic placeholder.
+            let resolvedWalletAddress = walletAddress || `simulated-${Date.now()}`;
+            if (walletAddress) {
+                const existingByWallet = await prisma.user.findUnique({ where: { walletAddress } });
+                if (existingByWallet) {
+                    console.warn('[Tool] walletAddress already belongs to another user; using synthetic walletAddress', {
+                        walletAddress: walletAddress.slice(0, 10) + '...',
+                    });
+                    resolvedWalletAddress = `simulated-${Date.now()}`;
+                }
+            }
+
             user = await prisma.user.create({
                 data: {
                     privyDid: userId,
-                    walletAddress: walletAddress || `simulated-${Date.now()}`, // Fallback if missing
-                }
+                    walletAddress: resolvedWalletAddress,
+                },
             });
         }
 

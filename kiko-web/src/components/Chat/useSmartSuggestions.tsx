@@ -7,7 +7,8 @@ const HISTORY_KEY = 'kiko-recent-items';
 
 export const useSmartSuggestions = (
     _onSend: (text: string) => void,
-    onSetInput: (text: string) => void
+    onSetInput: (text: string) => void,
+    chainId?: number
 ) => {
     // UI State
     const [suggestions, setSuggestions] = useState<SuggestionGroup[] | SuggestionItem[]>([]);
@@ -39,7 +40,7 @@ export const useSmartSuggestions = (
                 return;
             }
             // Re-fetch suggestions for the new input
-            const results = SuggestionEngine.getSuggestions(committedText, handleCommit);
+            const results = SuggestionEngine.getSuggestions(committedText, handleCommit, { chainId });
             console.log('[useSmartSuggestions] Direct got results:', results);
             setSuggestions(results);
             setShowSuggestions(results.length > 0);
@@ -62,7 +63,7 @@ export const useSmartSuggestions = (
                 return;
             }
 
-            const results = SuggestionEngine.getSuggestions(text, handleCommit);
+            const results = SuggestionEngine.getSuggestions(text, handleCommit, { chainId });
             console.log('[useSmartSuggestions] Got results:', results);
 
             setSuggestions(results);

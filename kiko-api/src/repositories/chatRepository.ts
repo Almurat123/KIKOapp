@@ -205,6 +205,7 @@ export async function updateMessage(
     if (updates.transactionStatus !== undefined) data.transactionStatus = updates.transactionStatus;
     if (updates.transactionHash !== undefined) data.transactionHash = updates.transactionHash;
     if (updates.status !== undefined) data.status = updates.status;
+    if (updates.feedback !== undefined) data.feedback = updates.feedback;
 
     const message = await withRetry(async () => {
         return prisma.chatMessage.update({

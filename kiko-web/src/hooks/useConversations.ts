@@ -8,7 +8,7 @@ export interface Message {
   content: string;
   timestamp?: string;
   date?: string;
-  type?: 'text' | 'swap-card' | 'token-card' | 'strategy-card' | 'launchpad-card' | 'chart-card';
+  type?: 'text' | 'swap-card' | 'token-card' | 'strategy-card' | 'launchpad-card' | 'chart-card' | 'transaction-status-card';
   data?: any;
   citations?: Array<string | { url: string; avatar_url?: string }>;
   reasoning_content?: string;
@@ -23,6 +23,7 @@ export interface Message {
   tool_call_id?: string;
   status?: 'streaming' | 'complete' | 'error';
   message_index?: number;
+  feedback?: 'like' | 'dislike' | null;
 }
 
 export interface Conversation {
@@ -185,6 +186,7 @@ export const useConversations = () => {
           data: m.data,
           transactionStatus: m.transactionStatus,
           transactionHash: m.transactionHash,
+          feedback: m.feedback,
         }));
 
         // MERGE: Start with db messages, then add any local messages not in db

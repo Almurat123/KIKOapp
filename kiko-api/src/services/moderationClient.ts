@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import { createModerationLog } from '../repositories/chatRepository.js';
 import { redact } from '../utils/sanitizer.js';
 import { scrub } from '../utils/scrubber.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 dotenv.config();
 
@@ -49,13 +51,15 @@ export class ModerationClient {
             }, { timeout: 3000 });
 
             // Log to DB
-            console.log(`[ModerationClient] Logging input check to DB for userId=${userId}`);
-            createModerationLog(userId || '', 'input', text, JSON.stringify(response.data), sessionId, model).catch((err: any) => console.error('ModLog failed', redact(err)));
+            logger.debug(LogCode.SYS_INFO, 'Logging input check to DB', { userId: userId ?? undefined });
+            createModerationLog(userId || '', 'input', text, JSON.stringify(response.data), sessionId, model).catch((err: any) =>
+                logger.error(LogCode.SYS_ERROR, 'Moderation input log to DB failed', { error: err.message })
+            );
 
-            console.log(`[ModerationClient] Input check result: safe=${response.data.safe}, action=${response.data.action}`);
+            logger.info(LogCode.SYS_INFO, 'Moderation Input check result', { safe: response.data.safe, action: response.data.action, userId: userId ?? undefined });
             return response.data;
-        } catch (error) {
-            console.warn('[ModerationClient] Input moderation request failed, defaulting to safe:', redact(error));
+        } catch (error: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'Input moderation request failed, defaulting to safe', { error: error.message });
             return { safe: true, action: 'allow' };
         }
     }
@@ -75,13 +79,15 @@ export class ModerationClient {
             }, { timeout: 3000 });
 
             // Log to DB
-            console.log(`[ModerationClient] Logging output check to DB for userId=${userId}`);
-            createModerationLog(userId || '', 'output', text, JSON.stringify(response.data), sessionId, model).catch((err: any) => console.error('ModLog failed', redact(err)));
+            logger.debug(LogCode.SYS_INFO, 'Logging output check to DB', { userId: userId ?? undefined });
+            createModerationLog(userId || '', 'output', text, JSON.stringify(response.data), sessionId, model).catch((err: any) =>
+                logger.error(LogCode.SYS_ERROR, 'Moderation output log to DB failed', { error: err.message })
+            );
 
-            console.log(`[ModerationClient] Output check result: safe=${response.data.safe}`);
+            logger.info(LogCode.SYS_INFO, 'Moderation Output check result', { safe: response.data.safe, userId: userId ?? undefined });
             return response.data;
-        } catch (error) {
-            console.warn('[ModerationClient] Output moderation request failed, defaulting to original (scrubbed):', redact(error));
+        } catch (error: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'Output moderation request failed, defaulting to original', { error: error.message });
             return { safe: true, filtered_text: scrub(text) };
         }
     }

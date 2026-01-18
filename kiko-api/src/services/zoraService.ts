@@ -12,6 +12,8 @@ const {
     getProfileSocial
 } = zoraSdk as any;
 import { ethers } from "ethers";
+import { logger } from "../utils/logger.js";
+import { LogCode } from "../config/logRegistry.js";
 
 const CHAIN_ID = 8453; // Base Mainnet
 
@@ -99,7 +101,7 @@ export class ZoraService {
         const apiKey = process.env.ZORA_API_KEY;
         if (apiKey && typeof setApiKey === 'function') {
             setApiKey(apiKey);
-            console.log('[ZoraService] SDK initialized with API Key');
+            logger.info(LogCode.SYS_STARTUP, 'Zora SDK initialized with API Key');
         }
     }
 
@@ -138,7 +140,7 @@ export class ZoraService {
             } else if (hookAddress === ZORA_CONTENT_COIN_HOOK.toLowerCase()) {
                 coinType = 'CONTENT';
             } else if (hookAddress) {
-                console.log(`[ZoraService] UNKNOWN HOOK for ${token.symbol} (${address}): ${hookAddress}`);
+                logger.debug(LogCode.SYS_INFO, 'Zora UNKNOWN HOOK detected', { symbol: token.symbol, address, hookAddress });
             }
 
             const isBaseAppCoin = token.platformReferrerAddress?.toLowerCase() === BASE_PLATFORM_REFERRER.toLowerCase();
@@ -294,9 +296,9 @@ export class ZoraService {
             return Array.isArray(edges) ? edges.map((edge: any) => edge.node || edge) : [];
         } catch (error: any) {
             if (error.message === 'Timeout') {
-                console.warn(`[ZoraService] Timeout fetching balances for ${walletAddress}`);
+                logger.warn(LogCode.API_TIMEOUT, 'Timeout fetching Zora balances', { walletAddress });
             } else {
-                console.error(`[ZoraService] Error fetching balances for ${walletAddress}:`, error);
+                logger.error(LogCode.API_FETCH_FAILED, 'Error fetching Zora balances', { walletAddress, error: error.message });
             }
             return [];
         }
@@ -314,8 +316,8 @@ export class ZoraService {
 
             const edges = response?.data?.exploreList?.edges || [];
             return Array.isArray(edges) ? edges.map((edge: any) => edge.node) : [];
-        } catch (error) {
-            console.error('[ZoraService] Error fetching top gainers:', error);
+        } catch (error: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Error fetching Zora top gainers', { error: error.message });
             return [];
         }
     }
@@ -330,8 +332,8 @@ export class ZoraService {
             const response = await getCoinsTopVolume24h({ count: limit });
             const edges = response?.data?.exploreList?.edges || [];
             return Array.isArray(edges) ? edges.map((edge: any) => edge.node) : [];
-        } catch (error) {
-            console.error('[ZoraService] Error fetching top volume:', error);
+        } catch (error: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Error fetching Zora top volume', { error: error.message });
             return [];
         }
     }
@@ -346,8 +348,8 @@ export class ZoraService {
             const response = await getCoinsNew({ count: limit });
             const edges = response?.data?.exploreList?.edges || [];
             return Array.isArray(edges) ? edges.map((edge: any) => edge.node) : [];
-        } catch (error) {
-            console.error('[ZoraService] Error fetching new coins:', error);
+        } catch (error: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Error fetching Zora new coins', { error: error.message });
             return [];
         }
     }
@@ -371,8 +373,8 @@ export class ZoraService {
                 return await this.getCoinByAddress(profile.creatorCoin.address);
             }
             return null;
-        } catch (error) {
-            console.error(`[ZoraService] Creator Coin Error for ${userAddress}:`, error);
+        } catch (error: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Zora Creator Coin Error', { userAddress, error: error.message });
             return null;
         }
     }
@@ -440,8 +442,8 @@ export class ZoraService {
                                         metadata: coin,
                                     };
                                 }
-                            } catch (apiError) {
-                                console.warn(`[ZoraService] API timeout for ${address}, using fallback`);
+                            } catch (apiError: any) {
+                                logger.warn(LogCode.API_TIMEOUT, 'Zora API timeout for post coin', { address });
                             }
 
                             // Fallback: If zoraCoin:// protocol, mark as Post Coin even without API data
@@ -474,8 +476,8 @@ export class ZoraService {
                 }
             }
             return { isPostCoin: false };
-        } catch (error) {
-            console.error(`[ZoraService] Cast Coin Error for ${cast.hash}:`, error);
+        } catch (error: any) {
+            logger.error(LogCode.SYS_ERROR, 'Cast Coin Detection Error', { hash: cast.hash, error: error.message });
             return { isPostCoin: false };
         }
     }

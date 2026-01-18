@@ -4,6 +4,8 @@
  */
 
 import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 /**
  * Custom error class for API errors
@@ -11,12 +13,14 @@ import { env } from '../config/env.js';
 export class AppError extends Error {
     public statusCode: number;
     public code: string;
+    public logCode: LogCode;
     public isOperational: boolean;
 
-    constructor(statusCode: number, message: string, code = 'APP_ERROR', isOperational = true) {
+    constructor(statusCode: number, message: string, code = 'APP_ERROR', logCode = LogCode.SYS_STARTUP, isOperational = true) {
         super(message);
         this.statusCode = statusCode;
         this.code = code;
+        this.logCode = logCode;
         this.isOperational = isOperational;
         Object.setPrototypeOf(this, AppError.prototype);
     }
@@ -136,7 +140,7 @@ export function handleValidationError(error: any) {
     const validationErrors = error.validation || [];
     const messages = validationErrors.map((err: any) => `${err.instancePath || ''} ${err.message || ''}`.trim()).join(', ');
 
-    return new AppError(400, messages || 'Validation error', 'VALIDATION_ERROR', true);
+    return new AppError(400, messages || 'Validation error', 'VALIDATION_ERROR', LogCode.SYS_STARTUP, true);
 }
 
 /**
@@ -148,16 +152,16 @@ export function handleDatabaseError(error: any) {
 
     // Check for common database errors
     if (error.message.includes('timeout')) {
-        return new AppError(504, 'Database request timeout', 'DB_TIMEOUT', true);
+        return new AppError(504, 'Database request timeout', 'DB_TIMEOUT', LogCode.SYS_STARTUP, true);
     }
     if (error.message.includes('connection')) {
-        return new AppError(503, 'Database connection error', 'DB_CONNECTION_ERROR', true);
+        return new AppError(503, 'Database connection error', 'DB_CONNECTION_ERROR', LogCode.SYS_STARTUP, true);
     }
     if (error.message.includes('duplicate key')) {
-        return new AppError(409, 'Resource already exists', 'DUPLICATE_KEY', true);
+        return new AppError(409, 'Resource already exists', 'DUPLICATE_KEY', LogCode.SYS_STARTUP, true);
     }
 
-    return new AppError(500, isDevelopment ? error.message : 'Database error', 'DB_ERROR', false);
+    return new AppError(500, isDevelopment ? error.message : 'Database error', 'DB_ERROR', LogCode.SYS_STARTUP, false);
 }
 
 /**
@@ -167,10 +171,10 @@ export function handleExternalApiError(error: any, serviceName: string) {
     const isDevelopment = env.nodeEnv === 'development';
 
     if (error.message.includes('timeout')) {
-        return new AppError(504, `${serviceName} service timeout`, 'EXTERNAL_API_TIMEOUT', true);
+        return new AppError(504, `${serviceName} service timeout`, 'EXTERNAL_API_TIMEOUT', LogCode.SYS_STARTUP, true);
     }
     if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
-        return new AppError(503, `${serviceName} service unavailable`, 'EXTERNAL_API_UNAVAILABLE', true);
+        return new AppError(503, `${serviceName} service unavailable`, 'EXTERNAL_API_UNAVAILABLE', LogCode.SYS_STARTUP, true);
     }
 
     return new AppError(
@@ -179,6 +183,7 @@ export function handleExternalApiError(error: any, serviceName: string) {
             ? `${serviceName} error: ${error.message}`
             : `${serviceName} service error`,
         'EXTERNAL_API_ERROR',
+        LogCode.SYS_STARTUP,
         true
     );
 }

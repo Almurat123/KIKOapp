@@ -9,6 +9,8 @@
 import { ethers } from 'ethers';
 import { sendTransaction } from './privyWallet.js';
 import { getChainConfig } from '../config/chainConfig.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // TokenManager2 contract address on BSC
 const TOKEN_MANAGER_V2 = '0x5c952063c7fc8610FFDB798152D69F0B9550762b';
@@ -114,11 +116,11 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
-        console.log('[FourMeme] 🧪 SIMULATION MODE: Skipping actual trade execution');
+        logger.info(LogCode.EXE_TX_BROADCAST, '🧪 SIMULATION MODE: Skipping actual FourMeme buy', { token: tokenAddress });
         return `0xSIMULATION_FOURMEME_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     }
 
-    console.log(`[FourMeme] 🔶 Buying token ${tokenAddress.slice(0, 10)}... with ${bnbAmount} BNB`);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Buying token on Four.meme', { token: tokenAddress, bnb: bnbAmount });
 
     const chainId = 56; // BSC
     const chainConfig = getChainConfig(chainId);
@@ -134,11 +136,10 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
         BigInt(minAmount)
     ]);
 
-    console.log('[FourMeme] Buy transaction details:', {
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Buy transaction details', {
         tokenManager: TOKEN_MANAGER_V2,
         token: tokenAddress.slice(0, 10) + '...',
         bnbAmount,
-        bnbInWei: bnbInWei.toString(),
         minAmount
     });
 
@@ -150,18 +151,18 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
         chainId,
     });
 
-    console.log(`[FourMeme] Transaction sent: ${txHash}. Waiting for confirmation...`);
+    logger.debug(LogCode.EXE_TX_BROADCAST, 'Transaction sent, waiting for confirmation', { txHash });
 
     // Wait for confirmation and check status
     const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
-        console.error(`[FourMeme] ❌ Buy transaction REVERTED: ${txHash}`);
+        logger.error(LogCode.EXE_TX_REVERTED, 'Four.meme buy transaction REVERTED', { txHash });
         throw new Error(`FourMeme buy reverted on-chain: ${txHash}`);
     }
 
-    console.log(`[FourMeme] ✅ Buy confirmed: ${txHash}`);
+    logger.info(LogCode.EXE_TX_CONFIRMED, 'Four.meme buy confirmed', { txHash });
     return txHash;
 }
 
@@ -173,7 +174,7 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
 export async function sellToken(params: SellTokenParams): Promise<string> {
     const { userId, walletAddress, tokenAddress, amount, minFunds = '0' } = params;
 
-    console.log(`[FourMeme] 🔶 Selling ${amount} of token ${tokenAddress.slice(0, 10)}...`);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Selling token on Four.meme', { token: tokenAddress, amount });
 
     const chainId = 56; // BSC
     const chainConfig = getChainConfig(chainId);
@@ -188,7 +189,7 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
         BigInt(amount)
     ]);
 
-    console.log('[FourMeme] Sell transaction details:', {
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Sell transaction details', {
         tokenManager: TOKEN_MANAGER_V2,
         token: tokenAddress.slice(0, 10) + '...',
         amount
@@ -202,18 +203,18 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
         chainId,
     });
 
-    console.log(`[FourMeme] Sell transaction sent: ${txHash}. Waiting for confirmation...`);
+    logger.debug(LogCode.EXE_TX_BROADCAST, 'Sell transaction sent, waiting for confirmation', { txHash });
 
     // Wait for confirmation and check status
     const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
-        console.error(`[FourMeme] ❌ Sell transaction REVERTED: ${txHash}`);
+        logger.error(LogCode.EXE_TX_REVERTED, 'Four.meme sell transaction REVERTED', { txHash });
         throw new Error(`FourMeme sell reverted on-chain: ${txHash}`);
     }
 
-    console.log(`[FourMeme] ✅ Sell confirmed: ${txHash}`);
+    logger.info(LogCode.EXE_TX_CONFIRMED, 'Four.meme sell confirmed', { txHash });
     return txHash;
 }
 
@@ -240,11 +241,11 @@ async function checkAndApproveForFourMeme(
 
     const requiredAmount = BigInt(amount);
     if (currentAllowance >= requiredAmount) {
-        console.log(`[FourMeme] Allowance sufficient: ${currentAllowance} >= ${requiredAmount}`);
+        logger.debug(LogCode.EXE_TX_CONFIRMED, 'Allowance sufficient for Four.meme', { token: tokenAddress });
         return;
     }
 
-    console.log(`[FourMeme] Allowance insufficient. Approving TokenManager2...`);
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Allowance insufficient. Approving TokenManager2 for Four.meme...', { token: tokenAddress });
 
     // Approve max uint256
     const iface = new ethers.Interface(ERC20_ABI);
@@ -260,7 +261,7 @@ async function checkAndApproveForFourMeme(
         chainId,
     });
 
-    console.log(`[FourMeme] Approval tx sent: ${approvalTxHash}. Waiting for confirmation...`);
+    logger.debug(LogCode.EXE_TX_BROADCAST, 'Approval tx sent for Four.meme, waiting...', { txHash: approvalTxHash });
 
     // Wait for approval confirmation
     const receipt = await provider.waitForTransaction(approvalTxHash, 1, 30000);
@@ -268,7 +269,7 @@ async function checkAndApproveForFourMeme(
         throw new Error(`Four.meme approval failed: ${approvalTxHash}`);
     }
 
-    console.log(`[FourMeme] Approval confirmed.`);
+    logger.info(LogCode.EXE_TX_CONFIRMED, 'Four.meme approval confirmed', { token: tokenAddress });
 }
 
 /**

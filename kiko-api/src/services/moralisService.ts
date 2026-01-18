@@ -7,6 +7,9 @@
  * - https://docs.moralis.com/web3-data-api/evm/reference/wallet-api/get-wallet-profitability-summary
  */
 
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
+
 const MORALIS_API_KEY = process.env.MORALIS_API_KEY || '';
 const MORALIS_BASE_URL = 'https://deep-index.moralis.io/api/v2.2';
 
@@ -79,20 +82,24 @@ export async function getWalletProfitability(
     days: 7 | 30 | 60 | 90 | 'all' = 'all'
 ): Promise<WalletPnlSummary | null> {
     if (!MORALIS_API_KEY) {
-        console.error('[Moralis] API key not configured');
+        logger.error(LogCode.SYS_ERROR, 'Moralis API key not configured');
         return null;
     }
 
     const chain = CHAIN_MAPPING[chainId];
     if (!chain) {
-        console.warn(`[Moralis] Unsupported chain: ${chainId}`);
+        logger.warn(LogCode.API_FETCH_FAILED, 'Unsupported chain for Moralis', { chainId });
         return null;
     }
 
     try {
         const url = `${MORALIS_BASE_URL}/wallets/${walletAddress}/profitability?chain=${chain}&days=${days}`;
 
-        console.log(`[Moralis] Fetching profitability for ${walletAddress.slice(0, 10)}... on ${chain} (${days} days)`);
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching wallet profitability', {
+            wallet: walletAddress.slice(0, 10),
+            chain,
+            days
+        });
 
         const response = await fetch(url, {
             method: 'GET',
@@ -104,14 +111,20 @@ export async function getWalletProfitability(
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[Moralis] API error ${response.status}: ${errorText}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'Moralis API error', {
+                status: response.status,
+                error: errorText,
+                wallet: walletAddress.slice(0, 10)
+            });
             return null;
         }
 
         const data: WalletProfitabilityResponse = await response.json();
 
         if (!data.result || data.result.length === 0) {
-            console.log(`[Moralis] No profitability data for ${walletAddress.slice(0, 10)}...`);
+            logger.info(LogCode.API_FETCH_SUCCESS, 'No profitability data found', {
+                wallet: walletAddress.slice(0, 10)
+            });
             return {
                 address: walletAddress,
                 chainId,
@@ -159,12 +172,18 @@ export async function getWalletProfitability(
             tokens: data.result,
         };
 
-        console.log(`[Moralis] ✅ PNL Summary: $${totalRealizedPnl.toFixed(2)}, ${totalTrades} trades, ${winRate.toFixed(1)}% win rate`);
+        logger.info(LogCode.API_FETCH_SUCCESS, 'Wallet PNL summary fetched', {
+            totalRealizedPnl: totalRealizedPnl.toFixed(2),
+            totalTrades,
+            winRate: winRate.toFixed(1)
+        });
 
         return summary;
 
     } catch (error: any) {
-        console.error(`[Moralis] Error fetching profitability, falling back to manual calculation:`, error.message);
+        logger.warn(LogCode.API_FETCH_FAILED, 'Error fetching profitability, falling back to manual calculation', {
+            error: error.message
+        });
 
         // Fallback to manual calculation
         const { calculateWalletPnlManual } = await import('./pnlCalculationService.js');
@@ -212,7 +231,11 @@ export async function getWalletProfitabilitySummary(
 ): Promise<ProfitabilitySummary | null> {
     const chain = CHAIN_MAPPING[chainId];
     if (!MORALIS_API_KEY || !chain || !MORALIS_PROFITABILITY_SUPPORTED_CHAINS.has(chainId)) {
-        console.warn(`[Moralis] Moralis Profitability unavailable (Key missing or chain unsupported for PNL API), falling back to manual summary`);
+        logger.warn(LogCode.API_FETCH_FAILED, 'Moralis Profitability unavailable, falling back to manual summary', {
+            hasKey: !!MORALIS_API_KEY,
+            chain,
+            isSupported: MORALIS_PROFITABILITY_SUPPORTED_CHAINS.has(chainId)
+        });
         const { calculateWalletPnlManual } = await import('./pnlCalculationService.js');
         const manualPnl = await calculateWalletPnlManual(walletAddress, chain || 'eth', days === 'all' ? 365 : days);
 
@@ -237,7 +260,11 @@ export async function getWalletProfitabilitySummary(
     try {
         const url = `${MORALIS_BASE_URL}/wallets/${walletAddress}/profitability/summary?chain=${chain}&days=${days}`;
 
-        console.log(`[Moralis] Fetching profitability summary for ${walletAddress.slice(0, 10)}... on ${chain} (${days} days)`);
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching profitability summary', {
+            wallet: walletAddress.slice(0, 10),
+            chain,
+            days
+        });
 
         const response = await fetch(url, {
             method: 'GET',
@@ -249,7 +276,11 @@ export async function getWalletProfitabilitySummary(
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[Moralis] Summary API error ${response.status}: ${errorText}`);
+            logger.error(LogCode.API_FETCH_FAILED, 'Moralis summary API error', {
+                status: response.status,
+                error: errorText,
+                wallet: walletAddress.slice(0, 10)
+            });
             return null;
         }
 
@@ -266,12 +297,18 @@ export async function getWalletProfitabilitySummary(
             totalBoughtValueUsd: parseFloat(data.total_bought_value_usd || '0'),
         };
 
-        console.log(`[Moralis] ✅ Summary: PNL $${summary.totalRealizedProfitUsd.toFixed(2)}, ${summary.totalCountOfTrades} trades, ${summary.totalRealizedProfitPercentage.toFixed(1)}%`);
+        logger.info(LogCode.API_FETCH_SUCCESS, 'Moralis profitability summary fetched', {
+            pnlUsd: summary.totalRealizedProfitUsd.toFixed(2),
+            trades: summary.totalCountOfTrades,
+            profitPct: summary.totalRealizedProfitPercentage.toFixed(1)
+        });
 
         return summary;
 
     } catch (error: any) {
-        console.error(`[Moralis] Error fetching profitability summary:`, error.message);
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching profitability summary', {
+            error: error.message
+        });
         return null;
     }
 }

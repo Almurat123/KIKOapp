@@ -1,7 +1,5 @@
-/**
- * CoinGecko API Service
- * Used for global market data and trending tokens
- */
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
 
@@ -20,8 +18,8 @@ export async function getMarketOverview(apiKey?: string) {
             activeUsers: globalData.active_cryptocurrencies,
             ethGasPrice: undefined // CoinGecko doesn't provide gas price directly in global
         };
-    } catch (error) {
-        console.error('Error fetching CoinGecko market overview:', error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching CoinGecko market overview', { error: error.message });
         return { globalMarketCap: 0, volume24h: 0, bitcoinDominance: 0, activeUsers: 0, ethGasPrice: undefined };
     }
 }
@@ -32,8 +30,8 @@ export async function getTrendingTokens(apiKey?: string) {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
         return await response.json();
-    } catch (error) {
-        console.error('Error fetching CoinGecko trending tokens:', error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching CoinGecko trending tokens', { error: error.message });
         return { coins: [] };
     }
 }
@@ -44,8 +42,8 @@ export async function getTopGainers(apiKey?: string, limit: number = 10): Promis
         const response = await fetch(url);
         if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
         return await response.json();
-    } catch (error) {
-        console.error('Error fetching CoinGecko top gainers:', error);
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching CoinGecko top gainers', { error: error.message });
         return [];
     }
 }

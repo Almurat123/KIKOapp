@@ -2,6 +2,8 @@ import axios from 'axios';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL || 'http://localhost:8002';
 
@@ -39,7 +41,7 @@ export class RAGClient {
      */
     public async query(text: string, k: number = 3): Promise<string> {
         try {
-            console.log(`[RAGClient] Querying: "${text}"`);
+            logger.debug(LogCode.SYS_INFO, 'RAGClient: Querying', { text, k });
 
             const response = await axios.post<RAGResponse>(`${this.baseUrl}/query`, {
                 query: text,
@@ -62,7 +64,7 @@ export class RAGClient {
             return contextParts.join('\n\n');
 
         } catch (error: any) {
-            console.warn(`[RAGClient] Query failed (skipping RAG): ${error.message}`);
+            logger.warn(LogCode.API_FETCH_FAILED, 'RAGClient: Query failed (skipping RAG)', { error: error.message });
             return '';
         }
     }
@@ -74,8 +76,8 @@ export class RAGClient {
         try {
             await axios.post(`${this.baseUrl}/ingest`, { url });
             return true;
-        } catch (error) {
-            console.error('[RAGClient] Ingest failed:', error);
+        } catch (error: any) {
+            logger.error(LogCode.SYS_ERROR, 'RAGClient: Ingest failed', { url, error: error.message });
             return false;
         }
     }
