@@ -1,9 +1,3 @@
-/**
- * TransactionStatusCard - 交易状态卡片
- * 显示交易执行的实时状态，支持叠加在其他卡片下方
- * 支持深/浅主题模式
- */
-
 import React, { useState, useEffect } from 'react';
 import {
     CheckCircle2,
@@ -116,6 +110,7 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     const tokenIn = formatTokenSymbol(tokenInSymbol);
     const tokenOut = formatTokenSymbol(tokenOutSymbol);
 
+    // Render helpers updated to return simpler structures matching CSS
     const renderStatusIcon = () => {
         switch (status) {
             case 'pending':
@@ -195,41 +190,40 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
 
     return (
         <div className={clsx(styles.card, styles[resolvedTheme])}>
-            {/* 背景光晕效果 */}
+            {/* Background Glows matching card.md */}
             <div className={clsx(styles.glow, styles.glowTop)} />
             <div className={clsx(styles.glow, styles.glowBottom)} />
 
-            {/* 交易金额区域 */}
+            {/* Amount Section */}
             <div className={styles.amountSection}>
-                {/* 输入金额 */}
+                {/* Swap Amount */}
                 <div className={styles.amountBlock}>
                     <p className={styles.amountLabel}>Swap Amount</p>
                     {isLoading ? (
                         <div className={styles.skeletonAmount} />
                     ) : (
                         <p className={styles.amountValue}>
-                            {amountIn || '0.00'} <span className={styles.tokenSymbol}>{tokenIn}</span>
+                            {amountIn || '0.00'}<span className={styles.tokenSymbol}>{tokenIn}</span>
                         </p>
                     )}
                 </div>
 
-                {/* 分隔线 */}
                 <div className={styles.divider} />
 
-                {/* 输出金额 */}
+                {/* Estimated Receive */}
                 <div className={styles.amountBlock}>
                     <p className={styles.amountLabel}>Estimated Receive</p>
                     {isLoading ? (
                         <div className={styles.skeletonAmount} />
                     ) : (
                         <p className={clsx(styles.amountValue, styles.amountValueOut)}>
-                            {amountOut || '0.00'} <span className={styles.tokenSymbol}>{tokenOut}</span>
+                            {amountOut || '0.00'}<span className={styles.tokenSymbol}>{tokenOut}</span>
                         </p>
                     )}
                 </div>
             </div>
 
-            {/* 动态状态组件 */}
+            {/* Status Section */}
             <div className={styles.statusSection}>
                 <div className={styles.statusRow}>
                     <div className={styles.statusLeft}>
@@ -240,7 +234,7 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                 </div>
             </div>
 
-            {/* 底部哈希值区域 */}
+            {/* Footer Hash */}
             <div className={styles.hashSection}>
                 {txHash ? (
                     <a
