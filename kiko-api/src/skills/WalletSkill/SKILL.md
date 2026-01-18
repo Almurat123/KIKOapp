@@ -12,7 +12,7 @@ Tool output contracts (do not guess fields):
 
 Tool input contracts (use only these parameters):
 - `get_wallet_info`: optional `address`, optional `chain`, optional `includeHistory`.
-- `analyze_wallet_pnl`: `address`, optional `chain`, optional `days`.
+- `analyze_wallet_pnl`: `address`, optional `chain`, optional `days` (`1`=24H, `7`=7D, `30`=30D only).
 - `get_user_favorites`: no parameters.
 
 1. **Portfolio Oversight**:

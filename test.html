@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Particles</title>
+  <style>
+    html, body { margin:0; padding:0; width:100%; height:100%; background:#fff; overflow:hidden; }
+    canvas { display:block; width:100vw; height:100vh; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script>
+(() => {
+  // ---------- Canvas ----------
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+
+  let W = 0, H = 0, DPR = 1, CX = 0, CY = 0, MIN = 0;
+
+  function resize() {
+    DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    W = Math.floor(window.innerWidth);
+    H = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    CX = W * 0.5;
+    CY = H * 0.5;
+    MIN = Math.min(W, H);
+  }
+  window.addEventListener("resize", resize, { passive: true });
+  resize();
+
+  // ---------- 2D Simplex Noise (fast, low-frequency flow) ----------
+  // Based on Stefan Gustavson's simplex noise (public domain-style implementations).
+  class Simplex2D {
+    constructor(seed = 1) {
+      this.grad3 = [
+        [ 1, 1], [-1, 1], [ 1,-1], [-1,-1],
+        [ 1, 0], [-1, 0], [ 1, 0], [-1, 0],
+        [ 0, 1], [ 0,-1], [ 0, 1], [ 0,-1]
+      ];
+      this.p = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) this.p[i] = i;
+
+      // xorshift32 shuffle
+      let x = (seed >>> 0) || 1;
+      const rnd = () => {
+        x ^= x << 13; x >>>= 0;
+        x ^= x >>> 17; x >>>= 0;
+        x ^= x << 5;  x >>>= 0;
+        return x / 0xFFFFFFFF;
+      };
+      for (let i = 255; i > 0; i--) {
+        const j = (rnd() * (i + 1)) | 0;
+        const tmp = this.p[i]; this.p[i] = this.p[j]; this.p[j] = tmp;
+      }
+
+      this.perm = new Uint8Array(512);
+      this.permMod12 = new Uint8Array(512);
+      for (let i = 0; i < 512; i++) {
+        this.perm[i] = this.p[i & 255];
+        this.permMod12[i] = this.perm[i] % 12;
+      }
+    }
+
+    noise(xin, yin) {
+      const F2 = 0.5 * (Math.sqrt(3.0) - 1.0);
+      const G2 = (3.0 - Math.sqrt(3.0)) / 6.0;
+
+      let n0 = 0, n1 = 0, n2 = 0;
+
+      const s = (xin + yin) * F2;
+      const i = Math.floor(xin + s);
+      const j = Math.floor(yin + s);
+
+      const t = (i + j) * G2;
+      const X0 = i - t;
+      const Y0 = j - t;
+      const x0 = xin - X0;
+      const y0 = yin - Y0;
+
+      let i1 = 0, j1 = 0;
+      if (x0 > y0) { i1 = 1; j1 = 0; }
+      else { i1 = 0; j1 = 1; }
+
+      const x1 = x0 - i1 + G2;
+      const y1 = y0 - j1 + G2;
+      const x2 = x0 - 1.0 + 2.0 * G2;
+      const y2 = y0 - 1.0 + 2.0 * G2;
+
+      const ii = i & 255;
+      const jj = j & 255;
+
+      const gi0 = this.permMod12[ii + this.perm[jj]];
+      const gi1 = this.permMod12[ii + i1 + this.perm[jj + j1]];
+      const gi2 = this.permMod12[ii + 1 + this.perm[jj + 1]];
+
+      let t0 = 0.5 - x0 * x0 - y0 * y0;
+      if (t0 >= 0) {
+        t0 *= t0;
+        const g = this.grad3[gi0];
+        n0 = t0 * t0 * (g[0] * x0 + g[1] * y0);
+      }
+
+      let t1 = 0.5 - x1 * x1 - y1 * y1;
+      if (t1 >= 0) {
+        t1 *= t1;
+        const g = this.grad3[gi1];
+        n1 = t1 * t1 * (g[0] * x1 + g[1] * y1);
+      }
+
+      let t2 = 0.5 - x2 * x2 - y2 * y2;
+      if (t2 >= 0) {
+        t2 *= t2;
+        const g = this.grad3[gi2];
+        n2 = t2 * t2 * (g[0] * x2 + g[1] * y2);
+      }
+
+      // Scale to roughly [-1, 1]
+      return 70.0 * (n0 + n1 + n2);
+    }
+  }
+
+  const noise = new Simplex2D((Math.random() * 1e9) | 0);
+
+  // ---------- Color Gradient ----------
+  // Soft Google-ish spectrum: blue -> purple -> red -> orange -> yellow
+  const stops = [
+    { t: 0.00, c: [ 55, 120, 255] },
+    { t: 0.25, c: [155,  80, 255] },
+    { t: 0.50, c: [255,  70, 110] },
+    { t: 0.75, c: [255, 150,  70] },
+    { t: 1.00, c: [255, 220,  90] },
+  ];
+  const lerp = (a,b,t)=>a+(b-a)*t;
+  function colorFromT(t) {
+    t = Math.max(0, Math.min(1, t));
+    for (let i = 0; i < stops.length - 1; i++) {
+      const a = stops[i], b = stops[i+1];
+      if (t >= a.t && t <= b.t) {
+        const k = (t - a.t) / (b.t - a.t);
+        const r = lerp(a.c[0], b.c[0], k) | 0;
+        const g = lerp(a.c[1], b.c[1], k) | 0;
+        const b2= lerp(a.c[2], b.c[2], k) | 0;
+        return [r,g,b2];
+      }
+    }
+    return stops[stops.length-1].c.slice();
+  }
+
+  // ---------- Halo Sampling (non-uniform density) ----------
+  function smoothstep(a, b, x) {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  }
+
+  function sampleHaloPoint() {
+    // Rejection sampling around center to form:
+    // - slightly open center
+    // - denser outer-mid ring
+    // - fading edges
+    const maxR = 0.58 * MIN;            // fade before edges
+    const openR = 0.12 * MIN;           // center openness
+    const ringR = 0.34 * MIN;           // target ring
+    const sigma = 0.18 * MIN;
+
+    for (let tries = 0; tries < 20; tries++) {
+      const ang = Math.random() * Math.PI * 2;
+      // bias radius towards mid (gamma < 1 pushes outward slightly)
+      const r = Math.pow(Math.random(), 0.65) * maxR;
+      const x = CX + Math.cos(ang) * r;
+      const y = CY + Math.sin(ang) * r;
+
+      // probability weight: open center, ring bump, edge fade
+      const centerGate = smoothstep(openR, openR + 0.10 * MIN, r);     // low in center
+      const edgeFade = 1.0 - smoothstep(0.52 * MIN, maxR, r);          // fade out near maxR
+      const ringBump = 0.55 + 0.45 * Math.exp(-((r - ringR) ** 2) / (2 * sigma * sigma));
+      const w = centerGate * edgeFade * ringBump;
+
+      if (Math.random() < w) return { x, y, r };
+    }
+
+    // fallback (rare)
+    return { x: Math.random() * W, y: Math.random() * H, r: 0 };
+  }
+
+  // ---------- Mouse (subtle brush-away) ----------
+  const mouse = {
+    x: -1e9, y: -1e9,
+    vx: 0, vy: 0,
+    movedAt: 0
+  };
+
+  function onMove(e) {
+    const mx = e.clientX;
+    const my = e.clientY;
+    const now = performance.now();
+    const dt = Math.max(1, now - mouse.movedAt);
+    mouse.vx = (mx - mouse.x) / dt;
+    mouse.vy = (my - mouse.y) / dt;
+    mouse.x = mx; mouse.y = my;
+    mouse.movedAt = now;
+  }
+  window.addEventListener("pointermove", onMove, { passive: true });
+  window.addEventListener("pointerleave", () => { mouse.x = -1e9; mouse.y = -1e9; }, { passive: true });
+
+  // ---------- Particles ----------
+  const N = Math.floor(700 + Math.random() * 401); // 700–1100
+  const particles = new Array(N);
+
+  function rand(min, max) { return min + Math.random() * (max - min); }
+
+  function initParticle(i) {
+    const p0 = sampleHaloPoint();
+
+    // Color distribution: mostly driven by a very low-frequency noise + slight radial bias
+    const nx = (p0.x - CX) / (MIN * 0.9);
+    const ny = (p0.y - CY) / (MIN * 0.9);
+    const radial = Math.sqrt(nx*nx + ny*ny);
+    const t = 0.5
+      + 0.28 * noise.noise(p0.x * 0.0012, p0.y * 0.0012)
+      + 0.18 * (radial - 0.25);
+    const rgb = colorFromT(t);
+
+    const baseLen = rand(1.6, 3.4);     // dash length (screen px)
+    const lw = rand(0.7, 1.25);         // thin strokes
+    const alpha = rand(0.35, 0.70);
+
+    particles[i] = {
+      x: p0.x, y: p0.y,
+      vx: rand(-0.02, 0.02), vy: rand(-0.02, 0.02),
+      // subtle personal orientation bias (not orbiting)
+      thetaBias: rand(0, Math.PI * 2),
+      spin: rand(-0.002, 0.002),
+      len: baseLen,
+      lw,
+      a: alpha,
+      rgb,
+      // slight individual speed differences
+      speed: rand(0.22, 0.55)
+    };
+  }
+
+  for (let i = 0; i < N; i++) initParticle(i);
+
+  // ---------- Animation ----------
+  let last = performance.now();
+  let t0 = last;
+
+  function frame(now) {
+    const dtMs = Math.min(34, now - last);
+    last = now;
+    const dt = dtMs * 0.001; // seconds
+
+    // Clear (no trails)
+    ctx.clearRect(0, 0, W, H);
+
+    // Flow field parameters (low-frequency, calm)
+    const time = (now - t0) * 0.00008;  // slow evolution
+    const scale = 0.00105;             // larger = tighter curls; keep low for calm
+    const curlAmp = 1.0;
+
+    // Mouse effect (very subtle brush-away)
+    const mx = mouse.x, my = mouse.y;
+    const brushR = 110;
+    const brushR2 = brushR * brushR;
+
+    for (let i = 0; i < N; i++) {
+      const p = particles[i];
+
+      // Flow direction from noise (Perlin-like)
+      const nx = p.x * scale;
+      const ny = p.y * scale;
+
+      // Two noise calls to build a smooth vector field
+      const a1 = noise.noise(nx + 3.1, ny + time);
+      const a2 = noise.noise(nx - 2.7, ny - time * 1.1);
+
+      // Convert to direction (bounded and smooth)
+      const ang = (a1 * 0.9 + a2 * 0.6) * 0.55;
+      const fx = Math.cos(ang) * curlAmp;
+      const fy = Math.sin(ang) * curlAmp;
+
+      // Gently steer velocity toward flow (no jitter)
+      const steer = 0.18; // smaller = smoother
+      p.vx = p.vx * (1 - steer) + fx * p.speed * steer;
+      p.vy = p.vy * (1 - steer) + fy * p.speed * steer;
+
+      // Subtle brush-away from cursor, stronger when mouse is moving
+      const dx = p.x - mx;
+      const dy = p.y - my;
+      const d2 = dx*dx + dy*dy;
+      if (d2 < brushR2) {
+        const d = Math.sqrt(d2) + 1e-6;
+        const fall = 1 - (d / brushR);
+        const mouseMotion = Math.min(1.0, Math.hypot(mouse.vx, mouse.vy) * 18);
+        const push = fall * fall * 0.28 * mouseMotion; // extremely subtle
+        p.vx += (dx / d) * push * 0.12;
+        p.vy += (dy / d) * push * 0.12;
+      }
+
+      // Integrate (slow drift, never stops)
+      const damp = 0.995;
+      p.vx *= damp;
+      p.vy *= damp;
+
+      // Ensure it never "stops" (tiny baseline drift)
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp < 0.06) {
+        const j = 0.06 / (sp + 1e-6);
+        p.vx *= j;
+        p.vy *= j;
+      }
+
+      p.x += p.vx * (dtMs * 0.9);
+      p.y += p.vy * (dtMs * 0.9);
+
+      // Keep field full: respawn softly when far outside
+      const margin = 80;
+      if (p.x < -margin || p.x > W + margin || p.y < -margin || p.y > H + margin) {
+        initParticle(i);
+        continue;
+      }
+
+      // Orientation: subtle random bias + a little velocity alignment (no orbiting)
+      p.thetaBias += p.spin * dtMs;
+      const velAng = Math.atan2(p.vy, p.vx);
+      const theta = velAng * 0.25 + p.thetaBias * 0.75;
+
+      // Draw dash
+      const half = p.len * 0.5;
+      const x1 = p.x - Math.cos(theta) * half;
+      const y1 = p.y - Math.sin(theta) * half;
+      const x2 = p.x + Math.cos(theta) * half;
+      const y2 = p.y + Math.sin(theta) * half;
+
+      ctx.lineWidth = p.lw;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = `rgba(${p.rgb[0]},${p.rgb[1]},${p.rgb[2]},${p.a})`;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

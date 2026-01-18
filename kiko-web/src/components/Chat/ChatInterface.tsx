@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ArrowDown, ChevronDown, Settings, ArrowUp } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { DelegatedActionRequest } from '../Privy/DelegatedActionRequest';
@@ -1464,7 +1466,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         processedMessagesRef.current.add(userMsg.id);
 
         if (!existingMessageId) {
-            setMessages(prev => [...prev, userMsg]);
+            // Replace placeholder message (from pendingAIPrompt) if it exists, otherwise append
+            setMessages(prev => {
+                const placeholderIdx = prev.findIndex(m => m.id.startsWith('pending-user-'));
+                if (placeholderIdx >= 0) {
+                    // Replace the placeholder with the real user message
+                    return prev.map((m, idx) => idx === placeholderIdx ? userMsg : m);
+                }
+                return [...prev, userMsg];
+            });
         }
 
         // 3. Show thinking state immediately
@@ -1715,6 +1725,22 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             // If it's a new chat (no messages), send it automatically
             if (messagesRef.current.length === 0) {
+                // IMMEDIATELY show thinking state so user doesn't see a blank screen
+                // This provides instant feedback that the AI is processing
+                setIsThinking(true);
+                setThinkingText('Thinking');
+
+                // Also add a placeholder user message immediately for better UX
+                const placeholderUserMsg: Message = {
+                    id: `pending-user-${Date.now()}`,
+                    role: 'user',
+                    content: pendingAIPrompt,
+                    status: 'complete',
+                    timestamp: new Date().toISOString(),
+                    type: 'text'
+                };
+                setMessages([placeholderUserMsg]);
+
                 // We need to wait a tiny bit for the component to be fully ready
                 setTimeout(() => {
                     handleSend(pendingAIPrompt);
@@ -1773,41 +1799,52 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // ];
 
 
+    // Process messages with strategy data - MOVED to top level to avoid conditional hook call
+    const enrichedMessages = useMemo(() => {
+        return messages.map(msg => {
+            if (msg.type === 'strategy-card' && msg.data?.id) {
+                const liveStrat = strategies.find(s => s.id === msg.data.id);
+                if (liveStrat) {
+                    return { ...msg, data: liveStrat };
+                } else {
+                    // IMPORTANT: Don't mark as deleted if it was just created (< 30s ago)
+                    // This prevents the race condition where the card shows up before the poll returns it
+                    const isNew = msg.timestamp && (Date.now() - new Date(msg.timestamp).getTime() < 30000);
+                    if (isNew) {
+                        return msg;
+                    }
+                    // Strategy was actually deleted (or didn't load after 30s)
+                    return { ...msg, data: { ...msg.data, status: 'deleted' } };
+                }
+            }
+            return msg;
+        });
+    }, [messages, strategies]);
+
     return (
         <div className={`${styles.chatContainer} ${styles[resolvedTheme]}`}>
 
 
-            {/* Hero / Welcome Content */}
-            {!hasStarted && (
-                <WelcomeScreen onSuggestionClick={handleSend} />
-            )}
+            {/* Hero / Welcome Content with Exit Animation */}
+            <AnimatePresence mode="wait" initial={false}>
+                {!hasStarted && (
+                    <motion.div
+                        key="welcome-screen"
+                        exit={{ opacity: 0, y: -30, transition: { duration: 0.3, ease: "easeOut" } }}
+                        style={{ width: '100%', height: '100%' }}
+                    >
+                        <WelcomeScreen onSuggestionClick={handleSend} />
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
-            {/* Message List */}
+            {/* Message List - Always rendered, hidden via CSS when not started */}
             <div
                 className={clsx(styles.messageList, !hasStarted && styles.messageListHidden)}
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
             >
-                {useMemo(() => {
-                    return messages.map(msg => {
-                        if (msg.type === 'strategy-card' && msg.data?.id) {
-                            const liveStrat = strategies.find(s => s.id === msg.data.id);
-                            if (liveStrat) {
-                                return { ...msg, data: liveStrat };
-                            } else {
-                                // IMPORTANT: Don't mark as deleted if it was just created (< 30s ago)
-                                // This prevents the race condition where the card shows up before the poll returns it
-                                const isNew = msg.timestamp && (Date.now() - new Date(msg.timestamp).getTime() < 30000);
-                                if (isNew) {
-                                    return msg;
-                                }
-                                // Strategy was actually deleted (or didn't load after 30s)
-                                return { ...msg, data: { ...msg.data, status: 'deleted' } };
-                            }
-                        }
-                        return msg;
-                    });
-                }, [messages, strategies]).map((msg, index, enrichedMessages) => {
+                {enrichedMessages.map((msg, index, enrichedMessages) => {
                     const isGrouped = index > 0 && enrichedMessages[index - 1].role === msg.role;
                     const prevMsg = index > 0 ? enrichedMessages[index - 1] : null;
                     const showDateSeparator = prevMsg && prevMsg.date && msg.date && prevMsg.date !== msg.date;
@@ -1922,7 +1959,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                         });
                                     } else if (action === 'strategy-details') {
                                     }
-                                }}
+                                }
+                                }
                             />
 
                         </React.Fragment>
@@ -1935,172 +1973,178 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
 
             {/* Input Area - Only show when conversation has started */}
-            {hasStarted && (
-                <div
-                    className={clsx(styles.inputArea, styles.inputBottom)}
-                    style={safariKeyboard.isKeyboardVisible && safariKeyboard.inputTop !== null ? {
-                        bottom: 'auto',
-                        top: `${safariKeyboard.inputTop}px`,
-                        transform: 'translateY(-100%)',
-                    } : undefined}
-                >
-                    {/* DEBUG: Render check */}
-                    {/* Jump to Bottom Button - positioned at top edge of input */}
-                    {showJumpToBottom && (
-                        <button
-                            className={styles.jumpToBottom}
-                            onClick={() => scrollToBottom()}
-                        >
-                            <ArrowDown size={20} />
-                        </button>
-                    )}
-                    <div className={clsx(styles.inputWrapper, showSuggestions && styles.inputWrapperOpen)}>
-                        <ChatInputSuggestions
-                            suggestions={suggestions}
-                            isVisible={showSuggestions}
-                            onSelect={(item) => {
-                                item.action();
-                                // DO NOT clear suggestions here. 
-                                // The input change will trigger the hook to either:
-                                // 1. Show new suggestions (next step)
-                                // 2. Clear suggestions (if no matches)
-                                textareaRef.current?.focus();
-                            }}
-                        />
-                        <div className={styles.textareaContainer}>
-                            <textarea
-                                ref={textareaRef}
-                                className={styles.textArea}
-                                placeholder="Ask anything..."
-                                rows={1}
-                                value={input}
-                                onChange={handleInputChange}
-                                onKeyDown={handleKeyDown}
-                                onFocus={handleInputFocus}
-                                onBlur={() => {
-                                    // No timeout needed - onMouseDown in suggestions prevents blur for clicks
-                                    closeSuggestions();
+            {
+                hasStarted && (
+                    <div
+                        className={clsx(styles.inputArea, styles.inputBottom)}
+                        style={safariKeyboard.isKeyboardVisible && safariKeyboard.inputTop !== null ? {
+                            bottom: 'auto',
+                            top: `${safariKeyboard.inputTop}px`,
+                            transform: 'translateY(-100%)',
+                        } : undefined}
+                    >
+                        {/* DEBUG: Render check */}
+                        {/* Jump to Bottom Button - positioned at top edge of input */}
+                        {showJumpToBottom && (
+                            <button
+                                className={styles.jumpToBottom}
+                                onClick={() => scrollToBottom()}
+                            >
+                                <ArrowDown size={20} />
+                            </button>
+                        )}
+                        <div className={clsx(styles.inputWrapper, showSuggestions && styles.inputWrapperOpen)}>
+                            <ChatInputSuggestions
+                                suggestions={suggestions}
+                                isVisible={showSuggestions}
+                                onSelect={(item) => {
+                                    item.action();
+                                    // DO NOT clear suggestions here. 
+                                    // The input change will trigger the hook to either:
+                                    // 1. Show new suggestions (next step)
+                                    // 2. Clear suggestions (if no matches)
+                                    textareaRef.current?.focus();
                                 }}
-                                onCompositionStart={handleCompositionStart}
-                                onCompositionEnd={handleCompositionEnd}
                             />
+                            <div className={styles.textareaContainer}>
+                                <textarea
+                                    ref={textareaRef}
+                                    className={styles.textArea}
+                                    placeholder="Ask anything..."
+                                    rows={1}
+                                    value={input}
+                                    onChange={handleInputChange}
+                                    onKeyDown={handleKeyDown}
+                                    onFocus={handleInputFocus}
+                                    onBlur={() => {
+                                        // No timeout needed - onMouseDown in suggestions prevents blur for clicks
+                                        closeSuggestions();
+                                    }}
+                                    onCompositionStart={handleCompositionStart}
+                                    onCompositionEnd={handleCompositionEnd}
+                                />
 
-                            <div className={styles.inputActions}>
-                                <div className={styles.modelSelector} ref={modelSelectorRef}>
+                                <div className={styles.inputActions}>
+                                    <div className={styles.modelSelector} ref={modelSelectorRef}>
+                                        <button
+                                            className={styles.modelButton}
+                                            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                                        >
+                                            <span className={styles.modelName}>
+                                                {MODEL_OPTIONS.find(m => m.id === selectedModel.id)?.name || selectedModel.name}
+                                            </span>
+                                            <span className={styles.modelMode}>{selectedModel.mode}</span>
+                                            <ChevronDown size={12} className={clsx(styles.chevron, isModelDropdownOpen && styles.chevronOpen)} />
+                                        </button>
+
+                                        {isModelDropdownOpen && (
+                                            <div className={styles.modelDropdown}>
+                                                {MODEL_OPTIONS.map((model) => (
+                                                    <button
+                                                        key={model.id}
+                                                        className={clsx(styles.modelOption, selectedModel.id === model.id && styles.modelOptionActive)}
+                                                        onClick={() => {
+                                                            setSelectedModel(model);
+                                                            setIsModelDropdownOpen(false);
+                                                            logger.debug('Model changed to:', model.id);
+                                                        }}
+                                                    >
+                                                        <span className={styles.modelOptionName}>{model.name}</span>
+                                                        <span className={styles.modelOptionMode}>{model.mode}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
                                     <button
-                                        className={styles.modelButton}
-                                        onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                                        className={styles.settingsButton}
+                                        onClick={() => setIsSettingsOpen(true)}
+                                        title="Customize AI"
                                     >
-                                        <span className={styles.modelName}>
-                                            {MODEL_OPTIONS.find(m => m.id === selectedModel.id)?.name || selectedModel.name}
-                                        </span>
-                                        <span className={styles.modelMode}>{selectedModel.mode}</span>
-                                        <ChevronDown size={12} className={clsx(styles.chevron, isModelDropdownOpen && styles.chevronOpen)} />
+                                        <Settings size={18} />
                                     </button>
-
-                                    {isModelDropdownOpen && (
-                                        <div className={styles.modelDropdown}>
-                                            {MODEL_OPTIONS.map((model) => (
-                                                <button
-                                                    key={model.id}
-                                                    className={clsx(styles.modelOption, selectedModel.id === model.id && styles.modelOptionActive)}
-                                                    onClick={() => {
-                                                        setSelectedModel(model);
-                                                        setIsModelDropdownOpen(false);
-                                                        logger.debug('Model changed to:', model.id);
-                                                    }}
-                                                >
-                                                    <span className={styles.modelOptionName}>{model.name}</span>
-                                                    <span className={styles.modelOptionMode}>{model.mode}</span>
-                                                </button>
-                                            ))}
+                                    <button
+                                        className={clsx(
+                                            styles.sendBtn,
+                                            (isThinking || isStreaming) && styles.stopMode,
+                                            !isThinking && !isStreaming && input.trim() && styles.activeMode,
+                                            isStopping && styles.stoppingMode
+                                        )}
+                                        onClick={() => (isThinking || isStreaming) ? stopGeneration() : handleSend()}
+                                        disabled={(!input.trim() && !isThinking && !isStreaming) || isStopping}
+                                        title={(isThinking || isStreaming) ? "Stop generation" : "Send message"}
+                                    >
+                                        <div className={clsx(styles.btnIcon, (isThinking || isStreaming) ? styles.iconHidden : styles.iconVisible)}>
+                                            <ArrowUp size={20} strokeWidth={2.5} />
                                         </div>
-                                    )}
+                                        <div className={clsx(styles.btnIcon, (isThinking || isStreaming) ? styles.iconVisible : styles.iconHidden)}>
+                                            <div className={styles.stopIconSquare} />
+                                        </div>
+                                        {(isThinking || isStreaming) && (
+                                            <div className={styles.spinnerRing} />
+                                        )}
+                                    </button>
                                 </div>
-
-                                <button
-                                    className={styles.settingsButton}
-                                    onClick={() => setIsSettingsOpen(true)}
-                                    title="Customize AI"
-                                >
-                                    <Settings size={18} />
-                                </button>
-                                <button
-                                    className={clsx(
-                                        styles.sendBtn,
-                                        (isThinking || isStreaming) && styles.stopMode,
-                                        !isThinking && !isStreaming && input.trim() && styles.activeMode,
-                                        isStopping && styles.stoppingMode
-                                    )}
-                                    onClick={() => (isThinking || isStreaming) ? stopGeneration() : handleSend()}
-                                    disabled={(!input.trim() && !isThinking && !isStreaming) || isStopping}
-                                    title={(isThinking || isStreaming) ? "Stop generation" : "Send message"}
-                                >
-                                    <div className={clsx(styles.btnIcon, (isThinking || isStreaming) ? styles.iconHidden : styles.iconVisible)}>
-                                        <ArrowUp size={20} strokeWidth={2.5} />
-                                    </div>
-                                    <div className={clsx(styles.btnIcon, (isThinking || isStreaming) ? styles.iconVisible : styles.iconHidden)}>
-                                        <div className={styles.stopIconSquare} />
-                                    </div>
-                                    {(isThinking || isStreaming) && (
-                                        <div className={styles.spinnerRing} />
-                                    )}
-                                </button>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             <CustomAISettingsModal
                 isOpen={isSettingsOpen}
                 onClose={() => setIsSettingsOpen(false)}
             />
 
-            {showFollowModal && authenticated && (
-                <FarcasterFollowModal onDismiss={handleDismissFollow} />
-            )}
+            {
+                showFollowModal && authenticated && (
+                    <FarcasterFollowModal onDismiss={handleDismissFollow} />
+                )
+            }
 
-            {showDelegationModal && (
-                <DelegatedActionRequest
-                    onSuccess={() => {
-                        setShowDelegationModal(false);
-                        if (pendingSwapAction) {
-                            // Re-import and execute
-                            import('../../services/swapService').then(({ executeSwapInstant }) => {
-                                const toastId = toast.loading('Executing instant swap...');
+            {
+                showDelegationModal && (
+                    <DelegatedActionRequest
+                        onSuccess={() => {
+                            setShowDelegationModal(false);
+                            if (pendingSwapAction) {
+                                // Re-import and execute
+                                import('../../services/swapService').then(({ executeSwapInstant }) => {
+                                    const toastId = toast.loading('Executing instant swap...');
 
-                                // Set local storage flag
-                                if (user?.wallet?.address) {
-                                    localStorage.setItem(`kiko_delegated_${user.wallet.address.toLowerCase()}`, 'true');
-                                }
+                                    // Set local storage flag
+                                    if (user?.wallet?.address) {
+                                        localStorage.setItem(`kiko_delegated_${user.wallet.address.toLowerCase()}`, 'true');
+                                    }
 
-                                executeSwapInstant({
-                                    tokenIn: pendingSwapAction.tokenIn,
-                                    tokenOut: pendingSwapAction.tokenOut,
-                                    amountIn: pendingSwapAction.amountIn,
-                                    chainId: pendingSwapAction.chainId,
-                                    slippageBps: Math.round((pendingSwapAction.slippage || 0.5) * 100),
-                                })
-                                    .then((result) => {
-                                        if (result.success && result.txHash) {
-                                            toast.success('Swap executed successfully!', { id: toastId });
-                                        } else {
-                                            toast.error(`Swap failed: ${result.error}`, { id: toastId });
-                                        }
-                                    });
-                            });
+                                    executeSwapInstant({
+                                        tokenIn: pendingSwapAction.tokenIn,
+                                        tokenOut: pendingSwapAction.tokenOut,
+                                        amountIn: pendingSwapAction.amountIn,
+                                        chainId: pendingSwapAction.chainId,
+                                        slippageBps: Math.round((pendingSwapAction.slippage || 0.5) * 100),
+                                    })
+                                        .then((result) => {
+                                            if (result.success && result.txHash) {
+                                                toast.success('Swap executed successfully!', { id: toastId });
+                                            } else {
+                                                toast.error(`Swap failed: ${result.error}`, { id: toastId });
+                                            }
+                                        });
+                                });
+                                setPendingSwapAction(null);
+                            }
+                        }}
+                        onCancel={() => {
+                            setShowDelegationModal(false);
                             setPendingSwapAction(null);
-                        }
-                    }}
-                    onCancel={() => {
-                        setShowDelegationModal(false);
-                        setPendingSwapAction(null);
-                        toast.error("Delegation cancelled");
-                    }}
-                />
-            )}
+                            toast.error("Delegation cancelled");
+                        }}
+                    />
+                )
+            }
 
-        </div>
+        </div >
     );
 };

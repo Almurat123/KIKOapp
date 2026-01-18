@@ -739,6 +739,9 @@ export const SocialPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const observerTarget = useRef<HTMLDivElement>(null);
+  const inFlightRef = useRef(false);
+  const lastLoadRef = useRef(0);
+  const emptyPageRef = useRef(0);
   const isMobile = useIsMobile();
   const PAGE_SIZE = 30;
 
@@ -755,13 +758,14 @@ export const SocialPage: React.FC = () => {
 
   // Observer for loading more
   useEffect(() => {
+    const root = document.querySelector('[data-scroll-container="app"]') as Element | null;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && !loading && hasMore) {
           loadTrendingCasts(false, page + 1);
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1, rootMargin: '200px', root }
     );
 
     if (observerTarget.current) {
@@ -774,6 +778,35 @@ export const SocialPage: React.FC = () => {
       }
     };
   }, [loading, hasMore, page]);
+
+  // Scroll fallback: some fast-scroll cases skip IntersectionObserver events.
+  useEffect(() => {
+    const root = document.querySelector('[data-scroll-container="app"]') as HTMLElement | null;
+    if (!root || !hasMore || loading) return;
+
+    const onScroll = () => {
+      const remaining = root.scrollHeight - root.scrollTop - root.clientHeight;
+      if (remaining < 400 && !loading && hasMore && !inFlightRef.current) {
+        loadTrendingCasts(false, page + 1);
+      }
+    };
+
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => root.removeEventListener('scroll', onScroll);
+  }, [loading, hasMore, page]);
+
+  // Safety: release stuck state if request hangs too long
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => {
+      if (loading && Date.now() - lastLoadRef.current > 15000) {
+        console.warn('[SocialPage] Loading timeout, releasing lock');
+        inFlightRef.current = false;
+        setLoading(false);
+      }
+    }, 16000);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
 
   const mountedRef = useRef(true);
@@ -796,8 +829,11 @@ export const SocialPage: React.FC = () => {
 
   const loadTrendingCasts = async (showLoading: boolean = true, pageNum: number = 1) => {
     if (!mountedRef.current) return;
+    if (inFlightRef.current) return;
 
     try {
+      inFlightRef.current = true;
+      lastLoadRef.current = Date.now();
       if (showLoading && pageNum === 1) {
         setLoading(true);
       }
@@ -813,6 +849,12 @@ export const SocialPage: React.FC = () => {
       console.log('[SocialPage] Fetched casts:', casts.length);
 
       if (mountedRef.current) {
+        if (casts.length === 0) {
+          emptyPageRef.current += 1;
+        } else {
+          emptyPageRef.current = 0;
+        }
+
         // If we got fewer items than requested, we've reached the end
         if (casts.length < PAGE_SIZE) {
           setHasMore(false);
@@ -873,6 +915,8 @@ export const SocialPage: React.FC = () => {
         }
         setLoading(false);
       }
+    } finally {
+      inFlightRef.current = false;
     }
   };
 
@@ -1239,6 +1283,3 @@ export const SocialPage: React.FC = () => {
 };
 
 export default SocialPage;
-
-
-

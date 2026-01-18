@@ -49,7 +49,7 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
     // Wait for any existing trade to complete
     const existingLock = userTradeLocks.get(userId);
     if (existingLock) {
-        logger.throttled(LogCode.WTC_TX_SKIPPED, `Waiting for existing trade lock for user ${userId.slice(0, 10)}...`, { userId });
+        logger.debug(LogCode.WTC_TX_SKIPPED, `Waiting for existing trade lock for user ${userId.slice(0, 10)}...`, { userId });
         let judgeDecisionId: string | undefined;
         try {
             await existingLock;
@@ -91,7 +91,7 @@ function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: numbe
     const lastSeen = recentSwaps.get(key);
 
     if (lastSeen && Date.now() - lastSeen < SWAP_DEDUP_WINDOW_MS) {
-        logger.throttled(LogCode.WTC_TX_SKIPPED, `Skipping duplicate swap (last seen ${Date.now() - lastSeen}ms ago)`, { targetWallet, chainId });
+        // logger.throttled(LogCode.WTC_TX_SKIPPED, `Skipping duplicate swap (last seen ${Date.now() - lastSeen}ms ago)`, { targetWallet, chainId });
         return true;
     }
 
@@ -187,7 +187,7 @@ export async function handleSwapDetected(
             handleTargetBuy(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
         ]);
     } else {
-        logger.throttled(LogCode.WTC_TX_SKIPPED, 'Cash-to-Cash or ignored swap type detected', { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut });
+        // logger.throttled(LogCode.WTC_TX_SKIPPED, 'Cash-to-Cash or ignored swap type detected', { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut });
     }
 }
 

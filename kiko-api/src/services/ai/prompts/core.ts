@@ -144,7 +144,7 @@ Agent Guidelines:
 **PNL & WALLET ANALYSIS RULES**:
 - **Clarification First**: If user asks "Check PNL for [Address]" WITHOUT specifying chain or time range:
   1. DO NOT guess. Dune queries cost money.
-  2. Ask: "Which chain (Base, ETH, Solana, etc.) and time range (7D, 30D, 90D) would you like me to analyze?"
+  2. Ask: "Which chain (Base, ETH, Solana, etc.) and time range (24H, 7D, 30D) would you like me to analyze?"
   3. Only call 'analyze_wallet_pnl' AFTER user confirmation.
 - **Reporting Rules**:
   1. If Net PNL is near $0 but 'totalRealizedLossUsd' is significant, **PRIORITIZE reporting the Loss**.

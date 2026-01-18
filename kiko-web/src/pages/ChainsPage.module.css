@@ -177,6 +177,10 @@
         border-radius: 0;
         border-left: none;
         border-right: none;
+        /* Pull grid to edges to counteract parent padding (assuming 16px parent padding) */
+        margin-left: -16px;
+        margin-right: -16px;
+        width: calc(100% + 32px);
     }
 }
 
@@ -440,4 +444,26 @@
     color: var(--text-secondary);
     font-weight: 400;
     margin-left: 2px;
+}
+
+/* Unified number font and color for list items */
+.primaryValue,
+.subValue,
+.value,
+.cell {
+    font-variant-numeric: tabular-nums;
+    font-family: 'Roboto Mono', monospace;
+    color: var(--text-primary) !important;
+    /* Force unified color */
+}
+
+/* Remove side padding for rows inside the full-width card to maximize space if needed, 
+   but keep a little to avoid text touching screen edge */
+@media (max-width: 768px) {
+
+    .listHeader,
+    .listRow {
+        padding-left: 8px;
+        padding-right: 8px;
+    }
 }

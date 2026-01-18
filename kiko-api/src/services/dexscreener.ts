@@ -12,6 +12,7 @@ const DEXSCREENER_TOKEN_BOOSTS_URL = 'https://api.dexscreener.com/token-boosts/t
 
 // Import TokenSearchResult type for compatibility with GeckoTerminal
 import { getTrendingTokens as getGeckoTrendingTokens, type TokenSearchResult } from './geckoTerminal.js';
+import { getAddress } from 'ethers';
 import { fetchTrendingAddresses, isWSSupportedChain } from './dexscreenerWS.js';
 import { computeTrendingScore } from './trendingScore.js';
 import { logger } from '../utils/logger.js';
@@ -121,7 +122,7 @@ const CHAIN_TO_TRUSTWALLET: Record<string, string> = {
   'arbitrum': 'arbitrum',
   'polygon': 'polygon',
   'optimism': 'optimism',
-  'avalanche': 'avalanchec',
+  'avalanche': 'avalanche',
 };
 
 /**
@@ -130,7 +131,33 @@ const CHAIN_TO_TRUSTWALLET: Record<string, string> = {
 function getTrustWalletImageUrl(chainId: string, address: string): string | undefined {
   const twChain = CHAIN_TO_TRUSTWALLET[chainId.toLowerCase()];
   if (!twChain || !address) return undefined;
-  return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${twChain}/assets/${address}/logo.png`;
+  const evmChains = new Set(['ethereum', 'eth', 'bsc', 'base', 'arbitrum', 'polygon', 'optimism', 'avalanche']);
+  let normalizedAddress = address;
+  if (evmChains.has(chainId.toLowerCase())) {
+    try {
+      normalizedAddress = getAddress(address);
+    } catch {
+      normalizedAddress = address;
+    }
+  }
+  return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${twChain}/assets/${normalizedAddress}/logo.png`;
+}
+
+function normalizeImageUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('ipfs://')) {
+    return `https://ipfs.io/ipfs/${trimmed.slice('ipfs://'.length)}`;
+  }
+  if (trimmed.startsWith('//')) {
+    return `https:${trimmed}`;
+  }
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  const safePath = trimmed.replace(/^\/+/, '');
+  return `https://cdn.dexscreener.com/cms/images/${safePath}`;
 }
 
 /**
@@ -167,6 +194,7 @@ export async function searchTokens(query: string): Promise<DexScreenerToken[]> {
         liquidity: parseFloat(pair.liquidity?.usd || '0'),
         fdv: pair.fdv ? parseFloat(pair.fdv) : undefined,
         poolAddress: pair.pairAddress, // Critical for charts
+        imageUrl: normalizeImageUrl(pair.info?.imageUrl) || getTrustWalletImageUrl(chainId, pair.baseToken?.address || ''),
         socials: pair.info?.socials,
         websites: pair.info?.websites,
       };
@@ -233,7 +261,7 @@ export async function getTokenDetails(chainId: string, address: string): Promise
       fdv: pair.fdv ? parseFloat(pair.fdv) : undefined,
       poolAddress: pair.pairAddress,
       pairCreatedAt: pair.pairCreatedAt, // Pool creation timestamp
-      imageUrl: pair.info?.imageUrl || undefined, // Token logo
+      imageUrl: normalizeImageUrl(pair.info?.imageUrl) || getTrustWalletImageUrl(chainId, address), // Token logo
       socials: pair.info?.socials || [], // Twitter, Discord links
       websites: pair.info?.websites || [], // Official websites
     };
@@ -498,9 +526,7 @@ export async function getTrendingTokensByChain(
       }
 
       // Fallback image
-      if (!imageUrl) {
-        imageUrl = getTrustWalletImageUrl(dexScreenerChainId, address) || '';
-      }
+      imageUrl = normalizeImageUrl(imageUrl) || getTrustWalletImageUrl(dexScreenerChainId, address) || '';
 
       // Scoring Algorithm (Approximate DexScreener Trending Weighting)
       // Logarithmic scale to dampen massive outliers
@@ -607,7 +633,7 @@ async function getTokenPairData(chainId: string, tokenAddress: string): Promise<
       name: pair.baseToken?.name || '',
       symbol: pair.baseToken?.symbol || '',
       network: NETWORK_MAP[chainId] || chainId,
-      imageUrl: pair.info?.imageUrl || getTrustWalletImageUrl(chainId, tokenAddress),
+      imageUrl: normalizeImageUrl(pair.info?.imageUrl) || getTrustWalletImageUrl(chainId, tokenAddress),
       price: parseFloat(pair.priceUsd || '0') || undefined,
       priceChange24h: parseFloat(pair.priceChange?.h24 || '0') || undefined,
       volume24h: parseFloat(pair.volume?.h24 || '0') || undefined,
@@ -1035,10 +1061,7 @@ export async function getTrendingTokensPremium(
             : (existing?.liquidity || 0);
 
           if (!existing || currentLiquidity > existingLiquidity) {
-            let imageUrl = pair.info?.imageUrl;
-            if (imageUrl && !imageUrl.startsWith('http')) {
-              imageUrl = `https://cdn.dexscreener.com/cms/images/${imageUrl}`;
-            }
+            let imageUrl = normalizeImageUrl(pair.info?.imageUrl);
 
             const volume24h = parseFloat(pair.volume?.h24 || '0');
             const priceChange24h = parseFloat(pair.priceChange?.h24 || '0');

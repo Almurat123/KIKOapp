@@ -995,6 +995,9 @@
     padding: 10px 14px;
     font-family: inherit;
     /* SF Pro */
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: pre-wrap;
     overflow-y: auto;
     transition: height 0.1s ease;
     font-size: 15px;

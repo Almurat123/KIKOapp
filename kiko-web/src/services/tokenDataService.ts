@@ -19,11 +19,36 @@ export interface TokenData {
   volume24h?: number;
 }
 
+const TOKEN_DATA_CACHE_TTL_MS = 5 * 60 * 1000;
+const TOKEN_DATA_CONCURRENCY = 4;
+
+type TokenDataCacheEntry = {
+  data: TokenData;
+  expiresAt: number;
+};
+
+const tokenDataCache = new Map<string, TokenDataCacheEntry>();
+const tokenDataInflight = new Map<string, Promise<TokenData>>();
+
+const getTokenCacheKey = (address: string, chainId: number) => `${chainId}:${address.toLowerCase()}`;
+
 /**
  * 获取代币数据（包含价格信息和头像）
  * 优先级: DexScreener → GeckoTerminal → 基础信息
  */
 export async function getTokenData(address: string, chainId: number): Promise<TokenData> {
+  const cacheKey = getTokenCacheKey(address, chainId);
+  const cached = tokenDataCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  const inflight = tokenDataInflight.get(cacheKey);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = (async () => {
   try {
     // 1. 先尝试从 DexScreener 获取完整信息（包括头像）
     try {
@@ -62,6 +87,16 @@ export async function getTokenData(address: string, chainId: number): Promise<To
   } catch (error) {
     console.error('[TokenData] Error getting token data:', error);
     throw error;
+  }
+  })();
+
+  tokenDataInflight.set(cacheKey, request);
+  try {
+    const data = await request;
+    tokenDataCache.set(cacheKey, { data, expiresAt: Date.now() + TOKEN_DATA_CACHE_TTL_MS });
+    return data;
+  } finally {
+    tokenDataInflight.delete(cacheKey);
   }
 }
 
@@ -320,13 +355,28 @@ async function fetchTokenFromGeckoTerminal(
  */
 export async function getTokensData(addresses: string[], chainId: number): Promise<TokenData[]> {
   try {
-    const results = await Promise.allSettled(
-      addresses.map(addr => getTokenData(addr, chainId))
+    const uniqueAddresses = Array.from(
+      new Map(addresses.map(addr => [addr.toLowerCase(), addr])).values()
     );
+    const concurrency = Math.max(1, Math.min(TOKEN_DATA_CONCURRENCY, uniqueAddresses.length));
+    const results: TokenData[] = [];
+    let index = 0;
 
-    return results
-      .filter(r => r.status === 'fulfilled')
-      .map(r => (r as PromiseFulfilledResult<TokenData>).value);
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (index < uniqueAddresses.length) {
+        const currentIndex = index++;
+        const addr = uniqueAddresses[currentIndex];
+        try {
+          const data = await getTokenData(addr, chainId);
+          results.push(data);
+        } catch (error) {
+          console.warn('[TokenData] Skipping token data after error:', { address: addr, chainId, error });
+        }
+      }
+    });
+
+    await Promise.all(workers);
+    return results;
   } catch (error) {
     console.error('Error getting tokens data:', error);
     throw error;

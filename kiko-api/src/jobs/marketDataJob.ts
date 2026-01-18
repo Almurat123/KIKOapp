@@ -107,8 +107,17 @@ export async function refreshMarketOverview(force = false): Promise<void> {
  */
 export async function refreshChainsData(force = false): Promise<void> {
   try {
-    // Check if data is already fresh in SQL (PostgreSQL-driven state)
-    const chains = await fetchChainsData();
+    // 1. Fetch chain metrics from Dune Analytics
+    console.log('[MarketJob] Fetching chain metrics from Dune...');
+    const { fetchDuneChainMetrics, convertDuneMetricsToDefiLlamaFormat } = await import('../services/duneChainService.js');
+
+    const duneMetrics = await fetchDuneChainMetrics();
+    const convertedMetrics = convertDuneMetricsToDefiLlamaFormat(duneMetrics);
+
+    console.log(`[MarketJob] Fetched metrics for ${convertedMetrics.size} chains from Dune`);
+
+    // 2. Merge with DeFiLlama TVL data
+    const chains = await fetchChainsData(convertedMetrics);
     await saveChainsData(chains);
 
     console.log(`[MarketJob] ✅ Chains refreshed successfully: ${chains.length} chains`);

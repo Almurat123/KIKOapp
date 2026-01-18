@@ -60,7 +60,7 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
 
     // Check if chain is supported
     if (!WS_SUPPORTED_CHAINS.includes(normalizedChain as WSSupportedChain)) {
-        logger.warn(LogCode.SYS_INFO, 'DexScreener WS: Chain not supported', { chain, normalizedChain });
+        logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Chain not supported', { chain, normalizedChain });
         return [];
     }
 
@@ -84,7 +84,7 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
         const timeoutId = setTimeout(() => {
             if (!resolved) {
                 resolved = true;
-                logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener WS: Timeout', { chain: normalizedChain, timeout });
+                logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener WS: Timeout', { chain: normalizedChain, timeout });
                 ws.close();
                 resolve([]); // Return empty on timeout, don't reject
             }
@@ -141,7 +141,7 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
                     const uniqueAddresses = [...new Set(allAddresses)];
 
                     const duration = Date.now() - startTime;
-                    logger.info(LogCode.SYS_INFO, 'DexScreener WS: Received trending addresses', { chain: normalizedChain, count: uniqueAddresses.length, durationMs: duration });
+                    logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Received trending addresses', { chain: normalizedChain, count: uniqueAddresses.length, durationMs: duration });
 
                     resolved = true;
                     clearTimeout(timeoutId);

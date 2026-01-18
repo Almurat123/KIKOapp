@@ -264,11 +264,13 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
     logger.debug(LogCode.SYS_STARTUP, 'Checking wallet for updates', { address, chainId });
 
     const transfers = await fetchRecentTransactions(address, chainId);
-    logger.debug(LogCode.API_FETCH_SUCCESS, 'Found recent transfers', { count: transfers.length, address: address.slice(0, 10) });
+    if (transfers.length > 0) {
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'Found recent transfers', { count: transfers.length, address: address.slice(0, 10) });
+    }
 
     for (const transfer of transfers) {
         const txHash = transfer.hash;
-        logger.debug(LogCode.SYS_STARTUP, 'Checking transaction', { tx: txHash?.slice(0, 10), processed: processedTxs.has(txHash) });
+        // logger.debug(LogCode.SYS_STARTUP, 'Checking transaction', { tx: txHash?.slice(0, 10), processed: processedTxs.has(txHash) });
 
         // Skip if already processed (in-memory cache)
         if (processedTxs.has(txHash)) {

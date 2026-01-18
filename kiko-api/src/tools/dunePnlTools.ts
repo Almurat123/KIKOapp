@@ -1,5 +1,23 @@
 import { Tool } from './registry.js';
 import * as dunePnlService from '../services/dunePnlService.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
+
+function normalizePnlChain(chain: string): string {
+    const lower = chain.toLowerCase();
+    if (lower === 'ethereum' || lower === 'eth') return 'eth';
+    if (lower === 'base') return 'base';
+    if (lower === 'bnb' || lower === 'bsc') return 'bsc';
+    if (lower === 'polygon' || lower === 'matic') return 'polygon';
+    if (lower === 'arbitrum' || lower === 'arb') return 'arbitrum';
+    if (lower === 'optimism' || lower === 'op') return 'optimism';
+    return lower;
+}
+
+function formatTimeRange(days: number): string {
+    if (days === 1) return '24H';
+    return `${days}D`;
+}
 
 /**
  * Dune PNL Tool
@@ -22,8 +40,8 @@ export const AnalyzeWalletPnlTool: Tool = {
                 },
                 days: {
                     type: 'number',
-                    description: 'Time range for analysis in days (e.g., 7, 30, 90). Default is 30.',
-                    enum: [7, 30, 90],
+                    description: 'Time range for analysis in days: 1 (=24H), 7 (=7D), 30 (=30D). Default is 30.',
+                    enum: [1, 7, 30],
                     default: 30
                 }
             },
@@ -34,22 +52,72 @@ export const AnalyzeWalletPnlTool: Tool = {
         try {
             const address = args.address;
             const chain = args.chain || 'ethereum';
-            const days = args.days || 30;
+            const days = args.days ?? 30;
 
-            console.log(`[AnalyzeWalletPnlTool] Analyzing ${address} on ${chain} for ${days} days`);
+            logger.info(LogCode.AI_TOOL_USED, `Analyzing PNL via Dune`, { address, chain, days });
 
-            const result = await dunePnlService.getWalletPnlFromDune(address, chain, days);
+            if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+                return {
+                    error: `Invalid EVM wallet address: ${address}`
+                };
+            }
+
+            if (![1, 7, 30].includes(Number(days))) {
+                return {
+                    error: `Unsupported time range: ${days} days. Supported: 24H(1), 7D(7), 30D(30).`
+                };
+            }
+
+            const duneChain = chain;
+            let result: Awaited<ReturnType<typeof dunePnlService.getWalletPnlFromDune>> | null = null;
+            try {
+                result = await dunePnlService.getWalletPnlFromDune(address, duneChain, days);
+            } catch (e: any) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Dune fetch failed, falling back to manual PNL', { error: e?.message || e });
+            }
 
             if (!result) {
+                const alchemyChain = normalizePnlChain(chain);
+                const { calculateWalletPnlManual } = await import('../services/pnlCalculationService.js');
+                const manual = await calculateWalletPnlManual(address, alchemyChain, days);
+
+                const topTokens = Object.values(manual.tokenBreakdown)
+                    .sort((a, b) => Math.abs(b.realizedPnlUsd) - Math.abs(a.realizedPnlUsd))
+                    .slice(0, 20)
+                    .map(t => ({
+                        token: t.symbol || t.address,
+                        address: t.address,
+                        pnlUsd: t.realizedPnlUsd,
+                        profitPercentage: 'N/A',
+                        boughtUsd: t.totalBuyUsd,
+                        soldUsd: t.totalSellUsd
+                    }));
+
                 return {
-                    error: `Failed to fetch PNL data from Dune for address ${address} on ${chain}.`
+                    address,
+                    chain,
+                    timeRange: formatTimeRange(days),
+                    summary: {
+                        totalRealizedPnlUsd: manual.totalRealizedPnlUsd,
+                        totalRealizedProfitUsd: manual.totalRealizedProfitUsd,
+                        totalRealizedLossUsd: manual.totalRealizedLossUsd,
+                        tradingPnlUsd: manual.totalRealizedPnlUsd,
+
+                        totalBoughtUsd: manual.totalBoughtUsd,
+                        totalSoldUsd: manual.totalSoldUsd,
+                        winRate: manual.winRate,
+                        tradingWinRate: manual.winRate,
+                        totalTrades: manual.totalTrades,
+                        profitableTrades: manual.profitableTrades
+                    },
+                    topTokens
                 };
             }
 
             return {
                 address: result.walletAddress,
                 chain: result.chain,
-                timeRange: `${days} days`,
+                timeRange: formatTimeRange(days),
                 summary: {
                     totalRealizedPnlUsd: result.totalRealizedPnlUsd,
                     totalRealizedProfitUsd: result.totalRealizedProfitUsd,
@@ -74,7 +142,7 @@ export const AnalyzeWalletPnlTool: Tool = {
             };
 
         } catch (error: any) {
-            console.error('[AnalyzeWalletPnlTool] Error:', error);
+            logger.error(LogCode.SYS_ERROR, 'PnL Tool Error', { error: error.message });
             return { error: `Failed to analyze wallet PNL: ${error.message}` };
         }
     }

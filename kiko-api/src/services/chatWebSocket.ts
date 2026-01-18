@@ -59,15 +59,24 @@ export class ChatWebSocketService {
     public broadcastToUser(userId: string, event: ChatEvent) {
         const userClients = this.clients.get(userId);
         if (userClients) {
+            // Skip logging for high-frequency 'chunk' events to prevent console flooding
+            const isHighFreq = event.type === 'chunk';
             const timerLabel = `ws_broadcast_${userId}_${event.type}`;
-            logger.startTimer(timerLabel);
+
+            if (!isHighFreq) {
+                logger.startTimer(timerLabel);
+            }
+
             const payload = JSON.stringify(event);
             userClients.forEach((socket) => {
                 if (socket.readyState === WebSocket.OPEN) {
                     socket.send(payload);
                 }
             });
-            logger.endTimer(timerLabel, LogCode.WS_MESSAGE_SENT, { userId, eventType: event.type, connectionCount: userClients.size });
+
+            if (!isHighFreq) {
+                logger.endTimer(timerLabel, LogCode.WS_MESSAGE_SENT, { userId, eventType: event.type, connectionCount: userClients.size });
+            }
         }
     }
 

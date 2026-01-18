@@ -5,6 +5,7 @@
 
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getAddress } from 'ethers';
 
 const GECKO_TERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 
@@ -190,7 +191,7 @@ const CHAIN_TO_TRUSTWALLET: Record<string, string> = {
   'arbitrum': 'arbitrum',
   'polygon': 'polygon',
   'optimism': 'optimism',
-  'avalanche': 'avalanchec',
+  'avalanche': 'avalanche',
 };
 
 /**
@@ -201,9 +202,32 @@ function getTrustWalletImageUrl(network: string, address: string): string | unde
   const twChain = CHAIN_TO_TRUSTWALLET[network.toLowerCase()];
   if (!twChain || !address) return undefined;
 
-  // Checksum the address for ETH-compatible chains
-  const checksumAddress = address; // In production, should use ethers.getAddress() for checksum
-  return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${twChain}/assets/${checksumAddress}/logo.png`;
+  const evmChains = new Set(['eth', 'ethereum', 'bsc', 'base', 'arbitrum', 'polygon', 'optimism', 'avalanche']);
+  let normalizedAddress = address;
+  if (evmChains.has(network.toLowerCase())) {
+    try {
+      normalizedAddress = getAddress(address);
+    } catch {
+      normalizedAddress = address;
+    }
+  }
+  return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${twChain}/assets/${normalizedAddress}/logo.png`;
+}
+
+function normalizeImageUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('ipfs://')) {
+    return `https://ipfs.io/ipfs/${trimmed.slice('ipfs://'.length)}`;
+  }
+  if (trimmed.startsWith('//')) {
+    return `https:${trimmed}`;
+  }
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  return undefined;
 }
 
 /**
@@ -647,7 +671,7 @@ export async function getTrendingTokens(
           : undefined;
 
         // Get image URL: first try GeckoTerminal, then fallback to Trust Wallet
-        const imageUrl = baseToken.image_url || getTrustWalletImageUrl(geckoNetwork, tokenAddress);
+        const imageUrl = normalizeImageUrl(baseToken.image_url) || getTrustWalletImageUrl(geckoNetwork, tokenAddress);
 
         // Get transaction counts
         const txns = attributes.transactions || {};
@@ -870,7 +894,7 @@ export async function getPoolsByDex(
           : undefined;
 
         // Get image URL
-        const imageUrl = baseToken.image_url || getTrustWalletImageUrl(geckoNetwork, tokenAddress);
+        const imageUrl = normalizeImageUrl(baseToken.image_url) || getTrustWalletImageUrl(geckoNetwork, tokenAddress);
 
         // Get transaction counts
         const txns = attributes.transactions || {};
