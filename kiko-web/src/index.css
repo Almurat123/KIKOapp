@@ -117,9 +117,9 @@ a:hover {
 body {
   margin: 0;
   padding: 0;
-  /* Safari iOS: Add safe area insets for notch and home indicator */
+  /* Safari iOS: Add safe area inset for status bar (top only) */
+  /* Bottom safe area is handled by individual components to avoid double-padding */
   padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
   min-width: 320px;
   /* Safari iOS 26: Use dvh with vh fallback, constrain to viewport */
   height: 100vh;

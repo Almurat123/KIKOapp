@@ -67,8 +67,9 @@
     overflow-x: clip;
     /* Use clip instead of hidden to not interfere with child scrolling */
     padding: 16px;
-    /* Safari iOS 26: Add safe area for bottom toolbar */
-    padding-bottom: calc(180px + env(safe-area-inset-bottom, 0px));
+    /* Safari iOS 26: Add safe area for bottom toolbar + home indicator */
+    /* Use max() to ensure proper spacing in standalone mode */
+    padding-bottom: max(180px, calc(180px + env(safe-area-inset-bottom, 34px)));
     /* Extra space for action buttons + input area + safe area */
     display: flex;
     flex-direction: column;
@@ -604,14 +605,15 @@
 
 .inputBottom {
     top: auto;
-    /* Safari iOS: Add safe area padding for home indicator */
-    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    /* Safari iOS 26: Ensure input clears home indicator bar in standalone mode */
+    /* Use max() to ensure at least 34px (home bar height) + 16px base padding */
+    bottom: max(16px, calc(16px + env(safe-area-inset-bottom, 34px)));
     transform: translateY(0);
 }
 
 @media (min-width: 768px) {
     .inputBottom {
-        bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        bottom: max(24px, calc(24px + env(safe-area-inset-bottom, 0px)));
     }
 }
 

@@ -68,30 +68,25 @@
       const canvas = document.getElementById("c");
       const ctx = canvas.getContext("2d", { alpha: true });
 
-      // ===== 你主要调这 4 个 =====
-      const N = 650;                 // 粒子数量（截图那种密度：500~900）
-      const RING_RADIUS = 420;       // 环半径（跟标题尺寸相关）
-      const MOUSE_RADIUS = 160;      // 鼠标影响半径（120~220）
-      const MOUSE_PUSH = 1.35;       // 鼠标外凸强度（1.0~2.2）
+      // ===== PHYSICS CONFIGURATION (Exact Match Attempt) =====
+      const N = 850;
+      // Interaction: Large radius, strong push, feeling "thick" (viscous)
+      const MOUSE_RADIUS = 280;
+      const MOUSE_PUSH = 3.5;
+      const FRICTION = 0.93;         // Sticky flow
+      const RETURN_SPEED = 0.006;    // Very slow, drift-like return to orbit
+      const ORBIT_SPEED = 0.0008;    // Steady rotation
 
-      // ===== 更细腻的“水母呼吸”感 =====
-      const SPRING_K = 0.015;        // 回家弹簧（0.010~0.022）
-      const DAMPING = 0.90;          // 阻尼（0.88~0.94）
-      const ORBIT = 0.28;            // 围绕（切向）比例（0.10~0.35，太大就漩涡）
-      const NOISE = 0.22;            // 噪声强度（0.10~0.35，太大就乱）
-      const NOISE_SCALE = 0.010;     // 噪声空间频率（越小越柔）
-      const BREATH = 0.18;           // 全局轻微呼吸（0.0~0.25）
-
-      // 颜色：彩色但很克制（接近截图）
-      const palette = [
-        [255, 92, 92],   // red
-        [255, 165, 64],  // orange
-        [255, 200, 64],  // yellow
-        [120, 160, 255], // blue
-        [160, 120, 255], // purple
-      ];
+      // Colors: Spatial Gradient
+      const colors = {
+        tl: [140, 82, 255],  // Purple
+        tr: [255, 92, 92],   // Red/Pink
+        bl: [64, 120, 255],  // Blue
+        br: [255, 200, 64]   // Yellow
+      };
 
       let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+
       function resize() {
         W = Math.floor(window.innerWidth);
         H = Math.floor(window.innerHeight);
@@ -99,155 +94,193 @@
         canvas.height = Math.floor(H * DPR);
         canvas.style.width = W + "px";
         canvas.style.height = H + "px";
-        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        ctx.scale(DPR, DPR);
       }
       window.addEventListener("resize", resize);
       resize();
 
-      // 文案区域中心：你可以改成真实测量 DOM 的标题盒子中心
-      function getHeroCenter() {
-        // 大概让环围绕标题中心：偏上
-        return { x: W * 0.5, y: H * 0.44 };
-      }
-
-      // 平滑鼠标（关键：同方向顺滑）
-      const mouse = { x: W / 2, y: H / 2, tx: W / 2, ty: H / 2, inside: false, power: 0 };
+      const mouse = { x: -9999, y: -9999, tx: -9999, ty: -9999, inside: false };
       window.addEventListener("pointermove", (e) => {
         mouse.tx = e.clientX;
         mouse.ty = e.clientY;
         mouse.inside = true;
       });
-      window.addEventListener("pointerleave", () => { mouse.inside = false; });
+      window.addEventListener("pointerleave", () => {
+        mouse.inside = false;
+        mouse.tx = -9999;
+        mouse.ty = -9999;
+      });
 
-      // 简单 hash noise（够用，轻量）
-      function hash(n) { return (Math.sin(n) * 43758.5453123) % 1; }
-      function noise2(x, y, t) {
-        const n = x * 127.1 + y * 311.7 + t * 74.7;
-        return hash(n);
+      function lerp(start, end, t) {
+        return start * (1 - t) + end * t;
       }
-      function smoothstep(t) { return t * t * (3 - 2 * t); }
 
-      // 粒子：每个都有 anchor（家）
+      function getSpatialColor(x, y) {
+        const u = x / W;
+        const v = y / H;
+        const rTop = lerp(colors.tl[0], colors.tr[0], u);
+        const gTop = lerp(colors.tl[1], colors.tr[1], u);
+        const bTop = lerp(colors.tl[2], colors.tr[2], u);
+        const rBtm = lerp(colors.bl[0], colors.br[0], u);
+        const gBtm = lerp(colors.bl[1], colors.br[1], u);
+        const bBtm = lerp(colors.bl[2], colors.br[2], u);
+        // Vertical blend
+        const r = lerp(rTop, rBtm, v);
+        const g = lerp(gTop, gBtm, v);
+        const b = lerp(bTop, bBtm, v);
+        return `rgb(${Math.floor(r)},${Math.floor(g)},${Math.floor(b)})`;
+      }
+
       const particles = [];
-      function rand(a, b) { return a + Math.random() * (b - a); }
 
       function initParticles() {
         particles.length = 0;
-        const c = getHeroCenter();
+
+        // Distribution: Polar / Disk
+        // Cover screen generously
+        const maxR = Math.hypot(W, H) * 0.55;
 
         for (let i = 0; i < N; i++) {
-          // 环形分布 + 轻微散开（接近截图那种“环”）
-          const ang = rand(0, Math.PI * 2);
-          const ringJitter = rand(-90, 90);
-          const r = RING_RADIUS + ringJitter;
+          let r = Math.random() * maxR;
+          // Slight bias to create "clouds" rather than perfect uniform noise?
+          // Uniform r^2 is area-uniform. Simple linear random is denser at center.
+          // Let's use linear random for center-density to match the "hero" feel.
 
-          // 椭圆一点更像网页布局
-          const ex = 1.15, ey = 0.88;
+          const theta = Math.random() * Math.PI * 2;
 
-          const ax = c.x + Math.cos(ang) * r * ex;
-          const ay = c.y + Math.sin(ang) * r * ey;
-
-          // 初始位置稍微偏离 anchor，让它有“在呼吸”
-          const px = ax + rand(-18, 18);
-          const py = ay + rand(-18, 18);
-
-          const col = palette[Math.floor(Math.random() * palette.length)];
-          const size = rand(1.2, 2.6);  // 点大小
-          const alpha = rand(0.55, 0.90);
+          const x = W / 2 + Math.cos(theta) * r;
+          const y = H / 2 + Math.sin(theta) * r;
 
           particles.push({
-            ax, ay, x: px, y: py,
-            vx: 0, vy: 0,
-            size, alpha,
-            rgb: col,
-            seed: Math.random() * 1000
+            // Orbit properties
+            orbitR: r,
+            orbitTheta: theta,
+
+            x: x,
+            y: y,
+            vx: 0,
+            vy: 0,
+
+            // Appearance
+            size: Math.random() * 2 + 1.5,
+            width: Math.random() * 0.6 + 0.5,
+            // Per-particle slight variance
+            friction: FRICTION + (Math.random() - 0.5) * 0.02,
+
+            // Orientation state
+            angle: theta + Math.PI / 2, // Initial tangent
           });
         }
       }
+
       initParticles();
 
-      // 每帧：如果标题中心变化（响应式），让 anchor 慢慢跟随
-      function updateAnchors() {
-        const c = getHeroCenter();
-        // 如果你想更严谨：用 DOM getBoundingClientRect() 来取标题盒子中心
-        // 这里做简单的“整体偏移修正”：
-        // 不重新随机分布，只在整体中心变化时，给所有 anchor 加偏移（保持环形）
-        // 为简化，这里不做复杂重排。你窗口尺寸变化时已 resize，不太影响视觉。
-      }
+      let globalTheta = 0;
 
-      let t = 0;
-      function tick() {
-        t += 0.016;
+      function tick(time) {
+        // Global Rotation (CCW)
+        globalTheta -= ORBIT_SPEED;
 
-        // smooth mouse
+        // Smooth mouse interop
         mouse.x += (mouse.tx - mouse.x) * 0.12;
         mouse.y += (mouse.ty - mouse.y) * 0.12;
 
-        // influence fade in/out（出触发很关键）
-        const targetPower = mouse.inside ? 1 : 0;
-        mouse.power += (targetPower - mouse.power) * 0.06;
-
         ctx.clearRect(0, 0, W, H);
 
-        // 全局微呼吸：让环有“活的”感觉
-        const breathe = 1 + Math.sin(t * 1.2) * BREATH * 0.06;
+        const centerX = W / 2;
+        const centerY = H / 2;
 
-        for (let i = 0; i < particles.length; i++) {
-          const p = particles[i];
+        particles.forEach(p => {
+          // --- 1. Target "Home" Orbit ---
+          // Rotate target position
+          const currentTheta = p.orbitTheta + globalTheta;
+          const homeX = centerX + Math.cos(currentTheta) * p.orbitR;
+          const homeY = centerY + Math.sin(currentTheta) * p.orbitR;
 
-          // 回家弹簧（稳定器）
-          let fx = (p.ax - p.x) * SPRING_K;
-          let fy = (p.ay - p.y) * SPRING_K;
+          // Viscous Spring
+          const dxHome = homeX - p.x;
+          const dyHome = homeY - p.y;
 
-          // 鼠标力场：径向外凸 + 少量切向围绕
-          const dx = p.x - mouse.x;
-          const dy = p.y - mouse.y;
-          const d = Math.hypot(dx, dy) || 1;
+          p.vx += dxHome * RETURN_SPEED;
+          p.vy += dyHome * RETURN_SPEED;
 
-          const R = MOUSE_RADIUS * (0.85 + 0.25 * breathe);
-          if (d < R && mouse.power > 0.001) {
-            const ndx = dx / d;
-            const ndy = dy / d;
+          // --- 2. Mouse Interaction (Void) ---
+          if (mouse.inside) {
+            const dx = p.x - mouse.x;
+            const dy = p.y - mouse.y;
+            const distSq = dx * dx + dy * dy;
 
-            // falloff 平滑衰减（边缘不会硬）
-            let tt = 1 - d / R;
-            tt = smoothstep(tt);
-            const s = tt * tt * MOUSE_PUSH * mouse.power;
+            if (distSq < MOUSE_RADIUS * MOUSE_RADIUS) {
+              const dist = Math.sqrt(distSq);
+              // Smooth falloff curve
+              const t = 1 - dist / MOUSE_RADIUS;
+              // t^2 is good, t^3 is sharper "wall"
+              const force = t * t * MOUSE_PUSH;
 
-            // 径向：外凸（想要凹进去就把符号反过来）
-            fx += ndx * s;
-            fy += ndy * s;
-
-            // 切向：围绕（少量！）
-            const tx = -ndy;
-            const ty = ndx;
-            fx += tx * s * ORBIT;
-            fy += ty * s * ORBIT;
+              const angle = Math.atan2(dy, dx);
+              p.vx += Math.cos(angle) * force;
+              p.vy += Math.sin(angle) * force;
+            }
           }
 
-          // 轻噪声：呼吸感（小就够了）
-          const n = noise2(p.x * NOISE_SCALE, p.y * NOISE_SCALE, t * 0.25 + p.seed);
-          const ang = n * Math.PI * 2;
-          fx += Math.cos(ang) * NOISE * 0.06;
-          fy += Math.sin(ang) * NOISE * 0.06;
-
-          // integrate
-          p.vx = (p.vx + fx) * DAMPING;
-          p.vy = (p.vy + fy) * DAMPING;
+          // --- 3. Physics Step ---
+          p.vx *= p.friction;
+          p.vy *= p.friction;
           p.x += p.vx;
           p.y += p.vy;
 
-          // draw
-          const [r, g, b] = p.rgb;
-          ctx.fillStyle = `rgba(${r},${g},${b},${p.alpha})`;
+          // --- 4. Orientation (The Key) ---
+          // Rule: Default to Tangent. If pushed, blend to Velocity or Repel angle.
+
+          // A. Calculate Tangent of current position relative to Center
+          // (This keeps them swirling correctly around the vortex center whatever happens)
+          const dxC = p.x - centerX;
+          const dyC = p.y - centerY;
+          const angleToCenter = Math.atan2(dyC, dxC);
+          const tangentAngle = angleToCenter + Math.PI / 2; // CCW Tangent
+
+          // B. Get Speed
+          const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+
+          let targetAngle = tangentAngle;
+
+          // If moving significantly faster than idle orbit speed (~1.0),
+          // it means we are being pushed or flying back.
+          // In that case, align with Velocity (looks like "streaking").
+          if (speed > 1.2) {
+            targetAngle = Math.atan2(p.vy, p.vx);
+          }
+
+          // Smooth rotation prevents jitter
+          let diff = targetAngle - p.angle;
+          while (diff <= -Math.PI) diff += Math.PI * 2;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+
+          p.angle += diff * 0.12;
+
+          // --- 5. Render ---
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.angle);
+
+          ctx.fillStyle = getSpatialColor(p.x, p.y);
+
+          // Stretch based on speed (blur effect)
+          // Minimum length = p.size
+          const l = p.size + Math.min(speed * 3.5, 25);
+          const w = p.width;
+
           ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.roundRect(-l / 2, -w / 2, l, w, w / 2);
           ctx.fill();
-        }
+
+          ctx.restore();
+        });
 
         requestAnimationFrame(tick);
       }
-      tick();
+
+      requestAnimationFrame(tick);
     })();
   </script>
 </body>
