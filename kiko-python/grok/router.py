@@ -7,7 +7,7 @@ import json
 import grpc
 import requests
 import httpx
-from typing import List, Optional, AsyncGenerator
+from typing import Any, Dict, List, Optional, AsyncGenerator
 from datetime import datetime
 from functools import lru_cache
 from fastapi import FastAPI, HTTPException, Depends, Header
@@ -586,7 +586,29 @@ def clean_numeric_precision(data, max_decimals=8):
         return data
 
 
-async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str = None) -> str:
+def normalize_tool_result(tool_result_data: str) -> tuple[str, Optional[dict]]:
+    """
+    Normalize tool results for Grok:
+    - Extract __client_action for frontend events.
+    - Prefer summary for LLM context if present.
+    """
+    client_action = None
+    payload = tool_result_data
+    try:
+        parsed = json.loads(tool_result_data)
+        if isinstance(parsed, dict) and "__client_action" in parsed:
+            client_action = parsed.get("__client_action")
+            if parsed.get("summary"):
+                payload = str(parsed.get("summary"))
+            else:
+                stripped = {k: v for k, v in parsed.items() if k != "__client_action"}
+                payload = json.dumps(stripped, indent=2)
+    except Exception:
+        pass
+    return payload, client_action
+
+
+async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str = None, tool_context: Optional[dict] = None) -> str:
     """
     Execute a custom tool by calling the kiko-api backend.
     Returns the result as a JSON string.
@@ -607,6 +629,29 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
         # IMPORTANT: Many KiKo backend endpoints require user auth (Privy JWT).
         # If we don't forward Authorization, tool calls will silently fail (401) and look "broken" to the LLM.
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as http_client:
+            # Prefer the unified tool executor (Node tool registry)
+            try:
+                unified_payload = {
+                    "name": tool_name,
+                    "arguments": arguments,
+                    "tool_context": tool_context or {}
+                }
+                unified_response = await http_client.post(
+                    f"{KIKO_API_BASE}/api/ai/tools/execute",
+                    json=unified_payload
+                )
+                if unified_response.status_code == 200:
+                    unified_data = unified_response.json()
+                    if isinstance(unified_data, dict) and "result" in unified_data:
+                        unified_result = unified_data["result"]
+                        if isinstance(unified_result, str):
+                            return unified_result
+                        return json.dumps(unified_result, indent=2)
+                else:
+                    print(f"[Tool Execution] Unified tool executor failed ({unified_response.status_code}), falling back")
+            except Exception as unified_error:
+                print(f"[Tool Execution] Unified tool executor error: {unified_error}")
+
             if tool_name == "check_token_risk":
                 address = arguments.get("address", "")
                 chain = arguments.get("chain", "ethereum")
@@ -1233,6 +1278,8 @@ class ChatRequest(BaseModel):
     stream: Optional[bool] = True
     enable_search: Optional[bool] = True  # Enable search tools by default
     tool_config: Optional[ToolConfig] = None  # Dynamic tool configuration
+    tools: Optional[List[dict]] = None  # OpenAI-style tool schemas from Node
+    tool_context: Optional[dict] = None  # Tool execution context from Node
     user_settings: Optional[UserSettings] = None  # User trading preferences
     top_p: Optional[float] = None
     frequency_penalty: Optional[float] = None
@@ -1334,33 +1381,56 @@ async def chat_completions(
         # For "thinking" models: Enable both web_search and x_search
         is_fast_model = "fast" in normalized_model
         tools = []  # Initialize tools to empty list first
-        
-        if request.enable_search:
-            # Apply tool configurations if provided
-            web_search_config = request.tool_config.web_search if request.tool_config else {}
-            x_search_config = request.tool_config.x_search if request.tool_config else {}
-            
-            # Convert date strings to datetime objects for x_search
-            if x_search_config:
-                if 'from_date' in x_search_config and isinstance(x_search_config['from_date'], str):
-                    x_search_config['from_date'] = datetime.fromisoformat(x_search_config['from_date'])
-                if 'to_date' in x_search_config and isinstance(x_search_config['to_date'], str):
-                    x_search_config['to_date'] = datetime.fromisoformat(x_search_config['to_date'])
-            
+        available_tools = set()  # Custom tool names for manual execution
+
+        # Apply tool configurations if provided
+        web_search_config = request.tool_config.web_search if request.tool_config else {}
+        x_search_config = request.tool_config.x_search if request.tool_config else {}
+
+        # Convert date strings to datetime objects for x_search
+        if x_search_config:
+            if 'from_date' in x_search_config and isinstance(x_search_config['from_date'], str):
+                x_search_config['from_date'] = datetime.fromisoformat(x_search_config['from_date'])
+            if 'to_date' in x_search_config and isinstance(x_search_config['to_date'], str):
+                x_search_config['to_date'] = datetime.fromisoformat(x_search_config['to_date'])
+
+        if request.tools:
+            for raw_tool in request.tools:
+                tool_def = raw_tool.get("function") if isinstance(raw_tool, dict) and "function" in raw_tool else raw_tool
+                if not isinstance(tool_def, dict):
+                    continue
+                tool_name = tool_def.get("name")
+                if not tool_name:
+                    continue
+                if tool_name == "web_search":
+                    if request.enable_search:
+                        tools.append(web_search(**web_search_config) if web_search_config else web_search())
+                    continue
+                if tool_name == "x_search":
+                    if request.enable_search:
+                        tools.append(x_search(**x_search_config) if x_search_config else x_search())
+                    continue
+                tools.append(tool(
+                    name=tool_name,
+                    description=tool_def.get("description", ""),
+                    parameters=tool_def.get("parameters", {"type": "object", "properties": {}})
+                ))
+                available_tools.add(tool_name)
+            print(f"[Tools] Dynamic tool set from Node: {len(tools)} tool(s) ({len(available_tools)} custom)")
+        elif request.enable_search:
             if is_fast_model:
-                # Fast model: Enable built-in search tools + custom tools
                 tools = [
                     web_search(**web_search_config) if web_search_config else web_search(),
                     x_search(**x_search_config) if x_search_config else x_search(),
-                ] + CUSTOM_TOOLS  # Add our custom tools
+                ] + CUSTOM_TOOLS
                 print(f"[Tools] Fast model: Enabled web_search + x_search + {len(CUSTOM_TOOLS)} custom tools")
             else:
-                # Thinking model: web_search, x_search, and custom tools
                 tools = [
                     web_search(**web_search_config) if web_search_config else web_search(),
                     x_search(**x_search_config) if x_search_config else x_search(),
-                ] + CUSTOM_TOOLS  # Add our custom tools
+                ] + CUSTOM_TOOLS
                 print(f"[Tools] Thinking model: web_search + x_search + {len(CUSTOM_TOOLS)} custom tools enabled")
+            available_tools = {t.function.name for t in CUSTOM_TOOLS if hasattr(t, "function")}
         else:
             print(f"[Tools] Search tools disabled by request")
         
@@ -1422,16 +1492,7 @@ async def chat_completions(
         
         print(f"[Chat] Starting {'streaming' if request.stream else 'non-streaming'} response generation")
         
-        # Define available custom tools names for the generator
-        # This is used to distinguish between custom tools (need manual execution) and built-in tools (handled by SDK)
-        available_tools = {
-            "check_token_risk", "get_token_price", "get_trending_tokens",
-            "prepare_swap_transaction", "get_token_info", "get_wallet_info",
-            "get_gas_price", "get_historical_price", "create_copy_trade_task",
-            "fetch_farcaster_trending", "get_farcaster_user", "search_farcaster_casts",
-            "get_polymarket_trending", "get_polymarket_event", "search_polymarket",
-            "analyze_website_deep"
-        }
+        print(f"[Tools] Custom tool allowlist size: {len(available_tools)}")
         
         # Stream response
         if request.stream:
@@ -1654,14 +1715,14 @@ async def chat_completions(
                                                 
                                                 # CUSTOM TOOL EXECUTION: Execute our custom tools
                                                 # Built-in tools (web_search, x_search) are handled by xai-sdk
-                                                custom_tool_names = ["check_token_risk", "get_token_price", "get_trending_tokens", "prepare_swap_transaction", "get_token_info", "get_wallet_info", "get_gas_price", "get_historical_price", "analyze_wallet_pnl", "get_token_early_buyers"]
-                                                if tool_name in custom_tool_names:
+                                                if tool_name in available_tools:
                                                     print(f"[Custom Tool] Executing {tool_name}...")
                                                     try:
                                                         # Parse arguments and execute the tool
                                                         args = json.loads(str(tool_args)) if tool_args else {}
-                                                        tool_result_data = await execute_custom_tool(tool_name, args, user_auth_token)
-                                                        print(f"[Custom Tool] {tool_name} returned: {len(tool_result_data)} chars")
+                                                        tool_result_data = await execute_custom_tool(tool_name, args, user_auth_token, request.tool_context)
+                                                        tool_payload, client_action = normalize_tool_result(tool_result_data)
+                                                        print(f"[Custom Tool] {tool_name} returned: {len(tool_payload)} chars")
                                                         
                                                         # Send tool status update to frontend
                                                         status_chunk = {
@@ -1679,11 +1740,28 @@ async def chat_completions(
                                                         }
                                                         yield f"data: {json.dumps(status_chunk)}\n\n"
                                                         
+                                                        # Send client action event if tool requested UI action
+                                                        if client_action and tool_name != "prepare_swap_transaction":
+                                                            action_chunk = {
+                                                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                                "object": "chat.completion.chunk",
+                                                                "created": int(__import__('time').time()),
+                                                                "model": request.model,
+                                                                "choices": [{
+                                                                    "index": 0,
+                                                                    "delta": {
+                                                                        "client_actions": [client_action]
+                                                                    },
+                                                                    "finish_reason": None
+                                                                }]
+                                                            }
+                                                            yield f"data: {json.dumps(action_chunk)}\n\n"
+
                                                         # Add tool result to chat so Grok can use it
                                                         # xai_sdk.chat.tool_result only takes result parameter
                                                         # DEBUG: Log before appending
-                                                        print(f"[Custom Tool] Appending tool result to chat: {str(tool_result_data)[:100]}...")
-                                                        chat.append(tool_result(result=tool_result_data))
+                                                        print(f"[Custom Tool] Appending tool result to chat: {str(tool_payload)[:100]}...")
+                                                        chat.append(tool_result(result=tool_payload))
                                                         
                                                         collected_tool_calls.append(tool_name)  # Track for fallback message
                                                         has_tool_calls_this_turn = True  # Mark that we need another turn
@@ -1815,12 +1893,28 @@ async def chat_completions(
                                 for tool_call in final_response.tool_calls:
                                     if hasattr(tool_call, 'function'):
                                         tool_name = tool_call.function.name if hasattr(tool_call.function, 'name') else 'unknown'
-                                        if tool_name in ["check_token_risk", "get_token_price", "get_trending_tokens", "prepare_swap_transaction", "get_token_info", "get_wallet_info", "get_gas_price", "get_historical_price", "analyze_wallet_pnl", "get_token_early_buyers"]:
+                                        if tool_name in available_tools:
                                             try:
                                                 tool_args = tool_call.function.arguments if hasattr(tool_call.function, 'arguments') else '{}'
                                                 args = json.loads(str(tool_args)) if tool_args else {}
-                                                tool_result_data = await execute_custom_tool(tool_name, args, user_auth_token)
-                                                chat.append(tool_result(result=tool_result_data))
+                                                tool_result_data = await execute_custom_tool(tool_name, args, user_auth_token, request.tool_context)
+                                                tool_payload, client_action = normalize_tool_result(tool_result_data)
+                                                if client_action and tool_name != "prepare_swap_transaction":
+                                                    action_chunk = {
+                                                        "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                        "object": "chat.completion.chunk",
+                                                        "created": int(__import__('time').time()),
+                                                        "model": request.model,
+                                                        "choices": [{
+                                                            "index": 0,
+                                                            "delta": {
+                                                                "client_actions": [client_action]
+                                                            },
+                                                            "finish_reason": None
+                                                        }]
+                                                    }
+                                                    yield f"data: {json.dumps(action_chunk)}\n\n"
+                                                chat.append(tool_result(result=tool_payload))
                                                 has_tool_calls_this_turn = True
                                                 final_tool_call_check = True
                                             except Exception as e:
@@ -2321,8 +2415,9 @@ async def chat_completions(
                             print(f"[Chat] [Turn {turn+1}] Executing custom tool: {name}")
                             try:
                                 args = json.loads(args_str) if args_str else {}
-                                result = await execute_custom_tool(name, args, user_auth_token)
-                                chat.append(tool_result(result=result))
+                                result = await execute_custom_tool(name, args, user_auth_token, request.tool_context)
+                                tool_payload, _client_action = normalize_tool_result(result)
+                                chat.append(tool_result(result=tool_payload))
                             except Exception as e:
                                 print(f"[Chat] [Turn {turn+1}] Custom tool error: {e}")
                                 chat.append(tool_result(result=f"Error: {str(e)}"))
@@ -2597,8 +2692,9 @@ Only use tools when the provided data is insufficient for quality analysis.
                                     
                                     try:
                                         args = json.loads(str(tool_args_raw)) if tool_args_raw else {}
-                                        tool_result_data = await execute_custom_tool(tool_name, args)
-                                        chat.append(tool_result(result=tool_result_data))
+                                        tool_result_data = await execute_custom_tool(tool_name, args, None, None)
+                                        tool_payload, _client_action = normalize_tool_result(tool_result_data)
+                                        chat.append(tool_result(result=tool_payload))
                                         print(f"[NewsWriter] Tool {tool_name} executed successfully")
                                     except Exception as e:
                                         print(f"[NewsWriter] Tool {tool_name} failed: {e}")

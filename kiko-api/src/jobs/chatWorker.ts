@@ -374,6 +374,9 @@ export class ChatWorker {
 
         // Get user message for tool filtering
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
+        const baseToolDefs = getFilteredTools(lastUserMessage);
+        let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
+        console.log(`[ChatWorker] Grok base filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
 
         // Base tool filtering (keyword/category based).
         // We will further narrow this set once we know the user's high-level intent (skills gating).
@@ -1785,6 +1788,28 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         // Use high-level intent for system prompt selection
         const intent: IntentType = parsedIntent.highLevel.type;
 
+        // Skills-level tool gating (single source of truth: `skill.json` -> metadata.tools).
+        const intentStr = String(intent).toUpperCase();
+        const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+        const allowedToolNames = new Set<string>();
+        for (const skill of matchedSkills) {
+            for (const name of skill.metadata.tools || []) {
+                allowedToolNames.add(name);
+            }
+        }
+        // Always keep `web_search` as a safe fallback (consistent with ToolPreRouter).
+        allowedToolNames.add('web_search');
+
+        if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
+            const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
+            if (gated.length > 0) {
+                toolDefinitions = gated.map(def => ({ type: 'function', function: def }));
+                console.log(`[ChatWorker] Grok skill-gated to ${toolDefinitions.length} tools for intent=${intentStr} skills=${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+            } else {
+                console.warn(`[ChatWorker] Grok skill gating produced 0 tools for intent=${intentStr}; falling back to base tool set`);
+            }
+        }
+
         // Log detailed intent for debugging
 
         // Phase 5 Cache: Shared across this task
@@ -1990,6 +2015,8 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
                 messages: grokMessages,
                 stream: true,
                 enable_search: true,
+                tools: toolDefinitions,
+                tool_context: task.toolContext,
                 // Pass user settings for trading preferences
                 user_settings: {
                     allowance_mode: task.toolContext?.allowanceMode || 'confirm', // default: require confirmation

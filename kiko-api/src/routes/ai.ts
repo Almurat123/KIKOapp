@@ -814,6 +814,35 @@ NEVER fabricate data.
         }
     });
 
+    // Unified tool execution endpoint (used by Grok service)
+    fastify.post('/tools/execute', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const body = request.body as any;
+            const toolName = body?.name;
+            const args = body?.arguments || {};
+            const toolContext = body?.tool_context || {};
+
+            if (!toolName) {
+                return reply.code(400).send({ error: 'Missing tool name' });
+            }
+
+            const user = (request as any).user;
+            const context = {
+                ...toolContext,
+                userId: toolContext.userId || user?.sub,
+                userAddress: toolContext.userAddress || toolContext.walletAddress,
+            };
+
+            const result = await toolRegistry.execute(toolName, args, context);
+            return reply.send({ result });
+        } catch (error: any) {
+            fastify.log.error('Error executing tool:', error);
+            return reply.code(500).send({
+                error: error.message || 'Tool execution failed',
+            });
+        }
+    });
+
     fastify.get('/health', async (request, reply) => {
         try {
             const apiKey = getDeepSeekApiKey();

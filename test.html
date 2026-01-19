@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh">
+<html lang="en">
 
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Antigravity-like Particles</title>
+  <title>Antigravity (Velocity Flow)</title>
   <style>
     html,
     body {
@@ -12,11 +12,7 @@
       height: 100%;
       background: #fff;
       overflow: hidden;
-    }
-
-    #wrap {
-      position: relative;
-      height: 100%;
+      font-family: "Google Sans", system-ui, -apple-system, sans-serif;
     }
 
     canvas {
@@ -30,258 +26,283 @@
       display: grid;
       place-items: center;
       pointer-events: none;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       color: #111;
       text-align: center;
-      padding: 8vh 6vw;
-    }
-
-    .logo {
-      font-size: 18px;
-      opacity: .7;
-      margin-bottom: 22px;
+      z-index: 10;
     }
 
     .title {
-      font-size: clamp(44px, 6vw, 92px);
-      font-weight: 700;
-      line-height: 1.05;
+      font-size: clamp(40px, 8vw, 80px);
+      font-weight: 500;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    .logo {
+      font-size: 20px;
+      color: #5f6368;
+      margin-bottom: 20px;
     }
   </style>
 </head>
 
 <body>
-  <div id="wrap">
-    <canvas id="c"></canvas>
-
-    <!-- 模拟你截图里的文字区域 -->
-    <div class="hero">
-      <div>
-        <div class="logo">Google Antigravity</div>
-        <div class="title">Experience liftoff with the<br />next-generation IDE</div>
-      </div>
+  <canvas id="c"></canvas>
+  <div class="hero">
+    <div>
+      <div class="logo">Google Antigravity</div>
+      <div class="title">Build the new way</div>
     </div>
   </div>
 
   <script>
-    (() => {
-      const canvas = document.getElementById("c");
-      const ctx = canvas.getContext("2d", { alpha: true });
-
-      // ===== PHYSICS CONFIGURATION (Exact Match Attempt) =====
-      const N = 850;
-      // Interaction: Large radius, strong push, feeling "thick" (viscous)
-      const MOUSE_RADIUS = 280;
-      const MOUSE_PUSH = 3.5;
-      const FRICTION = 0.93;         // Sticky flow
-      const RETURN_SPEED = 0.006;    // Very slow, drift-like return to orbit
-      const ORBIT_SPEED = 0.0008;    // Steady rotation
-
-      // Colors: Spatial Gradient
-      const colors = {
-        tl: [140, 82, 255],  // Purple
-        tr: [255, 92, 92],   // Red/Pink
-        bl: [64, 120, 255],  // Blue
-        br: [255, 200, 64]   // Yellow
-      };
-
-      let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
-
-      function resize() {
-        W = Math.floor(window.innerWidth);
-        H = Math.floor(window.innerHeight);
-        canvas.width = Math.floor(W * DPR);
-        canvas.height = Math.floor(H * DPR);
-        canvas.style.width = W + "px";
-        canvas.style.height = H + "px";
-        ctx.scale(DPR, DPR);
+    // --- Fast Simplex Noise ---
+    const Simplex = {
+      perm: new Uint8Array(512),
+      grad3: [[1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0], [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1], [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1]],
+      init() {
+        const p = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) p[i] = Math.floor(Math.random() * 256);
+        for (let i = 0; i < 512; i++) this.perm[i] = p[i & 255];
+      },
+      dot(g, x, y) { return g[0] * x + g[1] * y; },
+      noise3D(x, y, z) {
+        const F3 = 1 / 3, G3 = 1 / 6;
+        const s = (x + y + z) * F3;
+        const i = Math.floor(x + s), j = Math.floor(y + s), k = Math.floor(z + s);
+        const t = (i + j + k) * G3;
+        const X0 = i - t, Y0 = j - t, Z0 = k - t, x0 = x - X0, y0 = y - Y0, z0 = z - Z0;
+        let i1, j1, k1, i2, j2, k2;
+        if (x0 >= y0) { if (y0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0 } else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1 } else { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1 } } else { if (y0 < z0) { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1 } else if (x0 < z0) { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1 } else { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0 } }
+        const x1 = x0 - i1 + G3, y1 = y0 - j1 + G3, z1 = z0 - k1 + G3;
+        const x2 = x0 - i2 + 2 * G3, y2 = y0 - j2 + 2 * G3, z2 = z0 - k2 + 2 * G3;
+        const x3 = x0 - 1 + 3 * G3, y3 = y0 - 1 + 3 * G3, z3 = z0 - 1 + 3 * G3;
+        const ii = i & 255, jj = j & 255, kk = k & 255;
+        const gi0 = this.perm[ii + this.perm[jj + this.perm[kk]]] % 12;
+        const gi1 = this.perm[ii + i1 + this.perm[jj + j1 + this.perm[kk + k1]]] % 12;
+        const gi2 = this.perm[ii + i2 + this.perm[jj + j2 + this.perm[kk + k2]]] % 12;
+        const gi3 = this.perm[ii + 1 + this.perm[jj + 1 + this.perm[kk + 1]]] % 12;
+        let n0, n1, n2, n3;
+        let t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0; if (t0 < 0) n0 = 0; else { t0 *= t0; n0 = t0 * t0 * this.dot(this.grad3[gi0], x0, y0) }
+        let t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1; if (t1 < 0) n1 = 0; else { t1 *= t1; n1 = t1 * t1 * this.dot(this.grad3[gi1], x1, y1) }
+        let t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2; if (t2 < 0) n2 = 0; else { t2 *= t2; n2 = t2 * t2 * this.dot(this.grad3[gi2], x2, y2) }
+        let t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3; if (t3 < 0) n3 = 0; else { t3 *= t3; n3 = t3 * t3 * this.dot(this.grad3[gi3], x3, y3) }
+        return 32 * (n0 + n1 + n2 + n3);
       }
-      window.addEventListener("resize", resize);
-      resize();
+    };
+    Simplex.init();
 
-      const mouse = { x: -9999, y: -9999, tx: -9999, ty: -9999, inside: false };
-      window.addEventListener("pointermove", (e) => {
-        mouse.tx = e.clientX;
-        mouse.ty = e.clientY;
-        mouse.inside = true;
-      });
-      window.addEventListener("pointerleave", () => {
-        mouse.inside = false;
-        mouse.tx = -9999;
-        mouse.ty = -9999;
-      });
+    // --- CONFIG (Official Colors & Flow Physics) ---
+    const CONFIG = {
+      N: 850,
+      ringRadiusPct: 0.35,
+      mouseRadius: 280,
+      mousePower: 0.15, // Velocity push
+      returnSpeed: 0.008, // Spring back to "orbit"
+      flowSpeed: 0.2, // Tangential flow
+      colors: [
+        { r: 140, g: 82, b: 255 }, // Purple
+        { r: 255, g: 92, b: 92 },  // Red/Pink
+        { r: 255, g: 200, b: 64 }  // Yellow
+      ]
+    };
 
-      function lerp(start, end, t) {
-        return start * (1 - t) + end * t;
-      }
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d', { alpha: false });
 
-      function getSpatialColor(x, y) {
-        const u = x / W;
-        const v = y / H;
-        const rTop = lerp(colors.tl[0], colors.tr[0], u);
-        const gTop = lerp(colors.tl[1], colors.tr[1], u);
-        const bTop = lerp(colors.tl[2], colors.tr[2], u);
-        const rBtm = lerp(colors.bl[0], colors.br[0], u);
-        const gBtm = lerp(colors.bl[1], colors.br[1], u);
-        const bBtm = lerp(colors.bl[2], colors.br[2], u);
-        // Vertical blend
-        const r = lerp(rTop, rBtm, v);
-        const g = lerp(gTop, gBtm, v);
-        const b = lerp(bTop, bBtm, v);
-        return `rgb(${Math.floor(r)},${Math.floor(g)},${Math.floor(b)})`;
-      }
+    let W, H, DPR;
+    let particles = [];
+    const mouse = { x: -9999, y: -9999, tx: -9999, ty: -9999, hover: false };
 
-      const particles = [];
+    function resize() {
+      W = window.innerWidth;
+      H = window.innerHeight;
+      DPR = Math.min(window.devicePixelRatio, 2);
+      canvas.width = W * DPR;
+      canvas.height = H * DPR;
+      canvas.style.width = W + 'px';
+      canvas.style.height = H + 'px';
+      ctx.scale(DPR, DPR);
+    }
 
-      function initParticles() {
-        particles.length = 0;
+    function initParticles() {
+      particles = [];
+      const cx = W * 0.5, cy = H * 0.5;
+      const baseR = Math.min(W, H) * CONFIG.ringRadiusPct;
 
-        // Distribution: Polar / Disk
-        // Cover screen generously
-        const maxR = Math.hypot(W, H) * 0.55;
+      for (let i = 0; i < CONFIG.N; i++) {
+        // Ring Distribution
+        const angle = Math.random() * Math.PI * 2;
 
-        for (let i = 0; i < N; i++) {
-          let r = Math.random() * maxR;
-          // Slight bias to create "clouds" rather than perfect uniform noise?
-          // Uniform r^2 is area-uniform. Simple linear random is denser at center.
-          // Let's use linear random for center-density to match the "hero" feel.
+        // Distribution profile: Ring with some spread
+        // Standard normal-ish distribution around Radius
+        let rNorm = 1.0 + (Math.random() * 0.4 - 0.2);
+        // Occasional floaters
+        if (Math.random() < 0.2) rNorm += (Math.random() - 0.5) * 0.8;
 
-          const theta = Math.random() * Math.PI * 2;
+        const r = baseR * rNorm;
 
-          const x = W / 2 + Math.cos(theta) * r;
-          const y = H / 2 + Math.sin(theta) * r;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
 
-          particles.push({
-            // Orbit properties
-            orbitR: r,
-            orbitTheta: theta,
-
-            x: x,
-            y: y,
-            vx: 0,
-            vy: 0,
-
-            // Appearance
-            size: Math.random() * 2 + 1.5,
-            width: Math.random() * 0.6 + 0.5,
-            // Per-particle slight variance
-            friction: FRICTION + (Math.random() - 0.5) * 0.02,
-
-            // Orientation state
-            angle: theta + Math.PI / 2, // Initial tangent
-          });
-        }
-      }
-
-      initParticles();
-
-      let globalTheta = 0;
-
-      function tick(time) {
-        // Global Rotation (CCW)
-        globalTheta -= ORBIT_SPEED;
-
-        // Smooth mouse interop
-        mouse.x += (mouse.tx - mouse.x) * 0.12;
-        mouse.y += (mouse.ty - mouse.y) * 0.12;
-
-        ctx.clearRect(0, 0, W, H);
-
-        const centerX = W / 2;
-        const centerY = H / 2;
-
-        particles.forEach(p => {
-          // --- 1. Target "Home" Orbit ---
-          // Rotate target position
-          const currentTheta = p.orbitTheta + globalTheta;
-          const homeX = centerX + Math.cos(currentTheta) * p.orbitR;
-          const homeY = centerY + Math.sin(currentTheta) * p.orbitR;
-
-          // Viscous Spring
-          const dxHome = homeX - p.x;
-          const dyHome = homeY - p.y;
-
-          p.vx += dxHome * RETURN_SPEED;
-          p.vy += dyHome * RETURN_SPEED;
-
-          // --- 2. Mouse Interaction (Void) ---
-          if (mouse.inside) {
-            const dx = p.x - mouse.x;
-            const dy = p.y - mouse.y;
-            const distSq = dx * dx + dy * dy;
-
-            if (distSq < MOUSE_RADIUS * MOUSE_RADIUS) {
-              const dist = Math.sqrt(distSq);
-              // Smooth falloff curve
-              const t = 1 - dist / MOUSE_RADIUS;
-              // t^2 is good, t^3 is sharper "wall"
-              const force = t * t * MOUSE_PUSH;
-
-              const angle = Math.atan2(dy, dx);
-              p.vx += Math.cos(angle) * force;
-              p.vy += Math.sin(angle) * force;
-            }
-          }
-
-          // --- 3. Physics Step ---
-          p.vx *= p.friction;
-          p.vy *= p.friction;
-          p.x += p.vx;
-          p.y += p.vy;
-
-          // --- 4. Orientation (The Key) ---
-          // Rule: Default to Tangent. If pushed, blend to Velocity or Repel angle.
-
-          // A. Calculate Tangent of current position relative to Center
-          // (This keeps them swirling correctly around the vortex center whatever happens)
-          const dxC = p.x - centerX;
-          const dyC = p.y - centerY;
-          const angleToCenter = Math.atan2(dyC, dxC);
-          const tangentAngle = angleToCenter + Math.PI / 2; // CCW Tangent
-
-          // B. Get Speed
-          const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-
-          let targetAngle = tangentAngle;
-
-          // If moving significantly faster than idle orbit speed (~1.0),
-          // it means we are being pushed or flying back.
-          // In that case, align with Velocity (looks like "streaking").
-          if (speed > 1.2) {
-            targetAngle = Math.atan2(p.vy, p.vx);
-          }
-
-          // Smooth rotation prevents jitter
-          let diff = targetAngle - p.angle;
-          while (diff <= -Math.PI) diff += Math.PI * 2;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-
-          p.angle += diff * 0.12;
-
-          // --- 5. Render ---
-          ctx.save();
-          ctx.translate(p.x, p.y);
-          ctx.rotate(p.angle);
-
-          ctx.fillStyle = getSpatialColor(p.x, p.y);
-
-          // Stretch based on speed (blur effect)
-          // Minimum length = p.size
-          const l = p.size + Math.min(speed * 3.5, 25);
-          const w = p.width;
-
-          ctx.beginPath();
-          ctx.roundRect(-l / 2, -w / 2, l, w, w / 2);
-          ctx.fill();
-
-          ctx.restore();
+        particles.push({
+          homeX: x, homeY: y, // The "Orbit" anchor
+          x: x, y: y,
+          vx: 0, vy: 0,
+          angle: angle, // Current orbital angle
+          radius: r,
+          scale: 0.5 + Math.random() * 0.6,
+          // Assign random color gradient position (0-1)
+          colorPos: Math.random(),
+          seed: Math.random() * 1000
         });
-
-        requestAnimationFrame(tick);
       }
+    }
+
+    function lerpColor(c1, c2, t) {
+      return {
+        r: c1.r + (c2.r - c1.r) * t,
+        g: c1.g + (c2.g - c1.g) * t,
+        b: c1.b + (c2.b - c1.b) * t
+      };
+    }
+
+    function getColor(t) {
+      // 3-stop gradient mapping
+      // 0.0 -> Purple(c0) -- 0.5 --> Red(c1) -- 1.0 --> Yellow(c2)
+      if (t < 0.5) {
+        return lerpColor(CONFIG.colors[0], CONFIG.colors[1], t * 2);
+      } else {
+        return lerpColor(CONFIG.colors[1], CONFIG.colors[2], (t - 0.5) * 2);
+      }
+    }
+
+    function tick() {
+      const time = performance.now() * 0.0002;
+
+      mouse.x += (mouse.tx - mouse.x) * 0.1;
+      mouse.y += (mouse.ty - mouse.y) * 0.1;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+
+      const cx = W * 0.5, cy = H * 0.5;
+
+      particles.forEach(p => {
+        // --- 1. Tangential Flow (The "Stream") ---
+        // Calculate tangent vector at current position relative to center
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const distToCenter = Math.sqrt(dx * dx + dy * dy) || 1;
+
+        // Tangent: (-y, x)
+        const tx = -dy / distToCenter;
+        const ty = dx / distToCenter;
+
+        // Base flow
+        let flowX = tx * CONFIG.flowSpeed;
+        let flowY = ty * CONFIG.flowSpeed;
+
+        // --- 2. Noise Drift (The "Organic Wiggle") ---
+        const nx = p.x * 0.003;
+        const ny = p.y * 0.003;
+        const n1 = Simplex.noise3D(nx, ny, time + p.seed);
+        const n2 = Simplex.noise3D(nx + 100, ny + 100, time + p.seed);
+
+        // Add significant noise to velocity
+        flowX += n1 * 0.8;
+        flowY += n2 * 0.8;
+
+        // --- 3. Home/Orbit Attraction (Keep shape) ---
+        // But the "Home" needs to rotate!
+        // Actually, in a flow field, you don't need a strict "Home".
+        // You need a "Force to Ring".
+        const ringR = Math.min(W, H) * CONFIG.ringRadiusPct;
+
+        // Radial vector (outward)
+        const rx = dx / distToCenter;
+        const ry = dy / distToCenter;
+
+        // Return force: Pushes towards the ring radius
+        const distErr = ringR - distToCenter;
+        // If distToCenter < ringR, distErr > 0 (Positive), push Out.
+        // If distToCenter > ringR, distErr < 0 (Negative), push In.
+        const returnForce = distErr * 0.005; // Gentle containment
+
+        // Apply return force
+        flowX += rx * returnForce;
+        flowY += ry * returnForce;
+
+        // --- 4. Mouse Repulsion (Fluid) ---
+        const mdx = p.x - mouse.x;
+        const mdy = p.y - mouse.y;
+        const mDist = Math.sqrt(mdx * mdx + mdy * mdy);
+
+        if (mDist < CONFIG.mouseRadius && mouse.hover) {
+          const t = 1 - mDist / CONFIG.mouseRadius;
+          const push = t * t * CONFIG.mousePower; // Acceleration
+          const mang = Math.atan2(mdy, mdx);
+
+          p.vx += Math.cos(mang) * push;
+          p.vy += Math.sin(mang) * push;
+        }
+
+        // --- Integration ---
+        // Blend flow into velocity
+        p.vx += (flowX - p.vx) * 0.05;
+        p.vy += (flowY - p.vy) * 0.05;
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // --- 5. VISUALS ---
+
+        // COLOR: Mix based on Noise + Position
+        // Simplex noise for color variance
+        const colNoise = Simplex.noise3D(p.x * 0.001, p.y * 0.001, time * 0.5);
+        // Map -1..1 to 0..1
+        let colT = (colNoise + 1) * 0.5;
+        // Blend with fixed particle colorPos
+        colT = (colT + p.colorPos) * 0.5;
+
+        const col = getColor(colT);
+
+        // ORIENTATION: Velocity Alignment
+        // Atan2 of velocity vector
+        let rotation = Math.atan2(p.vy, p.vx);
+
+        // DRAW
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        const stretch = Math.min(speed * 0.15, 0.6); // Velocity stretch
+
+        const w = (12 * p.scale) * (1 + stretch);
+        const h = (5 * p.scale) * (1 - stretch * 0.3);
+        const r = h * 0.45;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(rotation);
+
+        ctx.fillStyle = `rgb(${Math.floor(col.r)}, ${Math.floor(col.g)}, ${Math.floor(col.b)})`;
+        ctx.beginPath();
+        ctx.roundRect(-w / 2, -h / 2, w, h, r);
+        ctx.fill();
+        ctx.restore();
+      });
 
       requestAnimationFrame(tick);
-    })();
+    }
+
+    window.addEventListener('resize', () => { resize(); initParticles(); });
+    window.addEventListener('mousemove', e => {
+      mouse.tx = e.clientX;
+      mouse.ty = e.clientY;
+      mouse.hover = true;
+    });
+
+    resize();
+    initParticles();
+    tick();
   </script>
 </body>
 
