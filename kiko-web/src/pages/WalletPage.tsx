@@ -21,7 +21,6 @@ import { SendModal } from '../components/Wallet/SendModal';
 import { SwapCardIntegrated } from '../components/Swap/SwapCardIntegrated';
 import { createPortal } from 'react-dom';
 import { Settings } from 'lucide-react';
-import { getTokensData } from '../services/tokenDataService';
 import { Skeleton } from '../components/Skeleton';
 import { toast } from '../components/Toast';
 import { getUserInfo } from '../utils/privyUtils';
@@ -623,44 +622,30 @@ export default function WalletPage() {
 
           // 2. Process ERC20/SPL Tokens
           if (balanceData.tokens && balanceData.tokens.length > 0) {
-            const tokenAddresses = balanceData.tokens
-              .filter((t: any) => t.contractAddress)
-              .map((t: any) => t.contractAddress!);
+            balanceData.tokens.forEach((token: any) => {
+              if (!token.contractAddress) return;
+              const balance = parseFloat(token.tokenBalance || '0');
+              const tokenValueUsd = typeof token.valueUsd === 'number' ? token.valueUsd : undefined;
+              const price = typeof token.price === 'number'
+                ? token.price
+                : (tokenValueUsd && balance > 0 ? tokenValueUsd / balance : 0);
+              const usdValueNum = typeof tokenValueUsd === 'number' ? tokenValueUsd : balance * price;
 
-            if (tokenAddresses.length > 0) {
-              try {
-                const metaData = await getTokensData(tokenAddresses, chainId);
-                const metaMap = (metaData || []).reduce((acc: any, t: any) => {
-                  acc[t.address.toLowerCase()] = t;
-                  return acc;
-                }, {});
+              if (!price || !Number.isFinite(usdValueNum) || usdValueNum < minUsd) return;
 
-                balanceData.tokens.forEach((token: any) => {
-                  if (!token.contractAddress) return;
-                  const meta = metaMap[token.contractAddress.toLowerCase()];
-                  const balance = parseFloat(token.tokenBalance || '0');
-                  const price = meta?.price || token.price || 0;
-                  const usdValueNum = balance * price;
-
-                  if (usdValueNum >= minUsd || (balance > 0 && !price)) {
-                    allTokenHoldings.push({
-                      address: token.contractAddress as Address,
-                      symbol: token.symbol || 'Unknown',
-                      name: token.name || 'Unknown Token',
-                      decimals: token.decimals || 18,
-                      balance: balance.toFixed(6),
-                      value: price ? `$${usdValueNum.toFixed(2)}` : 'Price N/A',
-                      usdValueNum: price ? usdValueNum : undefined,
-                      change: meta?.change_24h ? `${meta.change_24h > 0 ? '+' : ''}${meta.change_24h.toFixed(2)}%` : '+0.00%',
-                      logo: token.logo || meta?.logo || getTokenLogoUrl(token.contractAddress, chainId, token.symbol),
-                      chainId
-                    });
-                  }
-                });
-              } catch (e) {
-                console.error(`[WalletPage] Error fetching metadata for ${chainName}:`, e);
-              }
-            }
+              allTokenHoldings.push({
+                address: token.contractAddress as Address,
+                symbol: token.symbol || 'Unknown',
+                name: token.name || 'Unknown Token',
+                decimals: token.decimals || 18,
+                balance: balance.toFixed(6),
+                value: `$${usdValueNum.toFixed(2)}`,
+                usdValueNum,
+                change: '+0.00%',
+                logo: token.logo || getTokenLogoUrl(token.contractAddress, chainId, token.symbol),
+                chainId
+              });
+            });
           }
         }
 

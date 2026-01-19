@@ -1,7 +1,20 @@
 import { getAuthToken } from '../utils/authToken';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_URL
+    || (import.meta.env.MODE === 'production' ? window.location.origin : 'http://localhost:3001');
 const API_URL = `${API_BASE_URL}/api/wallets`;
+const WALLET_API_TIMEOUT_MS = 15000;
+const WALLET_ALL_BALANCES_TIMEOUT_MS = 25000;
+
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
 
 async function getAuthHeaders() {
     const headers: Record<string, string> = {};
@@ -59,7 +72,7 @@ export async function getWalletBalance(address: string, chain: string = 'eth'): 
     try {
         const url = `${API_URL}/${address}/balance?chain=${chain}`;
         const headers = await getAuthHeaders();
-        const response = await fetch(url, { method: 'GET', headers });
+        const response = await fetchWithTimeout(url, { method: 'GET', headers }, WALLET_API_TIMEOUT_MS);
 
         if (!response.ok) {
             const err = await response.text();
@@ -85,7 +98,7 @@ export async function getAllChainBalances(address: string, solanaAddress?: strin
             url += `?solanaAddress=${solanaAddress}`;
         }
         const headers = await getAuthHeaders();
-        const response = await fetch(url, { method: 'GET', headers });
+        const response = await fetchWithTimeout(url, { method: 'GET', headers }, WALLET_ALL_BALANCES_TIMEOUT_MS);
 
         if (!response.ok) {
             const err = await response.text();
@@ -95,7 +108,11 @@ export async function getAllChainBalances(address: string, solanaAddress?: strin
 
         const json = await response.json();
         return json.success ? json.data : null;
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.name === 'AbortError') {
+            console.warn('[WalletApi] All Balances request timed out');
+            return null;
+        }
         console.error('[WalletApi] Error fetching all-chain balances:', error);
         return null;
     }
@@ -112,7 +129,7 @@ export async function getWalletTransactions(address: string, options: { chain?: 
 
         const url = `${API_URL}/${address}/transactions?${params.toString()}`;
         const headers = await getAuthHeaders();
-        const response = await fetch(url, { method: 'GET', headers });
+        const response = await fetchWithTimeout(url, { method: 'GET', headers }, WALLET_API_TIMEOUT_MS);
 
         if (!response.ok) {
             const err = await response.text();

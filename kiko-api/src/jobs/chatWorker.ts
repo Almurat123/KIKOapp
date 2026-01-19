@@ -372,14 +372,9 @@ export class ChatWorker {
         let earlyPreFetchPromise: Promise<void> | null = null;
         let streamPreFetchPromise: Promise<Map<string, any>> | null = null;
 
-        // Get user message for tool filtering
-        const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
-        const baseToolDefs = getFilteredTools(lastUserMessage);
-        let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
-        console.log(`[ChatWorker] Grok base filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
-
         // Base tool filtering (keyword/category based).
         // We will further narrow this set once we know the user's high-level intent (skills gating).
+        const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
         const baseToolDefs = getFilteredTools(lastUserMessage);
         let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
         console.log(`[ChatWorker] Base filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
@@ -471,7 +466,6 @@ export class ChatWorker {
                     data: { status: 'running', message: 'Checking wallet' }
                 });
             }
-            const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
             const parsedIntent = await parseIntent(lastUserMessage, {
                 userAddress: task.toolContext?.walletAddress,
                 chainId: task.toolContext?.chainId,
@@ -1772,6 +1766,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             data: { status: 'running', message: 'Checking wallet' }
         });
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
+        const baseToolDefs = getFilteredTools(lastUserMessage);
+        let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
+        console.log(`[ChatWorker] Grok base filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
         const parsedIntent = await parseIntent(lastUserMessage, {
             userAddress: task.toolContext?.walletAddress,
             chainId: task.toolContext?.chainId,

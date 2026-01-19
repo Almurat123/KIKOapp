@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Antigravity (Velocity Flow)</title>
+  <title>Antigravity (Volumetric Jellyfish)</title>
   <style>
     html,
     body {
@@ -56,54 +56,25 @@
   </div>
 
   <script>
-    // --- Fast Simplex Noise ---
-    const Simplex = {
-      perm: new Uint8Array(512),
-      grad3: [[1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0], [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1], [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1]],
-      init() {
-        const p = new Uint8Array(256);
-        for (let i = 0; i < 256; i++) p[i] = Math.floor(Math.random() * 256);
-        for (let i = 0; i < 512; i++) this.perm[i] = p[i & 255];
-      },
-      dot(g, x, y) { return g[0] * x + g[1] * y; },
-      noise3D(x, y, z) {
-        const F3 = 1 / 3, G3 = 1 / 6;
-        const s = (x + y + z) * F3;
-        const i = Math.floor(x + s), j = Math.floor(y + s), k = Math.floor(z + s);
-        const t = (i + j + k) * G3;
-        const X0 = i - t, Y0 = j - t, Z0 = k - t, x0 = x - X0, y0 = y - Y0, z0 = z - Z0;
-        let i1, j1, k1, i2, j2, k2;
-        if (x0 >= y0) { if (y0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0 } else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1 } else { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1 } } else { if (y0 < z0) { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1 } else if (x0 < z0) { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1 } else { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0 } }
-        const x1 = x0 - i1 + G3, y1 = y0 - j1 + G3, z1 = z0 - k1 + G3;
-        const x2 = x0 - i2 + 2 * G3, y2 = y0 - j2 + 2 * G3, z2 = z0 - k2 + 2 * G3;
-        const x3 = x0 - 1 + 3 * G3, y3 = y0 - 1 + 3 * G3, z3 = z0 - 1 + 3 * G3;
-        const ii = i & 255, jj = j & 255, kk = k & 255;
-        const gi0 = this.perm[ii + this.perm[jj + this.perm[kk]]] % 12;
-        const gi1 = this.perm[ii + i1 + this.perm[jj + j1 + this.perm[kk + k1]]] % 12;
-        const gi2 = this.perm[ii + i2 + this.perm[jj + j2 + this.perm[kk + k2]]] % 12;
-        const gi3 = this.perm[ii + 1 + this.perm[jj + 1 + this.perm[kk + 1]]] % 12;
-        let n0, n1, n2, n3;
-        let t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0; if (t0 < 0) n0 = 0; else { t0 *= t0; n0 = t0 * t0 * this.dot(this.grad3[gi0], x0, y0) }
-        let t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1; if (t1 < 0) n1 = 0; else { t1 *= t1; n1 = t1 * t1 * this.dot(this.grad3[gi1], x1, y1) }
-        let t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2; if (t2 < 0) n2 = 0; else { t2 *= t2; n2 = t2 * t2 * this.dot(this.grad3[gi2], x2, y2) }
-        let t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3; if (t3 < 0) n3 = 0; else { t3 *= t3; n3 = t3 * t3 * this.dot(this.grad3[gi3], x3, y3) }
-        return 32 * (n0 + n1 + n2 + n3);
-      }
-    };
-    Simplex.init();
+    // --- Simplex Noise 3D ---
+    const Simplex = { perm: new Uint8Array(512), grad3: [[1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0], [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1], [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1]], init() { const p = new Uint8Array(256); for (let i = 0; i < 256; i++)p[i] = Math.floor(Math.random() * 256); for (let i = 0; i < 512; i++)this.perm[i] = p[i & 255] }, dot(g, x, y) { return g[0] * x + g[1] * y }, noise3D(x, y, z) { const F3 = 1 / 3, G3 = 1 / 6, s = (x + y + z) * F3, i = Math.floor(x + s), j = Math.floor(y + s), k = Math.floor(z + s), t = (i + j + k) * G3, X0 = i - t, Y0 = j - t, Z0 = k - t, x0 = x - X0, y0 = y - Y0, z0 = z - Z0; let i1, j1, k1, i2, j2, k2; if (x0 >= y0) { if (y0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0 } else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1 } else { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1 } } else { if (y0 < z0) { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1 } else if (x0 < z0) { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1 } else { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0 } } const x1 = x0 - i1 + G3, y1 = y0 - j1 + G3, z1 = z0 - k1 + G3, x2 = x0 - i2 + 2 * G3, y2 = y0 - j2 + 2 * G3, z2 = z0 - k2 + 2 * G3, x3 = x0 - 1 + 3 * G3, y3 = y0 - 1 + 3 * G3, z3 = z0 - 1 + 3 * G3, ii = i & 255, jj = j & 255, kk = k & 255, gi0 = this.perm[ii + this.perm[jj + this.perm[kk]]] % 12, gi1 = this.perm[ii + i1 + this.perm[jj + j1 + this.perm[kk + k1]]] % 12, gi2 = this.perm[ii + i2 + this.perm[jj + j2 + this.perm[kk + k2]]] % 12, gi3 = this.perm[ii + 1 + this.perm[jj + 1 + this.perm[kk + 1]]] % 12; let n0, n1, n2, n3, t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0; if (t0 < 0) n0 = 0; else { t0 *= t0; n0 = t0 * t0 * this.dot(this.grad3[gi0], x0, y0) } let t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1; if (t1 < 0) n1 = 0; else { t1 *= t1; n1 = t1 * t1 * this.dot(this.grad3[gi1], x1, y1) } let t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2; if (t2 < 0) n2 = 0; else { t2 *= t2; n2 = t2 * t2 * this.dot(this.grad3[gi2], x2, y2) } let t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3; if (t3 < 0) n3 = 0; else { t3 *= t3; n3 = t3 * t3 * this.dot(this.grad3[gi3], x3, y3) } return 32 * (n0 + n1 + n2 + n3) } }; Simplex.init();
 
-    // --- CONFIG (Official Colors & Flow Physics) ---
+    // --- CONFIG (Volumetric Jellyfish) ---
     const CONFIG = {
-      N: 850,
-      ringRadiusPct: 0.35,
-      mouseRadius: 280,
-      mousePower: 0.15, // Velocity push
-      returnSpeed: 0.008, // Spring back to "orbit"
-      flowSpeed: 0.2, // Tangential flow
+      N: 1000,          // More particles to fill volume
+      radius: 0.35,     // Outer Radius Pct
+      depth: 250,       // Z-depth thickness
+      focal: 300,
+      mouseR: 350,
+      mouseForce: 0.04, // Gentle Surround
+      returnK: 0.02,    // Soft spring
+      damp: 0.93,
+      breathFreq: 0.0008,
+      breathAmp: 40,    // Amplitude of breathing
       colors: [
-        { r: 140, g: 82, b: 255 }, // Purple
-        { r: 255, g: 92, b: 92 },  // Red/Pink
-        { r: 255, g: 200, b: 64 }  // Yellow
+        { r: 140, g: 82, b: 255 },
+        { r: 255, g: 92, b: 92 },
+        { r: 255, g: 200, b: 64 }
       ]
     };
 
@@ -112,6 +83,7 @@
 
     let W, H, DPR;
     let particles = [];
+    let renderList = [];
     const mouse = { x: -9999, y: -9999, tx: -9999, ty: -9999, hover: false };
 
     function resize() {
@@ -128,35 +100,36 @@
     function initParticles() {
       particles = [];
       const cx = W * 0.5, cy = H * 0.5;
-      const baseR = Math.min(W, H) * CONFIG.ringRadiusPct;
+      const maxR = Math.min(W, H) * CONFIG.radius;
 
       for (let i = 0; i < CONFIG.N; i++) {
-        // Ring Distribution
         const angle = Math.random() * Math.PI * 2;
 
-        // Distribution profile: Ring with some spread
-        // Standard normal-ish distribution around Radius
-        let rNorm = 1.0 + (Math.random() * 0.4 - 0.2);
-        // Occasional floaters
-        if (Math.random() < 0.2) rNorm += (Math.random() - 0.5) * 0.8;
+        // --- 1. VOLUMETRIC DISTRIBUTION ---
+        // Instead of a ring (base +/- fuzz), we fill the circle.
+        // Bias: pow(rand, 0.4) pushes more particles to the edge (0.4 < 1.0)
+        // This creates a dense "Shell" but a filled "Soul".
+        const distNorm = Math.pow(Math.random(), 0.35);
+        const r = maxR * distNorm; // 0 to maxR
 
-        const r = baseR * rNorm;
+        const hx = cx + Math.cos(angle) * r;
+        const hy = cy + Math.sin(angle) * r;
 
-        const x = cx + Math.cos(angle) * r;
-        const y = cy + Math.sin(angle) * r;
+        // Z distribution - Spherical or Cylindrical? Cylindrical fits volume better
+        const hz = (Math.random() - 0.5) * CONFIG.depth * 2;
 
         particles.push({
-          homeX: x, homeY: y, // The "Orbit" anchor
-          x: x, y: y,
-          vx: 0, vy: 0,
-          angle: angle, // Current orbital angle
+          angle: angle,
+          rNorm: distNorm, // Remember how "deep" inside it is (0=center, 1=edge)
           radius: r,
+          homeX: hx, homeY: hy, homeZ: hz,
+          x: hx, y: hy, z: hz,
+          vx: 0, vy: 0, vz: 0,
           scale: 0.5 + Math.random() * 0.6,
-          // Assign random color gradient position (0-1)
-          colorPos: Math.random(),
-          seed: Math.random() * 1000
+          pulseOff: Math.random() * Math.PI * 2
         });
       }
+      renderList = [...particles];
     }
 
     function lerpColor(c1, c2, t) {
@@ -168,17 +141,13 @@
     }
 
     function getColor(t) {
-      // 3-stop gradient mapping
-      // 0.0 -> Purple(c0) -- 0.5 --> Red(c1) -- 1.0 --> Yellow(c2)
-      if (t < 0.5) {
-        return lerpColor(CONFIG.colors[0], CONFIG.colors[1], t * 2);
-      } else {
-        return lerpColor(CONFIG.colors[1], CONFIG.colors[2], (t - 0.5) * 2);
-      }
+      if (t < 0.5) return lerpColor(CONFIG.colors[0], CONFIG.colors[1], t * 2);
+      return lerpColor(CONFIG.colors[1], CONFIG.colors[2], (t - 0.5) * 2);
     }
 
     function tick() {
-      const time = performance.now() * 0.0002;
+      const time = performance.now();
+      const nTime = time * 0.0001; // Slow Base
 
       mouse.x += (mouse.tx - mouse.x) * 0.1;
       mouse.y += (mouse.ty - mouse.y) * 0.1;
@@ -188,102 +157,102 @@
 
       const cx = W * 0.5, cy = H * 0.5;
 
+      // JELLYFISH BREATHING WAVE
+      // Wave travels around the circle
+      const wave = Math.sin(time * CONFIG.breathFreq - Math.PI * 0.5);
+      // Also variation by angle (lobe contraction)
+
       particles.forEach(p => {
-        // --- 1. Tangential Flow (The "Stream") ---
-        // Calculate tangent vector at current position relative to center
-        const dx = p.x - cx;
-        const dy = p.y - cy;
-        const distToCenter = Math.sqrt(dx * dx + dy * dy) || 1;
+        // --- 1. BREATHING (Volumetric) ---
+        // The breathing affects the whole volume.
+        // Outer particles move MORE than inner particles.
 
-        // Tangent: (-y, x)
-        const tx = -dy / distToCenter;
-        const ty = dx / distToCenter;
+        // Concave/Convex Lobe Ripple:
+        const lobe = Math.sin(p.angle * 3 + time * 0.0005);
 
-        // Base flow
-        let flowX = tx * CONFIG.flowSpeed;
-        let flowY = ty * CONFIG.flowSpeed;
+        // Combine Global Breath + Lobe Ripple
+        const breathMod = (wave * 0.7 + lobe * 0.3) * CONFIG.breathAmp;
 
-        // --- 2. Noise Drift (The "Organic Wiggle") ---
-        const nx = p.x * 0.003;
-        const ny = p.y * 0.003;
-        const n1 = Simplex.noise3D(nx, ny, time + p.seed);
-        const n2 = Simplex.noise3D(nx + 100, ny + 100, time + p.seed);
+        // Apply proportional to distance from center (inner moves less)
+        const rCurrent = p.radius + breathMod * p.rNorm;
 
-        // Add significant noise to velocity
-        flowX += n1 * 0.8;
-        flowY += n2 * 0.8;
+        const hx = cx + Math.cos(p.angle) * rCurrent;
+        const hy = cy + Math.sin(p.angle) * rCurrent;
 
-        // --- 3. Home/Orbit Attraction (Keep shape) ---
-        // But the "Home" needs to rotate!
-        // Actually, in a flow field, you don't need a strict "Home".
-        // You need a "Force to Ring".
-        const ringR = Math.min(W, H) * CONFIG.ringRadiusPct;
+        // --- 2. NOISE LEVITATION ---
+        const nx = hx * 0.002;
+        const ny = hy * 0.002;
 
-        // Radial vector (outward)
-        const rx = dx / distToCenter;
-        const ry = dy / distToCenter;
+        // Slow organic drift
+        const n1 = Simplex.noise3D(nx, ny, nTime);
+        const n2 = Simplex.noise3D(nx + 50, ny + 50, nTime * 0.8);
 
-        // Return force: Pushes towards the ring radius
-        const distErr = ringR - distToCenter;
-        // If distToCenter < ringR, distErr > 0 (Positive), push Out.
-        // If distToCenter > ringR, distErr < 0 (Negative), push In.
-        const returnForce = distErr * 0.005; // Gentle containment
+        // Inner particles drift slower (viscous center)
+        const visc = 0.5 + 0.5 * p.rNorm;
 
-        // Apply return force
-        flowX += rx * returnForce;
-        flowY += ry * returnForce;
+        const tx = hx + n1 * 40 * visc;
+        const ty = hy + n2 * 40 * visc;
 
-        // --- 4. Mouse Repulsion (Fluid) ---
-        const mdx = p.x - mouse.x;
-        const mdy = p.y - mouse.y;
-        const mDist = Math.sqrt(mdx * mdx + mdy * mdy);
+        // Z Drift
+        const nz = Simplex.noise3D(nx, ny, nTime + 10);
+        const tz = p.homeZ + nz * 60;
 
-        if (mDist < CONFIG.mouseRadius && mouse.hover) {
-          const t = 1 - mDist / CONFIG.mouseRadius;
-          const push = t * t * CONFIG.mousePower; // Acceleration
-          const mang = Math.atan2(mdy, mdx);
+        // --- 3. PHYSICS ---
+        let ax = (tx - p.x) * CONFIG.returnK;
+        let ay = (ty - p.y) * CONFIG.returnK;
+        let az = (tz - p.z) * CONFIG.returnK;
 
-          p.vx += Math.cos(mang) * push;
-          p.vy += Math.sin(mang) * push;
+        // Attraction / Surround
+        const dx = mouse.x - p.x;
+        const dy = mouse.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (mouse.hover && dist < CONFIG.mouseR) {
+          const t = 1 - dist / CONFIG.mouseR;
+          const force = t * CONFIG.mouseForce;
+
+          ax += dx * force; // Pull
+          ay += dy * force;
+          az += (0 - p.z) * force; // Flatten Z
         }
 
-        // --- Integration ---
-        // Blend flow into velocity
-        p.vx += (flowX - p.vx) * 0.05;
-        p.vy += (flowY - p.vy) * 0.05;
+        p.vx += ax; p.vy += ay; p.vz += az;
+        p.vx *= CONFIG.damp; p.vy *= CONFIG.damp; p.vz *= CONFIG.damp;
+        p.x += p.vx; p.y += p.vy; p.z += p.vz;
+      });
 
-        p.x += p.vx;
-        p.y += p.vy;
+      renderList.sort((a, b) => a.z - b.z);
 
-        // --- 5. VISUALS ---
+      renderList.forEach(p => {
+        const perspective = CONFIG.focal / (CONFIG.focal + p.z + 250);
+        if (perspective <= 0) return;
 
-        // COLOR: Mix based on Noise + Position
-        // Simplex noise for color variance
-        const colNoise = Simplex.noise3D(p.x * 0.001, p.y * 0.001, time * 0.5);
-        // Map -1..1 to 0..1
-        let colT = (colNoise + 1) * 0.5;
-        // Blend with fixed particle colorPos
-        colT = (colT + p.colorPos) * 0.5;
+        // Rotation Noise
+        const nx = p.homeX * 0.001;
+        const ny = p.homeY * 0.001;
+        const nRot = Simplex.noise3D(nx * 10, ny * 10, nTime);
 
-        const col = getColor(colT);
+        const screenX = p.x;
+        const screenY = p.y;
+        const ang = Math.atan2(screenY - cy, screenX - cx) + nRot * 0.5;
 
-        // ORIENTATION: Velocity Alignment
-        // Atan2 of velocity vector
-        let rotation = Math.atan2(p.vy, p.vx);
+        // Color Noise
+        const nCol = Simplex.noise3D(nx * 2, ny * 2, nTime * 2);
+        const col = getColor((nCol + 1) * 0.5);
 
-        // DRAW
-        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-        const stretch = Math.min(speed * 0.15, 0.6); // Velocity stretch
+        // Size Pulse (Small -> Big)
+        const pulse = 1 + Math.sin(time * 0.003 + p.pulseOff) * 0.25;
 
-        const w = (12 * p.scale) * (1 + stretch);
-        const h = (5 * p.scale) * (1 - stretch * 0.3);
+        const w = 12 * p.scale * pulse * perspective;
+        const h = 5 * p.scale * pulse * perspective;
         const r = h * 0.45;
 
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(rotation);
+        ctx.globalAlpha = Math.min(1, Math.max(0.1, perspective + 0.1));
 
-        ctx.fillStyle = `rgb(${Math.floor(col.r)}, ${Math.floor(col.g)}, ${Math.floor(col.b)})`;
+        ctx.save();
+        ctx.translate(screenX, screenY);
+        ctx.rotate(ang);
+        ctx.fillStyle = `rgb(${Math.floor(col.r)},${Math.floor(col.g)},${Math.floor(col.b)})`;
         ctx.beginPath();
         ctx.roundRect(-w / 2, -h / 2, w, h, r);
         ctx.fill();
@@ -295,9 +264,7 @@
 
     window.addEventListener('resize', () => { resize(); initParticles(); });
     window.addEventListener('mousemove', e => {
-      mouse.tx = e.clientX;
-      mouse.ty = e.clientY;
-      mouse.hover = true;
+      mouse.tx = e.clientX; mouse.ty = e.clientY; mouse.hover = true;
     });
 
     resize();
