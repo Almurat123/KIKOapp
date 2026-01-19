@@ -18,11 +18,11 @@
 
 .light {
     color: #1a1a1a;
-    /* iOS-style gradient background for light mode */
+    /* iOS-style gradient background for light mode - White/Neutral */
     background: linear-gradient(180deg,
-            rgba(255, 255, 255, 0.95) 0%,
-            rgba(240, 247, 255, 0.9) 50%,
-            rgba(230, 244, 255, 0.85) 100%);
+            rgba(255, 255, 255, 0.98) 0%,
+            rgba(248, 248, 250, 0.95) 50%,
+            rgba(244, 244, 245, 0.9) 100%);
 }
 
 /* Light theme ambient overlay */
@@ -35,8 +35,8 @@
     width: 800px;
     height: 600px;
     background: radial-gradient(ellipse at center top,
-            rgba(0, 122, 255, 0.08) 0%,
-            rgba(50, 173, 230, 0.05) 40%,
+            rgba(0, 0, 0, 0.03) 0%,
+            rgba(0, 0, 0, 0.01) 40%,
             transparent 70%);
     pointer-events: none;
     z-index: 0;

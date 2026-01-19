@@ -636,8 +636,13 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
                     "arguments": arguments,
                     "tool_context": tool_context or {}
                 }
+                # Debug: Log the URL being called
+                target_url = f"{KIKO_API_BASE}/api/ai/tools/execute"
+                print(f"[Tool Execution] 🔍 KIKO_API_BASE = {KIKO_API_BASE}")
+                print(f"[Tool Execution] 🔍 Calling unified executor at: {target_url}")
+                
                 unified_response = await http_client.post(
-                    f"{KIKO_API_BASE}/api/ai/tools/execute",
+                    target_url,
                     json=unified_payload
                 )
                 if unified_response.status_code == 200:
@@ -650,7 +655,8 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
                 else:
                     print(f"[Tool Execution] Unified tool executor failed ({unified_response.status_code}), falling back")
             except Exception as unified_error:
-                print(f"[Tool Execution] Unified tool executor error: {unified_error}")
+                print(f"[Tool Execution] ❌ Unified tool executor error: {type(unified_error).__name__}: {unified_error}")
+                print(f"[Tool Execution] ❌ Target URL was: {KIKO_API_BASE}/api/ai/tools/execute")
 
             if tool_name == "check_token_risk":
                 address = arguments.get("address", "")

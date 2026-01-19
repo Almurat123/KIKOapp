@@ -25,8 +25,8 @@
 /* Theme Toggle Container */
 .themeToggleContainer {
   position: absolute;
-  top: 24px;
-  right: 24px;
+  top: calc(24px + var(--kiko-safe-top));
+  right: calc(24px + var(--kiko-safe-right));
   z-index: 100;
 }
 

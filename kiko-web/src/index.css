@@ -103,6 +103,32 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Safe-area vars (iOS Safari/PWA). Use constant() fallback for older iOS. */
+:root {
+  --kiko-safe-top: 0px;
+  --kiko-safe-bottom: 0px;
+  --kiko-safe-left: 0px;
+  --kiko-safe-right: 0px;
+}
+
+@supports (padding-top: constant(safe-area-inset-top)) {
+  :root {
+    --kiko-safe-top: constant(safe-area-inset-top);
+    --kiko-safe-bottom: constant(safe-area-inset-bottom);
+    --kiko-safe-left: constant(safe-area-inset-left);
+    --kiko-safe-right: constant(safe-area-inset-right);
+  }
+}
+
+@supports (padding-top: env(safe-area-inset-top)) {
+  :root {
+    --kiko-safe-top: env(safe-area-inset-top);
+    --kiko-safe-bottom: env(safe-area-inset-bottom);
+    --kiko-safe-left: env(safe-area-inset-left);
+    --kiko-safe-right: env(safe-area-inset-right);
+  }
+}
+
 a {
   font-weight: 500;
   color: var(--text-primary);
@@ -119,7 +145,7 @@ body {
   padding: 0;
   /* Safari iOS: Add safe area inset for status bar (top only) */
   /* Bottom safe area is handled by individual components to avoid double-padding */
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: var(--kiko-safe-top);
   min-width: 320px;
   /* Safari iOS 26: Use dvh with vh fallback, constrain to viewport */
   height: 100vh;

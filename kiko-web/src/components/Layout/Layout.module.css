@@ -101,16 +101,16 @@
 .mobileFloatingRight {
     display: none;
     position: fixed;
-    top: 16px;
+    top: calc(16px + var(--kiko-safe-top));
     z-index: 60;
 }
 
 .mobileFloatingLeft {
-    left: 16px;
+    left: calc(16px + var(--kiko-safe-left));
 }
 
 .mobileFloatingRight {
-    right: 16px;
+    right: calc(16px + var(--kiko-safe-right));
 }
 
 @media (max-width: 768px) {
@@ -237,7 +237,7 @@
 /* Desktop Header - contains trigger + back button */
 .desktopHeader {
     position: fixed;
-    top: 24px;
+    top: calc(24px + var(--kiko-safe-top));
     left: 296px;
     /* 280px sidebar + 16px gap */
     z-index: 60;
@@ -345,8 +345,8 @@
 /* Desktop Top Right Profile */
 .desktopProfileContainer {
     position: fixed;
-    top: 24px;
-    right: 24px;
+    top: calc(24px + var(--kiko-safe-top));
+    right: calc(24px + var(--kiko-safe-right));
     z-index: 60;
     display: flex;
     align-items: center;
