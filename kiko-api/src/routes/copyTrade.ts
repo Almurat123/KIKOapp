@@ -2,9 +2,9 @@ import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../services/alchemyWebhookService.js';
-import { sendTradeNotification } from '../services/emailService.js';
 import { PrivyClient } from '@privy-io/server-auth';
 import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
+import { notificationService } from '../services/notificationService.js';
 
 interface CreateConfigBody {
     targetWallet: string;
@@ -131,14 +131,6 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     },
                 });
                 console.log('[CopyTrade] Created new user:', user.id, email ? `with email ${email}` : 'without email');
-
-                // 📧 Send Welcome Email
-                if (email) {
-                    sendTradeNotification(email, {
-                        type: 'welcome',
-                        userName: 'KIKO Trader' // Or try to get display name from Privy
-                    }).catch(e => console.error('[CopyTrade] Failed to send welcome email:', e));
-                }
             }
 
             // Create config
@@ -191,6 +183,19 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 .catch(err => {
                     console.warn('[CopyTrade] ❌ Alchemy webhook error:', err.message);
                 });
+
+            // Notify user that copy trade is active
+            if (user.farcasterFid) {
+                await notificationService.sendNotification({
+                    type: 'SYSTEM_ALERT',
+                    farcasterFid: user.farcasterFid,
+                    userId: user.id,
+                    data: {
+                        alertTitle: 'Copy Trade Activated! 🚀',
+                        alertMessage: `I'm now monitoring ${normalizedTarget.slice(0, 6)}... ${normalizedTarget.slice(-4)} for you. I'll notify you here whenever I execute a trade!`,
+                    }
+                });
+            }
 
             return reply.send({
                 success: true,

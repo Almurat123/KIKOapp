@@ -52,7 +52,7 @@ export class ModerationClient {
 
             // Log to DB
             logger.debug(LogCode.SYS_INFO, 'Logging input check to DB', { userId: userId ?? undefined });
-            createModerationLog(userId || '', 'input', text, JSON.stringify(response.data), sessionId, model).catch((err: any) =>
+            createModerationLog(userId || '', 'input', text, response.data, sessionId, model).catch((err: any) =>
                 logger.error(LogCode.SYS_ERROR, 'Moderation input log to DB failed', { error: err.message })
             );
 
@@ -74,13 +74,13 @@ export class ModerationClient {
         model: string | null = null
     ): Promise<ModerationResult> {
         try {
-            const response = await axios.post(`${MODERATION_SERVICE_URL}/input`, {
+            const response = await axios.post(`${MODERATION_SERVICE_URL}/output`, {
                 text
             }, { timeout: 3000 });
 
             // Log to DB
             logger.debug(LogCode.SYS_INFO, 'Logging output check to DB', { userId: userId ?? undefined });
-            createModerationLog(userId || '', 'output', text, JSON.stringify(response.data), sessionId, model).catch((err: any) =>
+            createModerationLog(userId || '', 'output', text, response.data, sessionId, model).catch((err: any) =>
                 logger.error(LogCode.SYS_ERROR, 'Moderation output log to DB failed', { error: err.message })
             );
 

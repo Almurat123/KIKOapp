@@ -88,6 +88,7 @@ model UserSettings {
   minMarketCapUsd     Float?
   minLiquidityUsd     Float?
   minTargetValueUsd   Float?
+  zoraNotificationThreshold Int? @default(5000)
   updatedAt            DateTime @updatedAt
   createdAt            DateTime @default(now())
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -597,16 +598,20 @@ model QualityFarcasterUser {
 }
 
 model TokenRule {
-  id             Int      @id @default(autoincrement())
-  userId         String   @map("user_id")
-  chain          String
-  address        String
-  ruleType       String   @map("rule_type")
-  conditionValue Decimal  @map("condition_value")
-  action         String
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+  id              Int      @id @default(autoincrement())
+  userId          String   @map("user_id")
+  chain           String   @default("base")
+  chainId         Int      @default(8453) @map("chain_id")
+  address         String
+  targetType      String   @default("price") @map("target_type") // price, market_cap, price_change_24h
+  ruleType        String   @map("rule_type") // above, below, drop_pct, rise_pct
+  conditionValue  Decimal  @map("condition_value")
+  action          String   // notify, buy, sell
+  actionAmount    Float?   @map("action_amount") // Amount to buy/sell
+  isActive        Boolean  @default(true) @map("is_active")
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("token_rules")
 }

@@ -95,10 +95,18 @@ export async function favoriteRoutes(fastify: FastifyInstance) {
 
         const body = request.body as any;
 
+        const chain = body.chain || 'eth';
+        let chainId = 1;
+        if (chain.toLowerCase() === 'base') chainId = 8453;
+        else if (chain.toLowerCase() === 'solana') chainId = 101;
+        else if (chain.toLowerCase() === 'bsc') chainId = 56;
+
         const rule: TokenRule = {
             userId,
-            chain: body.chain || 'eth',
+            chain,
+            chainId: body.chainId || chainId,
             address: body.address,
+            targetType: body.targetType || 'price',
             ruleType: body.ruleType, // e.g. 'PRICE_DROP_PERCENT'
             conditionValue: body.conditionValue, // e.g. 30
             action: body.action || 'NOTIFY', // e.g. 'BUY'

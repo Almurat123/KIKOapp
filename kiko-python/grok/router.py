@@ -7,6 +7,7 @@ import json
 import grpc
 import requests
 import httpx
+import re
 from typing import Any, Dict, List, Optional, AsyncGenerator
 from datetime import datetime
 from functools import lru_cache
@@ -533,6 +534,8 @@ analyze_website_deep_tool = tool(
         "required": ["url"]
     }
 )
+
+# Token Alert Tools are handled dynamically via generic delegation to Node.js
 
 # List of all custom tools
 CUSTOM_TOOLS = [
@@ -1230,7 +1233,39 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
                 return json.dumps(result, indent=2)
 
             else:
-                return json.dumps({"error": f"Unknown tool: {tool_name}"})
+                # DELEGATION FALLBACK: If tool is not handled in Python, delegate to Node.js API
+                # This enables "dynamic tool injection" where Node.js is the source of truth
+                print(f"[Tool Execution] Unknown tool '{tool_name}', delegating to Node.js API...")
+                
+                payload = {
+                    "name": tool_name,
+                    "arguments": arguments,
+                    "tool_context": tool_context
+                }
+                
+                # Use the same headers (with auth token) as other requests
+                response = await http_client.post(
+                    f"{KIKO_API_BASE}/api/ai/tools/execute",
+                    json=payload,
+                    headers=headers
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    # Node return format: { result: ... }
+                    result = data.get("result")
+                    print(f"[Tool Execution] Delegated tool '{tool_name}' success")
+                    return json.dumps(result, indent=2) if not isinstance(result, str) else result
+                else:
+                    error_msg = f"Delegated tool execution failed: {response.status_code}"
+                    try:
+                        error_json = response.json()
+                        if "error" in error_json:
+                            error_msg = error_json["error"]
+                    except:
+                        pass
+                    print(f"[Tool Execution] Delegated tool '{tool_name}' failed: {error_msg}")
+                    return json.dumps({"error": error_msg})
                 
     except Exception as e:
         print(f"[Tool Execution] Error: {e}")
@@ -1263,6 +1298,37 @@ def normalize_model_name(model: str) -> str:
     normalized = model_map.get(model, model)
     print(f"[Model] Original: {model} -> Normalized: {normalized}")
     return normalized
+
+
+def contains_contract_address(text: str) -> bool:
+    if not text:
+        return False
+    if re.search(r"\b0x[a-fA-F0-9]{40}\b", text):
+        return True
+    return bool(re.search(r"\b[1-9A-HJ-NP-Za-km-z]{32,44}\b", text))
+
+
+def has_trade_intent(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    keywords = [
+        "buy", "sell", "swap", "trade", "long", "short", "ape", "snipe", "market buy",
+        "买", "买入", "卖", "卖出", "交易", "换", "梭哈", "做多", "做空",
+    ]
+    return any(keyword in lowered for keyword in keywords)
+
+
+def has_analysis_intent(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    keywords = [
+        "what is", "what's", "analyze", "analysis", "worth", "why pumping",
+        "sentiment", "narrative", "community", "catalyst", "news",
+        "是什么", "分析", "值不值得", "能买吗", "为什么涨", "为什么跌", "情绪", "叙事", "社区",
+    ]
+    return any(keyword in lowered for keyword in keywords)
 
 
 class ToolConfig(BaseModel):
@@ -1439,7 +1505,27 @@ async def chat_completions(
             available_tools = {t.function.name for t in CUSTOM_TOOLS if hasattr(t, "function")}
         else:
             print(f"[Tools] Search tools disabled by request")
-        
+
+        tool_names = set()
+        for t in tools:
+            if hasattr(t, "function") and hasattr(t.function, "name"):
+                tool_names.add(t.function.name)
+
+        has_search_tools = "web_search" in tool_names or "x_search" in tool_names
+        force_search = False
+
+        tool_choice = None
+        include_options = None
+        if has_search_tools:
+            include_options = ["inline_citations"]
+            if force_search:
+                include_options.extend(["web_search_call_output", "x_search_call_output"])
+                def tool_priority(t):
+                    if hasattr(t, "function") and hasattr(t.function, "name"):
+                        return 0 if t.function.name in ("web_search", "x_search") else 1
+                    return 1
+                tools = sorted(tools, key=tool_priority)
+
         # Create chat instance with tools
         print(f"[Chat] Creating chat with model: {normalized_model} (original: {request.model})")
         if tools:
@@ -1450,10 +1536,17 @@ async def chat_completions(
                 else:
                     tool_names.append(str(t))
             print(f"[Chat] Creating chat with {len(tools)} tool(s): {', '.join(tool_names)}")
-            chat = client.chat.create(model=normalized_model, tools=tools)
+            if force_search:
+                print("[Chat] Force search enabled: tool_choice=required for CA analysis")
+            chat = client.chat.create(
+                model=normalized_model,
+                tools=tools,
+                tool_choice=tool_choice,
+                include=include_options,
+            )
             print(f"[Chat] Chat created")
         else:
-            chat = client.chat.create(model=normalized_model)
+            chat = client.chat.create(model=normalized_model, include=include_options)
             print(f"[Chat] Chat created without tools")
         
         # Add messages to chat

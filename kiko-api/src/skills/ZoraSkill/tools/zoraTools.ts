@@ -1,5 +1,6 @@
 import { Tool } from '../../../tools/registry.js';
 import { zoraService } from '../../../services/zoraService.js';
+import { prisma } from '../../../db/prisma.js';
 
 /**
  * Tool to get trending coins on Zora
@@ -96,6 +97,47 @@ export const GetZoraProfileTool: Tool = {
                         marketCap: profile.creatorCoin.marketCap
                     } : null
                 }
+            };
+        } catch (error: any) {
+            return { success: false, error: error.message };
+        }
+    }
+};
+
+/**
+ * Tool to set Zora notification threshold
+ */
+export const SetZoraNotificationThresholdTool: Tool = {
+    definition: {
+        name: 'set_zora_notification_threshold',
+        description: 'Set the follower threshold for Zora alpha candidate notifications. Use this when users want to be notified about tokens from creators with a certain number of followers.',
+        parameters: {
+            type: 'object',
+            properties: {
+                threshold: {
+                    type: 'integer',
+                    description: 'The minimum number of followers on EITHER Farcaster OR Twitter required to trigger a notification (not combined).'
+                }
+            },
+            required: ['threshold']
+        }
+    },
+    handler: async ({ threshold }, context) => {
+        try {
+            if (!context?.userId) return { success: false, error: 'User ID not found in context' };
+
+            await prisma.userSettings.upsert({
+                where: { userId: context.userId },
+                update: { zoraNotificationThreshold: threshold },
+                create: {
+                    userId: context.userId,
+                    zoraNotificationThreshold: threshold
+                }
+            });
+
+            return {
+                success: true,
+                message: `Zora notification threshold set to ${threshold.toLocaleString()} followers.`
             };
         } catch (error: any) {
             return { success: false, error: error.message };

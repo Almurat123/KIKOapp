@@ -12,11 +12,15 @@ export interface TokenRule {
     id?: number;
     userId: string;
     chain: string;
+    chainId: number;
     address: string;
+    targetType: string;
     ruleType: string;
     conditionValue: number;
     action: string;
+    actionAmount?: number | null;
     isActive: boolean;
+    lastTriggeredAt?: Date | null;
     createdAt?: Date;
 }
 
@@ -147,10 +151,13 @@ export async function addTokenRule(rule: TokenRule): Promise<TokenRule | null> {
             data: {
                 userId: rule.userId,
                 chain: rule.chain,
+                chainId: rule.chainId,
                 address: rule.address,
+                targetType: rule.targetType,
                 ruleType: rule.ruleType,
                 conditionValue: rule.conditionValue,
                 action: rule.action,
+                actionAmount: rule.actionAmount,
                 isActive: rule.isActive
             }
         });
@@ -159,11 +166,15 @@ export async function addTokenRule(rule: TokenRule): Promise<TokenRule | null> {
             id: row.id,
             userId: row.userId,
             chain: row.chain,
+            chainId: row.chainId,
             address: row.address,
+            targetType: row.targetType,
             ruleType: row.ruleType,
             conditionValue: Number(row.conditionValue),
             action: row.action,
+            actionAmount: row.actionAmount ? Number(row.actionAmount) : null,
             isActive: row.isActive,
+            lastTriggeredAt: row.lastTriggeredAt,
             createdAt: row.createdAt
         };
     });
@@ -182,11 +193,15 @@ export async function getUserRules(userId: string): Promise<TokenRule[]> {
         id: row.id,
         userId: row.userId,
         chain: row.chain,
+        chainId: row.chainId,
         address: row.address,
+        targetType: row.targetType,
         ruleType: row.ruleType,
         conditionValue: Number(row.conditionValue),
         action: row.action,
+        actionAmount: row.actionAmount ? Number(row.actionAmount) : null,
         isActive: row.isActive,
+        lastTriggeredAt: row.lastTriggeredAt,
         createdAt: row.createdAt
     }));
 }

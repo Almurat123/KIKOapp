@@ -125,9 +125,10 @@ class Registry implements SkillRegistry {
     }
 
     getSkillsByIntent(intent: string): Skill[] {
-        return Array.from(this.skills.values()).filter(skill =>
-            skill.metadata.intents.includes(intent)
-        );
+        return Array.from(this.skills.values()).filter(skill => {
+            const intents = skill.metadata.intents || [];
+            return intents.includes(intent);
+        });
     }
 
     getAllSkills(): Skill[] {

@@ -160,6 +160,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [isStopping, setIsStopping] = useState(false);
 
     const [hasStarted, setHasStartedLocal] = useState(initialMessages.length > 0);
+    const [showChatUI, setShowChatUI] = useState(initialMessages.length > 0);
 
     // Wrapper to sync hasStarted with Layout's chatStarted
     const setHasStarted = (value: boolean) => {
@@ -214,6 +215,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Farcaster Follow Modal state
     const [showFollowModal, setShowFollowModal] = useState(false);
+
+    useEffect(() => {
+        if (!hasStarted) {
+            setShowChatUI(false);
+            return;
+        }
+        if (initialMessages.length > 0) {
+            setShowChatUI(true);
+            return;
+        }
+        // For first send, wait for welcome exit to avoid double input flash.
+        setShowChatUI(false);
+    }, [hasStarted, initialMessages.length]);
 
     const handleDismissFollow = () => {
         localStorage.setItem('kiko-farcaster-follow-dismissed', 'true');
@@ -1826,11 +1840,24 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
 
             {/* Hero / Welcome Content with Exit Animation */}
-            <AnimatePresence mode="wait" initial={false}>
+            <AnimatePresence
+                mode="wait"
+                initial={false}
+                onExitComplete={() => {
+                    if (hasStarted) {
+                        setShowChatUI(true);
+                    }
+                }}
+            >
                 {!hasStarted && (
                     <motion.div
                         key="welcome-screen"
-                        exit={{ opacity: 0, y: -30, transition: { duration: 0.3, ease: "easeOut" } }}
+                        exit={{
+                            opacity: 0,
+                            y: -24,
+                            scale: 0.985,
+                            transition: { type: 'spring', stiffness: 380, damping: 34, mass: 0.8 }
+                        }}
                         style={{ width: '100%', height: '100%' }}
                     >
                         <WelcomeScreen onSuggestionClick={handleSend} />
@@ -1840,7 +1867,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             {/* Message List - Always rendered, hidden via CSS when not started */}
             <div
-                className={clsx(styles.messageList, !hasStarted && styles.messageListHidden)}
+                className={clsx(
+                    styles.messageList,
+                    !showChatUI && styles.messageListHidden,
+                    showChatUI && styles.chatUiEnter
+                )}
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
             >
@@ -1974,9 +2005,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             {/* Input Area - Only show when conversation has started */}
             {
-                hasStarted && (
+                showChatUI && (
                     <div
-                        className={clsx(styles.inputArea, styles.inputBottom)}
+                        className={clsx(styles.inputArea, styles.inputBottom, styles.chatUiEnterDelayed)}
                         style={safariKeyboard.isKeyboardVisible && safariKeyboard.inputTop !== null ? {
                             bottom: 'auto',
                             top: `${safariKeyboard.inputTop}px`,

@@ -101,6 +101,30 @@
     /* Prevent interaction while hidden */
 }
 
+@keyframes chatUiEnter {
+    0% {
+        opacity: 0;
+        transform: translateY(10px) scale(0.985);
+    }
+    60% {
+        opacity: 1;
+        transform: translateY(-2px) scale(1.006);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.chatUiEnter {
+    animation: chatUiEnter 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.chatUiEnterDelayed {
+    animation: chatUiEnter 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.06s;
+}
+
 /* Message Row */
 .messageRow {
     display: flex;

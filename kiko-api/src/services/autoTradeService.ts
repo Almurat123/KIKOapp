@@ -24,7 +24,6 @@ import { updateJudgeOutcome } from '../repositories/judgeRepository.js';
 import { createMessage, createSession } from '../repositories/chatRepository.js';
 import { ChatWebSocketService } from './chatWebSocket.js';
 import { env } from '../config/env.js';
-import { sendTradeNotification } from './emailService.js';
 import { PrivyClient } from '@privy-io/server-auth';
 import { recordNewTrade } from './leaderWalletStatsService.js';
 import { trackCopyTrade, trackSwap } from './userActivityService.js';
@@ -32,6 +31,7 @@ import { getTokenDetails } from './geckoTerminal.js';
 import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
+import { notificationService } from './notificationService.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
@@ -551,6 +551,18 @@ async function processBuyWithInfo(
                                     has: ethers.formatEther(balance),
                                     needs: baseAmount.toFixed(5)
                                 });
+
+                                // Send Low Balance Alert
+                                await notificationService.sendNotification({
+                                    userId: config.user.privyDid,
+                                    farcasterFid: config.user.farcasterFid,
+                                    type: 'SYSTEM_ALERT',
+                                    data: {
+                                        alertTitle: 'Low Balance',
+                                        alertMessage: `I couldn't buy $${tokenInfo.symbol} because your balance is too low. You have ${ethers.formatEther(balance).slice(0, 6)} ETH but need about ${baseAmount.toFixed(4)} ETH.`,
+                                        remainingBalance: `${ethers.formatEther(balance).slice(0, 6)} ETH`
+                                    }
+                                });
                                 continue;
                             }
                         } catch (balErr: any) {
@@ -731,75 +743,20 @@ ${analysis.rawAnalysis}
             // =================================================================
 
             // =================================================================
-            // 📧 Send Email Notification (Success)
-            // =================================================================
-            try {
-                let userEmail = config.user.email;
-                if (!userEmail) {
-                    logger.debug(LogCode.API_AUTH_FAILED, 'Email missing in DB, attempting to fetch from Privy provider', { userId: config.userId });
-
-                    // Add a timeout to Privy call to prevent hanging the trade process
-                    const privyPromise = (async () => {
-                        const privyClient = new PrivyClient(process.env.PRIVY_APP_ID || '', process.env.PRIVY_APP_SECRET || '');
-                        const privyUser = await privyClient.getUser(config.user.privyDid);
-                        return privyUser.linkedAccounts?.find(a => a.type === 'email')?.address;
-                    })();
-
-                    const timeoutPromise = new Promise<undefined>((_, reject) =>
-                        setTimeout(() => reject(new Error('Privy email fetch timeout')), 5000)
-                    );
-
-                    try {
-                        userEmail = await Promise.race([privyPromise, timeoutPromise]);
-                        if (userEmail) {
-                            logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully recovered email from Privy', { userId: config.userId });
-                            await prisma.user.update({
-                                where: { id: config.user.id },
-                                data: { email: userEmail }
-                            });
-                        } else {
-                            logger.warn(LogCode.API_AUTH_FAILED, 'No email found in Privy for user', { userId: config.userId });
-                        }
-                    } catch (e: any) {
-                        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch email from Privy', { userId: config.userId, error: e.message });
-                    }
-                }
-
-                if (userEmail) {
-                    await sendTradeNotification(userEmail, {
-                        type: 'success',
-                        tokenSymbol: tokenInfo.symbol,
-                        tokenAddress: tokenToBuy,
-                        amount: (usdAmount / nativePrice).toFixed(6),
-                        usdValue: usdAmount.toFixed(2),
-                        txHash: txHash,
-                        targetWallet: targetWallet,
-                        chainId: chainId
-                    });
-                }
-            } catch (emailError: any) {
-                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send success email notification', { userId: config.userId, error: emailError.message });
-            }
-
-            // =================================================================
             // 🟣 Send Farcaster Direct Cast (Success)
             // =================================================================
-            try {
-                if (warpcastService.isConfigured() && config.user.farcasterFid) {
-                    const recipientFid = config.user.farcasterFid;
-                    const explorerUrl = getChainConfig(chainId).explorerUrl;
-                    const txLink = `${explorerUrl}/tx/${txHash}`;
-
-                    const message = `🚀 *Trade Executed Successfully!*\n\n🎯 *Target:* ${targetWallet.slice(0, 6)}...\n💎 *Token:* $${tokenInfo.symbol}\n💰 *Amount:* $${usdAmount.toFixed(2)}\n\n🔗 *View Transaction:*\n${txLink}\n\n*Powered by KiKo AI* 🤖`;
-
-                    await warpcastService.sendDirectCast({
-                        recipientFid,
-                        message
-                    });
+            await notificationService.sendNotification({
+                userId: config.user.privyDid,
+                farcasterFid: config.user.farcasterFid,
+                type: 'TRADE_SUCCESS_BUY',
+                data: {
+                    tokenSymbol: tokenInfo.symbol,
+                    usdValue: usdAmount.toFixed(2),
+                    targetWallet: targetWallet,
+                    txHash: txHash,
+                    chainId: chainId
                 }
-            } catch (fcError: any) {
-                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send Farcaster DC for successful trade', { userId: config.userId, error: fcError.message });
-            }
+            });
 
         } catch (error: any) {
             logger.error(LogCode.SYS_ERROR, `Error processing trade configuration`, {
@@ -809,38 +766,20 @@ ${analysis.rawAnalysis}
                 stack: error.stack
             });
 
-            // 📧 Send Email Notification (Failure)
-            try {
-                if (config.user.email) {
-                    await sendTradeNotification(config.user.email, {
-                        type: 'failure',
-                        tokenSymbol: tokenInfo.symbol || 'Unknown',
-                        tokenAddress: tokenToBuy,
-                        error: error.message || 'Unknown error during execution',
-                        targetWallet: targetWallet,
-                        chainId: chainId
-                    });
-                }
-            } catch (emailError: any) {
-                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send failure email notification', { userId: config.userId, error: emailError.message });
-            }
-
             // =================================================================
             // 🟣 Send Farcaster Direct Cast (Failure)
             // =================================================================
-            try {
-                if (warpcastService.isConfigured() && config.user.farcasterFid) {
-                    const recipientFid = config.user.farcasterFid;
-                    const message = `⚠️ *Trade Execution Failed*\n\n🎯 *Target:* ${targetWallet.slice(0, 6)}...\n💎 *Token:* $${tokenInfo.symbol || 'Unknown'}\n❌ *Error:* ${error.message?.slice(0, 100)}\n\n*Please check your settings or balance.*\n*Powered by KiKo AI* 🤖`;
-
-                    await warpcastService.sendDirectCast({
-                        recipientFid,
-                        message
-                    });
+            await notificationService.sendNotification({
+                userId: config.userId,
+                farcasterFid: config.user.farcasterFid,
+                type: 'TRADE_FAILURE',
+                data: {
+                    tokenSymbol: tokenInfo.symbol || 'Unknown',
+                    error: error.message,
+                    targetWallet: targetWallet,
+                    chainId: chainId
                 }
-            } catch (fcError: any) {
-                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send Farcaster failure notification', { userId: config.userId, error: fcError.message });
-            }
+            });
         }
     }
 }
@@ -1109,50 +1048,29 @@ async function executePositionExit(params: {
             const sellVolUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
             trackSwap(userId, sellVolUsd);
 
-            // Notify
-            if (user.email) {
-                try {
-                    await sendTradeNotification(user.email, {
-                        type: 'success',
-                        tokenSymbol: tokenInfo.symbol,
-                        tokenAddress: tokenAddress,
-                        amount: formatTokenAmount(balance, decimals).toFixed(6),
-                        usdValue: sellVolUsd.toFixed(2),
-                        txHash: txHash,
-                        chainId: chainId,
-                        // Add exit reason to notification if possible, but the current template might not support it
-                        // Just sending as success sell for now
-                    });
-                } catch (emailErr: any) {
-                    logger.error(LogCode.API_NOTIFY_FAILED, 'Email notification for sell failed', { userId, error: emailErr.message });
-                }
-            }
-
             // =================================================================
             // 🟣 Send Farcaster Direct Cast (Sell Success)
             // =================================================================
-            try {
-                if (warpcastService.isConfigured() && user.farcasterFid) {
-                    const recipientFid = user.farcasterFid;
-                    const explorerUrl = getChainConfig(chainId).explorerUrl;
-                    const txLink = `${explorerUrl}/tx/${txHash}`;
-                    const reasonMap: Record<string, string> = {
-                        'mirror_sell': 'Target sold 📉',
-                        'take_profit': 'Take Profit 🎯',
-                        'stop_loss': 'Stop Loss 🛑',
-                        'manual': 'Manual Exit 🛠️'
-                    };
+            const reasonMap: Record<string, string> = {
+                'mirror_sell': 'Mirror Sell',
+                'take_profit': 'Take Profit',
+                'stop_loss': 'Stop Loss',
+                'manual': 'Manual Exit'
+            };
 
-                    const message = `💰 *Position Closed Successfully!*\n\n💎 *Token:* $${tokenInfo.symbol}\n📉 *Reason:* ${reasonMap[exitReason] || exitReason}\n💵 *Value:* $${sellVolUsd.toFixed(2)}\n\n🔗 *View Transaction:*\n${txLink}\n\n*Powered by KiKo AI* 🤖`;
-
-                    await warpcastService.sendDirectCast({
-                        recipientFid,
-                        message
-                    });
+            await notificationService.sendNotification({
+                userId: user.privyDid,
+                farcasterFid: user.farcasterFid,
+                type: 'TRADE_SUCCESS_SELL',
+                data: {
+                    tokenSymbol: tokenInfo.symbol,
+                    usdValue: sellVolUsd.toFixed(2),
+                    targetWallet: config.targetWallet,
+                    txHash: txHash,
+                    chainId: chainId,
+                    alertTitle: reasonMap[exitReason] || exitReason
                 }
-            } catch (fcError: any) {
-                logger.error(LogCode.API_NOTIFY_FAILED, 'Farcaster exit notification failed', { userId, error: fcError.message });
-            }
+            });
         }
 
         return txHash;
@@ -1181,18 +1099,18 @@ async function executePositionExit(params: {
             // =================================================================
             // 🟣 Send Farcaster Direct Cast (Exit Failure)
             // =================================================================
-            try {
-                if (warpcastService.isConfigured() && user.farcasterFid) {
-                    const recipientFid = user.farcasterFid;
-                    const message = `⚠️ *Position Exit Failed*\n\n💎 *Token:* $${tokenInfo?.symbol || 'Unknown'}\n📈 *Requested:* ${exitReason}\n❌ *Error:* ${error instanceof Error ? error.message.slice(0, 100) : 'Unknown error'}\n\n*Position marked as closed to avoid loops. Please check manually.*`;
-
-                    await warpcastService.sendDirectCast({
-                        recipientFid,
-                        message
-                    });
-                }
-            } catch (fcError: any) {
-                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send Farcaster DC for exit failure', { userId: config.user.privyDid, error: fcError.message });
+            if (user.farcasterFid) {
+                await notificationService.sendNotification({
+                    userId: user.privyDid,
+                    farcasterFid: user.farcasterFid,
+                    type: 'TRADE_FAILURE',
+                    data: {
+                        tokenSymbol: tokenInfo?.symbol || 'Unknown',
+                        error: error instanceof Error ? error.message : 'Unknown exit error',
+                        targetWallet: config.targetWallet,
+                        chainId: chainId
+                    }
+                });
             }
         } catch (dbErr: any) {
             logger.error(LogCode.SYS_ERROR, 'Failed to update position status during exit failure handler', { error: dbErr.message });
@@ -1264,11 +1182,6 @@ async function handleTargetSell(
 /**
  * Initialize the auto trade service
  */
-// ... imports ...
-
-/**
- * Initialize the auto trade service
- */
 export function initAutoTradeService(): void {
     logger.info(LogCode.SYS_STARTUP, 'Initializing auto trade service...');
 
@@ -1286,15 +1199,10 @@ export function initAutoTradeService(): void {
 /**
  * Check and execute take profit / stop loss for open positions
  */
-/**
- * Check and execute take profit / stop loss for open positions
- */
 export async function checkPositionsForExits(): Promise<void> {
     const positions = await prisma.position.findMany({
         where: { status: 'open' },
-        include: {
-            user: true,
-        },
+        include: { user: true },
     });
 
     if (positions.length === 0) {
@@ -1320,62 +1228,52 @@ export async function checkPositionsForExits(): Promise<void> {
 
         try {
             // STEP 1: Check on-chain balance first (detect manual sells or dust)
-            let shouldCheckBalance = true;
-            if (position.chainId !== 900) { // Skip Solana for now (different balance check)
+            if (position.chainId !== 900) { // Skip Solana for now (different balance check needed)
                 try {
                     const chainConfig = getChainConfig(position.chainId);
                     const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
                     const tokenContract = new ethers.Contract(
                         position.tokenAddress,
-                        ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
+                        ['function balanceOf(address) view returns (uint256)'],
                         provider
                     );
+                    const balance = await tokenContract.balanceOf(position.user.walletAddress);
 
-                    const [balance, decimals] = await Promise.all([
-                        tokenContract.balanceOf(position.user.walletAddress),
-                        tokenContract.decimals().catch(() => 18)
-                    ]);
-
-                    const balanceUsd = formatTokenAmount(balance, decimals) * (await getTokenInfo(position.tokenAddress, position.chainId, { verbose: false }))?.price || 0;
-
-                    // If balance is essentially zero (< $0.10), close position
-                    if (balance === 0n || balanceUsd < 0.1) {
-                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: Zero or dust balance detected on-chain', {
-                            positionId: position.id,
-                            balanceUsd,
-                            reason: balance === 0n ? 'empty' : 'dust'
-                        });
+                    if (balance === 0n) {
+                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id });
                         await prisma.position.update({
                             where: { id: position.id },
-                            data: {
-                                status: 'closed',
-                                exitReason: balance === 0n ? 'balance_empty' : 'balance_dust',
-                                closedAt: new Date()
-                            }
+                            data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN' }
                         });
-                        continue; // Skip TP/SL checks for this position
+
+                        // Notify user that position was auto-closed
+                        if (position.user?.farcasterFid) {
+                            await notificationService.sendNotification({
+                                type: 'SYSTEM_ALERT',
+                                farcasterFid: Number(position.user.farcasterFid),
+                                userId: position.userId,
+                                data: {
+                                    alertTitle: 'Position Auto-Closed',
+                                    alertMessage: `Position for ${position.tokenSymbol} auto-closed as no balance was detected on-chain (likely manual sell).`,
+                                }
+                            });
+                        }
+                        continue;
                     }
-                } catch (balanceError: any) {
-                    logger.debug(LogCode.SYS_ERROR, 'On-chain balance check failed during monitor', { positionId: position.id, error: balanceError.message });
-                    // Continue to TP/SL checks even if balance check fails
+                } catch (balanceErr: any) {
+                    logger.warn(LogCode.SYS_ERROR, 'Error checking on-chain balance', { positionId: position.id, error: balanceErr.message });
                 }
             }
 
-            // STEP 2: Get current price (Silent mode to avoid log spam)
-            const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId, { verbose: false });
-            if (!tokenInfo) continue;
+            // STEP 2: Check for TP/SL
+            const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId);
+            if (!tokenInfo || !tokenInfo.price) {
+                logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Price not available for token', { token: position.tokenAddress });
+                continue;
+            }
 
             const currentPrice = tokenInfo.price;
             const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
-
-            // Update position with current price
-            await prisma.position.update({
-                where: { id: position.id },
-                data: {
-                    currentPrice,
-                    profitLossPct,
-                },
-            });
 
             // Get config from map
             const config = configMap.get(position.configId);
@@ -1388,9 +1286,7 @@ export async function checkPositionsForExits(): Promise<void> {
                     profitLossPct: profitLossPct.toFixed(2)
                 });
 
-                // Mark as being processed
                 positionsBeingExited.add(position.id);
-
                 try {
                     await executePositionExit({
                         userId: position.userId,
@@ -1401,11 +1297,9 @@ export async function checkPositionsForExits(): Promise<void> {
                         config: { ...config, user: position.user }
                     });
                 } finally {
-                    // Always remove from set, even if exit fails
                     positionsBeingExited.delete(position.id);
                 }
             }
-
             // Check stop loss
             else if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Stop Loss triggered', {
@@ -1413,9 +1307,7 @@ export async function checkPositionsForExits(): Promise<void> {
                     profitLossPct: profitLossPct.toFixed(2)
                 });
 
-                // Mark as being processed
                 positionsBeingExited.add(position.id);
-
                 try {
                     await executePositionExit({
                         userId: position.userId,
@@ -1426,7 +1318,6 @@ export async function checkPositionsForExits(): Promise<void> {
                         config: { ...config, user: position.user }
                     });
                 } finally {
-                    // Always remove from set, even if exit fails
                     positionsBeingExited.delete(position.id);
                 }
             }

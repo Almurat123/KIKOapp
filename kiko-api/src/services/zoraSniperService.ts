@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import * as zoraSdk from "@zoralabs/coins-sdk";
 const { createTradeCall } = zoraSdk as any;
 import { zoraService, BASE_PLATFORM_REFERRER } from './zoraService.js';
+import { notificationService } from './notificationService.js';
+import { prisma } from '../db/prisma.js';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
@@ -13,7 +15,9 @@ const ZORA_FACTORY_ADDRESS = '0x777777751622c0d3258f214F9DF38E35BF45baF3';
 
 // ZoraFactory ABI for CoinCreated event
 const ZORA_FACTORY_ABI = [
-    "event CoinCreated(address indexed coin, address indexed creator, string name, string symbol, string uri)"
+    "event CoinCreated(address indexed caller, address indexed payoutRecipient, address indexed platformReferrer, address currency, string uri, string name, string symbol, address coin, address pool, string version)",
+    "event CreatorCoinCreated(address indexed caller, address indexed payoutRecipient, address indexed platformReferrer, address currency, string uri, string name, string symbol, address coin, address poolKey, bytes32 poolKeyHash, string version)",
+    "event CoinCreatedV4(address indexed caller, address indexed payoutRecipient, address indexed platformReferrer, address currency, string uri, string name, string symbol, address coin, address poolKey, bytes32 poolKeyHash, string version)"
 ];
 
 export interface SniperConfig {
@@ -46,17 +50,91 @@ export class ZoraSniperService {
 
         logger.info(LogCode.SYS_STARTUP, 'Starting Zora sniper', { walletAddress: config.walletAddress });
 
-        this.factoryContract.on('CoinCreated', async (coinAddress, creator, name, symbol, uri, event) => {
+        const handleCoinCreated = async (caller: string, coin: string, name: string, symbol: string) => {
             if (!this.config?.enabled) return;
 
-            logger.info(LogCode.SYS_INFO, 'Zora Sniper: New Coin Detected', { name, symbol, coinAddress });
+            logger.info(LogCode.SYS_INFO, 'Zora Sniper: New Coin Detected', { name, symbol, coin, creator: caller });
 
             try {
-                await this.executeSnipe(coinAddress, symbol);
+                // 1. Fetch user threshold from DB
+                const userSettings = await prisma.userSettings.findUnique({
+                    where: { userId: this.config.userId }
+                });
+                const threshold = userSettings?.zoraNotificationThreshold ?? 5000;
+
+                // 2. Fetch creator profile and follower count
+                const profile = await zoraService.getUserProfile(caller);
+                const farcasterFollowers = profile?.socialAccounts?.farcaster?.followerCount || 0;
+                const twitterFollowers = profile?.socialAccounts?.twitter?.followerCount || 0;
+
+                // User requested: Single social media setting, not added together.
+                const isHighValue = farcasterFollowers >= threshold || twitterFollowers >= threshold;
+                const maxFollowers = Math.max(farcasterFollowers, twitterFollowers);
+
+                logger.debug(LogCode.SYS_INFO, 'Zora Sniper: Creator social check', {
+                    symbol,
+                    creator: caller,
+                    farcasterFollowers,
+                    twitterFollowers,
+                    threshold,
+                    isHighValue
+                });
+
+                // 3. Send notification if threshold met on ANY platform
+                if (isHighValue) {
+                    logger.info(LogCode.SYS_INFO, 'Zora Sniper: High quality creator detected, sending notification', {
+                        symbol,
+                        maxFollowers
+                    });
+
+                    // Get user's Farcaster FID for notification
+                    const user = await prisma.user.findUnique({
+                        where: { id: this.config.userId },
+                        select: { farcasterFid: true }
+                    });
+
+                    // Format follower count for display (e.g. "1.2M (Twitter)")
+                    let followerDisplay = '';
+                    if (twitterFollowers >= threshold) {
+                        followerDisplay = `${twitterFollowers.toLocaleString()} (Twitter)`;
+                    } else {
+                        followerDisplay = `${farcasterFollowers.toLocaleString()} (Farcaster)`;
+                    }
+
+                    // If both are high, show the higher one or both? 
+                    // Let's show the max one that triggered it, or both if valuable.
+                    // Simple approach: Show the breakdown if both exist.
+                    if (twitterFollowers > 0 && farcasterFollowers > 0) {
+                        followerDisplay = `${twitterFollowers.toLocaleString()} (X) / ${farcasterFollowers.toLocaleString()} (FC)`;
+                    }
+
+                    await notificationService.sendNotification({
+                        userId: this.config.userId,
+                        farcasterFid: user?.farcasterFid,
+                        type: 'ALPHA_CANDIDATE',
+                        data: {
+                            tokenSymbol: symbol,
+                            tokenAddress: coin,
+                            creatorName: profile?.displayName || profile?.handle || caller.slice(0, 6),
+                            followerCount: followerDisplay,
+                            zoraUrl: `https://zora.co/coin/base:${coin}`
+                        }
+                    });
+                } else {
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper: Creator below threshold, skipping notification', {
+                        symbol,
+                        maxFollowers
+                    });
+                }
             } catch (error: any) {
-                logger.error(LogCode.EXE_TX_REVERTED, 'Zora Sniper: Snipe failed', { symbol, error: error.message });
+                logger.error(LogCode.SYS_ERROR, 'Zora Sniper: Processing failed', { symbol, error: error.message });
             }
-        });
+        };
+
+        // Attach listeners for all relevant events
+        this.factoryContract.on('CoinCreated', (caller, pr, pref, cur, uri, name, symbol, coin) => handleCoinCreated(caller, coin, name, symbol));
+        this.factoryContract.on('CreatorCoinCreated', (caller, pr, pref, cur, uri, name, symbol, coin) => handleCoinCreated(caller, coin, name, symbol));
+        this.factoryContract.on('CoinCreatedV4', (caller, pr, pref, cur, uri, name, symbol, coin) => handleCoinCreated(caller, coin, name, symbol));
 
         this.isListening = true;
     }
@@ -66,6 +144,8 @@ export class ZoraSniperService {
      */
     public stop() {
         this.factoryContract.removeAllListeners('CoinCreated');
+        this.factoryContract.removeAllListeners('CreatorCoinCreated');
+        this.factoryContract.removeAllListeners('CoinCreatedV4');
         this.isListening = false;
         this.config = null;
         logger.info(LogCode.SYS_STARTUP, 'Zora Sniper stopped');

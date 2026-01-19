@@ -34,6 +34,7 @@ import { rpcRoutes } from './routes/rpc.js';
 import { zoraProxyRoutes } from './routes/zora-proxy.js';
 import { aiRoutes } from './routes/ai.js';
 import { initAutoTradeService } from './services/autoTradeService.js';
+import { tokenAlertService } from './services/tokenAlertService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
 import { isPrivyConfigured } from './services/privyWallet.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
@@ -249,6 +250,15 @@ async function start() {
             logger.info(LogCode.SYS_STARTUP, 'Position monitor started');
         } catch (posMonError: any) {
             logger.error(LogCode.SYS_ERROR, 'Position monitor failed to start', { error: posMonError.message });
+        }
+
+        // Start token alert service
+        logger.debug(LogCode.SYS_STARTUP, 'Starting token alert service...');
+        try {
+            tokenAlertService.start();
+            logger.info(LogCode.SYS_STARTUP, 'Token alert service started');
+        } catch (alertError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Token alert service failed to start', { error: alertError.message });
         }
 
         // Start Chat Worker
