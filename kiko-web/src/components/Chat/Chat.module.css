@@ -18,28 +18,14 @@
 
 .light {
     color: #1a1a1a;
-    /* iOS-style gradient background for light mode - White/Neutral */
-    background: linear-gradient(180deg,
-            rgba(255, 255, 255, 0.98) 0%,
-            rgba(248, 248, 250, 0.95) 50%,
-            rgba(244, 244, 245, 0.9) 100%);
+    /* iOS 26 'Pure White' - Absolutely no gray tint */
+    background: #ffffff;
 }
 
-/* Light theme ambient overlay */
+/* Light theme ambient overlay - Removed to maintain clean 'Paper White' look */
+/* Light theme ambient overlay - Removed to maintain clean 'Paper White' look */
 .light::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 800px;
-    height: 600px;
-    background: radial-gradient(ellipse at center top,
-            rgba(0, 0, 0, 0.03) 0%,
-            rgba(0, 0, 0, 0.01) 40%,
-            transparent 70%);
-    pointer-events: none;
-    z-index: 0;
+    display: none;
 }
 
 
@@ -74,9 +60,12 @@
     display: flex;
     flex-direction: column;
     gap: 0px;
-    opacity: 0;
-    animation: fadeIn 0.3s forwards;
-    animation-delay: 0.2s;
+    /* Smooth transition for show/hide animation */
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+        visibility 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+        padding-bottom 0.15s ease;
     scroll-behavior: auto;
     /* Changed from smooth to prevent interference */
     position: relative;
@@ -106,7 +95,10 @@
 }
 
 .messageListHidden {
-    display: none;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    /* Prevent interaction while hidden */
 }
 
 /* Message Row */
@@ -884,22 +876,16 @@
 }
 
 .light .inputWrapper {
-    background: linear-gradient(135deg,
-            rgba(255, 255, 255, 0.55) 0%,
-            rgba(255, 255, 255, 0.35) 45%,
-            rgba(255, 255, 255, 0.6) 50%,
-            rgba(255, 255, 255, 0.35) 55%,
-            rgba(255, 255, 255, 0.5) 100%);
-    background-size: 200% 200%;
-    /* Reduced blur for more transparency */
-    backdrop-filter: blur(16px) saturate(200%);
-    -webkit-backdrop-filter: blur(16px) saturate(200%);
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    /* iOS 26 'Liquid Glass' - Near-solid white for clean look */
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(0, 0, 0, 0.08);
     box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.04),
         0 4px 8px rgba(0, 0, 0, 0.02),
-        inset 0 1px 0 rgba(255, 255, 255, 0.9),
-        0 0 0 1px rgba(255, 255, 255, 0.3);
+        inset 0 1px 0 rgba(255, 255, 255, 1),
+        0 0 0 0.5px rgba(0, 0, 0, 0.05);
 }
 
 .inputBottom .inputWrapper {
