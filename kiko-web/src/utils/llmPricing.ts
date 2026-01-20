@@ -1,15 +1,20 @@
 /**
  * Utility for calculating LLM token costs
- * Based on pricing from January 2025
+ * Based on official pricing from January 2025
+ * DeepSeek V3.2: https://api-docs.deepseek.com/quick_start/pricing
+ * Grok 4.1 Fast: https://docs.x.ai/docs/models
  */
 
 // Pricing in USD per 1M tokens
 const PRICING: Record<string, { input: number; output: number }> = {
-    // Grok 4.1 Fast (Reasoning)
+    // Grok 4.1 Fast (Reasoning) - Frontend IDs
     'grok-4-reasoning': { input: 0.20, output: 0.50 },
-    // Grok 4.1 Fast (Non-Reasoning)
+    // Grok 4.1 Fast (Non-Reasoning) - Frontend IDs
     'grok-4-non-reasoning': { input: 0.20, output: 0.50 },
-    // DeepSeek V3.2 (Thinking/Chat) - same pricing for both
+    // Grok 4.1 Fast - API Model Names (backend may return these)
+    'grok-4-1-fast-reasoning': { input: 0.20, output: 0.50 },
+    'grok-4-1-fast-non-reasoning': { input: 0.20, output: 0.50 },
+    // DeepSeek V3.2 (cache miss pricing - most common case)
     'deepseek-v3-fast': { input: 0.28, output: 0.42 },
     'deepseek-v3-thinking': { input: 0.28, output: 0.42 },
     // Fallbacks
@@ -20,7 +25,7 @@ const PRICING: Record<string, { input: number; output: number }> = {
 // Tool pricing in USD per 1 call (based on $5/1000 calls)
 const TOOL_PRICE_PER_CALL = 0.005;
 
-// Default fallback pricing (DeepSeek V3.2)
+// Default fallback pricing (DeepSeek V3.2 cache miss)
 const DEFAULT_PRICING = { input: 0.28, output: 0.42 };
 
 /**
