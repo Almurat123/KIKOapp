@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowRight, CornerDownLeft } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowRight } from 'lucide-react';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
@@ -32,52 +32,15 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
     onSelect
 }) => {
     const { resolvedTheme } = useThemeContext();
-    const [selectedIndex, setSelectedIndex] = useState(0);
+    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-    // Flatten items for keyboard navigation
+    // Flatten items for hover highlighting
     const flatItems = React.useMemo(() => {
         if (Array.isArray(suggestions) && suggestions.length > 0 && 'items' in suggestions[0]) {
             return (suggestions as SuggestionGroup[]).flatMap(g => g.items);
         }
         return suggestions as SuggestionItem[];
     }, [suggestions]);
-
-    useEffect(() => {
-        setSelectedIndex(0);
-    }, [suggestions]);
-
-    // Keyboard navigation
-    useEffect(() => {
-        if (!isVisible) return;
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                setSelectedIndex(prev => (prev + 1) % flatItems.length);
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                setSelectedIndex(prev => (prev - 1 + flatItems.length) % flatItems.length);
-            } else if (e.key === 'Tab' || e.key === 'Enter') {
-                // Only capture if suggestions are visible and we have a selection
-                if (flatItems[selectedIndex]) {
-                    e.preventDefault();
-                    onSelect(flatItems[selectedIndex]);
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isVisible, flatItems, selectedIndex, onSelect]);
-
-    // Scroll selected item into view
-    useEffect(() => {
-        if (!isVisible) return;
-        const selectedEl = document.querySelector(`.${styles.suggestionItemSelected}`);
-        if (selectedEl) {
-            selectedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }
-    }, [selectedIndex, isVisible]);
 
     if (!isVisible || (Array.isArray(suggestions) && suggestions.length === 0)) return null;
 
@@ -97,14 +60,14 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
     };
 
     const renderItem = (item: SuggestionItem) => {
-        const isSelected = flatItems[selectedIndex]?.id === item.id;
+        const isHovered = hoveredIndex !== null && flatItems[hoveredIndex]?.id === item.id;
 
         return (
             <button
                 key={item.id}
                 className={clsx(
                     styles.suggestionItem,
-                    isSelected && styles.suggestionItemSelected
+                    isHovered && styles.suggestionItemSelected
                 )}
                 onClick={() => onSelect(item)}
                 onMouseDown={(e) => {
@@ -113,7 +76,10 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
                 }}
                 onMouseEnter={() => {
                     const idx = flatItems.findIndex(i => i.id === item.id);
-                    if (idx !== -1) setSelectedIndex(idx);
+                    if (idx !== -1) setHoveredIndex(idx);
+                }}
+                onMouseLeave={() => {
+                    setHoveredIndex(null);
                 }}
             >
                 <div className={styles.suggestionContent}>
@@ -174,7 +140,7 @@ export const ChatInputSuggestions: React.FC<ChatInputSuggestionsProps> = ({
                     })()}
                 </div>
                 <div className={styles.suggestionArrow}>
-                    {isSelected ? <CornerDownLeft size={14} /> : <ArrowRight size={14} />}
+                    <ArrowRight size={14} />
                 </div>
             </button>
         );

@@ -526,6 +526,7 @@ model TrendingToken {
   name           String
   symbol         String
   imageUrl       String?  @map("image_url")
+  poolCreatedAt  DateTime? @map("pool_created_at")
   price          Decimal?
   priceChange5m  Decimal? @map("price_change_5m")
   priceChange1h  Decimal? @map("price_change_1h")

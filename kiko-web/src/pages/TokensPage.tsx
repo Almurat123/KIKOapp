@@ -432,13 +432,13 @@ const getChainColor = (chain: string): string => {
 
 const getChainLogo = (chain: string): string => {
   const chainLower = chain.toLowerCase();
-  if (chainLower === 'eth' || chainLower === 'ethereum') return 'https://assets.coingecko.com/coins/images/279/small/ethereum.png';
-  if (chainLower === 'sol' || chainLower === 'solana') return 'https://assets.coingecko.com/coins/images/4128/small/solana.png';
-  if (chainLower === 'base') return 'https://assets.coingecko.com/asset_platforms/images/131/small/base.png';
-  if (chainLower === 'bsc' || chainLower === 'binance') return 'https://assets.coingecko.com/coins/images/825/small/binance-coin-logo.png';
-  if (chainLower === 'arbitrum' || chainLower === 'arb') return 'https://assets.coingecko.com/asset_platforms/images/33/small/arbitrum-one.png';
-  if (chainLower === 'optimism' || chainLower === 'op') return 'https://assets.coingecko.com/asset_platforms/images/41/small/optimism.png';
-  if (chainLower === 'polygon' || chainLower === 'matic') return 'https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png';
+  if (chainLower === 'eth' || chainLower === 'ethereum') return '/assets/tokens/eth.png';
+  if (chainLower === 'sol' || chainLower === 'solana') return '/assets/tokens/sol.png';
+  if (chainLower === 'base') return '/assets/tokens/base.png';
+  if (chainLower === 'bsc' || chainLower === 'binance') return '/assets/tokens/bsc.png';
+  if (chainLower === 'arbitrum' || chainLower === 'arb') return '/assets/tokens/arbitrum.png';
+  if (chainLower === 'optimism' || chainLower === 'op') return '/assets/tokens/optimism.png';
+  if (chainLower === 'polygon' || chainLower === 'matic') return '/assets/tokens/polygon.png';
   if (chainLower === 'avax' || chainLower === 'avalanche') return 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png';
   return '';
 };
@@ -625,13 +625,13 @@ interface TokensPageProps {
 // Available chains for filtering
 const CHAIN_OPTIONS = [
   { id: 'all', name: 'All Chains', logo: '', apiKey: '' },
-  { id: 'ETH', name: 'Ethereum', logo: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png', apiKey: 'eth' },
-  { id: 'SOL', name: 'Solana', logo: 'https://assets.coingecko.com/coins/images/4128/small/solana.png', apiKey: 'solana' },
-  { id: 'BSC', name: 'BNB Chain', logo: 'https://assets.coingecko.com/coins/images/825/small/binance-coin-logo.png', apiKey: 'bsc' },
-  { id: 'BASE', name: 'Base', logo: 'https://assets.coingecko.com/asset_platforms/images/131/small/base.png', apiKey: 'base' },
-  { id: 'ARB', name: 'Arbitrum', logo: 'https://assets.coingecko.com/asset_platforms/images/33/small/arbitrum-one.png', apiKey: 'arbitrum' },
-  { id: 'OP', name: 'Optimism', logo: 'https://assets.coingecko.com/asset_platforms/images/41/small/optimism.png', apiKey: 'optimism' },
-  { id: 'MATIC', name: 'Polygon', logo: 'https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png', apiKey: 'polygon' },
+  { id: 'ETH', name: 'Ethereum', logo: '/assets/tokens/eth.png', apiKey: 'eth' },
+  { id: 'SOL', name: 'Solana', logo: '/assets/tokens/sol.png', apiKey: 'solana' },
+  { id: 'BSC', name: 'BNB Chain', logo: '/assets/tokens/bsc.png', apiKey: 'bsc' },
+  { id: 'BASE', name: 'Base', logo: '/assets/tokens/base.png', apiKey: 'base' },
+  { id: 'ARB', name: 'Arbitrum', logo: '/assets/tokens/arbitrum.png', apiKey: 'arbitrum' },
+  { id: 'OP', name: 'Optimism', logo: '/assets/tokens/optimism.png', apiKey: 'optimism' },
+  { id: 'MATIC', name: 'Polygon', logo: '/assets/tokens/polygon.png', apiKey: 'polygon' },
 ];
 
 // Chains to fetch data from

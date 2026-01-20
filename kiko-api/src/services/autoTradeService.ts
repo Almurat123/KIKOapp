@@ -1434,7 +1434,55 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
 
             const data = await res.json() as any;
             if (data.pairs && data.pairs.length > 0) {
-                const pair = data.pairs.find((p: any) => p.chainId === dsSlug) || data.pairs[0];
+                // ================================================================
+                // 🎯 STRICT PAIR SELECTION WITH QUALITY FILTERS
+                // ================================================================
+
+                // Step 1: Filter by correct chain only (NO fallback to other chains)
+                const chainPairs = data.pairs.filter((p: any) => p.chainId === dsSlug);
+
+                if (chainPairs.length === 0) {
+                    logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener: No pairs found on target chain', {
+                        token: tokenAddress,
+                        chainId,
+                        dsSlug,
+                        availableChains: data.pairs.map((p: any) => p.chainId).slice(0, 5)
+                    });
+                    break; // Move to fallback APIs
+                }
+
+                // Step 2: DEX Whitelist - Only trust major DEXs
+                const TRUSTED_DEXS = ['uniswap', 'aerodrome', 'pancakeswap', 'sushiswap', 'curve'];
+                const trustedPairs = chainPairs.filter((p: any) =>
+                    TRUSTED_DEXS.some(dex => p.dexId?.toLowerCase().includes(dex))
+                );
+
+                // Step 3: Quality filters - Minimum liquidity and volume
+                const MIN_PAIR_LIQUIDITY = 500; // $500
+                const MIN_PAIR_VOLUME = 100; // $100 per 24h
+
+                const qualityPairs = (trustedPairs.length > 0 ? trustedPairs : chainPairs).filter((p: any) => {
+                    const liq = p.liquidity?.usd || 0;
+                    const vol = p.volume?.h24 || 0;
+                    return liq >= MIN_PAIR_LIQUIDITY && vol >= MIN_PAIR_VOLUME;
+                });
+
+                if (qualityPairs.length === 0) {
+                    logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener: No quality pairs found', {
+                        token: tokenAddress,
+                        chainPairsCount: chainPairs.length,
+                        trustedPairsCount: trustedPairs.length
+                    });
+                    break; // Move to fallback APIs
+                }
+
+                // Step 4: Select pair with highest liquidity
+                const pair = qualityPairs.reduce((best: any, current: any) => {
+                    const bestLiq = best.liquidity?.usd || 0;
+                    const currentLiq = current.liquidity?.usd || 0;
+                    return currentLiq > bestLiq ? current : best;
+                });
+
                 successResult = {
                     price: parseFloat(pair.priceUsd),
                     symbol: pair.baseToken.symbol,
@@ -1449,7 +1497,13 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
                     websites: pair.info?.websites || [],
                     provider: 'dexscreener'
                 };
-                logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from DexScreener', { symbol: successResult.symbol, price: successResult.price });
+                logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from DexScreener', {
+                    symbol: successResult.symbol,
+                    price: successResult.price,
+                    liquidity: successResult.liquidity,
+                    pairChain: pair.chainId,
+                    pairDex: pair.dexId
+                });
 
                 // Cache Result
                 tokenInfoCache.set(cacheKey, { data: successResult, timestamp: Date.now() });
@@ -1574,6 +1628,50 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
     if (!tokenInfo) return { passed: false, reason: 'No token info' };
 
     // =========================================================================
+    // 🛡️ DEFENSIVE PROGRAMMING: Safe number extraction with data validation
+    // Distinguish between:
+    //   1. Missing data (null/undefined) → Should REJECT trade (data unavailable)
+    //   2. Format issues (string numbers) → Should CONVERT (e.g., "1000" → 1000)
+    // =========================================================================
+    const safeNumber = (value: any, fieldName: string): number => {
+        // Missing data - this is a critical error
+        if (value === null || value === undefined) {
+            throw new Error(`Missing ${fieldName}`);
+        }
+
+        // Convert string to number if needed
+        const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+
+        // Invalid number - this is also a critical error
+        if (isNaN(num) || !isFinite(num)) {
+            throw new Error(`Invalid ${fieldName}: ${value}`);
+        }
+
+        return num;
+    };
+
+    // Try to extract critical data - if any fails, reject the token
+    let liquidity: number;
+    let volume24h: number;
+    let marketCap: number;
+    let price: number;
+
+    try {
+        liquidity = safeNumber(tokenInfo.liquidity, 'liquidity');
+        price = safeNumber(tokenInfo.price, 'price');
+
+        // These are optional - use 0 if missing
+        volume24h = tokenInfo.volume24h !== null && tokenInfo.volume24h !== undefined
+            ? safeNumber(tokenInfo.volume24h, 'volume24h')
+            : 0;
+        marketCap = tokenInfo.marketCap !== null && tokenInfo.marketCap !== undefined
+            ? safeNumber(tokenInfo.marketCap, 'marketCap')
+            : (tokenInfo.fdv !== null && tokenInfo.fdv !== undefined ? safeNumber(tokenInfo.fdv, 'fdv') : 0);
+    } catch (err: any) {
+        return { passed: false, reason: `[DATA ERROR] ${err.message}` };
+    }
+
+    // =========================================================================
     // 🛡️ HONEYPOT DETECTION (Fast Mode)
     // Fast mode: Only check liquidity (quick but less thorough)
     // Normal mode: Additional checks for volume ratio, token age, etc.
@@ -1586,18 +1684,18 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
 
     if (isFastMode) {
         // FAST MODE: Quick liquidity check only
-        if (tokenInfo.liquidity < MIN_LIQUIDITY_FAST) {
-            return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${tokenInfo.liquidity?.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
+        if (liquidity < MIN_LIQUIDITY_FAST) {
+            return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
         }
     } else {
         // NORMAL MODE: More thorough checks
-        if (tokenInfo.liquidity < MIN_LIQUIDITY_NORMAL) {
-            return { passed: false, reason: `[HONEYPOT] Liquidity $${tokenInfo.liquidity?.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
+        if (liquidity < MIN_LIQUIDITY_NORMAL) {
+            return { passed: false, reason: `[HONEYPOT] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
         }
 
         // Check volume/liquidity ratio (very low volume relative to liquidity = suspicious)
-        if (tokenInfo.volume24h > 0 && tokenInfo.liquidity > 0) {
-            const volumeRatio = tokenInfo.volume24h / tokenInfo.liquidity;
+        if (volume24h > 0 && liquidity > 0) {
+            const volumeRatio = volume24h / liquidity;
             if (volumeRatio < MIN_VOLUME_RATIO) {
                 return { passed: false, reason: `[HONEYPOT] Suspicious volume ratio: ${(volumeRatio * 100).toFixed(2)}%` };
             }
@@ -1611,6 +1709,77 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
             }
         }
     }
+
+    // =========================================================================
+    // 🚨 PRICE ANOMALY DETECTION
+    // Detect extreme price movements that could indicate manipulation
+    // =========================================================================
+    if (tokenInfo.priceChange?.h1 !== undefined && tokenInfo.priceChange?.h1 !== null) {
+        const priceChange1h = safeNumber(tokenInfo.priceChange.h1, 'priceChange.h1');
+        const MAX_PRICE_CHANGE_1H = 500; // 500% in 1 hour is suspicious
+
+        if (Math.abs(priceChange1h) > MAX_PRICE_CHANGE_1H) {
+            return { passed: false, reason: `[PRICE ANOMALY] Extreme 1h price change: ${priceChange1h.toFixed(1)}%` };
+        }
+    }
+
+    // Check for unrealistic price values
+    if (price > 0) {
+        const MIN_REALISTIC_PRICE = 0.000000001; // 1e-9
+        const MAX_REALISTIC_PRICE = 1000000; // $1M per token
+
+        if (price < MIN_REALISTIC_PRICE) {
+            return { passed: false, reason: `[PRICE ANOMALY] Price too low: $${price.toExponential(2)}` };
+        }
+        if (price > MAX_REALISTIC_PRICE) {
+            return { passed: false, reason: `[PRICE ANOMALY] Price too high: $${price.toFixed(0)}` };
+        }
+    }
+
+    // =========================================================================
+    // 💰 PRICE IMPACT ESTIMATION
+    // Estimate if our buy will cause excessive slippage
+    // =========================================================================
+    if (config.buyAmountUsd && liquidity > 0) {
+        const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
+        const estimatedPriceImpact = (buyAmount / liquidity) * 100;
+        const MAX_PRICE_IMPACT = 5; // 5% max price impact
+
+        if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
+            return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
+        }
+    }
+
+    // =========================================================================
+    // 📊 DATA SANITY CHECKS
+    // Detect suspicious ratios that could indicate data errors or manipulation
+    // =========================================================================
+
+    // Check 1: Liquidity/Volume ratio
+    if (volume24h > 0 && liquidity > 0) {
+        const liqToVolRatio = liquidity / volume24h;
+        const MAX_LIQ_TO_VOL_RATIO = 100; // Liquidity shouldn't be 100x the daily volume
+
+        if (liqToVolRatio > MAX_LIQ_TO_VOL_RATIO) {
+            return { passed: false, reason: `[DATA ERROR] Suspicious liq/vol ratio: ${liqToVolRatio.toFixed(1)}x` };
+        }
+    }
+
+    // Check 2: MarketCap/Liquidity ratio
+    if (marketCap > 0 && liquidity > 0) {
+        const mcapToLiqRatio = marketCap / liquidity;
+        const MIN_MCAP_TO_LIQ_RATIO = 2; // Market cap should be at least 2x liquidity
+        const MAX_MCAP_TO_LIQ_RATIO = 10000; // But not absurdly high
+
+        if (mcapToLiqRatio < MIN_MCAP_TO_LIQ_RATIO) {
+            return { passed: false, reason: `[DATA ERROR] MCap ${marketCap.toFixed(0)} too low vs liquidity ${liquidity.toFixed(0)}` };
+        }
+
+        if (mcapToLiqRatio > MAX_MCAP_TO_LIQ_RATIO) {
+            return { passed: false, reason: `[DATA ERROR] MCap/Liq ratio ${mcapToLiqRatio.toFixed(0)}x too high` };
+        }
+    }
+
     // =========================================================================
 
     // 1. Min Target Buy Value (Copy trade filter)
@@ -1619,20 +1788,21 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
         return { passed: false, reason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min $${config.minTargetValueUsd}` };
     }
 
-    // 2. Market Cap / FDV
-    const minMarketCapUsd = config.minMarketCapUsd ?? config.minMarketCap;
-    const maxMarketCapUsd = config.maxMarketCapUsd ?? config.maxMarketCap;
+    // 2. Market Cap / FDV (with defensive checks)
+    const minMarketCapUsd = (config.minMarketCapUsd ?? config.minMarketCap) || 0;
+    const maxMarketCapUsd = (config.maxMarketCapUsd ?? config.maxMarketCap) || 0;
 
-    if (minMarketCapUsd && tokenInfo.marketCap < minMarketCapUsd) {
-        return { passed: false, reason: `MCap $${tokenInfo.marketCap} < min $${minMarketCapUsd}` };
+    if (minMarketCapUsd > 0 && marketCap < minMarketCapUsd) {
+        return { passed: false, reason: `MCap $${marketCap.toFixed(0)} < min $${minMarketCapUsd.toFixed(0)}` };
     }
-    if (maxMarketCapUsd && tokenInfo.marketCap > maxMarketCapUsd) {
-        return { passed: false, reason: `MCap $${tokenInfo.marketCap} > max $${maxMarketCapUsd}` };
+    if (maxMarketCapUsd > 0 && marketCap > maxMarketCapUsd) {
+        return { passed: false, reason: `MCap $${marketCap.toFixed(0)} > max $${maxMarketCapUsd.toFixed(0)}` };
     }
 
     // 3. User-defined Liquidity filter (overrides honeypot defaults if set)
-    if (config.minLiquidityUsd && tokenInfo.liquidity < config.minLiquidityUsd) {
-        return { passed: false, reason: `Liquidity $${tokenInfo.liquidity} < min $${config.minLiquidityUsd}` };
+    const minLiquidityUsd = config.minLiquidityUsd || 0;
+    if (minLiquidityUsd > 0 && liquidity < minLiquidityUsd) {
+        return { passed: false, reason: `Liquidity $${liquidity.toFixed(0)} < min $${minLiquidityUsd.toFixed(0)}` };
     }
 
     return { passed: true };
