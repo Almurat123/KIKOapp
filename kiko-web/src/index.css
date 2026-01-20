@@ -145,9 +145,9 @@ body {
   padding: 0;
   background-color: var(--bg-primary);
   /* Will be #ffffff in light mode */
-  /* Safari iOS: Add safe area inset for status bar (top only) */
-  /* Bottom safe area is handled by individual components to avoid double-padding */
-  padding-top: var(--kiko-safe-top);
+  /* Immersive (iOS Web App): allow background/content to extend into the status bar area.
+     Interactive UI elements should apply safe-area offsets themselves. */
+  padding-top: 0;
   min-width: 320px;
   /* Safari iOS 26: Use dvh with vh fallback, constrain to viewport */
   height: 100vh;

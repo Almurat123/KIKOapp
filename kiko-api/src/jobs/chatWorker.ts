@@ -53,6 +53,7 @@ import type { IntentType, UserContext } from '../services/ai/types.js';
 import { parseIntent } from '../services/ai/intentParser.js';
 import { getFilteredTools } from '../services/ai/toolPreRouter.js';
 import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.js';
+import { getTokenDetails as getDexTokenDetails } from '../services/dexscreener.js';
 import { executeDirectSwap } from '../services/directSwapExecutor.js';
 import { ragClient } from '../services/ragClient.js';
 import { skillRegistry } from '../skills/registry.js';
@@ -1840,6 +1841,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         let detectedChainId = task.toolContext?.chainId;
         let detectedChainName: string | undefined;
         let tokenInfo: any = null;
+        let xSeedHandles: string[] = [];
+        let officialSites: string[] = [];
 
         if (parsedIntent.contractAddress) {
             this.ws.broadcastToUser(userId!, {
@@ -1878,6 +1881,48 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                         }
                     });
                 }
+            }
+
+            // Extract official socials/websites (DexScreener token profile is the most reliable source we have)
+            try {
+                const chainForDex: string = (() => {
+                    const chainIdToDex: Record<number, string> = {
+                        1: 'ethereum',
+                        8453: 'base',
+                        56: 'bsc',
+                        42161: 'arbitrum',
+                        10: 'optimism',
+                        137: 'polygon',
+                        900: 'solana',
+                        101: 'solana',
+                    };
+                    return chainIdToDex[detectedChainId || task.toolContext?.chainId || 8453] || 'base';
+                })();
+
+                const dexDetails = await getDexTokenDetails(chainForDex, parsedIntent.contractAddress);
+                const socials = (dexDetails as any)?.socials || [];
+                const websites = (dexDetails as any)?.websites || [];
+
+                const handleSet = new Set<string>();
+                for (const s of socials) {
+                    const url = String((s as any)?.url || '');
+                    if (!url) continue;
+                    if (/x\.com|twitter\.com/i.test(url)) {
+                        const m = url.match(/(?:x\.com|twitter\.com)\/([A-Za-z0-9_]{1,30})/i);
+                        if (m?.[1]) handleSet.add(`@${m[1]}`);
+                    }
+                }
+                xSeedHandles = Array.from(handleSet).slice(0, 5);
+
+                const siteSet = new Set<string>();
+                for (const w of websites) {
+                    const url = String((w as any)?.url || '');
+                    if (!url) continue;
+                    siteSet.add(url);
+                }
+                officialSites = Array.from(siteSet).slice(0, 5);
+            } catch (e) {
+                // Best-effort; do not block generation if socials fetch fails
             }
         }
 
@@ -1929,8 +1974,20 @@ ${tokenInfo.priceChange24h !== undefined ? `24h Change: ${tokenInfo.priceChange2
 ${tokenInfo.volume24h ? `24h Volume: $${tokenInfo.volume24h.toLocaleString()}` : ''}
 ${tokenInfo.marketCap ? `Market Cap: $${tokenInfo.marketCap.toLocaleString()}` : ''}
 ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperCase()} - This token was launched on a launchpad platform.` : ''}
+${xSeedHandles.length > 0 ? `Official X (seed): ${xSeedHandles.join(', ')}` : ''}
+${officialSites.length > 0 ? `Official Sites (seed): ${officialSites.join(', ')}` : ''}
 `;
             }
+
+            const xSeedBlock = (() => {
+                if (!parsedIntent.contractAddress) return '';
+                const lines: string[] = [];
+                if (xSeedHandles.length > 0) lines.push(`- Seed handles: ${xSeedHandles.join(', ')}`);
+                if (officialSites.length > 0) lines.push(`- Seed sites: ${officialSites.join(', ')}`);
+                if (tokenInfo?.symbol || tokenInfo?.name) lines.push(`- Token keywords: ${tokenInfo.symbol || ''} ${tokenInfo.name || ''}`.trim());
+                lines.push(`- Suggested X queries (don’t overfit): "${tokenInfo?.symbol || ''} ${tokenInfo?.name || ''} ${parsedIntent.contractAddress}"`.trim());
+                return `\n\n[X_SEARCH_SEEDS]\n${lines.join('\n')}\n`;
+            })();
 
             // Build enriched content with context
             let enrichedContent = promptOrchestrator.buildPrompt(
@@ -1951,6 +2008,10 @@ ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperC
 User Wallet: ${task.toolContext?.walletAddress}
 ${balanceData.tokens ? `Portfolio Assets:\n${balanceData.tokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
 `;
+            }
+
+            if (xSeedBlock) {
+                enrichedContent += xSeedBlock;
             }
 
             if (tokenContextBlock) {
@@ -1992,6 +2053,15 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
             ...enrichedHistory
         ];
 
+        const isLikelyCaAnalysis = (() => {
+            const lastUser = lastUserMessage?.content || '';
+            return /0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/.test(lastUser)
+                && parsedIntent?.highLevel?.type === 'MARKET_ANALYSIS';
+        })();
+
+        const now = Date.now();
+        const last7dIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+
         // Broadcast Thinking state before API call
         this.ws.broadcastToUser(userId!, {
             type: 'task_status',
@@ -2012,6 +2082,18 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
                 messages: grokMessages,
                 stream: true,
                 enable_search: true,
+                // Built-in search tool config (xAI SDK)
+                // Keep defaults lightweight; for CA analysis, prefer recent window (1–7d) to match short-term trading style.
+                tool_config: {
+                    web_search: {
+                        enable_image_understanding: false,
+                    },
+                    x_search: {
+                        enable_image_understanding: false,
+                        enable_video_understanding: false,
+                        ...(isLikelyCaAnalysis ? { from_date: last7dIso } : {}),
+                    },
+                },
                 tools: toolDefinitions,
                 tool_context: task.toolContext,
                 // Pass user settings for trading preferences

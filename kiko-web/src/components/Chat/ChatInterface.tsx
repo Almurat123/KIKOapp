@@ -160,7 +160,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [isStopping, setIsStopping] = useState(false);
 
     const [hasStarted, setHasStartedLocal] = useState(initialMessages.length > 0);
-    const [showChatUI, setShowChatUI] = useState(initialMessages.length > 0);
+    // showChatUI removed - entirely driven by hasStarted now
 
     // Wrapper to sync hasStarted with Layout's chatStarted
     const setHasStarted = (value: boolean) => {
@@ -216,18 +216,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Farcaster Follow Modal state
     const [showFollowModal, setShowFollowModal] = useState(false);
 
-    useEffect(() => {
-        if (!hasStarted) {
-            setShowChatUI(false);
-            return;
-        }
-        if (initialMessages.length > 0) {
-            setShowChatUI(true);
-            return;
-        }
-        // For first send, wait for welcome exit to avoid double input flash.
-        setShowChatUI(false);
-    }, [hasStarted, initialMessages.length]);
+    // showChatUI effect removed as state is gone. Logic is now direct via hasStarted.
+    // The previous buffering logic is replaced by CSS animations (messageListHidden/chatUiEnter)
 
     const handleDismissFollow = () => {
         localStorage.setItem('kiko-farcaster-follow-dismissed', 'true');
@@ -1592,7 +1582,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     sidebar.setGeneratingConversationId(currentConvId);
                 }
 
-                // Add assistant message placeholder
+                // Add assistant message placeholder (WebSocket will stream content to this ID)
                 const aiMsg: Message = {
                     id: assistantMessage.id,
                     role: 'assistant',
@@ -1840,37 +1830,44 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
 
             {/* Hero / Welcome Content with Exit Animation */}
-            <AnimatePresence
-                mode="wait"
-                initial={false}
-                onExitComplete={() => {
-                    if (hasStarted) {
-                        setShowChatUI(true);
-                    }
-                }}
-            >
+            {/* Hero / Welcome Content with Jelly Exit Animation */}
+            {/* Remove mode="wait" to allow overlapping animations (Jelly effect) */}
+            <AnimatePresence initial={false}>
                 {!hasStarted && (
                     <motion.div
                         key="welcome-screen"
+                        initial={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{
                             opacity: 0,
-                            y: -24,
-                            scale: 0.985,
-                            transition: { type: 'spring', stiffness: 380, damping: 34, mass: 0.8 }
+                            y: -120,    // Move up significantly
+                            scale: 0.95, // Slight shrink
+                            filter: "blur(10px)", // Blur effect for smooth exit
+                            pointerEvents: 'none', // Prevent interaction during exit
+                            transition: {
+                                duration: 0.5,
+                                ease: [0.32, 0.72, 0, 1] // Custom ease for "Jelly" feel
+                            }
                         }}
-                        style={{ width: '100%', height: '100%' }}
+                        style={{
+                            position: 'absolute', // Absolute position to overlap with chat
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            zIndex: 10 // Above chat until gone
+                        }}
                     >
                         <WelcomeScreen onSuggestionClick={handleSend} />
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* Message List - Always rendered, hidden via CSS when not started */}
+            {/* Message List - Always rendered, transitions via CSS classes */}
             <div
                 className={clsx(
                     styles.messageList,
-                    !showChatUI && styles.messageListHidden,
-                    showChatUI && styles.chatUiEnter
+                    !hasStarted && styles.messageListHidden, // Hide when welcome screen is active
+                    hasStarted && styles.chatUiEnter         // Animate in when started
                 )}
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
@@ -2005,7 +2002,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             {/* Input Area - Only show when conversation has started */}
             {
-                showChatUI && (
+                hasStarted && (
                     <div
                         className={clsx(styles.inputArea, styles.inputBottom, styles.chatUiEnterDelayed)}
                         style={safariKeyboard.isKeyboardVisible && safariKeyboard.inputTop !== null ? {

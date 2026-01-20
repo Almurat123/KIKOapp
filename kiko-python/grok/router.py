@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from xai_sdk.chat import user, system, tool, tool_result
 from xai_sdk.tools import web_search, x_search
+from xai_sdk.aio import chat as aio_chat
 from jose import jwt
 
 # Load environment variables
@@ -1488,6 +1489,17 @@ async def chat_completions(
                     parameters=tool_def.get("parameters", {"type": "object", "properties": {}})
                 ))
                 available_tools.add(tool_name)
+            # IMPORTANT: Node passes OpenAI-style tool schemas and does not include x_search.
+            # For Grok, we still want built-in search tools available when enabled.
+            if request.enable_search:
+                existing = set()
+                for t in tools:
+                    if hasattr(t, "function") and hasattr(t.function, "name"):
+                        existing.add(t.function.name)
+                if "web_search" not in existing:
+                    tools.insert(0, web_search(**web_search_config) if web_search_config else web_search())
+                if "x_search" not in existing:
+                    tools.insert(0, x_search(**x_search_config) if x_search_config else x_search())
             print(f"[Tools] Dynamic tool set from Node: {len(tools)} tool(s) ({len(available_tools)} custom)")
         elif request.enable_search:
             if is_fast_model:
@@ -1512,9 +1524,21 @@ async def chat_completions(
                 tool_names.add(t.function.name)
 
         has_search_tools = "web_search" in tool_names or "x_search" in tool_names
-        force_search = False
+        force_search = (
+            has_search_tools
+            and contains_contract_address(last_user_msg)
+            and (has_analysis_intent(last_user_msg) or not has_trade_intent(last_user_msg))
+        )
 
         tool_choice = None
+        if force_search:
+            if "x_search" in tool_names:
+                tool_choice = aio_chat.chat_pb2.ToolChoice(
+                    mode=aio_chat.chat_pb2.ToolMode.TOOL_MODE_REQUIRED,
+                    function_name="x_search",
+                )
+            else:
+                tool_choice = "required"
         include_options = None
         if has_search_tools:
             include_options = ["inline_citations"]

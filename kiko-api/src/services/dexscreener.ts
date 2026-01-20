@@ -956,6 +956,8 @@ export async function getTrendingTokensPremium(
     // Note: Solana WebSocket returns binary protobuf data that can't be reliably parsed
     // with regex - extracted addresses are invalid. Skip WebSocket for Solana.
     const useWebSocket = isWSAvailable && WS_ONLY_CHAINS.has(normalizedChainId);
+    const QUALITY_MIN_LIQ_USD = useWebSocket ? 1000 : 5000;
+    const QUALITY_MIN_VOL_USD = useWebSocket ? 200 : 1000;
 
     // Step 1: Try to get trending addresses from WebSocket (Most accurate for EVM chains)
     if (useWebSocket) {
@@ -1072,8 +1074,8 @@ export async function getTrendingTokensPremium(
               continue;
             }
 
-            // Quality filter: Minimum liquidity $5000 or Volume $1000
-            if (currentLiquidity < 5000 && volume24h < 1000) continue;
+            // Quality filter (looser when WS is available for Base/BSC to reduce Gecko fallback + rate limit risk)
+            if (currentLiquidity < QUALITY_MIN_LIQ_USD && volume24h < QUALITY_MIN_VOL_USD) continue;
 
             enrichedTokensMap.set(baseTokenAddr, {
               address: pair.baseToken?.address || baseTokenAddr,

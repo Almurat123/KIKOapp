@@ -11,7 +11,7 @@
     color: #f4f4f5;
     display: flex;
     flex-direction: column;
-    padding: 12px;
+    padding: calc(12px + var(--kiko-safe-top)) 12px 12px;
     flex-shrink: 0;
     transition: width 0.3s, transform 0.3s, padding 0.3s, opacity 0.3s, background-color 0.3s ease, border-color 0.3s ease;
     z-index: 100;

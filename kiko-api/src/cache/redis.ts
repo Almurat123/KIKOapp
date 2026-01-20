@@ -72,6 +72,33 @@ export async function set(key: string, value: string, ttlSeconds?: number): Prom
     }
 }
 
+export async function acquireLock(key: string, ttlSeconds: number, value: string): Promise<boolean> {
+    if (!REDIS_ENABLED || redisConnectionFailed || !redis) return false;
+    try {
+        const connected = await connectRedis();
+        if (!connected) return false;
+        const result = await redis.set(key, value, { NX: true, EX: ttlSeconds });
+        return result === 'OK';
+    } catch {
+        return false;
+    }
+}
+
+export async function releaseLock(key: string, value: string): Promise<void> {
+    if (!REDIS_ENABLED || redisConnectionFailed || !redis) return;
+    try {
+        const connected = await connectRedis();
+        if (!connected) return;
+        // Only release if we still own it.
+        await redis.eval(
+            'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end',
+            { keys: [key], arguments: [value] }
+        );
+    } catch {
+        // Silently fail - lock is best-effort
+    }
+}
+
 export async function del(key: string): Promise<void> {
     if (!REDIS_ENABLED || redisConnectionFailed || !redis) return;
     try {

@@ -783,7 +783,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   useEffect(() => {
     if (!isPageActive) return;
 
-    const POLL_INTERVAL = 30000; // 30 seconds
+    const POLL_INTERVAL = 300000; // 5 minutes (matches backend refresh cadence)
 
     const pollData = async () => {
       if (!mountedRef.current || !isPageActive) return;

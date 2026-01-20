@@ -9,8 +9,9 @@
 import cron from 'node-cron';
 import { getTrendingTokens } from '../services/geckoTerminal.js';
 import { getTrendingTokensPremium } from '../services/dexscreener.js';
-import { saveTrendingTokens, getLastUpdateTime } from '../repositories/tokenRepository.js';
+import { saveTrendingTokens, getLastUpdateTime, getTrendingTokens as getStoredTrendingTokens } from '../repositories/tokenRepository.js';
 import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
+import { validateTrendingTokenForListing } from '../services/trendingValidation.js';
 
 /**
  * Supported chains configuration
@@ -30,7 +31,7 @@ const SUPPORTED_CHAINS = [
 // Refresh interval in minutes (staggered to avoid hitting rate limits)
 const REFRESH_INTERVAL_MINUTES = 5;
 // Delay between chains in milliseconds (spread load)
-const CHAIN_DELAY_MS = 5000; // 5 seconds between each chain (reduced from 30s)
+const CHAIN_DELAY_MS = 15000; // 15 seconds between each chain (reduce 429 risk)
 // Number of tokens to fetch per chain
 const TOKENS_PER_CHAIN = 100;
 
@@ -38,7 +39,8 @@ const TOKENS_PER_CHAIN = 100;
  * Refresh trending tokens for a single chain
  * Tries GeckoTerminal first, falls back to DexScreener if needed
  */
-import { set } from '../cache/redis.js';
+import { acquireLock, releaseLock, set } from '../cache/redis.js';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Refresh trending tokens for a single chain
@@ -57,8 +59,18 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
 
   // Acquire lock
   refreshLocks.set(chain.id, true);
+  const lockKey = `lock:tokenJob:refresh:${chain.id}`;
+  const lockValue = randomUUID();
+  let hasDistributedLock = false;
 
   try {
+    // Distributed lock (prevents multiple replicas from hammering external APIs)
+    // TTL slightly less than cron interval.
+    hasDistributedLock = await acquireLock(lockKey, 240, lockValue);
+    if (!hasDistributedLock) {
+      console.log(`[TokenJob] Skipping refresh for ${chain.name} - another instance holds the lock`);
+      return;
+    }
 
     const REFRESH_5M_MS = 4.5 * 60 * 1000; // 4.5 minutes
 
@@ -94,6 +106,21 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
 
     console.log(`[TokenJob] Got ${tokens.length} trending tokens for ${chain.name}`);
 
+    // Zero-cost validation: delist non-positive liquidity and obvious malformed entries
+    const beforeCount = tokens.length;
+    tokens = tokens.filter((t) => validateTrendingTokenForListing(chain.id, t).ok);
+    const removed = beforeCount - tokens.length;
+    if (removed > 0) {
+      console.log(`[TokenJob] Filtered out ${removed} invalid tokens for ${chain.name}`);
+    }
+
+    // Guardrail: avoid replacing good data with a partial refresh (e.g. when rate-limited).
+    const existing = await getStoredTrendingTokens(chain.id, TOKENS_PER_CHAIN);
+    if (existing.length >= 70 && tokens.length < 50) {
+      console.warn(`[TokenJob] New list too small (${tokens.length}) for ${chain.name}; keeping existing (${existing.length})`);
+      return;
+    }
+
     // Save to PostgreSQL database
     await saveTrendingTokens(chain.id, tokens);
 
@@ -110,6 +137,9 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
   } catch (error) {
     console.error(`[TokenJob] Error refreshing ${chain.name}:`, error instanceof Error ? error.message : error);
   } finally {
+    if (hasDistributedLock) {
+      await releaseLock(lockKey, lockValue);
+    }
     // Release lock
     refreshLocks.set(chain.id, false);
   }

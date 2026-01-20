@@ -73,7 +73,9 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
     const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain);
     const cached = memoryCache.get<TokenSearchResult[]>(cacheKey);
     if (cached && cached.length > 0) {
-      return cached.slice(0, limit);
+      return cached
+        .filter(t => typeof t.liquidity !== 'number' || t.liquidity > 0)
+        .slice(0, limit);
     }
 
     const result = await prisma.trendingToken.findMany({
@@ -99,10 +101,14 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
     }));
 
     if (tokens.length > 0) {
-      memoryCache.set(cacheKey, tokens, CACHE_TTL.TRENDING_TOKENS);
+      memoryCache.set(
+        cacheKey,
+        tokens.filter(t => typeof t.liquidity !== 'number' || t.liquidity > 0),
+        CACHE_TTL.TRENDING_TOKENS
+      );
     }
 
-    return tokens;
+    return tokens.filter(t => typeof t.liquidity !== 'number' || t.liquidity > 0);
   } catch (error) {
     console.error('Error getting trending tokens:', error);
     return [];

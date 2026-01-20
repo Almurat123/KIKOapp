@@ -505,6 +505,8 @@ function evaluateRuleLayer(userMessage: string, userContext?: UserContext): Inte
     const hasSwap = hasSwapKeywords(userMessage);
     const risk = hasRiskKeywords(userMessage);
     const tradeVerb = hasTradeVerbs(userMessage);
+    const looksLikeAnalysisQuestion = /\b(what\s+is|what's|whats|analy[sz]e|worth|why|sentiment|narrative|community|catalyst)\b/i.test(userMessage)
+        || /(是什么|是什么币|这是啥|分析|值不值得|能买吗|为什么|情绪|叙事|社区|催化)/.test(userMessage);
 
     const scores: Partial<Record<HighLevelIntentType, IntentLabelScore>> = {};
     const add = (label: HighLevelIntentType, confidence: number, evidence: string[]) => {
@@ -525,10 +527,15 @@ function evaluateRuleLayer(userMessage: string, userContext?: UserContext): Inte
     if (risk) {
         add('RISK_SCAN', tradeVerb ? 0.6 : 0.9, ['keyword: risk/safety']);
     }
-    if (hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
+    // TRADING: require explicit trade intent (swap keywords / trade verbs / token pair).
+    // A bare contract address is more often an analysis request ("what is this token?") and should not auto-route to TRADING.
+    if (hasSwap || tradeVerb || (tokenSymbols.tokenIn && tokenSymbols.tokenOut) || (contractAddress && hasSwap)) {
         add('TRADING', hasSwap ? 0.9 : 0.8, [
             hasSwap ? 'keyword: swap/trade' : 'token pair/contract address',
         ]);
+    }
+    if (contractAddress && !hasSwap && !tradeVerb) {
+        add('MARKET_ANALYSIS', looksLikeAnalysisQuestion ? 0.9 : 0.8, ['contract address (no trade verb)']);
     }
     if (/\b(trending|social|farcaster|twitter|sentiment|what.*people|what.*saying)\b/i.test(userMessage)) {
         add('SOCIAL_SENSING', 0.8, ['keyword: social/trending']);
@@ -639,6 +646,8 @@ function parseHighLevelIntentHeuristic(
     const tokenSymbols = extractTokenSymbols(userMessage);
     const hasRisk = hasRiskKeywords(userMessage);
     const hasTradeVerb = hasTradeVerbs(userMessage);
+    const looksLikeAnalysisQuestion = /\b(what\s+is|what's|whats|analy[sz]e|worth|why|sentiment|narrative|community|catalyst)\b/i.test(userMessage)
+        || /(是什么|是什么币|这是啥|分析|值不值得|能买吗|为什么|情绪|叙事|社区|催化)/.test(userMessage);
 
     // COPY TRADING intent (must run before TRADING)
     if (hasCopyTradeKeywords(userMessage)) {
@@ -667,10 +676,18 @@ function parseHighLevelIntentHeuristic(
     }
 
     // TRADING intent
-    if (hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
+    if (hasSwap || hasTradeVerb || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
         return {
             type: 'TRADING',
             confidence: 0.9,
+        };
+    }
+
+    // Contract address without trade verb is usually analysis.
+    if (contractAddress) {
+        return {
+            type: 'MARKET_ANALYSIS',
+            confidence: looksLikeAnalysisQuestion ? 0.9 : 0.8,
         };
     }
 
