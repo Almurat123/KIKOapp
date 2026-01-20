@@ -366,9 +366,9 @@ async function processBuyWithInfo(
             const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
 
             if (!filterResult.passed) {
-                logger.info(LogCode.WTC_TX_SKIPPED, `Filter check failed for user`, {
+                logger.info(LogCode.WTC_TX_SKIPPED, `⏭️ Skipping ${tokenInfo.symbol || tokenToBuy.slice(0, 10)}: ${filterResult.reason}`, {
                     userId: config.userId,
-                    reason: filterResult.reason
+                    token: tokenToBuy
                 });
                 continue;
             }
