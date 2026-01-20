@@ -6,7 +6,7 @@
         "MARKET_ANALYSIS"
     ],
     "tools": [
-        "web_search",
+        "external_web_search",
         "get_market_overview",
         "get_economic_calendar",
         "get_gas_price"

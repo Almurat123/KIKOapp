@@ -24,43 +24,57 @@ export class PromptOrchestrator {
         const promptVersion = (process.env.PROMPT_SYSTEM_VERSION || 'v2').toLowerCase();
 
         if (promptVersion === 'v2') {
-            // CORE + MODEL ADAPTER
-            modules.push(V2_PROMPT_MODULES.CORE);
+            const freeIntents = new Set<IntentType>([
+                'MARKET_ANALYSIS',
+                'SOCIAL_SENSING',
+                'GENERAL_CHAT',
+                'PREDICTION_MARKETS',
+                'RISK_SCAN',
+            ]);
+
             const modelAdapter = V2_PROMPT_MODULES.MODEL_ADAPTER[model];
-            if (modelAdapter) modules.push(modelAdapter);
-
-            // TOOL LIST (keep system prompt small; full schemas are sent via requestBody.tools)
-            modules.push(generateToolList());
-
-            // INTENT POLICY
-            modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
-
-            // TRADING POLICY (only for trading intent)
-            if (intent === 'TRADING') {
-                modules.push(V2_PROMPT_MODULES.TRADING_POLICY);
-            }
-
-            // SKILLS (intent-matched)
-            const intentStr = String(intent).toUpperCase();
-            const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
-            if (matchedSkills.length > 0) {
-                logger.info(LogCode.AI_TOOL_FILTERED, 'PromptOrchestrator: Intent matched skills', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
-                for (const skill of matchedSkills) {
-                    if (skill.prompt) {
-                        logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt', { skill: skill.metadata.name, length: skill.prompt.length });
-                        modules.push(skill.prompt);
-                    }
-                }
+            if (model === 'grok') {
+                // Grok-only minimal chain: use only the model adapter for testing.
+                if (modelAdapter) modules.push(modelAdapter);
             } else {
-                logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent, using legacy modules', { intent });
-                const intentModule = INTENT_MODULES[intent];
-                if (intentModule) {
-                    modules.push(intentModule);
+                // CORE + MODEL ADAPTER
+                modules.push(V2_PROMPT_MODULES.CORE);
+                if (modelAdapter) modules.push(modelAdapter);
+
+                // TOOL LIST (keep system prompt small; full schemas are sent via requestBody.tools)
+                modules.push(generateToolList());
+
+                if (freeIntents.has(intent)) {
+                    // High-freedom analysis/chat: keep the system prompt minimal, let the model express itself.
+                    modules.push(V2_PROMPT_MODULES.ANALYST_POLICY);
+                } else {
+                    // Execution mode: strong policies + skills + output policy.
+                    modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
+                    if (intent === 'TRADING') {
+                        modules.push(V2_PROMPT_MODULES.TRADING_POLICY);
+                    }
+
+                    const intentStr = String(intent).toUpperCase();
+                    const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+                    if (matchedSkills.length > 0) {
+                        logger.info(LogCode.AI_TOOL_FILTERED, 'PromptOrchestrator: Intent matched skills', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
+                        for (const skill of matchedSkills) {
+                            if (skill.prompt) {
+                                logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt', { skill: skill.metadata.name, length: skill.prompt.length });
+                                modules.push(skill.prompt);
+                            }
+                        }
+                    } else {
+                        logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent, using legacy modules', { intent });
+                        const intentModule = INTENT_MODULES[intent];
+                        if (intentModule) {
+                            modules.push(intentModule);
+                        }
+                    }
+
+                    modules.push(V2_PROMPT_MODULES.OUTPUT_POLICY);
                 }
             }
-
-            // OUTPUT POLICY
-            modules.push(V2_PROMPT_MODULES.OUTPUT_POLICY);
         } else {
             // 1. CORE LAYER (v1)
             modules.push(PROMPT_MODULES.IDENTITY);

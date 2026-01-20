@@ -207,7 +207,7 @@ User: "Check wallet 0x1234..."
 **Example 6: Token Price with Address**
 User: "Check 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 on Base"
 → Call: get_token_info(address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", chain="base")
-DO NOT call web_search.
+DO NOT call external_web_search.
 
 **Example 7: Trending Tokens**
 User: "What tokens are trending?" or "Hot tokens today"
@@ -253,9 +253,9 @@ User: "What are people betting on?"
 1. "Swap/Buy/Sell" → ALWAYS use prepare_swap_transaction (not info tools)
 2. "Balance/Wallet/Funds" → ALWAYS use get_wallet_info
 3. "Farcaster" → ALWAYS use Farcaster tools (not Polymarket)
-4. Contract address → ALWAYS use get_token_info (not web_search)
+4. Contract address → ALWAYS use get_token_info (not external_web_search)
 5. "Trending tokens" → ALWAYS use get_trending_tokens
-6. "News", "today's news" → ONLY use web_search, NEVER use get_trending_tokens
+6. "News", "today's news" → ONLY use external_web_search, NEVER use get_trending_tokens
 
 ---
 
@@ -263,7 +263,7 @@ User: "What are people betting on?"
 
 **Example 13: News Query (CRITICAL)**
 User: "What's the news today?" or "crypto news"
-→ ONLY call: web_search(query="crypto news today")
+→ ONLY call: external_web_search(query="crypto news today")
 DO NOT call get_trending_tokens - that is for market data, NOT news.
 News = events, announcements, regulations, hacks, company updates.
 Market data = prices, trending tokens, volume.

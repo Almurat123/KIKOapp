@@ -236,7 +236,7 @@ This document serves as the **Technical Reference** for all tools available to t
 | \`get_token_info\` | Metadata, Price, Liquidity, and FDV for any contract address. | \`{ name, symbol, address, price, liquidity, fdv, priceChange24h, volume24h }\` |
 | \`get_early_buyers\` | **NEW**: Get earliest buyers of a token. Reveals insider/whale activity. | \`{ buyerCount, earlyBuyers: [{ rank, address, timestamp, amount, txHash }] }\` |
 | \`analyze_creator\` | **NEW**: Analyze token deployer's wallet for risk signals (mixer funding, wallet age). | \`{ riskLevel: 'Safe'|'Medium'|'High', riskScore, tags, details }\` |
-| \`web_search\` | Real-time news and general info from the live web. | \`{ results: "Text summary...", citations: ["URL1", ...] }\` |
+| \`external_web_search\` | Real-time news and general info from the live web. | \`{ results: "Text summary...", citations: ["URL1", ...] }\` |
 
 ## 👛 WALLET & PERSONAL
 | Tool Name | Technical Description | Key Return Fields (JSON) |
@@ -282,7 +282,7 @@ Always use these **lowercase slugs** for the \`chain\` parameter:
 All tools return a consistent error object on failure:
 \`{ error: "Detailed reason for failure" }\`
 > [!IMPORTANT]
-> If you see an \`error\` field, **DO NOT** make up data. Inform the user or suggest an alternative (e.g., if \`get_token_info\` fails, try \`web_search\`).
+> If you see an \`error\` field, **DO NOT** make up data. Inform the user or suggest an alternative (e.g., if \`get_token_info\` fails, try \`external_web_search\`).
 
 ### 3. Numeric Precision
 - **Amounts**: For \`prepare_swap_transaction\`, \`amount_in\` MUST be a string representation of a number (e.g., \`"0.5"\`). 
@@ -291,7 +291,7 @@ All tools return a consistent error object on failure:
 ### 4. Search Priority (The "Fallback Strategy")
 1. Use \`get_token_info\` for contract-based research.
 2. Use \`get_token_price\` for major coin symbols.
-3. Use \`web_search\` only as a last resort for news or unlisted tokens.
+3. Use \`external_web_search\` only as a last resort for news or unlisted tokens.
 
 ### 5. Execution vs. Simulation
 - \`prepare_swap_transaction\` has an \`execute\` parameter (default \`true\`). 
@@ -306,7 +306,7 @@ export const DEEPSEEK_TOOL_DIRECTIVE = `
 **CORE DIRECTIVE**:
 - You are TOOL-FIRST. You have NO internal real-time market knowledge.
 - You MUST use tools for prices, trends, and token info.
-- If a tool fails, try an alternative (web_search).
+- If a tool fails, try an alternative (external_web_search).
 
 **TOOL PRIORITY & SEQUENCING (MANDATORY)**:
 - You MUST call 'get_token_info' before: price queries, risk scans, or trading actions.
@@ -338,7 +338,7 @@ export const GROK_TOOL_DIRECTIVE = `
 **CORE DIRECTIVE**: You are a TOOL-FIRST agent.
 - You have NO internal knowledge of real-time crypto prices.
 - You MUST use the provided tools for ANY market-related query.
-- If a tool fails, try an alternative tool (e.g., web_search).
+- If a tool fails, try an alternative tool (e.g., external_web_search).
 
 **TOOL PRIORITY & SEQUENCING (MANDATORY)**:
 - You MUST call 'get_token_info' before: price queries, risk scans, or trading actions.

@@ -1,7 +1,7 @@
 import { toolRegistry } from './registry.js';
 import { GetTokenInfoTool } from '../skills/TokenSkill/index.js';
 import { GetTrendingTokensTool } from '../skills/TokenSkill/index.js';
-import { WebSearchTool } from '../skills/MarketSkill/index.js';
+import { ExternalWebSearchTool } from '../skills/MarketSkill/index.js';
 import { PrepareSwapTransactionTool, SimulateSwapTool } from '../skills/SwapSkill/index.js';
 
 import { GetWalletInfoTool } from '../skills/WalletSkill/index.js';
@@ -40,7 +40,7 @@ import { SetTokenAlertTool, ListTokenAlertsTool, RemoveTokenAlertTool } from '..
 // Register all tools here
 toolRegistry.register(GetTokenInfoTool);
 toolRegistry.register(GetTrendingTokensTool);
-toolRegistry.register(WebSearchTool);
+toolRegistry.register(ExternalWebSearchTool);
 toolRegistry.register(PrepareSwapTransactionTool);
 toolRegistry.register(SimulateSwapTool);
 toolRegistry.register(GetMarketOverviewTool);

@@ -53,9 +53,7 @@
     overflow-x: clip;
     /* Use clip instead of hidden to not interfere with child scrolling */
     padding: 16px;
-    /* Safari iOS 26: Add safe area for bottom toolbar + home indicator */
-    /* Use max() to ensure proper spacing in standalone mode */
-    padding-bottom: max(140px, calc(140px + env(safe-area-inset-bottom, 34px)));
+    padding-bottom: calc(var(--kiko-chat-message-bottom) + var(--kiko-safe-bottom));
     /* Extra space for action buttons + input area + safe area */
     display: flex;
     flex-direction: column;
@@ -84,7 +82,7 @@
     .messageList {
         padding: 20px 24px;
         padding-top: 24px;
-        padding-bottom: 140px;
+        padding-bottom: calc(var(--kiko-chat-message-bottom-desktop) + var(--kiko-safe-bottom));
         /* Extra space for action buttons + input area */
     }
 }
@@ -628,15 +626,13 @@
 
 .inputBottom {
     top: auto;
-    /* Safari iOS 26: Ensure input clears home indicator bar in standalone mode */
-    /* Use max() to ensure at least 34px (home bar height) + 16px base padding */
-    bottom: max(16px, calc(16px + env(safe-area-inset-bottom, 34px)));
+    bottom: calc(var(--kiko-chat-input-bottom) + var(--kiko-safe-bottom));
     transform: translateY(0);
 }
 
 @media (min-width: 768px) {
     .inputBottom {
-        bottom: max(24px, calc(24px + env(safe-area-inset-bottom, 0px)));
+        bottom: calc(var(--kiko-chat-input-bottom-desktop) + var(--kiko-safe-bottom));
     }
 }
 
@@ -1416,13 +1412,13 @@
 }
 
 .modelOptionActive {
-    background: rgba(99, 102, 241, 0.15);
-    /* Purple tint highlight */
+    background: rgba(255, 255, 255, 0.15);
+    /* Neutral glass */
     color: #ffffff;
 }
 
 .modelOptionActive .modelOptionMode {
-    background: rgba(99, 102, 241, 0.3);
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .modelOptionName {

@@ -60,5 +60,9 @@ export function generateToolPrompt(): string {
  */
 export function generateToolList(): string {
     const definitions = toolRegistry.getAllDefinitions();
-    return definitions.map(d => `- \`${d.name}\`: ${d.description.split('.')[0]}`).join('\n');
+    const lines = [
+        'Available tools (optional, use only if helpful):',
+        ...definitions.map(d => `- \`${d.name}\`: ${d.description.split('.')[0]}`)
+    ];
+    return lines.join('\n');
 }

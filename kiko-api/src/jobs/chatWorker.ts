@@ -120,6 +120,28 @@ export class ChatWorker {
         return sanitized;
     }
 
+    private redactToolNames(text: string): string {
+        if (!text) return text;
+        const toolNames = toolRegistry.getAllDefinitions().map(def => def.name);
+        let redacted = text;
+        for (const name of toolNames) {
+            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const pattern = new RegExp(`\\b${escaped}\\b`, 'gi');
+            redacted = redacted.replace(pattern, 'internal tool');
+        }
+        return redacted;
+    }
+
+    private isFreeIntent(intent: IntentType): boolean {
+        return new Set<IntentType>([
+            'MARKET_ANALYSIS',
+            'SOCIAL_SENSING',
+            'GENERAL_CHAT',
+            'PREDICTION_MARKETS',
+            'RISK_SCAN',
+        ]).has(intent);
+    }
+
     private async recordIntentTrace(
         task: AITask,
         sessionMessages: any[],
@@ -486,10 +508,11 @@ export class ChatWorker {
 
             // Use high-level intent for system prompt selection
             const intent: IntentType = parsedIntent.highLevel.type;
+            const isFreeIntent = this.isFreeIntent(intent);
 
             // Skills-level tool gating (single source of truth: `skill.json` -> metadata.tools).
             // Apply once (intent is stable for this task) to prevent tool drift and wrong-tool selection.
-            if (iteration === 1) {
+            if (iteration === 1 && !isFreeIntent) {
                 const intentStr = String(intent).toUpperCase();
                 const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
                 const allowedToolNames = new Set<string>();
@@ -498,8 +521,8 @@ export class ChatWorker {
                         allowedToolNames.add(name);
                     }
                 }
-                // Always keep `web_search` as a safe fallback (consistent with ToolPreRouter).
-                allowedToolNames.add('web_search');
+                // Always keep `external_web_search` as a safe fallback (consistent with ToolPreRouter).
+                allowedToolNames.add('external_web_search');
 
                 if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
                     const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
@@ -510,6 +533,11 @@ export class ChatWorker {
                         console.warn(`[ChatWorker] Skill gating produced 0 tools for intent=${intentStr}; falling back to base tool set`);
                     }
                 }
+            }
+            if (iteration === 1 && isFreeIntent) {
+                const allToolDefs = toolRegistry.getAllDefinitions();
+                toolDefinitions = allToolDefs.map(def => ({ type: 'function', function: def }));
+                console.log(`[ChatWorker] Free intent mode: using all ${toolDefinitions.length} tools (no gating)`);
             }
 
             // Log detailed intent for debugging
@@ -1391,6 +1419,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     if (!modResult.safe) {
                         totalContent = modResult.filtered_text || '[Content removed for safety]';
                     }
+                    totalContent = this.redactToolNames(totalContent);
                 }
                 break; // Final response reached
             }
@@ -1433,7 +1462,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
      */
     private getToolStatusMessage(toolName: string): string {
         const toolMessages: Record<string, string> = {
-            'web_search': 'Searching the web',
+            'external_web_search': 'Searching the web',
             'get_trending_tokens': 'Fetching trending tokens',
             'get_token_info': 'Analyzing token data',
             'get_token_chart': 'Generating chart',
@@ -1695,8 +1724,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                         content: contentForLLM
                     });
 
-                } else if (tc.function.name === 'web_search' && result && typeof result === 'object' && result.citations) {
-                    // Special handling for web_search - extract citations
+                } else if (tc.function.name === 'external_web_search' && result && typeof result === 'object' && result.citations) {
+                    // Special handling for external web search - extract citations
                     allCitations.push(...result.citations);
                     // Only send the results text to the LLM, not the full object
                     results.push({
@@ -1785,6 +1814,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
         // Use high-level intent for system prompt selection
         const intent: IntentType = parsedIntent.highLevel.type;
+        const isFreeIntent = this.isFreeIntent(intent);
 
         // Skills-level tool gating (single source of truth: `skill.json` -> metadata.tools).
         const intentStr = String(intent).toUpperCase();
@@ -1795,10 +1825,10 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 allowedToolNames.add(name);
             }
         }
-        // Always keep `web_search` as a safe fallback (consistent with ToolPreRouter).
-        allowedToolNames.add('web_search');
+        // Always keep `external_web_search` as a safe fallback (consistent with ToolPreRouter).
+        allowedToolNames.add('external_web_search');
 
-        if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
+        if (!isFreeIntent && matchedSkills.length > 0 && allowedToolNames.size > 0) {
             const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
             if (gated.length > 0) {
                 toolDefinitions = gated.map(def => ({ type: 'function', function: def }));
@@ -1806,6 +1836,14 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             } else {
                 console.warn(`[ChatWorker] Grok skill gating produced 0 tools for intent=${intentStr}; falling back to base tool set`);
             }
+        }
+        if (isFreeIntent) {
+            const allToolDefs = toolRegistry.getAllDefinitions().filter(def => def.name !== 'external_web_search');
+            toolDefinitions = allToolDefs.map(def => ({ type: 'function', function: def }));
+            console.log(`[ChatWorker] Grok free intent mode: using all ${toolDefinitions.length} tools (no gating, exclude external_web_search)`);
+        }
+        if (!isFreeIntent) {
+            toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'external_web_search');
         }
 
         // Log detailed intent for debugging
@@ -2229,6 +2267,7 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
         if (!modResult.safe) {
             fullContent = modResult.filtered_text || '[Content removed for safety]';
         }
+        fullContent = this.redactToolNames(fullContent);
 
         // Final message update with safeguard
         try {

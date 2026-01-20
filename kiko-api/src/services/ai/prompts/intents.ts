@@ -54,7 +54,7 @@ export const MARKET_ANALYSIS_INTENT = `
      * \`get_early_buyers\` (Smart Money)
      * \`analyze_creator\` (Deployer Risk)
      * \`check_token_risk\` (Safety)
-   - Explain *why* a token is moving (use \`web_search\` for news if needed).
+   - Explain *why* a token is moving (use \`external_web_search\` for news if needed).
 `.trim();
 
 /**

@@ -117,8 +117,8 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
                 }
             }
 
-            // Special handling for web_search citations
-            if (functionName === 'web_search' && result && typeof result === 'object' && result.citations) {
+            // Special handling for external web search citations
+            if (functionName === 'external_web_search' && result && typeof result === 'object' && result.citations) {
                 if (Array.isArray(result.citations)) {
                     allCitations.push(...result.citations);
                 }
@@ -369,7 +369,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 WARNING: You have NO internal knowledge of real-time crypto prices, trending tokens, or market data. 
 You MUST use the provided tools for ANY market-related query (prices, trending, new pairs, etc). 
 DO NOT answer from your training data. 
-If a tool fails, try an alternative tool (e.g., if GeckoTerminal fails, try web_search).
+If a tool fails, try an alternative tool (e.g., if GeckoTerminal fails, try external_web_search).
 NEVER fabricate data.
 
 **AVAILABLE TOOLS & USAGE**:
@@ -395,8 +395,8 @@ NEVER fabricate data.
     -   **check_token_risk**: Use for security analysis (honeypot, taxes, ownership).
 
 4.  **NEWS & RESEARCH**
-    -   **web_search**: Use for news, general research, "why is crypto down?", "what is project X?".
-        -   For "crypto news" or "news about Solana", use web_search with appropriate query.
+    -   **external_web_search**: Use for news, general research, "why is crypto down?", "what is project X?".
+        -   For "crypto news" or "news about Solana", use external_web_search with appropriate query.
 
 5.  **WALLET & PORTFOLIO**
     -   **get_wallet_info**: Use for "my balance", "monitor wallet 0x...", "portfolio value".
@@ -425,7 +425,7 @@ NEVER fabricate data.
     2.  get_token_price (market cap)
     3.  check_token_risk (safety)
     4.  get_early_buyers (smart money)
-    5.  web_search (news/sentiment if needed)
+    5.  external_web_search (news/sentiment if needed)
 -   **JSON Only**: Do not output markdown or text when calling tools. Just the tool call.
 -   **Gas Calculation**: Fee = Gas Limit * Gas Price. (ETH Tx ~21k, Swap ~200k).
 

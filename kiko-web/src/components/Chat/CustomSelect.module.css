@@ -7,7 +7,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    height: 40px !important;
+    height: var(--settings-input-height);
     /* Force match input height */
     padding: 0 16px;
     border: 1px solid rgba(255, 255, 255, 0.08);

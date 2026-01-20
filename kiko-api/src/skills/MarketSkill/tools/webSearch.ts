@@ -1,10 +1,10 @@
 import { Tool } from '../../../tools/registry.js';
 import { searchWeb, formatSearchResults } from '../../../services/searchService.js';
 
-export const WebSearchTool: Tool = {
+export const ExternalWebSearchTool: Tool = {
     definition: {
-        name: 'web_search',
-        description: 'Search the web for current information, news, or real-time data. Use this when the user asks about recent events, current prices, latest news, or any information that requires up-to-date knowledge.',
+        name: 'external_web_search',
+        description: 'Search the web (external provider) for current information, news, or real-time data. Use this when the user asks about recent events, current prices, latest news, or any information that requires up-to-date knowledge.',
         parameters: {
             type: 'object',
             properties: {
@@ -23,10 +23,10 @@ export const WebSearchTool: Tool = {
     },
     handler: async (args) => {
         try {
-            const { results, citations } = await searchWeb(
-                args.query,
-                args.max_results || 5
-            );
+        const { results, citations } = await searchWeb(
+            args.query,
+            args.max_results || 5
+        );
 
             const formattedResults = formatSearchResults(results);
 

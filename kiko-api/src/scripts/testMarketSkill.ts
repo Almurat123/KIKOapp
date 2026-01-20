@@ -4,7 +4,7 @@ dotenv.config();
 import { GetMarketOverviewTool } from '../skills/MarketSkill/tools/marketOverview.js';
 import { GetEconomicCalendarTool } from '../skills/MarketSkill/tools/economicCalendar.js';
 import { GetGasPriceTool } from '../skills/MarketSkill/tools/gasPrice.js';
-import { WebSearchTool } from '../skills/MarketSkill/tools/webSearch.js';
+import { ExternalWebSearchTool } from '../skills/MarketSkill/tools/webSearch.js';
 
 async function run() {
   const results: Record<string, any> = {};
@@ -28,9 +28,9 @@ async function run() {
   }
 
   try {
-    results.web_search = await WebSearchTool.handler({ query: 'Ethereum ETF approval status', max_results: 3 });
+    results.external_web_search = await ExternalWebSearchTool.handler({ query: 'Ethereum ETF approval status', max_results: 3 });
   } catch (e: any) {
-    results.web_search = { error: e.message || String(e) };
+    results.external_web_search = { error: e.message || String(e) };
   }
 
   console.log(JSON.stringify(results, null, 2));

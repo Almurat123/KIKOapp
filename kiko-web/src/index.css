@@ -109,6 +109,10 @@ html {
   --kiko-safe-bottom: 0px;
   --kiko-safe-left: 0px;
   --kiko-safe-right: 0px;
+  --kiko-chat-input-bottom: 16px;
+  --kiko-chat-input-bottom-desktop: 24px;
+  --kiko-chat-message-bottom: 140px;
+  --kiko-chat-message-bottom-desktop: 180px;
 }
 
 @supports (padding-top: constant(safe-area-inset-top)) {
@@ -126,6 +130,13 @@ html {
     --kiko-safe-bottom: env(safe-area-inset-bottom);
     --kiko-safe-left: env(safe-area-inset-left);
     --kiko-safe-right: env(safe-area-inset-right);
+  }
+}
+
+@media (display-mode: standalone) {
+  :root {
+    --kiko-chat-input-bottom: 8px;
+    --kiko-chat-message-bottom: 120px;
   }
 }
 

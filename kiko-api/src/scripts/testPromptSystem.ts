@@ -107,7 +107,7 @@ function hasToolList(systemPrompt: string) {
 }
 
 function mentionsSearchTools(systemPrompt: string) {
-  return systemPrompt.includes('x_search') || systemPrompt.includes('web_search');
+  return systemPrompt.includes('x_search') || systemPrompt.includes('web_search') || systemPrompt.includes('external_web_search');
 }
 
 async function run() {
@@ -258,7 +258,7 @@ async function run() {
     if (!hasToolList(systemPrompt)) warnings.push('missing tool list');
     if (intent === 'TRADING' && !hasTradingPolicy(systemPrompt)) warnings.push('missing TRADING_POLICY');
     if (matchedSkills.length === 0) warnings.push('no skills matched this intent (legacy fallback will apply)');
-    if (scenario.model === 'grok' && !mentionsSearchTools(systemPrompt)) warnings.push('grok prompt does not mention x_search/web_search');
+    if (scenario.model === 'grok' && !mentionsSearchTools(systemPrompt)) warnings.push('grok prompt does not mention x_search/web_search/external_web_search');
 
     lines.push(`### ${scenario.name}`);
     lines.push(`- model: ${scenario.model}`);

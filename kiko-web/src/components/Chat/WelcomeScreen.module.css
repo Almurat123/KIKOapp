@@ -1124,12 +1124,15 @@
 }
 
 .modelOptionActive {
-  background: rgba(99, 102, 241, 0.15);
-  color: #f4f4f5;
+  background: rgba(255, 255, 255, 0.15);
+  /* Neutral glass */
+  color: #ffffff;
 }
 
 .modelOptionActive .modelOptionMode {
-  background: rgba(99, 102, 241, 0.3);
+  background: rgba(255, 255, 255, 0.2);
+  /* Neutral glass tag */
+  color: #ffffff;
 }
 
 .modelOptionName {

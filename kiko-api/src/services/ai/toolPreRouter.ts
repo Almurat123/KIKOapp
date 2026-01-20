@@ -107,7 +107,7 @@ const TOOL_CATEGORIES: ToolCategory[] = [
     // Low priority so specific categories take precedence
     {
         keywords: /\b(what\s+is|how\s+does|explain|tell\s+me|why|who\s+is|when\s+did|介绍|是什么|怎么|为什么)\b/i,
-        tools: ['web_search', 'get_market_overview', 'get_token_info', 'get_trending_tokens'],
+        tools: ['external_web_search', 'get_market_overview', 'get_token_info', 'get_trending_tokens'],
         priority: 5  // Very low - only used if no specific category matches
     }
 ];
@@ -135,8 +135,8 @@ export function getFilteredTools(userMessage: string): ToolDefinition[] {
     const primaryCategory = matchedCategories[0];
     const allowedToolNames = new Set(primaryCategory.tools);
 
-    // Always include web_search as fallback
-    allowedToolNames.add('web_search');
+    // Always include external_web_search as fallback
+    allowedToolNames.add('external_web_search');
 
     const filteredTools = allTools.filter(tool => allowedToolNames.has(tool.name));
 
