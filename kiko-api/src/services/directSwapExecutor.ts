@@ -10,6 +10,8 @@ import { executeSolanaSwap } from './solanaExecutor.js';
 import { getEmbeddedWalletAddress, sendTransaction } from './privyWallet.js';
 import { findTokenOnAnyChain } from './ai/tokenDetector.js';
 import { resolveTokenAddress } from './tokens.js';
+import { getChainConfig } from '../config/chainConfig.js';
+import { ethers } from 'ethers';
 
 export interface DirectSwapParams {
     sessionId: string;
@@ -266,6 +268,21 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
             throw new Error(`No quotes available for ${params.tokenIn} -> ${params.tokenOut}`);
         }
 
+        // 🛡️ CRITICAL: Check and execute Approval BEFORE sending swap transaction
+        // This is required for SELL operations where user's token needs to be transferred
+        if (isSellOperation && best.allowanceTarget && best.allowanceTarget !== '0x0000000000000000000000000000000000000000') {
+            console.log('[DirectSwap] Checking token allowance for SELL...', { token: actualTokenIn, spender: best.allowanceTarget });
+            await checkAndApproveForDirectSwap(
+                params.userId,
+                params.accessToken,
+                params.walletAddress,
+                actualTokenIn,
+                best.allowanceTarget,
+                await amountInBase,
+                effectiveChainId
+            );
+        }
+
         // Execute via Privy
         console.log(`[DirectSwap] Executing via ${best.dexName} on chain ${effectiveChainId}`);
         const txHash = await sendTransaction(params.userId, params.accessToken, {
@@ -289,5 +306,60 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
             error: error.message,
             method: 'failed'
         };
+    }
+}
+
+/**
+ * Check token allowance and approve if necessary (for DirectSwap)
+ */
+async function checkAndApproveForDirectSwap(
+    userId: string,
+    accessToken: string,
+    owner: string,
+    tokenAddress: string,
+    spender: string,
+    amount: string,
+    chainId: number
+) {
+    try {
+        console.log('[DirectSwap] Checking token allowance', { token: tokenAddress, spender });
+
+        // Simple ERC20 ABI for allowance
+        const abi = ['function allowance(address owner, address spender) view returns (uint256)'];
+
+        const chainConfig = getChainConfig(chainId);
+        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+        const contract = new ethers.Contract(tokenAddress, abi, provider);
+
+        const currentAllowance = await contract.allowance(owner, spender);
+        console.log('[DirectSwap] Current token allowance', {
+            current: currentAllowance.toString(),
+            required: amount
+        });
+
+        if (currentAllowance < BigInt(amount)) {
+            console.log('[DirectSwap] Allowance insufficient, triggering approval', { token: tokenAddress });
+
+            // Encode approve function call with MaxUint256 for speed and future-proofing
+            const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
+            const data = iface.encodeFunctionData('approve', [spender, ethers.MaxUint256]);
+
+            const txHash = await sendTransaction(userId, accessToken, {
+                to: tokenAddress,
+                data,
+                value: '0',
+                chainId
+            });
+            console.log('[DirectSwap] Approval transaction broadcasted', { txHash });
+
+            // Wait for confirmation
+            await provider.waitForTransaction(txHash, 1);
+            console.log('[DirectSwap] ✅ Token approval confirmed', { token: tokenAddress });
+        } else {
+            console.log('[DirectSwap] Token allowance already sufficient', { token: tokenAddress });
+        }
+    } catch (error: any) {
+        console.error('[DirectSwap] ❌ Failed to check or approve token', { token: tokenAddress, error: error.message });
+        throw new Error(`Failed to approve token for swap: ${error.message}`);
     }
 }

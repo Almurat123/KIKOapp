@@ -433,19 +433,24 @@ async function processBuyWithInfo(
             const cooldownMinutes = userSettings?.copyTradeTokenCooldownMinutes ?? 60;
             if (cooldownMinutes > 0) {
                 // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
-                // If the execution price (derived from amountOut) is > 200% of the API, abort.
+                // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
+                // If the target paid significantly more than Oracle price, we should be cautious.
                 // This protects against buying at the absolute top of a "scam wick" or high slippage event.
-                if (tokenInfo.price > 0 && chainId !== 900) { // Skip for Solana (diff mechanic)
+                if (tokenInfo.price > 0 && chainId !== 900 && targetSwapValueUsd > 0) { // Skip for Solana (diff mechanic)
                     try {
                         const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || 18));
                         if (estimatedOut > 0) {
-                            const executionPrice = targetSwapValueUsd / estimatedOut;
-                            const priceDeviation = executionPrice / tokenInfo.price;
+                            // Calculate IMPLIED execution price from TARGET WALLET's trade
+                            // This is how much the target ACTUALLY paid per token
+                            const targetExecutionPrice = targetSwapValueUsd / estimatedOut;
+                            const priceDeviation = targetExecutionPrice / tokenInfo.price;
 
                             if (priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
-                                logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price}, Exec: $${executionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
+                                logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price.toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
                                     userId: config.userId,
-                                    token: tokenToBuy
+                                    token: tokenToBuy,
+                                    targetSwapValueUsd,
+                                    estimatedOut
                                 });
                                 continue; // SKIP TRADE
                             }
@@ -1635,9 +1640,11 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
         // We assume if it's Fast Mode, user wants to buy NOW regardless of stats
 
         // However, we STILL check Price Impact (Safety First!)
+        // Note: liquidity from APIs is usually TVL (both sides), so we use half for single-side estimate
         if (config.buyAmountUsd && liquidity > 0) {
             const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
-            const estimatedPriceImpact = (buyAmount / liquidity) * 100;
+            const singleSideLiquidity = liquidity / 2; // Approximate single-side liquidity
+            const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
             const MAX_PRICE_IMPACT = 8; // Slightly looser for fast mode (8%)
 
             if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
@@ -1665,10 +1672,12 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
 
     // =========================================================================
     // 💰 PRICE IMPACT ESTIMATION (Normal Mode)
+    // Note: liquidity from APIs is usually TVL (both sides), so we use half for single-side estimate
     // =========================================================================
     if (config.buyAmountUsd && liquidity > 0) {
         const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
-        const estimatedPriceImpact = (buyAmount / liquidity) * 100;
+        const singleSideLiquidity = liquidity / 2; // Approximate single-side liquidity
+        const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
         const MAX_PRICE_IMPACT = 5; // Stricter for normal mode (5%)
 
         if (estimatedPriceImpact > MAX_PRICE_IMPACT) {

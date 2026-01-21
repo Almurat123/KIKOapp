@@ -34,16 +34,22 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const { resolvedTheme } = useThemeContext();
   const [isWalletCopied, setIsWalletCopied] = React.useState(false);
 
-  // Default config if missing (supporting legacy/other strategies as best effort)
-  const config = strategy.copyTradeConfig || {
-    targetWallet: '0x0000000000000000000000000000000000000000',
-    minTargetValueUsd: 0,
-    buyAmountUsd: 0,
-    stopLossPct: 0,
-    takeProfitPct: 0,
-    mirrorSell: false,
-    chainId: strategy.chainId // Fallback to strategy level chainId
-  };
+  // CRITICAL: Only render copy_trade strategies
+  // This component is specifically designed for CopyTradeConfig
+  // Other strategy types (auto_buy, auto_sell, custom, dca) should use different components
+  if (strategy.type !== 'copy_trade') {
+    console.warn('[StrategyCard] Attempted to render non-copy-trade strategy:', strategy.type, strategy.id);
+    return null;
+  }
+
+  // Validate that copyTradeConfig exists and is valid
+  if (!strategy.copyTradeConfig || !strategy.copyTradeConfig.targetWallet ||
+    strategy.copyTradeConfig.targetWallet === '0x0000000000000000000000000000000000000000') {
+    console.warn('[StrategyCard] Invalid or missing copyTradeConfig:', strategy.id);
+    return null;
+  }
+
+  const config = strategy.copyTradeConfig;
 
   const chainInfo = getChainInfo(config.chainId || strategy.chainId);
 

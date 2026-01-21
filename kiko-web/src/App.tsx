@@ -163,7 +163,7 @@ function App() {
 
       // Get or create pending messages map for this specific session
       if (!pendingByConversationRef.current.has(targetSessionId)) {
-        pendingByConversationRef.current.set(targetSessionId, new Map());
+        pendingByConversationRef.current.set(targetSessionId, new Map<string, Message>());
       }
       const sessionPending = pendingByConversationRef.current.get(targetSessionId)!;
 
@@ -180,6 +180,7 @@ function App() {
           content: '',
           reasoning_content: '',
           status: 'streaming',
+          citations: [],
         });
 
         // Also update the conversation state so ChatInterface sees the message
@@ -204,12 +205,13 @@ function App() {
         if (!messageId) return;
 
         // Update pending messages ref for this session
-        const msg = sessionPending.get(messageId) || {
+        const msg: Message = sessionPending.get(messageId) || {
           id: messageId,
           role: 'assistant',
           content: '',
           reasoning_content: '',
           status: 'streaming',
+          citations: [],
         };
 
         if (type === 'reasoning' && reasoning_content) {
@@ -244,11 +246,14 @@ function App() {
               const pendingContent = msg.content || '';
               const existingReasoning = updatedMessages[existingIdx].reasoning_content || '';
               const pendingReasoning = msg.reasoning_content || '';
+              const pendingCitations = msg.citations;
+              const existingCitations = updatedMessages[existingIdx].citations;
 
               updatedMessages[existingIdx] = {
                 ...updatedMessages[existingIdx],
                 content: existingContent.length >= pendingContent.length ? existingContent : pendingContent,
                 reasoning_content: existingReasoning.length >= pendingReasoning.length ? existingReasoning : pendingReasoning,
+                citations: pendingCitations ?? existingCitations,
                 status: 'complete',
               };
             } else {
@@ -292,6 +297,10 @@ function App() {
         if (generatingConversationId === targetSessionId) {
           setGeneratingConversationId(null);
         }
+
+        if (activeConversationId === targetSessionId) {
+          setActiveTask(null);
+        }
       } else if (event.type === 'usage') {
         const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
         if (targetConv) {
@@ -308,6 +317,18 @@ function App() {
           );
           updateConversation(targetSessionId, { messages: updatedMessages });
         }
+        if (event.data.message_id) {
+          const pendingMsg: Message = sessionPending.get(event.data.message_id) || {
+            id: event.data.message_id,
+            role: 'assistant',
+            content: '',
+            reasoning_content: '',
+            status: 'streaming',
+            citations: [],
+          };
+          pendingMsg.citations = event.data.citations;
+          sessionPending.set(event.data.message_id, pendingMsg);
+        }
       }
     };
 
@@ -316,7 +337,7 @@ function App() {
       isSubscribed = false;
       unsubscribe();
     };
-  }, [authenticated, ready, updateConversation, generatingConversationId, getAccessToken]);
+  }, [authenticated, ready, updateConversation, generatingConversationId, getAccessToken, activeConversationId]);
 
   const handleNewChat = async () => {
     // Don't create conversation here - let ChatInterface create it when first message is sent

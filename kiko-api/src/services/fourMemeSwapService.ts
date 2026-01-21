@@ -161,15 +161,18 @@ export class FourMemeSwapService {
                     functionName: 'approve',
                     args: [tokenManager as Address, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')]
                 });
-                // We might need to send a separate approval tx first in a real UI flow, 
-                // but for backend sniper style we'll try to just send it.
-                // Note: Ideally the executor handles sequential txs.
-                await sendTransaction(params.userId, params.accessToken, {
+
+                const approveTxHash = await sendTransaction(params.userId, params.accessToken, {
                     to: targetToken,
                     data: approveData,
                     value: '0',
                     chainId: params.chainId
                 });
+
+                // Wait for approval confirmation before proceeding with sell
+                logger.debug(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Waiting for approval confirmation', { txHash: approveTxHash });
+                await client.waitForTransactionReceipt({ hash: approveTxHash as `0x${string}` });
+                logger.info(LogCode.EXE_TX_CONFIRMED, 'Four.Meme: Approval confirmed', { txHash: approveTxHash });
             }
 
             if (version === BigInt(2)) {

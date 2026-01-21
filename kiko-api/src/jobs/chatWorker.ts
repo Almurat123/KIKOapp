@@ -65,6 +65,7 @@ export class ChatWorker {
     private pollInterval: NodeJS.Timeout | null = null;
     private repo = chatRepo;
     private ws = chatWS;
+    private grokResponseIdBySession = new Map<string, string>();
 
     constructor(mocks?: { repo?: any; ws?: any }) {
         if (mocks?.repo) this.repo = mocks.repo;
@@ -2124,6 +2125,7 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
 
         // Call grok-service
         const accessToken = task.toolContext?.accessToken;
+        const previousResponseId = this.grokResponseIdBySession.get(task.sessionId);
         const response = await fetch(`${GROK_SERVICE_URL}/v1/chat/completions`, {
             method: 'POST',
             headers: {
@@ -2134,6 +2136,7 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
                 model: task.model,
                 messages: grokMessages,
                 stream: true,
+                ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
                 enable_search: true,
                 // Built-in search tool config (xAI SDK)
                 // Keep defaults lightweight; for CA analysis, prefer recent window (1–7d) to match short-term trading style.
@@ -2164,6 +2167,7 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
         const reader = response.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let newResponseId: string | null = null;
 
         while (true) {
             // Check if task was cancelled
@@ -2187,6 +2191,9 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
                 try {
                     const data = JSON.parse(line.slice(6));
                     const delta = data.choices?.[0]?.delta;
+                    if (data.response_id && typeof data.response_id === 'string') {
+                        newResponseId = data.response_id;
+                    }
 
                     // Handle usage data (sent in final chunks from grok-service)
                     if (data.usage) {
@@ -2320,6 +2327,10 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
             });
         } catch (dbErr) {
             console.error(`[ChatWorker] Failed to save final Grok message ${assistantMessageId} to DB:`, dbErr);
+        }
+
+        if (newResponseId) {
+            this.grokResponseIdBySession.set(task.sessionId, newResponseId);
         }
 
         console.log(`[ChatWorker] Grok task ${task.id} completed, ${chunkIndex} chunks`);

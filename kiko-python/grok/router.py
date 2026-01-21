@@ -17,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from xai_sdk.chat import user, system, tool, tool_result
-from xai_sdk.tools import web_search, x_search
+from xai_sdk.tools import web_search, x_search, get_tool_call_type
 from xai_sdk.aio import chat as aio_chat
 from jose import jwt
 
@@ -1340,6 +1340,18 @@ def has_analysis_intent(text: str) -> bool:
     return any(keyword in lowered for keyword in keywords)
 
 
+def has_freshness_intent(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    keywords = [
+        "today", "latest", "recent", "what happened", "what's happening",
+        "breaking", "news", "trending", "hot topics",
+        "今天", "最新", "刚刚", "发生了什么", "有什么事", "热点", "趋势", "热搜",
+    ]
+    return any(keyword in lowered for keyword in keywords)
+
+
 class ToolConfig(BaseModel):
     """Configuration for search tools"""
     web_search: Optional[dict] = None  # e.g., {"allowed_domains": ["coindesk.com"], "enable_image_understanding": False}
@@ -1358,6 +1370,7 @@ class ChatRequest(BaseModel):
     max_tokens: Optional[int] = None
     stream: Optional[bool] = True
     enable_search: Optional[bool] = True  # Enable search tools by default
+    previous_response_id: Optional[str] = None
     tool_config: Optional[ToolConfig] = None  # Dynamic tool configuration
     tools: Optional[List[dict]] = None  # OpenAI-style tool schemas from Node
     tool_context: Optional[dict] = None  # Tool execution context from Node
@@ -1537,6 +1550,9 @@ async def chat_completions(
             and contains_contract_address(last_user_msg)
             and (has_analysis_intent(last_user_msg) or not has_trade_intent(last_user_msg))
         )
+        if not force_search and has_search_tools:
+            if has_freshness_intent(last_user_msg) and not has_trade_intent(last_user_msg):
+                force_search = True
 
         tool_choice = None
         if force_search:
@@ -1576,10 +1592,17 @@ async def chat_completions(
                 tools=tools,
                 tool_choice=tool_choice,
                 include=include_options,
+                store_messages=True,
+                previous_response_id=request.previous_response_id,
             )
             log_tools(f"[Chat] Chat created")
         else:
-            chat = client.chat.create(model=normalized_model, include=include_options)
+            chat = client.chat.create(
+                model=normalized_model,
+                include=include_options,
+                store_messages=True,
+                previous_response_id=request.previous_response_id,
+            )
             log_tools(f"[Chat] Chat created without tools")
         
         # Add messages to chat
@@ -1590,6 +1613,11 @@ async def chat_completions(
         
         # Filter out tool role messages - they're handled by chat.append(tool_result) in previous turns
         filtered_messages = [msg for msg in request.messages if msg.role != "tool"]
+
+        # If using previous_response_id, rely on server-side state and only add latest user message.
+        if request.previous_response_id:
+            last_user_only = next((m for m in reversed(filtered_messages) if m.role == "user"), None)
+            filtered_messages = [last_user_only] if last_user_only else []
         
         # Limit message history to prevent context overflow.
         # IMPORTANT: Always preserve the latest system message (Node.js provides the v2 prompt + skills injection).
@@ -1629,10 +1657,18 @@ async def chat_completions(
         # Stream response
         if request.stream:
             async def generate():
+                nonlocal chat
                 collected_citations = []
+                emitted_citation_urls = set()
                 collected_tool_calls = []  # Track tool calls to know if fallback message needed
                 chunk_count = 0
                 log_tools(f"[Generate] Starting generator")
+                
+                def is_client_side_tool(tool_call_obj, tool_name_str: str) -> bool:
+                    try:
+                        return get_tool_call_type(tool_call_obj) == "client_side_tool"
+                    except Exception:
+                        return tool_name_str in available_tools
                 
                 try:
                     # According to xai-sdk official docs, citations are available in the final response
@@ -1658,6 +1694,8 @@ async def chat_completions(
                             tool_calls_detected_in_chunk = False
                             tool_calls_detected_in_response = False
                             content_sent_this_turn = False
+                            custom_tool_executed = False
+                            pending_tool_results = []
                             processed_tool_call_ids = set()  # Track processed tool calls to prevent duplicates
                             
                             async for response, chunk in chat.stream():
@@ -1678,6 +1716,7 @@ async def chat_completions(
                                 # Eagerly capture citations from any part of the stream
                                 # This fixes issue where citations might be transient or lost in final response
                                 if response and hasattr(response, 'citations') and response.citations:
+                                    new_citations = []
                                     for cite in response.citations:
                                         # Normalize to dict
                                         cite_dict = {'url': ''}
@@ -1698,14 +1737,32 @@ async def chat_completions(
                                             
                                         # Add if valid URL and not duplicate
                                         if cite_dict['url']:
-                                            is_duplicate = False
-                                            for existing in collected_citations:
-                                                if existing.get('url') == cite_dict['url']:
-                                                    is_duplicate = True
-                                                    break
-                                            if not is_duplicate:
+                                            if cite_dict['url'] not in emitted_citation_urls:
                                                 log_citations(f"[Citations] Found intermediate citation: {cite_dict['url'][:50]}...")
                                                 collected_citations.append(cite_dict)
+                                                emitted_citation_urls.add(cite_dict['url'])
+                                                new_citations.append(cite_dict)
+
+                                    # Stream citations immediately so frontend can render without waiting for final chunk
+                                    if new_citations:
+                                        cite_chunk = {
+                                            "id": f"chatcmpl-{hash(str(request.messages))}",
+                                            "object": "chat.completion.chunk",
+                                            "created": int(__import__('time').time()),
+                                            "model": request.model,
+                                            "choices": [{
+                                                "index": 0,
+                                                "delta": {},
+                                                "message": {
+                                                    "citations": new_citations
+                                                },
+                                                "finish_reason": None
+                                            }]
+                                        }
+                                        try:
+                                            yield f"data: {json.dumps(cite_chunk)}\n\n"
+                                        except (BrokenPipeError, ConnectionResetError, OSError):
+                                            return
                                             
                                 # Also check inline_citations if available
                                 if response and hasattr(response, 'inline_citations') and response.inline_citations:
@@ -1790,10 +1847,11 @@ async def chat_completions(
                                             processed_tool_call_ids.add(tool_call_signature)
                                             log_tools(f"[Tool Call] {tool_name}: {str(tool_args)[:100]}...")
                                             
-                                            # Only mark as tool turn if it's a CUSTOM tool that we need to execute
-                                            # Built-in tools (web_search, etc) are handled by SDK stream and answer follows immediately
-                                            if tool_name in available_tools:
+                                            # Only mark as tool turn if it's a client-side tool we execute.
+                                            is_client_tool = is_client_side_tool(tool_call, tool_name)
+                                            if is_client_tool and tool_name in available_tools:
                                                 has_tool_calls_this_turn = True
+                                                custom_tool_executed = True
                                                 log_tools(f"[Tool Call] Custom tool detected - buffered content will be discarded")
                                             else:
                                                 log_tools(f"[Tool Call] Built-in tool detected ({tool_name}) - continuing stream")
@@ -1847,7 +1905,7 @@ async def chat_completions(
                                                 
                                                 # CUSTOM TOOL EXECUTION: Execute our custom tools
                                                 # Built-in tools (web_search, x_search) are handled by xai-sdk
-                                                if tool_name in available_tools:
+                                                if is_client_tool and tool_name in available_tools:
                                                     print(f"[Custom Tool] Executing {tool_name}...")
                                                     try:
                                                         # Parse arguments and execute the tool
@@ -1889,11 +1947,9 @@ async def chat_completions(
                                                             }
                                                             yield f"data: {json.dumps(action_chunk)}\n\n"
 
-                                                        # Add tool result to chat so Grok can use it
-                                                        # xai_sdk.chat.tool_result only takes result parameter
-                                                        # DEBUG: Log before appending
-                                                        print(f"[Custom Tool] Appending tool result to chat: {str(tool_payload)[:100]}...")
-                                                        chat.append(tool_result(result=tool_payload))
+                                                        # Defer appending tool results until we create a new chat
+                                                        print(f"[Custom Tool] Buffering tool result: {str(tool_payload)[:100]}...")
+                                                        pending_tool_results.append(tool_payload)
                                                         
                                                         collected_tool_calls.append(tool_name)  # Track for fallback message
                                                         has_tool_calls_this_turn = True  # Mark that we need another turn
@@ -1902,8 +1958,9 @@ async def chat_completions(
                                                     except Exception as tool_err:
                                                         print(f"[Custom Tool] Error executing {tool_name}: {tool_err}")
                                                         # Send error as result so Grok knows it failed
-                                                        chat.append(tool_result(result=f"Error executing {tool_name}: {str(tool_err)}"))
+                                                        pending_tool_results.append(f"Error executing {tool_name}: {str(tool_err)}")
                                                         has_tool_calls_this_turn = True
+                                                        custom_tool_executed = True
                                                 else:
                                                     log_tools(f"[Tool Call] {tool_name} is a built-in tool, handled by xai-sdk")
                                                     
@@ -2015,17 +2072,16 @@ async def chat_completions(
                                                 print(f"[Client Action] Error processing swap tool: {e}")
                             
                             # END OF STREAM LOOP - Check if we need another turn
-                            # Use comprehensive detection: check both chunk and response tool calls
-                            final_tool_call_check = has_tool_calls_this_turn or tool_calls_detected_in_chunk or tool_calls_detected_in_response
+                            final_tool_call_check = custom_tool_executed
                             
                             # Also check response.tool_calls one more time as final fallback
                             if not final_tool_call_check and hasattr(final_response, 'tool_calls') and final_response.tool_calls:
-                                final_tool_call_check = True
                                 # Process tool calls from final_response if not already processed
                                 for tool_call in final_response.tool_calls:
                                     if hasattr(tool_call, 'function'):
                                         tool_name = tool_call.function.name if hasattr(tool_call.function, 'name') else 'unknown'
-                                        if tool_name in available_tools:
+                                        is_client_tool = is_client_side_tool(tool_call, tool_name)
+                                        if is_client_tool and tool_name in available_tools:
                                             try:
                                                 tool_args = tool_call.function.arguments if hasattr(tool_call.function, 'arguments') else '{}'
                                                 args = json.loads(str(tool_args)) if tool_args else {}
@@ -2046,9 +2102,9 @@ async def chat_completions(
                                                         }]
                                                     }
                                                     yield f"data: {json.dumps(action_chunk)}\n\n"
-                                                chat.append(tool_result(result=tool_payload))
+                                                pending_tool_results.append(tool_payload)
                                                 has_tool_calls_this_turn = True
-                                                final_tool_call_check = True
+                                                custom_tool_executed = True
                                             except Exception as e:
                                                 print(f"[Client Action] Error executing tool {tool_name}: {e}")
                             
@@ -2058,13 +2114,23 @@ async def chat_completions(
                                 # based on the tool result we just added to the chat
                                 print(f"[Tool Turn] Tool call detected, continuing to turn {tool_turn + 2}")
                                 
-                                # Append the final_response to chat before next turn
-                                # This ensures Grok has the context of the tool call
-                                if final_response:
+                                if final_response and hasattr(final_response, "id"):
+                                    chat = client.chat.create(
+                                        model=normalized_model,
+                                        tools=tools,
+                                        tool_choice=tool_choice,
+                                        include=include_options,
+                                        store_messages=True,
+                                        previous_response_id=final_response.id,
+                                    )
+                                elif final_response:
                                     try:
                                         chat.append(final_response)
                                     except Exception as e:
                                         print(f"[Tool Turn] Failed to append response: {e}")
+                                
+                                for tool_payload in pending_tool_results:
+                                    chat.append(tool_result(result=tool_payload))
                                 
                                 continue  # Go to next turn to get Grok's response
                             else:
@@ -2284,9 +2350,6 @@ async def chat_completions(
                             4. https://x.com/username (direct profile link)
                             """
                             import re
-                            import urllib.request
-                            import urllib.parse
-                            import json
                             
                             log_citations(f"[Citations] Processing URL for avatar: {url}")
                             
@@ -2299,41 +2362,10 @@ async def chat_completions(
                                 tweet_id = tweet_match.group(2)
                                 log_citations(f"[Citations] Tweet URL detected - username: '{username}', tweet_id: {tweet_id}")
                                 
-                                # If username is 'i', it's an anonymous link - need to fetch real username
+                                # If username is 'i', it's an anonymous link - skip network fetch to avoid delaying completion
                                 if username == 'i':
-                                    log_citations(f"[Citations] Anonymous tweet URL, fetching author via oEmbed...")
-                                    try:
-                                        encoded_url = urllib.parse.quote(url, safe='')
-                                        oembed_url = f"https://publish.twitter.com/oembed?url={encoded_url}"
-                                        log_citations(f"[Citations] oEmbed URL: {oembed_url}")
-                                        
-                                        request = urllib.request.Request(
-                                            oembed_url,
-                                            headers={'User-Agent': 'Mozilla/5.0'}
-                                        )
-                                        
-                                        with urllib.request.urlopen(request, timeout=3) as response:
-                                            response_text = response.read().decode()
-                                            log_citations(f"[Citations] oEmbed response (first 200 chars): {response_text[:200]}")
-                                            data = json.loads(response_text)
-                                            
-                                            author_url = data.get('author_url', '')
-                                            log_citations(f"[Citations] author_url: {author_url}")
-                                            
-                                            if author_url:
-                                                author_match = re.search(r'(?:twitter\.com|x\.com)/([^/]+)/?$', author_url)
-                                                if author_match:
-                                                    username = author_match.group(1)
-                                                    log_citations(f"[Citations] ✓ Resolved to user: {username}")
-                                                else:
-                                                    log_citations(f"[Citations] ✗ Failed to parse author_url")
-                                                    return None
-                                            else:
-                                                log_citations(f"[Citations] ✗ No author_url in response")
-                                                return None
-                                    except Exception as e:
-                                        log_citations(f"[Citations] ✗ oEmbed failed: {type(e).__name__}: {e}")
-                                        return None
+                                    log_citations(f"[Citations] Anonymous tweet URL - skipping avatar lookup to avoid latency")
+                                    return None
                                 
                                 # Validate and return avatar URL
                                 if username and username != 'i':
@@ -2425,6 +2457,7 @@ async def chat_completions(
                             "object": "chat.completion.chunk",
                             "created": int(__import__('time').time()),
                             "model": request.model,
+                            "response_id": getattr(final_response, "id", None),
                             "choices": [{
                                 "index": 0,
                                 "delta": {},
@@ -2530,6 +2563,8 @@ async def chat_completions(
                 log_tools(f"[Chat] [Turn {turn+1}] Sampling...")
                 response = await chat.sample()
                 final_response = response
+                pending_tool_results = []
+                custom_tool_executed = False
                 
                 log_tools(f"[Chat] [Turn {turn+1}] Response type: {type(response)}")
                 log_tools(f"[Chat] [Turn {turn+1}] Content: {response.content!r}")
@@ -2543,16 +2578,23 @@ async def chat_completions(
                         name = getattr(tc.function, 'name', 'unknown')
                         args_str = getattr(tc.function, 'arguments', '{}')
                         
-                        if name in available_tools:
+                        try:
+                            is_client_tool = get_tool_call_type(tc) == "client_side_tool"
+                        except Exception:
+                            is_client_tool = name in available_tools
+
+                        if is_client_tool and name in available_tools:
                             log_tools(f"[Chat] [Turn {turn+1}] Executing custom tool: {name}")
                             try:
                                 args = json.loads(args_str) if args_str else {}
                                 result = await execute_custom_tool(name, args, user_auth_token, request.tool_context)
                                 tool_payload, _client_action = normalize_tool_result(result)
-                                chat.append(tool_result(result=tool_payload))
+                                pending_tool_results.append(tool_payload)
+                                custom_tool_executed = True
                             except Exception as e:
                                 log_tools(f"[Chat] [Turn {turn+1}] Custom tool error: {e}")
-                                chat.append(tool_result(result=f"Error: {str(e)}"))
+                                pending_tool_results.append(f"Error: {str(e)}")
+                                custom_tool_executed = True
                         else:
                             # Built-in tools like web_search, x_search
                             # In xai-sdk, it seems we don't manually execute these in this SDK version
@@ -2562,6 +2604,18 @@ async def chat_completions(
                             # For built-in tools, the SDK might have already added them or we just need to let it be.
                             # However, if we don't loop, we don't get the follow-up content.
                     
+                    if custom_tool_executed and hasattr(response, "id"):
+                        chat = client.chat.create(
+                            model=normalized_model,
+                            tools=tools,
+                            tool_choice=tool_choice,
+                            include=include_options,
+                            store_messages=True,
+                            previous_response_id=response.id,
+                        )
+                    for tool_payload in pending_tool_results:
+                        chat.append(tool_result(result=tool_payload))
+
                     # Continue to next turn to get the answer after tool calls
                     continue
                 else:
@@ -2655,6 +2709,7 @@ async def chat_completions(
                 "object": "chat.completion",
                 "created": int(__import__('time').time()),
                 "model": request.model,
+                "response_id": getattr(response, "id", None),
                 "choices": [{
                     "index": 0,
                     "message": {
@@ -2776,7 +2831,11 @@ Only use tools when the provided data is insufficient for quality analysis.
         async with AsyncClient(api_key=xai_api_key) as client:
             # Create chat WITH tools (web_search + custom tools)
             tools = [web_search(), x_search()] + CUSTOM_TOOLS  # web_search + x_search + custom tools
-            chat = client.chat.create(model="grok-4-1-fast-non-reasoning", tools=tools)
+            chat = client.chat.create(
+                model="grok-4-1-fast-non-reasoning",
+                tools=tools,
+                store_messages=True,
+            )
             print(f"[NewsWriter] Chat created with {len(tools)} tools")
             
             # Add system prompt
@@ -2792,6 +2851,7 @@ Only use tools when the provided data is insufficient for quality analysis.
             for tool_turn in range(max_tool_turns):
                 has_tool_calls_this_turn = False
                 final_response = None
+                pending_tool_results = []
                 
                 async for response, chunk in chat.stream():
                     if response:
@@ -2818,7 +2878,12 @@ Only use tools when the provided data is insufficient for quality analysis.
                                     "get_polymarket_trending", "get_polymarket_event", "search_polymarket"
                                 }
                                 
-                                if tool_name in custom_tool_names:
+                                try:
+                                    is_client_tool = get_tool_call_type(tool_call) == "client_side_tool"
+                                except Exception:
+                                    is_client_tool = tool_name in custom_tool_names
+
+                                if is_client_tool and tool_name in custom_tool_names:
                                     has_tool_calls_this_turn = True
                                     print(f"[NewsWriter] Tool call: {tool_name}")
                                     
@@ -2826,19 +2891,23 @@ Only use tools when the provided data is insufficient for quality analysis.
                                         args = json.loads(str(tool_args_raw)) if tool_args_raw else {}
                                         tool_result_data = await execute_custom_tool(tool_name, args, None, None)
                                         tool_payload, _client_action = normalize_tool_result(tool_result_data)
-                                        chat.append(tool_result(result=tool_payload))
+                                        pending_tool_results.append(tool_payload)
                                         print(f"[NewsWriter] Tool {tool_name} executed successfully")
                                     except Exception as e:
                                         print(f"[NewsWriter] Tool {tool_name} failed: {e}")
-                                        chat.append(tool_result(result=json.dumps({"error": str(e)})))
+                                        pending_tool_results.append(json.dumps({"error": str(e)}))
                 
                 # If tool calls were made, continue to next turn
                 if has_tool_calls_this_turn:
-                    if final_response:
-                        try:
-                            chat.append(final_response)
-                        except:
-                            pass
+                    if final_response and hasattr(final_response, "id"):
+                        chat = client.chat.create(
+                            model="grok-4-1-fast-non-reasoning",
+                            tools=tools,
+                            store_messages=True,
+                            previous_response_id=final_response.id,
+                        )
+                    for tool_payload in pending_tool_results:
+                        chat.append(tool_result(result=tool_payload))
                     full_content = ""  # Clear content, new turn will regenerate
                     print(f"[NewsWriter] Tool turn {tool_turn + 1} complete, continuing...")
                     continue

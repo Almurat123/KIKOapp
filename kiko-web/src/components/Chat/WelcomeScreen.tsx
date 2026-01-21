@@ -137,8 +137,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
       {/* Main Content */}
       <div className={styles.mainContent}>
         <div className={styles.heroText}>
-          <h1 className={styles.heroTitle}>I am KIKO.</h1>
-          <h2 className={styles.heroSubTitleSecondary}>The on-chain analyst.</h2>
+          <h1 className={styles.heroTitle}>I am <span className={styles.kikoWrapped}>KIKO</span>.</h1>
+          <h2 className={styles.heroSubTitleSecondary}>The best way to trade.</h2>
         </div>
 
 
