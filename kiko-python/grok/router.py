@@ -2015,8 +2015,8 @@ async def chat_completions(
                                                 print(f"[Client Action] Error processing swap tool: {e}")
                             
                             # END OF STREAM LOOP - Check if we need another turn
-                            # Only custom tools require another turn; built-in tools are handled by the SDK.
-                            final_tool_call_check = has_tool_calls_this_turn
+                            # Use comprehensive detection: check both chunk and response tool calls
+                            final_tool_call_check = has_tool_calls_this_turn or tool_calls_detected_in_chunk or tool_calls_detected_in_response
                             
                             # Also check response.tool_calls one more time as final fallback
                             if not final_tool_call_check and hasattr(final_response, 'tool_calls') and final_response.tool_calls:
