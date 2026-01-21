@@ -45,6 +45,7 @@ import { chatWSRoutes } from './services/chatWebSocket.js';
 import { chatWorker } from './jobs/chatWorker.js';
 import { registerUserRoutes } from './routes/users.js';
 import { initializePolicies, runCleanup } from './services/dataRetentionService.js';
+import { zoraAlertService } from './services/zoraAlertService.js';
 import fastifyRawBody from 'fastify-raw-body';
 import helmet from '@fastify/helmet';
 import { tracingHook } from './middleware/tracing.js';
@@ -261,6 +262,7 @@ async function start() {
             logger.error(LogCode.SYS_ERROR, 'Token alert service failed to start', { error: alertError.message });
         }
 
+
         // Start Chat Worker
         logger.debug(LogCode.SYS_STARTUP, 'Starting chat worker...');
         try {
@@ -268,6 +270,13 @@ async function start() {
             logger.info(LogCode.SYS_STARTUP, 'Chat worker started');
         } catch (chatWorkerError: any) {
             logger.error(LogCode.SYS_ERROR, 'Chat worker failed to start', { error: chatWorkerError.message });
+        }
+
+        // Start Global Zora Alpha Detector (separate from zoraSniperService)
+        try {
+            zoraAlertService.start();
+        } catch (zoraError: any) {
+            logger.error(LogCode.SYS_ERROR, 'Global Zora Alpha Detector failed to start', { error: zoraError.message });
         }
 
         logger.info(LogCode.SYS_STARTUP, '🎉 All services initialized!');

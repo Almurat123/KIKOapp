@@ -1,76 +1,31 @@
 import { FastifyInstance } from 'fastify';
-import { zoraSniperService } from '../services/zoraSniperService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { getEmbeddedWalletAddress } from '../services/privyWallet.js';
 
 export async function zoraRoutes(fastify: FastifyInstance) {
     /**
      * POST /api/zora/sniper/start
-     * Start the Zora sniper service for the authenticated user
+     * @deprecated Global service is now auto-started. This endpoint is no-op.
      */
     fastify.post('/sniper/start', { preHandler: requireAuth }, async (request, reply) => {
-        const user = (request as any).user;
-        const { buyAmountEth, maxSlippage } = request.body as any;
-
-        const authHeader = request.headers.authorization || '';
-        const accessToken = authHeader.replace('Bearer ', '');
-
-        const walletAddress = await getEmbeddedWalletAddress(user.sub);
-        if (!walletAddress) {
-            throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
-        }
-
-        zoraSniperService.start({
-            enabled: true,
-            buyAmountEth: buyAmountEth || '0.001',
-            maxSlippage: maxSlippage || 0.1,
-            walletAddress,
-            userId: user.sub,
-            accessToken
-        });
-
-        return { success: true, message: 'Sniper started' };
+        // No-op: Service is now global and runs automatically
+        return { success: true, message: 'Global Zora Detector is active' };
     });
 
     /**
      * POST /api/zora/sniper/stop
-     * Stop the Zora sniper service
+     * @deprecated Global service cannot be stopped by individual users.
      */
     fastify.post('/sniper/stop', { preHandler: requireAuth }, async (request, reply) => {
-        zoraSniperService.stop();
-        return { success: true, message: 'Sniper stopped' };
+        // No-op
+        return { success: true, message: 'Global Zora Detector cannot be stopped' };
     });
 
     /**
      * POST /api/zora/swap
-     * Execute a lightning-fast Zora swap
+     * @deprecated Auto-buy functionality has been removed.
      */
     fastify.post('/swap', { preHandler: requireAuth }, async (request, reply) => {
-        const user = (request as any).user;
-        const { tokenAddress, buyAmountEth, maxSlippage } = request.body as any;
-
-        if (!tokenAddress || !buyAmountEth) {
-            throw new AppError(400, 'tokenAddress and buyAmountEth are required', 'VALIDATION_ERROR');
-        }
-
-        const authHeader = request.headers.authorization || '';
-        const accessToken = authHeader.replace('Bearer ', '');
-
-        const walletAddress = await getEmbeddedWalletAddress(user.sub);
-        if (!walletAddress) {
-            throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
-        }
-
-        const txHash = await zoraSniperService.fastSwap({
-            userId: user.sub,
-            accessToken,
-            walletAddress,
-            tokenOut: tokenAddress,
-            amountIn: buyAmountEth,
-            slippage: maxSlippage
-        });
-
-        return { success: true, txHash };
+        throw new AppError(400, 'Auto-buy functionality has been removed from Zora integration', 'FEATURE_REMOVED');
     });
 }

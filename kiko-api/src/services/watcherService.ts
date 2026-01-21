@@ -11,6 +11,8 @@ import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
 // Alchemy API for Base
 const ALCHEMY_BASE_URL = process.env.ALCHEMY_BASE_URL || 'https://base-mainnet.g.alchemy.com/v2';
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || '';
+// Chains supported by our Alchemy plan: Base (8453), Eth (1), BSC (56)
+const ALCHEMY_SUPPORTED_CHAINS = new Set([8453, 1, 56]);
 
 // Polling interval (ms)
 const POLL_INTERVAL = 5000; // 5 seconds
@@ -181,7 +183,7 @@ async function fetchRecentTransactions(
     fromBlock?: number
 ): Promise<any[]> {
     // Stick to Alchemy for Base/Eth/BNB if configured, as it's deeper/better
-    if ((chainId === 8453 || chainId === 1 || chainId === 56) && ALCHEMY_API_KEY) {
+    if (ALCHEMY_SUPPORTED_CHAINS.has(chainId) && ALCHEMY_API_KEY) {
         try {
             const { apiUrl } = getChainConfig(chainId);
             // Fallback to hardcoded URL if not in config for some reason, though config should have it

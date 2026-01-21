@@ -20,11 +20,13 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
     initialIndex
 }) => {
     const [[page, direction], setPage] = useState([initialIndex, 0]);
+    const [zoom, setZoom] = useState(1);
 
     // Keep page state in sync with external initialIndex when opening
     useEffect(() => {
         if (isOpen) {
             setPage([initialIndex, 0]);
+            setZoom(1);
         }
     }, [isOpen, initialIndex]);
 
@@ -62,6 +64,7 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
         const newPage = page + newDirection;
         if (newPage >= 0 && newPage < images.length) {
             setPage([newPage, newDirection]);
+            setZoom(1);
         }
     };
 
@@ -87,6 +90,13 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
     const swipeConfidenceThreshold = 10000;
     const swipePower = (offset: number, velocity: number) => {
         return Math.abs(offset) * velocity;
+    };
+
+    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+    const handleWheel = (e: React.WheelEvent) => {
+        e.preventDefault();
+        const next = clamp(zoom - e.deltaY * 0.002, 1, 3);
+        setZoom(next);
     };
 
     return (
@@ -152,7 +162,7 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
                                 x: { type: "spring", stiffness: 300, damping: 30 },
                                 opacity: { duration: 0.2 }
                             }}
-                            drag="x"
+                            drag={zoom > 1 ? false : "x"}
                             dragConstraints={{ left: 0, right: 0 }}
                             dragElastic={0.7}
                             onDragEnd={(_, { offset, velocity }) => {
@@ -172,10 +182,16 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
                                 objectFit: 'contain',
                                 userSelect: 'none',
                                 position: 'absolute',
-                                cursor: 'grab',
+                                cursor: zoom > 1 ? 'zoom-out' : 'zoom-in',
                                 borderRadius: '8px',
+                                scale: zoom,
                             }}
+                            onWheel={handleWheel}
                             onClick={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setZoom(zoom > 1 ? 1 : 2);
+                            }}
                         />
                     </AnimatePresence>
                 </div>

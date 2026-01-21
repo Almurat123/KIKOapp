@@ -12,7 +12,7 @@ import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
 
-import { getChainConfig } from '../config/chainConfig.js';
+import { getChainConfig, getProvider, CHAINS } from '../config/chainConfig.js';
 
 import { executeSolanaSwap } from './solanaExecutor.js';
 import { SOLANA_CONFIG, getSolanaConnection } from '../config/solanaConfig.js';
@@ -32,8 +32,11 @@ import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
 import { notificationService } from './notificationService.js';
+import { getTokenInfo } from './tokenService.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+
+export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
@@ -240,12 +243,12 @@ async function handleTargetBuy(
 
             // Construct fallback token info using launchpad data when available
             const lpData = launchpadResult.data;
-            const lpPrice = lpData.tokenPrice?.priceInUsdc || lpData.tokenPrice?.usd || 0;
+            const lpPrice = lpData.tokenPrice?.priceInUsdc || lpData.tokenPrice?.usd; // Allow undefined to trigger derivation
             const lpMarketCap = parseFloat(lpData.marketCap || '0');
             const lpVolume = parseFloat(lpData.volume24h || lpData.totalVolume || '0');
 
             const fallbackInfo = {
-                price: typeof lpPrice === 'string' ? parseFloat(lpPrice) : lpPrice,
+                price: typeof lpPrice === 'string' ? parseFloat(lpPrice) : (lpPrice || 0), // If 0, processBuyWithInfo will derive it
                 symbol: lpData.symbol || 'UNKNOWN',
                 name: lpData.name || 'Unknown Token',
                 decimals: lpData.decimals || 18,
@@ -254,6 +257,7 @@ async function handleTargetBuy(
                 fdv: lpMarketCap,
                 marketCap: lpMarketCap,
                 pairCreatedAt: lpData.createdAt ? new Date(lpData.createdAt).getTime() : Date.now(),
+                // Empty arrays for social/web to prevent checks failing on undefined
                 socials: [],
                 websites: [],
                 provider: launchpadResult.provider
@@ -322,18 +326,30 @@ async function processBuyWithInfo(
         const amountInBN = BigInt(swap.amountIn);
 
         if (isStableIn) {
-            // USDC/USDT have 6 decimals usually
-            const decimalsIn = getStablecoinDecimals(swap.tokenIn, chainId);
+            // USDC/USDT - fetch dynamic info to get true decimals
+            const stableInfo = await getTokenInfo(swap.tokenIn, chainId);
+            const decimalsIn = stableInfo?.decimals || 6; // Fallback to 6 if fetch fails (safe for USDC/USDT)
             targetSwapValueUsd = formatTokenAmount(amountInBN, decimalsIn);
         } else if (isZoraIn) {
-            // ZORA Token price
+            // ZORA Token price - fetch dynamically
             const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId);
-            const zoraPrice = zoraInfo?.price || 0.0006; // Fallback price for ZORA
-            targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraPrice;
+            if (!zoraInfo || zoraInfo.price <= 0) {
+                logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch ZORA price, cannot calculate trade value', { token: ZORA_TOKEN });
+                targetSwapValueUsd = 0; // Cannot proceed without price
+            } else {
+                targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraInfo.price;
+            }
         } else {
-            // ETH / WETH
-            const nativePrice = await getTokenInfo(chainConfig.wrappedNativeAddress, chainId).then(t => t?.price || 2500);
-            targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativePrice;
+            // ETH / WETH - fetch dynamically
+            const nativeInfo = await getTokenInfo(chainConfig.wrappedNativeAddress, chainId);
+            if (!nativeInfo || nativeInfo.price <= 0) {
+                logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch native token price, cannot calculate trade value', {
+                    token: chainConfig.wrappedNativeAddress
+                });
+                targetSwapValueUsd = 0; // Cannot proceed without price
+            } else {
+                targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativeInfo.price;
+            }
         }
         logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token input', { valueUsd: targetSwapValueUsd, token: swap.tokenIn });
     } else {
@@ -343,6 +359,28 @@ async function processBuyWithInfo(
         const formattedAmountOut = formatTokenAmount(amountOutBN, splitDecimals);
         targetSwapValueUsd = formattedAmountOut * tokenInfo.price;
         logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token output', { valueUsd: targetSwapValueUsd, token: swap.tokenOut });
+    }
+
+    // 🚨 SELF-HEALING: If token price is missing (Fallback Mode), derive it from the trade itself
+    // impliedPrice = Total Value USD / Token Amount
+    if ((!tokenInfo.price || tokenInfo.price <= 0) && targetSwapValueUsd > 0) {
+        try {
+            const amountOutBN = BigInt(swap.amountOut);
+            const decimals = tokenInfo.decimals || 18;
+            const amountOutFloat = Number(ethers.formatUnits(amountOutBN, decimals));
+
+            if (amountOutFloat > 0) {
+                const impliedPrice = targetSwapValueUsd / amountOutFloat;
+                tokenInfo.price = impliedPrice;
+                logger.info(LogCode.DATA_RECOVERY, 'Derived missing token price from swap data', {
+                    symbol: tokenInfo.symbol,
+                    impliedPrice: impliedPrice.toFixed(9),
+                    valueUsd: targetSwapValueUsd
+                });
+            }
+        } catch (err) {
+            logger.warn(LogCode.DATA_CORRUPTION, 'Failed to derive implied price', { error: err });
+        }
     }
 
     // Record Leader Trade Stats (Buy)
@@ -356,11 +394,15 @@ async function processBuyWithInfo(
                 ? await prisma.userSettings.findUnique({ where: { userId: config.user.id } })
                 : null;
 
+            // Universal Global Slippage
+            const universalSlippageBps = getSlippageBps(userSettings);
+
             const effectiveConfig = {
                 ...config,
                 minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
                 minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
                 minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
+                maxSlippageBps: universalSlippageBps
             };
 
             const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
@@ -373,8 +415,70 @@ async function processBuyWithInfo(
                 continue;
             }
 
+
+            // Calculate how much to buy in token units
+            const usdAmount = config.buyAmountUsd;
+            let nativePrice = 0; // Will be fetched dynamically
+
+            // Ensure we have native price for gas calculation and later trade logic
+            if (chainId === 900) {
+                const solInfo = await getTokenInfo(SOLANA_CONFIG.TOKENS.SOL, 900);
+                if (solInfo) nativePrice = solInfo.price;
+            } else {
+                const { wrappedNativeAddress } = getChainConfig(chainId);
+                const ethInfo = await getTokenInfo(wrappedNativeAddress, chainId);
+                if (ethInfo) nativePrice = ethInfo.price;
+            }
+
             const cooldownMinutes = userSettings?.copyTradeTokenCooldownMinutes ?? 60;
             if (cooldownMinutes > 0) {
+                // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
+                // If the execution price (derived from amountOut) is > 200% of the API, abort.
+                // This protects against buying at the absolute top of a "scam wick" or high slippage event.
+                if (tokenInfo.price > 0 && chainId !== 900) { // Skip for Solana (diff mechanic)
+                    try {
+                        const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || 18));
+                        if (estimatedOut > 0) {
+                            const executionPrice = targetSwapValueUsd / estimatedOut;
+                            const priceDeviation = executionPrice / tokenInfo.price;
+
+                            if (priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
+                                logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price}, Exec: $${executionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
+                                    userId: config.userId,
+                                    token: tokenToBuy
+                                });
+                                continue; // SKIP TRADE
+                            }
+                        }
+                    } catch (e) { }
+                }
+
+                // 🛡️ GAS BUFFER CHECK (EVM Only)
+                // Ensure user has enough ETH left for gas AFTER the trade amount is deducted
+                // Ensure we have native price for gas calculation
+                if (chainId !== 900) {
+                    const nativeBalance = await getNativeBalance(effectiveConfig.user.walletAddress, chainId);
+                    const gasBufferWei = ethers.parseEther("0.005"); // ~$15 buffer
+
+                    // Calculate trade cost in Native Token (ETH/BNB)
+                    let tradeCostWei = 0n;
+                    if (nativePrice > 0) {
+                        const amountInNative = usdAmount / nativePrice;
+                        tradeCostWei = ethers.parseEther(amountInNative.toFixed(18));
+                    }
+
+                    if (nativeBalance < (tradeCostWei + gasBufferWei)) {
+                        logger.throttled(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping trade: Insufficient gas buffer', {
+                            userId: config.userId,
+                            balance: ethers.formatEther(nativeBalance),
+                            required: ethers.formatEther(tradeCostWei + gasBufferWei),
+                            buffer: "0.005"
+                        });
+                        continue;
+                    }
+                }
+
+                // Perform duplication check (Cooldown)
                 const recentBuy = await prisma.position.findFirst({
                     where: {
                         userId: config.userId,
@@ -394,25 +498,6 @@ async function processBuyWithInfo(
                 }
             }
 
-            // Anti-spam: skip repeated buys of the same token within a cooldown window
-            const cooldownMs = 60 * 60 * 1000; // 1 hour
-            const recentBuy = await prisma.position.findFirst({
-                where: {
-                    userId: config.userId,
-                    tokenAddress: tokenToBuy,
-                    createdAt: { gte: new Date(Date.now() - cooldownMs) }
-                },
-                orderBy: { createdAt: 'desc' }
-            });
-
-            if (recentBuy) {
-                logger.info(LogCode.WTC_TX_SKIPPED, 'Repeated buy prevention: token recently bought', {
-                    userId: config.userId,
-                    token: tokenToBuy
-                });
-                continue;
-            }
-
             // === CONCURRENCY CONTROL (Simple Check) ===
             // Check if this user already has a trade pending - skip if so
             const userLockKey = `trade:${config.userId}`;
@@ -421,15 +506,11 @@ async function processBuyWithInfo(
                 continue;
             }
 
-            // Calculate how much to buy in token units
-            const usdAmount = config.buyAmountUsd;
-
             logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Executing trade', {
                 userId: config.userId,
                 wallet: config.user.walletAddress,
                 usdAmount
             });
-            let nativePrice = 2500; // Fallback
             let txHash = '';
 
             if (chainId === 900) {
@@ -446,9 +527,11 @@ async function processBuyWithInfo(
                     continue;
                 }
 
-                // Get SOL Price
-                const solInfo = await getTokenInfo(SOLANA_CONFIG.TOKENS.SOL, 900);
-                if (solInfo) nativePrice = solInfo.price;
+                // Get SOL Price dynamically (already fetched at top of loop)
+                if (nativePrice <= 0) {
+                    logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch SOL price for trade calculation', { userId: config.userId });
+                    continue; // Better to skip than use a stale hardcoded price
+                }
 
                 const amountInLamports = Math.floor((usdAmount / nativePrice) * 1e9).toString();
                 const amountInSol = Number(amountInLamports) / 1e9;
@@ -461,8 +544,9 @@ async function processBuyWithInfo(
                     wallet: solAddress
                 });
 
-                // Jupiter requires minimum trade size
-                // We lowered this to $0.5 per user request, but very small trades might still fail with "Route not found"
+                // Jupiter/Solana System Safeguard
+                // We enforce a $0.5 minimum to avoid "Route not found" errors common with tiny amounts
+                // and to ensure the trade is economically viable despite fees. Not a strict protocol limit.
                 const MIN_TRADE_USD = 0.5;
                 if (usdAmount < MIN_TRADE_USD) {
                     logger.throttled(LogCode.EXE_MIN_AMOUNT_NOT_MET, 'Trade amount below minimum threshold', {
@@ -473,18 +557,17 @@ async function processBuyWithInfo(
                 }
 
                 txHash = await executeSolanaSwap({
-                    userId: config.user.privyDid,
+                    userId: effectiveConfig.user.privyDid,
                     tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
                     tokenOutMint: tokenToBuy,
                     amountIn: amountInLamports,
-                    // Minimum 5% slippage for Solana autotrade due to high volatility
-                    slippageBps: Math.max(config.maxSlippageBps || 500, 500)
+                    // Use universal global slippage directly
+                    slippageBps: effectiveConfig.maxSlippageBps
                 });
 
             } else {
-                const { wrappedNativeAddress } = getChainConfig(chainId);
-                const ethInfo = await getTokenInfo(wrappedNativeAddress, chainId);
-                if (ethInfo) nativePrice = ethInfo.price;
+                // EVM Logic - nativePrice already fetched at top
+
 
                 // SPECIALIZED ZORA INTERACTION - Parallelize checks for speed
                 const launchpad = await detectLaunchpadToken(tokenToBuy, chainId);
@@ -496,13 +579,13 @@ async function processBuyWithInfo(
                     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Zora token detected with fast execution enabled', { userId: config.userId, token: tokenToBuy });
                     try {
                         txHash = await zoraSniperService.fastSwap({
-                            userId: config.user.privyDid,
+                            userId: effectiveConfig.user.privyDid,
                             accessToken: '', // Privy server-side doesn't need token if configured
-                            walletAddress: config.user.walletAddress,
+                            walletAddress: effectiveConfig.user.walletAddress,
                             tokenOut: tokenToBuy,
                             amountIn: (usdAmount / nativePrice).toFixed(6),
-                            // Minimum 5% slippage for Zora autotrade
-                            slippage: Math.max((config.maxSlippageBps || 500), 500) / 100
+                            // Use universal global slippage directly
+                            slippage: effectiveConfig.maxSlippageBps / 100
                         });
                         useStandardSwap = !txHash;
                     } catch (zoraErr: any) {
@@ -511,17 +594,27 @@ async function processBuyWithInfo(
                     }
                 } else if (launchpad && launchpad.provider === 'fourmeme') {
                     // Four.meme tokens can ONLY be traded via TokenManager2 contract
-                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - using specialized contract buy', { userId: config.userId, token: tokenToBuy });
-                    const bnbAmount = (usdAmount / nativePrice).toFixed(6);
-                    txHash = await fourMemeService.buyTokenAMAP({
-                        userId: config.user.privyDid,
-                        walletAddress: config.user.walletAddress,
-                        tokenAddress: tokenToBuy,
-                        bnbAmount,
-                        // Minimum 5% slippage for Four.meme autotrade
-                        slippageBps: Math.max(config.maxSlippageBps || 500, 500),
-                    });
-                    useStandardSwap = false;
+                    // UNLESS they have graduated, in which case this might fail and we should try standard swap
+                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting specialized contract buy', { userId: config.userId, token: tokenToBuy });
+                    try {
+                        const bnbAmount = (usdAmount / nativePrice).toFixed(6);
+                        txHash = await fourMemeService.buyTokenAMAP({
+                            userId: effectiveConfig.user.privyDid,
+                            walletAddress: effectiveConfig.user.walletAddress,
+                            tokenAddress: tokenToBuy,
+                            bnbAmount,
+                            // Use universal global slippage directly
+                            slippageBps: effectiveConfig.maxSlippageBps,
+                        });
+                        // If successful, skip standard swap. If txHash is null/empty for some reason, fallback.
+                        useStandardSwap = !txHash;
+                    } catch (fourErr: any) {
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Four.meme specialized buy failed, falling back to standard route (Token might have graduated)', {
+                            userId: config.userId,
+                            error: fourErr.message || fourErr
+                        });
+                        useStandardSwap = true;
+                    }
                 }
 
                 if (useStandardSwap) {
@@ -534,48 +627,15 @@ async function processBuyWithInfo(
 
                     // === BUY WITH RETRY LOGIC (Hardened) ===
                     const baseAmount = usdAmount / nativePrice;
-                    // IMPROVED: Higher base slippage for volatile tokens (10% minimum)
-                    const baseSlippage = Math.max(config.maxSlippageBps || 1000, 1000);
-
-                    // PRE-CHECK: Insufficient Balance Check (EVM Only)
-                    if (chainId !== 900 && process.env.SIMULATION_MODE !== 'true') {
-                        try {
-                            const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
-                            const balance = await provider.getBalance(config.user.walletAddress);
-                            const requiredParams = ethers.parseEther(baseAmount.toFixed(18));
-                            const gasBuffer = ethers.parseEther("0.002"); // ~ $5-6 for gas
-
-                            if (balance < (requiredParams + gasBuffer)) {
-                                logger.warn(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping: Insufficient balance for user', {
-                                    userId: config.userId,
-                                    has: ethers.formatEther(balance),
-                                    needs: baseAmount.toFixed(5)
-                                });
-
-                                // Send Low Balance Alert
-                                await notificationService.sendNotification({
-                                    userId: config.user.privyDid,
-                                    farcasterFid: config.user.farcasterFid,
-                                    type: 'SYSTEM_ALERT',
-                                    data: {
-                                        alertTitle: 'Low Balance',
-                                        alertMessage: `I couldn't buy $${tokenInfo.symbol} because your balance is too low. You have ${ethers.formatEther(balance).slice(0, 6)} ETH but need about ${baseAmount.toFixed(4)} ETH.`,
-                                        remainingBalance: `${ethers.formatEther(balance).slice(0, 6)} ETH`
-                                    }
-                                });
-                                continue;
-                            }
-                        } catch (balErr: any) {
-                            logger.debug(LogCode.SYS_ERROR, 'Balance check failed, proceeding anyway', { error: balErr.message });
-                        }
-                    }
+                    // Use universal global slippage
+                    const baseSlippage = effectiveConfig.maxSlippageBps;
 
                     try {
                         // Step 1: Try with 100% amount, 10% slippage
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 1: 100% amount, 10% slippage', { userId: config.userId, eth: baseAmount.toFixed(6) });
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 1: 100% amount, 10% slippage', { userId: effectiveConfig.userId, eth: baseAmount.toFixed(6) });
                         txHash = await executeSwapInstant({
-                            userId: config.user.privyDid,
-                            walletAddress: config.user.walletAddress,
+                            userId: effectiveConfig.user.privyDid,
+                            walletAddress: effectiveConfig.user.walletAddress,
                             tokenIn: 'ETH',
                             tokenOut: tokenToBuy,
                             amountIn: baseAmount.toFixed(6),
@@ -583,17 +643,48 @@ async function processBuyWithInfo(
                             slippageBps: baseSlippage,
                         });
                     } catch (buyErr1: any) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed, retrying...', { userId: config.userId, error: buyErr1.message });
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
+
+                        // CHECK: Conservative vs Aggressive Retry Mode
+                        // If checkTokenBeforeSwap is TRUE (Conservative), we re-check price stability.
+                        // If price hasn't "flown" (spiked > 20%), we continue retry. Otherwise we abort.
+                        if (userSettings?.checkTokenBeforeSwap) {
+                            logger.info(LogCode.EXE_QUOTE_FETCHED, 'Conservative Mode: Checking price stability before retry...', { userId: config.userId });
+                            try {
+                                const freshInfo = await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true });
+                                if (freshInfo && freshInfo.price > 0) {
+                                    const priceChange = freshInfo.price / tokenInfo.price;
+                                    if (priceChange > 2.00) { // > 100% spike (2x)
+                                        logger.warn(LogCode.WTC_TX_SKIPPED, `Conservative Mode: Price spiked ${((priceChange - 1) * 100).toFixed(1)}%, aborting retry`, {
+                                            userId: config.userId,
+                                            oldPrice: tokenInfo.price,
+                                            newPrice: freshInfo.price
+                                        });
+                                        continue; // ABORT RETRY
+                                    }
+                                    // Update token info for record accuracy
+                                    tokenInfo.price = freshInfo.price;
+                                }
+                            } catch (err) {
+                                logger.warn(LogCode.API_FETCH_FAILED, 'Conservative Mode: Failed to re-check price, aborting for safety', { userId: config.userId });
+                                continue;
+                            }
+                        }
+
+                        // AGGRESSIVE MODE (or Conservative Passed): Proceed with high slippage retries
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Aggressive Mode: Initiating retry sequence...', { userId: config.userId });
                         await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
 
                         try {
                             // Step 2: Try with 99% amount + 15% slippage
+                            // NOTE: We intentionally do NOT re-run Price Deviation Check here.
+                            // If Step 1 failed, we assume high volatility and prioritize execution over strict price protection.
                             const amount99 = baseAmount * 0.99;
                             const slippage2 = 1500; // 15%
-                            logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 15% slippage', { userId: config.userId, eth: amount99.toFixed(6) });
+                            logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 15% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
                             txHash = await executeSwapInstant({
-                                userId: config.user.privyDid,
-                                walletAddress: config.user.walletAddress,
+                                userId: effectiveConfig.user.privyDid,
+                                walletAddress: effectiveConfig.user.walletAddress,
                                 tokenIn: 'ETH',
                                 tokenOut: tokenToBuy,
                                 amountIn: amount99.toFixed(6),
@@ -608,10 +699,10 @@ async function processBuyWithInfo(
                                 // Step 3: Final attempt with 98% amount + 20% slippage
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = 2000; // 20%
-                                logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 20% slippage', { userId: config.userId, eth: amount98.toFixed(6) });
+                                logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
                                 txHash = await executeSwapInstant({
-                                    userId: config.user.privyDid,
-                                    walletAddress: config.user.walletAddress,
+                                    userId: effectiveConfig.user.privyDid,
+                                    walletAddress: effectiveConfig.user.walletAddress,
                                     tokenIn: 'ETH',
                                     tokenOut: tokenToBuy,
                                     amountIn: amount98.toFixed(6),
@@ -641,8 +732,8 @@ async function processBuyWithInfo(
             // Create position record
             await prisma.position.create({
                 data: {
-                    userId: config.userId,
-                    configId: config.id,
+                    userId: effectiveConfig.userId,
+                    configId: effectiveConfig.id,
                     tokenAddress: tokenToBuy,
                     tokenSymbol: tokenInfo.symbol,
                     chainId,
@@ -799,6 +890,7 @@ async function executePositionExit(params: {
     exitReason: 'mirror_sell' | 'take_profit' | 'stop_loss' | 'manual';
     tokenInfo: any;
     config: any;
+    userSettings?: any;
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, tokenInfo, config } = params;
 
@@ -813,6 +905,10 @@ async function executePositionExit(params: {
     let decimals = 18;
     let txHash = '';
     const user = config.user;
+
+    // Fetch universal global slippage from UserSettings
+    const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
+    const universalSlippageBps = getSlippageBps(settings);
 
     try {
         if (chainId === 900) {
@@ -829,11 +925,22 @@ async function executePositionExit(params: {
                 return null;
             }
 
-            const connection = getSolanaConnection();
-            const accounts = await connection.getParsedTokenAccountsByOwner(
-                new PublicKey(solAddress),
-                { mint: new PublicKey(tokenAddress) }
-            );
+            // 1. Robust Balance Fetching with Retries
+            // Handle RPC latency where balance might not appear immediately
+            let accounts: any = { value: [] };
+            for (let i = 0; i < 3; i++) {
+                try {
+                    const connection = getSolanaConnection();
+                    accounts = await connection.getParsedTokenAccountsByOwner(
+                        new PublicKey(solAddress),
+                        { mint: new PublicKey(tokenAddress) }
+                    );
+                    if (accounts.value.length > 0) break; // Found accounts, stop retrying
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms before retry
+                } catch (err) {
+                    if (i === 2) logger.error(LogCode.API_FETCH_FAILED, 'Solana balance fetch failed after retries', { userId, error: (err as Error).message });
+                }
+            }
 
             for (const acc of accounts.value) {
                 const amount = BigInt(acc.account.data.parsed.info.tokenAmount.amount);
@@ -843,17 +950,26 @@ async function executePositionExit(params: {
 
             const balanceUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
 
-            if (balance <= 0n || balanceUsd < 0.1) {
-                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Closing database record for empty or negligible balance', {
-                    userId,
-                    token: tokenAddress,
-                    balanceUsd
-                });
-                await prisma.position.updateMany({
-                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
-                    data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
-                });
-                return null;
+            // 2. Rent Reclamation / Dust Handling
+            // If balance is effectively zero (or just dust < 1000 raw units), we consider it empty.
+            if (balance < 1000n) {
+                // CHECK: If we have an open position record but no balance, close it.
+                // This handles the case where an external sell happened or previous sell leftover dust.
+                if (balance <= 0n || balanceUsd < 0.1) {
+                    logger.throttled(LogCode.WTC_TX_SKIPPED, 'Closing database record for empty or negligible balance', {
+                        userId,
+                        token: tokenAddress,
+                        balanceUsd
+                    });
+                    await prisma.position.updateMany({
+                        where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
+                        data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
+                    });
+
+                    // OPTIONAL: We could add CloseAccount instruction here if account exists but has dust, 
+                    // but usually we do it *during* the swap transaction to save a separate TX.
+                    return null;
+                }
             }
 
             logger.info(LogCode.EXE_TX_BROADCAST, 'Selling token on Solana', {
@@ -869,36 +985,37 @@ async function executePositionExit(params: {
                     tokenInMint: tokenAddress,
                     tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                     amountIn: balance.toString(),
-                    // IMPROVED: 10% slippage for Solana autotrade sell
-                    slippageBps: Math.max(config.maxSlippageBps || 1000, 1000)
+                    // Use universal global slippage
+                    slippageBps: universalSlippageBps
                 });
             } catch (e: any) {
-                logger.warn(LogCode.EXE_TX_REVERTED, 'Solana 100% sell failed, retrying with higher slippage', { userId, error: e.message });
+                logger.warn(LogCode.EXE_TX_REVERTED, 'Solana 100% sell failed, retrying with AGGRESSIVE slippage', { userId, error: e.message });
                 try {
-                    // Retry with 15% slippage
-                    const highSlippage = Math.min(Math.max((config.maxSlippageBps || 500) * 2, 1500), 2500);
+                    // Retry with 10% slippage (Aggressive)
+                    const aggressiveSlippage = 1000; // 10%
                     txHash = await executeSolanaSwap({
                         userId: user.privyDid,
                         tokenInMint: tokenAddress,
                         tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                         amountIn: balance.toString(),
-                        slippageBps: highSlippage
+                        slippageBps: aggressiveSlippage
                     });
-                } catch (e1_5: any) {
+                } catch (e2: any) {
                     try {
                         const safeBalance999 = (balance * 999n) / 1000n;
+                        // Retry with 20% slippage (Survival Mode)
+                        const survivalSlippage = 2000; // 20%
                         txHash = await executeSolanaSwap({
                             userId: user.privyDid,
                             tokenInMint: tokenAddress,
                             tokenOutMint: SOLANA_CONFIG.TOKENS.SOL,
                             amountIn: safeBalance999.toString(),
-                            // Partial sell with 15% slippage
-                            slippageBps: Math.min(Math.max((config.maxSlippageBps || 500) * 2, 1500), 2500)
+                            slippageBps: survivalSlippage
                         });
                         isPartialSell = true;
-                    } catch (e2: any) {
-                        logger.error(LogCode.EXE_TX_REVERTED, 'All Solana sell attempts failed', { userId, token: tokenAddress, error: e2.message });
-                        throw e2; // Re-throw to trigger exit_failed
+                    } catch (e3: any) {
+                        logger.error(LogCode.EXE_TX_REVERTED, 'All Solana sell attempts failed', { userId, token: tokenAddress, error: e3.message });
+                        throw e3; // Re-throw to trigger exit_failed
                     }
                 }
             }
@@ -906,6 +1023,7 @@ async function executePositionExit(params: {
             // Sweep dust
             if (txHash) {
                 try {
+                    const connection = getSolanaConnection();
                     const postSellAccounts = await connection.getParsedTokenAccountsByOwner(new PublicKey(solAddress), { mint: new PublicKey(tokenAddress) });
                     let remainingBalance = 0n;
                     for (const acc of postSellAccounts.value) { remainingBalance += BigInt(acc.account.data.parsed.info.tokenAmount.amount); }
@@ -930,7 +1048,7 @@ async function executePositionExit(params: {
         } else {
             // EVM Logic
             const chainConfig = getChainConfig(chainId);
-            const evmProvider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+            const evmProvider = getProvider(chainId); // Use cached provider
             const contract = new ethers.Contract(tokenAddress, [
                 'function balanceOf(address) view returns (uint256)',
                 'function decimals() view returns (uint8)'
@@ -956,8 +1074,8 @@ async function executePositionExit(params: {
             let isPartialSell = false;
             try {
                 const safeBalance = balance > 0n ? balance - 1n : 0n;
-                // IMPROVED: 10% slippage for autotrade sell
-                const initialSlippage = Math.max(config.maxSlippageBps || 1000, 1000);
+                // Use universal global slippage
+                const initialSlippage = universalSlippageBps;
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Attempting EVM sell with slippage', { userId, slippageBps: initialSlippage });
 
                 txHash = await executeSellInstant({
@@ -973,8 +1091,8 @@ async function executePositionExit(params: {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', { userId, error: e.message });
                 try {
                     const safeBalance999 = (balance * 999n) / 1000n;
-                    // Retry with 15% slippage, capped at 25% max
-                    const retrySlippage = Math.min(Math.max((config.maxSlippageBps || 500) * 2, 1500), 2500);
+                    // Retry with 1.5x of global slippage, capped at 25%
+                    const retrySlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                     logger.debug(LogCode.EXE_TX_BROADCAST, 'Retrying EVM sell with higher slippage', { userId, slippageBps: retrySlippage });
 
                     txHash = await executeSellInstant({
@@ -1212,119 +1330,190 @@ export async function checkPositionsForExits(): Promise<void> {
 
     logger.debug(LogCode.SYS_STARTUP, `Monitoring open positions`, { count: positions.length });
 
-    // Batch fetch configs for efficiency
+    // 1. Batch fetch configs for efficiency
     const configIds = [...new Set(positions.map(p => p.configId))];
     const configs = await prisma.copyTradeConfig.findMany({
         where: { id: { in: configIds } }
     });
     const configMap = new Map(configs.map(c => [c.id, c]));
 
-    for (const position of positions) {
-        // Skip if this position is already being processed
-        if (positionsBeingExited.has(position.id)) {
-            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping position check: exit already in progress', { positionId: position.id });
-            continue;
+    // 2. Batch fetch token prices (GROUP BY tokenAddress + chainId)
+    const uniqueTokens = new Map<string, { address: string, chainId: number }>();
+    positions.forEach(p => {
+        const key = `${p.tokenAddress.toLowerCase()}_${p.chainId}`;
+        if (!uniqueTokens.has(key)) {
+            uniqueTokens.set(key, { address: p.tokenAddress, chainId: p.chainId });
         }
+    });
 
-        try {
-            // STEP 1: Check on-chain balance first (detect manual sells or dust)
-            if (position.chainId !== 900) { // Skip Solana for now (different balance check needed)
+    const tokenPriceMap = new Map<string, any>(); // Store complete tokenInfo objects
+
+    // Process unique tokens in parallel chunks (limit concurrency)
+    const tokenList = Array.from(uniqueTokens.values());
+    const TOKEN_BATCH_SIZE = 10;
+
+    for (let i = 0; i < tokenList.length; i += TOKEN_BATCH_SIZE) {
+        const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
+        await Promise.all(batch.map(async ({ address, chainId }) => {
+            try {
+                const info = await getTokenInfo(address, chainId);
+                if (info && info.price) {
+                    // Cache the COMPLETE tokenInfo object to preserve all fields
+                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
+                }
+            } catch (err) {
+                logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Failed to fetch price', { token: address, error: (err as Error).message });
+            }
+        }));
+    }
+
+    // 3. Process positions in PARALLEL (with batching)
+    const POSITION_BATCH_SIZE = 20; // Process 20 positions at a time
+    for (let i = 0; i < positions.length; i += POSITION_BATCH_SIZE) {
+        const batch = positions.slice(i, i + POSITION_BATCH_SIZE);
+
+        await Promise.all(batch.map(async (position) => {
+            // Skip if this position is already being processed
+            if (positionsBeingExited.has(position.id)) return;
+
+            try {
+                // STEP A: Check on-chain balance first (detect manual sells or dust)
+                let balance = 0n;
+                let isBalanceCheckSuccess = false;
+
                 try {
-                    const chainConfig = getChainConfig(position.chainId);
-                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
-                    const tokenContract = new ethers.Contract(
-                        position.tokenAddress,
-                        ['function balanceOf(address) view returns (uint256)'],
-                        provider
-                    );
-                    const balance = await tokenContract.balanceOf(position.user.walletAddress);
+                    if (position.chainId === 900) {
+                        // SOLANA Balance Check
+                        const solAddress = await getSolanaEmbeddedWalletAddress(position.user.privyDid);
+                        if (solAddress) {
+                            const connection = getSolanaConnection();
+                            const { value } = await connection.getParsedTokenAccountsByOwner(
+                                new PublicKey(solAddress),
+                                { mint: new PublicKey(position.tokenAddress) }
+                            );
+                            // Sum up all accounts for this mint
+                            for (const acc of value) {
+                                balance += BigInt(acc.account.data.parsed.info.tokenAmount.amount);
+                            }
+                            isBalanceCheckSuccess = true;
+                        }
+                    } else {
+                        // EVM Balance Check
+                        const provider = getProvider(position.chainId); // Use cached provider
+                        const tokenContract = new ethers.Contract(
+                            position.tokenAddress,
+                            ['function balanceOf(address) view returns (uint256)'],
+                            provider
+                        );
+                        balance = await tokenContract.balanceOf(position.user.walletAddress);
+                        isBalanceCheckSuccess = true;
+                    }
 
-                    if (balance === 0n) {
-                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id });
+                    // Auto-Close if balance is empty (0)
+                    // Note: We user stricter check here than 'dust', effectively 0 balance
+                    if (isBalanceCheckSuccess && balance === 0n) {
+                        logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id, chainId: position.chainId });
                         await prisma.position.update({
                             where: { id: position.id },
-                            data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN' }
+                            data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN', closedAt: new Date() }
                         });
 
                         // Notify user that position was auto-closed
                         if (position.user?.farcasterFid) {
                             await notificationService.sendNotification({
-                                type: 'SYSTEM_ALERT',
-                                farcasterFid: Number(position.user.farcasterFid),
                                 userId: position.userId,
+                                farcasterFid: position.user.farcasterFid,
+                                type: 'TRADE_SUCCESS_SELL', // Reusing sell success notification type
                                 data: {
                                     alertTitle: 'Position Auto-Closed',
-                                    alertMessage: `Position for ${position.tokenSymbol} auto-closed as no balance was detected on-chain (likely manual sell).`,
+                                    tokenSymbol: position.tokenSymbol || 'Unknown',
+                                    usdValue: '0.00',
+                                    targetWallet: 'Manual/External',
+                                    txHash: 'External',
+                                    chainId: position.chainId
                                 }
                             });
                         }
-                        continue;
+                        return; // Stop processing this position
                     }
                 } catch (balanceErr: any) {
                     logger.warn(LogCode.SYS_ERROR, 'Error checking on-chain balance', { positionId: position.id, error: balanceErr.message });
+                    // Continue to price check even if balance check fails (e.g. RPC error), unless it's critical
                 }
-            }
 
-            // STEP 2: Check for TP/SL
-            const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId);
-            if (!tokenInfo || !tokenInfo.price) {
-                logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Price not available for token', { token: position.tokenAddress });
-                continue;
-            }
+                // STEP B: Check for TP/SL
+                const tokenKey = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
+                const tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
 
-            const currentPrice = tokenInfo.price;
-            const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+                if (!tokenInfo) {
+                    // Price not available in batch, skip
+                    return;
+                }
 
-            // Get config from map
-            const config = configMap.get(position.configId);
-            if (!config) continue;
+                const currentPrice = tokenInfo.price;
+                const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
 
-            // Check take profit
-            if (config.takeProfitPct && profitLossPct >= config.takeProfitPct) {
-                logger.info(LogCode.EXE_TX_BROADCAST, 'Take Profit triggered', {
-                    positionId: position.id,
-                    profitLossPct: profitLossPct.toFixed(2)
-                });
+                // Get config
+                const config = configMap.get(position.configId);
+                if (!config) {
+                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Orphaned position: Config not found', { positionId: position.id, configId: position.configId });
+                    return;
+                }
 
-                positionsBeingExited.add(position.id);
-                try {
-                    await executePositionExit({
-                        userId: position.userId,
-                        tokenAddress: position.tokenAddress,
-                        chainId: position.chainId,
-                        exitReason: 'take_profit',
-                        tokenInfo,
-                        config: { ...config, user: position.user }
+                // Check take profit
+                if (config.takeProfitPct && profitLossPct >= config.takeProfitPct) {
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Take Profit triggered', {
+                        positionId: position.id,
+                        token: position.tokenSymbol || 'Unknown',
+                        profitLossPct: profitLossPct.toFixed(2)
                     });
-                } finally {
-                    positionsBeingExited.delete(position.id);
-                }
-            }
-            // Check stop loss
-            else if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
-                logger.info(LogCode.EXE_TX_BROADCAST, 'Stop Loss triggered', {
-                    positionId: position.id,
-                    profitLossPct: profitLossPct.toFixed(2)
-                });
 
-                positionsBeingExited.add(position.id);
-                try {
-                    await executePositionExit({
-                        userId: position.userId,
-                        tokenAddress: position.tokenAddress,
-                        chainId: position.chainId,
-                        exitReason: 'stop_loss',
-                        tokenInfo,
-                        config: { ...config, user: position.user }
+                    positionsBeingExited.add(position.id);
+                    try {
+                        await executePositionExit({
+                            userId: position.userId,
+                            tokenAddress: position.tokenAddress,
+                            chainId: position.chainId,
+                            exitReason: 'take_profit',
+                            tokenInfo: tokenInfo,
+                            config: { ...config, user: position.user }
+                        });
+                    } finally {
+                        positionsBeingExited.delete(position.id);
+                    }
+                }
+                // Check stop loss
+                else if (config.stopLossPct && profitLossPct <= -config.stopLossPct) {
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Stop Loss triggered', {
+                        positionId: position.id,
+                        token: position.tokenSymbol || 'Unknown',
+                        profitLossPct: profitLossPct.toFixed(2)
                     });
-                } finally {
-                    positionsBeingExited.delete(position.id);
-                }
-            }
 
-        } catch (error: any) {
-            logger.error(LogCode.SYS_ERROR, 'Error monitoring position', { positionId: position.id, error: error.message });
-        }
+                    positionsBeingExited.add(position.id);
+                    try {
+                        await executePositionExit({
+                            userId: position.userId,
+                            tokenAddress: position.tokenAddress,
+                            chainId: position.chainId,
+                            exitReason: 'stop_loss',
+                            tokenInfo: tokenInfo,
+                            config: { ...config, user: position.user }
+                        });
+                    } finally {
+                        positionsBeingExited.delete(position.id);
+                    }
+                }
+
+            } catch (error: any) {
+                logger.error(LogCode.SYS_ERROR, 'Error monitoring position', {
+                    positionId: position.id,
+                    token: position.tokenAddress,
+                    error: error.message
+                    // No stack trace in prod logs usually, but good for debug
+                });
+            }
+        }));
     }
 }
 
@@ -1340,6 +1529,28 @@ function getChainSlug(chainId: number) {
     return chains[chainId] || chains[8453];
 }
 
+/**
+ * Helper to convert UserSettings.customSlippage (%) to BPS
+ * Strictly used as the universal global slippage for all auto-trades
+ */
+function getSlippageBps(userSettings: any): number {
+    if (!userSettings || userSettings.customSlippage === null || userSettings.customSlippage === undefined) {
+        return 300; // Default 3%
+    }
+    return Math.floor(userSettings.customSlippage * 100);
+}
+
+async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint> {
+    try {
+        const { rpcUrl } = getChainConfig(chainId);
+        const provider = getProvider(chainId); // Use cached provider
+        return await provider.getBalance(walletAddress);
+    } catch (error) {
+        logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch native balance for gas check', { wallet: walletAddress, chainId });
+        return 0n; // Fail open (don't block trade on RPC error, assume enough gas)
+    }
+}
+
 function formatTokenAmount(amount: bigint, decimals: number): number {
     const formatted = ethers.formatUnits(amount, decimals);
     const value = Number(formatted);
@@ -1350,279 +1561,7 @@ function formatTokenAmount(amount: bigint, decimals: number): number {
     return value;
 }
 
-function getStablecoinDecimals(tokenAddress: string, chainId: number): number {
-    if (chainId === 900) {
-        return 6;
-    }
 
-    const normalized = normalizeAddress(tokenAddress);
-    const sixDecimalStables = new Set([
-        normalizeAddress('0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'), // ETH USDC
-        normalizeAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7'), // ETH USDT
-        normalizeAddress('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913') // Base USDC
-    ]);
-
-    return sixDecimalStables.has(normalized) ? 6 : 18;
-}
-
-/**
- * Get token information from external API with multi-provider fallback
- */
-// ... (getTokenInfo signature)
-// Cache to reduce API calls and speed up detection
-const tokenInfoCache = new Map<string, { data: any, timestamp: number }>();
-const CACHE_TTL = 30 * 1000; // 30 seconds
-
-export async function getTokenInfo(tokenAddress: string, chainId: number, options: { verbose?: boolean; forceRefresh?: boolean } = { verbose: true, forceRefresh: false }): Promise<any> {
-    const { verbose, forceRefresh } = options;
-    const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
-
-    // 1. Check Cache
-    if (!forceRefresh) {
-        const cached = tokenInfoCache.get(cacheKey);
-        if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-            logger.debug(LogCode.API_FETCH_SUCCESS, `Cache hit for token info`, { symbol: cached.data.symbol, token: tokenAddress });
-            return cached.data;
-        }
-    }
-
-    const chainSlug = getChainSlug(chainId);
-    const dsSlug = chainSlug.dexScreener;
-    const gtSlug = chainSlug.geckoTerminal;
-
-    // --- STEP 0: Request Jitter ---
-    // Add a random delay to prevent synchronized burst blocks
-    // Reduced jitter if cached data was stale but close
-    const jitter = Math.floor(Math.random() * 200) + 100; // 100-300ms
-    await new Promise(resolve => setTimeout(resolve, jitter));
-
-    if (verbose) {
-        logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching token information', { token: tokenAddress, chainId, jitterMs: jitter });
-    }
-
-    // --- STEP 1: Try DexScreener (Primary) ---
-    const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
-    const MAX_RETRIES = 3;
-    let dsError: any = null;
-
-    let successResult: any = null;
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-            const res = await fetch(dsUrl, {
-                headers: { 'Connection': 'close', 'Accept': 'application/json' },
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-
-            if (res.status === 429) {
-                logger.warn(LogCode.API_RATE_LIMIT, 'DexScreener rate limited', { token: tokenAddress, attempt });
-                throw new Error('429');
-            }
-
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-
-            const contentType = res.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-                throw new Error('Non-JSON response');
-            }
-
-            const data = await res.json() as any;
-            if (data.pairs && data.pairs.length > 0) {
-                // ================================================================
-                // 🎯 STRICT PAIR SELECTION WITH QUALITY FILTERS
-                // ================================================================
-
-                // Step 1: Filter by correct chain only (NO fallback to other chains)
-                const chainPairs = data.pairs.filter((p: any) => p.chainId === dsSlug);
-
-                if (chainPairs.length === 0) {
-                    logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener: No pairs found on target chain', {
-                        token: tokenAddress,
-                        chainId,
-                        dsSlug,
-                        availableChains: data.pairs.map((p: any) => p.chainId).slice(0, 5)
-                    });
-                    break; // Move to fallback APIs
-                }
-
-                // Step 2: DEX Whitelist - Only trust major DEXs
-                const TRUSTED_DEXS = ['uniswap', 'aerodrome', 'pancakeswap', 'sushiswap', 'curve'];
-                const trustedPairs = chainPairs.filter((p: any) =>
-                    TRUSTED_DEXS.some(dex => p.dexId?.toLowerCase().includes(dex))
-                );
-
-                // Step 3: Quality filters - Minimum liquidity and volume
-                const MIN_PAIR_LIQUIDITY = 500; // $500
-                const MIN_PAIR_VOLUME = 100; // $100 per 24h
-
-                const qualityPairs = (trustedPairs.length > 0 ? trustedPairs : chainPairs).filter((p: any) => {
-                    const liq = p.liquidity?.usd || 0;
-                    const vol = p.volume?.h24 || 0;
-                    return liq >= MIN_PAIR_LIQUIDITY && vol >= MIN_PAIR_VOLUME;
-                });
-
-                if (qualityPairs.length === 0) {
-                    logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener: No quality pairs found', {
-                        token: tokenAddress,
-                        chainPairsCount: chainPairs.length,
-                        trustedPairsCount: trustedPairs.length
-                    });
-                    break; // Move to fallback APIs
-                }
-
-                // Step 4: Select pair with highest liquidity
-                const pair = qualityPairs.reduce((best: any, current: any) => {
-                    const bestLiq = best.liquidity?.usd || 0;
-                    const currentLiq = current.liquidity?.usd || 0;
-                    return currentLiq > bestLiq ? current : best;
-                });
-
-                successResult = {
-                    price: parseFloat(pair.priceUsd),
-                    symbol: pair.baseToken.symbol,
-                    name: pair.baseToken.name,
-                    decimals: 18,
-                    liquidity: pair.liquidity?.usd || 0,
-                    volume24h: pair.volume?.h24 || 0,
-                    fdv: pair.fdv || 0,
-                    marketCap: pair.fdv || 0,
-                    pairCreatedAt: pair.pairCreatedAt,
-                    socials: pair.info?.socials || [],
-                    websites: pair.info?.websites || [],
-                    provider: 'dexscreener'
-                };
-                logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from DexScreener', {
-                    symbol: successResult.symbol,
-                    price: successResult.price,
-                    liquidity: successResult.liquidity,
-                    pairChain: pair.chainId,
-                    pairDex: pair.dexId
-                });
-
-                // Cache Result
-                tokenInfoCache.set(cacheKey, { data: successResult, timestamp: Date.now() });
-                return successResult;
-            }
-
-            // If no pairs found, don't retry dexscreener, move to fallback
-            logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener: No liquid pairs found for token', { token: tokenAddress });
-            break;
-
-        } catch (e: any) {
-            dsError = e;
-            if (attempt < MAX_RETRIES && (e.message === '429' || e.name === 'AbortError')) {
-                // Exponential Backoff: 1s, 2s, 4s...
-                const wait = 1000 * Math.pow(2, attempt - 1);
-                logger.debug(LogCode.API_TIMEOUT, 'Retrying DexScreener fetch', { waitMs: wait, attempt });
-                await new Promise(resolve => setTimeout(resolve, wait));
-                continue;
-            }
-            break; // Other errors or max retries
-        }
-    }
-
-    // --- STEP 2: Try GeckoTerminal (Fallback) ---
-    logger.debug(LogCode.API_FETCH_SUCCESS, 'DexScreener insufficient, attempting GeckoTerminal fallback', { token: tokenAddress });
-    try {
-        const gtData = await getTokenDetails(gtSlug, tokenAddress);
-        if (gtData) {
-            const result = {
-                price: gtData.price || 0,
-                symbol: gtData.symbol || 'UNKNOWN',
-                name: gtData.name || 'Unknown Token',
-                decimals: gtData.decimals || 18,
-                liquidity: gtData.liquidity || 0,
-                volume24h: gtData.volume24h || 0,
-                fdv: gtData.fdv || 0,
-                marketCap: gtData.marketCap || gtData.fdv || 0,
-                pairCreatedAt: gtData.poolCreatedAt ? new Date(gtData.poolCreatedAt).getTime() : Date.now(),
-                socials: gtData.socials || [],
-                websites: gtData.websites || [],
-                provider: 'geckoterminal'
-            };
-            logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from GeckoTerminal', { symbol: result.symbol, price: result.price });
-            return result;
-        }
-    } catch (gtErr: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'GeckoTerminal fallback failed', { token: tokenAddress, error: gtErr.message });
-    }
-
-    // --- STEP 3: Try ZORA API (For Base chain launchpad tokens) ---
-    if (chainId === 8453) {
-        logger.debug(LogCode.API_FETCH_SUCCESS, 'Attempting Zora API fallback for Base token', { token: tokenAddress });
-        try {
-            const zoraUrl = `https://api-sdk.zora.engineering/coin?address=${tokenAddress}&chain=8453`;
-            const zoraRes = await fetch(zoraUrl, {
-                headers: { 'Accept': 'application/json' }
-            });
-
-            if (zoraRes.ok) {
-                const zoraData = await zoraRes.json() as any;
-                if (zoraData && zoraData.tokenPrice) {
-                    const result = {
-                        price: parseFloat(zoraData.tokenPrice.priceInUsdc),
-                        symbol: zoraData.symbol,
-                        name: zoraData.name,
-                        decimals: 18,
-                        liquidity: parseFloat(zoraData.marketCap) * 0.1, // Proxy
-                        volume24h: parseFloat(zoraData.volume24h),
-                        fdv: parseFloat(zoraData.marketCap),
-                        marketCap: parseFloat(zoraData.marketCap),
-                        provider: 'zora'
-                    };
-                    logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from Zora', { symbol: result.symbol, price: result.price });
-                    return result;
-                }
-            }
-        } catch (e: any) {
-            logger.debug(LogCode.API_FETCH_FAILED, 'Zora API fallback failed', { token: tokenAddress, error: e.message });
-        }
-    }
-
-    // --- STEP 4: Try Moralis (4th API Fallback) ---
-    logger.debug(LogCode.API_FETCH_SUCCESS, 'Attempting Moralis fallback as final source', { token: tokenAddress });
-    try {
-        const MORALIS_API_KEY = process.env.MORALIS_API_KEY || '';
-        const chain = moralisService.CHAIN_MAPPING[chainId];
-
-        if (MORALIS_API_KEY && chain) {
-            const url = `https://deep-index.moralis.io/api/v2.2/erc20/${tokenAddress}/price?chain=${chain}`;
-            const res = await fetch(url, {
-                headers: { 'X-API-Key': MORALIS_API_KEY, 'Accept': 'application/json' }
-            });
-
-            if (res.ok) {
-                const data = await res.json() as any;
-                if (data.usdPrice) {
-                    const result = {
-                        price: data.usdPrice,
-                        symbol: 'TOKEN', // Fallback, Moralis price API might not return symbol here
-                        name: 'Token',
-                        decimals: data.nativePrice?.decimals || 18,
-                        liquidity: 0,
-                        volume24h: 0,
-                        fdv: 0,
-                        marketCap: 0,
-                        provider: 'moralis'
-                    };
-                    logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched price from Moralis', { price: result.price });
-                    return result;
-                }
-            }
-        }
-    } catch (e: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'Moralis price fetch failed', { token: tokenAddress, error: e.message });
-    }
-
-    logger.error(LogCode.API_FETCH_FAILED, 'All token info data sources failed', { token: tokenAddress, lastError: dsError?.message });
-    return null;
-}
 
 async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: number) {
     if (!tokenInfo) return { passed: false, reason: 'No token info' };
@@ -1652,29 +1591,33 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
 
     // Try to extract critical data - if any fails, reject the token
     let liquidity: number;
-    let volume24h: number;
-    let marketCap: number;
     let price: number;
 
+    // Non-critical data (default to 0 if missing/invalid to allow new tokens)
+    let volume24h: number = 0;
+    let marketCap: number = 0;
+
     try {
+        // Critical: Must have liquidity and price
         liquidity = safeNumber(tokenInfo.liquidity, 'liquidity');
         price = safeNumber(tokenInfo.price, 'price');
 
-        // These are optional - use 0 if missing
-        volume24h = tokenInfo.volume24h !== null && tokenInfo.volume24h !== undefined
-            ? safeNumber(tokenInfo.volume24h, 'volume24h')
-            : 0;
-        marketCap = tokenInfo.marketCap !== null && tokenInfo.marketCap !== undefined
-            ? safeNumber(tokenInfo.marketCap, 'marketCap')
-            : (tokenInfo.fdv !== null && tokenInfo.fdv !== undefined ? safeNumber(tokenInfo.fdv, 'fdv') : 0);
+        // Non-Critical: Volume and MCap (often missing for fresh tokens)
+        if (tokenInfo.volume24h !== null && tokenInfo.volume24h !== undefined) {
+            try { volume24h = safeNumber(tokenInfo.volume24h, 'volume24h'); } catch { }
+        }
+
+        if (tokenInfo.marketCap !== null && tokenInfo.marketCap !== undefined) {
+            try { marketCap = safeNumber(tokenInfo.marketCap, 'marketCap'); } catch { }
+        } else if (tokenInfo.fdv !== null && tokenInfo.fdv !== undefined) {
+            try { marketCap = safeNumber(tokenInfo.fdv, 'fdv'); } catch { }
+        }
     } catch (err: any) {
         return { passed: false, reason: `[DATA ERROR] ${err.message}` };
     }
 
     // =========================================================================
-    // 🛡️ HONEYPOT DETECTION (Fast Mode)
-    // Fast mode: Only check liquidity (quick but less thorough)
-    // Normal mode: Additional checks for volume ratio, token age, etc.
+    // 🛡️ HONEYPOT DETECTION & FAST MODE
     // =========================================================================
     const MIN_LIQUIDITY_FAST = 500; // $500 minimum for fast mode
     const MIN_LIQUIDITY_NORMAL = 1000; // $1000 minimum for normal mode
@@ -1682,121 +1625,73 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
 
     const isFastMode = config.fastExecutionEnabled !== false; // Default to fast
 
+    // FAST MODE: Quick entry for new tokens
     if (isFastMode) {
-        // FAST MODE: Quick liquidity check only
+        // Only check minimal liquidity
         if (liquidity < MIN_LIQUIDITY_FAST) {
             return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
         }
-    } else {
-        // NORMAL MODE: More thorough checks
-        if (liquidity < MIN_LIQUIDITY_NORMAL) {
-            return { passed: false, reason: `[HONEYPOT] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
-        }
+        // SHORT CIRCUIT: Skip volume, market cap, and other slow/restrictive checks
+        // We assume if it's Fast Mode, user wants to buy NOW regardless of stats
 
-        // Check volume/liquidity ratio (very low volume relative to liquidity = suspicious)
-        if (volume24h > 0 && liquidity > 0) {
-            const volumeRatio = volume24h / liquidity;
-            if (volumeRatio < MIN_VOLUME_RATIO) {
-                return { passed: false, reason: `[HONEYPOT] Suspicious volume ratio: ${(volumeRatio * 100).toFixed(2)}%` };
+        // However, we STILL check Price Impact (Safety First!)
+        if (config.buyAmountUsd && liquidity > 0) {
+            const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
+            const estimatedPriceImpact = (buyAmount / liquidity) * 100;
+            const MAX_PRICE_IMPACT = 8; // Slightly looser for fast mode (8%)
+
+            if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
+                return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
             }
         }
 
-        // Check token age (very new tokens are higher risk)
-        if (tokenInfo.pairCreatedAt) {
-            const ageMinutes = (Date.now() - tokenInfo.pairCreatedAt) / (1000 * 60);
-            if (ageMinutes < 5) {
-                return { passed: false, reason: `[HONEYPOT] Token too new: ${ageMinutes.toFixed(1)} mins old` };
-            }
+        return { passed: true };
+    }
+
+    // NORMAL MODE: Thorough checks
+    if (liquidity < MIN_LIQUIDITY_NORMAL) {
+        return { passed: false, reason: `[HONEYPOT] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
+    }
+
+    // Check volume/liquidity ratio (Skip for very new tokens < 10 mins old if we had createdAt)
+    // For now, relax this check: Only require volume if liquidity is very deep (> $50k) 
+    // Small pools often have 0 volume initially, we shouldn't block them.
+    if (liquidity > 50000 && volume24h > 0) {
+        const volumeRatio = volume24h / liquidity;
+        if (volumeRatio < MIN_VOLUME_RATIO) {
+            return { passed: false, reason: `[HONEYPOT] Suspicious volume ratio: ${(volumeRatio * 100).toFixed(2)}%` };
         }
     }
 
     // =========================================================================
-    // 🚨 PRICE ANOMALY DETECTION
-    // Detect extreme price movements that could indicate manipulation
-    // =========================================================================
-    if (tokenInfo.priceChange?.h1 !== undefined && tokenInfo.priceChange?.h1 !== null) {
-        const priceChange1h = safeNumber(tokenInfo.priceChange.h1, 'priceChange.h1');
-        const MAX_PRICE_CHANGE_1H = 500; // 500% in 1 hour is suspicious
-
-        if (Math.abs(priceChange1h) > MAX_PRICE_CHANGE_1H) {
-            return { passed: false, reason: `[PRICE ANOMALY] Extreme 1h price change: ${priceChange1h.toFixed(1)}%` };
-        }
-    }
-
-    // Check for unrealistic price values
-    if (price > 0) {
-        const MIN_REALISTIC_PRICE = 0.000000001; // 1e-9
-        const MAX_REALISTIC_PRICE = 1000000; // $1M per token
-
-        if (price < MIN_REALISTIC_PRICE) {
-            return { passed: false, reason: `[PRICE ANOMALY] Price too low: $${price.toExponential(2)}` };
-        }
-        if (price > MAX_REALISTIC_PRICE) {
-            return { passed: false, reason: `[PRICE ANOMALY] Price too high: $${price.toFixed(0)}` };
-        }
-    }
-
-    // =========================================================================
-    // 💰 PRICE IMPACT ESTIMATION
-    // Estimate if our buy will cause excessive slippage
+    // 💰 PRICE IMPACT ESTIMATION (Normal Mode)
     // =========================================================================
     if (config.buyAmountUsd && liquidity > 0) {
         const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
         const estimatedPriceImpact = (buyAmount / liquidity) * 100;
-        const MAX_PRICE_IMPACT = 5; // 5% max price impact
+        const MAX_PRICE_IMPACT = 5; // Stricter for normal mode (5%)
 
         if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
             return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
         }
     }
 
-    // =========================================================================
-    // 📊 DATA SANITY CHECKS
-    // Detect suspicious ratios that could indicate data errors or manipulation
-    // =========================================================================
-
-    // Check 1: Liquidity/Volume ratio
-    if (volume24h > 0 && liquidity > 0) {
-        const liqToVolRatio = liquidity / volume24h;
-        const MAX_LIQ_TO_VOL_RATIO = 100; // Liquidity shouldn't be 100x the daily volume
-
-        if (liqToVolRatio > MAX_LIQ_TO_VOL_RATIO) {
-            return { passed: false, reason: `[DATA ERROR] Suspicious liq/vol ratio: ${liqToVolRatio.toFixed(1)}x` };
-        }
-    }
-
-    // Check 2: MarketCap/Liquidity ratio
-    if (marketCap > 0 && liquidity > 0) {
-        const mcapToLiqRatio = marketCap / liquidity;
-        const MIN_MCAP_TO_LIQ_RATIO = 2; // Market cap should be at least 2x liquidity
-        const MAX_MCAP_TO_LIQ_RATIO = 10000; // But not absurdly high
-
-        if (mcapToLiqRatio < MIN_MCAP_TO_LIQ_RATIO) {
-            return { passed: false, reason: `[DATA ERROR] MCap ${marketCap.toFixed(0)} too low vs liquidity ${liquidity.toFixed(0)}` };
-        }
-
-        if (mcapToLiqRatio > MAX_MCAP_TO_LIQ_RATIO) {
-            return { passed: false, reason: `[DATA ERROR] MCap/Liq ratio ${mcapToLiqRatio.toFixed(0)}x too high` };
-        }
-    }
-
-    // =========================================================================
-
-    // 1. Min Target Buy Value (Copy trade filter)
-    // If target bought only $5 worth, and min is $100 -> Skip.
+    // 1. Min Target Buy Value
     if (config.minTargetValueUsd && targetSwapValueUsd < config.minTargetValueUsd) {
         return { passed: false, reason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min $${config.minTargetValueUsd}` };
     }
 
-    // 2. Market Cap / FDV (with defensive checks)
+    // 2. Market Cap Filters (Normal Mode Only)
     const minMarketCapUsd = (config.minMarketCapUsd ?? config.minMarketCap) || 0;
     const maxMarketCapUsd = (config.maxMarketCapUsd ?? config.maxMarketCap) || 0;
 
-    if (minMarketCapUsd > 0 && marketCap < minMarketCapUsd) {
-        return { passed: false, reason: `MCap $${marketCap.toFixed(0)} < min $${minMarketCapUsd.toFixed(0)}` };
-    }
-    if (maxMarketCapUsd > 0 && marketCap > maxMarketCapUsd) {
-        return { passed: false, reason: `MCap $${marketCap.toFixed(0)} > max $${maxMarketCapUsd.toFixed(0)}` };
+    if (marketCap > 0) { // Only apply if we actually have MCap data
+        if (minMarketCapUsd > 0 && marketCap < minMarketCapUsd) {
+            return { passed: false, reason: `MCap $${marketCap.toFixed(0)} < min $${minMarketCapUsd.toFixed(0)}` };
+        }
+        if (maxMarketCapUsd > 0 && marketCap > maxMarketCapUsd) {
+            return { passed: false, reason: `MCap $${marketCap.toFixed(0)} > max $${maxMarketCapUsd.toFixed(0)}` };
+        }
     }
 
     // 3. User-defined Liquidity filter (overrides honeypot defaults if set)

@@ -1,18 +1,19 @@
 **INTENT: SOCIAL ANALYSIS (FARCASTER)**
 
 1. **Social Sentiment**:
-   - Use \`get_trending_casts\` to gauge the current "vibe" or meta of the Farcaster community.
-   - If a user mentions a token symbol (e.g., "$DEGEN"), use \`search_farcaster_casts\` to see what the community is saying.
-   - Synthesize social data with price data from TokenSkill: "The community is very bullish on [Token], with many casts discussing its recent [Event]."
+   - Do not mention internal tool names. Use capability aliases (Social Research / Token Snapshot) and speak in user-facing terms.
+   - Use Social Research to gauge the current "vibe" or meta of the Farcaster community.
+   - If a user mentions a token symbol (e.g., "$DEGEN"), use Social Research to see what the community is saying.
+   - Synthesize social signal with Token Snapshot: "The community is very bullish on [Token], with many posts discussing its recent [Event]."
 
 2. **User Profiles**:
-   - When asked about a specific person or handle (e.g., "@dwr.eth"), use \`get_farcaster_user\`.
-   - Report their bio, follower count, and recent activity levels.
+   - When asked about a specific person or handle (e.g., "@dwr.eth"), use Social Research.
+   - Report their bio, follower count, and recent activity levels when available.
 
 3. **Alpha Discovery**:
    - Look for recurring themes or specific mentions of new tokens/protocols in trending casts.
    - Be careful of spam; Farcaster is generally higher signal but still has bot activity.
 
 4. **Integration**:
-   - Always mention that this data comes from Farcaster.
-   - Use the \`warpcast.com\` links provided in the tool output if the user wants to see the original cast.
+   - You may mention the platform (Farcaster) as the source of the discussion.
+   - If links are available, include them; do not fabricate links.

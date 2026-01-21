@@ -870,28 +870,79 @@
     width: 100%;
     max-width: 100%;
 
-    /* Step 4: Micro Blur (3px) */
-    background: rgba(20, 20, 30, 0.4);
+    /* Nearly transparent glass background */
+    background: rgba(20, 20, 30, 0.04);
 
-    /* Micro frost */
-    backdrop-filter: blur(3px) saturate(160%);
-    -webkit-backdrop-filter: blur(3px) saturate(160%);
+    /* Subtle frost */
+    backdrop-filter: blur(2px) saturate(180%);
+    -webkit-backdrop-filter: blur(2px) saturate(180%);
 
     border-radius: 32px;
     padding: 0;
 
-    /* Uniform subtle border */
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    /* Thin edge border for structure */
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
 
     display: flex;
     flex-direction: column;
     transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 
-    /* Soft shadow for depth, no inner highlight */
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    /* Outer depth shadow only */
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 
     position: relative;
     z-index: 30;
+    overflow: visible;
+}
+
+/* Fresnel Edge Highlight - Rim Only */
+.inputWrapper::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 32px;
+    padding: 1.5px;
+    /* Rim-only Fresnel gradient that varies around the edge */
+    background: linear-gradient(145deg,
+            rgba(255, 255, 255, 0.55) 0%,
+            rgba(255, 255, 255, 0.2) 25%,
+            rgba(255, 255, 255, 0.08) 50%,
+            rgba(255, 255, 255, 0.15) 75%,
+            rgba(255, 255, 255, 0.35) 100%);
+    /* Mask cuts out center - only edge ring visible */
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Chromatic Aberration - EDGE ONLY using mask */
+.inputWrapper::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 32px;
+    /* Edge-only rim with gradient colors for chromatic aberration */
+    padding: 2px;
+    background:
+        linear-gradient(135deg,
+            rgba(255, 100, 100, 0.4) 0%,
+            rgba(255, 255, 255, 0.3) 25%,
+            rgba(100, 150, 255, 0.4) 50%,
+            rgba(255, 255, 255, 0.2) 75%,
+            rgba(255, 200, 100, 0.35) 100%);
+    /* Mask to cut out center - only show the edge ring */
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0.7;
 }
 
 .textareaContainer {
@@ -915,8 +966,8 @@
     background: rgba(255, 255, 255, 0.4);
 
     /* Micro Glass Blur */
-    backdrop-filter: blur(3px) saturate(160%);
-    -webkit-backdrop-filter: blur(3px) saturate(160%);
+    backdrop-filter: blur(2px) saturate(160%);
+    -webkit-backdrop-filter: blur(2px) saturate(160%);
 
     /* Subtle border for definition */
     border: 1px solid rgba(0, 0, 0, 0.06);
@@ -948,14 +999,29 @@
 }
 
 .inputWrapper:focus-within {
-    border-color: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.18);
 
-    /* Slightly brighter neutral glass on focus */
-    background: rgba(35, 35, 40, 0.7);
+    /* Slightly more visible on focus */
+    background: rgba(35, 35, 40, 0.08);
 
-    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+    /* Enhanced outer shadow */
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
 
     transform: scale(1.002);
+}
+
+/* Enhanced Fresnel on focus */
+.inputWrapper:focus-within::before {
+    background: radial-gradient(ellipse 85% 65% at 20% 15%,
+            rgba(255, 255, 255, 0.55) 0%,
+            rgba(255, 255, 255, 0.28) 30%,
+            rgba(255, 255, 255, 0.12) 50%,
+            transparent 70%);
+}
+
+/* Enhanced chromatic aberration on focus */
+.inputWrapper:focus-within::after {
+    opacity: 0.8;
 }
 
 .light .inputWrapper:focus-within {
@@ -1240,16 +1306,63 @@
     flex-shrink: 0;
     padding: 0;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.05);
-    /* Liquid Glass Dark Base */
-    border: 0.5px solid rgba(255, 255, 255, 0.15);
+    /* Liquid Glass style */
+    background: rgba(30, 30, 35, 0.2);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
     color: var(--text-secondary);
     cursor: pointer;
     transition: all 0.2s;
-    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Fresnel Edge Highlight */
+.settingsButton::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    padding: 1px;
+    background: linear-gradient(145deg,
+            rgba(255, 255, 255, 0.55) 0%,
+            rgba(255, 255, 255, 0.2) 25%,
+            rgba(255, 255, 255, 0.08) 50%,
+            rgba(255, 255, 255, 0.15) 75%,
+            rgba(255, 255, 255, 0.35) 100%);
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Chromatic Aberration */
+.settingsButton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    padding: 1px;
+    background:
+        linear-gradient(135deg,
+            rgba(255, 100, 100, 0.4) 0%,
+            rgba(255, 255, 255, 0.3) 25%,
+            rgba(100, 150, 255, 0.4) 50%,
+            rgba(255, 255, 255, 0.2) 75%,
+            rgba(255, 200, 100, 0.35) 100%);
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0.7;
 }
 
 .settingsButton:hover {
@@ -1294,16 +1407,68 @@
     /* Unified compact height */
     border-radius: 14px;
     /* Liquid Glass - Strong blur for readability */
-    background: rgba(30, 30, 35, 0.4);
-    border: 0.5px solid rgba(255, 255, 255, 0.15);
-    backdrop-filter: blur(90px) saturate(180%);
-    -webkit-backdrop-filter: blur(90px) saturate(180%);
+    background: rgba(30, 30, 35, 0.2);
+    /* Reduced opacity closer to input box */
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    /* Fainter border like input */
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
     color: #a1a1aa;
     font-size: 11px;
     cursor: pointer;
     transition: all 0.2s;
     line-height: normal;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Replicate Input Box Fresnel Edge Highlight */
+.modelButton::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 14px;
+    padding: 1px;
+    /* Thinner for smaller element */
+    background: linear-gradient(145deg,
+            rgba(255, 255, 255, 0.55) 0%,
+            rgba(255, 255, 255, 0.2) 25%,
+            rgba(255, 255, 255, 0.08) 50%,
+            rgba(255, 255, 255, 0.15) 75%,
+            rgba(255, 255, 255, 0.35) 100%);
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Replicate Input Box Chromatic Aberration */
+.modelButton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 14px;
+    padding: 1px;
+    /* Thinner */
+    background:
+        linear-gradient(135deg,
+            rgba(255, 100, 100, 0.4) 0%,
+            rgba(255, 255, 255, 0.3) 25%,
+            rgba(100, 150, 255, 0.4) 50%,
+            rgba(255, 255, 255, 0.2) 75%,
+            rgba(255, 200, 100, 0.35) 100%);
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0.7;
 }
 
 .modelButton:hover {
@@ -1364,7 +1529,7 @@
     left: 0;
     right: 0;
     margin-bottom: 8px;
-    background: rgba(31, 31, 35, 0.75);
+    background: rgba(31, 31, 35, 0.98);
     /* Glass Dropdown Dark */
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -1958,19 +2123,23 @@
 }
 
 .riskWarningBox {
-    background: rgba(228, 84, 84, 0.05);
-    border: 1px solid rgba(228, 84, 84, 0.1);
-    border-radius: 8px;
-    padding: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 2px 0;
+    /* Align with text flow */
     margin-bottom: 16px;
+    font-family: inherit;
+    font-style: italic;
+    opacity: 0.9;
 }
 
 .warningHeader {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--accent-danger);
     margin-bottom: 4px;
 }
@@ -1979,20 +2148,19 @@
     list-style: none;
     padding: 0;
     margin: 0;
-    font-size: 11px;
+    font-size: 13px;
     color: var(--text-secondary);
 }
 
 .warningList li {
     position: relative;
-    padding-left: 10px;
+    padding-left: 0;
+    margin-bottom: 2px;
 }
 
 .warningList li::before {
-    content: "•";
-    position: absolute;
-    left: 0;
-    color: var(--accent-danger);
+    content: "";
+    /* Remove bullet points for cleaner text flow */
 }
 
 .auditBadge {
@@ -2210,7 +2378,7 @@
 .markdownContent h2,
 .markdownContent h3,
 .markdownContent h4 {
-    font-weight: 600;
+    font-weight: 700;
     line-height: 1.4;
     color: #e4e4e7;
     user-select: text;
@@ -2235,17 +2403,17 @@
 
 .markdownContent h3 {
     font-size: 15px;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .markdownContent h4 {
     font-size: 15px;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .markdownContent strong {
-    font-weight: 600;
-    color: #e4e4e7;
+    font-weight: 700;
+    color: #ffffff;
     user-select: text;
     -webkit-user-select: text;
 }
@@ -2267,6 +2435,14 @@
     list-style-position: outside;
 }
 
+.markdownContent ul {
+    list-style-type: disc;
+}
+
+.markdownContent ol {
+    list-style-type: decimal;
+}
+
 .markdownContent li {
     margin: 2px 0;
     padding: 0;
@@ -2277,6 +2453,15 @@
     -webkit-user-select: text !important;
     display: list-item;
     position: relative;
+    color: #a1a1aa;
+    /* Faded for list content */
+}
+
+/* Ensure bold text inside lists stands out */
+/* Ensure bold text inside lists stands out with gradient */
+/* Ensure bold text inside lists stands out */
+.markdownContent li strong {
+    color: #ffffff;
 }
 
 /* Ensure nested lists work correctly */
@@ -2417,10 +2602,10 @@
 }
 
 /* Emphasis Styling (Bold) */
+/* Emphasis Styling (Bold) */
 .markdownContent strong {
     font-weight: 700;
-    color: #60a5fa;
-    /* Blue accent for key points */
+    color: #ffffff;
 }
 
 /* Link Styling */
@@ -2473,8 +2658,11 @@
 }
 
 .light .markdownContent strong {
-    color: #2563eb;
-    /* Darker blue for light mode */
+    color: #111827;
+}
+
+.light .markdownContent li strong {
+    color: #111827;
 }
 
 .light .markdownContent a {
@@ -3257,9 +3445,13 @@
 }
 
 .reasoningContent {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 12px;
+    margin-top: 12px;
+    padding: 2px 0;
+    /* Remove horizontal padding since no border */
+    background: transparent;
+    border-radius: 0;
+    border-left: none;
     animation: fadeInUp 0.2s ease;
     width: 100% !important;
     max-width: 100% !important;
@@ -3269,18 +3461,20 @@
     box-sizing: border-box !important;
     min-width: 0 !important;
     overflow: visible !important;
-    background: transparent !important;
+
 }
 
 .light .reasoningContent {
-    border-top-color: rgba(0, 0, 0, 0.08);
+    background: rgba(0, 0, 0, 0.03);
+    border-left-color: rgba(0, 0, 0, 0.1);
 }
 
 .reasoningText {
     font-size: 13px;
     line-height: 1.6;
-    color: #52525b;
-    white-space: pre-wrap;
+    color: #a1a1aa;
+    /* Zinc-400 for better readability in dark mode */
+    /* Removed white-space: pre-wrap as Markdown handles it */
     word-wrap: break-word;
     overflow-wrap: break-word;
     word-break: break-word;
@@ -3288,12 +3482,31 @@
     max-width: 100%;
     display: block;
     box-sizing: border-box;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-    opacity: 0.8;
+    display: block;
+    box-sizing: border-box;
+    font-family: inherit;
+    /* Use standard font for natural reading */
+    font-style: italic;
+    /* Add italic to separate from main content */
+    opacity: 0.9;
     min-width: 0;
     overflow: visible;
     background: transparent;
 }
+
+/* Ensure Markdown elements inside reasoning inherit the muted color */
+.reasoningText :global(.markdownContent) p,
+.reasoningText :global(.markdownContent) li,
+.reasoningText :global(.markdownContent) span {
+    color: inherit;
+    font-family: inherit;
+}
+
+.reasoningText code {
+    font-size: 12px !important;
+    background: rgba(0, 0, 0, 0.2) !important;
+}
+
 
 .reasoningText * {
     font-size: 13px;

@@ -15,6 +15,10 @@ export interface ChainConfig {
         permit2?: string;    // Uniswap Permit2 (optional)
         kyberRouter?: string;// KyberSwap MetaAggregationRouterV2 (optional)
     };
+    slugs: {                 // Upstream API slugs
+        dexScreener: string;
+        geckoTerminal: string;
+    };
     apiUrl?: string;         // Alchemy, Infura, etc. specific endpoint
 }
 
@@ -36,7 +40,8 @@ export const CHAINS: Record<number, ChainConfig> = {
             zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2', // Standard 0x Proxy
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
             kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
-        }
+        },
+        slugs: { dexScreener: 'ethereum', geckoTerminal: 'eth' }
     },
     // Base
     8453: {
@@ -55,7 +60,8 @@ export const CHAINS: Record<number, ChainConfig> = {
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
             kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
-        apiUrl: process.env.ALCHEMY_BASE_URL // Reuse existing env var for Alchemy
+        apiUrl: process.env.ALCHEMY_BASE_URL, // Reuse existing env var for Alchemy
+        slugs: { dexScreener: 'base', geckoTerminal: 'base' }
     },
     // BNB Smart Chain
     56: {
@@ -75,7 +81,8 @@ export const CHAINS: Record<number, ChainConfig> = {
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
             kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
-        apiUrl: 'https://bnb-mainnet.g.alchemy.com/v2' // Alchemy BNB endpoint
+        apiUrl: 'https://bnb-mainnet.g.alchemy.com/v2', // Alchemy BNB endpoint
+        slugs: { dexScreener: 'bsc', geckoTerminal: 'bsc' }
     },
     // Solana
     900: {
@@ -93,7 +100,8 @@ export const CHAINS: Record<number, ChainConfig> = {
             zeroExProxy: '',
             permit2: '',
             kyberRouter: ''
-        }
+        },
+        slugs: { dexScreener: 'solana', geckoTerminal: 'solana' }
     }
 };
 
@@ -103,4 +111,41 @@ export function getChainConfig(chainId: number): ChainConfig {
         throw new Error(`Unsupported chain ID: ${chainId}`);
     }
     return config;
+}
+
+/**
+ * Get API slugs for external services (DexScreener, GeckoTerminal)
+ * @param chainId - Chain ID
+ */
+export function getChainSlug(chainId: number): { dexScreener: string; geckoTerminal: string } {
+    const config = CHAINS[chainId];
+    if (config?.slugs) {
+        return config.slugs;
+    }
+    // Fallback if chain not configured (defaults to Ethereum)
+    return { dexScreener: 'ethereum', geckoTerminal: 'eth' };
+}
+
+// ============================================================================
+// Provider Singleton Cache
+// ============================================================================
+// Reuse provider instances per chain to reduce memory usage and connection overhead
+import { ethers } from 'ethers';
+
+const providerCache = new Map<number, ethers.JsonRpcProvider>();
+
+/**
+ * Get a cached JsonRpcProvider for the given chain ID.
+ * Creates a new provider on first access and reuses it for subsequent calls.
+ * 
+ * @param chainId - The chain ID (1 = ETH, 8453 = Base, 56 = BSC)
+ * @returns Cached JsonRpcProvider instance
+ */
+export function getProvider(chainId: number): ethers.JsonRpcProvider {
+    if (!providerCache.has(chainId)) {
+        const config = getChainConfig(chainId);
+        const provider = new ethers.JsonRpcProvider(config.rpcUrl, chainId);
+        providerCache.set(chainId, provider);
+    }
+    return providerCache.get(chainId)!;
 }

@@ -234,10 +234,10 @@ async function runTests() {
         }
 
         const start = Date.now();
-        const results = await Promise.all(promises);
+        const responses = await Promise.all(promises) as Array<Awaited<ReturnType<typeof getTokenInfo>>>;
         const time = Date.now() - start;
 
-        const successCount = results.filter(r => r !== null).length;
+        const successCount = responses.filter((r) => r !== null).length;
         log(
             'Rate Limiting',
             successCount === 5 ? 'PASS' : 'WARN',

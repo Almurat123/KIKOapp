@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import clsx from 'clsx';
 import type { Citation } from '../../utils/sourceUtils';
 import { getCitationUrl } from '../../utils/sourceUtils';
+import { preprocessMarkdown } from '../../utils/markdownUtils';
 import styles from './CitationRenderer.module.css';
 
 interface CitationRendererProps {
@@ -62,17 +64,18 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
   const [hoveredCitation, setHoveredCitation] = useState<number | null>(null);
   const citationPreviews = useCitationPreviews(citations);
 
+  const processedContent = preprocessMarkdown(content);
   const citationPattern = /\[(\d+)\]/g;
 
   // Simple render if no citations to avoid complexity
-  if (citations.length === 0 || !citationPattern.test(content)) {
+  if (citations.length === 0 || !citationPattern.test(processedContent)) {
     return (
       <div className={clsx(styles.citationContainer, className)}>
         <ReactMarkdown
           components={components}
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkBreaks]}
         >
-          {content}
+          {processedContent}
         </ReactMarkdown>
       </div>
     );
@@ -86,13 +89,13 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
 
     citationPattern.lastIndex = 0;
 
-    while ((match = citationPattern.exec(content)) !== null) {
+    while ((match = citationPattern.exec(processedContent)) !== null) {
       const citationIndex = parseInt(match[1], 10);
       const citation = citations[citationIndex - 1];
       const citationUrl = getCitationUrl(citation);
 
       if (match.index > lastIndex) {
-        const textPart = content.substring(lastIndex, match.index);
+        const textPart = processedContent.substring(lastIndex, match.index);
         parts.push(
           <ReactMarkdown
             key={`text-${lastIndex}`}
@@ -100,7 +103,7 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
               ...components,
               p: React.Fragment // Render text segments without wrapping in <p> to avoid block breaks
             }}
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[remarkGfm, remarkBreaks]}
           >
             {textPart}
           </ReactMarkdown>
@@ -172,9 +175,9 @@ export const CitationRenderer: React.FC<CitationRendererProps> = ({
             ...components,
             p: React.Fragment // Render text segments without wrapping in <p> to avoid block breaks
           }}
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkBreaks]}
         >
-          {content.substring(lastIndex)}
+          {processedContent.substring(lastIndex)}
         </ReactMarkdown>
       );
     }

@@ -5,6 +5,7 @@ import { getZeroExQuote, toWei, ZeroExQuote } from './zeroEx.js';
 import { sendTransaction } from './privyWallet.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getChainConfig } from '../config/chainConfig.js';
+import { getTokenInfo } from './tokenService.js';
 
 interface ExecuteSwapParams {
     userId: string;
@@ -60,10 +61,10 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
     // Depending on tokenIn decimals. For ETH it's 18.
     // We assume 'ETH' as string means native ETH.
 
-    let decimals = 18;
-    if (tokenIn.toUpperCase() === 'USDC') decimals = 6;
-    if (tokenIn.toUpperCase() === 'USDT') decimals = 6;
-    if (chainConfig.nativeCurrency.symbol === tokenIn.toUpperCase()) decimals = chainConfig.nativeCurrency.decimals;
+
+    // Use centralized token service for accuracy
+    const tokenInfo = await getTokenInfo(tokenIn, chainId, { verbose: false });
+    const decimals = tokenInfo?.decimals || 18;
 
     // Convert amount to smallest unit
     const sellAmountBase = toWei(amountIn, decimals);

@@ -9,7 +9,7 @@ import { FastifyInstance } from 'fastify';
 import { searchTokens as searchGeckoTerminal, getTokenDetails as getGeckoTokenDetails, getCandlestickData as getGeckoCandlestickData, getTrendingTokens as getLiveTrendingTokens, type TrendingDuration } from '../services/geckoTerminal.js';
 import { searchTokens as searchDexScreener, getTokenDetails as getDexTokenDetails, getTokenPairAddress, getCandlestickData as getDexCandlestickData, getTrendingTokensPremium } from '../services/dexscreener.js';
 import { get, set } from '../cache/redis.js';
-import { getTrendingTokens } from '../repositories/tokenRepository.js';
+import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime } from '../repositories/tokenRepository.js';
 import { getSupportedChains, refreshSingleChain } from '../jobs/tokenDataJob.js';
 import { env } from '../config/env.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
@@ -97,7 +97,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       }
 
       // Step 2: Fallback to PostgreSQL database (populated by background job)
-      const dbTokens = await getTrendingTokens(chain, tokenLimit);
+      let dbTokens = await getTrendingTokens(chain, tokenLimit);
 
       if (dbTokens.length > 0) {
         // Update cache for next request
@@ -114,8 +114,28 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Step 3: Database is empty - return empty array, do NOT block on API
-      // The background job will populate the database shortly
+      // Step 3: Database is empty or stale - refresh once and return DB results
+      const lastUpdate = await getTrendingUpdateTime(chain);
+      const isStale = !lastUpdate || (Date.now() - lastUpdate.getTime()) > 10 * 60 * 1000;
+      if (isStale) {
+        await refreshSingleChain(chain);
+        dbTokens = await getTrendingTokens(chain, tokenLimit);
+      }
+
+      if (dbTokens.length > 0) {
+        await set(cacheKey, JSON.stringify(dbTokens), 180);
+        return reply.send({
+          success: true,
+          data: dbTokens,
+          count: dbTokens.length,
+          duration: validDuration,
+          chain: chain,
+          cached: false,
+          source: 'database',
+        });
+      }
+
+      // Step 4: Still empty
       return reply.send({
         success: true,
         data: [],
@@ -171,7 +191,11 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       const { chain = 'eth' } = request.query as { chain?: string };
 
       // Get trending tokens from database/cache
-      const tokens = await getTrendingTokens(chain, 50);
+      let tokens = await getTrendingTokens(chain, 50);
+      if (tokens.length === 0) {
+        await refreshSingleChain(chain);
+        tokens = await getTrendingTokens(chain, 50);
+      }
 
       return reply.send({
         success: true,
@@ -964,4 +988,3 @@ export async function tokenRoutes(fastify: FastifyInstance) {
     }
   });
 }
-

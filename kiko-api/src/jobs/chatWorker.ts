@@ -376,6 +376,7 @@ export class ChatWorker {
         let chunkIndex = 0;
         let lastUsage: any = null;  // Track usage for DB persistence
         let allCitations: any[] = [];  // Track citations for DB persistence
+        const citationUrlSet = new Set<string>();
 
         // CRITICAL: Broadcast message_start so frontend creates the message BEFORE chunks arrive
         // This fixes the race condition where chunks are dropped because frontend message doesn't exist yet
@@ -416,6 +417,7 @@ export class ChatWorker {
                     sessionId: task.sessionId,
                     data: { taskId: task.id, status: 'running', message: 'Searching knowledge base' }
                 });
+
                 ragContext = await ragClient.query(lastUserMessage);
                 if (ragContext) {
                     console.log(`[ChatWorker] ✅ RAG: Context found (${ragContext.length} chars)`);
@@ -781,6 +783,7 @@ export class ChatWorker {
                             sessionId: task.sessionId,
                             data: { status: 'running', message: 'Executing trade' }
                         });
+
                     }
                     const swapResult = await executeDirectSwap({
                         sessionId: task.sessionId,
@@ -887,6 +890,7 @@ export class ChatWorker {
                             sessionId: task.sessionId,
                             data: { status: 'running', message: 'Scanning tokens' }
                         });
+
                     }
                     const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
                     if (globalTokenInfo) {
@@ -1295,7 +1299,13 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                                 // If tool calls are detected, start pre-fetching in parallel (Phase 5: Stream-based)
                                 if (!streamPreFetchPromise && toolCalls.length > 0) {
                                     console.log('[ChatWorker] Detected tool calls in stream, starting pre-fetch...');
-                                    streamPreFetchPromise = this.preFetchFromStream(toolCalls, task.toolContext);
+                                    streamPreFetchPromise = this.preFetchFromStream(
+                                        toolCalls,
+                                        task.toolContext,
+                                        task.sessionId,
+                                        userId || undefined,
+                                        assistantMessageId
+                                    );
                                 }
                             }
                         } catch (e) { }
@@ -1555,6 +1565,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
             if (!resultsMap.has(balanceKey)) {
                 console.log(`[ChatWorker] 🚀 Proactive pre-fetching get_wallet_portfolio based on keywords`);
+
                 toolRegistry.execute('get_wallet_portfolio', {
                     address: task.toolContext?.walletAddress,
                     chainId: task.toolContext?.chainId
@@ -1570,6 +1581,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             const socialKey = `get_trending_casts:${JSON.stringify({})}`;
             if (!resultsMap.has(socialKey)) {
                 console.log(`[ChatWorker] 🚀 Proactive pre-fetching get_trending_casts based on keywords`);
+
                 toolRegistry.execute('get_trending_casts', {}, task.toolContext).then(res => {
                     resultsMap.set(socialKey, res);
                     console.log(`[ChatWorker] ✅ Proactive social pre-fetch stored`);
@@ -1582,7 +1594,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
      * Pre-fetches results for tool calls in parallel (Phase 5: Streaming).
      * This runs in the background while the LLM is still streaming.
      */
-    private async preFetchFromStream(toolCalls: any[], context?: any): Promise<Map<string, any>> {
+    private async preFetchFromStream(toolCalls: any[], context?: any, sessionId?: string, userId?: string, messageId?: string): Promise<Map<string, any>> {
         const cache = new Map<string, any>();
         const promises = toolCalls.map(async (tc) => {
             try {
@@ -1636,6 +1648,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                         }
                     });
                 }
+
 
                 const args = JSON.parse(tc.function.arguments);
                 const result = await toolRegistry.execute(tc.function.name, args, context);
@@ -1776,6 +1789,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         let chunkIndex = 0;
         let lastUsage: any = null;  // Track usage for DB persistence
         let allCitations: any[] = [];  // Track citations for DB persistence
+        const citationUrlSet = new Set<string>();
 
         // CRITICAL: Broadcast message_start so frontend creates the message BEFORE chunks arrive
         this.ws.broadcastToUser(userId!, {
@@ -1888,6 +1902,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 sessionId: task.sessionId,
                 data: { status: 'running', message: 'Scanning tokens' }
             });
+
             console.log(`[ChatWorker] Grok: Detected contract address: ${parsedIntent.contractAddress}`);
             const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
             if (globalTokenInfo) {
@@ -2167,14 +2182,54 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
 
             for (const line of lines) {
                 // console.log('[ChatWorker] Raw stream line:', line.substring(0, 1000)); // DEBUG ENABLED
-                if (line.includes('citations') || line.includes('usage')) {
-                    console.log('[ChatWorker DEBUG] Stream line with valid data:', line);
-                }
                 if (!line.startsWith('data: ') || line.trim() === 'data: [DONE]') continue;
 
                 try {
                     const data = JSON.parse(line.slice(6));
                     const delta = data.choices?.[0]?.delta;
+
+                    // Handle usage data (sent in final chunks from grok-service)
+                    if (data.usage) {
+                        lastUsage = data.usage;
+                        this.ws.broadcastToUser(userId!, {
+                            type: 'usage',
+                            sessionId: task.sessionId,
+                            data: {
+                                message_id: assistantMessageId,
+                                usage: data.usage
+                            }
+                        });
+                    }
+
+                    // Collect citations (from grok-service web_search results)
+                    const choice = data.choices?.[0];
+                    if (choice?.message?.citations && Array.isArray(choice.message.citations)) {
+                        const newCitations: any[] = [];
+                        for (const cite of choice.message.citations) {
+                            const url = typeof cite === 'string'
+                                ? cite
+                                : (cite && typeof cite === 'object' && 'url' in cite ? String((cite as any).url) : '');
+                            const key = url || JSON.stringify(cite);
+                            // Skip duplicates
+                            if (key && !citationUrlSet.has(key)) {
+                                citationUrlSet.add(key);
+                                allCitations.push(cite);
+                                newCitations.push(cite);
+                            }
+                        }
+                        // Broadcast new citations immediately to frontend (like DeepSeek)
+                        if (newCitations.length > 0) {
+                            this.ws.broadcastToUser(userId!, {
+                                type: 'citations',
+                                sessionId: task.sessionId,
+                                data: {
+                                    message_id: assistantMessageId,
+                                    citations: newCitations
+                                }
+                            });
+                        }
+                    }
+
 
                     if (!delta && !data.custom_event) continue; // Skip if no delta AND no custom_event
 
@@ -2231,35 +2286,20 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
                         this.ws.broadcastToUser(userId!, { type: 'chunk', sessionId: task.sessionId, data: eventChunk });
                     }
 
-                    // Handle usage data (sent in final chunks from grok-service)
-                    if (data.usage) {
-                        lastUsage = data.usage;
-                        this.ws.broadcastToUser(userId!, {
-                            type: 'usage',
-                            sessionId: task.sessionId,
-                            data: {
-                                message_id: assistantMessageId,
-                                usage: data.usage
-                            }
-                        });
-                    }
-
-                    // Handle citations (from grok-service web_search results)
-                    const choice = data.choices?.[0];
-                    if (choice?.message?.citations && Array.isArray(choice.message.citations)) {
-                        allCitations.push(...choice.message.citations);
-                        this.ws.broadcastToUser(userId!, {
-                            type: 'citations',
-                            sessionId: task.sessionId,
-                            data: {
-                                message_id: assistantMessageId,
-                                citations: choice.message.citations
-                            }
-                        });
-                    }
-
                 } catch (e) { }
             }
+        }
+
+        // Broadcast citations once at the end to avoid flooding the stream
+        if (allCitations.length > 0) {
+            this.ws.broadcastToUser(userId!, {
+                type: 'citations',
+                sessionId: task.sessionId,
+                data: {
+                    message_id: assistantMessageId,
+                    citations: allCitations
+                }
+            });
         }
 
         // Final output moderation

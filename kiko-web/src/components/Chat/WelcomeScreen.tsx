@@ -10,6 +10,7 @@ import { CustomAISettingsModal } from './CustomAISettingsModal';
 import { useSmartSuggestions } from './useSmartSuggestions.tsx';
 import { ChatInputSuggestions } from './ChatInputSuggestions';
 import { logger } from '../../utils/logger';
+import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 
 // Model options
 // According to DeepSeek API docs: https://api-docs.deepseek.com/zh-cn/quick_start/pricing
@@ -141,10 +142,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
         </div>
 
 
-        {/* Floating Input */}
+        {/* Floating Input with Liquid Glass Effect */}
         <div className={styles.inputContainer}>
-          <div
+          <LiquidGlassEffect
             className={`${styles.inputWrapper} ${isFocused ? styles.inputFocused : ''}`}
+            enabled={true}
           >
             <ChatInputSuggestions
               suggestions={smartSuggestions}
@@ -219,7 +221,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
                 </button>
               </div>
             </div>
-          </div>
+          </LiquidGlassEffect>
 
           <div className={styles.inputFooter}>
             <p>AI can make mistakes. Please double check responses.</p>
@@ -231,6 +233,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
       />
-    </div>
+    </div >
   );
 };

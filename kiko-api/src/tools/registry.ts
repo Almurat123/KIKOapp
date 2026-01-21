@@ -1,4 +1,4 @@
-export const CHAIN_IDS = [1, 56, 137, 10, 42161, 8453, 43114, 250, 59144, 900];
+export const CHAIN_IDS = [1, 8453, 10, 42161, 137, 56, 900];
 
 /**
  * Tool Definition Interfaces

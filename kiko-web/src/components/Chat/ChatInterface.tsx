@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ArrowDown, ChevronDown, Settings, ArrowUp } from 'lucide-react';
+import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { usePrivy, useWallets } from '@privy-io/react-auth';
@@ -2021,7 +2022,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 <ArrowDown size={20} />
                             </button>
                         )}
-                        <div className={clsx(styles.inputWrapper, showSuggestions && styles.inputWrapperOpen)}>
+                        <LiquidGlassEffect
+                            className={clsx(styles.inputWrapper, showSuggestions && styles.inputWrapperOpen)}
+                            enabled={true}
+                        >
                             <ChatInputSuggestions
                                 suggestions={suggestions}
                                 isVisible={showSuggestions}
@@ -2115,7 +2119,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     </button>
                                 </div>
                             </div>
-                        </div>
+                        </LiquidGlassEffect>
                     </div>
                 )
             }

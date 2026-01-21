@@ -1,5 +1,9 @@
-import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio } from './alchemy.js';
+import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio, getNativeBalances } from './alchemy.js';
 import prisma from '../db/prisma.js';
+
+const ALL_BALANCES_CACHE_TTL_MS = 20_000;
+const allBalancesCache = new Map<string, { timestamp: number; data: Record<string, WalletBalance> }>();
+const allBalancesInflight = new Map<string, Promise<Record<string, WalletBalance>>>();
 
 export const walletService = {
     /**
@@ -15,7 +19,27 @@ export const walletService = {
      */
     async getAllChainBalances(address: string, solanaAddress?: string): Promise<Record<string, WalletBalance>> {
         const chains = ['eth', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc', 'solana'];
-        return await getPortfolio(address, chains, solanaAddress);
+        const cacheKey = `${address.toLowerCase()}::${(solanaAddress || '').toLowerCase()}`;
+        const cached = allBalancesCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < ALL_BALANCES_CACHE_TTL_MS) {
+            return cached.data;
+        }
+
+        const inflight = allBalancesInflight.get(cacheKey);
+        if (inflight) return inflight;
+
+        const promise = getNativeBalances(address, chains, solanaAddress);
+        allBalancesInflight.set(cacheKey, promise);
+        try {
+            const data = await promise;
+            allBalancesCache.set(cacheKey, { timestamp: Date.now(), data });
+            return data;
+        } catch (error) {
+            if (cached) return cached.data;
+            throw error;
+        } finally {
+            allBalancesInflight.delete(cacheKey);
+        }
     },
 
     /**
@@ -63,6 +87,42 @@ export const walletService = {
             }
         } else {
             console.log('[verifyAccess] ❌ User not found');
+            const isSolanaAddress = !normalizedAddress.startsWith('0x');
+            const existingUser = await prisma.user.findFirst({
+                where: isSolanaAddress
+                    ? { solanaWalletAddress: normalizedAddress }
+                    : { walletAddress: normalizedAddress }
+            });
+
+            if (existingUser) {
+                if (existingUser.privyDid && existingUser.privyDid !== userId) {
+                    console.error('[verifyAccess] ❌ Address owned by another user', {
+                        requestedAddress: normalizedAddress,
+                        owner: existingUser.privyDid
+                    });
+                    return false;
+                }
+
+                await prisma.user.update({
+                    where: { id: existingUser.id },
+                    data: { privyDid: userId }
+                });
+                console.log('[verifyAccess] ✅ Access granted (attached privyDid to existing user)');
+                return true;
+            }
+
+            try {
+                const created = await prisma.user.create({
+                    data: isSolanaAddress
+                        ? { privyDid: userId, solanaWalletAddress: normalizedAddress, walletAddress: normalizedAddress }
+                        : { privyDid: userId, walletAddress: normalizedAddress }
+                });
+                console.log('[verifyAccess] ✅ Access granted (created user)', { userId: created.id });
+                return true;
+            } catch (createError: any) {
+                console.error('[verifyAccess] ❌ Failed to create user record', { error: createError.message });
+                return false;
+            }
         }
 
         console.log('[verifyAccess] ❌ Access denied');

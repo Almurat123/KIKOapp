@@ -1,7 +1,8 @@
 import prisma from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getTokenInfo, initAutoTradeService } from './autoTradeService.js';
+import { initAutoTradeService } from './autoTradeService.js';
+import { getTokenInfo } from './tokenService.js';
 import { notificationService } from './notificationService.js';
 // autoTradeService is not an exported instance, but a set of functions
 

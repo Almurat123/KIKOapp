@@ -47,6 +47,8 @@ export const RPC_ENDPOINTS = {
     ].filter(Boolean),
 };
 
+const RPC_TIMEOUT_MS = 4500;
+
 // Chain ID to chain name mapping
 const CHAIN_ID_TO_NAME: Record<number, keyof typeof RPC_ENDPOINTS> = {
     1: 'eth',
@@ -107,11 +109,14 @@ export async function callRpc<T = any>(
         if (!endpoint) continue;
 
         try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(request),
-            });
+                signal: controller.signal,
+            }).finally(() => clearTimeout(timeout));
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);

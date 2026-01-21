@@ -15,7 +15,7 @@ export interface SolanaSwapParams {
 }
 
 export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
-    const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 100 } = params;
+    const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 300 } = params;
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {

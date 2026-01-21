@@ -12,6 +12,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { redact } from '../../utils/sanitizer.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 
 const LAUNCHPAD_AUTH_PDA = 'WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh';
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
@@ -440,14 +441,14 @@ async function handleDetection(
 
         // Priority 1: Pump.fun
         if (pumpResult) {
-            DETECTION_CACHE.set(cacheKey, { result: { provider: 'pumpfun', data: pumpResult, chainId: 101 }, expiry: Date.now() + CACHE_TTL });
-            return { provider: 'pumpfun', data: pumpResult, chainId: 101 };
+            DETECTION_CACHE.set(cacheKey, { result: { provider: 'pumpfun', data: pumpResult, chainId: SOLANA_CONFIG.CHAIN_ID }, expiry: Date.now() + CACHE_TTL });
+            return { provider: 'pumpfun', data: pumpResult, chainId: SOLANA_CONFIG.CHAIN_ID };
         }
 
         // Priority 2: BonkFun (LaunchLab tokens on Raydium)
         if (rayResult) {
-            DETECTION_CACHE.set(cacheKey, { result: { provider: 'bonkfun', data: rayResult, chainId: 101 }, expiry: Date.now() + CACHE_TTL });
-            return { provider: 'bonkfun', data: rayResult, chainId: 101 };
+            DETECTION_CACHE.set(cacheKey, { result: { provider: 'bonkfun', data: rayResult, chainId: SOLANA_CONFIG.CHAIN_ID }, expiry: Date.now() + CACHE_TTL });
+            return { provider: 'bonkfun', data: rayResult, chainId: SOLANA_CONFIG.CHAIN_ID };
         }
 
         return null; // Not found on either

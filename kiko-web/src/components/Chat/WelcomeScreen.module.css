@@ -915,39 +915,89 @@
   width: 100%;
   max-width: 100%;
 
-  /* Step 4: Micro Blur (3px) (Synced with Chat) */
-  background: rgba(20, 20, 30, 0.4);
+  /* Nearly transparent glass background */
+  background: rgba(20, 20, 30, 0.04);
 
-  /* Micro frost */
-  backdrop-filter: blur(3px) saturate(160%);
-  -webkit-backdrop-filter: blur(3px) saturate(160%);
+  /* Subtle frost */
+  backdrop-filter: blur(2px) saturate(180%);
+  -webkit-backdrop-filter: blur(2px) saturate(180%);
 
   border-radius: 32px;
   padding: 0 !important;
 
-  /* Uniform subtle border */
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  /* Thin edge border for structure */
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
 
   display: flex;
   flex-direction: column;
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* Soft shadow for depth, no inner highlight */
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  /* Outer depth shadow only */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 
   position: relative;
   z-index: 30;
+  overflow: visible;
+}
+
+/* Fresnel Edge Highlight - Top-Left */
+.inputWrapper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 32px;
+  padding: 1.5px;
+  background: radial-gradient(ellipse 80% 60% at 20% 15%,
+      rgba(255, 255, 255, 0.4) 0%,
+      rgba(255, 255, 255, 0.2) 30%,
+      rgba(255, 255, 255, 0.08) 50%,
+      transparent 70%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Chromatic Aberration - RGB Split on Edges */
+.inputWrapper::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 32px;
+  background:
+    radial-gradient(ellipse at top left, rgba(255, 70, 70, 0.15), transparent 40%),
+    radial-gradient(ellipse at top right, rgba(70, 120, 255, 0.12), transparent 40%),
+    radial-gradient(ellipse at bottom, rgba(255, 200, 100, 0.08), transparent 35%);
+  opacity: 0.6;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  z-index: 0;
 }
 
 .inputFocused {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  /* More opaque on focus */
-  box-shadow:
-    0 12px 48px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(255, 255, 255, 0.12),
-    0 0 20px rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(35, 35, 40, 0.08);
+
+  /* Enhanced outer shadow */
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
   transform: scale(1.002);
+}
+
+/* Enhanced Fresnel on focus */
+.inputFocused::before {
+  background: radial-gradient(ellipse 85% 65% at 20% 15%,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.28) 30%,
+      rgba(255, 255, 255, 0.12) 50%,
+      transparent 70%);
+}
+
+/* Enhanced chromatic aberration on focus */
+.inputFocused::after {
+  opacity: 0.8;
 }
 
 .textareaContainer {
@@ -1025,15 +1075,65 @@
   /* Sleeker, smaller height */
   border-radius: 14px;
   /* Liquid Glass - Strong blur for readability (Match Chat) */
-  background: rgba(30, 30, 35, 0.4);
-  border: 0.5px solid rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(90px) saturate(180%);
-  -webkit-backdrop-filter: blur(90px) saturate(180%);
+  background: rgba(30, 30, 35, 0.2);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
   color: #a1a1aa;
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Replicate Input Box Fresnel Edge Highlight */
+.modelButton::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  padding: 1px;
+  /* Thinner for smaller element */
+  background: linear-gradient(145deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.2) 25%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.15) 75%,
+      rgba(255, 255, 255, 0.35) 100%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Replicate Input Box Chromatic Aberration */
+.modelButton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  padding: 1px;
+  /* Thinner */
+  background:
+    linear-gradient(135deg,
+      rgba(255, 100, 100, 0.4) 0%,
+      rgba(255, 255, 255, 0.3) 25%,
+      rgba(100, 150, 255, 0.4) 50%,
+      rgba(255, 255, 255, 0.2) 75%,
+      rgba(255, 200, 100, 0.35) 100%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.7;
 }
 
 .modelButton:hover {
@@ -1077,7 +1177,7 @@
   right: 0;
   margin-bottom: 8px;
   /* Match Chat styles */
-  background: rgba(31, 31, 35, 0.75);
+  background: rgba(31, 31, 35, 0.98);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 0.5px solid rgba(255, 255, 255, 0.15);
@@ -1224,16 +1324,64 @@
   flex-shrink: 0;
   padding: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
-  /* Liquid Glass Dark Base */
-  border: 0.5px solid rgba(255, 255, 255, 0.15);
+  /* Liquid Glass style */
+  background: rgba(30, 30, 35, 0.2);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(255, 255, 255, 0.1);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
   flex-shrink: 0;
+}
+
+/* Fresnel Edge Highlight */
+.settingsButton::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  padding: 1px;
+  background: linear-gradient(145deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.2) 25%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.15) 75%,
+      rgba(255, 255, 255, 0.35) 100%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Chromatic Aberration */
+.settingsButton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  padding: 1px;
+  background:
+    linear-gradient(135deg,
+      rgba(255, 100, 100, 0.4) 0%,
+      rgba(255, 255, 255, 0.3) 25%,
+      rgba(100, 150, 255, 0.4) 50%,
+      rgba(255, 255, 255, 0.2) 75%,
+      rgba(255, 200, 100, 0.35) 100%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.7;
 }
 
 .settingsButton:hover {
@@ -1321,8 +1469,8 @@
   background: rgba(255, 255, 255, 0.4);
 
   /* Micro Glass Blur */
-  backdrop-filter: blur(3px) saturate(160%);
-  -webkit-backdrop-filter: blur(3px) saturate(160%);
+  backdrop-filter: blur(2px) saturate(160%);
+  -webkit-backdrop-filter: blur(2px) saturate(160%);
 
   /* Subtle border for definition */
   border: 1px solid rgba(0, 0, 0, 0.06);

@@ -5,14 +5,14 @@
 
 import { FastifyInstance } from 'fastify';
 import { get, set } from '../cache/redis.js';
-import { getMarketOverview } from '../repositories/marketRepository.js';
-import { getChainsData } from '../repositories/chainRepository.js';
-import { getProtocolsData } from '../repositories/protocolRepository.js';
+import { getMarketOverview, getTrendingTokens as getTrendingFromDb, getLastUpdateTime as getMarketUpdateTime, saveTrends } from '../repositories/marketRepository.js';
+import { getChainsData, getLastUpdateTime as getChainsUpdateTime } from '../repositories/chainRepository.js';
+import { getProtocolsData, getLastUpdateTime as getProtocolsUpdateTime, saveProtocolsData } from '../repositories/protocolRepository.js';
 import { getTrendingTokens, getTopGainers } from '../services/coingecko.js';
-import { getChainsData as fetchChainsData, getProtocolHistoricalTvl, getProtocolDetails } from '../services/defillama.js';
+import { getProtocolsData as fetchProtocolsData, getProtocolHistoricalTvl, getProtocolDetails } from '../services/defillama.js';
+import { refreshChainsData } from '../jobs/marketDataJob.js';
 import { env } from '../config/env.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
-import { validateLimit } from '../utils/validation.js';
 
 export async function marketRoutes(fastify: FastifyInstance) {
   // GET /api/market/overview
@@ -44,7 +44,20 @@ export async function marketRoutes(fastify: FastifyInstance) {
   fastify.get('/chains', async (request, reply) => {
     try {
       // Read from cache/database only - Dune refresh happens via cron job
-      const chains = await getChainsData();
+      let chains = await getChainsData();
+
+      if (chains.length === 0) {
+        // Cold start fallback for serverless/online envs without cron
+        await refreshChainsData(true);
+        chains = await getChainsData();
+      } else {
+        const lastUpdate = await getChainsUpdateTime();
+        if (lastUpdate && (Date.now() - lastUpdate.getTime()) > 24 * 60 * 60 * 1000) {
+          // Best-effort refresh if data is stale
+          await refreshChainsData(true);
+          chains = await getChainsData();
+        }
+      }
 
       return reply.send({
         success: true,
@@ -59,7 +72,20 @@ export async function marketRoutes(fastify: FastifyInstance) {
   // GET /api/market/protocols
   fastify.get('/protocols', async (request, reply) => {
     try {
-      const protocols = await getProtocolsData();
+      let protocols = await getProtocolsData();
+
+      if (protocols.length === 0) {
+        const fresh = await fetchProtocolsData();
+        await saveProtocolsData(fresh);
+        protocols = await getProtocolsData();
+      } else {
+        const lastUpdate = await getProtocolsUpdateTime();
+        if (lastUpdate && (Date.now() - lastUpdate.getTime()) > 24 * 60 * 60 * 1000) {
+          const fresh = await fetchProtocolsData();
+          await saveProtocolsData(fresh);
+          protocols = await getProtocolsData();
+        }
+      }
 
       return reply.send({
         success: true,
@@ -74,11 +100,49 @@ export async function marketRoutes(fastify: FastifyInstance) {
   // GET /api/market/trending
   fastify.get('/trending', async (request, reply) => {
     try {
-      // This is real-time data, so we call API directly (with short cache)
-      const trending = await getTrendingTokens(env.apiKeys.coingecko);
+      const TRENDING_STALE_MS = 5 * 60 * 1000;
+      let coins = await getTrendingFromDb();
 
-      // Return coins array from trending response
-      const coins = trending.coins || trending || [];
+      if (coins.length === 0) {
+        const trending = await getTrendingTokens(env.apiKeys.coingecko);
+        const freshCoins = trending.coins || trending || [];
+
+        const tokens = freshCoins.map((item: any, idx: number) => ({
+          chain: 'eth',
+          address: item.item?.id || item.id,
+          name: item.item?.name || item.name,
+          symbol: item.item?.symbol || item.symbol,
+          network: item.item?.network_slug || 'ethereum',
+          imageUrl: item.item?.large || item.item?.thumb || item.item?.small || item.large || item.thumb || item.small,
+          price: item.item?.data?.price || item.data?.price,
+          priceChange24h: item.item?.data?.price_change_percentage_24h?.usd || item.data?.price_change_percentage_24h?.usd,
+          rank: idx + 1,
+        }));
+
+        await saveTrends(tokens);
+        coins = await getTrendingFromDb();
+      } else {
+        const lastUpdate = await getMarketUpdateTime('trending');
+        if (lastUpdate && (Date.now() - lastUpdate.getTime()) > TRENDING_STALE_MS) {
+          const trending = await getTrendingTokens(env.apiKeys.coingecko);
+          const freshCoins = trending.coins || trending || [];
+
+          const tokens = freshCoins.map((item: any, idx: number) => ({
+            chain: 'eth',
+            address: item.item?.id || item.id,
+            name: item.item?.name || item.name,
+            symbol: item.item?.symbol || item.symbol,
+            network: item.item?.network_slug || 'ethereum',
+            imageUrl: item.item?.large || item.item?.thumb || item.item?.small || item.large || item.thumb || item.small,
+            price: item.item?.data?.price || item.data?.price,
+            priceChange24h: item.item?.data?.price_change_percentage_24h?.usd || item.data?.price_change_percentage_24h?.usd,
+            rank: idx + 1,
+          }));
+
+          await saveTrends(tokens);
+          coins = await getTrendingFromDb();
+        }
+      }
 
       return reply.send({
         success: true,
@@ -339,4 +403,3 @@ export async function marketRoutes(fastify: FastifyInstance) {
     }
   });
 }
-

@@ -1,8 +1,5 @@
-import { PROMPT_MODULES } from './prompts/core.js';
-import { MODEL_MODULES, MODEL_SAFETY } from './prompts/models.js';
-import { INTENT_MODULES } from './prompts/intents.js';
 import { V2_PROMPT_MODULES } from './prompts/v2/index.js';
-import { generateToolList, generateToolPrompt } from './toolPromptGenerator.js';
+import { generateToolList } from './toolPromptGenerator.js';
 import type { IntentType, ModelType, OrchestratorOptions, UserContext } from './types.js';
 import { skillRegistry } from '../../skills/registry.js';
 import { logger } from '../../utils/logger.js';
@@ -20,99 +17,46 @@ export class PromptOrchestrator {
         const timerLabel = `prompt_gen_${intent}_${model}`;
         logger.startTimer(timerLabel);
         const modules: string[] = [];
+        const freeIntents = new Set<IntentType>([
+            'MARKET_ANALYSIS',
+            'SOCIAL_SENSING',
+            'GENERAL_CHAT',
+            'PREDICTION_MARKETS',
+            'RISK_SCAN',
+        ]);
 
-        const promptVersion = (process.env.PROMPT_SYSTEM_VERSION || 'v2').toLowerCase();
+        // CORE (mode-specific)
+        const coreModule = freeIntents.has(intent)
+            ? V2_PROMPT_MODULES.CORE_THINKING
+            : V2_PROMPT_MODULES.CORE_EXECUTION;
+        modules.push(coreModule);
+        // TOOL LIST (keep system prompt small; full schemas are sent via requestBody.tools)
+        modules.push(generateToolList());
 
-        if (promptVersion === 'v2') {
-            const freeIntents = new Set<IntentType>([
-                'MARKET_ANALYSIS',
-                'SOCIAL_SENSING',
-                'GENERAL_CHAT',
-                'PREDICTION_MARKETS',
-                'RISK_SCAN',
-            ]);
-
-            const modelAdapter = V2_PROMPT_MODULES.MODEL_ADAPTER[model];
-            if (model === 'grok') {
-                // Grok-only minimal chain: use only the model adapter for testing.
-                if (modelAdapter) modules.push(modelAdapter);
-            } else {
-                // CORE + MODEL ADAPTER
-                modules.push(V2_PROMPT_MODULES.CORE);
-                if (modelAdapter) modules.push(modelAdapter);
-
-                // TOOL LIST (keep system prompt small; full schemas are sent via requestBody.tools)
-                modules.push(generateToolList());
-
-                if (freeIntents.has(intent)) {
-                    // High-freedom analysis/chat: keep the system prompt minimal, let the model express itself.
-                    modules.push(V2_PROMPT_MODULES.ANALYST_POLICY);
-                } else {
-                    // Execution mode: strong policies + skills + output policy.
-                    modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
-                    if (intent === 'TRADING') {
-                        modules.push(V2_PROMPT_MODULES.TRADING_POLICY);
-                    }
-
-                    const intentStr = String(intent).toUpperCase();
-                    const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
-                    if (matchedSkills.length > 0) {
-                        logger.info(LogCode.AI_TOOL_FILTERED, 'PromptOrchestrator: Intent matched skills', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
-                        for (const skill of matchedSkills) {
-                            if (skill.prompt) {
-                                logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt', { skill: skill.metadata.name, length: skill.prompt.length });
-                                modules.push(skill.prompt);
-                            }
-                        }
-                    } else {
-                        logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent, using legacy modules', { intent });
-                        const intentModule = INTENT_MODULES[intent];
-                        if (intentModule) {
-                            modules.push(intentModule);
-                        }
-                    }
-
-                    modules.push(V2_PROMPT_MODULES.OUTPUT_POLICY);
-                }
-            }
+        if (freeIntents.has(intent)) {
+            // High-freedom analysis/chat: keep the system prompt minimal, let the model express itself.
+            modules.push(V2_PROMPT_MODULES.ANALYST_POLICY);
         } else {
-            // 1. CORE LAYER (v1)
-            modules.push(PROMPT_MODULES.IDENTITY);
-
-            // Use model-specific safety: DeepSeek (minimal) vs Grok (comprehensive)
-            const modelSafety = MODEL_SAFETY[model] || PROMPT_MODULES.SAFETY_COMPLIANCE;
-            modules.push(modelSafety);
-
-            modules.push(PROMPT_MODULES.TOOL_DIRECTIVE);
-            modules.push(generateToolPrompt());
-            modules.push(PROMPT_MODULES.KIKO_RULES);
-            modules.push(PROMPT_MODULES.EDGE_CASES);
-
-            // 2. MODEL LAYER
-            if (model === 'deepseek') {
-                modules.push(MODEL_MODULES.deepseek);
-            } else if (model === 'grok') {
-                modules.push(MODEL_MODULES.grok);
+            // Execution mode: strong policies + skills + output policy.
+            modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
+            if (intent === 'TRADING') {
+                modules.push(V2_PROMPT_MODULES.TRADING_POLICY);
             }
 
-            // 3. INTENT LAYER (Hybrid: Skills + Legacy Fallback)
             const intentStr = String(intent).toUpperCase();
             const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
             if (matchedSkills.length > 0) {
-                logger.info(LogCode.SYS_INFO, 'PromptOrchestrator: Intent matched skills (v1)', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
+                logger.info(LogCode.AI_TOOL_FILTERED, 'PromptOrchestrator: Intent matched skills', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
                 for (const skill of matchedSkills) {
                     if (skill.prompt) {
-                        logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt (v1)', { skill: skill.metadata.name, length: skill.prompt.length });
+                        logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt', { skill: skill.metadata.name, length: skill.prompt.length });
                         modules.push(skill.prompt);
                     }
                 }
             } else {
-                logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent (v1), using legacy modules', { intent });
-                const intentModule = INTENT_MODULES[intent];
-                if (intentModule) {
-                    modules.push(intentModule);
-                }
+                logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent', { intent });
             }
+
         }
 
         const finalPrompt = this.assemble(modules);

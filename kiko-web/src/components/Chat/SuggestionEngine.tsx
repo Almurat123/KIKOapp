@@ -61,7 +61,7 @@ export class SuggestionEngine {
             if (context?.mode === 'focus') {
                 console.log('[SuggestionEngine] Empty text with focus mode, returning top suggestions');
                 // For focus mode with empty text, we show top/recent commands
-                return this.getTopSuggestions(context);
+                return this.getTopSuggestions(onCommit, context);
             }
             console.log('[SuggestionEngine] Empty text, returning []');
             return [];
@@ -329,7 +329,7 @@ export class SuggestionEngine {
     /**
      * Get top suggestions when input is empty (e.g. on focus)
      */
-    private static getTopSuggestions(context?: SuggestionContext): SuggestionGroup[] {
+    private static getTopSuggestions(onCommit: (text: string) => void, context?: SuggestionContext): SuggestionGroup[] {
         // Find most frequent/recent commands
         const topCommands = COMMAND_CONFIGS
             .map(cmd => {
@@ -351,10 +351,7 @@ export class SuggestionEngine {
             score: result.score,
             type: 'command',
             category: result.cmd.category
-        }, (text) => {
-            // This is a placeholder as the real onCommit is passed to getSuggestions
-            console.log('[SuggestionEngine] Top suggestion clicked:', text);
-        }));
+        }, onCommit));
 
         return items.length > 0 ? [{ label: 'TOP COMMANDS', items }] : [];
     }

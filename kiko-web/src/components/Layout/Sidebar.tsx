@@ -29,7 +29,7 @@ interface SidebarProps {
 
 interface NavItem {
   id: string;
-  icon: React.ElementType;
+  icon: React.ComponentType<any>;
   label: string;
   subItems?: { id: string; label: string }[];
 }

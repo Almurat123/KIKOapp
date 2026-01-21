@@ -547,9 +547,9 @@ export async function getZeroExQuote(
       // For 404 errors, provide more helpful message
       if (response.status === 404) {
         const errorMessage = errorJson?.message || errorText || 'No route found';
-        // Convert sellAmount from wei to human-readable for better error message
-        const sellAmountNum = parseFloat(sellAmount) / Math.pow(10, 18);
-        throw new Error(`0x API error (404): ${errorMessage}. Request details: sellToken=${normalizeSellToken}, buyToken=${normalizeBuyToken}, sellAmount=${sellAmountNum} (${sellAmount} wei), chainId=${chainId}. This may indicate insufficient liquidity for this amount or the token pair is not supported. Try using a smaller amount (e.g., 0.1 instead of ${sellAmountNum}) or a different token pair.`);
+        // Note: We can't convert sellAmount to human-readable here because we don't know the token's decimals
+        // (could be 6 for USDC, 18 for most ERC20s, etc.)
+        throw new Error(`0x API error (404): ${errorMessage}. Request details: sellToken=${normalizeSellToken}, buyToken=${normalizeBuyToken}, sellAmount=${sellAmount} (raw), chainId=${chainId}. This may indicate insufficient liquidity for this amount or the token pair is not supported.`);
       }
 
       // Throw error with more details for better debugging

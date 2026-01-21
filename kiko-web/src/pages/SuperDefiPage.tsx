@@ -1426,6 +1426,7 @@ export const SuperDefiPage: React.FC = () => {
 
         // Filter to only show DEX protocols (Decentralized Exchanges)
         const dexProtocols = protocols.filter(p =>
+          p.category?.toLowerCase() === 'dexs' ||
           p.category?.toLowerCase() === 'dexes' ||
           p.category?.toLowerCase() === 'dex'
         );

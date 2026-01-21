@@ -668,9 +668,6 @@ export const OverviewPage: React.FC = () => {
               <h3 className={styles.sectionTitle}>
                 <TrendingUp size={16} color="#10b981" /> Top Gainers
               </h3>
-              <button className={styles.viewAllBtn}>
-                View All
-              </button>
             </div>
             <div className={styles.listContainer}>
               {gainers.length > 0 ? gainers.slice(0, 3).map((token: any, i: number) => (
@@ -728,9 +725,6 @@ export const OverviewPage: React.FC = () => {
               <h3 className={styles.sectionTitle}>
                 <Activity size={16} color="#f59e0b" /> Trending
               </h3>
-              <button className={styles.viewAllBtn}>
-                View All
-              </button>
             </div>
             <div className={styles.listContainer}>
               {trending.length > 0 ? trending.slice(0, 3).map((coin: any, i: number) => {
@@ -1039,5 +1033,4 @@ export const OverviewPage: React.FC = () => {
     </PageContainer>
   );
 };
-
 

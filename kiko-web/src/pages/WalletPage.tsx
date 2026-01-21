@@ -29,6 +29,9 @@ import styles from './WalletPage.module.css';
 
 // Common token addresses for different chains (Mock data for demo)
 
+const TX_CACHE_TTL_MS = 60_000;
+const txCache = new Map<string, { timestamp: number; data: WalletTransaction[] }>();
+
 
 interface TokenHolding {
   address: Address;
@@ -212,6 +215,7 @@ export default function WalletPage() {
   const balanceReqId = useRef(0);
   const txReqId = useRef(0);
   const ordersReqId = useRef(0);
+  const lastBalanceFetchRef = useRef<{ key: string; at: number } | null>(null);
 
   // Fetch Polymarket Orders
   useEffect(() => {
@@ -377,7 +381,6 @@ export default function WalletPage() {
     // setLoading(true);
 
     setTransactions([]);
-    setCachedTransactions([]);
     setTransactionsLoading(true);
     setError(null);
   }, [chainId]);
@@ -500,6 +503,13 @@ export default function WalletPage() {
       return;
     }
 
+    const balanceFetchKey = `${walletAddress}:${chainId}:${isSolana}`;
+    const lastFetch = lastBalanceFetchRef.current;
+    if (lastFetch && lastFetch.key === balanceFetchKey && Date.now() - lastFetch.at < 5000) {
+      return;
+    }
+    lastBalanceFetchRef.current = { key: balanceFetchKey, at: Date.now() };
+
     let cancelled = false;
     const reqId = ++balanceReqId.current;
 
@@ -602,8 +612,9 @@ export default function WalletPage() {
           const nativeUsdValue = nativeValueFormatted * nativePrice;
 
           if (nativeValueFormatted > 0) {
-            const nativeSymbol = isSol ? 'SOL' : (chainName === 'bsc' ? 'BNB' : (chainName === 'polygon' ? 'POL' : 'ETH'));
             const chainLabel = chainName.charAt(0).toUpperCase() + chainName.slice(1);
+            const baseSymbol = isSol ? 'SOL' : (chainName === 'bsc' ? 'BNB' : (chainName === 'polygon' ? 'POL' : 'ETH'));
+            const nativeSymbol = isSol ? baseSymbol : `${baseSymbol} (${chainLabel})`;
 
             allTokenHoldings.push({
               address: (isSol ? 'So11111111111111111111111111111111111111112' : '0x0000000000000000000000000000000000000000') as Address,
@@ -709,6 +720,15 @@ export default function WalletPage() {
         const chainName = getChainName(chainId);
         // Use the correct chain-specific address for data
         const addressForApi = chainName === 'solana' ? walletAddress : (evmAddress || walletAddress);
+        const txCacheKey = `${chainName}:${addressForApi?.toLowerCase()}`;
+        const cached = txCache.get(txCacheKey);
+        if (cached && Date.now() - cached.timestamp < TX_CACHE_TTL_MS) {
+          setTransactions(cached.data);
+          setCachedTransactions(cached.data);
+          setTransactionsLoading(false);
+          return;
+        }
+
         console.log('[WalletPage] Fetching transactions:', { walletAddress: addressForApi, chainName, reqId });
         const txData = await getWalletTransactions(addressForApi!, {
           chain: chainName,
@@ -726,6 +746,7 @@ export default function WalletPage() {
         if (reqId === txReqId.current) {
           setTransactions(txData || []);
           setCachedTransactions(txData || []);
+          txCache.set(txCacheKey, { data: txData || [], timestamp: Date.now() });
           console.log('[WalletPage] Transactions updated, count:', txData?.length || 0);
         } else {
           console.warn('[WalletPage] Transaction request stale (newer request exists), ignoring update', {

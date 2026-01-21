@@ -28,6 +28,8 @@ export enum LogCode {
     DEC_PRICE_IMPACT_HIGH = 'DEC-3004',
     DEC_AI_RISK_CHECK = 'DEC-3005',
     DEC_SWAP_DETECTION = 'DEC-3006',
+    DATA_RECOVERY = 'DEC-3007',
+    DATA_CORRUPTION = 'DEC-3008',
 
     // --- Execution & Blockchain (4xxx) ---
     EXE_QUOTE_FETCHED = 'EXE-4001',

@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Copy, Check, ThumbsDown, ThumbsUp, Share2, X as XIcon, ExternalLink, Flame, ChevronUp, ChevronDown } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { toast } from 'sonner';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
+import { preprocessMarkdown } from '../../utils/markdownUtils';
 import { SwapCardChat } from './SwapCardChat';
 import { StrategyCard } from '../Trade/StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
@@ -88,6 +92,49 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
     const [showReasoning, setShowReasoning] = useState(true); // 默认展开状态
     const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(message.feedback || null); // Initial state from message if available
     const { resolvedTheme } = useThemeContext();
+
+    // Thinking timer state
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const startTimeRef = useRef<number | null>(null);
+    const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Timer effect: start/stop based on thinking status
+    useEffect(() => {
+        // Timer should run when:
+        // 1. Initial thinking phase (thinkingText exists, no content yet)
+        // 2. Reasoning phase (reasoning_content exists, no final content yet)
+        const isInitialThinking = thinkingText && !message.content && !message.reasoning_content;
+        const isReasoningPhase = message.reasoning_content &&
+            (!message.content || message.content.trim().length === 0) &&
+            message.status !== 'complete';
+        const shouldRunTimer = isInitialThinking || isReasoningPhase;
+
+        if (shouldRunTimer) {
+            // Start timer if not already started
+            if (!startTimeRef.current) {
+                startTimeRef.current = Date.now();
+            }
+
+            // Update elapsed time every 100ms for smooth display
+            intervalRef.current = setInterval(() => {
+                if (startTimeRef.current) {
+                    setElapsedTime((Date.now() - startTimeRef.current) / 1000);
+                }
+            }, 100);
+        } else {
+            // Stop timer when thinking is complete
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
+        }
+
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+        };
+    }, [thinkingText, message.reasoning_content, message.content, message.status]);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(message.content);
@@ -240,9 +287,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                         {message.reasoning_content && (
                             <>
                                 {((!message.content || message.content.trim().length === 0) && message.status !== 'complete') ? (
-                                    // 思考中：显示shimmer Thinking标签
+                                    // 思考中：显示shimmer Thinking标签 + 计时器 + 当前状态
                                     <span className={clsx(styles.reasoningLabel, styles.thinking)}>
-                                        Thinking
+                                        {thinkingText || 'Thinking'} ({elapsedTime.toFixed(1)}s)
                                     </span>
                                 ) : (
                                     // 思考完成：显示可展开的Thinking按钮
@@ -252,7 +299,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                         title={showReasoning ? 'Collapse thinking' : 'Expand thinking'}
                                     >
                                         <span className={styles.reasoningLabel}>
-                                            Thinking
+                                            Thinking ({elapsedTime.toFixed(1)}s)
                                             {showReasoning ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                         </span>
                                     </button>
@@ -270,21 +317,28 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                             {/* Waiting for first content - show thinkingText animation */}
                             {thinkingText && !message.content && !message.reasoning_content && (
                                 <div className={styles.thinkingBubble}>
-                                    <span className={styles.thinkingText}>{thinkingText}</span>
+                                    <span className={styles.thinkingText}>
+                                        {thinkingText} ({elapsedTime.toFixed(1)}s)
+                                    </span>
                                 </div>
                             )}
+
                             {/* Thinking进行中（无content）：在bubble内显示思考内容 */}
                             {message.reasoning_content && (!message.content || message.content.trim().length === 0) && (
                                 <div className={styles.markdownContent}>
-                                    {message.reasoning_content}
+                                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MarkdownComponents}>
+                                        {preprocessMarkdown(message.reasoning_content)}
+                                    </ReactMarkdown>
                                 </div>
                             )}
 
                             {/* Thinking完成（有content）：显示思考内容（如果展开） */}
                             {message.reasoning_content && message.content && message.content.trim().length > 0 && showReasoning && (
                                 <div className={styles.reasoningContent}>
-                                    <div className={styles.reasoningText}>
-                                        {message.reasoning_content}
+                                    <div className={`${styles.reasoningText} ${styles.markdownContent}`}>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MarkdownComponents}>
+                                            {preprocessMarkdown(message.reasoning_content)}
+                                        </ReactMarkdown>
                                     </div>
                                 </div>
                             )}

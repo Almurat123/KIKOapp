@@ -26,6 +26,14 @@ load_dotenv()
 
 kb = None
 
+# Logging disabled to avoid stream blocking from excessive stdout.
+def log_citations(message: str) -> None:
+    return
+
+
+def log_tools(message: str) -> None:
+    return
+
 
 def get_kb():
     """
@@ -1500,23 +1508,23 @@ async def chat_completions(
                     tools.insert(0, web_search(**web_search_config) if web_search_config else web_search())
                 if "x_search" not in existing:
                     tools.insert(0, x_search(**x_search_config) if x_search_config else x_search())
-            print(f"[Tools] Dynamic tool set from Node: {len(tools)} tool(s) ({len(available_tools)} custom)")
+            log_tools(f"[Tools] Dynamic tool set from Node: {len(tools)} tool(s) ({len(available_tools)} custom)")
         elif request.enable_search:
             if is_fast_model:
                 tools = [
                     web_search(**web_search_config) if web_search_config else web_search(),
                     x_search(**x_search_config) if x_search_config else x_search(),
                 ] + CUSTOM_TOOLS
-                print(f"[Tools] Fast model: Enabled web_search + x_search + {len(CUSTOM_TOOLS)} custom tools")
+                log_tools(f"[Tools] Fast model: Enabled web_search + x_search + {len(CUSTOM_TOOLS)} custom tools")
             else:
                 tools = [
                     web_search(**web_search_config) if web_search_config else web_search(),
                     x_search(**x_search_config) if x_search_config else x_search(),
                 ] + CUSTOM_TOOLS
-                print(f"[Tools] Thinking model: web_search + x_search + {len(CUSTOM_TOOLS)} custom tools enabled")
+                log_tools(f"[Tools] Thinking model: web_search + x_search + {len(CUSTOM_TOOLS)} custom tools enabled")
             available_tools = {t.function.name for t in CUSTOM_TOOLS if hasattr(t, "function")}
         else:
-            print(f"[Tools] Search tools disabled by request")
+            log_tools(f"[Tools] Search tools disabled by request")
 
         tool_names = set()
         for t in tools:
@@ -1541,7 +1549,8 @@ async def chat_completions(
                 tool_choice = "required"
         include_options = None
         if has_search_tools:
-            include_options = ["inline_citations"]
+            # Request both inline and top-level citations to ensure sources are returned.
+            include_options = ["inline_citations", "citations"]
             if force_search:
                 include_options.extend(["web_search_call_output", "x_search_call_output"])
                 def tool_priority(t):
@@ -1551,7 +1560,7 @@ async def chat_completions(
                 tools = sorted(tools, key=tool_priority)
 
         # Create chat instance with tools
-        print(f"[Chat] Creating chat with model: {normalized_model} (original: {request.model})")
+        log_tools(f"[Chat] Creating chat with model: {normalized_model} (original: {request.model})")
         if tools:
             tool_names = []
             for t in tools:
@@ -1559,19 +1568,19 @@ async def chat_completions(
                     tool_names.append(t.function.name)
                 else:
                     tool_names.append(str(t))
-            print(f"[Chat] Creating chat with {len(tools)} tool(s): {', '.join(tool_names)}")
+            log_tools(f"[Chat] Creating chat with {len(tools)} tool(s): {', '.join(tool_names)}")
             if force_search:
-                print("[Chat] Force search enabled: tool_choice=required for CA analysis")
+                log_tools("[Chat] Force search enabled: tool_choice=required for CA analysis")
             chat = client.chat.create(
                 model=normalized_model,
                 tools=tools,
                 tool_choice=tool_choice,
                 include=include_options,
             )
-            print(f"[Chat] Chat created")
+            log_tools(f"[Chat] Chat created")
         else:
             chat = client.chat.create(model=normalized_model, include=include_options)
-            print(f"[Chat] Chat created without tools")
+            log_tools(f"[Chat] Chat created without tools")
         
         # Add messages to chat
         # CRITICAL FIX: According to xai-sdk documentation, tool results are managed by the chat object
@@ -1597,25 +1606,25 @@ async def chat_completions(
         
         if len(request.messages) > len(messages_to_add):
             removed_count = len(request.messages) - len(messages_to_add)
-            print(f"[Messages] Filtered message history: {len(request.messages)} -> {len(messages_to_add)} messages (removed {removed_count} tool/old messages)")
+            log_tools(f"[Messages] Filtered message history: {len(request.messages)} -> {len(messages_to_add)} messages (removed {removed_count} tool/old messages)")
         
-        print(f"[Messages] Adding {len(messages_to_add)} message(s) to chat")
+        log_tools(f"[Messages] Adding {len(messages_to_add)} message(s) to chat")
         for i, msg in enumerate(messages_to_add):
             if msg.role == "system":
                 # CRITICAL: Use the system prompt from Node.js (kiko-api)
                 # It already contains: IDENTITY + SAFETY + TOOLS + MODEL_BEHAVIOR + INTENT + USER_CONTEXT
                 # DO NOT override it with GROK_SYSTEM_PROMPT
                 chat.append(system(msg.content))
-                print(f"[Messages] [{i+1}] System prompt from Node.js (length={len(msg.content)} chars)")
+                log_tools(f"[Messages] [{i+1}] System prompt from Node.js (length={len(msg.content)} chars)")
             elif msg.role == "user":
                 chat.append(user(msg.content))
-                print(f"[Messages] [{i+1}] User: {msg.content[:50]}...")
+                log_tools(f"[Messages] [{i+1}] User: {msg.content[:50]}...")
             elif msg.role == "assistant":
-                print(f"[Messages] [{i+1}] Assistant: (skipped)")
+                log_tools(f"[Messages] [{i+1}] Assistant: (skipped)")
         
-        print(f"[Chat] Starting {'streaming' if request.stream else 'non-streaming'} response generation")
+        log_tools(f"[Chat] Starting {'streaming' if request.stream else 'non-streaming'} response generation")
         
-        print(f"[Tools] Custom tool allowlist size: {len(available_tools)}")
+        log_tools(f"[Tools] Custom tool allowlist size: {len(available_tools)}")
         
         # Stream response
         if request.stream:
@@ -1623,7 +1632,7 @@ async def chat_completions(
                 collected_citations = []
                 collected_tool_calls = []  # Track tool calls to know if fallback message needed
                 chunk_count = 0
-                print(f"[Generate] Starting generator")
+                log_tools(f"[Generate] Starting generator")
                 
                 try:
                     # According to xai-sdk official docs, citations are available in the final response
@@ -1656,13 +1665,13 @@ async def chat_completions(
                                 current_time = time.time()
                                 
                                 if chunk:
-                                    # print(f"[Stream] Chunk #{chunk_count}: {getattr(chunk, 'content', '')[:20]}...")
+                                    # log_tools(f"[Stream] Chunk #{chunk_count}: {getattr(chunk, 'content', '')[:20]}...")
                                     pass
                                 
                                 if response:
                                     final_response = response  # Keep reference to the final response for citations
                                     if hasattr(response, 'citations') and response.citations:
-                                        print(f"[Stream] Response has {len(response.citations)} citations")
+                                        log_tools(f"[Stream] Response has {len(response.citations)} citations")
                                 else:
                                      pass # No warning for None response
                                 
@@ -1695,12 +1704,12 @@ async def chat_completions(
                                                     is_duplicate = True
                                                     break
                                             if not is_duplicate:
-                                                print(f"[Citations] Found intermediate citation: {cite_dict['url'][:50]}...")
+                                                log_citations(f"[Citations] Found intermediate citation: {cite_dict['url'][:50]}...")
                                                 collected_citations.append(cite_dict)
                                             
                                 # Also check inline_citations if available
                                 if response and hasattr(response, 'inline_citations') and response.inline_citations:
-                                    print(f"[Citations] Found inline_citations: {len(response.inline_citations)}")
+                                    log_citations(f"[Citations] Found inline_citations: {len(response.inline_citations)}")
                                     # Fallback: if we have inline citations but no regular ones, try to use them
                                     # (Logic implementation depends on inline_citations structure, usually they correspond to text ranges)
                                     
@@ -1752,12 +1761,12 @@ async def chat_completions(
                                 if chunk_has_tool_calls:
                                     tool_calls_list = chunk.tool_calls
                                     tool_calls_detected_in_chunk = True
-                                    print(f"[Tool Call] Detected in chunk: {len(chunk.tool_calls)} tool(s)")
+                                    log_tools(f"[Tool Call] Detected in chunk: {len(chunk.tool_calls)} tool(s)")
                                 elif response_has_tool_calls:
                                     # Only use response.tool_calls if chunk doesn't have them (fallback)
                                     tool_calls_list = response.tool_calls
                                     tool_calls_detected_in_response = True
-                                    print(f"[Tool Call] Detected in response (fallback): {len(response.tool_calls)} tool(s)")
+                                    log_tools(f"[Tool Call] Detected in response (fallback): {len(response.tool_calls)} tool(s)")
                                 else:
                                     tool_calls_list = []
                                 
@@ -1775,19 +1784,19 @@ async def chat_completions(
                                             
                                             # Skip if we've already processed this tool call in this turn
                                             if tool_call_signature in processed_tool_call_ids:
-                                                print(f"[Tool Call] Skipping duplicate: {tool_name} (already processed)")
+                                                log_tools(f"[Tool Call] Skipping duplicate: {tool_name} (already processed)")
                                                 continue
                                             
                                             processed_tool_call_ids.add(tool_call_signature)
-                                            print(f"[Tool Call] {tool_name}: {str(tool_args)[:100]}...")
+                                            log_tools(f"[Tool Call] {tool_name}: {str(tool_args)[:100]}...")
                                             
                                             # Only mark as tool turn if it's a CUSTOM tool that we need to execute
                                             # Built-in tools (web_search, etc) are handled by SDK stream and answer follows immediately
                                             if tool_name in available_tools:
                                                 has_tool_calls_this_turn = True
-                                                print(f"[Tool Call] Custom tool detected - buffered content will be discarded")
+                                                log_tools(f"[Tool Call] Custom tool detected - buffered content will be discarded")
                                             else:
-                                                print(f"[Tool Call] Built-in tool detected ({tool_name}) - continuing stream")
+                                                log_tools(f"[Tool Call] Built-in tool detected ({tool_name}) - continuing stream")
                                             
                                             # UNIFIED TOOL CALL EVENT FORMAT: OpenAI-compatible format
                                             # Send tool call event to frontend for status display
@@ -1831,7 +1840,7 @@ async def chat_completions(
                                                 "tool_call_id": tool_call_id  # Include ID for tracking
                                             }
                                             try:
-                                                print(f"[Tool Call Event] Sending tool call event for {tool_name} (ID: {tool_call_id})")
+                                                log_tools(f"[Tool Call Event] Sending tool call event for {tool_name} (ID: {tool_call_id})")
                                                 # Send both formats for maximum compatibility
                                                 yield f"data: {json.dumps(tool_call_event)}\n\n"
                                                 yield f"data: {json.dumps(tool_call_simple_event)}\n\n"
@@ -1896,7 +1905,7 @@ async def chat_completions(
                                                         chat.append(tool_result(result=f"Error executing {tool_name}: {str(tool_err)}"))
                                                         has_tool_calls_this_turn = True
                                                 else:
-                                                    print(f"[Tool Call] {tool_name} is a built-in tool, handled by xai-sdk")
+                                                    log_tools(f"[Tool Call] {tool_name} is a built-in tool, handled by xai-sdk")
                                                     
                                             except (BrokenPipeError, ConnectionResetError, OSError):
                                                 return
@@ -2006,8 +2015,8 @@ async def chat_completions(
                                                 print(f"[Client Action] Error processing swap tool: {e}")
                             
                             # END OF STREAM LOOP - Check if we need another turn
-                            # Use comprehensive detection: check both chunk and response tool calls
-                            final_tool_call_check = has_tool_calls_this_turn or tool_calls_detected_in_chunk or tool_calls_detected_in_response
+                            # Only custom tools require another turn; built-in tools are handled by the SDK.
+                            final_tool_call_check = has_tool_calls_this_turn
                             
                             # Also check response.tool_calls one more time as final fallback
                             if not final_tool_call_check and hasattr(final_response, 'tool_calls') and final_response.tool_calls:
@@ -2252,18 +2261,18 @@ async def chat_completions(
                                     if not is_dup:
                                         collected_citations.append(new_c)
                                         count_new += 1
-                                print(f"[Citations] Merged {count_new} citations from final response into existing {len(collected_citations)}")
+                                log_citations(f"[Citations] Merged {count_new} citations from final response into existing {len(collected_citations)}")
                                 
                             except Exception as e:
                                 print(f"[Citations Error] {e}")
                         else:
-                            print(f"[Citations] No citations attribute in final response")
+                            log_citations(f"[Citations] No citations attribute in final response")
                     else:
-                        print(f"[Citations] No final response available")
+                        log_citations(f"[Citations] No final response available")
                     
                     # Log final citations status with detailed structure
                     if collected_citations:
-                        print(f"[Citations] Final: {len(collected_citations)} citations will be sent to client")
+                        log_citations(f"[Citations] Final: {len(collected_citations)} citations will be sent to client")
                         
                         # Helper function to extract X/Twitter avatar from tweet URL or user URL
                         def get_x_avatar_from_url(url: str) -> str | None:
@@ -2279,7 +2288,7 @@ async def chat_completions(
                             import urllib.parse
                             import json
                             
-                            print(f"[Citations] Processing URL for avatar: {url}")
+                            log_citations(f"[Citations] Processing URL for avatar: {url}")
                             
                             # Pattern 1: Tweet URL with username
                             tweet_pattern = r'https?://(?:x\.com|twitter\.com)/([^/]+)/status/(\d+)'
@@ -2288,15 +2297,15 @@ async def chat_completions(
                             if tweet_match:
                                 username = tweet_match.group(1)
                                 tweet_id = tweet_match.group(2)
-                                print(f"[Citations] Tweet URL detected - username: '{username}', tweet_id: {tweet_id}")
+                                log_citations(f"[Citations] Tweet URL detected - username: '{username}', tweet_id: {tweet_id}")
                                 
                                 # If username is 'i', it's an anonymous link - need to fetch real username
                                 if username == 'i':
-                                    print(f"[Citations] Anonymous tweet URL, fetching author via oEmbed...")
+                                    log_citations(f"[Citations] Anonymous tweet URL, fetching author via oEmbed...")
                                     try:
                                         encoded_url = urllib.parse.quote(url, safe='')
                                         oembed_url = f"https://publish.twitter.com/oembed?url={encoded_url}"
-                                        print(f"[Citations] oEmbed URL: {oembed_url}")
+                                        log_citations(f"[Citations] oEmbed URL: {oembed_url}")
                                         
                                         request = urllib.request.Request(
                                             oembed_url,
@@ -2305,34 +2314,34 @@ async def chat_completions(
                                         
                                         with urllib.request.urlopen(request, timeout=3) as response:
                                             response_text = response.read().decode()
-                                            print(f"[Citations] oEmbed response (first 200 chars): {response_text[:200]}")
+                                            log_citations(f"[Citations] oEmbed response (first 200 chars): {response_text[:200]}")
                                             data = json.loads(response_text)
                                             
                                             author_url = data.get('author_url', '')
-                                            print(f"[Citations] author_url: {author_url}")
+                                            log_citations(f"[Citations] author_url: {author_url}")
                                             
                                             if author_url:
                                                 author_match = re.search(r'(?:twitter\.com|x\.com)/([^/]+)/?$', author_url)
                                                 if author_match:
                                                     username = author_match.group(1)
-                                                    print(f"[Citations] ✓ Resolved to user: {username}")
+                                                    log_citations(f"[Citations] ✓ Resolved to user: {username}")
                                                 else:
-                                                    print(f"[Citations] ✗ Failed to parse author_url")
+                                                    log_citations(f"[Citations] ✗ Failed to parse author_url")
                                                     return None
                                             else:
-                                                print(f"[Citations] ✗ No author_url in response")
+                                                log_citations(f"[Citations] ✗ No author_url in response")
                                                 return None
                                     except Exception as e:
-                                        print(f"[Citations] ✗ oEmbed failed: {type(e).__name__}: {e}")
+                                        log_citations(f"[Citations] ✗ oEmbed failed: {type(e).__name__}: {e}")
                                         return None
                                 
                                 # Validate and return avatar URL
                                 if username and username != 'i':
                                     avatar_url = f"https://unavatar.io/twitter/{username}"
-                                    print(f"[Citations] ✓ Generated avatar: {avatar_url}")
+                                    log_citations(f"[Citations] ✓ Generated avatar: {avatar_url}")
                                     return avatar_url
                                 else:
-                                    print(f"[Citations] ✗ Invalid username: '{username}'")
+                                    log_citations(f"[Citations] ✗ Invalid username: '{username}'")
                                     return None
                             
                             # Pattern 2: User profile URL by ID (x.com/i/user/123456)
@@ -2341,8 +2350,8 @@ async def chat_completions(
                             
                             if user_id_match:
                                 user_id = user_id_match.group(1)
-                                print(f"[Citations] User ID URL detected: {user_id}")
-                                print(f"[Citations] ⚠️ Cannot fetch avatar from user ID without API key")
+                                log_citations(f"[Citations] User ID URL detected: {user_id}")
+                                log_citations(f"[Citations] ⚠️ Cannot fetch avatar from user ID without API key")
                                 # We cannot resolve user ID to username without Twitter API v2 authentication
                                 # Return None for now
                                 return None
@@ -2355,12 +2364,12 @@ async def chat_completions(
                                 username = profile_match.group(1)
                                 # Skip special paths
                                 if username not in ['i', 'home', 'explore', 'notifications', 'messages', 'settings']:
-                                    print(f"[Citations] Profile URL detected - username: {username}")
+                                    log_citations(f"[Citations] Profile URL detected - username: {username}")
                                     avatar_url = f"https://unavatar.io/twitter/{username}"
-                                    print(f"[Citations] ✓ Generated avatar: {avatar_url}")
+                                    log_citations(f"[Citations] ✓ Generated avatar: {avatar_url}")
                                     return avatar_url
                             
-                            print(f"[Citations] ✗ No matching pattern for URL: {url}")
+                            log_citations(f"[Citations] ✗ No matching pattern for URL: {url}")
                             return None
                         
                         # Process each citation to add avatar_url for X/Twitter links
@@ -2369,13 +2378,13 @@ async def chat_completions(
                                 url = cite['url']
                                 # Check if it's an X/Twitter URL and doesn't already have an avatar
                                 if ('x.com' in url or 'twitter.com' in url) and not cite.get('avatar_url'):
-                                    print(f"[Citations] Attempting to extract avatar for X URL: {url}")
+                                    log_citations(f"[Citations] Attempting to extract avatar for X URL: {url}")
                                     avatar_url = get_x_avatar_from_url(url)
                                     if avatar_url:
                                         cite['avatar_url'] = avatar_url
-                                        print(f"[Citations] ✓ Added X avatar for {url[:50]}...: {avatar_url}")
+                                        log_citations(f"[Citations] ✓ Added X avatar for {url[:50]}...: {avatar_url}")
                                     else:
-                                        print(f"[Citations] ✗ No avatar extracted for {url[:50]}...")
+                                        log_citations(f"[Citations] ✗ No avatar extracted for {url[:50]}...")
                         
                         # Validate all citations are dicts with url
                         validated_citations = []
@@ -2401,9 +2410,9 @@ async def chat_completions(
                                 elif isinstance(cite, str):
                                     validated_citations.append({'url': cite})
                         collected_citations = validated_citations
-                        print(f"[Citations] After validation: {len(collected_citations)} valid citations")
+                        log_citations(f"[Citations] After validation: {len(collected_citations)} valid citations")
                     else:
-                        print(f"[Citations] Final: No citations collected")
+                        log_citations(f"[Citations] Final: No citations collected")
                     
                     # Send final chunk with citations
                     # Ensure all data is JSON-serializable (no protobuf types)
@@ -2437,9 +2446,9 @@ async def chat_completions(
                             prompt_tokens = int(getattr(usage_obj, 'prompt_tokens', 0))
                             completion_tokens = int(getattr(usage_obj, 'completion_tokens', 0))
                             total_tokens = int(getattr(usage_obj, 'total_tokens', 0))
-                            print(f"[Usage] Prompt: {prompt_tokens}, Completion: {completion_tokens}, Total: {total_tokens}")
+                            log_tools(f"[Usage] Prompt: {prompt_tokens}, Completion: {completion_tokens}, Total: {total_tokens}")
                         else:
-                            print(f"[Usage] No usage data available in final_response")
+                            log_tools(f"[Usage] No usage data available in final_response")
                         
                         yield f"data: {json.dumps(final_chunk)}\n\n"
                         
@@ -2512,44 +2521,44 @@ async def chat_completions(
         
         else:
             # Non-streaming response - OpenAI-compatible format
-            print(f"[Chat] Sampling non-streaming response")
+            log_tools(f"[Chat] Sampling non-streaming response")
             
             max_turns = 5
             final_response = None
             
             for turn in range(max_turns):
-                print(f"[Chat] [Turn {turn+1}] Sampling...")
+                log_tools(f"[Chat] [Turn {turn+1}] Sampling...")
                 response = await chat.sample()
                 final_response = response
                 
-                print(f"[Chat] [Turn {turn+1}] Response type: {type(response)}")
-                print(f"[Chat] [Turn {turn+1}] Content: {response.content!r}")
+                log_tools(f"[Chat] [Turn {turn+1}] Response type: {type(response)}")
+                log_tools(f"[Chat] [Turn {turn+1}] Content: {response.content!r}")
                 
                 # Check for tool_calls
                 tool_calls = getattr(response, 'tool_calls', [])
                 if tool_calls:
-                    print(f"[Chat] [Turn {turn+1}] Tool calls detected: {len(tool_calls)}")
+                    log_tools(f"[Chat] [Turn {turn+1}] Tool calls detected: {len(tool_calls)}")
                     
                     for tc in tool_calls:
                         name = getattr(tc.function, 'name', 'unknown')
                         args_str = getattr(tc.function, 'arguments', '{}')
                         
                         if name in available_tools:
-                            print(f"[Chat] [Turn {turn+1}] Executing custom tool: {name}")
+                            log_tools(f"[Chat] [Turn {turn+1}] Executing custom tool: {name}")
                             try:
                                 args = json.loads(args_str) if args_str else {}
                                 result = await execute_custom_tool(name, args, user_auth_token, request.tool_context)
                                 tool_payload, _client_action = normalize_tool_result(result)
                                 chat.append(tool_result(result=tool_payload))
                             except Exception as e:
-                                print(f"[Chat] [Turn {turn+1}] Custom tool error: {e}")
+                                log_tools(f"[Chat] [Turn {turn+1}] Custom tool error: {e}")
                                 chat.append(tool_result(result=f"Error: {str(e)}"))
                         else:
                             # Built-in tools like web_search, x_search
                             # In xai-sdk, it seems we don't manually execute these in this SDK version
                             # but we might need to continue the turn if they are present?
                             # Actually, if tool_calls are present, we MUST continue to get the final answer.
-                            print(f"[Chat] [Turn {turn+1}] Built-in tool detected: {name}")
+                            log_tools(f"[Chat] [Turn {turn+1}] Built-in tool detected: {name}")
                             # For built-in tools, the SDK might have already added them or we just need to let it be.
                             # However, if we don't loop, we don't get the follow-up content.
                     
@@ -2595,7 +2604,7 @@ async def chat_completions(
                     else:
                         # Single value or string - might be a string representation of a list
                         cite_str = str(response.citations)
-                        print(f"[Citations] Non-streaming: Single citation value (string): {cite_str[:100]}...")
+                        log_citations(f"[Citations] Non-streaming: Single citation value (string): {cite_str[:100]}...")
                         
                         # Try to parse if it looks like a list string
                         if cite_str.startswith('[') and cite_str.endswith(']'):
@@ -2603,19 +2612,19 @@ async def chat_completions(
                                 import ast
                                 parsed_list = ast.literal_eval(cite_str)
                                 if isinstance(parsed_list, list):
-                                    print(f"[Citations] Non-streaming: Parsed as list with {len(parsed_list)} items")
+                                    log_citations(f"[Citations] Non-streaming: Parsed as list with {len(parsed_list)} items")
                                     citations = [{'url': str(item)} for item in parsed_list]
                                 else:
                                     citations = [{'url': cite_str}]
                             except Exception as parse_err:
-                                print(f"[Citations] Non-streaming: Failed to parse as list: {parse_err}, treating as single URL")
+                                log_citations(f"[Citations] Non-streaming: Failed to parse as list: {parse_err}, treating as single URL")
                                 citations = [{'url': cite_str}]
                         else:
                             # Regular string URL
                             citations = [{'url': cite_str}]
-                    print(f"[Citations] Non-streaming: Found {len(citations)} citations")
+                    log_citations(f"[Citations] Non-streaming: Found {len(citations)} citations")
                 except Exception as cite_error:
-                    print(f"[Citations] Non-streaming: Error converting citations: {cite_error}")
+                    log_citations(f"[Citations] Non-streaming: Error converting citations: {cite_error}")
                     citations = []
             
             # Try alternative attribute names
@@ -2632,14 +2641,14 @@ async def chat_completions(
                                             citations.extend([str(item) for item in cite])
                                         else:
                                             citations.append(str(cite))
-                                    print(f"[Citations] Non-streaming: Found {len(citations)} citations in {attr_name}")
+                                    log_citations(f"[Citations] Non-streaming: Found {len(citations)} citations in {attr_name}")
                                     break
                             except Exception as e:
-                                print(f"[Citations] Non-streaming: Error processing {attr_name}: {e}")
+                                log_citations(f"[Citations] Non-streaming: Error processing {attr_name}: {e}")
                                 continue
             
             if citations:
-                print(f"[Citations] Non-streaming: Sending {len(citations)} citations to client")
+                log_citations(f"[Citations] Non-streaming: Sending {len(citations)} citations to client")
             
             return {
                 "id": f"chatcmpl-{hash(str(request.messages))}",
