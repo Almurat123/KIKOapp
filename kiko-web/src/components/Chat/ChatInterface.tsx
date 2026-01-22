@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { ArrowDown, ChevronDown, Settings, ArrowUp } from 'lucide-react';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -357,31 +358,35 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         break;
                     }
 
-                    setMessages(prev => {
-                        const lastMsg = prev[prev.length - 1];
-                        // Database returns snake_case field names
-                        const chunkMessageId = event.data.message_id || event.data.messageId;
-                        const hasReasoning = event.data.reasoning_content && event.data.reasoning_content.length > 0;
+                    // Use flushSync to force immediate DOM update for typewriter effect
+                    // This prevents React 18's automatic batching from grouping chunks
+                    flushSync(() => {
+                        setMessages(prev => {
+                            const lastMsg = prev[prev.length - 1];
+                            // Database returns snake_case field names
+                            const chunkMessageId = event.data.message_id || event.data.messageId;
+                            const hasReasoning = event.data.reasoning_content && event.data.reasoning_content.length > 0;
 
-                        // DEBUG: Log chunk info
-                        if (hasReasoning) {
-                            logger.debug('Got reasoning chunk:', event.data.reasoning_content.substring(0, 30));
-                        }
+                            // DEBUG: Log chunk info
+                            if (hasReasoning) {
+                                logger.debug('Got reasoning chunk:', event.data.reasoning_content.substring(0, 30));
+                            }
 
-                        if (!chunkMessageId) return prev;
+                            if (!chunkMessageId) return prev;
 
-                        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.id === chunkMessageId) {
-                            return prev.map(m => m.id === chunkMessageId
-                                ? {
-                                    ...m,
-                                    content: (m.content || '') + (event.data.content || ''),
-                                    reasoning_content: (m.reasoning_content || '') + (event.data.reasoning_content || '')
-                                }
-                                : m);
-                        } else {
-                            logger.debug('Chunk mismatch! Expected:', lastMsg?.id, 'Got:', chunkMessageId);
-                        }
-                        return prev;
+                            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.id === chunkMessageId) {
+                                return prev.map(m => m.id === chunkMessageId
+                                    ? {
+                                        ...m,
+                                        content: (m.content || '') + (event.data.content || ''),
+                                        reasoning_content: (m.reasoning_content || '') + (event.data.reasoning_content || '')
+                                    }
+                                    : m);
+                            } else {
+                                logger.debug('Chunk mismatch! Expected:', lastMsg?.id, 'Got:', chunkMessageId);
+                            }
+                            return prev;
+                        });
                     });
 
                     // Only stop thinking when actual content arrives

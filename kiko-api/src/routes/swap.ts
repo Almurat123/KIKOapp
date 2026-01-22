@@ -1151,19 +1151,21 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     priceImpact: quote.priceImpact,
                 });
 
-                // Price Impact Safety Check
+                // Determine if this is a BUY (native → token) or SELL (token → native) operation
+                const isBuyingToken = isNativeTokenIn && !isNativeTokenOut; // ETH → Token
+                const isSellingToken = !isNativeTokenIn && isNativeTokenOut; // Token → ETH
+
+                // Price Impact Safety Check - ONLY apply to BUY orders
+                // For SELL orders, users should be free to sell at any price (high impact just means lower sale price)
+                // For BUY orders, high impact means paying more, which should be prevented
                 const { maxPriceImpact = 5 } = request.body as any; // Default 5%
-                if (quote.priceImpact > maxPriceImpact) {
+                if (isBuyingToken && quote.priceImpact > maxPriceImpact) {
                     throw new AppError(
                         400,
                         `Price impact too high: ${quote.priceImpact.toFixed(2)}% (Max: ${maxPriceImpact}%). Try a smaller amount.`,
                         'PRICE_IMPACT_TOO_HIGH'
                     );
                 }
-
-                // Determine if this is a BUY (native → token) or SELL (token → native) operation
-                const isBuyingToken = isNativeTokenIn && !isNativeTokenOut; // ETH → Token
-                const isSellingToken = !isNativeTokenIn && isNativeTokenOut; // Token → ETH
 
                 // Step 2a: If SELLING a token (not native), ensure router has approval
                 if (!isNativeTokenIn && quote.allowanceTarget) {

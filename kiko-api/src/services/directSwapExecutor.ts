@@ -29,6 +29,7 @@ export interface DirectSwapParams {
 export interface DirectSwapResult {
     success: boolean;
     txHash?: string;
+    amountOut?: string;
     error?: string;
     method: 'zora_sdk' | 'fourmeme_sdk' | 'solana_launchpad_sdk' | 'jupiter_aggregator' | 'aggregator' | 'failed';
 }
@@ -309,6 +310,7 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
         return {
             success: true,
             txHash,
+            amountOut: best.amountOut,
             method: 'aggregator'
         };
 

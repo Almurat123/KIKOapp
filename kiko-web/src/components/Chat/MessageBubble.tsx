@@ -95,7 +95,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
 
     // Thinking timer state
     const [elapsedTime, setElapsedTime] = useState(0);
-    const startTimeRef = useRef<number | null>(null);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // Timer effect: start/stop based on thinking status
@@ -110,16 +109,15 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
         const shouldRunTimer = isInitialThinking || isReasoningPhase;
 
         if (shouldRunTimer) {
-            // Start timer if not already started
-            if (!startTimeRef.current) {
-                startTimeRef.current = Date.now();
-            }
+            // Use server-side timestamp for persistence across page reloads
+            const startTime = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
+
+            // Calculate initial elapsed time
+            setElapsedTime((Date.now() - startTime) / 1000);
 
             // Update elapsed time every 100ms for smooth display
             intervalRef.current = setInterval(() => {
-                if (startTimeRef.current) {
-                    setElapsedTime((Date.now() - startTimeRef.current) / 1000);
-                }
+                setElapsedTime((Date.now() - startTime) / 1000);
             }, 100);
         } else {
             // Stop timer when thinking is complete
@@ -134,7 +132,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                 clearInterval(intervalRef.current);
             }
         };
-    }, [thinkingText, message.reasoning_content, message.content, message.status]);
+    }, [thinkingText, message.reasoning_content, message.content, message.status, message.timestamp]);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(message.content);

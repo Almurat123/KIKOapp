@@ -44,7 +44,6 @@ const CHAIN_ID_MAP: Record<number, string> = {
     10: 'optimism',
     137: 'polygon',
     900: 'solana',
-    101: 'solana',
 };
 
 const THINKING_TOOL_ALLOWLIST = new Set<string>([
@@ -225,11 +224,40 @@ export class ChatWorker {
             137: 'https://polygonscan.com/tx/',
             42161: 'https://arbiscan.io/tx/',
             10: 'https://optimistic.etherscan.io/tx/',
-            43114: 'https://snowtrace.io/tx/',
             900: 'https://solscan.io/tx/',
-            101: 'https://solscan.io/tx/',
         };
         return (explorers[chainId] || 'https://basescan.org/tx/') + txHash;
+    }
+
+    private async resolveTokenSymbol(token: string, chainId: number): Promise<string> {
+        // If not address-like, assume it's already a symbol
+        const isEvmAddress = token.startsWith('0x') && token.length > 20;
+        const isSolanaAddress = token.length >= 32 && token.length <= 44 && !token.startsWith('0x');
+
+        if (!isEvmAddress && !isSolanaAddress) {
+            // Already a symbol or short name
+            return token.toUpperCase();
+        }
+
+        try {
+            // Use findTokenOnAnyChain which is the most robust method (handles global search and launchpads)
+            const info = await findTokenOnAnyChain(token);
+            if (info && info.symbol && info.symbol !== 'UNKNOWN') {
+                return info.symbol.toUpperCase();
+            }
+
+            // Fallback to chain-specific getTokenInfo (internal detector fallback)
+            // Use 101 for Solana to match tokenDetector's mapping
+            const specificInfo = await getTokenInfo(token, chainId === 900 ? 101 : chainId);
+            if (specificInfo && specificInfo.symbol && specificInfo.symbol !== 'UNKNOWN') {
+                return specificInfo.symbol.toUpperCase();
+            }
+        } catch (e) {
+            console.warn(`[ChatWorker] Failed to resolve symbol for ${token}:`, e);
+        }
+
+        // Fallback: shorten address if resolution fails
+        return token.slice(0, 6) + '...' + token.slice(-4);
     }
 
     private async recordIntentTrace(
@@ -938,13 +966,20 @@ export class ChatWorker {
                     });
 
                     // Broadcast result to frontend
+                    // Broadcast result to frontend
                     if (swapResult.success) {
                         const txHash = swapResult.txHash;
                         if (!txHash) {
                             logger.warn(LogCode.SYS_INFO, 'ChatWorker: swap succeeded without txHash', { taskId: task.id, chainId });
                         }
-                        // Determine correct explorer URL based on chain
-                        const explorerUrl = txHash ? this.getExplorerUrl(chainId, txHash) : '';
+
+                        // Resolve symbols and format amount for display
+                        const tokenInSymbol = await this.resolveTokenSymbol(tokenIn, chainId);
+                        const tokenOutSymbol = await this.resolveTokenSymbol(tokenOut, chainId);
+                        const formattedAmount = parseFloat(amountIn).toLocaleString('en-US', { maximumFractionDigits: 6 });
+                        const formattedAmountOut = swapResult.amountOut
+                            ? parseFloat(swapResult.amountOut).toLocaleString('en-US', { maximumFractionDigits: 6 })
+                            : '0.00';
 
                         // Update message with transaction-status-card type and structured data
                         await this.repo.updateMessage(assistantMessageId, {
@@ -954,9 +989,10 @@ export class ChatWorker {
                             data: {
                                 status: 'success',
                                 txHash: txHash || '',
-                                tokenInSymbol: tokenIn,
-                                tokenOutSymbol: tokenOut,
-                                amountIn: amountIn,
+                                tokenInSymbol,
+                                tokenOutSymbol,
+                                amountIn: formattedAmount,
+                                amountOut: formattedAmountOut,
                                 chainId: chainId,
                             }
                         });
@@ -972,9 +1008,10 @@ export class ChatWorker {
                                     data: {
                                         status: 'success',
                                         txHash: txHash || '',
-                                        tokenInSymbol: tokenIn,
-                                        tokenOutSymbol: tokenOut,
-                                        amountIn: amountIn,
+                                        tokenInSymbol,
+                                        tokenOutSymbol,
+                                        amountIn: formattedAmount,
+                                        amountOut: formattedAmountOut,
                                         chainId: chainId,
                                     }
                                 }
@@ -990,6 +1027,11 @@ export class ChatWorker {
                             },
                         });
                     } else {
+                        // Resolve symbols and format amount for display even on failure
+                        const tokenInSymbol = await this.resolveTokenSymbol(tokenIn, chainId);
+                        const tokenOutSymbol = await this.resolveTokenSymbol(tokenOut, chainId);
+                        const formattedAmount = parseFloat(amountIn).toLocaleString('en-US', { maximumFractionDigits: 6 });
+
                         // Update message with failed transaction status card
                         await this.repo.updateMessage(assistantMessageId, {
                             content: '',
@@ -997,9 +1039,9 @@ export class ChatWorker {
                             type: 'transaction-status-card',
                             data: {
                                 status: 'failed',
-                                tokenInSymbol: tokenIn,
-                                tokenOutSymbol: tokenOut,
-                                amountIn: amountIn,
+                                tokenInSymbol,
+                                tokenOutSymbol,
+                                amountIn: formattedAmount,
                                 chainId: chainId,
                                 errorMessage: swapResult.error || 'Swap execution failed'
                             }
@@ -1015,9 +1057,9 @@ export class ChatWorker {
                                     type: 'show_transaction_status_card',
                                     data: {
                                         status: 'failed',
-                                        tokenInSymbol: tokenIn,
-                                        tokenOutSymbol: tokenOut,
-                                        amountIn: amountIn,
+                                        tokenInSymbol,
+                                        tokenOutSymbol,
+                                        amountIn: formattedAmount,
                                         chainId: chainId,
                                         errorMessage: swapResult.error || 'Swap execution failed'
                                     }
