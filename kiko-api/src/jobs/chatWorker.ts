@@ -736,7 +736,22 @@ export class ChatWorker {
             const hasExplicitSwapVerb = /\b(swap|buy|sell|trade|exchange|convert|purchase|ape|买|卖|兑换|换)\b/i.test(lastUserMessage);
 
             if (fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb) {
+                const assistantMessageId = task.assistantMessageId!;
+
+                // CRITICAL: Send message_start so frontend creates the message container BEFORE the transaction card
+                // Without this, the frontend doesn't have a message to attach the transaction status card to
                 if (task.sessionId) {
+                    this.ws.broadcastToUser(userId!, {
+                        type: 'message_start',
+                        sessionId: task.sessionId,
+                        data: {
+                            messageId: assistantMessageId,
+                            role: 'assistant',
+                            model: task.model
+                        }
+                    });
+                    console.log(`[ChatWorker] 🚀 Fast swap: Sent message_start for ${assistantMessageId}`);
+
                     this.ws.broadcastToUser(userId!, {
                         type: 'task_status',
                         sessionId: task.sessionId,
