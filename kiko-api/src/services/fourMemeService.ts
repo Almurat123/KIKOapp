@@ -173,7 +173,7 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
     logger.debug(LogCode.EXE_TX_BROADCAST, 'Transaction sent, waiting for confirmation', { txHash });
 
     // Wait for confirmation and check status
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
@@ -243,7 +243,7 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
     logger.debug(LogCode.EXE_TX_BROADCAST, 'Sell transaction sent, waiting for confirmation', { txHash });
 
     // Wait for confirmation and check status
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
@@ -266,7 +266,7 @@ async function checkAndApproveForFourMeme(
     chainId: number
 ): Promise<void> {
     const chainConfig = getChainConfig(chainId);
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
 
     const ERC20_ABI = [
         'function allowance(address owner, address spender) view returns (uint256)',

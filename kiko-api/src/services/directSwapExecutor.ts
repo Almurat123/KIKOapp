@@ -7,12 +7,9 @@ import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeSwapService } from './fourMemeSwapService.js';
 import { solanaLaunchpadSwapService } from './solanaLaunchpadSwapService.js';
 import { executeSolanaSwap } from './solanaExecutor.js';
-import { getEmbeddedWalletAddress, sendTransaction } from './privyWallet.js';
 import { findTokenOnAnyChain } from './ai/tokenDetector.js';
-import { resolveTokenAddress } from './tokens.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { ethers } from 'ethers';
-import { getPlatformFee, isValidEvmAddress } from './platformFeeService.js';
 
 export interface DirectSwapParams {
     sessionId: string;
@@ -235,146 +232,60 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
             }
         }
 
-        // Fallback: Use general aggregator (0x/KyberSwap) for EVM chains
+        // Fallback: Use new Unified SwapExecutor for general aggregator swaps (EVM & Solana)
         // IMPORTANT: Use effectiveChainId (token's actual chain) not user's current chain
-        console.log(`[DirectSwap] Using aggregator swap on chain ${effectiveChainId}...`);
+        console.log(`[DirectSwap] Using Unified Executor on chain ${effectiveChainId}...`);
 
-        // Resolve addresses
-        const actualTokenIn = resolveTokenAddress(params.tokenIn, effectiveChainId);
-        const actualTokenOut = resolveTokenAddress(params.tokenOut, effectiveChainId);
+        // Import dynamically
+        const { SwapExecutor } = await import('./swap/SwapExecutor.js');
 
-        // Get token metadata for decimals
-        const [tokenInMeta, tokenOutMeta] = await Promise.all([
-            import('./zeroEx.js').then(m => m.getZeroExTokenMetadata(actualTokenIn, effectiveChainId)),
-            import('./zeroEx.js').then(m => m.getZeroExTokenMetadata(actualTokenOut, effectiveChainId))
-        ]);
-
-        const tokenInDecimals = tokenInMeta?.decimals || 18;
-        const tokenOutDecimals = tokenOutMeta?.decimals || 18;
-
-        // Get Best Quote
-        const { getBestQuote } = await import('./quoteService.js');
-        const platformFee = getPlatformFee('swap');
-        const affiliateFee =
-            platformFee.bps > 0 && isValidEvmAddress(platformFee.evmRecipient)
-                ? { affiliateAddress: platformFee.evmRecipient!, buyTokenPercentageFeeBps: platformFee.bps }
-                : undefined;
-
-        const amountInHuman = parseFloat(params.amountIn);
-        const amountInBase = import('./zeroEx.js').then(m => m.toWei(params.amountIn, tokenInDecimals));
-
-        const { best } = await getBestQuote({
+        const swapResult = await SwapExecutor.execute({
+            userId: params.userId,
+            walletAddress: params.walletAddress,
             tokenIn: params.tokenIn,
             tokenOut: params.tokenOut,
-            actualTokenIn,
-            actualTokenOut,
-            amountInBase: await amountInBase,
-            amountInHuman,
-            tokenInDecimals,
-            tokenOutDecimals,
+            amountIn: params.amountIn,
             chainId: effectiveChainId,
             slippageBps: Math.round((params.slippage || 3) * 100),
-            userAddress: params.walletAddress,
-            affiliateFee,
+            feeContext: 'swap',
+            isSell: isSellOperation
         });
 
-        if (!best) {
-            throw new Error(`No quotes available for ${params.tokenIn} -> ${params.tokenOut}`);
+        if (!swapResult.success) {
+            throw new Error(swapResult.error || 'Swap execution failed');
         }
 
-        // 🛡️ CRITICAL: Check and execute Approval BEFORE sending swap transaction
-        // This is required for SELL operations where user's token needs to be transferred
-        if (isSellOperation && best.allowanceTarget && best.allowanceTarget !== '0x0000000000000000000000000000000000000000') {
-            console.log('[DirectSwap] Checking token allowance for SELL...', { token: actualTokenIn, spender: best.allowanceTarget });
-            await checkAndApproveForDirectSwap(
-                params.userId,
-                params.accessToken,
-                params.walletAddress,
-                actualTokenIn,
-                best.allowanceTarget,
-                await amountInBase,
-                effectiveChainId
-            );
-        }
-
-        // Execute via Privy
-        console.log(`[DirectSwap] Executing via ${best.dexName} on chain ${effectiveChainId}`);
-        const txHash = await sendTransaction(params.userId, params.accessToken, {
-            to: best.to,
-            data: best.data,
-            value: best.value,
-            chainId: effectiveChainId,
-        });
-
-        console.log('[DirectSwap] ✅ Aggregator swap successful:', txHash);
+        console.log('[DirectSwap] ✅ Unified swap successful:', swapResult.txHash);
         return {
             success: true,
-            txHash,
-            amountOut: best.amountOut,
+            txHash: swapResult.txHash,
+            amountOut: swapResult.amountOut,
             method: 'aggregator'
         };
 
     } catch (error: any) {
-        console.error('[DirectSwap] ❌ Swap execution error:', error.message);
+        console.error('[DirectSwap] ❌ Swap execution error:', error);
+
+        // Try to extract more detailed error info
+        let errorMessage = error.message;
+        if (error.data) {
+            // If we have raw error data, we might be able to decode it, but for now just log it
+            console.error('[DirectSwap] Error data:', error.data);
+        }
+
+        // Check for common specific errors
+        if (errorMessage.includes('insufficient funds')) {
+            errorMessage = 'Insufficient funds for gas or transaction';
+        } else if (errorMessage.includes('execution reverted')) {
+            errorMessage = 'Transaction reverted by contract (likely slippage or token tax issues)';
+        }
+
         return {
             success: false,
-            error: error.message,
+            error: errorMessage,
             method: 'failed'
         };
     }
 }
 
-/**
- * Check token allowance and approve if necessary (for DirectSwap)
- */
-async function checkAndApproveForDirectSwap(
-    userId: string,
-    accessToken: string,
-    owner: string,
-    tokenAddress: string,
-    spender: string,
-    amount: string,
-    chainId: number
-) {
-    try {
-        console.log('[DirectSwap] Checking token allowance', { token: tokenAddress, spender });
 
-        // Simple ERC20 ABI for allowance
-        const abi = ['function allowance(address owner, address spender) view returns (uint256)'];
-
-        const chainConfig = getChainConfig(chainId);
-        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
-        const contract = new ethers.Contract(tokenAddress, abi, provider);
-
-        const currentAllowance = await contract.allowance(owner, spender);
-        console.log('[DirectSwap] Current token allowance', {
-            current: currentAllowance.toString(),
-            required: amount
-        });
-
-        if (currentAllowance < BigInt(amount)) {
-            console.log('[DirectSwap] Allowance insufficient, triggering approval', { token: tokenAddress });
-
-            // Encode approve function call with MaxUint256 for speed and future-proofing
-            const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
-            const data = iface.encodeFunctionData('approve', [spender, ethers.MaxUint256]);
-
-            const txHash = await sendTransaction(userId, accessToken, {
-                to: tokenAddress,
-                data,
-                value: '0',
-                chainId
-            });
-            console.log('[DirectSwap] Approval transaction broadcasted', { txHash });
-
-            // Wait for confirmation
-            await provider.waitForTransaction(txHash, 1);
-            console.log('[DirectSwap] ✅ Token approval confirmed', { token: tokenAddress });
-        } else {
-            console.log('[DirectSwap] Token allowance already sufficient', { token: tokenAddress });
-        }
-    } catch (error: any) {
-        console.error('[DirectSwap] ❌ Failed to check or approve token', { token: tokenAddress, error: error.message });
-        throw new Error(`Failed to approve token for swap: ${error.message}`);
-    }
-}

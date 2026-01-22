@@ -1791,7 +1791,7 @@ function getSlippageBps(userSettings: any): number {
 
 async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint> {
     try {
-        const { rpcUrl } = getChainConfig(chainId);
+        const { rpcUrls } = getChainConfig(chainId);
         const provider = getProvider(chainId); // Use cached provider
         return await provider.getBalance(walletAddress);
     } catch (error) {

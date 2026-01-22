@@ -38,7 +38,7 @@ export class ZoraSniperService {
 
     constructor() {
         const chainConfig = getChainConfig(CHAIN_ID);
-        this.provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+        this.provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
         this.factoryContract = new ethers.Contract(ZORA_FACTORY_ADDRESS, ZORA_FACTORY_ABI, this.provider);
     }
 
@@ -283,7 +283,7 @@ export class ZoraSniperService {
                 // Fallback to provider check if SDK fails
                 try {
                     const chainConfig = getChainConfig(CHAIN_ID);
-                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
                     const zoraContract = new ethers.Contract(ZORA_TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
                     zoraBalance = await zoraContract.balanceOf(params.walletAddress);
                     if (zoraBalance > ethers.parseUnits('100', 18)) {
@@ -330,7 +330,7 @@ export class ZoraSniperService {
                 // Check and approve ZORA token if needed
                 try {
                     const chainConfig = getChainConfig(CHAIN_ID);
-                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
                     const zoraContract = new ethers.Contract(
                         ZORA_TOKEN_ADDRESS,
                         [

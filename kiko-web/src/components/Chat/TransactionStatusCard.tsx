@@ -7,11 +7,9 @@ import {
     ArrowUpRight,
     Sparkles,
     Layers,
-    XCircle,
-    ExternalLink
+    XCircle
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useThemeContext } from '../../contexts/ThemeContext';
 import styles from './TransactionStatusCard.module.css';
 
 export type TransactionStatus = 'pending' | 'success' | 'failed' | 'cancelled';
@@ -85,7 +83,6 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     errorMessage,
     isLoading = false,
 }) => {
-    const { resolvedTheme } = useThemeContext();
     const [currentStep, setCurrentStep] = useState(0);
 
     // 当status为pending时，循环显示步骤
@@ -110,150 +107,97 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     const tokenIn = formatTokenSymbol(tokenInSymbol);
     const tokenOut = formatTokenSymbol(tokenOutSymbol);
 
-    // Render helpers updated to return simpler structures matching CSS
-    const renderStatusIcon = () => {
-        switch (status) {
-            case 'pending':
-                const StepIcon = TRANSACTION_STEPS[currentStep].icon;
-                return (
-                    <div className={styles.iconPending}>
-                        <StepIcon className={styles.stepIcon} />
-                    </div>
-                );
-            case 'success':
-                return (
-                    <div className={styles.iconSuccess}>
-                        <CheckCircle2 className={styles.successCheckIcon} />
-                    </div>
-                );
-            case 'failed':
-                return (
-                    <div className={styles.iconFailed}>
-                        <XCircle className={styles.failedIcon} />
-                    </div>
-                );
-            case 'cancelled':
-                return (
-                    <div className={styles.iconCancelled}>
-                        <XCircle className={styles.cancelledIcon} />
-                    </div>
-                );
-        }
-    };
-
-    const renderStatusText = () => {
-        switch (status) {
-            case 'pending':
-                return (
-                    <div className={styles.statusTextGroup}>
-                        <p className={styles.statusLabel}>{TRANSACTION_STEPS[currentStep].label}</p>
-                        <p className={styles.statusSub}>{TRANSACTION_STEPS[currentStep].sub}</p>
-                    </div>
-                );
-            case 'success':
-                return (
-                    <div className={styles.statusTextGroup}>
-                        <p className={clsx(styles.statusLabel, styles.successLabel)}>Transaction Successful</p>
-                        <p className={clsx(styles.statusSub, styles.successSub)}>On-chain confirmation complete.</p>
-                    </div>
-                );
-            case 'failed':
-                return (
-                    <div className={styles.statusTextGroup}>
-                        <p className={clsx(styles.statusLabel, styles.failedLabel)}>Transaction Failed</p>
-                        <p className={clsx(styles.statusSub, styles.failedSub)}>
-                            {errorMessage || 'Transaction could not be completed.'}
-                        </p>
-                    </div>
-                );
-            case 'cancelled':
-                return (
-                    <div className={styles.statusTextGroup}>
-                        <p className={clsx(styles.statusLabel, styles.cancelledLabel)}>Transaction Cancelled</p>
-                        <p className={clsx(styles.statusSub, styles.cancelledSub)}>User cancelled the transaction.</p>
-                    </div>
-                );
-        }
-    };
-
-    const renderStatusIndicator = () => {
-        switch (status) {
-            case 'pending':
-                return <CircleDashed className={styles.spinningIcon} />;
-            case 'success':
-                return <Sparkles className={styles.sparkleIcon} />;
-            case 'failed':
-            case 'cancelled':
-                return null;
-        }
-    };
-
     return (
-        <div className={clsx(styles.card, styles[resolvedTheme])}>
-            {/* Background Glows matching card.md */}
+        <div className={styles.card}>
+            {/* Ambient Background Glows */}
             <div className={clsx(styles.glow, styles.glowTop)} />
             <div className={clsx(styles.glow, styles.glowBottom)} />
 
-            {/* Amount Section */}
+            {/* Swap Amount Section */}
             <div className={styles.amountSection}>
-                {/* Swap Amount */}
                 <div className={styles.amountBlock}>
                     <p className={styles.amountLabel}>Swap Amount</p>
-                    {isLoading ? (
-                        <div className={styles.skeletonAmount} />
-                    ) : (
-                        <p className={styles.amountValue}>
-                            {amountIn || '0.00'}<span className={styles.tokenSymbol}>{tokenIn}</span>
-                        </p>
-                    )}
+                    <p className={styles.amountValue}>
+                        {amountIn || '0.00'}
+                        <span className={styles.tokenSymbol}>{tokenIn}</span>
+                    </p>
                 </div>
 
                 <div className={styles.divider} />
 
-                {/* Estimated Receive */}
                 <div className={styles.amountBlock}>
                     <p className={styles.amountLabel}>Estimated Receive</p>
                     {isLoading ? (
-                        <div className={styles.skeletonAmount} />
+                        <div className={styles.skeletonRect} />
                     ) : (
-                        <p className={clsx(styles.amountValue, styles.amountValueOut)}>
-                            {amountOut || '0.00'}<span className={styles.tokenSymbol}>{tokenOut}</span>
+                        <p className={clsx(styles.amountValue, styles.amountValueEst)}>
+                            {amountOut || '0.00'}
+                            <span className={styles.tokenSymbol}>{tokenOut}</span>
                         </p>
                     )}
                 </div>
             </div>
 
-            {/* Status Section */}
+            {/* Dynamic Status Section */}
             <div className={styles.statusSection}>
                 <div className={styles.statusRow}>
-                    <div className={styles.statusLeft}>
-                        {renderStatusIcon()}
-                        {renderStatusText()}
+                    <div className={styles.statusContent}>
+                        {/* Status Icon */}
+                        <div className={clsx(styles.statusIconWrapper, styles[status])}>
+                            {status === 'pending' && <Layers className={clsx(styles.statusIconSvg, styles.pendingIconSvg)} />}
+                            {status === 'success' && <CheckCircle2 className={styles.statusIconSvg} />}
+                            {(status === 'failed' || status === 'cancelled') && <XCircle className={styles.statusIconSvg} />}
+                        </div>
+
+                        {/* Status Text */}
+                        <div className={styles.statusTextGroup}>
+                            {status === 'pending' ? (
+                                <>
+                                    <p className={clsx(styles.statusLabelText, styles.statusLabelPending)}>
+                                        {TRANSACTION_STEPS[currentStep].label}
+                                    </p>
+                                    <p className={clsx(styles.statusSubText, styles.statusSubPending)}>
+                                        {TRANSACTION_STEPS[currentStep].sub}
+                                    </p>
+                                </>
+                            ) : status === 'success' ? (
+                                <>
+                                    <p className={clsx(styles.statusLabelText, styles.statusLabelSuccess)}>Success</p>
+                                    <p className={clsx(styles.statusSubText, styles.statusSubSuccess)}>On-chain confirmation complete.</p>
+                                </>
+                            ) : (
+                                <>
+                                    <p className={clsx(styles.statusLabelText, styles.statusLabelFailed)}>
+                                        {status === 'cancelled' ? 'Transaction Cancelled' : 'Transaction Failed'}
+                                    </p>
+                                    <p className={clsx(styles.statusSubText, styles.statusSubFailed)}>
+                                        {errorMessage || (status === 'cancelled' ? 'User cancelled the transaction.' : 'Transaction could not be completed.')}
+                                    </p>
+                                </>
+                            )}
+                        </div>
                     </div>
-                    {renderStatusIndicator()}
+
+                    {/* Right Side Animation */}
+                    {status === 'pending' && <CircleDashed className={styles.spinLoader} />}
+                    {status === 'success' && <Sparkles className={styles.sparkleAnim} />}
                 </div>
             </div>
 
             {/* Footer Hash */}
-            <div className={styles.hashSection}>
-                {txHash ? (
-                    <a
-                        href={explorerUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.hashLink}
-                    >
-                        <span>View on Explorer</span>
-                        <ExternalLink className={styles.externalIcon} />
-                    </a>
-                ) : (
-                    <div className={styles.hashPlaceholder}>
-                        <span>View Hash</span>
-                        <ChevronRight className={styles.chevronIcon} />
-                    </div>
-                )}
+            <div className={styles.footer}>
+                <a
+                    href={txHash ? explorerUrl : '#'}
+                    target={txHash ? "_blank" : undefined}
+                    rel="noopener noreferrer"
+                    className={styles.viewHashBtn}
+                    onClick={(e) => !txHash && e.preventDefault()}
+                >
+                    <span>{txHash ? 'View Hash' : 'Processing'}</span>
+                    <ChevronRight className={styles.chevronIcon} />
+                </a>
 
-                {isLoading || status === 'pending' ? (
+                {isLoading || (status === 'pending' && !txHash) ? (
                     <div className={styles.skeletonHash} />
                 ) : txHash ? (
                     <span className={styles.hashValue}>{formattedHash}</span>

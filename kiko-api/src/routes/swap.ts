@@ -1114,272 +1114,39 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     }
                 }
 
-                // Get Best Quote (Compare 0x and Kyber)
-                const platformFee = getPlatformFee('swap');
-                const affiliateFee =
-                    platformFee.bps > 0 && isValidEvmAddress(platformFee.evmRecipient)
-                        ? { affiliateAddress: platformFee.evmRecipient!, buyTokenPercentageFeeBps: platformFee.bps }
-                        : undefined;
+                // =================================================================
+                // ⚡ UNIFIED SWAP EXECUTION (Refactored)
+                // =================================================================
 
-                const { best: quote } = await getBestQuote({
+                // Import the new executor dynamically to avoid circular deps if any
+                const { SwapExecutor } = await import('../services/swap/SwapExecutor.js');
+
+                // Determine context
+                const isSell = !isNativeTokenIn && isNativeTokenOut; // Token -> ETH = Sell
+
+                const swapResult = await SwapExecutor.execute({
+                    userId,
+                    walletAddress,
                     tokenIn,
                     tokenOut,
-                    actualTokenIn,
-                    actualTokenOut,
-                    amountInBase: sellAmount,
-                    amountInHuman: parseFloat(resolvedAmountIn),
-                    tokenInDecimals,
-                    tokenOutDecimals,
+                    amountIn: resolvedAmountIn, // Human readable
                     chainId: validatedChainId,
                     slippageBps,
-                    userAddress: walletAddress,
-                    refPrice,
-                    affiliateFee,
+                    feeContext: 'swap', // Chat swap uses standard fee
+                    isSell
                 });
 
-                if (!quote || !quote.to || !quote.data) {
-                    throw new AppError(500, 'Failed to get swap quote from any provider', 'QUOTE_ERROR');
+                if (!swapResult.success) {
+                    throw new AppError(500, swapResult.error || 'Swap execution failed', 'SWAP_FAILED');
                 }
 
-                console.log('[Swap Execute Instant] Got BEST quote:', {
-                    dex: quote.dexName,
-                    to: quote.to?.slice(0, 10),
-                    dataLength: quote.data?.length,
-                    value: quote.value,
-                    buyAmount: quote.amountOutBase, // QuoteResult uses amountOutBase
-                    allowanceTarget: quote.allowanceTarget,
-                    priceImpact: quote.priceImpact,
-                });
+                // Compatible response for downstream logic
+                const txHash = swapResult.txHash!;
+                const finalQuote = {
+                    amountOutBase: swapResult.amountOut || '0',
+                    dexName: swapResult.method
+                }; // Minimal mock for DB logging below
 
-                // Determine if this is a BUY (native → token) or SELL (token → native) operation
-                const isBuyingToken = isNativeTokenIn && !isNativeTokenOut; // ETH → Token
-                const isSellingToken = !isNativeTokenIn && isNativeTokenOut; // Token → ETH
-
-                // Price Impact Safety Check - ONLY apply to BUY orders
-                // For SELL orders, users should be free to sell at any price (high impact just means lower sale price)
-                // For BUY orders, high impact means paying more, which should be prevented
-                const { maxPriceImpact = 5 } = request.body as any; // Default 5%
-                if (isBuyingToken && quote.priceImpact > maxPriceImpact) {
-                    throw new AppError(
-                        400,
-                        `Price impact too high: ${quote.priceImpact.toFixed(2)}% (Max: ${maxPriceImpact}%). Try a smaller amount.`,
-                        'PRICE_IMPACT_TOO_HIGH'
-                    );
-                }
-
-                // Step 2a: If SELLING a token (not native), ensure router has approval
-                if (!isNativeTokenIn && quote.allowanceTarget) {
-                    console.log('[Swap Execute Instant] Selling ERC20, checking approval for router:', {
-                        token: actualTokenIn.slice(0, 10),
-                        spender: quote.allowanceTarget.slice(0, 10),
-                    });
-
-                    // Check existing allowance before approving
-                    // ERC20 allowance function: allowance(address owner, address spender) returns (uint256)
-                    // Function selector: 0xdd62ed3e
-                    const ownerPadded = walletAddress.slice(2).padStart(64, '0');
-                    const spenderPadded = quote.allowanceTarget.slice(2).padStart(64, '0');
-                    const allowanceCallData = `0xdd62ed3e${ownerPadded}${spenderPadded}`;
-
-                    // RPC URLs for supported chains
-                    const rpcUrls: Record<number, string> = {
-                        1: 'https://eth.llamarpc.com',
-                        8453: 'https://mainnet.base.org',
-                        56: 'https://bsc-dataseed.bnbchain.org',
-                        42161: 'https://arb1.arbitrum.io/rpc',
-                        137: 'https://polygon-rpc.com',
-                        10: 'https://mainnet.optimism.io',
-                    };
-
-                    const rpcUrl = rpcUrls[validatedChainId];
-
-                    try {
-                        if (!rpcUrl) {
-                            console.warn('[Swap Execute Instant] No RPC URL for chain, skipping allowance check and approving');
-                            throw new Error('No RPC URL for allowance check');
-                        }
-
-                        // Call allowance function via RPC
-                        const rpcResponse = await fetch(rpcUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                jsonrpc: '2.0',
-                                method: 'eth_call',
-                                params: [{ to: actualTokenIn, data: allowanceCallData }, 'latest'],
-                                id: 1
-                            }),
-                        });
-
-                        const rpcData = await rpcResponse.json() as { result?: string; error?: unknown };
-                        const allowanceResult = rpcData.result || '0x0';
-
-                        // Parse the result (hex string to bigint)
-                        const currentAllowance = BigInt(allowanceResult || '0x0');
-                        const requiredAmount = BigInt(sellAmount);
-
-                        console.log('[Swap Execute Instant] Allowance check:', {
-                            currentAllowance: currentAllowance.toString(),
-                            requiredAmount: requiredAmount.toString(),
-                            needsApproval: currentAllowance < requiredAmount,
-                        });
-
-                        // Only approve if current allowance is insufficient
-                        if (currentAllowance < requiredAmount) {
-                            // ERC20 approve function selector: 0x095ea7b3
-                            // Parameters: spender (address), amount (uint256)
-                            // We approve max uint256 to avoid future approvals
-                            const MAX_UINT256 = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
-                            const approveData = `0x095ea7b3${spenderPadded}${MAX_UINT256}`;
-
-                            const approveTxHash = await sendTransaction(userId, accessToken, {
-                                to: actualTokenIn, // Approve the token we're selling
-                                data: approveData,
-                                value: '0',
-                                chainId: validatedChainId,
-                            });
-
-                            console.log('[Swap Execute Instant] Approval sent:', approveTxHash);
-
-                            // Wait for approval to be mined (Base has ~2s blocks)
-                            await new Promise(resolve => setTimeout(resolve, 4000));
-                        } else {
-                            console.log('[Swap Execute Instant] Sufficient allowance, skipping approval');
-                        }
-                    } catch (allowanceError: any) {
-                        console.error('[Swap Execute Instant] Allowance check/approval failed:', allowanceError.message);
-                        throw new AppError(500, `Failed to check/approve token: ${allowanceError.message}`, 'APPROVAL_FAILED');
-                    }
-                }
-
-                // Step 2b: Execute swap with retry logic
-                // If transaction fails on-chain, get fresh quote and retry
-                let txHash: string = '';
-                let finalQuote = quote;
-                let retryCount = 0;
-                let lastError: string | undefined;
-
-                while (retryCount <= SWAP_MAX_RETRIES) {
-                    try {
-                        // Get fresh quote if this is a retry
-                        if (retryCount > 0) {
-                            console.log(`[Swap Retry] Attempt ${retryCount + 1}/${SWAP_MAX_RETRIES + 1} - Getting fresh quote...`);
-
-                            const { best: freshQuote } = await getBestQuote({
-                                tokenIn,
-                                tokenOut,
-                                actualTokenIn,
-                                actualTokenOut,
-                                amountInBase: sellAmount,
-                                amountInHuman: parseFloat(resolvedAmountIn),
-                                tokenInDecimals,
-                                tokenOutDecimals,
-                                chainId: validatedChainId,
-                                slippageBps,
-                                userAddress: walletAddress,
-                                refPrice,
-                                affiliateFee,
-                            });
-
-                            if (!freshQuote || !freshQuote.to || !freshQuote.data) {
-                                throw new Error('Failed to get fresh quote for retry');
-                            }
-
-                            finalQuote = freshQuote;
-                            console.log(`[Swap Retry] Got fresh quote from ${freshQuote.dexName}`);
-                        }
-
-                        // Execute swap transaction using Privy server-side signing
-                        txHash = await sendTransaction(userId, accessToken, {
-                            to: finalQuote.to,
-                            data: finalQuote.data,
-                            value: finalQuote.value || '0',
-                            chainId: validatedChainId,
-                            gas: finalQuote.gasEstimate ? Math.floor(Number(finalQuote.gasEstimate) * 1.3).toString() : undefined, // 30% buffer for complex routes
-                        });
-
-                        console.log(`[Swap Execute Instant] Transaction sent (attempt ${retryCount + 1}):`, txHash);
-
-                        // Wait for transaction confirmation
-                        const confirmation = await waitForTransactionConfirmation(txHash, validatedChainId);
-
-                        if (confirmation.success) {
-                            // Transaction succeeded! Exit retry loop
-                            console.log(`[Swap Execute Instant] Transaction confirmed successfully: ${txHash}`);
-                            break;
-                        } else {
-                            // Transaction failed on-chain
-                            lastError = confirmation.error || 'Transaction failed on-chain';
-                            console.error(`[Swap Retry] Transaction failed: ${lastError}`);
-
-                            if (retryCount < SWAP_MAX_RETRIES) {
-                                retryCount++;
-                                console.log(`[Swap Retry] Will retry with fresh quote...`);
-                                // Small delay before retry
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                                continue;
-                            } else {
-                                // Max retries reached
-                                throw new AppError(
-                                    500,
-                                    `Swap failed after ${SWAP_MAX_RETRIES + 1} attempts: ${lastError}`,
-                                    'SWAP_FAILED'
-                                );
-                            }
-                        }
-                    } catch (sendError: any) {
-                        // Error during transaction send (not on-chain failure)
-                        console.error(`[Swap Retry] Send error:`, sendError.message);
-
-                        if (retryCount < SWAP_MAX_RETRIES && !sendError.code) {
-                            retryCount++;
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                            continue;
-                        }
-
-                        throw sendError;
-                    }
-                }
-
-                if (!txHash) {
-                    throw new AppError(500, 'Failed to execute swap transaction', 'SWAP_FAILED');
-                }
-
-                // Step 3: If BUYING a token, auto-approve it for future sells (async, non-blocking)
-                // This way when user sells later, they don't need to wait for approval
-                if (isBuyingToken && finalQuote.allowanceTarget) {
-                    // Fire and forget - don't block the response
-                    (async () => {
-                        try {
-                            console.log('[Swap Execute Instant] Auto-approving purchased token:', {
-                                token: actualTokenOut,
-                                spender: finalQuote.allowanceTarget,
-                            });
-
-                            // Wait for swap to be confirmed first (Base has 2s blocks)
-                            await new Promise(resolve => setTimeout(resolve, 5000));
-
-                            // ERC20 approve function selector: 0x095ea7b3
-                            // Parameters: spender (address), amount (uint256)
-                            // We approve max uint256 to avoid future approvals
-                            const MAX_UINT256 = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
-                            const spenderPadded = finalQuote.allowanceTarget!.slice(2).padStart(64, '0');
-                            const approveData = `0x095ea7b3${spenderPadded}${MAX_UINT256}`;
-
-                            const approveTxHash = await sendTransaction(userId, accessToken, {
-                                to: actualTokenOut, // Approve the token we just bought
-                                data: approveData,
-                                value: '0',
-                                chainId: validatedChainId,
-                            });
-
-                            console.log('[Swap Execute Instant] Background approval sent:', approveTxHash);
-                        } catch (approveError: any) {
-                            // Don't fail the main operation - just log the error
-                            console.error('[Swap Execute Instant] Background approval failed (non-critical):', approveError.message);
-                        }
-                    })();
-                }
 
                 // Record trade in DB
                 const tradeRecord = await prisma.swapHistory.create({
@@ -1418,7 +1185,6 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         tradeId: tradeRecord.id,
                         status: 'SUCCESS',
                         amountOut: finalQuote.amountOutBase,
-                        retryCount,
                     },
                 });
             } catch (error) {

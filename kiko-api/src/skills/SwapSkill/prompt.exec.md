@@ -7,7 +7,7 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
    - Never claim execution happened unless you received an explicit success signal (e.g., a transaction hash).
 
 2. **Balance verification (mandatory)**
-   - Source: trust [CONTEXT] first; if stale/missing, use Wallet Overview.
+   - Source: use Wallet Overview to fetch balance when needed.
    - “Max” logic: convert “max/all” to an exact numeric amount; never pass “max/all” downstream.
    - Pre-check: if balance < amount, stop and warn.
 
@@ -24,7 +24,8 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
      2) Trade Preparation check for expected out / price impact when needed.
      3) Proceed only if execution risk is acceptable for the user’s settings.
    - Risk Scan:
-     - Only if the user asks for safety, or settings require it.
+     - **Never run Risk Scan for a SELL by default.** Only run if the user explicitly asks about safety or user settings mandate it.
+     - Otherwise, run only if the user asks for safety, or settings require it.
      - If the token is confirmed as a launchpad token, skip Risk Scan unless the user explicitly asks for a risk check.
    - Gatekeeper:
      - If risk is high or execution risk is extreme, stop and ask whether to proceed (one question) or recommend avoiding.

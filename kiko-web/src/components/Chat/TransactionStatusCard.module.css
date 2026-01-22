@@ -1,137 +1,314 @@
 /* TransactionStatusCard.module.css */
-/* Visual design based on user provided dark theme reference */
 
+/* Core Card Container */
 .card {
     position: relative;
     width: 100%;
-    max-width: 320px;
-    background: #09090b;
-    /* Very dark background */
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    /* Minimal border */
-    border-radius: 24px;
-    padding: 24px;
+    max-width: 420px;
+    /* Matching max-w-md somewhat */
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(50px);
+    -webkit-backdrop-filter: blur(50px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 32px;
+    padding: 32px;
     overflow: hidden;
-    margin: 12px 0;
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     color: white;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    box-shadow: 0 32px 64px -16px rgba(0, 0, 0, 0.8);
+    transition: all 0.5s ease;
 }
 
-/* Light theme support */
-.card.light {
-    background: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    color: #000000;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+/* Background Ambient Glows */
+.glow {
+    position: absolute;
+    width: 256px;
+    /* w-64 */
+    height: 256px;
+    /* h-64 */
+    border-radius: 50%;
+    filter: blur(100px);
+    pointer-events: none;
+    z-index: 0;
 }
 
-/* Swap Info Section */
+.glowTop {
+    top: -96px;
+    /* -top-24 */
+    left: -96px;
+    /* -left-24 */
+    background: rgba(37, 99, 235, 0.05);
+    /* blue-600/5 */
+}
+
+.glowBottom {
+    bottom: -96px;
+    /* -bottom-24 */
+    right: -96px;
+    /* -right-24 */
+    background: rgba(79, 70, 229, 0.05);
+    /* indigo-600/5 */
+}
+
+
+/* Amount Section */
 .amountSection {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    /* Space between Swap Amount and Estimated Receive */
+    gap: 4px;
+    /* gap-1 */
+    margin-bottom: 40px;
+    /* mb-10 */
+    margin-top: 8px;
+    /* mt-2 */
 }
 
 .amountBlock {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
 }
 
 .amountLabel {
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.5);
-    /* Muted label color */
-}
-
-.card.light .amountLabel {
-    color: rgba(0, 0, 0, 0.5);
+    letter-spacing: 0.2em;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.2);
 }
 
 .amountValue {
-    font-size: 32px;
-    font-weight: 400;
-    /* Regular weight, not too thin */
+    font-size: 36px;
+    /* text-4xl */
+    font-weight: 300;
+    /* font-light */
+    letter-spacing: -0.05em;
+    /* tracking-tighter */
+    font-style: italic;
+    line-height: 1;
     color: #ffffff;
-    line-height: 1.1;
-    letter-spacing: -0.02em;
     display: flex;
     align-items: baseline;
-    gap: 6px;
 }
 
-.card.light .amountValue {
-    color: #000000;
-}
-
-.amountValueOut {
-    color: #3b82f6;
-    /* Blue-500 for estimated receive */
+.amountValueEst {
+    color: rgba(96, 165, 250, 0.8);
+    /* text-blue-400/80 */
+    animation: fadeInZoom 1s ease-out;
 }
 
 .tokenSymbol {
-    font-size: 18px;
+    color: rgba(255, 255, 255, 0.1);
+    font-size: 20px;
+    /* text-xl */
+    font-style: normal;
+    margin-left: 4px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.3);
-    /* Dimmed symbol */
-}
-
-.card.light .tokenSymbol {
-    color: rgba(0, 0, 0, 0.4);
 }
 
 /* Divider */
 .divider {
     height: 1px;
     width: 100%;
-    background: rgba(255, 255, 255, 0.08);
-    margin: 24px 0;
-}
-
-.card.light .divider {
-    background: rgba(0, 0, 0, 0.06);
+    background: linear-gradient(to right, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05), transparent);
+    margin: 28px 0;
+    /* my-7 */
 }
 
 /* Status Section */
 .statusSection {
-    display: flex;
-    align-items: flex-start;
-    /* Align top to handle multiline text */
-    gap: 12px;
+    position: relative;
+    z-index: 1;
+    padding: 16px 4px;
+    /* py-4 px-1 */
 }
 
-/* Icons */
-.iconPending,
-.iconSuccess,
-.iconFailed,
-.iconCancelled {
-    width: 24px;
-    height: 24px;
+.statusRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.statusContent {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    /* gap-4 */
+}
+
+/* Status Icon Wrapper */
+.statusIconWrapper {
+    width: 32px;
+    /* w-8 */
+    height: 32px;
+    /* h-8 */
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    flex-shrink: 0;
-    margin-top: 2px;
-    /* Visual alignment with text */
 }
 
-.iconPending {
-    color: rgba(255, 255, 255, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    animation: spin 3s linear infinite;
+/* Pending Icon Style */
+.statusIconWrapper.pending {
+    background: rgba(255, 255, 255, 0.01);
+    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.stepIcon {
+/* Success Icon Style */
+.statusIconWrapper.success {
+    background: rgba(16, 185, 129, 0.05);
+    /* emerald-500/5 */
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: rgba(16, 185, 129, 0.8);
+}
+
+/* Failed Icon Style */
+.statusIconWrapper.failed {
+    background: rgba(239, 68, 68, 0.05);
+    /* red-500/5 */
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: rgba(239, 68, 68, 0.8);
+}
+
+.statusIconSvg {
     width: 14px;
     height: 14px;
 }
 
+.pendingIconSvg {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* Status Text */
+.statusTextGroup {
+    display: flex;
+    flex-direction: column;
+}
+
+.statusLabelText {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.025em;
+    /* tracking-wide */
+}
+
+.statusLabelPending {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.statusLabelSuccess {
+    color: rgba(16, 185, 129, 0.8);
+    /* emerald-500/80 */
+}
+
+.statusLabelFailed {
+    color: rgba(239, 68, 68, 0.8);
+    /* red-500/80 */
+}
+
+.statusSubText {
+    font-size: 10px;
+    font-style: italic;
+}
+
+.statusSubPending {
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.statusSubSuccess {
+    color: rgba(16, 185, 129, 0.3);
+}
+
+.statusSubFailed {
+    color: rgba(239, 68, 68, 0.3);
+}
+
+/* Right Side Indicators */
+.spinLoader {
+    width: 16px;
+    height: 16px;
+    color: rgba(255, 255, 255, 0.2);
+    animation: spin 1s linear infinite;
+}
+
+.sparkleAnim {
+    width: 16px;
+    height: 16px;
+    color: rgba(16, 185, 129, 0.3);
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Footer Hash */
+.footer {
+    position: relative;
+    z-index: 1;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.2);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.viewHashBtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: color 0.2s;
+    text-decoration: none;
+    color: inherit;
+}
+
+.viewHashBtn:hover {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.chevronIcon {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.2s;
+}
+
+.viewHashBtn:hover .chevronIcon {
+    transform: translateX(4px);
+}
+
+.hashValue {
+    font-family: monospace;
+    opacity: 0.3;
+    animation: fadeIn 1s ease-out;
+}
+
+/* Skeletons */
+.skeletonRect {
+    height: 36px;
+    /* h-9 */
+    width: 176px;
+    /* w-44 */
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    margin-top: 4px;
+}
+
+.skeletonHash {
+    width: 80px;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 9999px;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+
+/* Animations */
 @keyframes spin {
     from {
         transform: rotate(0deg);
@@ -140,143 +317,6 @@
     to {
         transform: rotate(360deg);
     }
-}
-
-.iconSuccess {
-    color: #10b981;
-    /* Emerald-500 */
-    background: rgba(16, 185, 129, 0.1);
-    border: 1px solid rgba(16, 185, 129, 0.2);
-}
-
-.successCheckIcon {
-    width: 14px;
-    height: 14px;
-}
-
-.iconFailed {
-    color: #ef4444;
-    /* Red-500 */
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.failedIcon {
-    width: 14px;
-    height: 14px;
-}
-
-.iconCancelled {
-    color: #9ca3af;
-    /* Gray-400 */
-    background: rgba(156, 163, 175, 0.1);
-    border: 1px solid rgba(156, 163, 175, 0.2);
-}
-
-.cancelledIcon {
-    width: 14px;
-    height: 14px;
-}
-
-/* Status Text */
-.statusTextGroup {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.statusLabel {
-    font-size: 14px;
-    font-weight: 500;
-    color: #10b981;
-    /* Default to success green, overridden below */
-}
-
-.statusSub {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.4);
-    line-height: 1.4;
-}
-
-.card.light .statusSub {
-    color: rgba(0, 0, 0, 0.5);
-}
-
-/* Specific text colors */
-.textPending {
-    color: rgba(255, 255, 255, 0.9);
-}
-
-.card.light .textPending {
-    color: rgba(0, 0, 0, 0.9);
-}
-
-.textSuccess {
-    color: #10b981;
-}
-
-.textFailed {
-    color: #ef4444;
-}
-
-.textCancelled {
-    color: #9ca3af;
-}
-
-/* Footer Link */
-.footerLink {
-    margin-top: 24px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-}
-
-.explorerLink {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: rgba(255, 255, 255, 0.4);
-    text-decoration: none;
-    transition: color 0.2s;
-}
-
-.card.light .explorerLink {
-    color: rgba(0, 0, 0, 0.5);
-}
-
-.explorerLink:hover {
-    color: #ffffff;
-}
-
-.card.light .explorerLink:hover {
-    color: #000000;
-}
-
-.linkIcon {
-    width: 12px;
-    height: 12px;
-}
-
-.hashDisplay {
-    color: rgba(255, 255, 255, 0.2);
-    font-family: monospace;
-}
-
-.card.light .hashDisplay {
-    color: rgba(0, 0, 0, 0.3);
-}
-
-/* Skeletons */
-.skeletonAmount {
-    height: 32px;
-    width: 140px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    animation: pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes pulse {
@@ -289,4 +329,28 @@
     50% {
         opacity: 0.5;
     }
+}
+
+@keyframes fadeInZoom {
+    0% {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 0.3;
+    }
+
+    /* Matches hashValue opacity */
 }

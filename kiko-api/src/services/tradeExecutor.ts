@@ -117,7 +117,7 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         try {
             logger.debug(LogCode.EXE_TX_BROADCAST, 'Waiting for buy confirmation before auto-approval', { txHash });
 
-            const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+            const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
             const receipt = await provider.waitForTransaction(txHash, 1);
 
             // CRITICAL: Check if the buy transaction actually succeeded
@@ -271,7 +271,7 @@ export async function executeSellInstant({
 
     // WAIT for confirmation and check status
     const chainConfig = getChainConfig(chainId);
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
@@ -301,7 +301,7 @@ async function checkAndApproveToken(
         const abi = ['function allowance(address owner, address spender) view returns (uint256)'];
 
         const chainConfig = getChainConfig(chainId);
-        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
         const contract = new ethers.Contract(tokenAddress, abi, provider);
 
         const currentAllowance = await contract.allowance(owner, spender);

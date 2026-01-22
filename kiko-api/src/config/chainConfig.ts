@@ -1,7 +1,9 @@
+import { env } from './env.js';
+
 export interface ChainConfig {
     id: number;
     name: string;
-    rpcUrl: string;
+    rpcUrls: string[]; // Array of RPCs for fallback
     nativeCurrency: {
         name: string;
         symbol: string;
@@ -22,12 +24,37 @@ export interface ChainConfig {
     apiUrl?: string;         // Alchemy, Infura, etc. specific endpoint
 }
 
+// Helper to build RPC array with fallbacks
+const buildRpcList = (primaryEnv?: string, chainPath?: string, compatibilityPath?: string): string[] => {
+    const rpcs: string[] = [];
+
+    // 1. Primary Provider (e.g. Alchemy, Infura from ENV)
+    if (primaryEnv) rpcs.push(primaryEnv);
+
+    // 2. Ankr (High performance backup) if key exists
+    if (env.apiKeys.ankr && chainPath) {
+        rpcs.push(`https://rpc.ankr.com/${chainPath}/${env.apiKeys.ankr}`);
+    }
+
+    // 3. Public/DRPC Community Nodes
+    if (compatibilityPath) {
+        rpcs.push(`https://${compatibilityPath}.drpc.org`);
+        rpcs.push(`https://${compatibilityPath}-rpc.publicnode.com`);
+    }
+
+    return rpcs;
+};
+
 export const CHAINS: Record<number, ChainConfig> = {
     // Ethereum Mainnet
     1: {
         id: 1,
         name: 'Ethereum',
-        rpcUrl: process.env.ETH_RPC_URL || 'https://eth.llamarpc.com',
+        rpcUrls: buildRpcList(
+            process.env.ETH_RPC_URL,
+            'eth',
+            'eth'
+        ),
         nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
         wrappedNativeAddress: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
         stablecoins: [
@@ -47,7 +74,11 @@ export const CHAINS: Record<number, ChainConfig> = {
     8453: {
         id: 8453,
         name: 'Base',
-        rpcUrl: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
+        rpcUrls: buildRpcList(
+            process.env.BASE_RPC_URL,
+            'base',
+            'base'
+        ),
         nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
         wrappedNativeAddress: '0x4200000000000000000000000000000000000006',
         stablecoins: [
@@ -60,14 +91,18 @@ export const CHAINS: Record<number, ChainConfig> = {
             permit2: '0x000000000022d473030f116ddee9dad608d18000',
             kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
-        apiUrl: process.env.ALCHEMY_BASE_URL, // Reuse existing env var for Alchemy
+        apiUrl: process.env.ALCHEMY_BASE_URL,
         slugs: { dexScreener: 'base', geckoTerminal: 'base' }
     },
     // BNB Smart Chain
     56: {
         id: 56,
         name: 'BNB Smart Chain',
-        rpcUrl: process.env.BSC_RPC_URL || 'https://binance.llamarpc.com',
+        rpcUrls: buildRpcList(
+            process.env.BSC_RPC_URL,
+            'bsc',
+            'bsc'
+        ),
         nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
         wrappedNativeAddress: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', // WBNB
         stablecoins: [
@@ -88,7 +123,12 @@ export const CHAINS: Record<number, ChainConfig> = {
     900: {
         id: 900,
         name: 'Solana',
-        rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+        rpcUrls: [
+            process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+            env.apiKeys.helius ? `https://mainnet.helius-rpc.com/?api-key=${env.apiKeys.helius}` : '',
+            env.apiKeys.ankr ? `https://rpc.ankr.com/solana/${env.apiKeys.ankr}` : '',
+            'https://solana.drpc.org'
+        ].filter(Boolean),
         nativeCurrency: { name: 'Solana', symbol: 'SOL', decimals: 9 },
         wrappedNativeAddress: 'So11111111111111111111111111111111111111112', // Native SOL Mint
         stablecoins: [
@@ -113,38 +153,31 @@ export function getChainConfig(chainId: number): ChainConfig {
     return config;
 }
 
-/**
- * Get API slugs for external services (DexScreener, GeckoTerminal)
- * @param chainId - Chain ID
- */
 export function getChainSlug(chainId: number): { dexScreener: string; geckoTerminal: string } {
     const config = CHAINS[chainId];
     if (config?.slugs) {
         return config.slugs;
     }
-    // Fallback if chain not configured (defaults to Ethereum)
     return { dexScreener: 'ethereum', geckoTerminal: 'eth' };
 }
 
 // ============================================================================
 // Provider Singleton Cache
 // ============================================================================
-// Reuse provider instances per chain to reduce memory usage and connection overhead
 import { ethers } from 'ethers';
 
 const providerCache = new Map<number, ethers.JsonRpcProvider>();
 
 /**
  * Get a cached JsonRpcProvider for the given chain ID.
- * Creates a new provider on first access and reuses it for subsequent calls.
- * 
- * @param chainId - The chain ID (1 = ETH, 8453 = Base, 56 = BSC)
- * @returns Cached JsonRpcProvider instance
+ * Creates a new provider on first access using the PRIMARY RPC.
+ * TODO: Integrate RpcManager for true fallback support at the provider level if needed.
  */
 export function getProvider(chainId: number): ethers.JsonRpcProvider {
     if (!providerCache.has(chainId)) {
         const config = getChainConfig(chainId);
-        const provider = new ethers.JsonRpcProvider(config.rpcUrl, chainId);
+        // Default to the first (primary) RPC for standard provider access
+        const provider = new ethers.JsonRpcProvider(config.rpcUrls[0], chainId);
         providerCache.set(chainId, provider);
     }
     return providerCache.get(chainId)!;

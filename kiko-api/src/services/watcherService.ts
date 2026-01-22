@@ -65,7 +65,8 @@ import { getChainConfig } from '../config/chainConfig.js';
  */
 export async function fetchTransaction(txHash: string, chainId: number): Promise<any | null> {
     try {
-        const { rpcUrl } = getChainConfig(chainId);
+        const { rpcUrls } = getChainConfig(chainId);
+        const rpcUrl = rpcUrls[0];
         const response = await fetch(rpcUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -89,7 +90,8 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
  */
 export async function fetchTransactionReceipt(txHash: string, chainId: number): Promise<any | null> {
     try {
-        const { rpcUrl } = getChainConfig(chainId);
+        const { rpcUrls } = getChainConfig(chainId);
+        const rpcUrl = rpcUrls[0];
         const response = await fetch(rpcUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -115,7 +117,8 @@ export async function fetchTransactionReceipt(txHash: string, chainId: number): 
  */
 async function fetchRecentTransactionsRpc(address: string, chainId: number): Promise<any[]> {
     try {
-        const { rpcUrl } = getChainConfig(chainId);
+        const { rpcUrls } = getChainConfig(chainId);
+        const rpcUrl = rpcUrls[0];
 
         // 1. Get latest block number
         const blockRes = await fetch(rpcUrl, {

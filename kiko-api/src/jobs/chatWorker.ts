@@ -1225,19 +1225,7 @@ ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperC
 `;
                 }
 
-                // Add balance info if pre-fetched
-                const balanceKey = `get_wallet_portfolio:${JSON.stringify({
-                    address: task.toolContext?.walletAddress,
-                    chainId: task.toolContext?.chainId
-                })}`;
-                if (toolResultsCache.has(balanceKey)) {
-                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_wallet_portfolio`);
-                    const balanceData = toolResultsCache.get(balanceKey);
-                    tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
-User Wallet: ${task.toolContext?.walletAddress}
-${balanceData.tokens ? `Portfolio Assets:\n${balanceData.tokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
-`;
-                }
+                // Do not inject balance context; let the model request wallet data via tools.
 
                 // Add social info if pre-fetched
                 const socialKey = `get_trending_casts:${JSON.stringify({})}`;
@@ -2415,19 +2403,7 @@ ${officialSites.length > 0 ? `Official Sites (seed): ${officialSites.join(', ')}
                 intent
             );
 
-            // Add balance info if pre-fetched (Grok)
-            const balanceKey = `get_wallet_portfolio:${JSON.stringify({
-                address: task.toolContext?.walletAddress,
-                chainId: task.toolContext?.chainId
-            })}`;
-            if (toolResultsCache.has(balanceKey)) {
-                logger.throttled(LogCode.CACHE_HIT, 'Grok: cache hit wallet_portfolio');
-                const balanceData = toolResultsCache.get(balanceKey);
-                enrichedContent += `\n\n[USER_BALANCE_CONTEXT]
-User Wallet: ${task.toolContext?.walletAddress}
-${balanceData.tokens ? `Portfolio Assets:\n${balanceData.tokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
-`;
-            }
+            // Do not inject balance context; let the model request wallet data via tools.
 
             if (tokenContextBlock) {
                 enrichedContent += tokenContextBlock;

@@ -528,11 +528,11 @@ export function convertToWalletTransactions(
 export async function getSolanaTokenBalance(walletAddress: string, mintAddress: string): Promise<number> {
   try {
     // Query token accounts by owner, filtered by specific mint
-    const result = await rpcManager.callRpc('solana', 'getTokenAccountsByOwner', [
+    const result = await rpcManager.callRpc<{ value: Array<{ account: { data: { parsed: { info: any } } } }> }>('solana', 'getTokenAccountsByOwner', [
       walletAddress,
       { mint: mintAddress },  // Filter by specific mint address
       { encoding: 'jsonParsed' }
-    ]) as { value: Array<{ account: { data: { parsed: { info: any } } } }> } | null;
+    ]) as { value: any };
 
     if (!result || !result.value || result.value.length === 0) {
       logger.info(LogCode.API_FETCH_SUCCESS, 'No SPL token account found for mint', { mint: mintAddress.slice(0, 10) });
@@ -1149,7 +1149,7 @@ async function fetchSolanaTokenAccounts(address: string): Promise<TokenBalance[]
       address: address.slice(0, 10),
     });
     try {
-      const result = await rpcManager.callRpc('solana', 'getTokenAccountsByOwner', [
+      const result = await rpcManager.callRpc<{ value: any }>('solana', 'getTokenAccountsByOwner', [
         address,
         { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
         { encoding: 'jsonParsed' },

@@ -3,54 +3,12 @@
  * Manages multiple RPC endpoints with automatic failover
  */
 
-import { env } from '../config/env.js';
-
-// Default Ankr key provided by user in prc.txt
-const DEFAULT_ANKR_KEY = '8f96ed785d9086a7b8fa113a9a01953b11699182d24bee50c89d7d2ca74ab0b3';
-
-// RPC endpoint configurations
-export const RPC_ENDPOINTS = {
-    eth: [
-        'https://ethereum-rpc.publicnode.com',
-        'https://eth.drpc.org',
-        `https://rpc.ankr.com/eth/${env.apiKeys.ankr || ''}`,
-    ],
-    base: [
-        'https://base-rpc.publicnode.com',
-        'https://base.drpc.org',
-        `https://rpc.ankr.com/base/${env.apiKeys.ankr || ''}`,
-    ],
-    bsc: [
-        'https://bsc-rpc.publicnode.com',
-        'https://bsc.drpc.org',
-        `https://rpc.ankr.com/bsc/${env.apiKeys.ankr || ''}`,
-    ],
-    polygon: [
-        'https://polygon-bor-rpc.publicnode.com',
-        'https://polygon.drpc.org',
-        `https://rpc.ankr.com/polygon/${env.apiKeys.ankr || ''}`,
-    ],
-    arbitrum: [
-        'https://arbitrum-one-rpc.publicnode.com',
-        'https://arbitrum.drpc.org',
-        `https://rpc.ankr.com/arbitrum/${env.apiKeys.ankr || ''}`,
-    ],
-    optimism: [
-        'https://optimism-rpc.publicnode.com',
-        'https://optimism.drpc.org',
-    ],
-    solana: [
-        'https://solana-rpc.publicnode.com',
-        'https://solana.drpc.org',
-        `https://rpc.ankr.com/solana/${env.apiKeys.ankr || DEFAULT_ANKR_KEY}`,
-        env.apiKeys.helius ? `https://mainnet.helius-rpc.com/?api-key=${env.apiKeys.helius}` : '',
-    ].filter(Boolean),
-};
+import { getChainConfig } from '../config/chainConfig.js';
 
 const RPC_TIMEOUT_MS = 4500;
 
 // Chain ID to chain name mapping
-const CHAIN_ID_TO_NAME: Record<number, keyof typeof RPC_ENDPOINTS> = {
+const CHAIN_ID_TO_NAME: Record<number, string> = {
     1: 'eth',
     8453: 'base',
     56: 'bsc',
@@ -59,6 +17,12 @@ const CHAIN_ID_TO_NAME: Record<number, keyof typeof RPC_ENDPOINTS> = {
     10: 'optimism',
     900: 'solana',
 };
+
+// Reverse mapping for name to ID
+const CHAIN_NAME_TO_ID: Record<string, number> = Object.entries(CHAIN_ID_TO_NAME).reduce((acc, [id, name]) => {
+    acc[name] = Number(id);
+    return acc;
+}, {} as Record<string, number>);
 
 interface RpcRequest {
     jsonrpc: string;
@@ -85,15 +49,32 @@ export async function callRpc<T = any>(
     method: string,
     params: any[] = []
 ): Promise<T> {
-    const chainName = typeof chainIdOrName === 'number'
-        ? CHAIN_ID_TO_NAME[chainIdOrName]
-        : chainIdOrName as keyof typeof RPC_ENDPOINTS;
+    let endpoints: string[] = [];
+    let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
+    let chainId: number;
 
-    if (!chainName || !RPC_ENDPOINTS[chainName]) {
-        throw new Error(`Unsupported chain: ${chainIdOrName}`);
+    // Resolve Chain ID
+    if (typeof chainIdOrName === 'number') {
+        chainId = chainIdOrName;
+    } else {
+        const id = CHAIN_NAME_TO_ID[chainIdOrName.toLowerCase()];
+        if (!id) throw new Error(`Unsupported chain name: ${chainIdOrName}`);
+        chainId = id;
     }
 
-    const endpoints = RPC_ENDPOINTS[chainName];
+    try {
+        const config = getChainConfig(chainId);
+        endpoints = config.rpcUrls;
+        chainName = config.name;
+    } catch (e) {
+        // Safe fallback for edge cases
+        throw new Error(`Unsupported chain ID: ${chainId}`);
+    }
+
+    if (!endpoints || endpoints.length === 0) {
+        throw new Error(`No RPC endpoints configured for ${chainName}`);
+    }
+
     const request: RpcRequest = {
         jsonrpc: '2.0',
         id: Date.now(),
@@ -140,7 +121,10 @@ export async function callRpc<T = any>(
             return data.result;
         } catch (error: any) {
             lastError = error;
-            console.warn(`[RPC] Endpoint ${i + 1}/${endpoints.length} failed for ${chainName}:`, error.message);
+            // Only log detailed errors for primary failovers to reduce noise
+            if (i < 2) {
+                console.warn(`[RPC] Endpoint ${i + 1}/${endpoints.length} failed for ${chainName}:`, error.message);
+            }
 
             // Continue to next endpoint
             if (i < endpoints.length - 1) {
@@ -167,11 +151,9 @@ export async function getNativeBalance(
         : chainIdOrName;
 
     if (chainName === 'solana') {
-        // Solana uses getBalance
-        const result = await callRpc<{ value: number }>(chainName, 'getBalance', [address]);
+        const result = await callRpc<{ value: number }>('solana', 'getBalance', [address]);
         return result.value.toString();
     } else {
-        // EVM uses eth_getBalance
         return await callRpc<string>(chainIdOrName, 'eth_getBalance', [address, 'latest']);
     }
 }
@@ -197,7 +179,7 @@ export async function getBlockNumber(chainIdOrName: number | string): Promise<nu
  * Get block by number
  */
 export async function getBlockByNumber(
-    chainIdOrName: number | string,
+    chainId: number,
     blockNumber: number | string,
     fullTransactions: boolean = false
 ): Promise<any> {
@@ -206,7 +188,7 @@ export async function getBlockByNumber(
         : blockNumber;
 
     return await callRpc(
-        chainIdOrName,
+        chainId,
         'eth_getBlockByNumber',
         [blockHex, fullTransactions]
     );
@@ -216,20 +198,18 @@ export async function getBlockByNumber(
  * Get transaction by hash
  */
 export async function getTransactionByHash(
-    chainIdOrName: number | string,
+    chainId: number,
     txHash: string
 ): Promise<any> {
-    const chainName = typeof chainIdOrName === 'number'
-        ? CHAIN_ID_TO_NAME[chainIdOrName]
-        : chainIdOrName;
+    const config = getChainConfig(chainId);
 
-    if (chainName === 'solana') {
-        return await callRpc(chainName, 'getTransaction', [
+    if (config.name === 'Solana') {
+        return await callRpc(chainId, 'getTransaction', [
             txHash,
             { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }
         ]);
     } else {
-        return await callRpc(chainIdOrName, 'eth_getTransactionByHash', [txHash]);
+        return await callRpc(chainId, 'eth_getTransactionByHash', [txHash]);
     }
 }
 
@@ -237,24 +217,22 @@ export async function getTransactionByHash(
  * Get transaction receipt
  */
 export async function getTransactionReceipt(
-    chainIdOrName: number | string,
+    chainId: number,
     txHash: string
 ): Promise<any> {
-    return await callRpc(chainIdOrName, 'eth_getTransactionReceipt', [txHash]);
+    return await callRpc(chainId, 'eth_getTransactionReceipt', [txHash]);
 }
 
 /**
  * Get current gas price in wei
  */
-export async function getGasPrice(chainIdOrName: number | string): Promise<string> {
-    const chainName = typeof chainIdOrName === 'number'
-        ? CHAIN_ID_TO_NAME[chainIdOrName]
-        : chainIdOrName;
+export async function getGasPrice(chainId: number): Promise<string> {
+    const config = getChainConfig(chainId);
 
-    if (chainName === 'solana') {
+    if (config.name === 'Solana') {
         return '0';
     } else {
-        const hex = await callRpc<string>(chainIdOrName, 'eth_gasPrice', []);
+        const hex = await callRpc<string>(chainId, 'eth_gasPrice', []);
         return parseInt(hex, 16).toString();
     }
 }
@@ -262,10 +240,10 @@ export async function getGasPrice(chainIdOrName: number | string): Promise<strin
 /**
  * Get available RPC endpoints for a chain
  */
-export function getRpcEndpoints(chainIdOrName: number | string): string[] {
-    const chainName = typeof chainIdOrName === 'number'
-        ? CHAIN_ID_TO_NAME[chainIdOrName]
-        : chainIdOrName as keyof typeof RPC_ENDPOINTS;
-
-    return RPC_ENDPOINTS[chainName] || [];
+export function getRpcEndpoints(chainId: number): string[] {
+    try {
+        return getChainConfig(chainId).rpcUrls;
+    } catch {
+        return [];
+    }
 }
