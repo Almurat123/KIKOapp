@@ -1225,6 +1225,15 @@ ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperC
 `;
                 }
 
+                if (task.toolContext?.walletAddress) {
+                    const chainId = task.toolContext?.chainId;
+                    const chainName = chainId ? (CHAIN_ID_MAP[chainId] || 'Unknown Chain') : 'Unknown Chain';
+                    tokenContextBlock += `\n\n[USER_WALLET_CONTEXT]
+Wallet Address: ${task.toolContext.walletAddress}
+Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
+`;
+                }
+
                 // Do not inject balance context; let the model request wallet data via tools.
 
                 // Add social info if pre-fetched
@@ -2392,6 +2401,15 @@ ${tokenInfo.marketCap ? `Market Cap: $${tokenInfo.marketCap.toLocaleString()}` :
 ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperCase()} - This token was launched on a launchpad platform.` : ''}
 ${xSeedHandles.length > 0 ? `Official X (seed): ${xSeedHandles.join(', ')}` : ''}
 ${officialSites.length > 0 ? `Official Sites (seed): ${officialSites.join(', ')}` : ''}
+`;
+            }
+
+            if (task.toolContext?.walletAddress) {
+                const chainId = task.toolContext?.chainId;
+                const chainName = chainId ? (CHAIN_ID_MAP[chainId] || 'Unknown Chain') : 'Unknown Chain';
+                tokenContextBlock += `\n\n[USER_WALLET_CONTEXT]
+Wallet Address: ${task.toolContext.walletAddress}
+Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
 `;
             }
 

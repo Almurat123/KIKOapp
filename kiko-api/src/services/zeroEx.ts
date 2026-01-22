@@ -354,7 +354,7 @@ export async function getZeroExQuote(
       params.append('slippageBps', Math.round(slippageBps).toString());
     }
 
-    const endpoint = useLegacyEndpoint ? '/swap/v1/quote' : '/swap/permit2/quote';
+    const endpoint = useLegacyEndpoint ? '/swap/v1/quote' : '/swap/allowance-holder/quote';
 
     // 0x API v2 (permit2) uses 'taker', v1 uses 'takerAddress'
     // Both endpoints require taker address, so we always need to provide it
@@ -413,7 +413,7 @@ export async function getZeroExQuote(
       slippageBps: Math.round(slippageBps),
       chainId,
       takerAddress: finalTakerAddress,
-      endpoint: useLegacyEndpoint ? 'v1' : 'permit2',
+      endpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder',
     });
 
     let response = await fetch(url, {
@@ -435,7 +435,7 @@ export async function getZeroExQuote(
     }
 
     // Check if response has valid transaction data
-    // permit2 endpoint returns { transaction: { to, data, value }, buyAmount, ... }
+    // allowance-holder endpoint returns { transaction: { to, data, value }, buyAmount, ... }
     // v1 endpoint returns { to, data, value, buyAmount, ... } directly
     const hasValidData = rawData && (
       (rawData.transaction?.to && rawData.transaction?.data) || // permit2 format
@@ -584,10 +584,10 @@ export async function getZeroExQuote(
       sellToken,
       buyToken,
       buyAmount: rawData.buyAmount,
-      usedEndpoint: useLegacyEndpoint ? 'v1' : 'permit2'
+      usedEndpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder'
     });
 
-    // 0x API v2 (permit2) returns { transaction: { to, data, value, ... }, ... }
+    // 0x API v2 (allowance-holder) returns { transaction: { to, data, value, ... }, ... }
     // 0x API v1 returns { to, data, value, ... } directly
     // We need to flatten v2 for backward compatibility
     const data: ZeroExQuote = {

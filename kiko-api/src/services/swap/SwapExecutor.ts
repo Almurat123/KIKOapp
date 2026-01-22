@@ -139,14 +139,66 @@ export class SwapExecutor {
             gas: gasLimit
         });
 
-        logger.info(LogCode.EXE_TX_CONFIRMED, 'Swap Sent', { txHash, method: best.dexName });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Swap Broadcast', { txHash, method: best.dexName });
 
-        return {
-            success: true,
-            txHash,
-            amountOut: best.amountOut,
-            method: best.dexName
-        };
+        // 5. Wait for confirmation and check on-chain status
+        const config = getChainConfig(chainId);
+        const provider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
+
+        try {
+            const receipt = await provider.waitForTransaction(txHash, 1, 30000); // 1 confirmation, 30s timeout
+
+            if (!receipt) {
+                logger.warn(LogCode.EXE_TX_REVERTED, 'Transaction receipt timeout', { txHash });
+                // Return success anyway - tx might still confirm later
+                return {
+                    success: true,
+                    txHash,
+                    amountOut: best.amountOut,
+                    method: best.dexName
+                };
+            }
+
+            if (receipt.status === 0) {
+                // Transaction reverted on-chain
+                logger.error(LogCode.EXE_TX_REVERTED, 'Swap Reverted on-chain', {
+                    txHash,
+                    gasUsed: receipt.gasUsed.toString(),
+                    blockNumber: receipt.blockNumber
+                });
+                return {
+                    success: false,
+                    txHash,
+                    error: 'Transaction reverted on-chain. This may be due to slippage, token tax, or insufficient approval.',
+                    method: best.dexName
+                };
+            }
+
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Swap Confirmed', {
+                txHash,
+                method: best.dexName,
+                blockNumber: receipt.blockNumber
+            });
+
+            return {
+                success: true,
+                txHash,
+                amountOut: best.amountOut,
+                method: best.dexName
+            };
+        } catch (waitError: any) {
+            // Timeout or RPC error - tx may still be pending
+            logger.warn(LogCode.EXE_TX_BROADCAST, 'Wait for confirmation failed, tx may still be pending', {
+                txHash,
+                error: waitError.message
+            });
+            return {
+                success: true,
+                txHash,
+                amountOut: best.amountOut,
+                method: best.dexName
+            };
+        }
     }
 
     /**
