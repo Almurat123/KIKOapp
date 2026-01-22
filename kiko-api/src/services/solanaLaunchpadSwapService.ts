@@ -14,6 +14,7 @@ import {
 } from '../utils/solanaToken.js';
 import { getSolanaConnection } from '../config/solanaConfig.js';
 import { sendSolanaTransaction, getDelegatedSolanaWallet, getServerSolanaWalletAddress } from './privyWallet.js';
+import { getPlatformFee, type FeeContext } from './platformFeeService.js';
 
 // Pump.fun Constants
 const PUMP_FUN_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
@@ -68,6 +69,7 @@ export interface SolanaLaunchpadSwapParams {
     isBuy: boolean;
     slippageBps?: number;
     provider: 'pumpfun' | 'bonkfun';
+    feeContext?: FeeContext;
 }
 
 export class SolanaLaunchpadSwapService {
@@ -152,7 +154,7 @@ export class SolanaLaunchpadSwapService {
      * Execute native swap on Solana Launchpads
      */
     async fastSwap(params: SolanaLaunchpadSwapParams): Promise<string> {
-        const { userId, mint: mintStr, amount, isBuy, provider } = params;
+        const { userId, mint: mintStr, isBuy, provider } = params;
         const connection = getSolanaConnection();
         const mint = new PublicKey(mintStr);
 
@@ -166,12 +168,43 @@ export class SolanaLaunchpadSwapService {
         }
         const userPubkey = new PublicKey(walletAddress);
 
+        // Platform fee: only supported for SOL-in buys on launchpads (charge lamports transfer before swap).
+        // For sells, amount semantics differ per program; skip to avoid breaking sell flows.
+        let effectiveAmount = params.amount;
+        const fee = getPlatformFee(params.feeContext || 'swap');
+        if (fee.bps > 0 && fee.solanaRecipient && isBuy) {
+            const solAmount = parseFloat(effectiveAmount);
+            if (Number.isFinite(solAmount) && solAmount > 0) {
+                const lamports = BigInt(Math.floor(solAmount * 1e9));
+                const feeLamports = (lamports * BigInt(fee.bps)) / 10000n;
+                if (feeLamports > 0n && lamports > feeLamports) {
+                    const recipient = new PublicKey(fee.solanaRecipient);
+                    const recentBlockhash = await connection.getLatestBlockhash();
+                    const messageV0 = new TransactionMessage({
+                        payerKey: userPubkey,
+                        recentBlockhash: recentBlockhash.blockhash,
+                        instructions: [
+                            SystemProgram.transfer({
+                                fromPubkey: userPubkey,
+                                toPubkey: recipient,
+                                lamports: Number(feeLamports),
+                            }),
+                        ],
+                    }).compileToV0Message();
+                    const tx = new VersionedTransaction(messageV0);
+                    const txB64 = Buffer.from(tx.serialize()).toString('base64');
+                    await sendSolanaTransaction(userId, txB64);
+                    effectiveAmount = (Number(lamports - feeLamports) / 1e9).toString();
+                }
+            }
+        }
+
         if (provider === 'pumpfun') {
-            return this.executePumpFunSwap(connection, userPubkey, mint, amount, isBuy, userId, params.slippageBps || 100);
+            return this.executePumpFunSwap(connection, userPubkey, mint, effectiveAmount, isBuy, userId, params.slippageBps || 100);
         } else if (provider === 'bonkfun') {
             // For Raydium/Bonk.fun, we need mintB (WSOL usually). Assuming paired with SOL.
             const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-            return this.executeRaydiumSwap(connection, userPubkey, mint, WSOL_MINT, amount, isBuy, userId, params.slippageBps || 100);
+            return this.executeRaydiumSwap(connection, userPubkey, mint, WSOL_MINT, effectiveAmount, isBuy, userId, params.slippageBps || 100);
         } else {
             throw new Error(`Unsupported launchpad provider: ${provider}`);
         }

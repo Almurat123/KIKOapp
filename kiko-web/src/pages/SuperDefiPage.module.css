@@ -192,6 +192,144 @@
 
 .mcapTvl {
     color: var(--text-secondary);
-    font-family: monospace;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     font-size: 13px;
+}
+
+/* Typography Utilities */
+.systemFont {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+.textMuted {
+    color: var(--text-secondary);
+}
+
+.textBold {
+    font-weight: bold;
+}
+
+.textSm {
+    font-size: 13px;
+}
+
+.textXs {
+    font-size: 11px;
+}
+
+/* Layout Utilities */
+.flexRow {
+    display: flex;
+    align-items: center;
+}
+
+.flexBetween {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.flexColumn {
+    display: flex;
+    flex-direction: column;
+}
+
+.gap4 {
+    gap: 4px;
+}
+
+.gap8 {
+    gap: 8px;
+}
+
+.gap12 {
+    gap: 12px;
+}
+
+/* Components */
+.chip {
+    padding: 4px 8px;
+    background: var(--bg-hover);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text-primary);
+    font-weight: 500;
+    border: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.loadingContainer {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    z-index: 10;
+    background: transparent;
+}
+
+.errorContainer {
+    padding: 16px;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+    gap: 16px;
+}
+
+.errorMessage {
+    color: #ea3943;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.retryButton {
+    padding: 8px 16px;
+    background: #5B8DEF;
+    /* Could act as primary */
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: opacity 0.2s;
+}
+
+.retryButton:hover {
+    opacity: 0.9;
+}
+
+.showMoreButton {
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--primary);
+    background: var(--bg-primary-light);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.showMoreButton:hover {
+    opacity: 0.8;
+}
+
+.footerContainer {
+    padding: 12px;
+    border-top: 1px solid var(--border-light);
+    background: transparent;
+    display: flex;
+    justify-content: center;
+}
+
+.rankBadge {
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--text-secondary);
+    min-width: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }

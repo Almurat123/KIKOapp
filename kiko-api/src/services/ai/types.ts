@@ -31,4 +31,5 @@ export interface UserContext {
 export interface OrchestratorOptions {
     mode?: 'default' | 'strict' | 'experiment';
     agent?: 'kiko-terminal' | 'copytrade';
+    routingMode?: 'thinking' | 'execution';
 }

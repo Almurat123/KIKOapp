@@ -32,7 +32,12 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_R
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     try {
-        const response = await fetch(url, { ...options, signal: controller.signal });
+        const headers = new Headers(options.headers || {});
+        if (process.env.INTERNAL_SERVICE_KEY) {
+            headers.set('X-Service-Key', process.env.INTERNAL_SERVICE_KEY);
+        }
+
+        const response = await fetch(url, { ...options, headers, signal: controller.signal });
         clearTimeout(timeout);
 
         if (!response.ok && retries > 0) {

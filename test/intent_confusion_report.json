@@ -1,0 +1,124 @@
+{
+  "summary": {
+    "total": 1000,
+    "correct": 1000,
+    "accuracy": 1
+  },
+  "perLabel": {
+    "TRADING": {
+      "precision": 1,
+      "recall": 1,
+      "tp": 150,
+      "fp": 0,
+      "fn": 0
+    },
+    "MARKET_ANALYSIS": {
+      "precision": 1,
+      "recall": 1,
+      "tp": 300,
+      "fp": 0,
+      "fn": 0
+    },
+    "RISK_SCAN": {
+      "precision": 1,
+      "recall": 1,
+      "tp": 150,
+      "fp": 0,
+      "fn": 0
+    },
+    "SOCIAL_SENSING": {
+      "precision": 1,
+      "recall": 1,
+      "tp": 150,
+      "fp": 0,
+      "fn": 0
+    },
+    "COPY_TRADING": {
+      "precision": 1,
+      "recall": 1,
+      "tp": 125,
+      "fp": 0,
+      "fn": 0
+    },
+    "PREDICTION_MARKETS": {
+      "precision": 1,
+      "recall": 1,
+      "tp": 125,
+      "fp": 0,
+      "fn": 0
+    },
+    "GENERAL_CHAT": {
+      "precision": 0,
+      "recall": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0
+    }
+  },
+  "confusion": {
+    "TRADING": {
+      "TRADING": 150,
+      "MARKET_ANALYSIS": 0,
+      "RISK_SCAN": 0,
+      "SOCIAL_SENSING": 0,
+      "COPY_TRADING": 0,
+      "PREDICTION_MARKETS": 0,
+      "GENERAL_CHAT": 0
+    },
+    "MARKET_ANALYSIS": {
+      "TRADING": 0,
+      "MARKET_ANALYSIS": 300,
+      "RISK_SCAN": 0,
+      "SOCIAL_SENSING": 0,
+      "COPY_TRADING": 0,
+      "PREDICTION_MARKETS": 0,
+      "GENERAL_CHAT": 0
+    },
+    "RISK_SCAN": {
+      "TRADING": 0,
+      "MARKET_ANALYSIS": 0,
+      "RISK_SCAN": 150,
+      "SOCIAL_SENSING": 0,
+      "COPY_TRADING": 0,
+      "PREDICTION_MARKETS": 0,
+      "GENERAL_CHAT": 0
+    },
+    "SOCIAL_SENSING": {
+      "TRADING": 0,
+      "MARKET_ANALYSIS": 0,
+      "RISK_SCAN": 0,
+      "SOCIAL_SENSING": 150,
+      "COPY_TRADING": 0,
+      "PREDICTION_MARKETS": 0,
+      "GENERAL_CHAT": 0
+    },
+    "COPY_TRADING": {
+      "TRADING": 0,
+      "MARKET_ANALYSIS": 0,
+      "RISK_SCAN": 0,
+      "SOCIAL_SENSING": 0,
+      "COPY_TRADING": 125,
+      "PREDICTION_MARKETS": 0,
+      "GENERAL_CHAT": 0
+    },
+    "PREDICTION_MARKETS": {
+      "TRADING": 0,
+      "MARKET_ANALYSIS": 0,
+      "RISK_SCAN": 0,
+      "SOCIAL_SENSING": 0,
+      "COPY_TRADING": 0,
+      "PREDICTION_MARKETS": 125,
+      "GENERAL_CHAT": 0
+    },
+    "GENERAL_CHAT": {
+      "TRADING": 0,
+      "MARKET_ANALYSIS": 0,
+      "RISK_SCAN": 0,
+      "SOCIAL_SENSING": 0,
+      "COPY_TRADING": 0,
+      "PREDICTION_MARKETS": 0,
+      "GENERAL_CHAT": 0
+    }
+  },
+  "topErrors": []
+}

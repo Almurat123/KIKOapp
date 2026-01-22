@@ -18,7 +18,12 @@ export const GetTokenPriceTool: Tool = {
     },
     handler: async (args) => {
         try {
-            const { symbol } = args;
+            // Support both 'symbol' (Node.js native) and 'symbol_or_address' (Python/Grok)
+            const symbol = args.symbol || args.symbol_or_address;
+
+            if (!symbol) {
+                return { error: 'Missing required argument: symbol or symbol_or_address' };
+            }
             const isAddress = (symbol.startsWith('0x') && symbol.length === 42) || (symbol.length > 40 && !symbol.startsWith('0x'));
 
             console.log(`[GetTokenPrice] Fetching price for ${symbol} (isAddress: ${isAddress})...`);

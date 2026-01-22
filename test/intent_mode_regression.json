@@ -1,0 +1,37 @@
+[
+  {
+    "group": "CA analysis",
+    "input": "What is 0x1234567890abcdef1234567890abcdef12345678?",
+    "expected_intent": "MARKET_ANALYSIS",
+    "expected_mode": "thinking",
+    "notes": "Question intent should force thinking mode; no execution."
+  },
+  {
+    "group": "Launchpad buy",
+    "input": "Buy 0.02 ETH of 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd on Base",
+    "expected_intent": "TRADING",
+    "expected_mode": "execution",
+    "notes": "Params complete -> execute; launchpad tokens should skip risk scan unless asked."
+  },
+  {
+    "group": "Non-launchpad sell",
+    "input": "Sell 50% of 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    "expected_intent": "TRADING",
+    "expected_mode": "execution",
+    "notes": "Action + amount -> execute; ask only if chain/amount missing."
+  },
+  {
+    "group": "Missing parameters",
+    "input": "Swap 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    "expected_intent": "MARKET_ANALYSIS",
+    "expected_mode": "thinking",
+    "notes": "Incomplete trade -> thinking; should ask one targeted question."
+  },
+  {
+    "group": "Social analysis",
+    "input": "Show me what people on X are saying about $DRB",
+    "expected_intent": "SOCIAL_SENSING",
+    "expected_mode": "thinking",
+    "notes": "Social query -> thinking; no execution path."
+  }
+]

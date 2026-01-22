@@ -76,8 +76,46 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
 }
 
 // Duplicate swap detection cache (prevents processing same swap twice)
+// Duplicate swap detection cache (prevents processing same swap twice)
 const recentSwaps = new Map<string, number>(); // swapKey -> timestamp
 const SWAP_DEDUP_WINDOW_MS = 60000; // 1 minute
+
+// State for graceful shutdown and cleanup
+let isServiceShuttingDown = false;
+let zombieCleanupInterval: NodeJS.Timeout | null = null;
+
+// Per-user-per-token lock to prevent concurrent duplicate trades
+// This prevents the race condition where two webhooks bypass cooldown before Position is created
+const userTokenLocks = new Map<string, number>(); // key -> timestamp
+const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
+
+/**
+ * Check if a token is currently locked for a user (trade in progress)
+ * If not locked, acquires the lock
+ */
+function isTokenLockedForUser(userId: string, tokenAddress: string): boolean {
+    const key = `${userId}:${tokenAddress.toLowerCase()}`;
+    const lockTime = userTokenLocks.get(key);
+    const now = Date.now();
+
+    if (lockTime && now - lockTime < USER_TOKEN_LOCK_DURATION_MS) {
+        return true; // Still locked from previous trade attempt
+    }
+
+    // Acquire lock
+    userTokenLocks.set(key, now);
+
+    // Cleanup old entries periodically
+    if (userTokenLocks.size > 500) {
+        for (const [k, timestamp] of userTokenLocks.entries()) {
+            if (now - timestamp > USER_TOKEN_LOCK_DURATION_MS) {
+                userTokenLocks.delete(k);
+            }
+        }
+    }
+
+    return false;
+}
 
 /**
  * Generate unique key for a swap to detect duplicates
@@ -124,6 +162,12 @@ export async function handleSwapDetected(
     swap: DecodedSwap,
     chainId: number
 ): Promise<void> {
+    // 🛑 SHUTDOWN CHECK (Risk #2 Mitigation)
+    if (isServiceShuttingDown) {
+        logger.warn(LogCode.SYS_SHUTDOWN, 'Service shutting down, rejecting new swap webhook', { wallet: targetWallet });
+        return;
+    }
+
     logger.info(LogCode.WTC_SWAP_DETECTED, 'Swap detected on target wallet', {
         wallet: targetWallet,
         tokenIn: swap.tokenIn,
@@ -405,6 +449,15 @@ async function processBuyWithInfo(
                 maxSlippageBps: universalSlippageBps
             };
 
+            // 🛡️ SAFETY CHECK: Token Info must be valid (unless in Fast Mode)
+            // If we failed to fetch token info (e.g. DexScreener down), we should NOT guess.
+            // Fast Mode explicitly opts-out of this safety check for speed.
+            const isFastMode = config.fastExecutionEnabled !== false;
+            if ((!tokenInfo || !tokenInfo.price) && !isFastMode) {
+                logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Token info invalid and Fast Mode disabled', { userId: config.userId, token: tokenToBuy });
+                continue;
+            }
+
             const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
 
             if (!filterResult.passed) {
@@ -483,24 +536,52 @@ async function processBuyWithInfo(
                     }
                 }
 
-                // Perform duplication check (Cooldown)
-                const recentBuy = await prisma.position.findFirst({
-                    where: {
-                        userId: config.userId,
-                        tokenAddress: tokenToBuy,
-                        createdAt: { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) }
-                    },
-                    orderBy: { createdAt: 'desc' }
-                });
+            }
 
-                if (recentBuy) {
-                    logger.info(LogCode.WTC_TX_SKIPPED, 'Token in cooldown for user', {
-                        userId: config.userId,
-                        token: tokenToBuy,
-                        cooldownMinutes
+            // 🛡️ DB TRANSACTION LOCK (Prevents Concurrent Buys)
+            // Create a PENDING position record atomically. If one exists, this will fail.
+            let pendingPositionId: string | null = null;
+            try {
+                const pendingPos = await prisma.$transaction(async (tx) => {
+                    // Check for ANY recent open or pending position for this token
+                    const existing = await tx.position.findFirst({
+                        where: {
+                            userId: config.userId,
+                            tokenAddress: tokenToBuy,
+                            status: { in: ['open', 'pending'] },
+                            createdAt: { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) }
+                        }
                     });
-                    continue;
+
+                    if (existing) {
+                        throw new Error('DUPLICATE_TRADE: Position already exists or pending');
+                    }
+
+                    // Create PENDING position to claim the lock
+                    return tx.position.create({
+                        data: {
+                            userId: config.userId,
+                            configId: effectiveConfig.id,
+                            tokenAddress: tokenToBuy,
+                            tokenSymbol: tokenInfo.symbol || 'UNK',
+                            chainId,
+                            entryPrice: tokenInfo.price || 0,
+                            entryAmount: '0',
+                            entryTxHash: `PENDING_${Date.now()}`, // Temporary placeholder
+                            entryUsdValue: usdAmount,
+                            status: 'pending'
+                        }
+                    });
+                });
+                pendingPositionId = pendingPos.id;
+                logger.info(LogCode.EXE_TX_BROADCAST, 'Created PENDING position lock', { userId: config.userId, token: tokenToBuy, positionId: pendingPositionId });
+            } catch (err: any) {
+                if (err.message.includes('DUPLICATE_TRADE')) {
+                    logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping duplicate trade (DB Lock)', { userId: config.userId, token: tokenToBuy });
+                } else {
+                    logger.error(LogCode.SYS_ERROR, 'Failed to create pending position', { error: err.message });
                 }
+                continue;
             }
 
             // === CONCURRENCY CONTROL (Simple Check) ===
@@ -567,7 +648,8 @@ async function processBuyWithInfo(
                     tokenOutMint: tokenToBuy,
                     amountIn: amountInLamports,
                     // Use universal global slippage directly
-                    slippageBps: effectiveConfig.maxSlippageBps
+                    slippageBps: effectiveConfig.maxSlippageBps,
+                    feeContext: 'copyTrade'
                 });
 
             } else {
@@ -590,7 +672,8 @@ async function processBuyWithInfo(
                             tokenOut: tokenToBuy,
                             amountIn: (usdAmount / nativePrice).toFixed(6),
                             // Use universal global slippage directly
-                            slippage: effectiveConfig.maxSlippageBps / 100
+                            slippage: effectiveConfig.maxSlippageBps / 100,
+                            feeContext: 'copyTrade'
                         });
                         useStandardSwap = !txHash;
                     } catch (zoraErr: any) {
@@ -610,6 +693,7 @@ async function processBuyWithInfo(
                             bnbAmount,
                             // Use universal global slippage directly
                             slippageBps: effectiveConfig.maxSlippageBps,
+                            feeContext: 'copyTrade',
                         });
                         // If successful, skip standard swap. If txHash is null/empty for some reason, fallback.
                         useStandardSwap = !txHash;
@@ -646,6 +730,7 @@ async function processBuyWithInfo(
                             amountIn: baseAmount.toFixed(6),
                             chainId,
                             slippageBps: baseSlippage,
+                            feeContext: 'copyTrade',
                         });
                     } catch (buyErr1: any) {
                         logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
@@ -695,6 +780,7 @@ async function processBuyWithInfo(
                                 amountIn: amount99.toFixed(6),
                                 chainId,
                                 slippageBps: slippage2,
+                                feeContext: 'copyTrade',
                             });
                         } catch (buyErr2: any) {
                             logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', { userId: config.userId, error: buyErr2.message });
@@ -713,6 +799,7 @@ async function processBuyWithInfo(
                                     amountIn: amount98.toFixed(6),
                                     chainId,
                                     slippageBps: slippage3,
+                                    feeContext: 'copyTrade',
                                 });
                             } catch (buyErr3: any) {
                                 logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', { userId: config.userId, token: tokenToBuy, error: buyErr3.message });
@@ -724,31 +811,50 @@ async function processBuyWithInfo(
             }
 
             if (!txHash) {
-                logger.warn(LogCode.EXE_TX_REVERTED, 'No txHash returned for buy. Skipping position creation.', { userId: config.userId, token: tokenToBuy });
+                logger.warn(LogCode.EXE_TX_REVERTED, 'No txHash returned for buy. Deleting pending position.', { userId: config.userId, token: tokenToBuy });
+                if (pendingPositionId) {
+                    await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
+                }
                 continue;
             }
 
             // CRITICAL: Ensure price is valid before creating position to avoid infinite PNL
             if (!tokenInfo.price || tokenInfo.price <= 0) {
-                logger.error(LogCode.DEC_FAILED_UNKNOWN_DEX, 'Invalid entry price found, skipping position record to avoid PNL corruption', { token: tokenToBuy, price: tokenInfo.price });
+                logger.error(LogCode.DEC_FAILED_UNKNOWN_DEX, 'Invalid entry price found, cleanup pending position', { token: tokenToBuy, price: tokenInfo.price });
+                if (pendingPositionId) {
+                    await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
+                }
                 continue;
             }
 
-            // Create position record
-            await prisma.position.create({
-                data: {
-                    userId: effectiveConfig.userId,
-                    configId: effectiveConfig.id,
-                    tokenAddress: tokenToBuy,
-                    tokenSymbol: tokenInfo.symbol,
-                    chainId,
-                    entryPrice: tokenInfo.price,
-                    entryAmount: (usdAmount / nativePrice).toFixed(6), // Native amount spent
-                    entryTxHash: txHash,
-                    entryUsdValue: usdAmount,
-                    status: 'open',
-                },
-            });
+            // Update PENDING position to OPEN with real details
+            if (pendingPositionId) {
+                await prisma.position.update({
+                    where: { id: pendingPositionId },
+                    data: {
+                        entryPrice: tokenInfo.price,
+                        entryAmount: (usdAmount / nativePrice).toFixed(6), // Native amount spent
+                        entryTxHash: txHash,
+                        status: 'open',
+                    },
+                });
+            } else {
+                // Fallback (should not happen if logic is correct): Create new if pending failed for some reason
+                await prisma.position.create({
+                    data: {
+                        userId: effectiveConfig.userId,
+                        configId: effectiveConfig.id,
+                        tokenAddress: tokenToBuy,
+                        tokenSymbol: tokenInfo.symbol,
+                        chainId,
+                        entryPrice: tokenInfo.price,
+                        entryAmount: (usdAmount / nativePrice).toFixed(6),
+                        entryTxHash: txHash,
+                        entryUsdValue: usdAmount,
+                        status: 'open',
+                    },
+                });
+            }
 
             logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
 
@@ -1090,7 +1196,8 @@ async function executePositionExit(params: {
                     amountToSell: safeBalance.toString(),
                     chainId: chainId,
                     slippageBps: initialSlippage,
-                    tokenDecimals: decimals
+                    tokenDecimals: decimals,
+                    feeContext: 'copyTrade'
                 });
             } catch (e: any) {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', { userId, error: e.message });
@@ -1107,7 +1214,8 @@ async function executePositionExit(params: {
                         amountToSell: safeBalance999.toString(),
                         chainId: chainId,
                         slippageBps: retrySlippage,
-                        tokenDecimals: decimals
+                        tokenDecimals: decimals,
+                        feeContext: 'copyTrade'
                     });
                     isPartialSell = true;
                 } catch (e2: any) {
@@ -1120,6 +1228,7 @@ async function executePositionExit(params: {
                                 walletAddress: user.walletAddress,
                                 tokenAddress: tokenAddress,
                                 amount: balance.toString(),
+                                feeContext: 'copyTrade',
                             });
                         } catch (fmErr: any) {
                             logger.error(LogCode.EXE_TX_REVERTED, 'Four.meme fallback sell failed', { userId, token: tokenAddress, error: fmErr.message });
@@ -1143,7 +1252,8 @@ async function executePositionExit(params: {
                             chainId: chainId,
                             // Higher slippage for dust sweep (20%) since amount is small
                             slippageBps: 2000,
-                            tokenDecimals: decimals
+                            tokenDecimals: decimals,
+                            feeContext: 'copyTrade'
                         });
                     }
                 } catch (sweepErr: any) {
@@ -1206,37 +1316,74 @@ async function executePositionExit(params: {
             stack: error.stack
         });
 
-        // Close the position to prevent infinite retry loops
-        // This happens when the token is a honeypot or has other issues preventing sells
-        try {
-            await prisma.position.updateMany({
-                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
-                data: {
-                    status: 'closed',
-                    exitReason: 'exit_failed',
-                    closedAt: new Date(),
-                },
-            });
-            logger.warn(LogCode.EXE_TX_REVERTED, 'Marked position as failed-exit to prevent retry loops', { userId, token: tokenAddress });
+        // 🔄 RETRY MECHANISM: Instead of immediately closing, track retry attempts
+        // This prevents permanent position lock-up from temporary failures
+        const MAX_EXIT_RETRIES = 3;
 
-            // =================================================================
-            // 🟣 Send Farcaster Direct Cast (Exit Failure)
-            // =================================================================
-            if (user.farcasterFid) {
-                await notificationService.sendNotification({
-                    userId: user.privyDid,
-                    farcasterFid: user.farcasterFid,
-                    type: 'TRADE_FAILURE',
+        try {
+            const position = await prisma.position.findFirst({
+                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
+            });
+
+            const retryCount = (position?.exitRetryCount || 0) + 1;
+
+            if (retryCount <= MAX_EXIT_RETRIES) {
+                // Update retry counter, keep position open for PositionMonitor retry
+                // FIX 6: Persist exitReason so we know WHY we are exiting during retry
+                await prisma.position.updateMany({
+                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
                     data: {
-                        tokenSymbol: tokenInfo?.symbol || 'Unknown',
-                        error: error instanceof Error ? error.message : 'Unknown exit error',
-                        targetWallet: config.targetWallet,
-                        chainId: chainId
+                        exitRetryCount: retryCount,
+                        lastExitAttempt: new Date(),
+                        exitReason: exitReason // Persist intent
                     }
                 });
+
+                logger.warn(LogCode.EXE_TX_REVERTED, 'Mirror sell failed, will retry via PositionMonitor', {
+                    userId,
+                    token: tokenAddress,
+                    retryCount,
+                    nextRetryIn: '5 minutes',
+                    reason: exitReason
+                });
+
+                // FIX 4: Notification Throttling
+                // We do NOT send notifications for intermediate retries to avoid spam.
+                // Notifications are only sent on success or final failure (max retries reached).
+            } else {
+                // After max retries, mark as failed permanently
+                await prisma.position.updateMany({
+                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
+                    data: {
+                        status: 'closed',
+                        exitReason: 'exit_failed_max_retries',
+                        closedAt: new Date(),
+                    },
+                });
+
+                logger.error(LogCode.EXE_TX_REVERTED, 'Mirror sell failed after max retries, marking as failed', {
+                    userId,
+                    token: tokenAddress,
+                    retries: MAX_EXIT_RETRIES
+                });
+
+                // Send final failure notification
+                if (user.farcasterFid) {
+                    await notificationService.sendNotification({
+                        userId: user.privyDid,
+                        farcasterFid: user.farcasterFid,
+                        type: 'TRADE_FAILURE',
+                        data: {
+                            tokenSymbol: tokenInfo?.symbol || 'Unknown',
+                            error: `Failed to exit after ${MAX_EXIT_RETRIES} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                            targetWallet: config.targetWallet,
+                            chainId: chainId
+                        }
+                    });
+                }
             }
         } catch (dbErr: any) {
-            logger.error(LogCode.SYS_ERROR, 'Failed to update position status during exit failure handler', { error: dbErr.message });
+            logger.error(LogCode.SYS_ERROR, 'Failed to update position retry counter', { error: dbErr.message });
         }
 
         return null;
@@ -1317,12 +1464,109 @@ export function initAutoTradeService(): void {
     startSolanaWatcher(); // Keep Solana watcher (no webhook alternative)
 
     logger.info(LogCode.SYS_STARTUP, 'Auto trade service initialized (Solana watcher + EVM webhook enabled)', { mode: 'hybrid' });
+
+    // Start Zombie Cleanup Job (Risk #1 Mitigation)
+    // Runs every 5 minutes to remove stale PENDING locks
+    zombieCleanupInterval = setInterval(cleanupPendingPositions, 5 * 60 * 1000);
 }
+
+/**
+ * Stop the auto trade service (Graceful Shutdown - Risk #2 Mitigation)
+ */
+export async function stopAutoTradeService(): Promise<void> {
+    logger.info(LogCode.SYS_SHUTDOWN, 'Stopping Auto Trade Service...');
+    isServiceShuttingDown = true;
+    if (zombieCleanupInterval) {
+        clearInterval(zombieCleanupInterval);
+        zombieCleanupInterval = null;
+    }
+    // Note: watchers are event-driven, setting flag stops processing
+}
+
+/**
+ * Cleanup stale PENDING positions (Zombies)
+ */
+async function cleanupPendingPositions() {
+    try {
+        const result = await prisma.position.deleteMany({
+            where: {
+                status: 'pending',
+                createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } // Older than 5 mins
+            }
+        });
+        if (result.count > 0) {
+            logger.info(LogCode.SYS_INFO, `Cleaned up ${result.count} zombie pending positions (stale locks)`);
+        }
+    } catch (err: any) {
+        logger.error(LogCode.SYS_ERROR, 'Failed to clean up zombie positions', { error: err.message });
+    }
+}
+
 
 /**
  * Check and execute take profit / stop loss for open positions
  */
 export async function checkPositionsForExits(): Promise<void> {
+    // 🔄 STEP 0: Retry failed exit attempts (Mirror Sell, Take Profit, Stop Loss)
+    // Check for positions with exitRetry Count > 0 and retry them if cooldown has passed
+    const RETRY_COOLDOWN_MS = 60 * 1000; // 1 minute (Reduced from 5min for faster emergency exit)
+    const positionsNeedingRetry = await prisma.position.findMany({
+        where: {
+            status: 'open',
+            exitRetryCount: { gt: 0 },
+            OR: [
+                { lastExitAttempt: null }, // Never attempted (shouldn't happen, but handle it)
+                { lastExitAttempt: { lt: new Date(Date.now() - RETRY_COOLDOWN_MS) } }
+            ]
+        },
+        include: { user: true }
+    });
+
+    if (positionsNeedingRetry.length > 0) {
+        logger.info(LogCode.SYS_STARTUP, `Found ${positionsNeedingRetry.length} positions needing exit retry`);
+
+        for (const position of positionsNeedingRetry) {
+            try {
+                const config = await prisma.copyTradeConfig.findUnique({
+                    where: { id: position.configId }
+                });
+
+                if (!config) {
+                    logger.warn(LogCode.SYS_ERROR, 'Config not found for position retry', { positionId: position.id });
+                    continue;
+                }
+
+                const tokenInfo = await getTokenInfo(position.tokenAddress, position.chainId);
+                if (!tokenInfo) {
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Token info not available for retry', { token: position.tokenAddress });
+                    continue;
+                }
+
+                logger.info(LogCode.EXE_TX_BROADCAST, `Retrying position exit (attempt ${position.exitRetryCount + 1})`, {
+                    userId: position.userId,
+                    token: position.tokenAddress,
+                    retryCount: position.exitRetryCount
+                });
+
+                // Retry the exit
+                await executePositionExit({
+                    userId: position.userId,
+                    tokenAddress: position.tokenAddress,
+                    chainId: position.chainId,
+                    exitReason: (position.exitReason as any) || 'mirror_sell', // Use original reason or default
+                    tokenInfo,
+                    config: { ...config, user: position.user }
+                });
+            } catch (err: any) {
+                logger.error(LogCode.SYS_ERROR, 'Error during position exit retry', {
+                    positionId: position.id,
+                    error: err.message
+                });
+            }
+        }
+    }
+
+    // STEP 1: Fetch all open positions for take profit/stop loss monitoring
     const positions = await prisma.position.findMany({
         where: { status: 'open' },
         include: { user: true },
@@ -1622,7 +1866,35 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
     }
 
     // =========================================================================
-    // 🛡️ HONEYPOT DETECTION & FAST MODE
+    // 🛡️ UNIVERSAL USER FILTERS (Checked in both Fast and Normal modes)
+    // =========================================================================
+
+    // 1. Min Target Buy Value (Safety logic: Don't copy tiny dust trades)
+    if (config.minTargetValueUsd && targetSwapValueUsd < config.minTargetValueUsd) {
+        return { passed: false, reason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min $${config.minTargetValueUsd}` };
+    }
+
+    // 2. Market Cap Filters (Safety logic: Only buy tokens within user's risk profile)
+    const minMarketCapUsd = (config.minMarketCapUsd ?? config.minMarketCap) || 0;
+    const maxMarketCapUsd = (config.maxMarketCapUsd ?? config.maxMarketCap) || 0;
+
+    if (marketCap > 0) { // Only apply if we actually have MCap data
+        if (minMarketCapUsd > 0 && marketCap < minMarketCapUsd) {
+            return { passed: false, reason: `MCap $${marketCap.toFixed(0)} < min $${minMarketCapUsd.toFixed(0)}` };
+        }
+        if (maxMarketCapUsd > 0 && marketCap > maxMarketCapUsd) {
+            return { passed: false, reason: `MCap $${marketCap.toFixed(0)} > max $${maxMarketCapUsd.toFixed(0)}` };
+        }
+    }
+
+    // 3. User-defined Liquidity filter (Safety logic: Ensure pool depth is sufficient)
+    const minLiquidityUsd = config.minLiquidityUsd || 0;
+    if (minLiquidityUsd > 0 && liquidity < minLiquidityUsd) {
+        return { passed: false, reason: `Liquidity $${liquidity.toFixed(0)} < min $${minLiquidityUsd.toFixed(0)}` };
+    }
+
+    // =========================================================================
+    // 🛡️ HONEYPOT DETECTION & MODE-SPECIFIC LOGIC
     // =========================================================================
     const MIN_LIQUIDITY_FAST = 500; // $500 minimum for fast mode
     const MIN_LIQUIDITY_NORMAL = 1000; // $1000 minimum for normal mode
@@ -1632,20 +1904,17 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
 
     // FAST MODE: Quick entry for new tokens
     if (isFastMode) {
-        // Only check minimal liquidity
+        // Only check minimal system liquidity (User filters already checked above)
         if (liquidity < MIN_LIQUIDITY_FAST) {
             return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
         }
-        // SHORT CIRCUIT: Skip volume, market cap, and other slow/restrictive checks
-        // We assume if it's Fast Mode, user wants to buy NOW regardless of stats
 
-        // However, we STILL check Price Impact (Safety First!)
-        // Note: liquidity from APIs is usually TVL (both sides), so we use half for single-side estimate
+        // Price Impact check in Fast Mode (8% loose limit)
         if (config.buyAmountUsd && liquidity > 0) {
             const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
-            const singleSideLiquidity = liquidity / 2; // Approximate single-side liquidity
+            const singleSideLiquidity = liquidity / 2;
             const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
-            const MAX_PRICE_IMPACT = 8; // Slightly looser for fast mode (8%)
+            const MAX_PRICE_IMPACT = 8;
 
             if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
                 return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
@@ -1660,9 +1929,7 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
         return { passed: false, reason: `[HONEYPOT] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
     }
 
-    // Check volume/liquidity ratio (Skip for very new tokens < 10 mins old if we had createdAt)
-    // For now, relax this check: Only require volume if liquidity is very deep (> $50k) 
-    // Small pools often have 0 volume initially, we shouldn't block them.
+    // Check volume/liquidity ratio
     if (liquidity > 50000 && volume24h > 0) {
         const volumeRatio = volume24h / liquidity;
         if (volumeRatio < MIN_VOLUME_RATIO) {
@@ -1670,43 +1937,16 @@ async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: nu
         }
     }
 
-    // =========================================================================
-    // 💰 PRICE IMPACT ESTIMATION (Normal Mode)
-    // Note: liquidity from APIs is usually TVL (both sides), so we use half for single-side estimate
-    // =========================================================================
+    // Price Impact in Normal Mode (5% strict limit)
     if (config.buyAmountUsd && liquidity > 0) {
         const buyAmount = safeNumber(config.buyAmountUsd, 'buyAmountUsd');
-        const singleSideLiquidity = liquidity / 2; // Approximate single-side liquidity
+        const singleSideLiquidity = liquidity / 2;
         const estimatedPriceImpact = (buyAmount / singleSideLiquidity) * 100;
-        const MAX_PRICE_IMPACT = 5; // Stricter for normal mode (5%)
+        const MAX_PRICE_IMPACT = 5;
 
         if (estimatedPriceImpact > MAX_PRICE_IMPACT) {
             return { passed: false, reason: `[PRICE IMPACT] Est. impact ${estimatedPriceImpact.toFixed(2)}% > ${MAX_PRICE_IMPACT}%` };
         }
-    }
-
-    // 1. Min Target Buy Value
-    if (config.minTargetValueUsd && targetSwapValueUsd < config.minTargetValueUsd) {
-        return { passed: false, reason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min $${config.minTargetValueUsd}` };
-    }
-
-    // 2. Market Cap Filters (Normal Mode Only)
-    const minMarketCapUsd = (config.minMarketCapUsd ?? config.minMarketCap) || 0;
-    const maxMarketCapUsd = (config.maxMarketCapUsd ?? config.maxMarketCap) || 0;
-
-    if (marketCap > 0) { // Only apply if we actually have MCap data
-        if (minMarketCapUsd > 0 && marketCap < minMarketCapUsd) {
-            return { passed: false, reason: `MCap $${marketCap.toFixed(0)} < min $${minMarketCapUsd.toFixed(0)}` };
-        }
-        if (maxMarketCapUsd > 0 && marketCap > maxMarketCapUsd) {
-            return { passed: false, reason: `MCap $${marketCap.toFixed(0)} > max $${maxMarketCapUsd.toFixed(0)}` };
-        }
-    }
-
-    // 3. User-defined Liquidity filter (overrides honeypot defaults if set)
-    const minLiquidityUsd = config.minLiquidityUsd || 0;
-    if (minLiquidityUsd > 0 && liquidity < minLiquidityUsd) {
-        return { passed: false, reason: `Liquidity $${liquidity.toFixed(0)} < min $${minLiquidityUsd.toFixed(0)}` };
     }
 
     return { passed: true };

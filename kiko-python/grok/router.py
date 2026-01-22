@@ -11,6 +11,7 @@ import re
 from typing import Any, Dict, List, Optional, AsyncGenerator
 from datetime import datetime
 from functools import lru_cache
+import time
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -76,14 +77,28 @@ PRIVY_APP_ID = os.getenv("PRIVY_APP_ID")
 SKIP_AUTH = os.getenv("SKIP_AUTH", "false").lower() == "true"
 
 
+_jwks_last_good = None
+
+
 @lru_cache(maxsize=1)
 def get_jwks():
-    resp = requests.get(PRIVY_JWKS_URL, timeout=3)
-    resp.raise_for_status()
-    data = resp.json()
-    if "keys" not in data:
-        raise HTTPException(status_code=500, detail="JWKS response invalid")
-    return data
+    global _jwks_last_good
+    last_err = None
+    for attempt in range(3):
+        try:
+            resp = requests.get(PRIVY_JWKS_URL, timeout=3)
+            resp.raise_for_status()
+            data = resp.json()
+            if "keys" not in data:
+                raise HTTPException(status_code=500, detail="JWKS response invalid")
+            _jwks_last_good = data
+            return data
+        except Exception as e:
+            last_err = e
+            time.sleep(0.2 * (attempt + 1))
+    if _jwks_last_good is not None:
+        return _jwks_last_good
+    raise HTTPException(status_code=503, detail=f"JWKS fetch failed: {last_err}")
 
 
 def verify_privy_token(token: str):
@@ -117,10 +132,15 @@ def verify_privy_token(token: str):
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
 
-async def require_auth(authorization: str = Header(default=None)):
+async def require_auth(authorization: str = Header(default=None), x_service_key: str = Header(default=None)):
     # Skip auth in development mode
     if SKIP_AUTH:
         return {"dev": True}
+
+    # Check for internal service key first
+    internal_key = os.getenv("INTERNAL_SERVICE_KEY")
+    if internal_key and x_service_key == internal_key:
+        return {"service": "internal"}
     
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing Bearer token")
@@ -653,9 +673,11 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
                 print(f"[Tool Execution] 🔍 KIKO_API_BASE = {KIKO_API_BASE}")
                 print(f"[Tool Execution] 🔍 Calling unified executor at: {target_url}")
                 
+                internal_key = os.getenv("INTERNAL_SERVICE_KEY", "")
                 unified_response = await http_client.post(
                     target_url,
-                    json=unified_payload
+                    json=unified_payload,
+                    headers={"X-Service-Key": internal_key} if internal_key else {}
                 )
                 if unified_response.status_code == 200:
                     unified_data = unified_response.json()
@@ -1459,10 +1481,14 @@ async def chat_completions(
         normalized_model = normalize_model_name(request.model)
         
         # RAG INTEGRATION: Fetch and inject context for informational queries
-        # Get the last user message to check for RAG
+        # Extract raw user query from the USER_QUERY block when available to avoid context pollution.
         last_user_msg = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
-        if last_user_msg:
-            rag_context = await fetch_rag_context(last_user_msg)
+        raw_user_query = last_user_msg
+        match = re.search(r"USER_QUERY_START\\n([\\s\\S]*?)\\nUSER_QUERY_END", last_user_msg)
+        if match:
+            raw_user_query = match.group(1).strip()
+        if raw_user_query:
+            rag_context = await fetch_rag_context(raw_user_query)
             if rag_context:
                 # Inject into the last user message content (consistent with Node.js approach)
                 for m in reversed(request.messages):
@@ -1688,6 +1714,8 @@ async def chat_completions(
                         tool_calls_detected_in_chunk = False  # Track tool calls from chunk
                         tool_calls_detected_in_response = False  # Track tool calls from response (fallback)
                         content_sent_this_turn = False  # Track if any content was sent this turn
+                        tool_call_repeat_counts = {}
+                        force_stop_after_turn = None
                         
                         for tool_turn in range(max_tool_turns):
                             has_tool_calls_this_turn = False
@@ -1847,6 +1875,16 @@ async def chat_completions(
                                             processed_tool_call_ids.add(tool_call_signature)
                                             log_tools(f"[Tool Call] {tool_name}: {str(tool_args)[:100]}...")
                                             
+                                            # Loop guard: if same tool+args repeats too often, stop further tool calls.
+                                            tool_call_repeat_counts[tool_call_signature] = tool_call_repeat_counts.get(tool_call_signature, 0) + 1
+                                            if tool_call_repeat_counts[tool_call_signature] >= 2:
+                                                print(f"[Tool Guard] Repeat limit reached for {tool_name}, stopping further tool calls.")
+                                                pending_tool_results.append("No further tool calls (repeat limit reached). Please respond without additional tools.")
+                                                has_tool_calls_this_turn = True
+                                                custom_tool_executed = True
+                                                force_stop_after_turn = tool_turn + 1
+                                                continue
+
                                             # Only mark as tool turn if it's a client-side tool we execute.
                                             is_client_tool = is_client_side_tool(tool_call, tool_name)
                                             if is_client_tool and tool_name in available_tools:
@@ -2108,6 +2146,9 @@ async def chat_completions(
                                             except Exception as e:
                                                 print(f"[Client Action] Error executing tool {tool_name}: {e}")
                             
+                            if force_stop_after_turn is not None and tool_turn >= force_stop_after_turn:
+                                final_tool_call_check = False
+
                             if final_tool_call_check:
                                 # CRITICAL FIX: Tool was called, continue to next turn to get Grok's response
                                 # Don't break here! We need to call chat.stream() again to get Grok's response
@@ -2130,12 +2171,18 @@ async def chat_completions(
                                         print(f"[Tool Turn] Failed to append response: {e}")
                                 
                                 for tool_payload in pending_tool_results:
-                                    chat.append(tool_result(result=tool_payload))
+                                    if tool_payload is None:
+                                        safe_payload = "tool_result_empty"
+                                    else:
+                                        safe_payload = str(tool_payload).strip()
+                                        if not safe_payload:
+                                            safe_payload = "tool_result_empty"
+                                    chat.append(tool_result(result=safe_payload))
                                 
                                 continue  # Go to next turn to get Grok's response
                             else:
                                 # Ensure we sent some content before finishing
-                                if not content_sent_this_turn and chunk_count == 0:
+                                if not content_sent_this_turn:
                                     # Try to send a fallback message if we have final_response content
                                     if final_response and hasattr(final_response, 'text') and final_response.text:
                                         try:

@@ -47,6 +47,44 @@ const CHAIN_ID_MAP: Record<number, string> = {
     101: 'solana',
 };
 
+const THINKING_TOOL_ALLOWLIST = new Set<string>([
+    'get_token_info',
+    'get_token_price',
+    'get_historical_price',
+    'get_trending_tokens',
+    'get_market_overview',
+    'get_economic_calendar',
+    'get_wallet_info',
+    'analyze_wallet_pnl',
+    'get_user_favorites',
+    'check_token_risk',
+    'get_trending_casts',
+    'search_farcaster_casts',
+    'get_farcaster_user',
+    'get_zora_trending',
+    'get_zora_profile',
+    'get_early_buyers',
+    'analyze_creator',
+    'get_polymarket_trending',
+    'get_polymarket_trending_markets',
+    'get_polymarket_event',
+    'search_polymarket',
+    'get_new_markets',
+    'get_market_activity',
+    'get_whale_watch',
+    'get_polymarket_trader_stats',
+    'external_web_search'
+]);
+
+// In thinking mode, we restrict skills to a small "clean" subset to prevent
+// execution-oriented prompts/tools from affecting analysis quality.
+const THINKING_SKILL_ID_ALLOWLIST = new Set<string>([
+    'wallet_portfolio',
+    'polymarket_prediction',
+    'welcome_onboarding',
+    'token_analysis',
+]);
+
 // System Prompts (Unified Orchestrator)
 import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
 import type { IntentType, UserContext } from '../services/ai/types.js';
@@ -56,9 +94,28 @@ import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.
 import { getTokenDetails as getDexTokenDetails } from '../services/dexscreener.js';
 import { executeDirectSwap } from '../services/directSwapExecutor.js';
 import { ragClient } from '../services/ragClient.js';
-import { skillRegistry } from '../skills/registry.js';
+import { skillRegistryClean, skillRegistryExec } from '../skills/registry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+
+type ToolTraceEntry = {
+    tool: string;
+    argsKey: string;
+    status: 'success' | 'cached' | 'blocked' | 'error';
+    error?: string;
+};
+
+type ToolTraceState = {
+    mode: 'thinking' | 'execution';
+    skillVersion: 'clean' | 'exec';
+    toolCalls: ToolTraceEntry[];
+    toolCallCounts: Record<string, number>;
+    toolFailures: Record<string, number>;
+    toolRepeats: Record<string, number>;
+    stopReasons: string[];
+    blockedKeys: Set<string>;
+    lastResultByKey: Map<string, string>;
+};
 
 export class ChatWorker {
     private isRunning = false;
@@ -66,6 +123,10 @@ export class ChatWorker {
     private repo = chatRepo;
     private ws = chatWS;
     private grokResponseIdBySession = new Map<string, string>();
+
+    private buildToolKey(name: string, args: any): string {
+        return `${name}:${JSON.stringify(args)}`;
+    }
 
     constructor(mocks?: { repo?: any; ws?: any }) {
         if (mocks?.repo) this.repo = mocks.repo;
@@ -141,6 +202,34 @@ export class ChatWorker {
             'PREDICTION_MARKETS',
             'RISK_SCAN',
         ]).has(intent);
+    }
+
+    private resolveRoutingMode(
+        intent: IntentType,
+        decision?: Awaited<ReturnType<typeof parseIntent>>['decision']
+    ): 'thinking' | 'execution' {
+        const slotsComplete = decision?.slots?.complete === true;
+        const hasQuestion = decision?.signals?.hasQuestion === true;
+        const hasConflict = Boolean(decision?.conflict);
+
+        if (hasQuestion || hasConflict) return 'thinking';
+        if (intent === 'TRADING' && !slotsComplete) return 'thinking';
+        return this.isFreeIntent(intent) ? 'thinking' : 'execution';
+    }
+
+    private getExplorerUrl(chainId: number, txHash: string): string {
+        const explorers: Record<number, string> = {
+            1: 'https://etherscan.io/tx/',
+            8453: 'https://basescan.org/tx/',
+            56: 'https://bscscan.com/tx/',
+            137: 'https://polygonscan.com/tx/',
+            42161: 'https://arbiscan.io/tx/',
+            10: 'https://optimistic.etherscan.io/tx/',
+            43114: 'https://snowtrace.io/tx/',
+            900: 'https://solscan.io/tx/',
+            101: 'https://solscan.io/tx/',
+        };
+        return (explorers[chainId] || 'https://basescan.org/tx/') + txHash;
     }
 
     private async recordIntentTrace(
@@ -265,7 +354,7 @@ export class ChatWorker {
      * Execute a single AI task
      */
     private async runTask(task: AITask) {
-        console.log(`[ChatWorker] Running task ${task.id} for session ${task.sessionId}`);
+        logger.debug(LogCode.AI_API_CALL, 'ChatWorker: running task', { taskId: task.id, sessionId: task.sessionId });
         let userId: string | null = null;
 
         try {
@@ -337,7 +426,7 @@ export class ChatWorker {
             // Always broadcast success/completion to UI even if DB was flaky
             this.ws.broadcastToUser(userId!, { type: 'task_status', sessionId: task.sessionId, data: { taskId: task.id, status: 'done' } });
             this.ws.broadcastToUser(userId!, { type: 'message_complete', sessionId: task.sessionId, data: { messageId: task.assistantMessageId } });
-            console.log(`[ChatWorker] Task ${task.id} completed successfully`);
+            logger.debug(LogCode.AI_API_CALL, 'ChatWorker: task completed successfully', { taskId: task.id });
 
         } catch (error: any) {
             console.error(`[ChatWorker] Task ${task.id} failed:`, error);
@@ -396,6 +485,17 @@ export class ChatWorker {
         const toolResultsCache = new Map<string, any>();
         let earlyPreFetchPromise: Promise<void> | null = null;
         let streamPreFetchPromise: Promise<Map<string, any>> | null = null;
+        const toolTrace: ToolTraceState = {
+            mode: 'thinking',
+            skillVersion: 'clean',
+            toolCalls: [],
+            toolCallCounts: {},
+            toolFailures: {},
+            toolRepeats: {},
+            stopReasons: [],
+            blockedKeys: new Set(),
+            lastResultByKey: new Map(),
+        };
 
         // Base tool filtering (keyword/category based).
         // We will further narrow this set once we know the user's high-level intent (skills gating).
@@ -511,13 +611,33 @@ export class ChatWorker {
 
             // Use high-level intent for system prompt selection
             const intent: IntentType = parsedIntent.highLevel.type;
-            const isFreeIntent = this.isFreeIntent(intent);
+            const routingMode = this.resolveRoutingMode(intent, parsedIntent.decision);
+            const isFreeIntent = routingMode === 'thinking';
+            if (iteration === 1) {
+                const decisionMeta = parsedIntent.decision as any;
+                toolTrace.mode = routingMode;
+                toolTrace.skillVersion = routingMode === 'thinking' ? 'clean' : 'exec';
+                logger.info(LogCode.AI_MODE_ROUTED, 'DeepSeek: routed to mode', {
+                    taskId: task.id,
+                    sessionId: task.sessionId,
+                    model: task.model,
+                    intent,
+                    routingMode,
+                    routingStage: decisionMeta?.routingStage,
+                    hardRule: decisionMeta?.hardRule,
+                    slotsComplete: decisionMeta?.slotsComplete,
+                    confidence: parsedIntent.highLevel?.confidence,
+                });
+            }
 
             // Skills-level tool gating (single source of truth: `skill.json` -> metadata.tools).
             // Apply once (intent is stable for this task) to prevent tool drift and wrong-tool selection.
-            if (iteration === 1 && !isFreeIntent) {
+            if (iteration === 1) {
                 const intentStr = String(intent).toUpperCase();
-                const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+                const registry = isFreeIntent ? skillRegistryClean : skillRegistryExec;
+                const matchedSkills = isFreeIntent
+                    ? registry.getAllSkills().filter(s => THINKING_SKILL_ID_ALLOWLIST.has(s.metadata.id))
+                    : registry.getSkillsByIntent(intentStr);
                 const allowedToolNames = new Set<string>();
                 for (const skill of matchedSkills) {
                     for (const name of skill.metadata.tools || []) {
@@ -532,15 +652,34 @@ export class ChatWorker {
                     if (gated.length > 0) {
                         toolDefinitions = gated.map(def => ({ type: 'function', function: def }));
                         console.log(`[ChatWorker] Skill-gated to ${toolDefinitions.length} tools for intent=${intentStr} skills=${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+                        logger.info(LogCode.AI_SKILLS_ATTACHED, 'DeepSeek: skills attached', {
+                            taskId: task.id,
+                            sessionId: task.sessionId,
+                            model: task.model,
+                            intent: intentStr,
+                            routingMode,
+                            skillVersion: isFreeIntent ? 'clean' : 'exec',
+                            skills: matchedSkills.map(s => s.metadata.id),
+                            toolCount: toolDefinitions.length,
+                        });
                     } else {
                         console.warn(`[ChatWorker] Skill gating produced 0 tools for intent=${intentStr}; falling back to base tool set`);
                     }
+                } else if (isFreeIntent) {
+                    const allToolDefs = toolRegistry.getAllDefinitions();
+                    const filtered = allToolDefs.filter(def => THINKING_TOOL_ALLOWLIST.has(def.name));
+                    toolDefinitions = filtered.map(def => ({ type: 'function', function: def }));
+                    console.log(`[ChatWorker] Free intent mode: using ${toolDefinitions.length} thinking tools`);
+                    logger.info(LogCode.AI_SKILLS_ATTACHED, 'DeepSeek: thinking mode without skills injection', {
+                        taskId: task.id,
+                        sessionId: task.sessionId,
+                        model: task.model,
+                        intent: intentStr,
+                        routingMode,
+                        skillVersion: 'clean',
+                        toolCount: toolDefinitions.length,
+                    });
                 }
-            }
-            if (iteration === 1 && isFreeIntent) {
-                const allToolDefs = toolRegistry.getAllDefinitions();
-                toolDefinitions = allToolDefs.map(def => ({ type: 'function', function: def }));
-                console.log(`[ChatWorker] Free intent mode: using all ${toolDefinitions.length} tools (no gating)`);
             }
 
             // Log detailed intent for debugging
@@ -800,25 +939,49 @@ export class ChatWorker {
 
                     // Broadcast result to frontend
                     if (swapResult.success) {
-                        const successMessage = `⚡ **Fast Swap Executed!**\n\n` +
-                            `✅ Swapped ${amountIn} ${tokenIn} → ${tokenOut.slice(0, 10)}...\n\n` +
-                            `🔗 [View on Explorer](https://basescan.org/tx/${swapResult.txHash})\n\n` +
-                            `_Method: ${swapResult.method === 'zora_sdk' ? 'Zora SDK' : 'Aggregator'}_`;
+                        const txHash = swapResult.txHash;
+                        if (!txHash) {
+                            logger.warn(LogCode.SYS_INFO, 'ChatWorker: swap succeeded without txHash', { taskId: task.id, chainId });
+                        }
+                        // Determine correct explorer URL based on chain
+                        const explorerUrl = txHash ? this.getExplorerUrl(chainId, txHash) : '';
 
-                        // Save success message
-                        await this.repo.updateMessage(assistantMessageId, { content: successMessage, status: 'complete' });
+                        // Update message with transaction-status-card type and structured data
+                        await this.repo.updateMessage(assistantMessageId, {
+                            content: '', // Clear text content - card will display instead
+                            status: 'complete',
+                            type: 'transaction-status-card',
+                            data: {
+                                status: 'success',
+                                txHash: txHash || '',
+                                tokenInSymbol: tokenIn,
+                                tokenOutSymbol: tokenOut,
+                                amountIn: amountIn,
+                                chainId: chainId,
+                            }
+                        });
 
-                        // First: Send the content as a chunk so frontend displays it
+                        // Send client_action to show transaction status card
                         this.ws.broadcastToUser(userId!, {
-                            type: 'chunk',
+                            type: 'client_action',
                             sessionId: task.sessionId,
                             data: {
                                 message_id: assistantMessageId,
-                                delta: successMessage,
+                                action: {
+                                    type: 'show_transaction_status_card',
+                                    data: {
+                                        status: 'success',
+                                        txHash: txHash || '',
+                                        tokenInSymbol: tokenIn,
+                                        tokenOutSymbol: tokenOut,
+                                        amountIn: amountIn,
+                                        chainId: chainId,
+                                    }
+                                }
                             },
                         });
 
-                        // Then: Send message_complete to stop the streaming indicator
+                        // Send message_complete to stop the streaming indicator
                         this.ws.broadcastToUser(userId!, {
                             type: 'message_complete',
                             sessionId: task.sessionId,
@@ -827,23 +990,45 @@ export class ChatWorker {
                             },
                         });
                     } else {
-                        const errorMessage = `❌ **Fast Swap Failed**\n\n${swapResult.error || 'Unknown error'}\n\n_Retrying with standard swap interface..._`;
+                        // Update message with failed transaction status card
+                        await this.repo.updateMessage(assistantMessageId, {
+                            content: '',
+                            status: 'complete',
+                            type: 'transaction-status-card',
+                            data: {
+                                status: 'failed',
+                                tokenInSymbol: tokenIn,
+                                tokenOutSymbol: tokenOut,
+                                amountIn: amountIn,
+                                chainId: chainId,
+                                errorMessage: swapResult.error || 'Swap execution failed'
+                            }
+                        });
+
+                        // Send client_action to show failed transaction card
+                        this.ws.broadcastToUser(userId!, {
+                            type: 'client_action',
+                            sessionId: task.sessionId,
+                            data: {
+                                message_id: assistantMessageId,
+                                action: {
+                                    type: 'show_transaction_status_card',
+                                    data: {
+                                        status: 'failed',
+                                        tokenInSymbol: tokenIn,
+                                        tokenOutSymbol: tokenOut,
+                                        amountIn: amountIn,
+                                        chainId: chainId,
+                                        errorMessage: swapResult.error || 'Swap execution failed'
+                                    }
+                                }
+                            },
+                        });
 
                         console.log('[ChatWorker] Fast swap failed, guiding LLM to use swap tool');
 
                         // Inject a hint for the LLM to use the tool
                         (task as any).systemInjection = `DIRECT SWAP FAILED: ${swapResult.error || 'Unknown error'}. Please use the swapTransaction tool to help the user complete this swap manually with a confirmation card.`;
-
-                        // Broadcast partial failure
-                        this.ws.broadcastToUser(userId!, {
-                            type: 'chunk',
-                            sessionId: task.sessionId,
-                            data: {
-                                messageId: assistantMessageId,
-                                status: 'streaming',
-                                delta: errorMessage + '\n\n',
-                            },
-                        });
                     }
 
                     // If swap was successful, complete the task and return
@@ -949,7 +1134,7 @@ export class ChatWorker {
             // Use high-level intent for system prompt selection
 
             // Get System Prompt from Orchestrator
-            const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intent);
+            const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intent, { routingMode });
 
             // Prepare User Context with detected information
 
@@ -1409,7 +1594,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     toolCalls,
                     task.toolContext,
                     userId, // Add userId
-                    toolResultsCache // Pass cumulative cache
+                    toolResultsCache,
+                    toolTrace
                 );
                 allCitations.push(...toolCitations);  // Merge into tracking array
                 for (const res of toolResults) {
@@ -1437,6 +1623,28 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         }
 
         // Check if we hit max iterations
+        try {
+            const existing = await this.repo.getMessage(assistantMessageId);
+            const existingData = existing?.data || {};
+            const toolTracePayload = {
+                mode: toolTrace.mode,
+                skillVersion: toolTrace.skillVersion,
+                toolCalls: toolTrace.toolCalls,
+                toolCallCounts: toolTrace.toolCallCounts,
+                toolFailures: toolTrace.toolFailures,
+                toolRepeats: toolTrace.toolRepeats,
+                stopReasons: Array.from(new Set(toolTrace.stopReasons)),
+            };
+            await this.repo.updateMessage(assistantMessageId, {
+                data: {
+                    ...existingData,
+                    toolTrace: toolTracePayload,
+                }
+            });
+        } catch (traceErr: any) {
+            logger.warn(LogCode.DB_TRANSACTION_FAILED, 'ChatWorker: failed to persist tool trace', { error: traceErr?.message || traceErr });
+        }
+
         if (iteration >= maxIterations) {
             console.log(`[ChatWorker] Max iterations (${maxIterations}) reached for task ${task.id}`);
 
@@ -1526,7 +1734,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         const toolName = triggers[action as keyof typeof triggers];
 
         if (toolName) {
-            console.log(`[ChatWorker] 🚀 Phase 5: Early pre-fetching ${toolName} for action ${action}`);
+            logger.debug(LogCode.AI_API_CALL, 'ChatWorker: early pre-fetch start', { tool: toolName, action });
 
             // Construct arguments based on intent
             let args: any = {};
@@ -1546,7 +1754,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 const result = await toolRegistry.execute(toolName, args, task.toolContext);
                 const cacheKey = `${toolName}:${JSON.stringify(args)}`;
                 resultsMap.set(cacheKey, result);
-                console.log(`[ChatWorker] ✅ Early pre-fetch stored for ${toolName}`);
+                logger.debug(LogCode.AI_API_CALL, 'ChatWorker: early pre-fetch stored', { tool: toolName });
             } catch (err) {
                 console.warn(`[ChatWorker] Early pre-fetch failed for ${toolName}:`, err);
             }
@@ -1565,14 +1773,14 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             })}`;
 
             if (!resultsMap.has(balanceKey)) {
-                console.log(`[ChatWorker] 🚀 Proactive pre-fetching get_wallet_portfolio based on keywords`);
+                logger.debug(LogCode.AI_API_CALL, 'ChatWorker: proactive pre-fetch wallet_portfolio');
 
                 toolRegistry.execute('get_wallet_portfolio', {
                     address: task.toolContext?.walletAddress,
                     chainId: task.toolContext?.chainId
                 }, task.toolContext).then(res => {
                     resultsMap.set(balanceKey, res);
-                    console.log(`[ChatWorker] ✅ Proactive balance pre-fetch stored`);
+                    logger.debug(LogCode.AI_API_CALL, 'ChatWorker: proactive balance pre-fetch stored');
                 }).catch(err => console.warn('[ChatWorker] Proactive balance pre-fetch failed:', err));
             }
         }
@@ -1581,11 +1789,11 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         if (action !== 'social_trending' && /\b(trending|social|farcaster|twitter|hot|sentiment|what.*people|大家|在聊|热门)\b/i.test(lowerMsg)) {
             const socialKey = `get_trending_casts:${JSON.stringify({})}`;
             if (!resultsMap.has(socialKey)) {
-                console.log(`[ChatWorker] 🚀 Proactive pre-fetching get_trending_casts based on keywords`);
+                logger.debug(LogCode.AI_API_CALL, 'ChatWorker: proactive pre-fetch trending_casts');
 
                 toolRegistry.execute('get_trending_casts', {}, task.toolContext).then(res => {
                     resultsMap.set(socialKey, res);
-                    console.log(`[ChatWorker] ✅ Proactive social pre-fetch stored`);
+                    logger.debug(LogCode.AI_API_CALL, 'ChatWorker: proactive social pre-fetch stored');
                 }).catch(err => console.warn('[ChatWorker] Proactive social pre-fetch failed:', err));
             }
         }
@@ -1603,7 +1811,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 const result = await toolRegistry.execute(tc.function.name, args, context);
                 const cacheKey = `${tc.function.name}:${tc.function.arguments}`;
                 cache.set(cacheKey, result);
-                console.log(`[ChatWorker] Stream pre-fetched ${tc.function.name}`);
+                logger.debug(LogCode.AI_API_CALL, 'ChatWorker: stream pre-fetch stored', { tool: tc.function.name });
             } catch (err: any) { }
         });
         await Promise.allSettled(promises);
@@ -1619,17 +1827,55 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
      * @param userId User ID for broadcasting status
      * @param cache Optional cache of pre-fetched results
      */
-    private async executeTools(sessionId: string, messageId: string, toolCalls: any[], context: any = {}, userId: string | null = null, cache?: Map<string, any>): Promise<{ results: any[], citations: any[] }> {
+    private async executeTools(sessionId: string, messageId: string, toolCalls: any[], context: any = {}, userId: string | null = null, cache?: Map<string, any>, trace?: ToolTraceState): Promise<{ results: any[], citations: any[] }> {
         const results: any[] = [];
         const allCitations: any[] = [];
 
         for (const tc of toolCalls) {
+            let args: any = {};
+            try {
+                args = JSON.parse(tc.function.arguments);
+            } catch (err: any) {
+                const toolName = tc.function?.name || 'unknown_tool';
+                const failCount = (trace?.toolFailures[toolName] || 0) + 1;
+                if (trace) {
+                    trace.toolFailures[toolName] = failCount;
+                    trace.toolCalls.push({ tool: toolName, argsKey: 'invalid_json', status: 'error', error: err?.message || 'Invalid JSON arguments' });
+                    if (failCount >= 2) {
+                        trace.stopReasons.push(`tool_failure_limit:${toolName}`);
+                    }
+                }
+                results.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: `Error: ${err.message || 'Invalid tool arguments'}`
+                });
+                continue;
+            }
+
+            const toolName = tc.function.name;
+            const argsKey = this.buildToolKey(toolName, args);
+            if (trace) {
+                trace.toolCallCounts[toolName] = (trace.toolCallCounts[toolName] || 0) + 1;
+            }
+
+            if (trace?.blockedKeys.has(argsKey)) {
+                trace.toolCalls.push({ tool: toolName, argsKey, status: 'blocked' });
+                results.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: 'No further tool calls (limit reached)'
+                });
+                continue;
+            }
+
             try {
                 // Check cache first (Phase 5)
                 const cacheKey = `${tc.function.name}:${tc.function.arguments}`;
                 if (cache && cache.has(cacheKey)) {
-                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: Using pre-fetched result for ${tc.function.name}`);
+                    logger.debug(LogCode.CACHE_HIT, 'ChatWorker: cache hit tool prefetch', { tool: tc.function.name });
                     const cachedResult = cache.get(cacheKey);
+                    trace?.toolCalls.push({ tool: toolName, argsKey, status: 'cached' });
                     results.push({
                         role: 'tool',
                         tool_call_id: tc.id,
@@ -1651,7 +1897,6 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 }
 
 
-                const args = JSON.parse(tc.function.arguments);
                 const result = await toolRegistry.execute(tc.function.name, args, context);
 
                 // Handle Client Actions (e.g. Swap Modal, Strategy Cards)
@@ -1731,7 +1976,6 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                         : (result && result.__client_action
                             ? JSON.stringify({ ...result, __client_action: undefined })
                             : JSON.stringify(result));
-
                     results.push({
                         role: 'tool',
                         tool_call_id: tc.id,
@@ -1742,19 +1986,47 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     // Special handling for external web search - extract citations
                     allCitations.push(...result.citations);
                     // Only send the results text to the LLM, not the full object
+                    const contentForLLM = typeof result.results === 'string' ? result.results : JSON.stringify(result.results);
                     results.push({
                         role: 'tool',
                         tool_call_id: tc.id,
-                        content: typeof result.results === 'string' ? result.results : JSON.stringify(result.results)
+                        content: contentForLLM
                     });
                 } else {
+                    const contentForLLM = typeof result === 'string' ? result : JSON.stringify(result);
                     results.push({
                         role: 'tool',
                         tool_call_id: tc.id,
-                        content: typeof result === 'string' ? result : JSON.stringify(result)
+                        content: contentForLLM
                     });
                 }
+
+                if (trace) {
+                    const last = trace.lastResultByKey.get(argsKey);
+                    const current = results[results.length - 1]?.content || '';
+                    if (last === current) {
+                        const repeats = (trace.toolRepeats[argsKey] || 0) + 1;
+                        trace.toolRepeats[argsKey] = repeats;
+                        if (repeats >= 2) {
+                            trace.blockedKeys.add(argsKey);
+                            trace.stopReasons.push(`tool_repeat_limit:${toolName}`);
+                        }
+                    } else {
+                        trace.toolRepeats[argsKey] = 0;
+                    }
+                    trace.lastResultByKey.set(argsKey, current);
+                    trace.toolCalls.push({ tool: toolName, argsKey, status: 'success' });
+                }
             } catch (err: any) {
+                const failCount = (trace?.toolFailures[toolName] || 0) + 1;
+                if (trace) {
+                    trace.toolFailures[toolName] = failCount;
+                    trace.toolCalls.push({ tool: toolName, argsKey, status: 'error', error: err?.message || 'Tool execution failed' });
+                    if (failCount >= 2) {
+                        trace.blockedKeys.add(argsKey);
+                        trace.stopReasons.push(`tool_failure_limit:${toolName}`);
+                    }
+                }
                 results.push({
                     role: 'tool',
                     tool_call_id: tc.id,
@@ -1791,6 +2063,17 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         let lastUsage: any = null;  // Track usage for DB persistence
         let allCitations: any[] = [];  // Track citations for DB persistence
         const citationUrlSet = new Set<string>();
+        const toolTrace: ToolTraceState = {
+            mode: 'thinking',
+            skillVersion: 'clean',
+            toolCalls: [],
+            toolCallCounts: {},
+            toolFailures: {},
+            toolRepeats: {},
+            stopReasons: [],
+            blockedKeys: new Set(),
+            lastResultByKey: new Map(),
+        };
 
         // CRITICAL: Broadcast message_start so frontend creates the message BEFORE chunks arrive
         this.ws.broadcastToUser(userId!, {
@@ -1802,7 +2085,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 model: task.model
             }
         });
-        console.log(`[ChatWorker] Grok: Sent message_start for ${assistantMessageId}`);
+        logger.info(LogCode.AI_API_CALL, 'Grok: message_start sent', { assistantMessageId, taskId: task.id });
 
         // Parse intent from user message
         this.ws.broadcastToUser(userId!, {
@@ -1813,7 +2096,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
         const baseToolDefs = getFilteredTools(lastUserMessage);
         let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
-        console.log(`[ChatWorker] Grok base filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
+        logger.debug(LogCode.AI_TOOL_FILTERED, 'Grok: base tool list prepared', { count: toolDefinitions.length });
         const parsedIntent = await parseIntent(lastUserMessage, {
             userAddress: task.toolContext?.walletAddress,
             chainId: task.toolContext?.chainId,
@@ -1829,11 +2112,29 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
         // Use high-level intent for system prompt selection
         const intent: IntentType = parsedIntent.highLevel.type;
-        const isFreeIntent = this.isFreeIntent(intent);
+        const routingMode = this.resolveRoutingMode(intent, parsedIntent.decision);
+        const isFreeIntent = routingMode === 'thinking';
+        toolTrace.mode = routingMode;
+        toolTrace.skillVersion = routingMode === 'thinking' ? 'clean' : 'exec';
+        const decisionMeta = parsedIntent.decision as any;
+        logger.info(LogCode.AI_MODE_ROUTED, 'Grok: routed to mode', {
+            taskId: task.id,
+            sessionId: task.sessionId,
+            model: task.model,
+            intent,
+            routingMode,
+            routingStage: decisionMeta?.routingStage,
+            hardRule: decisionMeta?.hardRule,
+            slotsComplete: decisionMeta?.slotsComplete,
+            confidence: parsedIntent.highLevel?.confidence,
+        });
 
         // Skills-level tool gating (single source of truth: `skill.json` -> metadata.tools).
         const intentStr = String(intent).toUpperCase();
-        const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+        const registry = isFreeIntent ? skillRegistryClean : skillRegistryExec;
+        const matchedSkills = isFreeIntent
+            ? registry.getAllSkills().filter(s => THINKING_SKILL_ID_ALLOWLIST.has(s.metadata.id))
+            : registry.getSkillsByIntent(intentStr);
         const allowedToolNames = new Set<string>();
         for (const skill of matchedSkills) {
             for (const name of skill.metadata.tools || []) {
@@ -1843,19 +2144,48 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         // Always keep `external_web_search` as a safe fallback (consistent with ToolPreRouter).
         allowedToolNames.add('external_web_search');
 
-        if (!isFreeIntent && matchedSkills.length > 0 && allowedToolNames.size > 0) {
+        if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
             const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
             if (gated.length > 0) {
                 toolDefinitions = gated.map(def => ({ type: 'function', function: def }));
-                console.log(`[ChatWorker] Grok skill-gated to ${toolDefinitions.length} tools for intent=${intentStr} skills=${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+                logger.throttled(LogCode.AI_TOOL_FILTERED, 'Grok: tool list gated by skills', {
+                    count: toolDefinitions.length,
+                    intent: intentStr,
+                    skills: matchedSkills.map(s => s.metadata.id),
+                    routingMode,
+                    skillVersion: isFreeIntent ? 'clean' : 'exec',
+                });
+                logger.info(LogCode.AI_SKILLS_ATTACHED, 'Grok: skills attached', {
+                    taskId: task.id,
+                    sessionId: task.sessionId,
+                    model: task.model,
+                    intent: intentStr,
+                    routingMode,
+                    skillVersion: isFreeIntent ? 'clean' : 'exec',
+                    skills: matchedSkills.map(s => s.metadata.id),
+                    toolCount: toolDefinitions.length,
+                });
             } else {
-                console.warn(`[ChatWorker] Grok skill gating produced 0 tools for intent=${intentStr}; falling back to base tool set`);
+                logger.warn(LogCode.AI_TOOL_FILTERED, 'Grok: skill gating produced 0 tools; fallback to base', { intent: intentStr });
             }
-        }
-        if (isFreeIntent) {
-            const allToolDefs = toolRegistry.getAllDefinitions().filter(def => def.name !== 'external_web_search');
-            toolDefinitions = allToolDefs.map(def => ({ type: 'function', function: def }));
-            console.log(`[ChatWorker] Grok free intent mode: using all ${toolDefinitions.length} tools (no gating, exclude external_web_search)`);
+        } else if (isFreeIntent) {
+            const allToolDefs = toolRegistry.getAllDefinitions();
+            const filtered = allToolDefs.filter(def => THINKING_TOOL_ALLOWLIST.has(def.name));
+            toolDefinitions = filtered.map(def => ({ type: 'function', function: def }));
+            logger.debug(LogCode.AI_TOOL_FILTERED, 'Grok: free intent mode uses thinking tools', {
+                count: toolDefinitions.length,
+                routingMode,
+                skillVersion: 'clean',
+            });
+            logger.info(LogCode.AI_SKILLS_ATTACHED, 'Grok: thinking mode without skills injection', {
+                taskId: task.id,
+                sessionId: task.sessionId,
+                model: task.model,
+                intent: intentStr,
+                routingMode,
+                skillVersion: 'clean',
+                toolCount: toolDefinitions.length,
+            });
         }
         if (!isFreeIntent) {
             toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'external_web_search');
@@ -1869,10 +2199,10 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
         // 🚀 PRE-EMPTIVE TOOL EXECUTION (Phase 5: Intent-based)
         earlyPreFetchPromise = this.preFetchByIntent(task, parsedIntent, toolResultsCache).catch(err => {
-            console.error('[ChatWorker] Grok Early pre-fetch failed:', err);
+            logger.warn(LogCode.AI_API_CALL, 'Grok: early pre-fetch failed', { error: err?.message || err });
         });
 
-        const systemPrompt = promptOrchestrator.getSystemPrompt('grok', intent);
+        const systemPrompt = promptOrchestrator.getSystemPrompt('grok', intent, { routingMode });
 
         // Prepare User Context
         let userContext: UserContext = {
@@ -1904,7 +2234,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 data: { status: 'running', message: 'Scanning tokens' }
             });
 
-            console.log(`[ChatWorker] Grok: Detected contract address: ${parsedIntent.contractAddress}`);
+            logger.info(LogCode.AI_TOKEN_DETECTED, 'Grok: contract address detected', { contractAddress: parsedIntent.contractAddress });
             const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
             if (globalTokenInfo) {
                 detectedChainId = globalTokenInfo.chainId;
@@ -1913,7 +2243,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
                 // Log launchpad info if detected
                 if (globalTokenInfo.launchpad) {
-                    console.log(`[ChatWorker] Grok: Token is from launchpad: ${globalTokenInfo.launchpad.provider}`);
+                    logger.info(LogCode.AI_LAUNCHPAD_DETECTED, 'Grok: launchpad token detected', { provider: globalTokenInfo.launchpad.provider });
 
                     // AUTO-TRIGGER CARD: If it's a launchpad token, show card immediately
                     this.ws.broadcastToUser(userId!, {
@@ -1937,46 +2267,48 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 }
             }
 
-            // Extract official socials/websites (DexScreener token profile is the most reliable source we have)
-            try {
-                const chainForDex: string = (() => {
-                    const chainIdToDex: Record<number, string> = {
-                        1: 'ethereum',
-                        8453: 'base',
-                        56: 'bsc',
-                        42161: 'arbitrum',
-                        10: 'optimism',
-                        137: 'polygon',
-                        900: 'solana',
-                        101: 'solana',
-                    };
-                    return chainIdToDex[detectedChainId || task.toolContext?.chainId || 8453] || 'base';
-                })();
+            // Extract official socials/websites for execution mode only.
+            if (!isFreeIntent) {
+                try {
+                    const chainForDex: string = (() => {
+                        const chainIdToDex: Record<number, string> = {
+                            1: 'ethereum',
+                            8453: 'base',
+                            56: 'bsc',
+                            42161: 'arbitrum',
+                            10: 'optimism',
+                            137: 'polygon',
+                            900: 'solana',
+                            101: 'solana',
+                        };
+                        return chainIdToDex[detectedChainId || task.toolContext?.chainId || 8453] || 'base';
+                    })();
 
-                const dexDetails = await getDexTokenDetails(chainForDex, parsedIntent.contractAddress);
-                const socials = (dexDetails as any)?.socials || [];
-                const websites = (dexDetails as any)?.websites || [];
+                    const dexDetails = await getDexTokenDetails(chainForDex, parsedIntent.contractAddress);
+                    const socials = (dexDetails as any)?.socials || [];
+                    const websites = (dexDetails as any)?.websites || [];
 
-                const handleSet = new Set<string>();
-                for (const s of socials) {
-                    const url = String((s as any)?.url || '');
-                    if (!url) continue;
-                    if (/x\.com|twitter\.com/i.test(url)) {
-                        const m = url.match(/(?:x\.com|twitter\.com)\/([A-Za-z0-9_]{1,30})/i);
-                        if (m?.[1]) handleSet.add(`@${m[1]}`);
+                    const handleSet = new Set<string>();
+                    for (const s of socials) {
+                        const url = String((s as any)?.url || '');
+                        if (!url) continue;
+                        if (/x\.com|twitter\.com/i.test(url)) {
+                            const m = url.match(/(?:x\.com|twitter\.com)\/([A-Za-z0-9_]{1,30})/i);
+                            if (m?.[1]) handleSet.add(`@${m[1]}`);
+                        }
                     }
-                }
-                xSeedHandles = Array.from(handleSet).slice(0, 5);
+                    xSeedHandles = Array.from(handleSet).slice(0, 5);
 
-                const siteSet = new Set<string>();
-                for (const w of websites) {
-                    const url = String((w as any)?.url || '');
-                    if (!url) continue;
-                    siteSet.add(url);
+                    const siteSet = new Set<string>();
+                    for (const w of websites) {
+                        const url = String((w as any)?.url || '');
+                        if (!url) continue;
+                        siteSet.add(url);
+                    }
+                    officialSites = Array.from(siteSet).slice(0, 5);
+                } catch (e) {
+                    // Best-effort; do not block generation if socials fetch fails
                 }
-                officialSites = Array.from(siteSet).slice(0, 5);
-            } catch (e) {
-                // Best-effort; do not block generation if socials fetch fails
             }
         }
 
@@ -1986,7 +2318,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
         // Wait for early pre-fetch to complete before building enrichment
         if (earlyPreFetchPromise) {
-            console.log('[ChatWorker] Grok: Waiting for early pre-fetch to complete');
+            logger.debug(LogCode.AI_API_CALL, 'Grok: waiting for early pre-fetch');
             await earlyPreFetchPromise;
             earlyPreFetchPromise = null;
         }
@@ -2014,7 +2346,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 })}`;
                 if (toolResultsCache.has(tokenKey)) {
                     tokenInfo = toolResultsCache.get(tokenKey);
-                    console.log('[ChatWorker] ⚡ [CACHE HIT]: Grok get_token_info');
+                    logger.throttled(LogCode.CACHE_HIT, 'Grok: cache hit token_info');
                 }
             }
 
@@ -2033,15 +2365,6 @@ ${officialSites.length > 0 ? `Official Sites (seed): ${officialSites.join(', ')}
 `;
             }
 
-            const xSeedBlock = (() => {
-                if (!parsedIntent.contractAddress) return '';
-                const lines: string[] = [];
-                if (xSeedHandles.length > 0) lines.push(`- Seed handles: ${xSeedHandles.join(', ')}`);
-                if (officialSites.length > 0) lines.push(`- Seed sites: ${officialSites.join(', ')}`);
-                if (tokenInfo?.symbol || tokenInfo?.name) lines.push(`- Token keywords: ${tokenInfo.symbol || ''} ${tokenInfo.name || ''}`.trim());
-                lines.push(`- Suggested X queries (don’t overfit): "${tokenInfo?.symbol || ''} ${tokenInfo?.name || ''} ${parsedIntent.contractAddress}"`.trim());
-                return `\n\n[X_SEARCH_SEEDS]\n${lines.join('\n')}\n`;
-            })();
 
             // Build enriched content with context
             let enrichedContent = promptOrchestrator.buildPrompt(
@@ -2056,7 +2379,7 @@ ${officialSites.length > 0 ? `Official Sites (seed): ${officialSites.join(', ')}
                 chainId: task.toolContext?.chainId
             })}`;
             if (toolResultsCache.has(balanceKey)) {
-                console.log(`[ChatWorker] ⚡ [CACHE HIT]: Grok get_wallet_portfolio`);
+                logger.throttled(LogCode.CACHE_HIT, 'Grok: cache hit wallet_portfolio');
                 const balanceData = toolResultsCache.get(balanceKey);
                 enrichedContent += `\n\n[USER_BALANCE_CONTEXT]
 User Wallet: ${task.toolContext?.walletAddress}
@@ -2064,36 +2387,8 @@ ${balanceData.tokens ? `Portfolio Assets:\n${balanceData.tokens.map((t: any) => 
 `;
             }
 
-            if (xSeedBlock) {
-                enrichedContent += xSeedBlock;
-            }
-
             if (tokenContextBlock) {
                 enrichedContent += tokenContextBlock;
-            }
-
-            // CRITICAL: Pre-fetch Farcaster data when intent is social_trending
-            // This injects REAL data into the context so Grok doesn't hallucinate
-            if (parsedIntent.detailed.action === 'social_trending') {
-                try {
-                    console.log('[ChatWorker] Farcaster: Pre-fetching trending casts for social_trending intent');
-                    const trendingCasts = await getTrendingCasts(20, '24h');
-                    if (trendingCasts && trendingCasts.length > 0) {
-                        const farcasterDataBlock = `\n\n[FARCASTER TRENDING DATA - REAL-TIME]
-📊 Top ${trendingCasts.length} trending casts from the last 24 hours (DO NOT fabricate - use ONLY this data):
-${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
-                            `${i + 1}. @${cast.author?.username || 'unknown'} (FID: ${cast.author?.fid || '?'})
-   "${(cast.text || '').slice(0, 120)}${(cast.text?.length || 0) > 120 ? '...' : ''}"
-   ❤️ ${cast.stats?.likes || 0} likes | 🔁 ${cast.stats?.recasts || 0} recasts | 💬 ${cast.stats?.replies || 0} replies`
-                        ).join('\n\n')}
-
-⚠️ IMPORTANT: Present this data in a clean table format. DO NOT invent additional casts.`;
-                        enrichedContent += farcasterDataBlock;
-                        console.log(`[ChatWorker] ⚡ [CACHE HIT]: Grok get_trending_casts`);
-                    }
-                } catch (farcasterError) {
-                    console.error('[ChatWorker] Farcaster: Failed to pre-fetch trending casts:', farcasterError);
-                }
             }
 
             enrichedHistory[lastUserIndex] = {
@@ -2274,7 +2569,7 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
                     // Handle client_actions from grok-service (swap actions, UI triggers)
                     if (delta && delta.client_actions && Array.isArray(delta.client_actions)) {
                         for (const action of delta.client_actions) {
-                            console.log('[ChatWorker] Broadcasting Grok client_action:', action.type);
+                            logger.info(LogCode.WS_MESSAGE_SENT, 'Grok: broadcast client_action', { action: action.type });
                             this.ws.broadcastToUser(userId!, {
                                 type: 'client_action',
                                 sessionId: task.sessionId,
@@ -2326,14 +2621,36 @@ ${trendingCasts.slice(0, 15).map((cast: any, i: number) =>
                 status: 'complete'
             });
         } catch (dbErr) {
-            console.error(`[ChatWorker] Failed to save final Grok message ${assistantMessageId} to DB:`, dbErr);
+            logger.error(LogCode.DB_TRANSACTION_FAILED, 'Grok: failed to save final message', { assistantMessageId, error: (dbErr as any)?.message || dbErr });
+        }
+
+        try {
+            const existing = await this.repo.getMessage(assistantMessageId);
+            const existingData = existing?.data || {};
+            const toolTracePayload = {
+                mode: toolTrace.mode,
+                skillVersion: toolTrace.skillVersion,
+                toolCalls: toolTrace.toolCalls,
+                toolCallCounts: toolTrace.toolCallCounts,
+                toolFailures: toolTrace.toolFailures,
+                toolRepeats: toolTrace.toolRepeats,
+                stopReasons: Array.from(new Set(toolTrace.stopReasons)),
+            };
+            await this.repo.updateMessage(assistantMessageId, {
+                data: {
+                    ...existingData,
+                    toolTrace: toolTracePayload,
+                }
+            });
+        } catch (traceErr: any) {
+            logger.warn(LogCode.DB_TRANSACTION_FAILED, 'Grok: failed to persist tool trace', { error: traceErr?.message || traceErr });
         }
 
         if (newResponseId) {
             this.grokResponseIdBySession.set(task.sessionId, newResponseId);
         }
 
-        console.log(`[ChatWorker] Grok task ${task.id} completed, ${chunkIndex} chunks`);
+        logger.throttled(LogCode.AI_API_CALL, 'Grok: task completed', { taskId: task.id, chunks: chunkIndex });
     }
 }
 

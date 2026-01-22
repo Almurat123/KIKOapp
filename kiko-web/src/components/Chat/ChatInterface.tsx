@@ -743,7 +743,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }
                             return prev;
                         });
-                    } else if (['show_chart_card', 'show_launchpad_card'].includes(event.data.action.type)) {
+                    } else if (['show_chart_card', 'show_launchpad_card', 'show_transaction_status_card'].includes(event.data.action.type)) {
                         // Update the specific message or the latest assistant message
                         const targetMessageId = event.data.message_id || event.data.messageId;
 
@@ -751,11 +751,20 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             // First, try to find by ID
                             const targetIdx = targetMessageId ? prev.findIndex(m => m.id === targetMessageId) : -1;
 
+                            const getCardType = (actionType: string) => {
+                                switch (actionType) {
+                                    case 'show_strategy_card': return 'strategy-card';
+                                    case 'show_chart_card': return 'chart-card';
+                                    case 'show_launchpad_card': return 'launchpad-card';
+                                    case 'show_transaction_status_card': return 'transaction-status-card';
+                                    default: return 'text';
+                                }
+                            };
+
                             if (targetIdx !== -1) {
                                 return prev.map((m, idx) => idx === targetIdx ? {
                                     ...m,
-                                    type: (event.data.action.type === 'show_strategy_card' ? 'strategy-card' :
-                                        event.data.action.type === 'show_chart_card' ? 'chart-card' : 'launchpad-card') as any,
+                                    type: getCardType(event.data.action.type) as any,
                                     data: event.data.action.data
                                 } : m);
                             }
@@ -766,8 +775,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 const actualIdx = prev.length - 1 - lastMsgIdx;
                                 return prev.map((m, idx) => idx === actualIdx ? {
                                     ...m,
-                                    type: (event.data.action.type === 'show_strategy_card' ? 'strategy-card' :
-                                        event.data.action.type === 'show_chart_card' ? 'chart-card' : 'launchpad-card') as any,
+                                    type: getCardType(event.data.action.type) as any,
                                     data: event.data.action.data
                                 } : m);
                             }

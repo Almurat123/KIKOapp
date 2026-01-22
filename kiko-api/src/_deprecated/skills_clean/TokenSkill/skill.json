@@ -1,0 +1,32 @@
+{
+    "id": "token_analysis",
+    "name": "Token Analysis",
+    "description": "Deep analysis of tokens including price, trends, early buyers, and creators.",
+    "intents": [
+        "MARKET_ANALYSIS"
+    ],
+    "tools": [
+        "get_token_info",
+        "get_trending_tokens",
+        "get_token_price",
+        "get_historical_price",
+        "get_early_buyers",
+        "analyze_creator"
+    ],
+    "examples": {
+        "en": [
+            "Analyze PEPE token",
+            "Who bought DEGEN early?",
+            "Is the creator of this token safe?",
+            "Get price history of BTC",
+            "What tokens are trending now?"
+        ],
+        "zh": [
+            "分析 PEPE 代币",
+            "谁早期买入了 DEGEN？",
+            "这个代币的创建者安全吗？",
+            "获取 BTC 的历史价格",
+            "现在哪些代币在流行？"
+        ]
+    }
+}

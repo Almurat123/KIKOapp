@@ -945,48 +945,35 @@ export const OverviewPage: React.FC = () => {
                     className={styles.mobileCard}
                   >
                     {/* Header: Icon + Name + Value */}
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '12px',
-                    }}>
-                      <div className={styles.iconWrapper} style={{ color: item.color, width: '40px', height: '40px' }}>
+                    <div className={styles.mobileCardHeader}>
+                      <div className={styles.iconWrapper40} style={{ color: item.color }}>
                         <Icon size={20} />
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          gap: '8px',
-                          marginBottom: '4px',
-                        }}>
-                          <div className={styles.indicatorName} style={{ fontSize: '14px' }}>
+                      <div className={styles.mobileCardContent}>
+                        <div className={styles.mobileCardTitleRow}>
+                          <div className={styles.indicatorName}>
                             {item.name}
                           </div>
                           <div className={styles.valueWrapper} style={{ flexShrink: 0 }}>
-                            <span className={styles.value} style={{ fontSize: '14px' }}>
+                            <span className={styles.value}>
                               {item.value}
                             </span>
                             {item.unit && (
-                              <span className={styles.unit} style={{ fontSize: '10px' }}>
+                              <span className={styles.unit}>
                                 {item.unit}
                               </span>
                             )}
                           </div>
                         </div>
-                        <div className={styles.indicatorDesc} style={{ fontSize: '11px', marginBottom: '8px' }}>
+                        <div className={styles.indicatorDesc} style={{ marginBottom: '8px' }}>
                           {item.description}
                         </div>
                       </div>
                     </div>
 
                     {/* Status & Position */}
-                    <div style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '10px',
-                    }}>
+                    {/* Status & Position */}
+                    <div className={styles.flexColumnGap}>
                       {/* Status */}
                       <div>
                         <span className={styles.statusBadge} style={{
@@ -1002,12 +989,8 @@ export const OverviewPage: React.FC = () => {
                       </div>
 
                       {/* Position Progress Bar */}
-                      <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '4px',
-                      }}>
-                        <div className={styles.rangeLabels} style={{ fontSize: '9px' }}>
+                      <div className={styles.flexColumnGap4}>
+                        <div className={styles.rangeLabels}>
                           <span>{item.rangeLabels[0]}</span>
                           <span>{item.rangeLabels[2]}</span>
                         </div>

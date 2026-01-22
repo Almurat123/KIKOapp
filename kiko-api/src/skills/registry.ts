@@ -10,8 +10,14 @@ const __dirname = path.dirname(__filename);
 
 class Registry implements SkillRegistry {
     private skills: Map<string, Skill> = new Map();
+    private baseDir: string;
+    private label: string;
+    private variant: 'exec' | 'clean';
 
-    constructor() {
+    constructor(baseDir: string, label: string, variant: 'exec' | 'clean') {
+        this.baseDir = baseDir;
+        this.label = label;
+        this.variant = variant;
         // Auto-load skills on instantiation
         this.loadSkills();
     }
@@ -48,10 +54,9 @@ class Registry implements SkillRegistry {
     }
 
     private loadSkills() {
-        console.log('[SkillRegistry] Loading skills...');
+        console.log(`[SkillRegistry:${this.label}] Loading skills from ${this.baseDir}...`);
 
-        // Scan directories in src/skills/
-        const skillsDir = __dirname;
+        const skillsDir = this.baseDir;
         const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
 
         for (const entry of entries) {
@@ -67,20 +72,27 @@ class Registry implements SkillRegistry {
             const skillMdPath = path.join(dir, 'SKILL.md');
             const jsonPath = path.join(dir, 'skill.json');
             const promptPath = path.join(dir, 'prompt.md');
+            const promptCleanPath = path.join(dir, 'prompt.clean.md');
+            const promptExecPath = path.join(dir, 'prompt.exec.md');
 
-            const hasSkillMd = fs.existsSync(skillMdPath);
-            const hasLegacy = fs.existsSync(jsonPath) && fs.existsSync(promptPath);
-            if (!hasSkillMd && !hasLegacy) return;
+            const hasJson = fs.existsSync(jsonPath);
+            const hasAnyPrompt = fs.existsSync(promptCleanPath) || fs.existsSync(promptExecPath) || fs.existsSync(promptPath) || fs.existsSync(skillMdPath);
+            if (!hasJson || !hasAnyPrompt) return;
 
-            // Prefer Agent Skills-style SKILL.md if present, otherwise fall back to legacy files.
+            // Prompt selection:
+            // - Runtime uses variant prompts to avoid "prompt pollution" across thinking/execution.
+            // - SKILL.md is treated as a fallback if no prompt files exist.
             let frontmatter: { name?: string; description?: string; body: string } | null = null;
             let prompt = '';
-            if (hasSkillMd) {
+            const preferredPromptPath = this.variant === 'clean' ? promptCleanPath : promptExecPath;
+            if (fs.existsSync(preferredPromptPath)) {
+                prompt = fs.readFileSync(preferredPromptPath, 'utf-8').trim();
+            } else if (fs.existsSync(promptPath)) {
+                prompt = fs.readFileSync(promptPath, 'utf-8').trim();
+            } else if (fs.existsSync(skillMdPath)) {
                 const skillMd = fs.readFileSync(skillMdPath, 'utf-8');
                 frontmatter = this.parseSkillFrontmatter(skillMd);
                 prompt = (frontmatter?.body || skillMd).trim();
-            } else {
-                prompt = fs.readFileSync(promptPath, 'utf-8').trim();
             }
 
             // Metadata: prefer legacy `skill.json` (richer structure), but allow SKILL.md-only skills.
@@ -99,6 +111,10 @@ class Registry implements SkillRegistry {
             }
 
             if (!metadata) return;
+            if (!metadata.id) {
+                console.warn(`[SkillRegistry] Skipping skill with missing id in ${dir}`);
+                return;
+            }
             if (frontmatter?.description && !metadata.description) {
                 metadata.description = frontmatter.description;
             }
@@ -109,10 +125,10 @@ class Registry implements SkillRegistry {
             };
 
             this.register(skill);
-            console.log(`[SkillRegistry] Loaded skill: ${metadata.id}`);
+            console.log(`[SkillRegistry:${this.label}] Loaded skill: ${metadata.id}`);
 
         } catch (error) {
-            console.error(`[SkillRegistry] Failed to load skill from ${dir}:`, error);
+            console.error(`[SkillRegistry:${this.label}] Failed to load skill from ${dir}:`, error);
         }
     }
 
@@ -191,4 +207,9 @@ class Registry implements SkillRegistry {
     }
 }
 
-export const skillRegistry = new Registry();
+const skillsDir = path.resolve(__dirname);
+
+export const skillRegistryExec = new Registry(skillsDir, 'exec', 'exec');
+export const skillRegistryClean = new Registry(skillsDir, 'clean', 'clean');
+// Legacy fallback (kept for backward compatibility).
+export const skillRegistry = skillRegistryExec;

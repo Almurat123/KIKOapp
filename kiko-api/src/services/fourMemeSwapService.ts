@@ -15,6 +15,7 @@ import { base, bsc } from 'viem/chains';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 
 // Four.Meme Helper V3 Addresses
 const FOURMEME_HELPER = {
@@ -43,7 +44,8 @@ const TOKEN_MANAGER_V1_ABI = parseAbi([
 
 const ERC20_ABI = parseAbi([
     'function approve(address spender, uint256 amount) external returns (bool)',
-    'function allowance(address owner, address spender) view returns (uint256)'
+    'function allowance(address owner, address spender) view returns (uint256)',
+    'function transfer(address to, uint256 amount) external returns (bool)'
 ]);
 
 export class FourMemeSwapService {
@@ -70,6 +72,7 @@ export class FourMemeSwapService {
         amountIn: string;
         chainId: number;
         slippage?: number;
+        feeContext?: FeeContext;
     }): Promise<string> {
         logger.debug(LogCode.EXE_TX_BROADCAST, 'Executing Four.Meme FastSwap');
 
@@ -82,7 +85,10 @@ export class FourMemeSwapService {
 
         const isBuy = params.tokenIn === 'ETH' || params.tokenIn === 'BNB' || params.tokenIn === '0x0000000000000000000000000000000000000000';
         const targetToken = (isBuy ? params.tokenOut : params.tokenIn) as Address;
-        const amountInWei = parseEther(params.amountIn);
+        let amountInWei = parseEther(params.amountIn);
+
+        const fee = getPlatformFee(params.feeContext || 'swap');
+        const canChargeFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient);
 
         // 1. Get Token Info to see version and liquidity status
         const info = await client.readContract({
@@ -118,6 +124,20 @@ export class FourMemeSwapService {
             const [, , estimatedAmount] = estimate;
             const minAmount = (estimatedAmount * BigInt(100 - slippagePct)) / BigInt(100);
 
+            if (canChargeFee && amountInWei > 0n) {
+                const feeWei = (amountInWei * BigInt(fee.bps)) / 10000n;
+                if (feeWei > 0n && amountInWei > feeWei) {
+                    await sendTransaction(params.userId, params.accessToken, {
+                        to: fee.evmRecipient!,
+                        data: '0x',
+                        value: feeWei.toString(),
+                        chainId: params.chainId,
+                    });
+                    amountInWei = amountInWei - feeWei;
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Collected platform fee (native)', { bps: fee.bps, wei: feeWei.toString() });
+                }
+            }
+
             if (quote === '0x0000000000000000000000000000000000000000') {
                 // Native ETH/BNB pair
                 if (version === BigInt(2)) {
@@ -146,6 +166,26 @@ export class FourMemeSwapService {
             }
         } else {
             // SELL Logic
+            if (canChargeFee && amountInWei > 0n) {
+                const feeAmount = (amountInWei * BigInt(fee.bps)) / 10000n;
+                if (feeAmount > 0n && amountInWei > feeAmount) {
+                    // transfer fee tokens
+                    const data = encodeFunctionData({
+                        abi: ERC20_ABI,
+                        functionName: 'transfer',
+                        args: [fee.evmRecipient! as Address, feeAmount]
+                    });
+                    await sendTransaction(params.userId, params.accessToken, {
+                        to: targetToken,
+                        data,
+                        value: '0',
+                        chainId: params.chainId,
+                    });
+                    amountInWei = amountInWei - feeAmount;
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Collected platform fee (token)', { bps: fee.bps, amount: feeAmount.toString() });
+                }
+            }
+
             // 1. Check Allowance for TokenManager
             const allowance = await client.readContract({
                 address: targetToken,

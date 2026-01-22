@@ -225,218 +225,220 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return;
         }
 
-        // Process activities asynchronously
-        try {
-            // Alchemy Address Activity webhook structure:
-            // EVM: payload.event.network, payload.event.activity
-            // Solana: payload.event.event.network, payload.event.event.transaction
-            // Dig into the payload to find the network and event data
-            // Alchemy likes to nest things differently between test pings and real events
-            let current = payload;
-            let network = undefined;
-            let eventData = undefined;
+        // Process activities asynchronously in background to prevent Alchemy timeouts
+        setImmediate(async () => {
+            try {
+                // Alchemy Address Activity webhook structure:
+                // EVM: payload.event.network, payload.event.activity
+                // Solana: payload.event.event.network, payload.event.event.transaction
+                // Dig into the payload to find the network and event data
+                // Alchemy likes to nest things differently between test pings and real events
+                let current = payload;
+                let network = undefined;
+                let eventData = undefined;
 
-            // Max 5 levels of recursion to avoid infinite loops
-            for (let i = 0; i < 5; i++) {
-                if (current.network) network = current.network;
-                if (current.event && typeof current.event === 'object') {
-                    current = current.event;
-                    continue;
+                // Max 5 levels of recursion to avoid infinite loops
+                for (let i = 0; i < 5; i++) {
+                    if (current.network) network = current.network;
+                    if (current.event && typeof current.event === 'object') {
+                        current = current.event;
+                        continue;
+                    }
+                    eventData = current;
+                    break;
                 }
-                eventData = current;
-                break;
-            }
 
-            const chainId = NETWORK_TO_CHAIN_ID[network] || (network ? NETWORK_TO_CHAIN_ID[network.toUpperCase()] : undefined);
+                const chainId = NETWORK_TO_CHAIN_ID[network] || (network ? NETWORK_TO_CHAIN_ID[network.toUpperCase()] : undefined);
 
-            if (!chainId) {
-                console.warn(`[Webhook] Unknown network: ${network}. Payload snippet: ${JSON.stringify(payload).slice(0, 200)}`);
-                return;
-            }
+                if (!chainId) {
+                    console.warn(`[Webhook] Unknown network: ${network}. Payload snippet: ${JSON.stringify(payload).slice(0, 200)}`);
+                    return;
+                }
 
-            // Extract items to process (Activity or Transaction)
-            let items: any[] = [];
-            let isSolanaItems = false;
+                // Extract items to process (Activity or Transaction)
+                let items: any[] = [];
+                let isSolanaItems = false;
 
-            if (eventData?.activity) {
-                items = Array.isArray(eventData.activity) ? eventData.activity : [eventData.activity];
-                console.log(`[Webhook] Processing as EVM activity (${items.length} items)`);
-            } else if (eventData?.transaction) {
-                items = Array.isArray(eventData.transaction) ? eventData.transaction : [eventData.transaction];
-                isSolanaItems = true;
-                console.log(`[Webhook] Processing as Solana transaction (${items.length} items)`);
-            } else {
-                console.log(`[Webhook] No recognizable activity or transaction array in eventData`);
-            }
-
-            for (const item of items) {
-                let txHash = '';
-                let candidates: string[] = [];
-
-                if (isSolanaItems) {
-                    // Solana Structure: Handle cases where transaction/message might be arrays (Alchemy Test Hook)
-                    txHash = item.signature;
-
-                    const solTx = Array.isArray(item.transaction) ? item.transaction[0] : item.transaction;
-                    if (!txHash && solTx?.signatures) {
-                        txHash = solTx.signatures[0];
-                    }
-
-                    const solMsg = Array.isArray(solTx?.message) ? solTx.message[0] : solTx?.message;
-                    const keys = solMsg?.account_keys || solMsg?.accountKeys || [];
-                    candidates = keys.map((k: any) => normalizeAddress(typeof k === 'string' ? k : k.pubkey || k.toString()));
-
-                    if (candidates.length === 0) {
-                        console.log(`[Webhook] Solana candidate extraction debug: signature=${txHash}, item keys=${Object.keys(item)}, solTx keys=${solTx ? Object.keys(solTx) : 'null'}, solMsg keys=${solMsg ? Object.keys(solMsg) : 'null'}`);
-                    }
+                if (eventData?.activity) {
+                    items = Array.isArray(eventData.activity) ? eventData.activity : [eventData.activity];
+                    console.log(`[Webhook] Processing as EVM activity (${items.length} items)`);
+                } else if (eventData?.transaction) {
+                    items = Array.isArray(eventData.transaction) ? eventData.transaction : [eventData.transaction];
+                    isSolanaItems = true;
+                    console.log(`[Webhook] Processing as Solana transaction (${items.length} items)`);
                 } else {
-                    // EVM Structure
-                    txHash = item.hash;
-                    const fromAddr = normalizeAddress(item.fromAddress);
-                    const toAddr = normalizeAddress(item.toAddress);
-                    candidates = [fromAddr, toAddr].filter(Boolean);
+                    console.log(`[Webhook] No recognizable activity or transaction array in eventData`);
                 }
 
-                if (!txHash) continue;
+                for (const item of items) {
+                    let txHash = '';
+                    let candidates: string[] = [];
 
-                // FAST in-memory deduplication check (shared with watcher)
-                if (isTxProcessed(txHash)) {
-                    console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
-                    continue;
-                }
+                    if (isSolanaItems) {
+                        // Solana Structure: Handle cases where transaction/message might be arrays (Alchemy Test Hook)
+                        txHash = item.signature;
 
-                const trackedWallets = await prisma.trackedWallet.findMany({
-                    where: {
-                        address: { in: candidates, mode: 'insensitive' },
-                        chainId,
+                        const solTx = Array.isArray(item.transaction) ? item.transaction[0] : item.transaction;
+                        if (!txHash && solTx?.signatures) {
+                            txHash = solTx.signatures[0];
+                        }
+
+                        const solMsg = Array.isArray(solTx?.message) ? solTx.message[0] : solTx?.message;
+                        const keys = solMsg?.account_keys || solMsg?.accountKeys || [];
+                        candidates = keys.map((k: any) => normalizeAddress(typeof k === 'string' ? k : k.pubkey || k.toString()));
+
+                        if (candidates.length === 0) {
+                            console.log(`[Webhook] Solana candidate extraction debug: signature=${txHash}, item keys=${Object.keys(item)}, solTx keys=${solTx ? Object.keys(solTx) : 'null'}, solMsg keys=${solMsg ? Object.keys(solMsg) : 'null'}`);
+                        }
+                    } else {
+                        // EVM Structure
+                        txHash = item.hash;
+                        const fromAddr = normalizeAddress(item.fromAddress);
+                        const toAddr = normalizeAddress(item.toAddress);
+                        candidates = [fromAddr, toAddr].filter(Boolean);
                     }
-                });
 
-                if (trackedWallets.length === 0) {
-                    console.log(`[Webhook] ⚠️ Ignoring tx ${txHash.slice(0, 8)}: No matched tracked wallets in [${candidates.map(c => c.slice(0, 6)).join(', ')}]`);
-                    continue;
-                }
+                    if (!txHash) continue;
 
-                // Mark as processing ONLY if we have matched wallets
-                markTxAsProcessed(txHash);
-
-                console.log(`[Webhook] 🎯 Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
-
-                // Branch by chain type: Solana vs EVM
-                if (chainId === 900) {
-                    try {
-                        // Solana Logic
-                        const { getSolanaConnection, SOLANA_CONFIG } = await import('../config/solanaConfig.js');
-                        const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
-
-                        let tx: any = null;
-                        const rpcsToTry = [
-                            undefined, // Primary (from .env)
-                            SOLANA_CONFIG.RPC_URLS.PUBLIC,
-                            SOLANA_CONFIG.RPC_URLS.BACKUP_1,
-                            SOLANA_CONFIG.RPC_URLS.BACKUP_2
-                        ];
-
-                        for (const rpcUrl of rpcsToTry) {
-                            try {
-                                const connection = getSolanaConnection(rpcUrl);
-                                tx = await connection.getParsedTransaction(txHash, {
-                                    maxSupportedTransactionVersion: 0,
-                                    commitment: 'confirmed'
-                                });
-                                if (tx) {
-                                    if (rpcUrl) console.log(`[Webhook] ✅ Successfully fetched Solana tx via fallback RPC: ${rpcUrl}`);
-                                    break;
-                                }
-                            } catch (err: any) {
-                                const isSslError = err.message?.includes('SSL') || err.cause?.message?.includes('SSL');
-                                console.warn(`[Webhook] Solana fetch failed ${rpcUrl ? 'via ' + rpcUrl : 'via primary'}: ${err.message}${isSslError ? ' (SSL Error)' : ''}`);
-                                if (!isSslError && !err.message?.includes('fetch failed')) {
-                                    // If it's not a connection/SSL error, it might be a 404 or something else where retrying won't help as much
-                                    // but we try others anyway
-                                }
-                            }
-                        }
-
-                        if (!tx) {
-                            console.error(`[Webhook] ❌ Failed to fetch Solana tx details after trying all RPCs: ${txHash.slice(0, 16)}`);
-                            continue;
-                        }
-
-                        // Trigger copy trade for EACH matched tracked wallet
-                        const { handleSwapDetected } = await import('../services/autoTradeService.js');
-                        for (const walletRecord of trackedWallets) {
-                            const trackedTarget = walletRecord.address;
-
-                            // Decode Solana Swap
-                            const swap = await decodeSolanaSwap(tx, trackedTarget);
-
-                            if (swap) {
-                                console.log(`[Webhook] ✅ Solana Swap detected for ${trackedTarget.slice(0, 8)}:`, {
-                                    in: swap.tokenIn,
-                                    out: swap.tokenOut,
-                                    dex: swap.dexName
-                                });
-                                await handleSwapDetected(trackedTarget, swap, chainId);
-                            } else {
-                                // console.log(`[Webhook] Solana tx ${txHash.slice(0, 8)} was not a swap for tracked wallet`);
-                            }
-                        }
-                    } catch (err) {
-                        console.error(`[Webhook] Error fetching Solana tx details:`, err);
-                    }
-                    continue;
-                }
-
-                // EVM Logic (Base, BSC, etc.)
-                const [tx, receipt] = await Promise.all([
-                    fetchTransaction(txHash, chainId),
-                    fetchTransactionReceipt(txHash, chainId),
-                ]);
-
-                if (!tx || !receipt) {
-                    console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash.slice(0, 16)}`);
-                    continue;
-                }
-
-                // Trigger copy trade for EACH matched tracked wallet
-                const { handleSwapDetected } = await import('../services/autoTradeService.js');
-
-                for (const walletRecord of trackedWallets) {
-                    const trackedTarget = walletRecord.address;
-
-                    // Parse as swap - IMPORTANT: Use trackedTarget as the identity for decoding
-                    const swap = await parseSwapTransaction(
-                        {
-                            hash: txHash,
-                            from: trackedTarget,
-                            to: tx.to,
-                            input: tx.input,
-                            value: tx.value,
-                        },
-                        {
-                            logs: receipt.logs,
-                            status: parseInt(receipt.status, 16),
-                        },
-                        chainId
-                    );
-
-                    if (!swap) {
-                        console.log(`[Webhook] Not a swap tx for ${trackedTarget.slice(0, 10)}: ${txHash.slice(0, 16)}`);
+                    // FAST in-memory deduplication check (shared with watcher)
+                    if (isTxProcessed(txHash)) {
+                        console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
                         continue;
                     }
 
-                    console.log(`[Webhook] ✅ Swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
-                        tokenIn: swap.tokenIn,
-                        tokenOut: swap.tokenOut,
-                        dex: swap.dexName,
+                    const trackedWallets = await prisma.trackedWallet.findMany({
+                        where: {
+                            address: { in: candidates, mode: 'insensitive' },
+                            chainId,
+                        }
                     });
 
-                    await handleSwapDetected(trackedTarget, swap, chainId);
+                    if (trackedWallets.length === 0) {
+                        console.log(`[Webhook] ⚠️ Ignoring tx ${txHash.slice(0, 8)}: No matched tracked wallets in [${candidates.map(c => c.slice(0, 6)).join(', ')}]`);
+                        continue;
+                    }
+
+                    // Mark as processing ONLY if we have matched wallets
+                    markTxAsProcessed(txHash);
+
+                    console.log(`[Webhook] 🎯 Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
+
+                    // Branch by chain type: Solana vs EVM
+                    if (chainId === 900) {
+                        try {
+                            // Solana Logic
+                            const { getSolanaConnection, SOLANA_CONFIG } = await import('../config/solanaConfig.js');
+                            const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
+
+                            let tx: any = null;
+                            const rpcsToTry = [
+                                undefined, // Primary (from .env)
+                                SOLANA_CONFIG.RPC_URLS.PUBLIC,
+                                SOLANA_CONFIG.RPC_URLS.BACKUP_1,
+                                SOLANA_CONFIG.RPC_URLS.BACKUP_2
+                            ];
+
+                            for (const rpcUrl of rpcsToTry) {
+                                try {
+                                    const connection = getSolanaConnection(rpcUrl);
+                                    tx = await connection.getParsedTransaction(txHash, {
+                                        maxSupportedTransactionVersion: 0,
+                                        commitment: 'confirmed'
+                                    });
+                                    if (tx) {
+                                        if (rpcUrl) console.log(`[Webhook] ✅ Successfully fetched Solana tx via fallback RPC: ${rpcUrl}`);
+                                        break;
+                                    }
+                                } catch (err: any) {
+                                    const isSslError = err.message?.includes('SSL') || err.cause?.message?.includes('SSL');
+                                    console.warn(`[Webhook] Solana fetch failed ${rpcUrl ? 'via ' + rpcUrl : 'via primary'}: ${err.message}${isSslError ? ' (SSL Error)' : ''}`);
+                                    if (!isSslError && !err.message?.includes('fetch failed')) {
+                                        // If it's not a connection/SSL error, it might be a 404 or something else where retrying won't help as much
+                                        // but we try others anyway
+                                    }
+                                }
+                            }
+
+                            if (!tx) {
+                                console.error(`[Webhook] ❌ Failed to fetch Solana tx details after trying all RPCs: ${txHash.slice(0, 16)}`);
+                                continue;
+                            }
+
+                            // Trigger copy trade for EACH matched tracked wallet
+                            const { handleSwapDetected } = await import('../services/autoTradeService.js');
+                            for (const walletRecord of trackedWallets) {
+                                const trackedTarget = walletRecord.address;
+
+                                // Decode Solana Swap
+                                const swap = await decodeSolanaSwap(tx, trackedTarget);
+
+                                if (swap) {
+                                    console.log(`[Webhook] ✅ Solana Swap detected for ${trackedTarget.slice(0, 8)}:`, {
+                                        in: swap.tokenIn,
+                                        out: swap.tokenOut,
+                                        dex: swap.dexName
+                                    });
+                                    await handleSwapDetected(trackedTarget, swap, chainId);
+                                } else {
+                                    // console.log(`[Webhook] Solana tx ${txHash.slice(0, 8)} was not a swap for tracked wallet`);
+                                }
+                            }
+                        } catch (err) {
+                            console.error(`[Webhook] Error fetching Solana tx details:`, err);
+                        }
+                        continue;
+                    }
+
+                    // EVM Logic (Base, BSC, etc.)
+                    const [tx, receipt] = await Promise.all([
+                        fetchTransaction(txHash, chainId),
+                        fetchTransactionReceipt(txHash, chainId),
+                    ]);
+
+                    if (!tx || !receipt) {
+                        console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash.slice(0, 16)}`);
+                        continue;
+                    }
+
+                    // Trigger copy trade for EACH matched tracked wallet
+                    const { handleSwapDetected } = await import('../services/autoTradeService.js');
+
+                    for (const walletRecord of trackedWallets) {
+                        const trackedTarget = walletRecord.address;
+
+                        // Parse as swap - IMPORTANT: Use trackedTarget as the identity for decoding
+                        const swap = await parseSwapTransaction(
+                            {
+                                hash: txHash,
+                                from: trackedTarget,
+                                to: tx.to,
+                                input: tx.input,
+                                value: tx.value,
+                            },
+                            {
+                                logs: receipt.logs,
+                                status: parseInt(receipt.status, 16),
+                            },
+                            chainId
+                        );
+
+                        if (!swap) {
+                            console.log(`[Webhook] Not a swap tx for ${trackedTarget.slice(0, 10)}: ${txHash.slice(0, 16)}`);
+                            continue;
+                        }
+
+                        console.log(`[Webhook] ✅ Swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
+                            tokenIn: swap.tokenIn,
+                            tokenOut: swap.tokenOut,
+                            dex: swap.dexName,
+                        });
+
+                        await handleSwapDetected(trackedTarget, swap, chainId);
+                    }
                 }
+            } catch (error) {
+                console.error(`[Webhook] Error processing Alchemy webhook:`, error);
             }
-        } catch (error) {
-            console.error(`[Webhook] Error processing Alchemy webhook:`, error);
-        }
+        }); // End setImmediate
     });
 }

@@ -9,8 +9,6 @@ import {
   ArrowLeft,
   ExternalLink,
   Info,
-  TrendingUp,
-  TrendingDown,
   ChevronRight,
   Activity
 } from 'lucide-react';
@@ -1424,15 +1422,23 @@ export const SuperDefiPage: React.FC = () => {
         }
         const chains = Array.isArray(chainsData) ? chainsData : [];
 
-        // Filter to only show DEX protocols (Decentralized Exchanges)
-        const dexProtocols = protocols.filter(p =>
-          p.category?.toLowerCase() === 'dexs' ||
-          p.category?.toLowerCase() === 'dexes' ||
-          p.category?.toLowerCase() === 'dex'
-        );
-        console.log('[SuperDefiPage] DEX protocols filtered:', dexProtocols.length, 'from', protocols.length);
+        // Filter to only show top CEX protocols (Centralized Exchanges)
+        // Only show legitimate, well-known exchanges with significant TVL
+        const TOP_CEX_NAMES = [
+          'Binance CEX', 'OKX', 'Bybit', 'Bitfinex', 'Robinhood',
+          'Bitget', 'Gemini', 'HTX', 'Gate', 'Deribit',
+          'MEXC', 'KuCoin', 'Crypto.com', 'Bitstamp', 'Kraken',
+          'Coinbase', 'Coinbase Exchange', 'Upbit', 'Bithumb'
+        ];
 
-        setProtocols(dexProtocols.slice(0, 50));
+        const cexProtocols = protocols.filter(p => {
+          const category = p.category?.toLowerCase() || '';
+          // Must be CEX category AND in our whitelist of top exchanges
+          return category === 'cex' && TOP_CEX_NAMES.includes(p.name);
+        });
+        console.log('[SuperDefiPage] Top CEX protocols filtered:', cexProtocols.length, 'from', protocols.length);
+
+        setProtocols(cexProtocols.slice(0, 50));
         setChains(chains);
         setOverview(overviewData);
         setError(null);
@@ -1474,14 +1480,8 @@ export const SuperDefiPage: React.FC = () => {
     return (
       <PageContainer>
         <div className={styles.container}>
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            position: 'relative',
-            zIndex: 10,
-            background: 'transparent',
-          }}>
+
+          <div className={styles.loadingContainer}>
             {/* Global Stats Row Skeleton */}
             <div className={styles.grid}>
               {Array.from({ length: 5 }).map((_, i) => (
@@ -1557,30 +1557,12 @@ export const SuperDefiPage: React.FC = () => {
 
   if (error) {
     return (
-      <div style={{
-        padding: '16px',
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: themeColors.bg,
-        gap: '16px',
-      }}>
-        <div style={{ color: '#ea3943', fontSize: '14px', fontWeight: 'bold' }}>{error}</div>
+
+      <div className={styles.errorContainer}>
+        <div className={styles.errorMessage}>{error}</div>
         <button
           onClick={loadAllData}
-          style={{
-            padding: '8px 16px',
-            background: '#5B8DEF',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 'bold',
-          }}
+          className={styles.retryButton}
         >
           Retry
         </button>
@@ -1604,456 +1586,418 @@ export const SuperDefiPage: React.FC = () => {
           {selectedProtocol ? (
             <ProtocolDetailView protocol={selectedProtocol} onBack={() => setSelectedProtocol(null)} />
           ) : (
-            <>
-              {/* Dashboard Content */}
+
+            <div className={styles.loadingContainer}>
+              {/* 1. Global Stats Row */}
+              <div className={styles.grid}>
+                {calculateGlobalStats(overview, chains).map((stat, i) => (
+                  <div
+                    key={i}
+                    className={styles.card}
+                  >
+                    <div className={styles.flexBetween} style={{
+                      alignItems: 'flex-start',
+                      marginBottom: isMobile ? '6px' : '8px',
+                      position: 'relative',
+                      zIndex: 10,
+                    }}>
+                      <h3 className={styles.metricLabel}>
+                        {isMobile ? stat.label.replace('Total Value Locked', 'TVL').replace('Stablecoins Mcap', 'Stables') : stat.label}
+                      </h3>
+                      <span className={`${styles.metricChange} ${stat.isUp ? styles.metricChangeUp : styles.metricChangeDown}`}>
+                        {stat.isUp ? <ArrowUpRight size={isMobile ? 10 : 12} /> : <ArrowDownRight size={isMobile ? 10 : 12} />} {stat.change}
+                      </span>
+                    </div>
+                    <div className={styles.flexBetween} style={{
+                      alignItems: 'flex-end',
+                      position: 'relative',
+                      zIndex: 10,
+                    }}>
+                      <span className={styles.metricValue}>
+                        {stat.value}
+                      </span>
+                      {!isMobile && (
+                        <div style={{
+                          opacity: 0.5,
+                          transition: 'opacity 0.2s',
+                        }}>
+                          <MiniSparkline
+                            data={stat.trend}
+                            color={stat.isUp ? '#10b981' : '#e74c3c'}
+                            width={60}
+                            height={25}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               <div style={{
-                flex: 1,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(1, 1fr)',
+                gap: isMobile ? '16px' : '24px',
+                marginBottom: isMobile ? '20px' : '32px',
                 width: '100%',
               }}>
-                {/* 1. Global Stats Row */}
-                <div className={styles.grid}>
-                  {calculateGlobalStats(overview, chains).map((stat, i) => (
-                    <div
-                      key={i}
-                      className={styles.card}
-                    >
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-start',
-                        marginBottom: isMobile ? '6px' : '8px',
-                        position: 'relative',
-                        zIndex: 10,
-                      }}>
-                        <h3 className={styles.metricLabel}>
-                          {isMobile ? stat.label.replace('Total Value Locked', 'TVL').replace('Stablecoins Mcap', 'Stables') : stat.label}
-                        </h3>
-                        <span className={`${styles.metricChange} ${stat.isUp ? styles.metricChangeUp : styles.metricChangeDown}`}>
-                          {stat.isUp ? <ArrowUpRight size={isMobile ? 10 : 12} /> : <ArrowDownRight size={isMobile ? 10 : 12} />} {stat.change}
-                        </span>
-                      </div>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        justifyContent: 'space-between',
-                        position: 'relative',
-                        zIndex: 10,
-                      }}>
-                        <span className={styles.metricValue}>
-                          {stat.value}
-                        </span>
-                        {!isMobile && (
-                          <div style={{
-                            opacity: 0.5,
-                            transition: 'opacity 0.2s',
-                          }}>
-                            <MiniSparkline
-                              data={stat.trend}
-                              color={stat.isUp ? '#10b981' : '#e74c3c'}
-                              width={60}
-                              height={25}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(1, 1fr)',
-                  gap: isMobile ? '16px' : '24px',
-                  marginBottom: isMobile ? '20px' : '32px',
-                  width: '100%',
-                }}>
-                  {/* 2. Advanced TVL Chart */}
-                  <div className={styles.card}>
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: isMobile ? 'flex-start' : 'center',
-                      flexDirection: isMobile ? 'column' : 'row',
-                      gap: isMobile ? '12px' : '0',
-                      marginBottom: isMobile ? '16px' : '24px',
-                    }}>
-                      <div>
-                        <h2 className={styles.cardTitle}>
-                          Total Value Locked {!isMobile && <Maximize2 size={14} color={themeColors.textMuted} style={{ cursor: 'pointer' }} />}
-                        </h2>
-                        <p className={styles.cardSubtitle}>
-                          Historical TVL across all chains
-                        </p>
-                      </div>
-                    </div>
-                    <div className={styles.chartContainer}>
-                      <AdvancedAreaChart data={tvlHistory.length > 0 ? tvlHistory.map(v => v / 1e9) : undefined} />
-                    </div>
-                  </div>
-
-                  {/* 3. Chain Dominance */}
-                  <div className={styles.card}>
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: isMobile ? '16px' : '24px',
-                    }}>
-                      <h2 className={styles.cardTitle}>
-                        Chain Dominance
-                      </h2>
-                      <InfoTooltip
-                        title="Chain Dominance"
-                        content="Real-time TVL (Total Value Locked) data from DefiLlama API. Shows the percentage of total value locked on each blockchain network."
-                        source="DefiLlama"
-                        sourceUrl="https://defillama.com/chains"
-                      />
-                    </div>
-                    <div style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: isMobile ? '16px' : '20px',
-                      paddingRight: isMobile ? '0' : '8px',
-                    }}>
-                      {calculateChainStats(chains).map((chain, i) => (
-                        <div key={i}>
-                          <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            fontSize: isMobile ? '13px' : '14px',
-                            marginBottom: '6px',
-                          }}>
-                            <span style={{
-                              color: themeColors.text,
-                              fontWeight: 500,
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                            }}>
-                              <div style={{ transform: 'scale(0.7)', transformOrigin: 'left center' }}>
-                                <LogoIcon name={chain.name} size="sm" variant="chain" logoUrl={chain.logoUrl} />
-                              </div>
-                              {chain.name}
-                            </span>
-                            <div style={{ textAlign: 'right' }}>
-                              <span style={{
-                                color: themeColors.text,
-                                fontWeight: 'bold',
-                                display: 'block',
-                                fontSize: isMobile ? '13px' : '14px',
-                              }}>
-                                {typeof chain.percent === 'number' ? chain.percent.toFixed(1) : chain.percent}%
-                              </span>
-                              <span style={{
-                                fontSize: isMobile ? '10px' : '10px',
-                                color: themeColors.textSecondary,
-                                fontFamily: 'monospace',
-                              }}>
-                                {chain.tvl}
-                              </span>
-                            </div>
-                          </div>
-                          <div style={{
-                            height: '6px',
-                            width: '100%',
-                            background: themeColors.border,
-                            borderRadius: '9999px',
-                            overflow: 'hidden',
-                            border: `1px solid ${themeColors.border}`,
-                          }}>
-                            <div
-                              style={{
-                                height: '100%',
-                                borderRadius: '9999px',
-                                transition: 'all 1s',
-                                width: `${chain.percent}%`,
-                                backgroundColor: chain.color,
-                              }}
-                            ></div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 4. Protocols Table */}
-                <div className={styles.card} style={{ padding: 0 }}>
-                  {/* Header */}
+                {/* 2. Advanced TVL Chart */}
+                <div className={styles.card}>
                   <div style={{
-                    padding: isMobile ? '16px' : '20px',
-                    borderBottom: `1px solid ${themeColors.borderLight}`,
-                    background: 'transparent',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: isMobile ? 'flex-start' : 'center',
+                    flexDirection: isMobile ? 'column' : 'row',
+                    gap: isMobile ? '12px' : '0',
+                    marginBottom: isMobile ? '16px' : '24px',
+                  }}>
+                    <div>
+                      <h2 className={styles.cardTitle}>
+                        Total Value Locked {!isMobile && <Maximize2 size={14} color={themeColors.textMuted} style={{ cursor: 'pointer' }} />}
+                      </h2>
+                      <p className={styles.cardSubtitle}>
+                        Historical TVL across all chains
+                      </p>
+                    </div>
+                  </div>
+                  <div className={styles.chartContainer}>
+                    <AdvancedAreaChart data={tvlHistory.length > 0 ? tvlHistory.map(v => v / 1e9) : undefined} />
+                  </div>
+                </div>
+
+                {/* 3. Chain Dominance */}
+                <div className={styles.card}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: isMobile ? '16px' : '24px',
                   }}>
                     <h2 className={styles.cardTitle}>
-                      Top Protocols
+                      Chain Dominance
                     </h2>
+                    <InfoTooltip
+                      title="Chain Dominance"
+                      content="Real-time TVL (Total Value Locked) data from DefiLlama API. Shows the percentage of total value locked on each blockchain network."
+                      source="DefiLlama"
+                      sourceUrl="https://defillama.com/chains"
+                    />
                   </div>
-
-                  {/* Mobile Card View */}
-                  {isMobile ? (
-                    <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {(showAllProtocols ? protocols.slice(0, 30) : protocols.slice(0, 10)).map((p, idx) => (
-                        <div
-                          key={p.name}
-                          onClick={() => setSelectedProtocol(p)}
-                          style={{
-                            background: themeColors.hoverBg,
-                            border: `1px solid ${themeColors.border}`,
-                            borderRadius: '12px',
-                            padding: '16px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                          }}
-                        >
-                          {/* Top Row: Rank + Name + TVL */}
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginBottom: '12px',
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <span style={{
-                                fontSize: '12px',
-                                fontWeight: 'bold',
-                                color: themeColors.textMuted,
-                                fontFamily: 'monospace',
-                                minWidth: '24px',
-                              }}>
-                                #{idx + 1}
-                              </span>
-                              <LogoIcon name={p.name} size="md" variant="protocol" logoUrl={p.logoUrl} />
-                              <div>
-                                <div style={{ fontWeight: 'bold', color: themeColors.text, fontSize: '14px' }}>
-                                  {p.name}
-                                </div>
-                                <div style={{ fontSize: '11px', color: themeColors.textSecondary, fontFamily: 'monospace' }}>
-                                  {p.symbol || p.category}
-                                </div>
-                              </div>
-                            </div>
-                            <ChevronRight size={16} color={themeColors.textMuted} />
-                          </div>
-
-                          {/* Stats Row */}
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(3, 1fr)',
-                            gap: '12px',
-                            borderTop: `1px solid ${themeColors.borderLight}`,
-                            paddingTop: '12px',
-                          }}>
-                            <div>
-                              <div style={{ fontSize: '10px', color: themeColors.textMuted, textTransform: 'uppercase', marginBottom: '4px' }}>
-                                TVL
-                              </div>
-                              <div style={{ fontSize: '14px', fontWeight: 'bold', color: themeColors.text, fontFamily: 'monospace' }}>
-                                {formatCurrency(p.tvl)}
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '10px', color: themeColors.textMuted, textTransform: 'uppercase', marginBottom: '4px' }}>
-                                24h
-                              </div>
-                              <div style={{
-                                fontSize: '14px',
-                                fontWeight: 'bold',
-                                fontFamily: 'monospace',
-                                color: (p.tvlChange1d ?? 0) >= 0 ? '#10b981' : '#e74c3c',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                              }}>
-                                {(p.tvlChange1d ?? 0) >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                                {formatChange(p.tvlChange1d)}
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '10px', color: themeColors.textMuted, textTransform: 'uppercase', marginBottom: '4px' }}>
-                                7d
-                              </div>
-                              <div style={{
-                                fontSize: '14px',
-                                fontWeight: 'bold',
-                                fontFamily: 'monospace',
-                                color: (p.tvlChange7d ?? 0) >= 0 ? themeColors.success : themeColors.error,
-                              }}>
-                                {formatChange(p.tvlChange7d)}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Chains Row */}
-                          <div style={{
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: isMobile ? '16px' : '20px',
+                    paddingRight: isMobile ? '0' : '8px',
+                  }}>
+                    {calculateChainStats(chains).map((chain, i) => (
+                      <div key={i}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          fontSize: isMobile ? '13px' : '14px',
+                          marginBottom: '6px',
+                        }}>
+                          <span style={{
+                            color: themeColors.text,
+                            fontWeight: 500,
                             display: 'flex',
                             alignItems: 'center',
                             gap: '8px',
-                            marginTop: '12px',
-                            paddingTop: '12px',
-                            borderTop: `1px solid ${themeColors.borderLight}`,
                           }}>
-                            <span style={{ fontSize: '11px', color: themeColors.textSecondary }}>Chains:</span>
-                            <div style={{ display: 'flex', marginLeft: '4px' }}>
-                              {(p.chains || []).slice(0, 5).map((c, chainIdx) => (
-                                <div key={chainIdx} style={{ marginLeft: chainIdx > 0 ? '-6px' : '0' }}>
-                                  <ChainIcon chain={c.toUpperCase()} logoUrl={chainLogoMap.get(c.toUpperCase())} />
-                                </div>
-                              ))}
-                              {(p.chains || []).length > 5 && (
-                                <span style={{
-                                  marginLeft: '8px',
-                                  fontSize: '11px',
-                                  color: themeColors.textSecondary,
-                                }}>
-                                  +{p.chains.length - 5}
-                                </span>
-                              )}
+                            <div style={{ transform: 'scale(0.7)', transformOrigin: 'left center' }}>
+                              <LogoIcon name={chain.name} size="sm" variant="chain" logoUrl={chain.logoUrl} />
                             </div>
+                            {chain.name}
+                          </span>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{
+                              color: themeColors.text,
+                              fontWeight: 'bold',
+                              display: 'block',
+                              fontSize: isMobile ? '13px' : '14px',
+                            }}>
+                              {typeof chain.percent === 'number' ? chain.percent.toFixed(1) : chain.percent}%
+                            </span>
+                            <span style={{
+                              fontSize: isMobile ? '10px' : '10px',
+                              color: themeColors.textSecondary,
+                              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                            }}>
+                              {chain.tvl}
+                            </span>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    /* Desktop Table View */
-                    <div className={styles.tableContainer}>
-                      <table className={styles.table}>
-                        <thead className={styles.thead}>
-                          <tr>
-                            <th className={styles.th} style={{ width: '48px', textAlign: 'center' }}>#</th>
-                            <th className={styles.th}>Name</th>
-                            <th className={styles.th}>Category</th>
-                            <th className={styles.th}>Chains</th>
-                            <th className={styles.th} style={{ textAlign: 'right' }}>24h</th>
-                            <th className={styles.th} style={{ textAlign: 'right' }}>7d</th>
-                            <th className={styles.th} style={{ textAlign: 'right' }}>TVL</th>
-                            <th className={styles.th} style={{ textAlign: 'right' }}>Mcap/TVL</th>
-                          </tr>
-                        </thead>
-                        <tbody className={styles.tbody}>
-                          {(showAllProtocols ? protocols.slice(0, 30) : protocols.slice(0, 15)).map((p, idx) => (
-                            <tr
-                              key={p.name}
-                              onClick={() => setSelectedProtocol(p)}
-                              className={styles.tr}
-                            >
-                              <td className={styles.td} style={{ color: themeColors.textMuted, fontFamily: 'monospace', fontSize: '12px', textAlign: 'center' }}>
-                                {idx + 1}
-                              </td>
-                              <td className={styles.td}>
-                                <div style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                }}>
-                                  <LogoIcon name={p.name} size="md" variant="protocol" logoUrl={p.logoUrl} />
-                                  <div>
-                                    <div style={{
-                                      fontWeight: 'bold',
-                                      color: themeColors.text,
-                                      fontSize: '14px',
-                                    }}>
-                                      {p.name}
-                                    </div>
-                                    <div style={{
-                                      fontSize: '10px',
-                                      color: themeColors.textSecondary,
-                                      fontFamily: 'monospace',
-                                    }}>
-                                      {p.symbol || '-'}
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className={styles.td}>
-                                <span style={{
-                                  padding: '4px 8px',
-                                  background: themeColors.hoverBg,
-                                  borderRadius: '6px',
-                                  fontSize: '11px',
-                                  color: themeColors.text,
-                                  fontWeight: 500,
-                                  border: `1px solid ${themeColors.border}`,
-                                  whiteSpace: 'nowrap',
-                                }}>
-                                  {p.category || '-'}
-                                </span>
-                              </td>
-                              <td className={styles.td}>
-                                <div style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                }}>
-                                  {(p.chains || []).slice(0, 4).map((c, chainIdx) => (
-                                    <div key={chainIdx} style={{ marginLeft: chainIdx > 0 ? '-8px' : '0' }}>
-                                      <ChainIcon chain={c} logoUrl={getChainIcon(c)} />
-                                    </div>
-                                  ))}
-                                  {(p.chains || []).length > 4 && (
-                                    <span style={{
-                                      marginLeft: '8px',
-                                      fontSize: '11px',
-                                      color: themeColors.textSecondary,
-                                    }}>
-                                      +{p.chains.length - 4}
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className={styles.td} style={{ textAlign: 'right', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '13px', color: (p.tvlChange1d ?? 0) >= 0 ? themeColors.success : themeColors.error }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-                                  {(p.tvlChange1d ?? 0) >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                                  {formatChange(p.tvlChange1d)}
-                                </div>
-                              </td>
-                              <td className={styles.td} style={{ textAlign: 'right', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '13px', color: (p.tvlChange7d ?? 0) >= 0 ? themeColors.success : themeColors.error }}>
-                                {formatChange(p.tvlChange7d) || '-'}
-                              </td>
-                              <td className={styles.td} style={{ textAlign: 'right', fontWeight: 'bold', color: themeColors.text, fontFamily: 'monospace', fontSize: '13px' }}>
-                                {formatCurrency(p.tvl)}
-                              </td>
-                              <td className={styles.td} style={{ textAlign: 'right', color: themeColors.textSecondary, fontFamily: 'monospace', fontSize: '13px' }}>
-                                {p.mcapTvlRatio ? p.mcapTvlRatio.toFixed(2) : '-'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {/* Footer - Show More Button */}
-                  {!showAllProtocols && protocols.length > (isMobile ? 10 : 15) && (
-                    <div style={{
-                      padding: '12px',
-                      borderTop: `1px solid ${themeColors.borderLight}`,
-                      background: 'transparent',
-                      display: 'flex',
-                      justifyContent: 'center',
-                    }}>
-                      <button
-                        onClick={() => setShowAllProtocols(true)}
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: 'bold',
-                          color: themeColors.primary,
-                          background: themeColors.primaryBg,
-                          border: `1px solid ${themeColors.primaryBorder}`,
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          padding: '8px 16px',
-                          transition: 'all 0.2s',
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                        onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-                      >
-                        Show {Math.min(30, protocols.length) - (isMobile ? 10 : 15)} more
-                      </button>
-                    </div>
-                  )}
+                        <div style={{
+                          height: '6px',
+                          width: '100%',
+                          background: themeColors.border,
+                          borderRadius: '9999px',
+                          overflow: 'hidden',
+                          border: `1px solid ${themeColors.border}`,
+                        }}>
+                          <div
+                            style={{
+                              height: '100%',
+                              borderRadius: '9999px',
+                              transition: 'all 1s',
+                              width: `${chain.percent}%`,
+                              backgroundColor: chain.color,
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </>
+
+              {/* 4. Protocols Table */}
+              {(() => {
+                const protocolList = showAllProtocols ? protocols.slice(0, 30) : protocols.slice(0, 15);
+                const hasMcapTvlData = protocolList.some(p => p.mcapTvlRatio !== null && p.mcapTvlRatio !== undefined && p.mcapTvlRatio > 0);
+
+                return (
+                  <div className={styles.card} style={{ padding: 0 }}>
+                    {/* Header */}
+                    <div style={{
+                      padding: isMobile ? '16px' : '20px',
+                      borderBottom: `1px solid ${themeColors.borderLight}`,
+                      background: 'transparent',
+                    }}>
+                      <h2 className={styles.cardTitle}>
+                        Top Protocols
+                      </h2>
+                    </div>
+
+                    {/* Mobile Card View */}
+                    {isMobile ? (
+                      <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {protocolList.map((p, idx) => (
+                          <div
+                            key={p.name}
+                            onClick={() => setSelectedProtocol(p)}
+                            style={{
+                              background: themeColors.hoverBg,
+                              border: `1px solid ${themeColors.border}`,
+                              borderRadius: '12px',
+                              padding: '16px',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            {/* Top Row: Rank + Name + TVL */}
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              marginBottom: '12px',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <span style={{
+                                  fontSize: '12px',
+                                  fontWeight: 'bold',
+                                  color: themeColors.textMuted,
+                                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                                  minWidth: '24px',
+                                }}>
+                                  #{idx + 1}
+                                </span>
+                                <LogoIcon name={p.name} size="md" variant="protocol" logoUrl={p.logoUrl} />
+                                <div>
+                                  <div style={{ fontWeight: 'bold', color: themeColors.text, fontSize: '14px' }}>
+                                    {p.name}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: themeColors.textSecondary, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"' }}>
+                                    {p.symbol || p.category}
+                                  </div>
+                                </div>
+                              </div>
+                              <ChevronRight size={16} color={themeColors.textMuted} />
+                            </div>
+
+                            {/* Stats Row */}
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(3, 1fr)',
+                              gap: '12px',
+                              borderTop: `1px solid ${themeColors.borderLight}`,
+                              paddingTop: '12px',
+                            }}>
+                              <div>
+                                <div style={{ fontSize: '10px', color: themeColors.textMuted, textTransform: 'uppercase', marginBottom: '4px' }}>
+                                  TVL
+                                </div>
+                                <div style={{ fontSize: '14px', fontWeight: 'bold', color: themeColors.text, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"' }}>
+                                  {formatCurrency(p.tvl)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '10px', color: themeColors.textMuted, textTransform: 'uppercase', marginBottom: '4px' }}>
+                                  24h
+                                </div>
+                                <div style={{
+                                  fontSize: '14px',
+                                  fontWeight: 'bold',
+                                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                                  color: (p.tvlChange1d ?? 0) >= 0 ? '#10b981' : '#e74c3c',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}>
+                                  {formatChange(p.tvlChange1d)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '10px', color: themeColors.textMuted, textTransform: 'uppercase', marginBottom: '4px' }}>
+                                  7d
+                                </div>
+                                <div style={{
+                                  fontSize: '14px',
+                                  fontWeight: 'bold',
+                                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                                  color: (p.tvlChange7d ?? 0) >= 0 ? themeColors.success : themeColors.error,
+                                }}>
+                                  {formatChange(p.tvlChange7d)}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Chains Row */}
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              marginTop: '12px',
+                              paddingTop: '12px',
+                              borderTop: `1px solid ${themeColors.borderLight}`,
+                            }}>
+                              <span style={{ fontSize: '11px', color: themeColors.textSecondary }}>Chains:</span>
+                              <div style={{ display: 'flex', marginLeft: '4px' }}>
+                                {(p.chains || []).slice(0, 5).map((c, chainIdx) => (
+                                  <div key={chainIdx} style={{ marginLeft: chainIdx > 0 ? '-6px' : '0' }}>
+                                    <ChainIcon chain={c.toUpperCase()} logoUrl={chainLogoMap.get(c.toUpperCase())} />
+                                  </div>
+                                ))}
+                                {(p.chains || []).length > 5 && (
+                                  <span style={{
+                                    marginLeft: '8px',
+                                    fontSize: '11px',
+                                    color: themeColors.textSecondary,
+                                  }}>
+                                    +{p.chains.length - 5}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      /* Desktop Table View */
+                      <div className={styles.tableContainer}>
+                        <table className={styles.table}>
+                          <thead className={styles.thead}>
+                            <tr>
+                              <th className={styles.th} style={{ width: '48px', textAlign: 'center' }}>#</th>
+                              <th className={styles.th}>Name</th>
+                              <th className={styles.th}>Category</th>
+                              <th className={styles.th}>Chains</th>
+                              <th className={styles.th} style={{ textAlign: 'right' }}>24h</th>
+                              <th className={styles.th} style={{ textAlign: 'right' }}>7d</th>
+                              <th className={styles.th} style={{ textAlign: 'right' }}>TVL</th>
+                              {hasMcapTvlData && <th className={styles.th} style={{ textAlign: 'right' }}>Mcap/TVL</th>}
+                            </tr>
+                          </thead>
+                          <tbody className={styles.tbody}>
+                            {protocolList.map((p, idx) => (
+                              <tr
+                                key={p.name}
+                                onClick={() => setSelectedProtocol(p)}
+                                className={styles.tr}
+                              >
+                                <td className={`${styles.td} ${styles.systemFont}`} style={{ fontSize: '12px', textAlign: 'center', color: themeColors.textMuted }}>
+                                  {idx + 1}
+                                </td>
+                                <td className={styles.td}>
+                                  <div className={`${styles.flexRow} ${styles.gap12}`}>
+                                    <LogoIcon name={p.name} size="md" variant="protocol" logoUrl={p.logoUrl} />
+                                    <div>
+                                      <div style={{ fontWeight: 'bold', color: themeColors.text, fontSize: '14px' }}>
+                                        {p.name}
+                                      </div>
+                                      <div className={`${styles.textXs} ${styles.textMuted} ${styles.systemFont}`}>
+                                        {p.symbol || '-'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className={styles.td}>
+                                  <span className={styles.chip}>
+                                    {p.category || '-'}
+                                  </span>
+                                </td>
+                                <td className={styles.td}>
+                                  <div className={styles.flexRow}>
+                                    {(p.chains || []).slice(0, 4).map((c, chainIdx) => (
+                                      <div key={chainIdx} style={{ marginLeft: chainIdx > 0 ? '-8px' : '0' }}>
+                                        <ChainIcon chain={c} logoUrl={getChainIcon(c)} />
+                                      </div>
+                                    ))}
+                                    {(p.chains || []).length > 4 && (
+                                      <span style={{
+                                        marginLeft: '8px',
+                                        fontSize: '11px',
+                                        color: themeColors.textSecondary,
+                                      }}>
+                                        +{p.chains.length - 4}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className={`${styles.td} ${styles.textSm} ${styles.textBold} ${styles.systemFont}`} style={{ textAlign: 'right', color: (p.tvlChange1d ?? 0) >= 0 ? themeColors.success : themeColors.error }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                                    {formatChange(p.tvlChange1d)}
+                                  </div>
+                                </td>
+                                <td className={`${styles.td} ${styles.textSm} ${styles.textBold} ${styles.systemFont}`} style={{ textAlign: 'right', color: (p.tvlChange7d ?? 0) >= 0 ? themeColors.success : themeColors.error }}>
+                                  {formatChange(p.tvlChange7d) || '-'}
+                                </td>
+                                <td className={`${styles.td} ${styles.textSm} ${styles.textBold} ${styles.systemFont}`} style={{ textAlign: 'right', color: themeColors.text }}>
+                                  {formatCurrency(p.tvl)}
+                                </td>
+                                {hasMcapTvlData && (
+                                  <td className={`${styles.td} ${styles.textSm} ${styles.systemFont}`} style={{ textAlign: 'right', color: themeColors.textSecondary }}>
+                                    {p.mcapTvlRatio ? p.mcapTvlRatio.toFixed(2) : '-'}
+                                  </td>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                    }
+
+                    {/* Footer - Show More Button */}
+                    {
+                      !showAllProtocols && protocols.length > (isMobile ? 10 : 15) && (
+                        <div className={styles.footerContainer}>
+                          <button
+                            onClick={() => setShowAllProtocols(true)}
+                            className={styles.showMoreButton}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                          >
+                            Show {Math.min(30, protocols.length) - (isMobile ? 10 : 15)} more
+                          </button>
+                        </div>
+                      )
+                    }
+                  </div>
+                );
+              })()}
+
+            </div>
           )}
         </div>
       </div>

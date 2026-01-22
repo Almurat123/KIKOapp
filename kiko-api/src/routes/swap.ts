@@ -37,6 +37,7 @@ import { getTransactionReceipt } from '../services/rpcManager.js';
 import prisma from '../db/prisma.js';
 import { trackSwap } from '../services/userActivityService.js';
 import { runJudgeEngine } from '../services/judge/judgeEngine.js';
+import { getPlatformFee, isValidEvmAddress } from '../services/platformFeeService.js';
 
 // 类型定义
 export interface SwapQuoteRequest {
@@ -330,6 +331,13 @@ export async function swapRoutes(fastify: FastifyInstance) {
             const refPrice = (tokenInUsd && tokenOutUsd && tokenInUsd > 0 && tokenOutUsd > 0)
                 ? (tokenInUsd / tokenOutUsd)
                 : null;
+
+            const platformFee = getPlatformFee('swap');
+            const affiliateFee =
+                platformFee.bps > 0 && isValidEvmAddress(platformFee.evmRecipient)
+                    ? { affiliateAddress: platformFee.evmRecipient!, buyTokenPercentageFeeBps: platformFee.bps }
+                    : undefined;
+
             // Get Best Quote (Compare 0x and Kyber)
             const { best, quotes } = await getBestQuote({
                 tokenIn,
@@ -344,6 +352,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 slippageBps,
                 userAddress: userAddress || undefined,
                 refPrice,
+                affiliateFee,
             });
 
             if (!best) {
@@ -917,6 +926,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                             isBuy: true, // For Solana instant swap, we assume buy (SOL -> token)
                             provider: launchpadProvider === 'pumpfun' ? 'pumpfun' : 'bonkfun',
                             slippageBps,
+                            feeContext: 'swap',
                         });
 
                         return reply.send({
@@ -950,6 +960,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         tokenOutMint: resolvedTokenOut, // Use resolved address
                         amountIn: amountInAtomic,
                         slippageBps,
+                        feeContext: 'swap',
                     });
 
                     return reply.send({
@@ -1104,6 +1115,12 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 }
 
                 // Get Best Quote (Compare 0x and Kyber)
+                const platformFee = getPlatformFee('swap');
+                const affiliateFee =
+                    platformFee.bps > 0 && isValidEvmAddress(platformFee.evmRecipient)
+                        ? { affiliateAddress: platformFee.evmRecipient!, buyTokenPercentageFeeBps: platformFee.bps }
+                        : undefined;
+
                 const { best: quote } = await getBestQuote({
                     tokenIn,
                     tokenOut,
@@ -1117,6 +1134,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     slippageBps,
                     userAddress: walletAddress,
                     refPrice,
+                    affiliateFee,
                 });
 
                 if (!quote || !quote.to || !quote.data) {
@@ -1258,6 +1276,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                                 slippageBps,
                                 userAddress: walletAddress,
                                 refPrice,
+                                affiliateFee,
                             });
 
                             if (!freshQuote || !freshQuote.to || !freshQuote.data) {

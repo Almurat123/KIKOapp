@@ -214,6 +214,11 @@ export interface ZeroExTokenMetadata {
   address: string;
 }
 
+export interface ZeroExAffiliateFee {
+  affiliateAddress: string; // 0x... recipient
+  buyTokenPercentageFeeBps: number; // e.g. 50 = 0.5%
+}
+
 /**
  * Get price quote from 0x API
  * @param sellToken - Token address or symbol to sell
@@ -293,7 +298,8 @@ export async function getZeroExQuote(
   sellAmount: string,
   chainId: number,
   slippageBps: number = 50,
-  takerAddress?: string
+  takerAddress?: string,
+  affiliateFee?: ZeroExAffiliateFee
 ): Promise<ZeroExQuote | null> {
   try {
     // Validate sellAmount - must be greater than 0
@@ -363,6 +369,12 @@ export async function getZeroExQuote(
       params.append('takerAddress', finalTakerAddress);
     } else {
       params.append('taker', finalTakerAddress);
+    }
+
+    // Platform / affiliate fee (0x feature): fee is taken from buyToken and sent to affiliateAddress
+    if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) {
+      params.append('affiliateAddress', affiliateFee.affiliateAddress);
+      params.append('buyTokenPercentageFee', (affiliateFee.buyTokenPercentageFeeBps / 10000).toString());
     }
 
     // For chain-specific base URLs (bsc.api.0x.org, polygon.api.0x.org, etc.),
@@ -474,6 +486,11 @@ export async function getZeroExQuote(
 
       // v1 endpoint uses 'takerAddress' parameter
       fallbackParams.append('takerAddress', finalTakerAddress);
+
+      if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) {
+        fallbackParams.append('affiliateAddress', affiliateFee.affiliateAddress);
+        fallbackParams.append('buyTokenPercentageFee', (affiliateFee.buyTokenPercentageFeeBps / 10000).toString());
+      }
 
       // For v1 fallback, use chain-specific URL for Polygon, main API for others
       // Polygon v1 endpoint requires chain-specific URL
@@ -895,4 +912,3 @@ export async function getTokenPriceUSD(
     return null;
   }
 }
-

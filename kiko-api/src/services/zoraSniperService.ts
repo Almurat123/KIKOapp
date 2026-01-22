@@ -8,6 +8,7 @@ import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 
 const CHAIN_ID = 8453; // Base Mainnet
 const ZORA_TOKEN_ADDRESS = '0x1111111111166b7fe7bd91427724b487980afc69' as `0x${string}`; // ZORA token on Base
@@ -226,6 +227,7 @@ export class ZoraSniperService {
         tokenOut: string;
         amountIn: string;
         slippage?: number;
+        feeContext?: FeeContext;
     }) {
         // === SIMULATION MODE ===
         if (process.env.SIMULATION_MODE === 'true') {
@@ -292,15 +294,35 @@ export class ZoraSniperService {
                 }
             }
 
-            // 3. Build trade params (ZORA direct or ETH multi-hop)
+            // 3. Platform fee (charged on input asset)
+            const fee = getPlatformFee(params.feeContext || 'swap');
+            const canChargeFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient);
+
+            // 4. Build trade params (ZORA direct or ETH multi-hop)
             let tradeParams: any = undefined;
             let inputLabel: string = '';
 
             if (useZoraToken) {
                 // Use ZORA -> Creator Coin (1 hop through bonding curve)
-                const zoraAmountIn = zoraBalance > ethers.parseUnits('1000', 18)
+                let zoraAmountIn = zoraBalance > ethers.parseUnits('1000', 18)
                     ? ethers.parseUnits('100', 18) // Use fixed 100 ZORA if large balance
                     : zoraBalance / BigInt(10);   // Use 10% of balance
+
+                if (canChargeFee && zoraAmountIn > 0n) {
+                    const feeAmount = (zoraAmountIn * BigInt(fee.bps)) / 10000n;
+                    if (feeAmount > 0n && zoraAmountIn > feeAmount) {
+                        const iface = new ethers.Interface(['function transfer(address to, uint256 amount) returns (bool)']);
+                        const data = iface.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]);
+                        await sendTransaction(params.userId, params.accessToken, {
+                            to: ZORA_TOKEN_ADDRESS,
+                            data,
+                            value: '0',
+                            chainId: CHAIN_ID
+                        });
+                        zoraAmountIn = zoraAmountIn - feeAmount;
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Collected platform fee (ZORA)', { bps: fee.bps, amount: feeAmount.toString() });
+                    }
+                }
 
                 // Zora Universal Router address (from tx logs)
                 const ZORA_ROUTER = '0x6ff5693b99212da76ad316178a184ab56d299b43';
@@ -365,15 +387,30 @@ export class ZoraSniperService {
 
             if (!useZoraToken) {
                 // Fallback: ETH -> Creator Coin (multi-hop through Uniswap)
+                let ethAmountIn = ethers.parseEther(params.amountIn);
+                if (canChargeFee && ethAmountIn > 0n) {
+                    const feeWei = (ethAmountIn * BigInt(fee.bps)) / 10000n;
+                    if (feeWei > 0n && ethAmountIn > feeWei) {
+                        await sendTransaction(params.userId, params.accessToken, {
+                            to: fee.evmRecipient!,
+                            data: '0x',
+                            value: feeWei.toString(),
+                            chainId: CHAIN_ID,
+                        });
+                        ethAmountIn = ethAmountIn - feeWei;
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Collected platform fee (ETH)', { bps: fee.bps, wei: feeWei.toString() });
+                    }
+                }
+
                 tradeParams = {
                     sell: { type: "eth" as const },
                     buy: { type: "erc20" as const, address: params.tokenOut as `0x${string}` },
-                    amountIn: ethers.parseEther(params.amountIn),
+                    amountIn: ethAmountIn,
                     sender: params.walletAddress as `0x${string}`,
                     slippage: slippageDecimal,
                     platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
                 };
-                inputLabel = `${params.amountIn} ETH`;
+                inputLabel = `${ethers.formatEther(ethAmountIn)} ETH`;
             }
 
             const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'fastSwap');
@@ -461,6 +498,7 @@ export class ZoraSniperService {
         tokenIn: string;
         amountIn: string;
         slippage?: number;
+        feeContext?: FeeContext;
     }) {
         logger.debug(LogCode.EXE_TX_BROADCAST, 'Zora Sniper executing FastSell', { tokenIn: params.tokenIn });
 
@@ -473,10 +511,30 @@ export class ZoraSniperService {
 
             const slippageDecimal = Math.min((params.slippage || 5) / 100, 0.99);
 
+            const fee = getPlatformFee(params.feeContext || 'swap');
+            const canChargeFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient);
+            let amountInNet = BigInt(params.amountIn);
+
+            if (canChargeFee && amountInNet > 0n) {
+                const feeAmount = (amountInNet * BigInt(fee.bps)) / 10000n;
+                if (feeAmount > 0n && amountInNet > feeAmount) {
+                    const iface = new ethers.Interface(['function transfer(address to, uint256 amount) returns (bool)']);
+                    const data = iface.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]);
+                    await sendTransaction(params.userId, params.accessToken, {
+                        to: params.tokenIn as `0x${string}`,
+                        data,
+                        value: '0',
+                        chainId: CHAIN_ID,
+                    });
+                    amountInNet = amountInNet - feeAmount;
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Collected platform fee (Token)', { bps: fee.bps, amount: feeAmount.toString() });
+                }
+            }
+
             const tradeParams = {
                 sell: { type: "erc20" as const, address: params.tokenIn as `0x${string} ` },
                 buy: { type: "eth" as const },
-                amountIn: BigInt(params.amountIn),
+                amountIn: amountInNet,
                 sender: params.walletAddress as `0x${string} `,
                 slippage: slippageDecimal,
                 platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,

@@ -33,7 +33,7 @@ import { zoraRoutes } from './routes/zora.js';
 import { rpcRoutes } from './routes/rpc.js';
 import { zoraProxyRoutes } from './routes/zora-proxy.js';
 import { aiRoutes } from './routes/ai.js';
-import { initAutoTradeService } from './services/autoTradeService.js';
+import { initAutoTradeService, stopAutoTradeService } from './services/autoTradeService.js';
 import { tokenAlertService } from './services/tokenAlertService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
 import { isPrivyConfigured } from './services/privyWallet.js';
@@ -289,6 +289,7 @@ async function start() {
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGTERM received, shutting down gracefully...');
+    await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
     process.exit(0);
@@ -296,6 +297,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGINT received, shutting down gracefully...');
+    await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
     process.exit(0);

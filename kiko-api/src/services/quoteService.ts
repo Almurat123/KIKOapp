@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { getZeroExQuote, getDefaultTakerAddress } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
+import type { ZeroExAffiliateFee } from './zeroEx.js';
 
 export interface QuoteResult {
     dex: string;
@@ -35,6 +36,7 @@ export interface BestQuoteParams {
     slippageBps: number;
     userAddress?: string;
     refPrice?: number | null; // USD price ratio for price impact calc
+    affiliateFee?: ZeroExAffiliateFee;
 }
 
 /**
@@ -45,7 +47,7 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
         tokenIn, tokenOut, actualTokenIn, actualTokenOut,
         amountInBase, amountInHuman,
         tokenInDecimals, tokenOutDecimals,
-        chainId, slippageBps, userAddress, refPrice
+        chainId, slippageBps, userAddress, refPrice, affiliateFee
     } = params;
 
     const quotes: QuoteResult[] = [];
@@ -69,7 +71,8 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
                 amountInBase,
                 chainId,
                 slippageBps,
-                takerAddress
+                takerAddress,
+                affiliateFee
             );
 
             if (q) {
@@ -104,6 +107,10 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
     // 2. KyberSwap
     const fetchKyber = async () => {
         try {
+            // Kyber integration currently doesn't expose a reliable integrator-fee mechanism here.
+            // If platform fee is requested, prefer 0x so we can actually collect it.
+            if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) return;
+
             const kyberQuote = await getKyberQuote(
                 actualTokenIn,
                 actualTokenOut,

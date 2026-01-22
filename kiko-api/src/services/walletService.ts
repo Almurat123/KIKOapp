@@ -5,6 +5,9 @@ const ALL_BALANCES_CACHE_TTL_MS = 20_000;
 const allBalancesCache = new Map<string, { timestamp: number; data: Record<string, WalletBalance> }>();
 const allBalancesInflight = new Map<string, Promise<Record<string, WalletBalance>>>();
 
+const ACCESS_CACHE_TTL_MS = 60_000;
+const accessCache = new Map<string, { timestamp: number; allowed: boolean }>();
+
 export const walletService = {
     /**
      * Get real-time balance for an address
@@ -54,12 +57,15 @@ export const walletService = {
      */
     async verifyAccess(userId: string, address: string): Promise<boolean> {
         const normalizedAddress = address.toLowerCase();
+        const isEvmAddress = normalizedAddress.startsWith('0x') && normalizedAddress.length === 42;
 
-        console.log('[verifyAccess] Checking access:', {
-            userId,
-            requestedAddress: address,
-            normalizedAddress
-        });
+        const cacheKey = `${userId}::${normalizedAddress}`;
+        const cached = accessCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < ACCESS_CACHE_TTL_MS) {
+            return cached.allowed;
+        }
+
+        console.log('[verifyAccess] Checking access:', { userId, requestedAddress: address });
 
         // Check if it's the user's primary wallet or solana wallet
         const user = await prisma.user.findFirst({
@@ -72,26 +78,22 @@ export const walletService = {
         });
 
         if (user) {
-            console.log('[verifyAccess] Found user:', {
-                userId: user.id,
-                walletAddress: user.walletAddress,
-                solanaWalletAddress: user.solanaWalletAddress,
-                walletMatch: user.walletAddress.toLowerCase() === normalizedAddress,
-                solanaMatch: user.solanaWalletAddress?.toLowerCase() === normalizedAddress
-            });
-
-            if (user.walletAddress.toLowerCase() === normalizedAddress ||
-                user.solanaWalletAddress?.toLowerCase() === normalizedAddress) {
-                console.log('[verifyAccess] ✅ Access granted');
-                return true;
-            }
+            const allowed =
+                user.walletAddress.toLowerCase() === normalizedAddress ||
+                user.solanaWalletAddress?.toLowerCase() === normalizedAddress;
+            accessCache.set(cacheKey, { timestamp: Date.now(), allowed });
+            if (allowed) console.log('[verifyAccess] ✅ Access granted');
+            else console.log('[verifyAccess] ❌ Access denied (address mismatch)');
+            return allowed;
         } else {
             console.log('[verifyAccess] ❌ User not found');
-            const isSolanaAddress = !normalizedAddress.startsWith('0x');
+            if (!isEvmAddress) {
+                // User model requires walletAddress (EVM). We do not auto-create users from non-EVM addresses.
+                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+                return false;
+            }
             const existingUser = await prisma.user.findFirst({
-                where: isSolanaAddress
-                    ? { solanaWalletAddress: normalizedAddress }
-                    : { walletAddress: normalizedAddress }
+                where: { walletAddress: normalizedAddress }
             });
 
             if (existingUser) {
@@ -100,6 +102,7 @@ export const walletService = {
                         requestedAddress: normalizedAddress,
                         owner: existingUser.privyDid
                     });
+                    accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
                     return false;
                 }
 
@@ -108,24 +111,22 @@ export const walletService = {
                     data: { privyDid: userId }
                 });
                 console.log('[verifyAccess] ✅ Access granted (attached privyDid to existing user)');
+                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
                 return true;
             }
 
             try {
                 const created = await prisma.user.create({
-                    data: isSolanaAddress
-                        ? { privyDid: userId, solanaWalletAddress: normalizedAddress, walletAddress: normalizedAddress }
-                        : { privyDid: userId, walletAddress: normalizedAddress }
+                    data: { privyDid: userId, walletAddress: normalizedAddress }
                 });
                 console.log('[verifyAccess] ✅ Access granted (created user)', { userId: created.id });
+                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
                 return true;
             } catch (createError: any) {
                 console.error('[verifyAccess] ❌ Failed to create user record', { error: createError.message });
+                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
                 return false;
             }
         }
-
-        console.log('[verifyAccess] ❌ Access denied');
-        return false;
     }
 };

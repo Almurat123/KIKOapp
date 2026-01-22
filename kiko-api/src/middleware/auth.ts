@@ -77,6 +77,19 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
     return;
   }
 
+  // Check for internal service key (Server-to-Server Auth)
+  const serviceKey = (request.headers['x-service-key'] as string) || '';
+  const internalKey = process.env.INTERNAL_SERVICE_KEY;
+  if (internalKey && serviceKey === internalKey) {
+    // Grant access as system service
+    (request as any).user = {
+      sub: 'system-service',
+      role: 'service',
+      permissions: ['*']
+    };
+    return;
+  }
+
   const auth = request.headers.authorization || '';
   const token = auth.toLowerCase().startsWith('bearer ')
     ? auth.substring(7).trim()

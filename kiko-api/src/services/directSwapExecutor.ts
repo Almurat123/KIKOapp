@@ -12,6 +12,7 @@ import { findTokenOnAnyChain } from './ai/tokenDetector.js';
 import { resolveTokenAddress } from './tokens.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { ethers } from 'ethers';
+import { getPlatformFee, isValidEvmAddress } from './platformFeeService.js';
 
 export interface DirectSwapParams {
     sessionId: string;
@@ -104,6 +105,7 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
                     tokenOut: params.tokenOut,
                     amountIn: params.amountIn,
                     slippage: params.slippage || 3,
+                    feeContext: 'swap',
                 });
 
                 console.log('[DirectSwap] ✅ Zora swap successful:', txHash);
@@ -133,6 +135,7 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
                     amountIn: params.amountIn,
                     chainId: effectiveChainId,  // Use actual token chain
                     slippage: params.slippage || 5,
+                    feeContext: 'swap',
                 });
 
                 console.log('[DirectSwap] \u2705 Four.Meme swap successful:', txHash);
@@ -154,6 +157,7 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
                     isBuy: !isSellOperation,
                     provider: 'pumpfun',
                     slippageBps: Math.round((params.slippage || 3) * 100),
+                    feeContext: 'swap',
                 });
 
                 console.log('[DirectSwap] ✅ Solana Launchpad swap successful:', txHash);
@@ -175,6 +179,7 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
                     isBuy: !isSellOperation,
                     provider: 'bonkfun',
                     slippageBps: Math.round((params.slippage || 3) * 100),
+                    feeContext: 'swap',
                 });
 
                 console.log('[DirectSwap] ✅ Solana Launchpad swap successful:', txHash);
@@ -214,6 +219,7 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
                     tokenOutMint,
                     amountIn: amountInAtomicUnits,
                     slippageBps: Math.round((params.slippage || 3) * 100),
+                    feeContext: 'swap',
                 });
 
                 console.log('[DirectSwap] ✅ Jupiter swap successful:', txHash);
@@ -247,6 +253,12 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
 
         // Get Best Quote
         const { getBestQuote } = await import('./quoteService.js');
+        const platformFee = getPlatformFee('swap');
+        const affiliateFee =
+            platformFee.bps > 0 && isValidEvmAddress(platformFee.evmRecipient)
+                ? { affiliateAddress: platformFee.evmRecipient!, buyTokenPercentageFeeBps: platformFee.bps }
+                : undefined;
+
         const amountInHuman = parseFloat(params.amountIn);
         const amountInBase = import('./zeroEx.js').then(m => m.toWei(params.amountIn, tokenInDecimals));
 
@@ -261,7 +273,8 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
             tokenOutDecimals,
             chainId: effectiveChainId,
             slippageBps: Math.round((params.slippage || 3) * 100),
-            userAddress: params.walletAddress
+            userAddress: params.walletAddress,
+            affiliateFee,
         });
 
         if (!best) {

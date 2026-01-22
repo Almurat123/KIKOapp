@@ -81,6 +81,29 @@ export interface IntentDecision {
         stage: 'rule' | 'classifier' | 'llm' | 'hybrid';
         reason: string;
     };
+    hardRule?: {
+        label: HighLevelIntentType;
+        reason: string;
+    };
+    signals?: {
+        hasContractAddress: boolean;
+        hasAction: boolean;
+        hasQuestion: boolean;
+        hasRisk: boolean;
+        hasSocial: boolean;
+        hasWallet: boolean;
+        hasCopyTrade: boolean;
+        hasPrediction: boolean;
+        hasAmount: boolean;
+        hasAsset: boolean;
+    };
+    slots?: {
+        action: boolean;
+        amount: boolean;
+        asset: boolean;
+        target: boolean;
+        complete: boolean;
+    };
     conflict?: IntentConflict;
 }
 
@@ -275,8 +298,11 @@ function detectContractAddress(text: string): string | null {
  */
 function hasCopyTradeKeywords(text: string): boolean {
     const copyTradeKeywords = [
-        'copy trade', 'copytrade', 'copy-trade',
-        'mirror trade', 'follow trade',
+        'copy trade', 'copy trading', 'copytrade', 'copytrading', 'copy-trade', 'copy-trading',
+        'mirror trade', 'mirror trading',
+        'follow trade', 'follow trading',
+        'copy trader', 'copy this trader', 'follow this trader',
+        'copy strategy', 'create a copy strategy',
         '跟单', '复制交易', '镜像交易'
     ];
     const lowerText = text.toLowerCase();
@@ -310,6 +336,9 @@ function hasRiskKeywords(text: string): boolean {
 }
 
 function hasTradeVerbs(text: string): boolean {
+    if (hasCopyTradeKeywords(text)) {
+        return false;
+    }
     return /\b(swap|trade|exchange|convert|buy|sell|purchase|ape)\b/i.test(text) ||
         /\b(兑换|交易|买|购买|卖|卖出)\b/i.test(text);
 }
@@ -471,6 +500,95 @@ function cosineSimilarity(a: number[], b: number[]): number {
     return dot / (Math.sqrt(aNorm) * Math.sqrt(bNorm));
 }
 
+interface IntentSignals {
+    hasContractAddress: boolean;
+    hasAction: boolean;
+    hasQuestion: boolean;
+    hasRisk: boolean;
+    hasSocial: boolean;
+    hasWallet: boolean;
+    hasCopyTrade: boolean;
+    hasPrediction: boolean;
+    hasAmount: boolean;
+    hasAsset: boolean;
+}
+
+interface IntentSlots {
+    action: boolean;
+    amount: boolean;
+    asset: boolean;
+    target: boolean;
+    complete: boolean;
+}
+
+function detectQuestionIntent(text: string): boolean {
+    return /\b(what\s+is|what's|whats|analy[sz]e|worth|why|should\s+i|opinion|thoughts|narrative|community|sentiment|catalyst|is\s+this|is\s+\w+\s+legit)\b/i.test(text)
+        || /\?/.test(text)
+        || /(是什么|这是啥|分析|值不值得|能买吗|为什么|叙事|社区|情绪|催化)/.test(text);
+}
+
+function detectSellVerb(text: string): boolean {
+    return /\b(sell|exit|cash\s*out|dump)\b/i.test(text) || /\b(卖|卖出)\b/.test(text);
+}
+
+function detectTargetSymbol(text: string): boolean {
+    const symbolPattern = /(?:buy|sell|swap|ape|market\s+buy|market\s+sell)\s+[\d.]*\s*([A-Za-z0-9]{2,10})\b/i;
+    const intoPattern = /\b(?:into|to)\s+([A-Za-z0-9]{2,10})\b/i;
+    return symbolPattern.test(text) || intoPattern.test(text);
+}
+function detectAmountPresence(text: string): boolean {
+    if (/\b(\d{1,3})%/.test(text)) return true;
+    if (/\b(all|half|quarter)\b/i.test(text)) return true;
+    if (/\b(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB|BTC)\b/i.test(text)) return true;
+    return /\b(buy|sell|swap)\s+(\d+\.?\d*)\b/i.test(text);
+}
+
+function detectAssetPresence(text: string, tokenSymbols: { tokenIn?: string; tokenOut?: string }): boolean {
+    if (tokenSymbols.tokenIn || tokenSymbols.tokenOut) return true;
+    return /\b(ETH|USDC|USDT|SOL|BNB|BTC|MATIC|ARB|OP|BASE)\b/i.test(text);
+}
+
+function getIntentSignals(userMessage: string, userContext?: UserContext): { signals: IntentSignals; slots: IntentSlots } {
+    const contractAddress = detectContractAddress(userMessage);
+    const tokenSymbols = extractTokenSymbols(userMessage);
+    const hasSwap = hasSwapKeywords(userMessage);
+    const hasTradeVerb = hasTradeVerbs(userMessage);
+    const hasRisk = hasRiskKeywords(userMessage);
+    const hasCopyTrade = hasCopyTradeKeywords(userMessage);
+    const hasPrediction = /\b(polymarket|prediction\s*market|prediction|betting|bet\s+on|odds|implied\s+probability|market\s+probability|market\s+price)\b/i.test(userMessage);
+    const hasSocial = /\b(trending|social|farcaster|twitter|x|sentiment|buzz|mentions?|influencer|kol|community\s+posts?|what.*people|what.*saying|on\s+x|on\s+twitter|on\s+farcaster)\b/i.test(userMessage);
+    const hasWallet = /\b(wallet|balance|transaction|tx\s*history|portfolio|holdings|pnl|profit|loss)\b/i.test(userMessage);
+    const hasQuestion = detectQuestionIntent(userMessage);
+    const hasAmount = detectAmountPresence(userMessage);
+    const hasAsset = detectAssetPresence(userMessage, tokenSymbols);
+    const isSell = detectSellVerb(userMessage);
+    const hasAction = hasSwap || hasTradeVerb;
+    const target = !!contractAddress || !!tokenSymbols.tokenOut || !!tokenSymbols.tokenIn || detectTargetSymbol(userMessage);
+    const slots: IntentSlots = {
+        action: hasAction,
+        amount: hasAmount,
+        asset: hasAsset,
+        target,
+        complete: hasAction && hasAmount && target && (hasAsset || isSell),
+    };
+
+    return {
+        signals: {
+            hasContractAddress: !!contractAddress,
+            hasAction,
+            hasQuestion,
+            hasRisk,
+            hasSocial,
+            hasWallet,
+            hasCopyTrade,
+            hasPrediction,
+            hasAmount,
+            hasAsset,
+        },
+        slots,
+    };
+}
+
 function classifyIntentLight(text: string): { scores: Record<HighLevelIntentType, number>; top: HighLevelIntentType; confidence: number } {
     const scores: Record<HighLevelIntentType, number> = {
         TRADING: 0,
@@ -499,14 +617,16 @@ function classifyIntentLight(text: string): { scores: Record<HighLevelIntentType
     return { scores, top, confidence };
 }
 
-function evaluateRuleLayer(userMessage: string, userContext?: UserContext): IntentLabelScore[] {
-    const contractAddress = detectContractAddress(userMessage);
+function evaluateRuleLayer(userMessage: string, userContext?: UserContext): {
+    scores: IntentLabelScore[];
+    signals: IntentSignals;
+    slots: IntentSlots;
+    hardRule?: { label: HighLevelIntentType; reason: string };
+} {
+    const { signals, slots } = getIntentSignals(userMessage, userContext);
     const tokenSymbols = extractTokenSymbols(userMessage);
-    const hasSwap = hasSwapKeywords(userMessage);
-    const risk = hasRiskKeywords(userMessage);
-    const tradeVerb = hasTradeVerbs(userMessage);
-    const looksLikeAnalysisQuestion = /\b(what\s+is|what's|whats|analy[sz]e|worth|why|sentiment|narrative|community|catalyst)\b/i.test(userMessage)
-        || /(是什么|是什么币|这是啥|分析|值不值得|能买吗|为什么|情绪|叙事|社区|催化)/.test(userMessage);
+    const looksLikeAnalysisQuestion = detectQuestionIntent(userMessage);
+    const hasMarketAnalysisKeywords = /\b(price|chart|volume|liquidity|market.*cap|token.*info|token.*data|analysis)\b/i.test(userMessage);
 
     const scores: Partial<Record<HighLevelIntentType, IntentLabelScore>> = {};
     const add = (label: HighLevelIntentType, confidence: number, evidence: string[]) => {
@@ -518,29 +638,34 @@ function evaluateRuleLayer(userMessage: string, userContext?: UserContext): Inte
         }
     };
 
-    if (hasCopyTradeKeywords(userMessage)) {
+    if (signals.hasCopyTrade) {
         add('COPY_TRADING', 0.95, ['keyword: copy trade']);
     }
-    if (/\b(polymarket|prediction\s*market|prediction|betting|bet\s+on|odds)\b/i.test(userMessage)) {
-        add('PREDICTION_MARKETS', 0.9, ['keyword: polymarket/betting']);
+    if (signals.hasPrediction) {
+        add('PREDICTION_MARKETS', 0.9, ['keyword: prediction/betting']);
     }
-    if (risk) {
-        add('RISK_SCAN', tradeVerb ? 0.6 : 0.9, ['keyword: risk/safety']);
+    if (signals.hasRisk) {
+        add('RISK_SCAN', signals.hasAction ? 0.6 : 0.9, ['keyword: risk/safety']);
     }
-    // TRADING: require explicit trade intent (swap keywords / trade verbs / token pair).
-    // A bare contract address is more often an analysis request ("what is this token?") and should not auto-route to TRADING.
-    if (hasSwap || tradeVerb || (tokenSymbols.tokenIn && tokenSymbols.tokenOut) || (contractAddress && hasSwap)) {
-        add('TRADING', hasSwap ? 0.9 : 0.8, [
-            hasSwap ? 'keyword: swap/trade' : 'token pair/contract address',
-        ]);
+    if (signals.hasAction && slots.complete && !signals.hasQuestion) {
+        add('TRADING', 0.9, ['action + slots complete']);
     }
-    if (contractAddress && !hasSwap && !tradeVerb) {
+    if (signals.hasAction && !slots.complete) {
+        add('MARKET_ANALYSIS', 0.7, ['trade intent incomplete']);
+    }
+    if (signals.hasContractAddress && !signals.hasAction) {
         add('MARKET_ANALYSIS', looksLikeAnalysisQuestion ? 0.9 : 0.8, ['contract address (no trade verb)']);
     }
-    if (/\b(trending|social|farcaster|twitter|sentiment|what.*people|what.*saying)\b/i.test(userMessage)) {
+    if (signals.hasQuestion) {
+        add('MARKET_ANALYSIS', 0.9, ['question intent']);
+    }
+    if (signals.hasSocial) {
         add('SOCIAL_SENSING', 0.8, ['keyword: social/trending']);
     }
-    if (/\b(price|chart|trending|volume|liquidity|market.*cap|token.*info|token.*data|analysis)\b/i.test(userMessage)) {
+    if (signals.hasWallet) {
+        add('MARKET_ANALYSIS', 0.8, ['keyword: wallet/portfolio']);
+    }
+    if (hasMarketAnalysisKeywords || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
         add('MARKET_ANALYSIS', 0.75, ['keyword: market analysis']);
     }
 
@@ -548,7 +673,28 @@ function evaluateRuleLayer(userMessage: string, userContext?: UserContext): Inte
         add('GENERAL_CHAT', 0.5, ['fallback: no rule match']);
     }
 
-    return Object.values(scores).filter(Boolean) as IntentLabelScore[];
+    const hardRule = (() => {
+        if (signals.hasCopyTrade) return { label: 'COPY_TRADING' as HighLevelIntentType, reason: 'copy trade keyword' };
+        if (signals.hasPrediction) return { label: 'PREDICTION_MARKETS' as HighLevelIntentType, reason: 'prediction market keyword' };
+        if (signals.hasRisk && (signals.hasQuestion || !signals.hasAction)) {
+            return { label: 'RISK_SCAN' as HighLevelIntentType, reason: 'risk question without trade action' };
+        }
+        if (signals.hasSocial) return { label: 'SOCIAL_SENSING' as HighLevelIntentType, reason: 'social intent' };
+        if (signals.hasQuestion) return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'question intent' };
+        if (signals.hasAction && slots.complete) return { label: 'TRADING' as HighLevelIntentType, reason: 'action + slots complete' };
+        if (signals.hasWallet) return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'wallet intent' };
+        if (signals.hasContractAddress && !signals.hasAction) {
+            return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'contract address without action' };
+        }
+        return undefined;
+    })();
+
+    return {
+        scores: Object.values(scores).filter(Boolean) as IntentLabelScore[],
+        signals,
+        slots,
+        hardRule,
+    };
 }
 
 function detectIntentConflict(labels: Array<{ label: HighLevelIntentType; confidence: number }>): IntentConflict | undefined {
@@ -571,10 +717,11 @@ function detectIntentConflict(labels: Array<{ label: HighLevelIntentType; confid
 }
 
 function buildDecision(
-    ruleScores: IntentLabelScore[],
+    ruleResult: ReturnType<typeof evaluateRuleLayer>,
     classifierScores: ReturnType<typeof classifyIntentLight>,
     llmLabel?: HighLevelIntentType
 ): IntentDecision {
+    const ruleScores = ruleResult.scores;
     const combinedScores: Record<HighLevelIntentType, number> = {
         TRADING: 0,
         RISK_SCAN: 0,
@@ -596,13 +743,17 @@ function buildDecision(
         combinedScores[llmLabel] = Math.max(combinedScores[llmLabel], 0.75);
     }
 
+    if (ruleResult.hardRule) {
+        combinedScores[ruleResult.hardRule.label] = Math.max(combinedScores[ruleResult.hardRule.label], 0.95);
+    }
+
     const labels = Object.entries(combinedScores)
         .sort((a, b) => b[1] - a[1])
         .map(([label, confidence]) => ({ label: label as HighLevelIntentType, confidence }));
 
     const conflict = detectIntentConflict(labels);
-    const primary = labels[0].label;
-    const confidence = labels[0].confidence;
+    const primary = ruleResult.hardRule ? ruleResult.hardRule.label : labels[0].label;
+    const confidence = ruleResult.hardRule ? Math.max(labels[0].confidence, 0.9) : labels[0].confidence;
 
     return {
         primary,
@@ -626,9 +777,14 @@ function buildDecision(
                 : []),
         ],
         routing: {
-            stage: llmLabel ? 'llm' : (ruleScores.length > 0 ? 'hybrid' : 'classifier'),
-            reason: llmLabel ? 'LLM fallback for ambiguous intent' : 'Rule + classifier fusion',
+            stage: ruleResult.hardRule ? 'rule' : (llmLabel ? 'llm' : (ruleScores.length > 0 ? 'hybrid' : 'classifier')),
+            reason: ruleResult.hardRule
+                ? `Hard rule: ${ruleResult.hardRule.reason}`
+                : (llmLabel ? 'LLM fallback for ambiguous intent' : 'Rule + classifier fusion'),
         },
+        hardRule: ruleResult.hardRule,
+        signals: ruleResult.signals,
+        slots: ruleResult.slots,
         conflict,
     };
 }
@@ -640,17 +796,12 @@ function parseHighLevelIntentHeuristic(
     userMessage: string,
     userContext?: UserContext
 ): HighLevelIntent {
-    const lowerMessage = userMessage.toLowerCase();
-    const contractAddress = detectContractAddress(userMessage);
-    const hasSwap = hasSwapKeywords(userMessage);
+    const { signals, slots } = getIntentSignals(userMessage, userContext);
     const tokenSymbols = extractTokenSymbols(userMessage);
     const hasRisk = hasRiskKeywords(userMessage);
-    const hasTradeVerb = hasTradeVerbs(userMessage);
-    const looksLikeAnalysisQuestion = /\b(what\s+is|what's|whats|analy[sz]e|worth|why|sentiment|narrative|community|catalyst)\b/i.test(userMessage)
-        || /(是什么|是什么币|这是啥|分析|值不值得|能买吗|为什么|情绪|叙事|社区|催化)/.test(userMessage);
 
     // COPY TRADING intent (must run before TRADING)
-    if (hasCopyTradeKeywords(userMessage)) {
+    if (signals.hasCopyTrade) {
         return {
             type: 'COPY_TRADING',
             confidence: 0.95,
@@ -658,7 +809,7 @@ function parseHighLevelIntentHeuristic(
     }
 
     // PREDICTION MARKETS intent (Polymarket)
-    if (/\b(polymarket|prediction\s*market|prediction|betting|bet\s+on|odds)\b/i.test(userMessage)) {
+    if (signals.hasPrediction) {
         return {
             type: 'PREDICTION_MARKETS',
             confidence: 0.9,
@@ -668,7 +819,7 @@ function parseHighLevelIntentHeuristic(
     // RISK_SCAN intent (risk-only questions)
     // If user asks "is it safe/honeypot/rug" and does NOT ask to trade, prioritize risk scanning
     // even if they provided a contract address.
-    if (hasRisk && !hasTradeVerb) {
+    if (hasRisk && !signals.hasAction) {
         return {
             type: 'RISK_SCAN',
             confidence: 0.9,
@@ -676,18 +827,26 @@ function parseHighLevelIntentHeuristic(
     }
 
     // TRADING intent
-    if (hasSwap || hasTradeVerb || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
+    if (signals.hasAction && slots.complete && !signals.hasQuestion) {
         return {
             type: 'TRADING',
             confidence: 0.9,
         };
     }
 
-    // Contract address without trade verb is usually analysis.
-    if (contractAddress) {
+    // SOCIAL_SENSING intent
+    if (signals.hasSocial) {
+        return {
+            type: 'SOCIAL_SENSING',
+            confidence: 0.8,
+        };
+    }
+
+    // Contract address or question without trade verb is usually analysis.
+    if (signals.hasQuestion || signals.hasContractAddress) {
         return {
             type: 'MARKET_ANALYSIS',
-            confidence: looksLikeAnalysisQuestion ? 0.9 : 0.8,
+            confidence: 0.85,
         };
     }
 
@@ -699,16 +858,9 @@ function parseHighLevelIntentHeuristic(
         };
     }
 
-    // SOCIAL_SENSING intent
-    if (/\b(trending|social|farcaster|twitter|sentiment|what.*people|what.*saying)\b/i.test(userMessage)) {
-        return {
-            type: 'SOCIAL_SENSING',
-            confidence: 0.8,
-        };
-    }
-
     // MARKET_ANALYSIS intent
-    if (/\b(price|chart|trending|volume|liquidity|market.*cap|token.*info|token.*data)\b/i.test(userMessage)) {
+    if (/\b(price|chart|trending|volume|liquidity|market.*cap|token.*info|token.*data|analysis)\b/i.test(userMessage)
+        || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) {
         return {
             type: 'MARKET_ANALYSIS',
             confidence: 0.75,
@@ -904,10 +1056,10 @@ function parseDetailedIntentHeuristic(
     userContext?: UserContext
 ): DetailedIntent {
     const contractAddress = detectContractAddress(userMessage);
-    const hasSwap = hasSwapKeywords(userMessage);
     const tokenSymbols = extractTokenSymbols(userMessage);
     const isSolana = contractAddress && !contractAddress.startsWith('0x') && contractAddress.length >= 32;
     const riskKeywords = hasRiskKeywords(userMessage);
+    const { signals, slots } = getIntentSignals(userMessage, userContext);
 
     // Default intent
     let action: DetailedIntentType = 'general_query';
@@ -921,12 +1073,16 @@ function parseDetailedIntentHeuristic(
     // even if they contain a contract address (which is the TARGET WALLET, not a token)
     const isStrategyCondition = /\b(when|if|once|whenever)\b/i.test(userMessage);
     const isCopyTradeCommand = hasCopyTradeKeywords(userMessage);
+    const riskOnly = signals.hasRisk && !signals.hasAction;
+    const shouldTrade = signals.hasAction
+        && slots.complete
+        && !signals.hasQuestion
+        && !riskOnly
+        && !isStrategyCondition
+        && !isCopyTradeCommand;
 
     // If user asks "is 0x... safe/honeypot?" (risk-only), do NOT treat it as a swap intent.
-    if ((hasSwap || contractAddress || (tokenSymbols.tokenIn && tokenSymbols.tokenOut)) &&
-        !isStrategyCondition &&
-        !isCopyTradeCommand &&
-        !(riskKeywords && !hasSwap)) {
+    if (shouldTrade) {
         action = 'swap';
 
         // Detect if this is a SELL operation (selling the contract address token)
@@ -1034,6 +1190,15 @@ function parseDetailedIntentHeuristic(
     else if (riskKeywords) {
         action = 'token_security';
     }
+    // Default analysis when user asks a question or provides a CA without trade intent
+    else if (action === 'general_query' &&
+        (signals.hasQuestion || signals.hasContractAddress) &&
+        !signals.hasWallet &&
+        !signals.hasSocial &&
+        !signals.hasPrediction &&
+        !signals.hasCopyTrade) {
+        action = 'token_info';
+    }
     // Detect token info
     else if (/\b(price|chart|info|data|detail).*(?:token|coin|eth|btc|usdc)\b/i.test(userMessage)) {
         action = 'token_info';
@@ -1099,9 +1264,9 @@ export async function parseIntent(
     logger.startTimer(timerLabel);
 
     // Step 1: Rule layer + lightweight classifier
-    const ruleScores = evaluateRuleLayer(userMessage, userContext);
+    const ruleResult = evaluateRuleLayer(userMessage, userContext);
     const classifier = classifyIntentLight(userMessage);
-    let decision = buildDecision(ruleScores, classifier);
+    let decision = buildDecision(ruleResult, classifier);
 
     let highLevel: HighLevelIntent = {
         type: decision.primary,
@@ -1136,11 +1301,12 @@ export async function parseIntent(
 
     // Step 3: Map detailed intent to high-level (if mismatch, trust detailed)
     const mappedHighLevel = DETAILED_TO_HIGH_LEVEL[detailed.action] || highLevel.type;
-    if (mappedHighLevel !== highLevel.type && detailed.action !== 'general_query') {
+    const allowOverride = !decision.hardRule && !decision.signals?.hasQuestion;
+    if (allowOverride && mappedHighLevel !== highLevel.type && detailed.action !== 'general_query') {
         logger.debug(LogCode.SYS_INFO, 'IntentParser: High-level intent corrected', { from: highLevel.type, to: mappedHighLevel });
         highLevel.type = mappedHighLevel;
         highLevel.confidence = Math.max(highLevel.confidence, 0.75);
-        decision = buildDecision(ruleScores, classifier, mappedHighLevel);
+        decision = buildDecision(ruleResult, classifier, mappedHighLevel);
     }
 
     // Step 4: Extract additional metadata
@@ -1158,6 +1324,8 @@ export async function parseIntent(
         confidence: highLevel.confidence,
         routingStage: decision.routing.stage,
         conflict: decision.conflict?.type,
+        hardRule: decision.hardRule?.label,
+        slotsComplete: decision.slots?.complete,
         labels: decision.labels?.slice(0, 3),
     });
 

@@ -11,6 +11,7 @@ import { sendTransaction } from './privyWallet.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 
 // TokenManager2 contract address on BSC
 const TOKEN_MANAGER_V2 = '0x5c952063c7fc8610FFDB798152D69F0B9550762b';
@@ -97,6 +98,7 @@ interface BuyTokenParams {
     bnbAmount: string; // Amount in BNB (e.g., "0.01")
     minAmount?: string; // Minimum tokens to receive (set to 0 for no protection)
     slippageBps?: number; // Slippage in basis points (e.g., 300 = 3%)
+    feeContext?: FeeContext;
 }
 
 interface SellTokenParams {
@@ -105,6 +107,7 @@ interface SellTokenParams {
     tokenAddress: string;
     amount: string; // Amount in Wei (token's smallest unit)
     minFunds?: string; // Minimum quote to receive
+    feeContext?: FeeContext;
 }
 
 /**
@@ -126,7 +129,23 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
     const chainConfig = getChainConfig(chainId);
 
     // Convert BNB amount to Wei
-    const bnbInWei = ethers.parseEther(bnbAmount);
+    let bnbInWei = ethers.parseEther(bnbAmount);
+
+    // Platform fee (charged in native BNB before buy)
+    const fee = getPlatformFee(params.feeContext || 'swap');
+    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient) && bnbInWei > 0n) {
+        const feeWei = (bnbInWei * BigInt(fee.bps)) / 10000n;
+        if (feeWei > 0n && bnbInWei > feeWei) {
+            await sendTransaction(userId, '', {
+                to: fee.evmRecipient!,
+                data: '0x',
+                value: feeWei.toString(),
+                chainId,
+            });
+            bnbInWei = bnbInWei - feeWei;
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Four.meme: Collected platform fee (BNB)', { bps: fee.bps, wei: feeWei.toString() });
+        }
+    }
 
     // Encode buyTokenAMAP(token, funds, minAmount) call
     const iface = new ethers.Interface(TOKEN_MANAGER_V2_ABI);
@@ -179,14 +198,32 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
     const chainId = 56; // BSC
     const chainConfig = getChainConfig(chainId);
 
+    let amountNet = BigInt(amount);
+    const fee = getPlatformFee(params.feeContext || 'swap');
+    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient) && amountNet > 0n) {
+        const feeAmount = (amountNet * BigInt(fee.bps)) / 10000n;
+        if (feeAmount > 0n && amountNet > feeAmount) {
+            const iface = new ethers.Interface(['function transfer(address to, uint256 amount) returns (bool)']);
+            const transferData = iface.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]);
+            await sendTransaction(userId, '', {
+                to: tokenAddress,
+                data: transferData,
+                value: '0',
+                chainId,
+            });
+            amountNet = amountNet - feeAmount;
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Four.meme: Collected platform fee (Token)', { bps: fee.bps, amount: feeAmount.toString() });
+        }
+    }
+
     // Check and approve token if needed
-    await checkAndApproveForFourMeme(userId, walletAddress, tokenAddress, amount, chainId);
+    await checkAndApproveForFourMeme(userId, walletAddress, tokenAddress, amountNet.toString(), chainId);
 
     // Encode sellToken(token, amount) call
     const iface = new ethers.Interface(TOKEN_MANAGER_V2_ABI);
     const callData = iface.encodeFunctionData('sellToken(address,uint256)', [
         tokenAddress,
-        BigInt(amount)
+        amountNet
     ]);
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Sell transaction details', {

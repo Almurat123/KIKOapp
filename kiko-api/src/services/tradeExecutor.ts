@@ -6,6 +6,7 @@ import { sendTransaction } from './privyWallet.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { getChainConfig } from '../config/chainConfig.js';
 import { getTokenInfo } from './tokenService.js';
+import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 
 interface ExecuteSwapParams {
     userId: string;
@@ -15,6 +16,7 @@ interface ExecuteSwapParams {
     amountIn: string;
     chainId: number;
     slippageBps?: number;
+    feeContext?: FeeContext;
 }
 
 /**
@@ -69,13 +71,20 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
     // Convert amount to smallest unit
     const sellAmountBase = toWei(amountIn, decimals);
 
+    const fee = getPlatformFee(params.feeContext || 'swap');
+    const affiliateFee =
+        fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)
+            ? { affiliateAddress: fee.evmRecipient!, buyTokenPercentageFeeBps: fee.bps }
+            : undefined;
+
     const quote = await getZeroExQuote(
         tokenIn === 'ETH' ? '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' : tokenIn,
         tokenOut,
         sellAmountBase,
         chainId,
         slippageBps,
-        walletAddress // taker address
+        walletAddress, // taker address
+        affiliateFee
     );
 
     if (!quote) {
@@ -174,6 +183,7 @@ interface ExecuteSellParams {
     chainId: number;
     slippageBps?: number;
     tokenDecimals?: number;
+    feeContext?: FeeContext;
 }
 
 /**
@@ -186,7 +196,8 @@ export async function executeSellInstant({
     amountToSell,
     chainId,
     slippageBps,
-    tokenDecimals = 18
+    tokenDecimals = 18,
+    feeContext
 }: ExecuteSellParams): Promise<string> {
     const timerLabel = `sell_instant_${walletAddress.slice(0, 8)}_${tokenToSell}`;
     logger.startTimer(timerLabel);
@@ -203,6 +214,12 @@ export async function executeSellInstant({
     // Get best quote via QuoteService
     const { getBestQuote } = await import('./quoteService.js');
 
+    const fee = getPlatformFee(feeContext || 'swap');
+    const affiliateFee =
+        fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)
+            ? { affiliateAddress: fee.evmRecipient!, buyTokenPercentageFeeBps: fee.bps }
+            : undefined;
+
     // Construct params for getBestQuote
     const { best } = await getBestQuote({
         tokenIn: tokenToSell,
@@ -215,7 +232,8 @@ export async function executeSellInstant({
         tokenOutDecimals: 18,
         chainId,
         slippageBps: slippageBps || 50,
-        userAddress: walletAddress
+        userAddress: walletAddress,
+        affiliateFee
     });
 
     if (!best) {

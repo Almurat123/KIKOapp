@@ -1,0 +1,25 @@
+{
+    "id": "swap",
+    "name": "Token Swap",
+    "description": "Exchange tokens on DEX (Base, Eth, Sol, BNB)",
+    "intents": ["TRADING"],
+    "tools": [
+        "prepare_swap_transaction",
+        "simulate_swap",
+        "get_wallet_info",
+        "get_token_info",
+        "check_token_risk"
+    ],
+    "examples": {
+        "en": [
+            "swap 0.1 ETH to USDC",
+            "buy 100 USDC worth of DEGEN",
+            "sell all my PEPE"
+        ],
+        "zh": [
+            "把 0.1 ETH 换成 USDC",
+            "用 100 USDC 买 DEGEN",
+            "卖掉所有的 PEPE"
+        ]
+    }
+}

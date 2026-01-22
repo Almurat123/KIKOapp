@@ -101,6 +101,8 @@ const pendingRequests = new Map<string, Promise<any>>();
  * Get cache TTL based on endpoint
  */
 function getCacheTime(endpoint: string): number {
+    // Chains data: NO CACHE - always fetch fresh data
+    if (endpoint.includes('/market/chains')) return 0;
     // Market data: 30 seconds
     if (endpoint.includes('/market/')) return 30000;
     // Token data: 60 seconds

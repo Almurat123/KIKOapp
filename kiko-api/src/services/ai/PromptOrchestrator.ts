@@ -1,7 +1,7 @@
 import { V2_PROMPT_MODULES } from './prompts/v2/index.js';
 import { generateToolList } from './toolPromptGenerator.js';
 import type { IntentType, ModelType, OrchestratorOptions, UserContext } from './types.js';
-import { skillRegistry } from '../../skills/registry.js';
+import { skillRegistryExec } from '../../skills/registry.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 
@@ -24,19 +24,24 @@ export class PromptOrchestrator {
             'PREDICTION_MARKETS',
             'RISK_SCAN',
         ]);
+        const mode = options?.routingMode
+            ? options.routingMode
+            : (freeIntents.has(intent) ? 'thinking' : 'execution');
+        logger.debug(LogCode.AI_MODE_ROUTED, 'PromptOrchestrator: mode selected', { model, intent, mode });
 
         // CORE (mode-specific)
-        const coreModule = freeIntents.has(intent)
+        const coreModule = mode === 'thinking'
             ? V2_PROMPT_MODULES.CORE_THINKING
             : V2_PROMPT_MODULES.CORE_EXECUTION;
         modules.push(coreModule);
-        // TOOL LIST (keep system prompt small; full schemas are sent via requestBody.tools)
-        modules.push(generateToolList());
-
-        if (freeIntents.has(intent)) {
+        if (mode === 'thinking') {
             // High-freedom analysis/chat: keep the system prompt minimal, let the model express itself.
             modules.push(V2_PROMPT_MODULES.ANALYST_POLICY);
+            logger.debug(LogCode.AI_SKILLS_ATTACHED, 'PromptOrchestrator: no skills attached for thinking mode', { intent });
         } else {
+            // TOOL LIST (keep system prompt small; full schemas are sent via requestBody.tools)
+            modules.push(generateToolList());
+
             // Execution mode: strong policies + skills + output policy.
             modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
             if (intent === 'TRADING') {
@@ -44,9 +49,10 @@ export class PromptOrchestrator {
             }
 
             const intentStr = String(intent).toUpperCase();
-            const matchedSkills = skillRegistry.getSkillsByIntent(intentStr);
+            const matchedSkills = skillRegistryExec.getSkillsByIntent(intentStr);
             if (matchedSkills.length > 0) {
                 logger.info(LogCode.AI_TOOL_FILTERED, 'PromptOrchestrator: Intent matched skills', { intent, count: matchedSkills.length, skills: matchedSkills.map(s => s.metadata.id) });
+                logger.debug(LogCode.AI_SKILLS_ATTACHED, 'PromptOrchestrator: Skills attached to execution prompt', { intent, skills: matchedSkills.map(s => s.metadata.id) });
                 for (const skill of matchedSkills) {
                     if (skill.prompt) {
                         logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: Injecting skill prompt', { skill: skill.metadata.name, length: skill.prompt.length });

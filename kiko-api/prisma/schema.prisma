@@ -284,6 +284,8 @@ model Position {
   ourSlippageBps    Int?
   realizedPnlPct    Float?
   realizedPnlUsd    Float?
+  exitRetryCount    Int       @default(0)
+  lastExitAttempt   DateTime?
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])

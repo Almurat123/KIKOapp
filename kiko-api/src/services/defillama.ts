@@ -33,6 +33,12 @@ export interface ProtocolData {
   logoUrl?: string;
 }
 
+interface DeFiLlamaChain {
+  name: string;
+  tvl: number;
+  change_1d?: number;
+}
+
 /**
  * Get historical TVL for a chain to calculate 24h change
  * Uses the change_1d field from the chains endpoint if available, otherwise fetches historical data
@@ -48,31 +54,32 @@ async function getChainTvlChange(chainName: string, currentTvl: number): Promise
       return 0; // Return 0 if historical data not available
     }
 
-    const data = await response.json() as { tvl?: number[][] };
+    const data = await response.json() as Array<{ date: number; tvl: number }>;
 
-    if (!data.tvl || data.tvl.length < 2) {
+    if (!Array.isArray(data) || data.length < 2) {
       return 0;
     }
 
     // Find data points approximately 24 hours apart
-    // Data is in format: [[timestamp, tvl], ...]
+    // Data is in format: [{ date, tvl }, ...]
     const now = Date.now() / 1000; // Current timestamp in seconds
     const oneDayAgo = now - 24 * 60 * 60; // 24 hours ago
 
     // Find the closest data point to 24h ago
     let previousTvl: number | null = null;
 
-    for (let i = data.tvl.length - 1; i >= 0; i--) {
-      const [timestamp, tvl] = data.tvl[i];
-      if (timestamp <= oneDayAgo) {
+    // Iterate backwards to find the first timestamp <= 24h ago
+    for (let i = data.length - 1; i >= 0; i--) {
+      const { date, tvl } = data[i];
+      if (date <= oneDayAgo) {
         previousTvl = tvl;
         break;
       }
     }
 
     // If we can't find data from 24h ago, use the second-to-last data point
-    if (previousTvl === null && data.tvl.length >= 2) {
-      previousTvl = data.tvl[data.tvl.length - 2][1];
+    if (previousTvl === null && data.length >= 2) {
+      previousTvl = data[data.length - 2].tvl;
     }
 
     if (!previousTvl || previousTvl === 0) {
@@ -103,22 +110,16 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
       throw new Error(`DeFiLlama API error: ${response.statusText}`);
     }
 
-    const data = await response.json() as Array<{
-      name: string;
-      tvl?: number;
-      gecko_id?: string;
-      tokenSymbol?: string;
-      cmcId?: string | null;
-      chainId?: number;
-    }>;
+    const data = await response.json() as Array<DeFiLlamaChain>;
 
     // Create a map of DeFiLlama chains for quick lookup (lowercase key)
-    const defiLlamaChainMap = new Map<string, { name: string; tvl: number }>();
+    const defiLlamaChainMap = new Map<string, { name: string; tvl: number; change_1d?: number }>();
     for (const chain of data) {
       if (chain.tvl && chain.tvl > 0) {
         defiLlamaChainMap.set(chain.name.toLowerCase(), {
           name: chain.name,
           tvl: chain.tvl,
+          change_1d: chain.change_1d,
         });
       }
     }
@@ -204,10 +205,10 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
         const defiLlamaData = defiLlamaChainMap.get(chainKeyLower);
         const tvl = defiLlamaData?.tvl || 0;
 
-        chains.push({
+        const chainData: ChainData = {
           name: chainName,
           tvl,
-          tvlChange24h: 0, // Skip TVL change calculation for performance
+          tvlChange24h: 0, // Will be populated below
           volume24h: duneData.volume24h,
           txns24h: duneData.txns24h,
           activeWallets: duneData.activeWallets,
@@ -217,8 +218,9 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
           poolsCount: undefined,
           tokensCount: undefined,
           logoUrl: getChainLogoUrl(chainName),
-        });
+        };
 
+        chains.push(chainData);
         addedChains.add(chainKeyLower);
       }
     }
@@ -234,7 +236,7 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
         chains.push({
           name: chain.name,
           tvl: chain.tvl || 0,
-          tvlChange24h: 0,
+          tvlChange24h: 0, // Will be populated below
           volume24h: undefined,
           txns24h: undefined,
           activeWallets: undefined,
@@ -246,6 +248,18 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
           logoUrl: `https://icons.llamao.fi/icons/chains/rsz_${chain.name.toLowerCase()}?w=48&h=48`,
         });
       }
+    }
+
+    // Populate TVL changes in parallel with a concurrency limit to avoid rate limiting
+    // Simple batching
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < chains.length; i += BATCH_SIZE) {
+      const batch = chains.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (chain) => {
+        if (chain.tvl > 0) {
+          chain.tvlChange24h = await getChainTvlChange(chain.name, chain.tvl);
+        }
+      }));
     }
 
     // Sort by TVL descending
@@ -266,10 +280,30 @@ function getProperChainName(
   chainKey: string,
   defiLlamaChainMap: Map<string, { name: string; tvl: number }>
 ): string {
-  // Check if we have a DeFiLlama match
-  const defiLlamaData = defiLlamaChainMap.get(chainKey.toLowerCase());
+  // Alias mapping for common mismatches (lowercase input -> lowercase key in map)
+  const CHAIN_NAME_ALIASES: Record<string, string> = {
+    'bnb': 'bsc',
+    'binance': 'bsc',
+    'bnb smart chain': 'bsc',
+    'binance smart chain': 'bsc',
+    'op_bnb': 'opbnb',
+  };
+
+  const chainKeyLower = chainKey.toLowerCase();
+
+  // Check direct match
+  let defiLlamaData = defiLlamaChainMap.get(chainKeyLower);
   if (defiLlamaData) {
     return defiLlamaData.name;
+  }
+
+  // Check alias
+  const aliasKey = CHAIN_NAME_ALIASES[chainKeyLower];
+  if (aliasKey) {
+    defiLlamaData = defiLlamaChainMap.get(aliasKey);
+    if (defiLlamaData) {
+      return defiLlamaData.name;
+    }
   }
 
   // Otherwise capitalize the chain name properly

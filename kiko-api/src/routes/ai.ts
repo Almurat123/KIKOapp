@@ -789,8 +789,8 @@ NEVER fabricate data.
     // Skills metadata endpoint for frontend
     fastify.get('/agent/skills', async (request, reply) => {
         try {
-            const { skillRegistry } = await import('../skills/registry.js');
-            const allSkills = skillRegistry.getAllSkills();
+            const { skillRegistryExec } = await import('../skills/registry.js');
+            const allSkills = skillRegistryExec.getAllSkills();
 
             // Transform skills into frontend-friendly format
             const skillsMetadata = allSkills.map(skill => ({

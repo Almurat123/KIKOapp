@@ -1,0 +1,2202 @@
+[
+  {
+    "id": "s1-0010",
+    "text": "Swap 0.05 SOL to BONK 0x97f43b1d48633065935ee9eb4c073832f1709251",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0149",
+    "text": "Check my balance",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0144",
+    "text": "PNL for 0x4481c0fcc1f6eb4828fe7d029479a423744d8cae last 7d",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0107",
+    "text": "Any influencer mentions for WIF?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0193",
+    "text": "Find the Polymarket market for Base TVL surpassing Arbitrum this month",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0108",
+    "text": "Any Farcaster chatter about MOON (0x1cd99f6b4f734823e7fb3e9b572be42d1703ebec)?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0135",
+    "text": "Show my wallet balance on BSC",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0077",
+    "text": "Is this a rug? 0xe47c9c4326811a2458a4ea7e12c27bb6b19c1aef",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0097",
+    "text": "Any Farcaster chatter about MOON (0x43110170f74375f97cc694a9aa194a20f10b7592)?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0180",
+    "text": "What are the Polymarket odds for Trump winning the election?",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0100",
+    "text": "Any Farcaster chatter about FOMO (0xf7911fa72cc8b09540fff6c037f201f51842c4f0)?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0124",
+    "text": "PNL for 0xd26cdff61275106f354dfdf0272e6629ec7c1c92 last 7d",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0086",
+    "text": "Is 0xf346471402464740394ac166bf1a0ffdc048cd3d a honeypot?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0074",
+    "text": "Security scan for 0x7163e9648ede5a4549519537134cccf0b4769839",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0197",
+    "text": "What are the Polymarket odds for BTC hitting $100k this year?",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0164",
+    "text": "Start copy trading 0xc021cd3b6a409aa95e02602b5a9844959112a8c1 on BSC",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0036",
+    "text": "What is this contract 0xc6522ba8d99319dd6181fb6f776cc8b35d5ba2c3?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0066",
+    "text": "Is 0x7408722dc46feba7c83d70d9f808dc469ae201b3 a honeypot?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0075",
+    "text": "Is this a rug? 0x7f56f1918edebec157a27512e0b84d413e2ff0c2",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0153",
+    "text": "Stop copy trading 0x91d14a54e53651aa0f838e39d9952b1d6f04e5a5",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0177",
+    "text": "Bet on Trump winning the election on Polymarket",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0101",
+    "text": "Is BONK trending on social?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0026",
+    "text": "Sell 25 BONK for SOL",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0011",
+    "text": "Buy PEPE 0xe0f51dcb098210229528f5c9a005d48a1af2194b with 1 USDT",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0051",
+    "text": "Analyze the narrative around KIKO on Base",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0062",
+    "text": "Is 0x063a1fa8fcd6ca81e5a763be137151a7d7d3335f a honeypot?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0059",
+    "text": "Is 0x608c013f3288bbe7b3e168fb6458d5cd7dcc0c92 worth looking at?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0157",
+    "text": "Follow this trader 0xf93ea004f724efb2cf580afd8142c8a7bab3728c with 0.1 ETH per trade",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0024",
+    "text": "Swap 1 USDC -> KIKO (CA: 0x25fe5117b5092fcdad9e3ddeb46299becc95e079)",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0158",
+    "text": "Stop copy trading 0xb163bbde231b5acb578289649482240a001ac52e",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0183",
+    "text": "What are the Polymarket odds for BTC hitting $100k this year?",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0083",
+    "text": "Check if DRB is safe. CA 0x576fe2446b4da170c7a9083a36c8fce2e093ac59",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0198",
+    "text": "Place a prediction market order for ETH ETF approval by end of Q2",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0056",
+    "text": "Is 0xee32a8079e5ff62debee7efa44cfe66cc4ec4633 worth looking at?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0155",
+    "text": "Create a copy strategy for 0xb16c7c6dbba9bfe86aa0873ce948e31c70d54262",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0003",
+    "text": "Swap 25 SOL to SXS 0xd6be37ce20e3f2513b15b62921452fb5a93f9cc8",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0152",
+    "text": "Stop copy trading 0x190ccaade7e5aa5c599909739e7beeef36f7446d",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0138",
+    "text": "What tokens does 0xe3d9b68f9ed80b614bc0bcf73371c0a938b362f6 hold?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0047",
+    "text": "Explain this token: 0x73b145c4bcadcb33bf02a9c2890519ee2d29035c",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0078",
+    "text": "Rug check for 0xc62be5a59df9b75c78801330add7e0df215e97e2",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0156",
+    "text": "Copy trade 0xad3ad2de997db651227768a9b58b0a8f5ec43ecf",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0141",
+    "text": "Wallet history for 0x5f2daa94a1000a4fedbcd2b06b049fdd57e8a261",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0012",
+    "text": "Sell 10 DRB for USDT",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0023",
+    "text": "Sell 0.2 KIKO for BTC",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0174",
+    "text": "Stop copy trading 0xf779e76cd7155c7877f6f8b01fceb3e6e37e1b5e",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0131",
+    "text": "Show my wallet balance on Ethereum",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0102",
+    "text": "Any influencer mentions for MOON?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0033",
+    "text": "What does KIKO do? I just saw 0x7d96d1cd1ade053ba1fe3b20808a2b8770de118e",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0073",
+    "text": "Any scam flags on DRB 0x911205b28fc507295dd0091197fd6239b443f65c?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0020",
+    "text": "Buy BONK 0xcb31acff9658cf745aac912e36ba21764d2c523a with 0.5 ETH",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0088",
+    "text": "Rug check for 0xc93688ce3b4ee3316a09b80a93b6dcdf7c87e0d1",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0048",
+    "text": "Can you analyze FOMO on Optimism?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0014",
+    "text": "Buy 2 SOL of MOON (0x07ab0245ee7e01d14b837fd96c46999d41b3b89b)",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0006",
+    "text": "Market buy DRB for 0.2 ETH",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0178",
+    "text": "Place a prediction market order for Trump winning the election",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0045",
+    "text": "Give me a quick analysis of BONK (0x7223d0a4ef6e220f7172b5aee3f3640618b1c00b)",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0122",
+    "text": "Check my balance",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0133",
+    "text": "Portfolio for 0x3d06030517c640b79104ecbd14f06920435f166c on Base",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0200",
+    "text": "Show prediction market prices for Solana outage next quarter",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0199",
+    "text": "What are the Polymarket odds for ETH ETF approval by end of Q2?",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0016",
+    "text": "Buy 0.05 BTC of MOON (0xc39696259cb352010ffe84c27ade1af2068a955e)",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0104",
+    "text": "Is WIF trending on social?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0137",
+    "text": "Portfolio for 0x16ea436c93c327ababe611738b23fb664b8ccad7 on Arbitrum",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0002",
+    "text": "Market buy DRB for 100 ETH",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0118",
+    "text": "Is SXS trending on social?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0134",
+    "text": "Show my wallet balance on Arbitrum",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0069",
+    "text": "Rug check for 0x64923e68c8e459b1427258f1f94fcdb7b9cec5c4",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0129",
+    "text": "PNL for 0xc46c2097b48a2c601416062313313e97c50f7bf2 last 7d",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0114",
+    "text": "Is FOMO trending on social?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0096",
+    "text": "Find community posts about 0x96387c0c12181a9386694edf88c9103aef3cfedc",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0013",
+    "text": "Sell 0.2 DRB on Optimism",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0103",
+    "text": "What are people saying about BONK on X?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0195",
+    "text": "Show prediction market prices for Trump winning the election",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0091",
+    "text": "Any Farcaster chatter about PEPE (0x22729ebcf8f16fe8a905eff70b9948e35df0cdd4)?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0119",
+    "text": "Is WIF trending on social?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0082",
+    "text": "Is 0x55357f18b1cef6bfa47b0477122895d14f155177 a honeypot?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0031",
+    "text": "What is FOMO? CA 0x85c9923fe31342e0fd72a05f44eade91a6087e2f",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0053",
+    "text": "Analyze the narrative around KIKO on Base",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0040",
+    "text": "What does FOMO do? I just saw 0x356e0105e24011d43405021cddc75f68165c5862",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0061",
+    "text": "Is 0x76a36df9d95ae75a65273d56dafdebb184ae5f0f a honeypot?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0142",
+    "text": "Portfolio for 0x1a60acdd203b32e4c452b887131e72e65cb64146 on Optimism",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0021",
+    "text": "Swap 0.5 USDC -> WIF (CA: 0xc5bdbb1c9b0704fde77b63252cbc737fbc4776e4)",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0121",
+    "text": "Wallet transactions for 0xf428e920b3eb67f93cffafdee2018b7a149dcaeb",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0117",
+    "text": "What are people saying about FOMO on X?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0171",
+    "text": "Mirror trades from 0x485903021b051fc85e50b52c28567bc4d3443941",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0004",
+    "text": "Sell 1 PEPE on Base",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0015",
+    "text": "Sell 25 WIF on Optimism",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0189",
+    "text": "Show prediction market prices for Bitcoin dominance above 60% in 30 days",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0173",
+    "text": "Follow this trader 0xbc4d2e5d4c0e5d7ff6388a1ae8e2046dd4f101e6 with 0.1 ETH per trade",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0008",
+    "text": "Swap 0.1 BNB into 0xfde333a84cbbfdbdf12689f79884edf56962e3cc on BSC",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0148",
+    "text": "Portfolio for 0xfc702a4f1877ea35ad886a53abc4a85ac0f6dedd on Optimism",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0052",
+    "text": "Can you analyze PEPE on Arbitrum?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0120",
+    "text": "Any influencer mentions for DRB?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0112",
+    "text": "What is the social buzz for FOMO on Solana?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0081",
+    "text": "Rug check for 0x2495870f3bf3279a926f862c4758d87de87560b4",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0080",
+    "text": "Any scam flags on SXS 0x15fe0596ff3301a6712e7b74eadf0c6322da76d6?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0041",
+    "text": "Is BONK legit? Just want info, not trading.",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0063",
+    "text": "Check if SXS is safe. CA 0x7726fc11c007264a6776a9b97a37c636a6e8d3de",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0057",
+    "text": "Can you analyze BONK on Solana?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0132",
+    "text": "PNL for 0x8865eba75687bb487b8712b7fc55b887869ed7df last 7d",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0160",
+    "text": "Create a copy strategy for 0x96249e689887e4f4395eaf256c60198f821ea8ab",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0175",
+    "text": "Create a copy strategy for 0x94fe1323af5d6a1eb8789548a61221db1dd03169",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0043",
+    "text": "Is DRB legit? Just want info, not trading.",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0005",
+    "text": "Sell 100 WIF on Ethereum",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0196",
+    "text": "Find the Polymarket market for Bitcoin dominance above 60% in 30 days",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0161",
+    "text": "Mirror trades from 0x6d0a328e754a61f8933221fd5668b2cb384b3d84",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0185",
+    "text": "Show prediction market prices for ETH ETF approval by end of Q2",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0184",
+    "text": "What is the market implied probability of Bitcoin dominance above 60% in 30 days?",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0105",
+    "text": "What is the social buzz for BONK on Arbitrum?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0130",
+    "text": "Portfolio for 0x3f9ef20c7558bb351fadf941b4fd99d720d13ca3 on Solana",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0194",
+    "text": "What are the Polymarket odds for ETH ETF approval by end of Q2?",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0035",
+    "text": "Analyze the narrative around KIKO on Base",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0190",
+    "text": "Place a prediction market order for Bitcoin dominance above 60% in 30 days",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0187",
+    "text": "Find the Polymarket market for Bitcoin dominance above 60% in 30 days",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0067",
+    "text": "Is 0xcf415f209902dc0537a90a9bb0556d3e72cf88c8 a honeypot?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0009",
+    "text": "Buy BONK 0xb663783a686969de08955cea39275b157797a981 with 2 USDT",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0042",
+    "text": "Explain this token: 0xbaf7c84db06e0fa6f6dce50c4734ec6c815f067f",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0037",
+    "text": "What is SXS? CA 0xa52b4cc9bc90102fd4d3d8b5f43332ab08a89ec5",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0079",
+    "text": "Is this a rug? 0x4898ceb68a1083d49078fa95b80835c602928754",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0071",
+    "text": "Is 0x8d0258114034e3192f20569633702ebf49fe6969 a honeypot?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0027",
+    "text": "Market buy WIF for 100 SOL",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0060",
+    "text": "Is 0x7ab5de2f3249d43c9f84735118d2935c1a2f0309 worth looking at?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0169",
+    "text": "Start copy trading 0xa7f6f589ba29e0c09c002c705aa210576d30c2a2 on Optimism",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0085",
+    "text": "Check if KIKO is safe. CA 0xa9b94d81775e33014db50306ed75e4d302ceeda7",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0076",
+    "text": "Rug check for 0x1cde33a7af04fe0752fbfb8e9de4d5044f9defe3",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0192",
+    "text": "Bet on Trump winning the election on Polymarket",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0065",
+    "text": "Is this a rug? 0x61ef63f8ca0525d10710c791d6f3efce8f80ac85",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0182",
+    "text": "Show prediction market prices for Base TVL surpassing Arbitrum this month",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0093",
+    "text": "Is DRB trending on social?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0139",
+    "text": "What tokens does 0xbec79bb1c8caef1fb6993440593fbcd0e21cb19c hold?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0136",
+    "text": "Check my balance",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0186",
+    "text": "Bet on US rate cuts in the next meeting on Polymarket",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0179",
+    "text": "Find the Polymarket market for Trump winning the election",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0072",
+    "text": "Any scam flags on MOON 0xf79f8dd9f8251b09a464fb9aa6eb91de9cc988b1?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0154",
+    "text": "Start copy trading 0x190b2dde035b0676e2cce41959c740a87a3b3b56 on Polygon",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0068",
+    "text": "Is this a rug? 0xa28e67f5125833958855ee28109300fbe2ab64ca",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0176",
+    "text": "Show prediction market prices for Trump winning the election",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0017",
+    "text": "Market buy FOMO for 25 BNB",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0028",
+    "text": "Swap 10 BNB into 0xf06d09b6593f348fc41b7626468fb7e4879a1562 on Base",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0109",
+    "text": "Is SXS trending on social?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0123",
+    "text": "PNL for 0x1d1cec7e1813b0263af1b78a90017fba7e11d6b1 last 7d",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0172",
+    "text": "Create a copy strategy for 0x9a601dc4b96f42055eb7395b7f3994aa5427be9c",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0147",
+    "text": "Wallet transactions for 0xbe7a30cb6b4a4efbf7d177b0ab9c410f489fd9a1",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0055",
+    "text": "Is PEPE legit? Just want info, not trading.",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0113",
+    "text": "Show social sentiment for SXS",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0163",
+    "text": "Copy trade 0xc8c4da1e4f65c341fab7be787b909c536ba5a57d",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0151",
+    "text": "Follow this trader 0xa598951db7ea06591d1fe3eef4680b7e40946969 with 0.1 ETH per trade",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0087",
+    "text": "Any scam flags on FOMO 0xa3444fe3b966cdaedde88b0f708544f126c27ef0?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0039",
+    "text": "What is this contract 0xac92f334806ec5f6548c7543d1c29349b2663c24?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0159",
+    "text": "Start copy trading 0x0ea9fe532f9805b0f57516647e7f17cc837d8105 on Base",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0165",
+    "text": "Stop copy trading 0x20a4e9508b2e961f46294e460c454f3ed5c7e9e9",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0145",
+    "text": "Wallet history for 0xf61646542787b14786013d357e5633c890cf0c00",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0168",
+    "text": "Start copy trading 0xbcb0731bb87f5bf66eb725365ca1153bd013c573 on Optimism",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0110",
+    "text": "Any Farcaster chatter about BONK (0xf895f6af2970685ba15d17681e001b5fcbacd6fa)?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0191",
+    "text": "Bet on Bitcoin dominance above 60% in 30 days on Polymarket",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0064",
+    "text": "Is 0x3432272e1b440a10a935d8c7b424494bd74e9c1a a honeypot?",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0046",
+    "text": "Explain this token: 0x9aaa118c9ded36c1d3bd774977c3b68dc2b02a83",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0170",
+    "text": "Mirror trades from 0x885cb41a34fb2dd61838512577a1d4c046e86f07",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0181",
+    "text": "What are the Polymarket odds for US rate cuts in the next meeting?",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0143",
+    "text": "Wallet transactions for 0xf7e798d2173512cb8cc9d1519cf1ec1fc2a12503",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0166",
+    "text": "Copy trade 0xdc50277acb445f7620a3273b388414c792fde726",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0094",
+    "text": "Any influencer mentions for SXS?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0099",
+    "text": "What are people saying about WIF on X?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0098",
+    "text": "Show social sentiment for SXS",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0032",
+    "text": "What does BONK do? I just saw 0xe457e0586dba98b45a4bee9ce8cd8075c107a23f",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0044",
+    "text": "Is PEPE legit? Just want info, not trading.",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0058",
+    "text": "What does FOMO do? I just saw 0xd06482e2f3a126d416b2b9a13d3251e008282b69",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0106",
+    "text": "Any influencer mentions for SXS?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0111",
+    "text": "What are people saying about BONK on X?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0095",
+    "text": "Is MOON trending on social?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0034",
+    "text": "Can you analyze BONK on Ethereum?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0092",
+    "text": "What is the social buzz for KIKO on Optimism?",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0140",
+    "text": "Wallet history for 0xd3b47f6a2eabd00b99e857dae806e014a0629b20",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0018",
+    "text": "Ape 2 BTC into BONK",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0019",
+    "text": "Swap 25 USDT -> PEPE (CA: 0xc061c4715229449bdcd1a0232e05665c1c1d2e16)",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0029",
+    "text": "Buy 0.05 USDT of BONK (0xf44bf41eb6c522aea04e42cdf27571fabf42777f)",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0116",
+    "text": "Show social sentiment for DRB",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0025",
+    "text": "Buy 0.05 ETH of BONK (0x62f250b6bb7996d499ebfa08dc6f600d2b3101c3)",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0089",
+    "text": "Is SXS safe to hold? CA 0x533a3a73511ff089e71e11ce7bc94c2f729c2a39",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0162",
+    "text": "Follow this trader 0x671f239fc5dd9433b94ba63b4369d200d8c40e90 with 0.1 ETH per trade",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0115",
+    "text": "Show social sentiment for BONK",
+    "expected_high_level": "SOCIAL_SENSING",
+    "expected_action": "social_trending",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0146",
+    "text": "Portfolio for 0x1040f04b9a4267f5986a79863116fdd0954c189f on BSC",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0084",
+    "text": "Rug check for 0x8fe48ea5d8262615f360c38547dcea27fb867950",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0001",
+    "text": "Sell 0.1 BONK for USDC",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0054",
+    "text": "What does KIKO do? I just saw 0x2323f33d4dd2fb6de054febd171c2c8f5b0421f9",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0128",
+    "text": "What tokens does 0x1326993b2c44c95107e39045c809d41f09e0325b hold?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0150",
+    "text": "Wallet history for 0xd17d0f5418703cf98e6bcc844f6e9dd4eb8a2369",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0070",
+    "text": "Rug check for 0xf2b5ae0e21502d2ed5125fdcf40015540cea25ea",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0038",
+    "text": "Explain this token: 0x5293c06a4a51113514e363872b0f14120062f2ce",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0125",
+    "text": "Wallet history for 0x538953b37f6f7bb2e4f9ea4b3da6b3ff4a6b16ee",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0022",
+    "text": "Swap 0.2 USDT into 0xfc8fb228ca1010af986829027c1a5f3d265a45b1 on Solana",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0049",
+    "text": "Is FOMO legit? Just want info, not trading.",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0090",
+    "text": "Check if BONK is safe. CA 0x2f8c350631283a6b6a4788de94c1c00fc1742efb",
+    "expected_high_level": "RISK_SCAN",
+    "expected_action": "token_security",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0126",
+    "text": "Portfolio for 0x7146a2ca9ea769e5cd3c4bfafefbf3e1101be97f on BSC",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0007",
+    "text": "Swap 2 BTC -> KIKO (CA: 0xb91e6bf50c8dc73eaebab271a4c9cf7af6115133)",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0050",
+    "text": "What is WIF? CA 0xd847acec6d4bda3cc0a8d37619c0a032d7e59fad",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "token_info",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0030",
+    "text": "Swap 10 ETH into 0xeabef2c1f70c6965b2188d109bb000c65b3f789b on BSC",
+    "expected_high_level": "TRADING",
+    "expected_action": "swap",
+    "meta": {
+      "has_ca": true,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0188",
+    "text": "What is the market implied probability of Solana outage next quarter?",
+    "expected_high_level": "PREDICTION_MARKETS",
+    "expected_action": "prediction_market",
+    "meta": {
+      "has_ca": false,
+      "has_amount": false,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0167",
+    "text": "Stop copy trading 0x2a2ffc72c0bfccc9b9287795581f6aa04705db1f",
+    "expected_high_level": "COPY_TRADING",
+    "expected_action": "strategy_create",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  },
+  {
+    "id": "s1-0127",
+    "text": "What tokens does 0x0339ae36dec4417c2614fbd193b32712860a4ab4 hold?",
+    "expected_high_level": "MARKET_ANALYSIS",
+    "expected_action": "wallet_info",
+    "meta": {
+      "has_ca": false,
+      "has_amount": true,
+      "language": "en"
+    }
+  }
+]

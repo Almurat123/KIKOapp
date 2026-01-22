@@ -6,7 +6,7 @@
 import { checkPositionsForExits } from '../services/autoTradeService.js';
 
 // Check interval (ms)
-const CHECK_INTERVAL = 30000; // 30 seconds
+const CHECK_INTERVAL = 10000; // 10 seconds (optimized for mirror sell retries)
 
 let isRunning = false;
 let checkTimer: NodeJS.Timeout | null = null;

@@ -58,6 +58,8 @@ export enum LogCode {
     AI_TOOL_FILTERED = 'AI-6006',
     AI_API_CALL = 'AI-6007',
     AI_TOOL_USED = 'AI-6008',
+    AI_MODE_ROUTED = 'AI-6009',
+    AI_SKILLS_ATTACHED = 'AI-6010',
 
     // --- Social & Farcaster (7xxx) ---
     SOC_CAST_FETCHED = 'SOC-7001',

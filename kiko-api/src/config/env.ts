@@ -79,6 +79,14 @@ export interface EnvConfig {
         tradeRecordTtl: number; // Trade record TTL in ms
         pendingTransactionTtl: number; // Pending transaction TTL in ms
     };
+    // Platform fee configuration
+    platformFees: {
+        enabled: boolean;
+        swapBps: number; // e.g. 50 = 0.5%
+        copyTradeBps: number; // e.g. 100 = 1%
+        evmRecipient?: string; // 0x... address for 0x affiliate fees
+        solanaRecipient?: string; // base58 address for SOL transfers
+    };
     security: {
         alchemyWebhookSecret?: string; // Secret for verifying Alchemy webhooks
         internalWebhookSecret?: string; // Secret for verifying internal Go service requests
@@ -96,6 +104,16 @@ function validateEnv(): EnvConfig {
     if (!databaseUrl) {
         throw new Error('DATABASE_URL is required');
     }
+
+    const platformFeesEnabled =
+        (process.env.PLATFORM_FEES_ENABLED || '').toLowerCase() === 'true' ||
+        (process.env.PLATFORM_FEES_ENABLED || '') === '1';
+    const swapBps = platformFeesEnabled
+        ? parseInt(process.env.PLATFORM_FEE_SWAP_BPS || '50', 10)
+        : 0;
+    const copyTradeBps = platformFeesEnabled
+        ? parseInt(process.env.PLATFORM_FEE_COPY_TRADE_BPS || '100', 10)
+        : 0;
 
     return {
         port,
@@ -173,6 +191,13 @@ function validateEnv(): EnvConfig {
             maxPendingTransactions: parseInt(process.env.MAX_PENDING_TRANSACTIONS || '10', 10),
             tradeRecordTtl: parseInt(process.env.TRADE_RECORD_TTL || '86400000', 10),
             pendingTransactionTtl: parseInt(process.env.PENDING_TRANSACTION_TTL || '600000', 10),
+        },
+        platformFees: {
+            enabled: platformFeesEnabled,
+            swapBps: Number.isFinite(swapBps) ? swapBps : 0,
+            copyTradeBps: Number.isFinite(copyTradeBps) ? copyTradeBps : 0,
+            evmRecipient: process.env.PLATFORM_FEE_EVM_RECIPIENT,
+            solanaRecipient: process.env.PLATFORM_FEE_SOLANA_RECIPIENT,
         },
         security: {
             alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,

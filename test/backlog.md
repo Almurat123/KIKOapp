@@ -1,147 +1,141 @@
-[api] [ChatWorker] Running task cmkoaxi1o0007lk5cajgaj2r2 for session cmkoaxi010001lk5cmrtdwc3b
-[api] {"timestamp":"2026-01-21T17:33:24.497Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:24.497Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:24.500Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
-[python] INFO:moderation.router:Moderating input: X上最热门 的话题是什么？...
+[api] {"timestamp":"2026-01-22T10:05:07.147Z","level":"INFO","code":"API-5004","message":"External API requested retry","metadata":{"status":429,"attempt":1,"delayMs":1000,"url":"https://api.geckoterminal.com/api/v2/networks/eth/trending_pools"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:07.249Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"1ca9fafb-d6ab-427e-b5a8-aa0c42b2a530","address":"0x581466363fe17a02ac89f354cb0f4ec3186574df"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:07.284Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"1ca9fafb-d6ab-427e-b5a8-aa0c42b2a530","address":"0xb9d60d405aa31d513861eaf98cbe0b724116a5df"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:08.318Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:08.318Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:08.318Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
+[python] INFO:moderation.router:Moderating input: What's that $beteer...
 [python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
-[python] INFO:     127.0.0.1:51129 - "POST /moderation/input HTTP/1.1" 200 OK
-[api] {"timestamp":"2026-01-21T17:33:26.267Z","level":"INFO","code":"SYS-1007","message":"Moderation Input check result","metadata":{"safe":true,"action":"allow","userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:26.270Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_start","connectionCount":1,"durationMs":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] Grok: Sent message_start for cmkoaxi1k0005lk5c2n1k0g79
-[api] {"timestamp":"2026-01-21T17:33:26.270Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] Grok base filtered to 44 tools for message: "X上最热门 的话题是什么？..."
-[api] [TokenJob] Tokens for Solana are fresh, skipping API call
-[api] {"timestamp":"2026-01-21T17:33:27.853Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"58ebee9a-8228-4493-908a-7c97f6505a61","address":"0xc4bbdd0802bb284820230f6883071b71061b4f49"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:27.862Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"58ebee9a-8228-4493-908a-7c97f6505a61","address":"0x7e9a49bd6bf29348453eab3d57ad1d3d7bb8fa96"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:28.509Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"58ebee9a-8228-4493-908a-7c97f6505a61","address":"0x82898bd7d368aad3ad0de3c18f7d559ebd6c5eef"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:28.535Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"58ebee9a-8228-4493-908a-7c97f6505a61","address":"0x596116dccd760fe9160111e274ae22a6b5966d0e"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:29.888Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"58ebee9a-8228-4493-908a-7c97f6505a61","address":"0xf1930d3b95198815eb48751835c0cabcf6649fad"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:29.906Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"58ebee9a-8228-4493-908a-7c97f6505a61","address":"0x581466363fe17a02ac89f354cb0f4ec3186574df"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:29.958Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"58ebee9a-8228-4493-908a-7c97f6505a61","address":"0xdabd0d5d4af14ee3e7ddd92fca731bf5b069e673"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:30.036Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"58ebee9a-8228-4493-908a-7c97f6505a61","address":"0xb9d60d405aa31d513861eaf98cbe0b724116a5df"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:30.405Z","level":"INFO","code":"AI-6001","message":"Timer finished: intent_parsing_aa82f49c","metadata":{"userAddress":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","intent":"social_trending","highLevelIntent":"SOCIAL_SENSING","hasAI":true,"confidence":0.75,"routingStage":"llm","labels":[{"label":"SOCIAL_SENSING","confidence":0.75},{"label":"GENERAL_CHAT","confidence":0.3},{"label":"MARKET_ANALYSIS","confidence":0.1632993161855452}],"durationMs":4132,"timerLabel":"intent_parsing_aa82f49c"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:33:30.413Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] Grok free intent mode: using all 43 tools (no gating, exclude external_web_search)
-[api] [ChatWorker] 🚀 Phase 5: Early pre-fetching get_trending_casts for action social_trending
-[api] {"timestamp":"2026-01-21T17:33:30.415Z","level":"INFO","code":"AI-6003","message":"Timer finished: prompt_gen_SOCIAL_SENSING_grok","metadata":{"model":"grok","intent":"SOCIAL_SENSING","length":11295,"durationMs":1,"timerLabel":"prompt_gen_SOCIAL_SENSING_grok"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] Grok: Waiting for early pre-fetch to complete
-[api] {"timestamp":"2026-01-21T17:33:30.475Z","level":"INFO","code":"SOC-7001","message":"Timer finished: get_trending_casts_trending","metadata":{"timeRange":"trending","limit":30,"offset":0,"count":30,"fromCache":false,"durationMs":61,"timerLabel":"get_trending_casts_trending"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] ✅ Early pre-fetch stored for get_trending_casts
-[api] {"timestamp":"2026-01-21T17:33:30.475Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] Farcaster: Pre-fetching trending casts for social_trending intent
-[api] {"timestamp":"2026-01-21T17:33:30.479Z","level":"INFO","code":"SOC-7001","message":"Timer finished: get_trending_casts_24h","metadata":{"timeRange":"24h","limit":20,"offset":0,"count":20,"fromCache":false,"durationMs":4,"timerLabel":"get_trending_casts_24h"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] ⚡ [CACHE HIT]: Grok get_trending_casts
-[api] {"timestamp":"2026-01-21T17:33:30.480Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
-[api] {"level":30,"time":1769016811815,"pid":8437,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":10101.174165999983,"msg":"request completed"}
-[api] {"level":30,"time":1769016811816,"pid":8437,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-i","res":{"statusCode":200},"responseTime":7543.858250000048,"msg":"request completed"}
-[api] {"level":30,"time":1769016811816,"pid":8437,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-c","res":{"statusCode":200},"responseTime":7631.241875000298,"msg":"request completed"}
+[python] INFO:     127.0.0.1:53780 - "POST /moderation/input HTTP/1.1" 200 OK
+[api] {"timestamp":"2026-01-22T10:05:10.151Z","level":"INFO","code":"SYS-1007","message":"Moderation Input check result","metadata":{"safe":true,"action":"allow","userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.155Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_start","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.155Z","level":"INFO","code":"AI-6007","message":"Grok: message_start sent","metadata":{"assistantMessageId":"cmkpacuoe005moenaihrl6h3b","taskId":"cmkpacuof005ooenal5v6yafg"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.156Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.164Z","level":"INFO","code":"AI-6001","message":"Timer finished: intent_parsing_4119c024","metadata":{"userAddress":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","intent":"token_info","highLevelIntent":"MARKET_ANALYSIS","hasAI":false,"confidence":0.95,"routingStage":"rule","hardRule":"MARKET_ANALYSIS","slotsComplete":false,"labels":[{"label":"MARKET_ANALYSIS","confidence":0.95},{"label":"GENERAL_CHAT","confidence":0.1632993161855452},{"label":"PREDICTION_MARKETS","confidence":0.13333333333333336}],"durationMs":6,"timerLabel":"intent_parsing_4119c024"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.168Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.168Z","level":"INFO","code":"AI-6009","message":"Grok: routed to mode","metadata":{"taskId":"cmkpacuof005ooenal5v6yafg","sessionId":"cmkpacumg005goenaorx046sc","model":"grok-4-non-reasoning","intent":"MARKET_ANALYSIS","routingMode":"thinking","hardRule":{"label":"MARKET_ANALYSIS","reason":"question intent"},"confidence":0.95},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.168Z","level":"INFO","code":"AI-6006","message":"Grok: tool list gated by skills","metadata":{"count":12,"intent":"MARKET_ANALYSIS","skills":["market_macro","token_analysis","zora_nfts"],"routingMode":"thinking","skillVersion":"clean"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.168Z","level":"INFO","code":"AI-6010","message":"Grok: skills attached","metadata":{"taskId":"cmkpacuof005ooenal5v6yafg","sessionId":"cmkpacumg005goenaorx046sc","model":"grok-4-non-reasoning","intent":"MARKET_ANALYSIS","routingMode":"thinking","skillVersion":"clean","skills":["market_macro","token_analysis","zora_nfts"],"toolCount":12},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.169Z","level":"INFO","code":"AI-6003","message":"Timer finished: prompt_gen_MARKET_ANALYSIS_grok","metadata":{"model":"grok","intent":"MARKET_ANALYSIS","length":10151,"durationMs":0,"timerLabel":"prompt_gen_MARKET_ANALYSIS_grok"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.171Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.171Z","level":"INFO","code":"CH-9003","message":"Grok: cache hit token_info","metadata":{},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.171Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] {"timestamp":"2026-01-22T10:05:10.242Z","level":"INFO","code":"SYS-1001","message":"No open positions to monitor","metadata":{},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.825Z","level":"ERROR","code":"API-5002","message":"API error on trending page","metadata":{"page":5,"status":429,"statusText":"Too Many Requests"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.825Z","level":"INFO","code":"API-5001","message":"Trending tokens fetch complete","metadata":{"network":"eth","count":58,"limit":200},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:10.826Z","level":"INFO","code":"API-5001","message":"Premium trending tokens fetch complete","metadata":{"count":80,"chain":"ethereum","durationMs":10517},"service":"kiko-api","env":"production"}
+[api] [TokenJob] Got 80 trending tokens for Ethereum
+[api] Saved 80 trending tokens for eth to database and memory cache
+[api] [TokenJob] Saved 80 tokens for Ethereum to DB + cache
+[api] {"timestamp":"2026-01-22T10:05:11.016Z","level":"ERROR","code":"API-5002","message":"GeckoTerminal API error fetching token pools","metadata":{"traceId":"8596eb39-9236-41b7-af60-b61a91a09f41","status":429,"statusText":"Too Many Requests","error":"{\"status\":{\"error_code\":429,\"error_message\":\"You've exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits and use the onchain endpoints: https://docs.coingecko.com/reference/endpoint-overview\"}}","url":"https://api.geckoterminal.com/api/v2/networks/bsc/tokens/0xc4bbdd0802bb284820230f6883071b71061b4f49/pools?include=base_token,quote_token","address":"0xc4bbdd0802bb284820230f6883071b71061b4f49","network":"bsc"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:11.039Z","level":"ERROR","code":"API-5002","message":"GeckoTerminal API error fetching token pools","metadata":{"traceId":"8596eb39-9236-41b7-af60-b61a91a09f41","status":429,"statusText":"Too Many Requests","error":"{\"status\":{\"error_code\":429,\"error_message\":\"You've exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits and use the onchain endpoints: https://docs.coingecko.com/reference/endpoint-overview\"}}","url":"https://api.geckoterminal.com/api/v2/networks/bsc/tokens/0x82898bd7d368aad3ad0de3c18f7d559ebd6c5eef/pools?include=base_token,quote_token","address":"0x82898bd7d368aad3ad0de3c18f7d559ebd6c5eef","network":"bsc"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:11.041Z","level":"ERROR","code":"API-5002","message":"GeckoTerminal API error fetching token pools","metadata":{"traceId":"8596eb39-9236-41b7-af60-b61a91a09f41","status":429,"statusText":"Too Many Requests","error":"{\"status\":{\"error_code\":429,\"error_message\":\"You've exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits and use the onchain endpoints: https://docs.coingecko.com/reference/endpoint-overview\"}}","url":"https://api.geckoterminal.com/api/v2/networks/bsc/tokens/0x596116dccd760fe9160111e274ae22a6b5966d0e/pools?include=base_token,quote_token","address":"0x596116dccd760fe9160111e274ae22a6b5966d0e","network":"bsc"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:11.146Z","level":"ERROR","code":"API-5002","message":"GeckoTerminal API error fetching token pools","metadata":{"traceId":"1ca9fafb-d6ab-427e-b5a8-aa0c42b2a530","status":429,"statusText":"Too Many Requests","error":"{\"status\":{\"error_code\":429,\"error_message\":\"You've exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits and use the onchain endpoints: https://docs.coingecko.com/reference/endpoint-overview\"}}","url":"https://api.geckoterminal.com/api/v2/networks/bsc/tokens/0x581466363fe17a02ac89f354cb0f4ec3186574df/pools?include=base_token,quote_token","address":"0x581466363fe17a02ac89f354cb0f4ec3186574df","network":"bsc"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:11.347Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"8596eb39-9236-41b7-af60-b61a91a09f41","address":"0xf1930d3b95198815eb48751835c0cabcf6649fad"},"service":"kiko-api","env":"production"}
 [python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
 [python] [Model] Original: grok-4-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
 [python] [RAG] 🔍 Informational query detected: '[CONTEXT]
-[python] - Current Time: 2026-01-21T17:33:30.475Z...'
+[python] - Current Time: 2026-01-22T10:05:10.171Z...'
 [python] [RAG] ⚠️ Error retrieving from KnowledgeBase: Collection expecting embedding with dimension of 384, got 1536
-[python] INFO:     127.0.0.1:51193 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[python] INFO:     127.0.0.1:53789 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[api] {"timestamp":"2026-01-22T10:05:11.441Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"8596eb39-9236-41b7-af60-b61a91a09f41","address":"0xdabd0d5d4af14ee3e7ddd92fca731bf5b069e673"},"service":"kiko-api","env":"production"}
+[api] {"level":"INFO","code":"SYS-THROTTLE","message":"Repeated x19: API-5004:External API requested retry","timestamp":"2026-01-22T10:05:12.792Z","metadata":{"traceId":"8596eb39-9236-41b7-af60-b61a91a09f41"}}
+[api] {"timestamp":"2026-01-22T10:05:12.792Z","level":"INFO","code":"API-5004","message":"External API requested retry","metadata":{"traceId":"8596eb39-9236-41b7-af60-b61a91a09f41","status":429,"attempt":2,"delayMs":1000,"url":"https://api.geckoterminal.com/api/v2/networks/bsc/tokens/0xf1930d3b95198815eb48751835c0cabcf6649fad/pools"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:15.345Z","level":"ERROR","code":"API-5002","message":"GeckoTerminal API error fetching token pools","metadata":{"traceId":"8596eb39-9236-41b7-af60-b61a91a09f41","status":429,"statusText":"Too Many Requests","error":"{\"status\":{\"error_code\":429,\"error_message\":\"You've exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits and use the onchain endpoints: https://docs.coingecko.com/reference/endpoint-overview\"}}","url":"https://api.geckoterminal.com/api/v2/networks/bsc/tokens/0xdabd0d5d4af14ee3e7ddd92fca731bf5b069e673/pools?include=base_token,quote_token","address":"0xdabd0d5d4af14ee3e7ddd92fca731bf5b069e673","network":"bsc"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:15.766Z","level":"INFO","code":"API-5001","message":"No pairs found for token on DexScreener","metadata":{"traceId":"1ca9fafb-d6ab-427e-b5a8-aa0c42b2a530","address":"0x40c10dc56438c424ba24f102d719b8bb3bef4444"},"service":"kiko-api","env":"production"}
+[api] {"level":30,"time":1769076316283,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-l","req":{"method":"POST","url":"/api/ai/tools/execute","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":53820},"msg":"incoming request"}
+[api] [GetTrendingTokens] Fetching trending tokens for base (5m) from DexScreener (Enhanced Algorithm)...
+[api] {"timestamp":"2026-01-22T10:05:17.574Z","level":"INFO","code":"API-5001","message":"Processed DexScreener trending candidates","metadata":{"traceId":"96badccd-4255-49a2-9f74-54c225e26176","candidates":34,"limit":20},"service":"kiko-api","env":"production"}
+[api] {"level":30,"time":1769076317582,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-l","res":{"statusCode":200},"responseTime":1298.722999997437,"msg":"request completed"}
+[python] INFO:httpx:HTTP Request: POST http://localhost:3001/api/ai/tools/execute "HTTP/1.1 200 OK"
+[api] {"level":30,"time":1769076317614,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-m","req":{"method":"POST","url":"/api/ai/tools/execute","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":53826},"msg":"incoming request"}
+[api] [GetTrendingTokens] Fetching trending tokens for solana (5m) from DexScreener (Enhanced Algorithm)...
+[api] {"level":"INFO","code":"SYS-THROTTLE","message":"Repeated x6: API-5004:External API requested retry","timestamp":"2026-01-22T10:05:18.421Z","metadata":{"traceId":"1ca9fafb-d6ab-427e-b5a8-aa0c42b2a530"}}
+[api] {"timestamp":"2026-01-22T10:05:18.421Z","level":"INFO","code":"API-5004","message":"External API requested retry","metadata":{"traceId":"1ca9fafb-d6ab-427e-b5a8-aa0c42b2a530","status":429,"attempt":3,"delayMs":1000,"url":"https://api.geckoterminal.com/api/v2/networks/bsc/tokens/0x40c10dc56438c424ba24f102d719b8bb3bef4444/pools"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:19.635Z","level":"ERROR","code":"API-5002","message":"GeckoTerminal API error fetching token pools","metadata":{"traceId":"1ca9fafb-d6ab-427e-b5a8-aa0c42b2a530","status":429,"statusText":"Too Many Requests","error":"{\"status\":{\"error_code\":429,\"error_message\":\"You've exceeded the Rate Limit. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plans for higher rate limits and use the onchain endpoints: https://docs.coingecko.com/reference/endpoint-overview\"}}","url":"https://api.geckoterminal.com/api/v2/networks/bsc/tokens/0x40c10dc56438c424ba24f102d719b8bb3bef4444/pools?include=base_token,quote_token","address":"0x40c10dc56438c424ba24f102d719b8bb3bef4444","network":"bsc"},"service":"kiko-api","env":"production"}
+[api] {"level":30,"time":1769076319636,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-8","res":{"statusCode":200},"responseTime":14872.872250001878,"msg":"request completed"}
+[api] {"level":30,"time":1769076319636,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-k","res":{"statusCode":200},"responseTime":12597.490834001452,"msg":"request completed"}
+[api] {"level":30,"time":1769076319636,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-e","res":{"statusCode":200},"responseTime":12686.91087500006,"msg":"request completed"}
+[api] {"level":30,"time":1769076319636,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":15132.600166000426,"msg":"request completed"}
 [api] [PositionMonitor] 🔄 Running position check...
-[api] {"timestamp":"2026-01-21T17:33:41.467Z","level":"INFO","code":"SYS-1001","message":"No open positions to monitor","metadata":{},"service":"kiko-api","env":"production"}
-[api] [TokenJob] Tokens for Base are fresh, skipping API call
-[api] [TokenJob] Tokens for BSC are fresh, skipping API call
-[api] {"timestamp":"2026-01-21T17:34:09.775Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"VortexCanvas","creator":"0x09bb97f437d151c3ff2246795fd03a436225cf00"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:10.106Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"REALQUESTION:ISDIVERSIFYYOURPORT","creator":"0x3e86045462962e2e0b74307d5e0e7a93017b34cc"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:10.438Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"BREAKING TRUMP SAYS STOCK MARKET","creator":"0x4b6ab6dee54b8e2bc2c7e8c2d1d4227926016b75"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:10.774Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"I’M PHYSICAL AND DIGITAL ARTIST","creator":"0x29d5836edaae44b7ae53dffaa848254efc5112e5"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:11.103Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"DEFI","creator":"0x108819a74543bdb12427a2bc4cf62511608accf4"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:11.426Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"CHANGEMYMIND:GMXWILLSTABILIZEBEC","creator":"0x3e86045462962e2e0b74307d5e0e7a93017b34cc"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:11.427Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"STYLE","creator":"0x827aa45b79bb8b076b96694af28895abfb65428b"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:20.248Z","level":"INFO","code":"SYS-1001","message":"No open positions to monitor","metadata":{},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:21.215Z","level":"INFO","code":"API-5001","message":"Processed DexScreener trending candidates","metadata":{"traceId":"de194ee5-2b91-4979-aba6-b5e3b64b6070","candidates":118,"limit":20},"service":"kiko-api","env":"production"}
+[api] {"level":30,"time":1769076321216,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-m","res":{"statusCode":200},"responseTime":3602.1766670010984,"msg":"request completed"}
+[python] INFO:httpx:HTTP Request: POST http://localhost:3001/api/ai/tools/execute "HTTP/1.1 200 OK"
+[api] {"level":30,"time":1769076325196,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-n","req":{"method":"POST","url":"/api/ai/tools/execute","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":53853},"msg":"incoming request"}
+[api] [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
+[api] {"timestamp":"2026-01-22T10:05:25.881Z","level":"INFO","code":"API-5001","message":"Fetching premium trending tokens","metadata":{"chain":"solana","limit":100},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:25.881Z","level":"INFO","code":"API-5001","message":"Using fallback discovery (Boosts + Organic search)","metadata":{},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:27.995Z","level":"INFO","code":"AI-6005","message":"Timer finished: launchpad_det_0x051024b653e8ec69e72693f776c41c2a9401fb07","metadata":{"traceId":"dc8fa6c3-639c-45af-bc2d-d52906535e9d","address":"0x051024b653e8ec69e72693f776c41c2a9401fb07","chainId":8453,"found":true,"durationMs":2798,"timerLabel":"launchpad_det_0x051024b653e8ec69e72693f776c41c2a9401fb07"},"service":"kiko-api","env":"production"}
+[api] [GetTokenInfo] Attempting DexScreener fallback...
 [api] [PositionMonitor] 🔄 Running position check...
-[api] {"timestamp":"2026-01-21T17:34:11.472Z","level":"INFO","code":"SYS-1001","message":"No open positions to monitor","metadata":{},"service":"kiko-api","env":"production"}
-[api] [TokenJob] Tokens for Arbitrum are fresh, skipping API call
-[api] {"timestamp":"2026-01-21T17:34:11.763Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"ImmutableBloom","creator":"0xbb893dbf29764801755a76edd2b23bda5054ca86"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:12.117Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"PolkaDotDream","creator":"0x1c3d5261b9c3f8f120fc266f4b9f9314eb60feb1"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:12.463Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"FORTUNA ARENA","creator":"0x8541a337bcf55bf0ea492c3cc3fc5582a708c175"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:12.796Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"FaeForm","creator":"0xa83f9d4668583f55a7e20308f0bd8cc5529f4678"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:13.165Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"ChibiKnight","creator":"0x052c1e50edcf970460b7947a7e197527be27114f"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:13.499Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"ClearVein","creator":"0x6ffb79a0222f54b68a44bca2b55cfce1ba8b8e1e"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:13.838Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"ZenNode","creator":"0xbea5a6af4a63dceeccea5e79cfce9e60683c7bdc"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:14.227Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"DigitalClay","creator":"0x5694adb5e9fb99beb52cc2b1b49b41c0a7ce8a3f"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:14.573Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"99c3c10e-1d31-49cb-8a23-4fe0bcd4290c","symbol":"LURE","creator":"0xe7bf439e8cd120a798f6107fa0fbb4ce06ce1f08"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:26.107Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"usage","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:26.108Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_citations","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"citations","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_citations"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:26.111Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_citations","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"citations","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_citations"},"service":"kiko-api","env":"production"}
-[python] INFO:moderation.router:Moderating output: **X (Twitter) 最热门话题 (基于2026-01-21实时数据，过去24h高互动帖子 &...
-[api] [TokenJob] Tokens for Optimism are fresh, skipping API call
+[api] {"timestamp":"2026-01-22T10:05:30.257Z","level":"INFO","code":"SYS-1001","message":"No open positions to monitor","metadata":{},"service":"kiko-api","env":"production"}
+[api] {"level":30,"time":1769076330545,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-n","res":{"statusCode":200},"responseTime":5349.118499998003,"msg":"request completed"}
+[python] INFO:httpx:HTTP Request: POST http://localhost:3001/api/ai/tools/execute "HTTP/1.1 200 OK"
+[api] {"timestamp":"2026-01-22T10:05:32.962Z","level":"INFO","code":"API-5001","message":"Processed DexScreener trending candidates","metadata":{"candidates":118,"limit":200},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:32.962Z","level":"INFO","code":"API-5001","message":"Premium trending tokens fetch complete","metadata":{"count":100,"chain":"solana","durationMs":7081},"service":"kiko-api","env":"production"}
+[api] [TokenJob] Got 100 trending tokens for Solana
+[api] [TokenJob] Filtered out 5 invalid tokens for Solana
+[api] Saved 95 trending tokens for solana to database and memory cache
+[api] [TokenJob] Saved 95 tokens for Solana to DB + cache
+[api] [PositionMonitor] 🔄 Running position check...
+[api] {"timestamp":"2026-01-22T10:05:40.263Z","level":"INFO","code":"SYS-1001","message":"No open positions to monitor","metadata":{},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:42.372Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"usage","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage"},"service":"kiko-api","env":"production"}
+[python] INFO:moderation.router:Moderating output: **Identity Stability: Low (no direct matches for "...
 [python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
-[python]   [1] ✓ Valid dict, URL: https://x.com/i/status/2013899100773613905..., Avatar: https://unavatar.io/twitter/Ember_web3...
-[python]   [2] ✓ Valid dict, URL: https://x.com/i/status/2013922908947501139..., Avatar: https://unavatar.io/twitter/trendingblog247...
-[python]   [3] ✓ Valid dict, URL: https://x.com/i/status/2013897253128479176..., Avatar: https://unavatar.io/twitter/urmisope...
-[python]   [4] ✓ Valid dict, URL: https://archive.ph/SXmqw..., Avatar: None...
-[python]   [5] ✓ Valid dict, URL: https://x.com/i/status/2013915109458931944..., Avatar: https://unavatar.io/twitter/josemamayoral...
-[python]   [6] ✓ Valid dict, URL: https://x.com/i/status/2013445323729801724..., Avatar: https://unavatar.io/twitter/StormCat5_...
-[python]   [7] ✓ Valid dict, URL: https://x.com/i/status/2013856391203852405..., Avatar: https://unavatar.io/twitter/FrontrunTrends...
-[python]   [8] ✓ Valid dict, URL: https://x.com/i/status/2013856942616154112..., Avatar: https://unavatar.io/twitter/Powerfm987...
-[python]   [9] ✓ Valid dict, URL: https://x.com/i/status/2013469957149892687..., Avatar: https://unavatar.io/twitter/_ParadiseParis1...
-[python]   [10] ✓ Valid dict, URL: https://x.com/i/status/2013669792008348152..., Avatar: https://unavatar.io/twitter/urstrulyNST...
-[python]   [11] ✓ Valid dict, URL: https://x.com/i/status/2013467728502263969..., Avatar: https://unavatar.io/twitter/MLFootball...
-[python]   [12] ✓ Valid dict, URL: https://x.com/i/status/2013807489179865374..., Avatar: https://unavatar.io/twitter/MLFootball...
-[python]   [13] ✓ Valid dict, URL: https://us.trend-calendar.com/..., Avatar: None...
-[python]   [14] ✓ Valid dict, URL: https://x.com/i/status/2013578658733240717..., Avatar: https://unavatar.io/twitter/TagsLeader...
-[python]   [15] ✓ Valid dict, URL: https://x.com/i/status/2013612488022204725..., Avatar: https://unavatar.io/twitter/AniTrendz...
-[python]   [16] ✓ Valid dict, URL: https://x.com/i/status/2014003399977566478..., Avatar: https://unavatar.io/twitter/cryptodegenaj...
-[python]   [17] ✓ Valid dict, URL: https://x.com/i/status/2013497510606536837..., Avatar: https://unavatar.io/twitter/Incognito_qfs...
-[python]   [18] ✓ Valid dict, URL: https://globaltwittertrends.com/..., Avatar: None...
-[python]   [19] ✓ Valid dict, URL: https://x.com/i/status/2013449194271645708..., Avatar: https://unavatar.io/twitter/CynArts...
-[python]   [20] ✓ Valid dict, URL: https://x.com/i/status/2013658494449127720..., Avatar: https://unavatar.io/twitter/PeterDiamandis...
-[python]   [21] ✓ Valid dict, URL: https://x.com/i/status/2013699103335514460..., Avatar: https://unavatar.io/twitter/theliamnissan...
-[python]   [22] ✓ Valid dict, URL: https://recurpost.com/blog/x-twitter-statistics..., Avatar: None...
-[python]   [23] ✓ Valid dict, URL: https://getdaytrends.com/..., Avatar: None...
-[python]   [24] ✓ Valid dict, URL: https://x.com/i/status/2013529954353336423..., Avatar: https://unavatar.io/twitter/fanta_de_joker...
-[python]   [25] ✓ Valid dict, URL: https://x.com/i/status/2013516010741985586..., Avatar: https://unavatar.io/twitter/royal_bobby24...
-[python]   [26] ✓ Valid dict, URL: https://x.com/i/status/2013587057625518377..., Avatar: https://unavatar.io/twitter/AniTrendz...
-[python]   [27] ✓ Valid dict, URL: https://x.com/i/status/2013879768429592818..., Avatar: https://unavatar.io/twitter/DrAnakwenze...
-[python]   [28] ✓ Valid dict, URL: https://x.com/i/status/2013877646564737204..., Avatar: https://unavatar.io/twitter/janbarstad...
-[python]   [29] ✓ Valid dict, URL: https://explodingtopics.com/blog/trending-topics..., Avatar: None...
-[python]   [30] ✓ Valid dict, URL: https://x.com/i/status/2013458133402951899..., Avatar: https://unavatar.io/twitter/carolhagen...
-[python]   [31] ✓ Valid dict, URL: https://x.com/i/status/2013731982786646522..., Avatar: https://unavatar.io/twitter/MLFootball...
-[python]   [32] ✓ Valid dict, URL: https://x.com/i/status/2013668704412668275..., Avatar: https://unavatar.io/twitter/retrodrive1...
-[python]   [33] ✓ Valid dict, URL: https://x.com/i/status/2013673627099566570..., Avatar: https://unavatar.io/twitter/yourlovesupreme...
-[python]   [34] ✓ Valid dict, URL: https://x.com/i/status/2013558937207865460..., Avatar: https://unavatar.io/twitter/eomcoertis...
-[python]   [35] ✓ Valid dict, URL: https://x.com/i/status/2013611477169561805..., Avatar: https://unavatar.io/twitter/trendingblog247...
-[python]   [36] ✓ Valid dict, URL: https://x.com/i/status/2013710653832212632..., Avatar: https://unavatar.io/twitter/TheTennisLetter...
-[python]   [37] ✓ Valid dict, URL: https://x.com/i/status/2013759183514976690..., Avatar: https://unavatar.io/twitter/GregCity...
-[python]   [38] ✓ Valid dict, URL: https://x.com/i/status/2013855793171382577..., Avatar: https://unavatar.io/twitter/Powerfm987...
-[python]   [39] ✓ Valid dict, URL: https://xtrends.iamrohit.in/..., Avatar: None...
-[python]   [40] ✓ Valid dict, URL: https://trends24.in/united-states..., Avatar: None...
-[python]   [41] ✓ Valid dict, URL: https://trends24.in/..., Avatar: None...
-[python]   [42] ✓ Valid dict, URL: https://xtrendsnow.com/..., Avatar: None...
-[python]   [43] ✓ Valid dict, URL: https://x.com/i/status/2013884390850601436..., Avatar: https://unavatar.io/twitter/topthai5...
-[python]   [44] ✓ Valid dict, URL: https://x.com/i/status/2013511686091874427..., Avatar: https://unavatar.io/twitter/Worship_SRK...
-[python]   [45] ✓ Valid dict, URL: https://x.com/i/status/2013474846785569235..., Avatar: https://unavatar.io/twitter/JohnnyWalkcer...
-[python]   [46] ✓ Valid dict, URL: https://x.com/i/status/2013658473905426826..., Avatar: https://unavatar.io/twitter/AustralianOpen...
-[python]   [47] ✓ Valid dict, URL: https://x.com/i/status/2013796199770247186..., Avatar: https://unavatar.io/twitter/TrendingRae...
-[python]   [48] ✓ Valid dict, URL: https://www.socialmediatoday.com/topic/twitter..., Avatar: None...
-[python]   [49] ✓ Valid dict, URL: https://archive.twitter-trending.com/..., Avatar: None...
-[python]   [50] ✓ Valid dict, URL: https://x.com/i/status/2013457822302781574..., Avatar: https://unavatar.io/twitter/girlsinrap...
-[python]   [51] ✓ Valid dict, URL: https://twitter-trends.vlivetricks.com/..., Avatar: None...
-[python]   [52] ✓ Valid dict, URL: https://x.com/i/status/2013460635451822172..., Avatar: https://unavatar.io/twitter/worldNTRfans...
-[python]   [53] ✓ Valid dict, URL: https://archive.ph/d7jIK..., Avatar: None...
-[python]   [54] ✓ Valid dict, URL: https://www.socialmediatoday.com/news/x-formerly-twitter-sha..., Avatar: None...
-[python]   [55] ✓ Valid dict, URL: https://x.com/i/status/2013619631362318538..., Avatar: https://unavatar.io/twitter/Diverskyy...
-[python]   [56] ✓ Valid dict, URL: https://x.com/i/status/2013553368304886271..., Avatar: https://unavatar.io/twitter/IndianTrainFan...
-[python] INFO:     127.0.0.1:52193 - "POST /moderation/output HTTP/1.1" 200 OK
-[api] {"timestamp":"2026-01-21T17:34:27.162Z","level":"INFO","code":"SYS-1007","message":"Moderation Output check result","metadata":{"safe":true,"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] Grok task cmkoaxi1o0007lk5cajgaj2r2 completed, 497 chunks
-[api] {"timestamp":"2026-01-21T17:34:27.173Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:27.173Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_complete","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete"},"service":"kiko-api","env":"production"}
-[api] [ChatWorker] Task cmkoaxi1o0007lk5cajgaj2r2 completed successfully
-[api] {"level":30,"time":1769016867181,"pid":8437,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-j","req":{"method":"OPTIONS","url":"/api/chat/sessions/cmkoaxi010001lk5cmrtdwc3b","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":52202},"msg":"incoming request"}
-[api] {"level":30,"time":1769016867181,"pid":8437,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-j","res":{"statusCode":204},"responseTime":0.549458000343293,"msg":"request completed"}
-[api] {"level":30,"time":1769016867183,"pid":8437,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-k","req":{"method":"GET","url":"/api/chat/sessions/cmkoaxi010001lk5cmrtdwc3b","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":52202},"msg":"incoming request"}
-[api] {"level":30,"time":1769016867193,"pid":8437,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-k","res":{"statusCode":200},"responseTime":9.820458000060171,"msg":"request completed"}
+[python] [Custom Tool] Executing get_trending_tokens...
+[python] [Tool Execution] Executing tool: get_trending_tokens with args: {'chain': 'base', 'limit': 20}
+[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
+[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/api/ai/tools/execute
+[python] [Custom Tool] get_trending_tokens returned: 4657 chars
+[python] [Custom Tool] Buffering tool result: [
+[python]   {
+[python]     "rank": 1,
+[python]     "name": "Roll",
+[python]     "symbol": "ROLL",
+[python]     "address": "0xAb6363dA0C80cEF3Ae1...
+[python] [Custom Tool] Added tool result to chat, will call Grok again
+[python] [Custom Tool] Executing get_trending_tokens...
+[python] [Tool Execution] Executing tool: get_trending_tokens with args: {'chain': 'solana', 'limit': 20}
+[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
+[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/api/ai/tools/execute
+[python] [Custom Tool] get_trending_tokens returned: 4761 chars
+[python] [Custom Tool] Buffering tool result: [
+[python]   {
+[python]     "rank": 1,
+[python]     "name": "Pippin",
+[python]     "symbol": "pippin",
+[python]     "address": "Dfh5DzRgSvvCFDoYc...
+[python] [Custom Tool] Added tool result to chat, will call Grok again
+[python] [Tool Turn] Tool call detected, continuing to turn 2
+[python] [Custom Tool] Executing get_token_info...
+[python] [Tool Execution] Executing tool: get_token_info with args: {'address': '0x051024b653e8ec69e72693f776c41c2a9401fb07', 'chain': 'base'}
+[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
+[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/api/ai/tools/execute
+[python] [Custom Tool] get_token_info returned: 4081 chars
+[python] [Custom Tool] Buffering tool result: {
+[python]   "source": "DexScreener",
+[python]   "address": "0x051024b653e8ec69e72693f776c41c2a9401fb07",
+[python]   "name": "B...
+[python] [Custom Tool] Added tool result to chat, will call Grok again
+[python] [Tool Turn] Tool call detected, continuing to turn 3
+[python] INFO:     127.0.0.1:53930 - "POST /moderation/output HTTP/1.1" 200 OK
+[api] {"timestamp":"2026-01-22T10:05:43.819Z","level":"INFO","code":"SYS-1007","message":"Moderation Output check result","metadata":{"safe":true,"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:43.835Z","level":"INFO","code":"AI-6007","message":"Grok: task completed","metadata":{"taskId":"cmkpacuof005ooenal5v6yafg","chunks":724},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:43.837Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:43.837Z","level":"INFO","code":"WS-8004","message":"Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete","metadata":{"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_complete","connectionCount":1,"durationMs":0,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete"},"service":"kiko-api","env":"production"}
+[api] {"level":30,"time":1769076343839,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-o","req":{"method":"OPTIONS","url":"/api/chat/sessions/cmkpacumg005goenaorx046sc","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":53742},"msg":"incoming request"}
+[api] {"level":30,"time":1769076343841,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-o","res":{"statusCode":204},"responseTime":0.8803340010344982,"msg":"request completed"}
+[api] {"level":30,"time":1769076343842,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-p","req":{"method":"GET","url":"/api/chat/sessions/cmkpacumg005goenaorx046sc","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":53741},"msg":"incoming request"}
+[api] {"level":30,"time":1769076343850,"pid":30612,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-p","res":{"statusCode":200},"responseTime":8.68724999949336,"msg":"request completed"}
+[api] [TokenJob] Skipping refresh for Base - another instance holds the lock
 [api] [PositionMonitor] 🔄 Running position check...
-[api] {"timestamp":"2026-01-21T17:34:41.479Z","level":"INFO","code":"SYS-1001","message":"No open positions to monitor","metadata":{},"service":"kiko-api","env":"production"}
-[api] [TokenJob] Fetching trending tokens for Polygon via DexScreener Premium...
-[api] {"timestamp":"2026-01-21T17:34:41.514Z","level":"INFO","code":"API-5001","message":"Fetching premium trending tokens","metadata":{"chain":"polygon","limit":100},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:41.514Z","level":"INFO","code":"API-5001","message":"Using fallback discovery (Boosts + Organic search)","metadata":{},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:46.776Z","level":"INFO","code":"API-5001","message":"Processed DexScreener trending candidates","metadata":{"candidates":24,"limit":200},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:47.802Z","level":"ERROR","code":"API-5002","message":"API error on trending page","metadata":{"page":1,"status":404,"statusText":"Not Found"},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:47.803Z","level":"INFO","code":"API-5001","message":"Trending tokens fetch complete","metadata":{"network":"polygon","count":0,"limit":200},"service":"kiko-api","env":"production"}
-[api] {"timestamp":"2026-01-21T17:34:47.803Z","level":"INFO","code":"API-5001","message":"Premium trending tokens fetch complete","metadata":{"count":20,"chain":"polygon","durationMs":6289},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:50.270Z","level":"INFO","code":"SYS-1001","message":"No open positions to monitor","metadata":{},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:51.924Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"c084eee7-aa04-4552-95af-926341e40964","symbol":"PipSqueak","creator":"0xa660edd0a5ed1dff7d834328b25ab95885d5c80f"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:52.263Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"c084eee7-aa04-4552-95af-926341e40964","symbol":"U.S OIL VENEZUELA","creator":"0x554b7a2f77b415c361bae3ecb7575c2e03719ec8"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:52.595Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"c084eee7-aa04-4552-95af-926341e40964","symbol":"BASED","creator":"0x9b5166ea99155951704befbd5eb89d60305ca15b"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:52.914Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"c084eee7-aa04-4552-95af-926341e40964","symbol":"FINFORM","creator":"0xdb322c4045f1c393a53f031062ad6c198e339faa"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:53.256Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"c084eee7-aa04-4552-95af-926341e40964","symbol":"I WAKE UP WITH UTMOST INDICERNME","creator":"0x5bd39d6ad9c35cb2f58bad6103f4a75a46fd1d96"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:53.582Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"c084eee7-aa04-4552-95af-926341e40964","symbol":"BreatheEdit","creator":"0x2e1f96d2c9d03796c39314895122633932328442"},"service":"kiko-api","env":"production"}
+[api] {"timestamp":"2026-01-22T10:05:53.933Z","level":"INFO","code":"SYS-1007","message":"Alpha Detector: Checking new coin","metadata":{"traceId":"c084eee7-aa04-4552-95af-926341e40964","symbol":"RELAXING","creator":"0x8666a01caaa5c352148e9aa9637e97e62deb887e"},"service":"kiko-api","env":"production"}

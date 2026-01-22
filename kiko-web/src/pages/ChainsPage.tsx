@@ -6,80 +6,14 @@ import type { ChainData } from '../services/api';
 import { Skeleton } from '../components/Skeleton';
 import styles from './ChainsPage.module.css';
 
-// --- Chain name to DeFiLlama icon slug mapping ---
-// Using DeFiLlama's icon API: https://icons.llamao.fi/icons/chains/rsz_{slug}?w=48&h=48
-const CHAIN_ICON_SLUGS: Record<string, string> = {
-  'Ethereum': 'ethereum',
-  'Solana': 'solana',
-  'BSC': 'binance',
-  'Bitcoin': 'bitcoin',
-  'Tron': 'tron',
-  'Base': 'base',
-  'Arbitrum': 'arbitrum',
-  'Polygon': 'polygon',
-  'Avalanche': 'avalanche',
-  'OP Mainnet': 'optimism',
-  'Aptos': 'aptos',
-  'Hyperliquid L1': 'hyperliquid',
-  'Linea': 'linea',
-  'Mantle': 'mantle',
-  'Scroll': 'scroll',
-  'ZKsync Era': 'zksync%20era',
-  'Berachain': 'berachain',
-  'Sei': 'sei',
-  'Starknet': 'starknet',
-  'Near': 'near',
-  'TON': 'ton',
-  'Fantom': 'fantom',
-  'Gnosis': 'gnosis',
-  'Celo': 'celo',
-  'Sonic': 'sonic',
-  'Monad': 'monad',
-  'Ink': 'ink',
-  'Ronin': 'ronin',
-  'Flow': 'flow',
-  'Flare': 'flare',
-  'Kaia': 'kaia',
-  'opBNB': 'op_bnb',
-  'Arbitrum Nova': 'arbitrum%20nova',
-  'Polygon zkEVM': 'polygon%20zkevm',
-  'Boba': 'boba',
-  'Plasma': 'plasma',
-  'Katana': 'katana',
-  'Unichain': 'unichain',
-  'World Chain': 'world%20chain',
-  'Abstract': 'abstract',
-  'Story': 'story',
-  'Taiko': 'taiko',
-  'Hemi': 'hemi',
-  'Somnia': 'somnia',
-  'Sophon': 'sophon',
-  'Mezo': 'mezo',
-  'Corn': 'corn',
-  'Peaq': 'peaq',
-  'TAC': 'tac',
-  'Superseed': 'superseed',
-  'Shape': 'shape',
-  'Plume Mainnet': 'plume',
-};
+import { getLocalChainIcon } from '../utils/chainIcons';
 
-// Get chain icon URL using DeFiLlama API (high resolution)
+// Get chain icon URL (using local assets)
 function getChainIcon(chainName: string): string {
-  const slug = CHAIN_ICON_SLUGS[chainName] || chainName.toLowerCase().replace(/ /g, '%20');
-  // Use higher resolution (128x128) for better quality
-  return `https://icons.llamao.fi/icons/chains/rsz_${slug}?w=128&h=128`;
+  return getLocalChainIcon(chainName);
 }
 
-// Chains with Dune data (52 chains)
-const CHAINS_WITH_DUNE_DATA = new Set([
-  'Ethereum', 'Solana', 'BSC', 'Bitcoin', 'Tron', 'Base', 'Arbitrum', 'Plasma',
-  'Hyperliquid L1', 'Avalanche', 'Polygon', 'Aptos', 'Katana', 'Linea', 'Mantle',
-  'Ink', 'OP Mainnet', 'Berachain', 'Starknet', 'Sei', 'Flare', 'Scroll',
-  'Plume Mainnet', 'Gnosis', 'Near', 'Unichain', 'Monad', 'Flow', 'Sonic', 'TON',
-  'Hemi', 'Celo', 'World Chain', 'ZKsync Era', 'Abstract', 'opBNB', 'Ronin',
-  'Kaia', 'Story', 'Taiko', 'Sophon', 'Fantom', 'TAC', 'Boba', 'Somnia',
-  'Polygon zkEVM', 'Mezo', 'Corn', 'Peaq', 'Arbitrum Nova', 'Superseed', 'Shape'
-]);
+
 
 // --- Formatting Helpers ---
 
@@ -132,9 +66,9 @@ export const ChainsPage: React.FC = () => {
       setError(null);
       const allChains = await marketApi.getChains();
 
-      // Filter to only show chains with Dune data, then sort by txns24h (descending)
+      // Backend already filters for chains with Dune data
+      // Sort by txns24h (descending)
       const chains = allChains
-        .filter(c => CHAINS_WITH_DUNE_DATA.has(c.name))
         .sort((a, b) => (b.txns24h || 0) - (a.txns24h || 0));
       setChainsData(chains);
 
@@ -172,7 +106,7 @@ export const ChainsPage: React.FC = () => {
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className={styles.highlightCard}>
                 <Skeleton variant="circular" width={48} height={48} />
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className={styles.skeletonFlex}>
                   <Skeleton variant="text" width={100} height={16} />
                   <Skeleton variant="text" width={120} height={24} />
                 </div>
@@ -235,7 +169,7 @@ export const ChainsPage: React.FC = () => {
             {isRateLimit ? (
               <>
                 <div>⚠️ API Rate Limit Exceeded</div>
-                <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.8 }}>
+                <div className={styles.rateLimitDetail}>
                   Please wait a moment and try again, or refresh the page
                 </div>
               </>
