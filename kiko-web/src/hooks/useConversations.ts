@@ -166,7 +166,13 @@ export const useConversations = () => {
       console.log('[useConversations] loadConversation response:', {
         success: resp.success,
         messageCount: resp.messages?.length,
-        messages: resp.messages?.map((m: any) => ({ id: m.id, role: m.role, content: m.content?.substring(0, 50) })),
+        messages: resp.messages?.map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          type: m.type,
+          hasData: !!m.data,
+          content: m.content?.substring(0, 50)
+        })),
       });
       if (resp.success) {
         // Map backend messages to frontend format

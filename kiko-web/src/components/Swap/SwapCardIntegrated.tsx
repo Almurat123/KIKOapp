@@ -57,6 +57,8 @@ interface SwapCardIntegratedProps {
   useServerExecution?: boolean;
   // User holdings for token selector
   userHoldings?: UserHolding[];
+  // Pre-calculated quote for instant display
+  initialQuote?: any;
 }
 
 export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
@@ -73,6 +75,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   autoExecute = false,
   useServerExecution = false,
   userHoldings = [],
+  initialQuote: _initialQuote,
 }) => {
   // State for settings
   const [maxPriceImpact, setMaxPriceImpact] = useState(initialMaxPriceImpact);
@@ -169,42 +172,49 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
     // Only set tokens if they are different from current tokens
     // This prevents resetting BNB to ETH when amount is entered
+
+    // Only log in dev
     if (import.meta.env.DEV) {
-      console.log('[SwapCard] Initialization Effect Triggered', { initKey, isSolana, hasSolanaSwap: !!solanaSwap, hasEvmSwap: !!evmSwap });
+      // console.log('[SwapCard] Initialization Check', { initKey });
     }
 
+    let updates = 0;
+
     if (initialTokenIn && currentTokenIn?.address !== initialTokenIn.address) {
-      if (import.meta.env.DEV) {
-        console.log('[SwapCard] Setting Token IN', initialTokenIn.symbol);
-      }
       if (isSolana && solanaSwap) {
         solanaSwap.setTokenIn(initialTokenIn);
       } else if (evmSwap) {
         evmSwap.setTokenIn(initialTokenIn);
       }
+      updates++;
     }
+
     if (initialTokenOut && currentTokenOut?.address !== initialTokenOut.address) {
-      if (import.meta.env.DEV) {
-        console.log('[SwapCard] Setting Token OUT', initialTokenOut.symbol);
-      }
       if (isSolana && solanaSwap) {
         solanaSwap.setTokenOut(initialTokenOut);
       } else if (evmSwap) {
         evmSwap.setTokenOut(initialTokenOut);
       }
+      updates++;
     }
 
     // Set amount after tokens are set
-    if (initialAmountIn) {
+    // Check if amount is actually different to avoid loop
+    const currentAmountIn = isSolana ? solanaSwap?.state.amountIn : evmSwap?.state.amountIn;
+    if (initialAmountIn && initialAmountIn !== currentAmountIn) {
       if (isSolana && solanaSwap) {
         solanaSwap.setAmountIn(initialAmountIn);
       } else if (evmSwap) {
         evmSwap.setAmountIn(initialAmountIn);
       }
+      updates++;
     }
 
-    initializedRef.current = initKey;
-  }, [initialTokenIn, initialTokenOut, initialAmountIn, isSolana, chainId]); // Removed 'swap' from deps
+    // Track that we handled this initKey
+    if (updates > 0) {
+      initializedRef.current = initKey;
+    }
+  }, [initialTokenIn, initialTokenOut, initialAmountIn, chainId, isSolana, hasAutoExecutedRef]); // Removed swap dependency to break loop
 
   // Token selector state
   const [showTokenSelector, setShowTokenSelector] = useState<'in' | 'out' | null>(null);

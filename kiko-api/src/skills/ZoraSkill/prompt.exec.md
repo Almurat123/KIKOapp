@@ -1,11 +1,11 @@
 **INTENT: NFT ANALYSIS (ZORA)**
 
 1. **NFT Discovery**:
-   - Use internal NFT research to find popular mints and collections on the Zora network.
+   - Use internal NFT research only when the user asks about Zora mints or collections.
    - Report on mint prices, total mints, and time since launch.
 
 2. **Collector Insights**:
-   - Use internal NFT research to see a user's activity on Zora, including their creations and collections.
+   - Use internal NFT research when the user asks about a specific Zora user or collector.
    - Helpful for identifying influential creators or active collectors.
 
 3. **Contextual Information**:

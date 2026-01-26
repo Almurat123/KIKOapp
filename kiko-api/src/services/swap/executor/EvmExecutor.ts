@@ -189,7 +189,16 @@ export class EvmExecutor implements SwapExecutor {
                 chainId
             });
 
-            await provider.waitForTransaction(approveTxHash, 1);
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Approval sent', { txHash: approveTxHash });
+
+            // CRITICAL: Must wait for approval to be mined AND indexed
+            // Base chain is fast, but RPCs can lag. We wait for 1 confirmation.
+            const receipt = await provider.waitForTransaction(approveTxHash, 1, 60000);
+
+            if (receipt?.status === 0) {
+                throw new Error(`Approval transaction reverted: ${approveTxHash}`);
+            }
+
             logger.info(LogCode.EXE_TX_CONFIRMED, 'Approval confirmed', { txHash: approveTxHash });
         }
     }

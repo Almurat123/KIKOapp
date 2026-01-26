@@ -7,7 +7,7 @@ import { ethers } from 'ethers';
 import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
-import { executeSwapInstant, executeSellInstant } from './tradeExecutor.js';
+import { MainSwapService } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
@@ -522,7 +522,8 @@ async function processBuyWithInfo(
                     let tradeCostWei = 0n;
                     if (nativePrice > 0) {
                         const amountInNative = usdAmount / nativePrice;
-                        tradeCostWei = ethers.parseEther(amountInNative.toFixed(18));
+                        // Use exact string conversion to avoid precision loss
+                        tradeCostWei = ethers.parseEther(amountInNative.toString());
                     }
 
                     if (nativeBalance < (tradeCostWei + gasBufferWei)) {
@@ -625,7 +626,7 @@ async function processBuyWithInfo(
                 logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Solana trade calculation complete', {
                     buyAmountUsd: usdAmount,
                     solPrice: nativePrice,
-                    amountInSol: amountInSol.toFixed(6),
+                    amountInSol: amountInSol.toString(),
                     token: tokenToBuy,
                     wallet: solAddress
                 });
@@ -670,7 +671,7 @@ async function processBuyWithInfo(
                             accessToken: '', // Privy server-side doesn't need token if configured
                             walletAddress: effectiveConfig.user.walletAddress,
                             tokenOut: tokenToBuy,
-                            amountIn: (usdAmount / nativePrice).toFixed(6),
+                            amountIn: (usdAmount / nativePrice).toString(),
                             // Use universal global slippage directly
                             slippage: effectiveConfig.maxSlippageBps / 100,
                             feeContext: 'copyTrade'
@@ -685,7 +686,7 @@ async function processBuyWithInfo(
                     // UNLESS they have graduated, in which case this might fail and we should try standard swap
                     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting specialized contract buy', { userId: config.userId, token: tokenToBuy });
                     try {
-                        const bnbAmount = (usdAmount / nativePrice).toFixed(6);
+                        const bnbAmount = (usdAmount / nativePrice).toString();
                         txHash = await fourMemeService.buyTokenAMAP({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
@@ -722,16 +723,18 @@ async function processBuyWithInfo(
                     try {
                         // Step 1: Try with 100% amount, 10% slippage
                         logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 1: 100% amount, 10% slippage', { userId: effectiveConfig.userId, eth: baseAmount.toFixed(6) });
-                        txHash = await executeSwapInstant({
+                        const result1 = await MainSwapService.executeSwap({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
                             tokenIn: 'ETH',
                             tokenOut: tokenToBuy,
-                            amountIn: baseAmount.toFixed(6),
+                            amountIn: baseAmount.toString(),
                             chainId,
                             slippageBps: baseSlippage,
-                            feeContext: 'copyTrade',
+                            mode: 'copytrade'
                         });
+                        if (!result1.success) throw new Error(result1.error);
+                        txHash = result1.txHash!;
                     } catch (buyErr1: any) {
                         logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
 
@@ -772,16 +775,18 @@ async function processBuyWithInfo(
                             const amount99 = baseAmount * 0.99;
                             const slippage2 = 1500; // 15%
                             logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 15% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                            txHash = await executeSwapInstant({
+                            const result2 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
                                 tokenIn: 'ETH',
                                 tokenOut: tokenToBuy,
-                                amountIn: amount99.toFixed(6),
+                                amountIn: amount99.toString(),
                                 chainId,
                                 slippageBps: slippage2,
-                                feeContext: 'copyTrade',
+                                mode: 'copytrade'
                             });
+                            if (!result2.success) throw new Error(result2.error);
+                            txHash = result2.txHash!;
                         } catch (buyErr2: any) {
                             logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', { userId: config.userId, error: buyErr2.message });
                             await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
@@ -791,16 +796,18 @@ async function processBuyWithInfo(
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = 2000; // 20%
                                 logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                                txHash = await executeSwapInstant({
+                                const result3 = await MainSwapService.executeSwap({
                                     userId: effectiveConfig.user.privyDid,
                                     walletAddress: effectiveConfig.user.walletAddress,
                                     tokenIn: 'ETH',
                                     tokenOut: tokenToBuy,
-                                    amountIn: amount98.toFixed(6),
+                                    amountIn: amount98.toString(),
                                     chainId,
                                     slippageBps: slippage3,
-                                    feeContext: 'copyTrade',
+                                    mode: 'copytrade'
                                 });
+                                if (!result3.success) throw new Error(result3.error);
+                                txHash = result3.txHash!;
                             } catch (buyErr3: any) {
                                 logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', { userId: config.userId, token: tokenToBuy, error: buyErr3.message });
                                 continue; // Skip to next config
@@ -833,7 +840,7 @@ async function processBuyWithInfo(
                     where: { id: pendingPositionId },
                     data: {
                         entryPrice: tokenInfo.price,
-                        entryAmount: (usdAmount / nativePrice).toFixed(6), // Native amount spent
+                        entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
                         entryTxHash: txHash,
                         status: 'open',
                     },
@@ -848,7 +855,7 @@ async function processBuyWithInfo(
                         tokenSymbol: tokenInfo.symbol,
                         chainId,
                         entryPrice: tokenInfo.price,
-                        entryAmount: (usdAmount / nativePrice).toFixed(6),
+                        entryAmount: (usdAmount / nativePrice).toString(),
                         entryTxHash: txHash,
                         entryUsdValue: usdAmount,
                         status: 'open',
@@ -1189,16 +1196,21 @@ async function executePositionExit(params: {
                 const initialSlippage = universalSlippageBps;
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Attempting EVM sell with slippage', { userId, slippageBps: initialSlippage });
 
-                txHash = await executeSellInstant({
+                // Convert amountToSell from wei to human readable
+                const amountToSellHuman = (Number(safeBalance) / Math.pow(10, decimals)).toString();
+                
+                const sellResult = await MainSwapService.executeSwap({
                     userId: user.privyDid,
                     walletAddress: user.walletAddress,
-                    tokenToSell: tokenAddress,
-                    amountToSell: safeBalance.toString(),
+                    tokenIn: tokenAddress,
+                    tokenOut: 'ETH', // Selling to native token
+                    amountIn: amountToSellHuman,
                     chainId: chainId,
                     slippageBps: initialSlippage,
-                    tokenDecimals: decimals,
-                    feeContext: 'copyTrade'
+                    mode: 'copytrade'
                 });
+                if (!sellResult.success) throw new Error(sellResult.error);
+                txHash = sellResult.txHash!;
             } catch (e: any) {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', { userId, error: e.message });
                 try {
@@ -1207,16 +1219,20 @@ async function executePositionExit(params: {
                     const retrySlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                     logger.debug(LogCode.EXE_TX_BROADCAST, 'Retrying EVM sell with higher slippage', { userId, slippageBps: retrySlippage });
 
-                    txHash = await executeSellInstant({
+                    const amountToSellHuman999 = (Number(safeBalance999) / Math.pow(10, decimals)).toString();
+                    
+                    const retryResult = await MainSwapService.executeSwap({
                         userId: user.privyDid,
                         walletAddress: user.walletAddress,
-                        tokenToSell: tokenAddress,
-                        amountToSell: safeBalance999.toString(),
+                        tokenIn: tokenAddress,
+                        tokenOut: 'ETH',
+                        amountIn: amountToSellHuman999,
                         chainId: chainId,
                         slippageBps: retrySlippage,
-                        tokenDecimals: decimals,
-                        feeContext: 'copyTrade'
+                        mode: 'copytrade'
                     });
+                    if (!retryResult.success) throw new Error(retryResult.error);
+                    txHash = retryResult.txHash!;
                     isPartialSell = true;
                 } catch (e2: any) {
                     // Four.meme fallback
@@ -1244,17 +1260,19 @@ async function executePositionExit(params: {
                     const remainingBalance = await contract.balanceOf(user.walletAddress);
                     const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                     if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
-                        await executeSellInstant({
+                        const dustAmountHuman = (Number(remainingBalance) / Math.pow(10, decimals)).toString();
+                        
+                        const dustResult = await MainSwapService.executeSwap({
                             userId: user.privyDid,
                             walletAddress: user.walletAddress,
-                            tokenToSell: tokenAddress,
-                            amountToSell: remainingBalance.toString(),
+                            tokenIn: tokenAddress,
+                            tokenOut: 'ETH',
+                            amountIn: dustAmountHuman,
                             chainId: chainId,
-                            // Higher slippage for dust sweep (20%) since amount is small
-                            slippageBps: 2000,
-                            tokenDecimals: decimals,
-                            feeContext: 'copyTrade'
+                            slippageBps: 2000, // Higher slippage for dust sweep (20%)
+                            mode: 'copytrade'
                         });
+                        // Dust sweep failure is non-critical, just log
                     }
                 } catch (sweepErr: any) {
                     logger.debug(LogCode.EXE_TX_REVERTED, 'EVM dust sweep failed', { error: sweepErr.message });

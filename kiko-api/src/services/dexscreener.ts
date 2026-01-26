@@ -161,12 +161,73 @@ function normalizeImageUrl(url?: string | null): string | undefined {
 }
 
 /**
+ * Rate Limiter for DexScreener
+ * Limit: ~300 requests/minute (5 requests/second)
+ */
+const RATE_LIMIT_DELAY = 250; // 250ms = 4 requests/second (conservative)
+let nextAvailableTime = 0;
+
+// Simple memory cache for token details to prevent redundant fetches during swap flows
+const tokenCache = new Map<string, { data: DexScreenerToken, expiresAt: number }>();
+const CACHE_TTL = 60 * 1000; // 1 minute cache
+
+async function fetchWithRateLimit(url: string, options?: RequestInit, retries = 3): Promise<Response> {
+  // 1. Reserve a time slot
+  const now = Date.now();
+  let mySlot = nextAvailableTime;
+  if (mySlot < now) {
+    mySlot = now;
+  }
+  nextAvailableTime = mySlot + RATE_LIMIT_DELAY;
+
+  // 2. Wait for our slot
+  const waitTime = mySlot - now;
+  if (waitTime > 0) {
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+
+  try {
+    const response = await fetch(url, options);
+
+    // 3. Handle Rate Limits
+    if (response.status === 429) {
+      if (retries > 0) {
+        const retryAfter = parseInt(response.headers.get('Retry-After') || '5', 10) * 1000;
+        logger.warn(LogCode.API_FETCH_FAILED, `DexScreener Rate Limit (429), retrying after ${retryAfter}ms...`);
+        // Wait independently before retrying
+        await new Promise(resolve => setTimeout(resolve, retryAfter));
+        return fetchWithRateLimit(url, options, retries - 1);
+      }
+    }
+
+    // 4. Handle Server Errors
+    if (response.status >= 500 && retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return fetchWithRateLimit(url, options, retries - 1);
+    }
+
+    return response;
+  } catch (error: any) {
+    // 5. Handle Network Errors
+    if (retries > 0) {
+      const isNetworkError = error.cause?.code === 'ECONNRESET' || error.message.includes('fetch failed');
+      if (isNetworkError) {
+        logger.warn(LogCode.API_FETCH_FAILED, `DexScreener Network Error, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return fetchWithRateLimit(url, options, retries - 1);
+      }
+    }
+    throw error;
+  }
+}
+
+/**
  * Search for tokens
  */
 export async function searchTokens(query: string): Promise<DexScreenerToken[]> {
   try {
     const url = `${DEXSCREENER_BASE_URL}/search?q=${encodeURIComponent(query)}`;
-    const response = await fetch(url);
+    const response = await fetchWithRateLimit(url);
 
     if (!response.ok) {
       return [];
@@ -217,7 +278,14 @@ export async function getTokenDetails(chainId: string, address: string): Promise
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-    const response = await fetch(url, {
+    // Check cache
+    const cached = tokenCache.get(address.toLowerCase());
+    if (cached && Date.now() < cached.expiresAt) {
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'Returning cached DexScreener token details', { address });
+      return cached.data;
+    }
+
+    const response = await fetchWithRateLimit(url, {
       signal: controller.signal,
       headers: {
         'Accept': 'application/json',
@@ -234,7 +302,7 @@ export async function getTokenDetails(chainId: string, address: string): Promise
     const data = await response.json() as { pairs?: any[] };
 
     if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
-      logger.info(LogCode.API_FETCH_SUCCESS, 'No pairs found for token on DexScreener', { address });
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'No pairs found for token on DexScreener', { address });
       return null;
     }
 
@@ -248,7 +316,7 @@ export async function getTokenDetails(chainId: string, address: string): Promise
     // Map network from Dexscreener to our schema
     const network = NETWORK_MAP[chainId.toLowerCase()] || chainId.toLowerCase();
 
-    return {
+    const result = {
       address: address,
       name: pair.baseToken?.name || '',
       symbol: pair.baseToken?.symbol || '',
@@ -265,6 +333,14 @@ export async function getTokenDetails(chainId: string, address: string): Promise
       socials: pair.info?.socials || [], // Twitter, Discord links
       websites: pair.info?.websites || [], // Official websites
     };
+
+    // Cache the result
+    tokenCache.set(address.toLowerCase(), {
+      data: result,
+      expiresAt: Date.now() + CACHE_TTL
+    });
+
+    return result;
   } catch (error: any) {
     if (error.name === 'AbortError') {
       logger.error(LogCode.API_FETCH_FAILED, 'DexScreener request timeout', { address });
@@ -297,7 +373,7 @@ export async function getTokenPairAddress(
 
     logger.debug(LogCode.API_FETCH_SUCCESS, 'DexScreener request URL', { url });
 
-    const response = await fetch(url, {
+    const response = await fetchWithRateLimit(url, {
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -313,7 +389,7 @@ export async function getTokenPairAddress(
     const data = await response.json() as { pairs?: any[] };
 
     if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
-      logger.info(LogCode.API_FETCH_SUCCESS, 'No pairs found for token during pair address lookup', { tokenAddress, network });
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'No pairs found for token during pair address lookup', { tokenAddress, network });
       return null;
     }
 
@@ -323,7 +399,7 @@ export async function getTokenPairAddress(
     );
 
     if (chainPairs.length === 0) {
-      logger.info(LogCode.API_FETCH_SUCCESS, 'No pairs found for specific chain during lookup', { chainName: chainId, tokenAddress });
+      logger.debug(LogCode.API_FETCH_SUCCESS, 'No pairs found for specific chain during lookup', { chainName: chainId, tokenAddress });
       return null;
     }
 
@@ -381,7 +457,7 @@ export async function getTrendingTokensByChain(
 
     // 1. Get Boosted Tokens (Seed 1)
     try {
-      const boostsResponse = await fetch(DEXSCREENER_TOKEN_BOOSTS_URL);
+      const boostsResponse = await fetchWithRateLimit(DEXSCREENER_TOKEN_BOOSTS_URL);
       if (boostsResponse.ok) {
         const boostsData = await boostsResponse.json();
         if (Array.isArray(boostsData)) {
@@ -415,11 +491,11 @@ export async function getTrendingTokensByChain(
 
     const searchTerms = CHAIN_SEARCH_TERMS[dexScreenerChainId] || ['WETH', 'USDC', 'USDT'];
 
-    // Execute searches in parallel
+    // Execute searches in parallel (throttled by fetchWithRateLimit)
     const searchPromises = searchTerms.map(async (term) => {
       try {
         const searchUrl = `${DEXSCREENER_BASE_URL}/search?q=${term}`;
-        const res = await fetch(searchUrl);
+        const res = await fetchWithRateLimit(searchUrl);
         if (!res.ok) return [];
         const data = await res.json() as { pairs?: any[] };
         return data.pairs || [];
@@ -607,7 +683,7 @@ export async function getTrendingTokensByChain(
 async function getTokenPairData(chainId: string, tokenAddress: string): Promise<TokenSearchResult | null> {
   try {
     const url = `${DEXSCREENER_BASE_URL}/tokens/${tokenAddress}`;
-    const response = await fetch(url);
+    const response = await fetchWithRateLimit(url);
 
     if (!response.ok) return null;
 
@@ -691,7 +767,7 @@ export async function getCandlestickData(
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetchWithRateLimit(url, {
         headers: { 'Accept': 'application/json' },
         signal: controller.signal,
       });

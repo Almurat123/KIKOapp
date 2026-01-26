@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { preprocessMarkdown } from '../../utils/markdownUtils';
-import { SwapCardChat } from './SwapCardChat';
+// import { SwapCardChat } from './SwapCardChat'; // Deprecated: Swap card removed from chat
 import { StrategyCard } from '../Trade/StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { LaunchpadCard } from '../Launchpad/LaunchpadCard';
@@ -81,7 +81,10 @@ const MarkdownComponents = {
 };
 
 // Memoized MessageBubble to prevent re-renders during streaming
-const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction, userAddress, chainId, sessionId,
+const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction,
+    chainId,
+    sessionId,
+    userAddress: _userAddress, // Unused
     thinkingText,
     modelId,
     onFeedback
@@ -95,6 +98,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
 
     // Thinking timer state
     const [elapsedTime, setElapsedTime] = useState(0);
+    const startTimeRef = useRef<number | null>(null);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // Timer effect: start/stop based on thinking status
@@ -102,15 +106,30 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
         // Timer should run when:
         // 1. Initial thinking phase (thinkingText exists, no content yet)
         // 2. Reasoning phase (reasoning_content exists, no final content yet)
+        const isComplete = message.status === 'complete' || message.status === 'error';
+        const isStuck = message.timestamp && (Date.now() - new Date(message.timestamp).getTime() > 5 * 60 * 1000);
+
         const isInitialThinking = thinkingText && !message.content && !message.reasoning_content;
         const isReasoningPhase = message.reasoning_content &&
             (!message.content || message.content.trim().length === 0) &&
-            message.status !== 'complete';
+            !isComplete &&
+            !isStuck;
+
         const shouldRunTimer = isInitialThinking || isReasoningPhase;
 
         if (shouldRunTimer) {
             // Use server-side timestamp for persistence across page reloads
-            const startTime = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
+            // Determine start time: timestamp > local ref > now
+            let startTime = 0;
+            if (message.timestamp) {
+                const parsed = new Date(message.timestamp).getTime();
+                if (!isNaN(parsed)) startTime = parsed;
+            }
+
+            if (!startTime) {
+                if (!startTimeRef.current) startTimeRef.current = Date.now();
+                startTime = startTimeRef.current;
+            }
 
             // Calculate initial elapsed time
             setElapsedTime((Date.now() - startTime) / 1000);
@@ -125,6 +144,8 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                 clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
+            // Reset local ref
+            startTimeRef.current = null;
         }
 
         return () => {
@@ -164,9 +185,18 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
 
     // Render card inline if message has card type and data
     const renderCard = () => {
-        if (isUser || !message.type || !message.data) return null;
+        if (isUser) return null;
+
+        if (message.type === 'launchpad-card') {
+            // logger.debug('[MessageBubble] Rendering launchpad-card', { hasData: !!message.data, provider: message.data?.provider });
+        }
+
+        // CRITICAL FIX: Allow rendering cards even if content is present (but empty string or just whitespace)
+        // This ensures cards appear even if there's a tiny bit of content
+        if (!message.type || !message.data) return null;
 
         switch (message.type) {
+            /*
             case 'swap-card':
                 return (
                     <div className={styles.inlineCard}>
@@ -188,6 +218,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                         </div>
                     </div>
                 );
+            */
             case 'strategy-card':
                 return (
                     <div className={styles.inlineCard}>
@@ -251,7 +282,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                     amountIn={message.data?.amountIn}
                                     amountOut={message.data?.amountOut}
                                     chainId={message.data?.chainId || chainId}
-                                    errorMessage={message.data?.errorMessage}
+                                    errorMessage={message.data?.errorMessage || message.data?.error}
                                     isLoading={message.data?.isLoading}
                                 />
                             </div>
@@ -370,98 +401,99 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                     )}
                 </div >
 
-                {/* Hover Actions */}
-                {/* Hover Actions */}
-                <div className={clsx(styles.actions, isUser ? styles.userActions : styles.aiActions)}>
-                    <button className={styles.actionBtn} onClick={handleCopy} title="Copy">
-                        {copied ? <Check size={14} /> : <Copy size={14} />}
-                    </button>
-                    {
-                        !isUser && (
-                            <>
-                                <button
-                                    className={clsx(styles.actionBtn, feedback === 'like' && styles.actionBtnActive)}
-                                    title="Like"
-                                    onClick={() => handleFeedback('like')}
-                                >
-                                    <ThumbsUp size={14} className={feedback === 'like' ? styles.iconActive : ''} fill={feedback === 'like' ? "currentColor" : "none"} />
-                                </button>
-                                <button
-                                    className={clsx(styles.actionBtn, feedback === 'dislike' && styles.actionBtnActive)}
-                                    title="Dislike"
-                                    onClick={() => handleFeedback('dislike')}
-                                >
-                                    <ThumbsDown size={14} className={feedback === 'dislike' ? styles.iconActive : ''} fill={feedback === 'dislike' ? "currentColor" : "none"} />
-                                </button>
-                                <button
-                                    className={styles.actionBtn}
-                                    title="Share"
-                                    onClick={() => {
-                                        // Simple share: copy message content for now, or specific link if available
-                                        navigator.clipboard.writeText(message.content);
-                                        toast.success('Message copied!');
-                                    }}
-                                >
-                                    <Share2 size={14} />
-                                </button>
-                            </>
-                        )
-                    }
+                {/* Hover Actions - Only show for regular text messages, not special cards */}
+                {(!message.type || message.type === 'text') && (
+                    <div className={clsx(styles.actions, isUser ? styles.userActions : styles.aiActions)}>
+                        <button className={styles.actionBtn} onClick={handleCopy} title="Copy">
+                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
+                        {
+                            !isUser && (
+                                <>
+                                    <button
+                                        className={clsx(styles.actionBtn, feedback === 'like' && styles.actionBtnActive)}
+                                        title="Like"
+                                        onClick={() => handleFeedback('like')}
+                                    >
+                                        <ThumbsUp size={14} className={feedback === 'like' ? styles.iconActive : ''} fill={feedback === 'like' ? "currentColor" : "none"} />
+                                    </button>
+                                    <button
+                                        className={clsx(styles.actionBtn, feedback === 'dislike' && styles.actionBtnActive)}
+                                        title="Dislike"
+                                        onClick={() => handleFeedback('dislike')}
+                                    >
+                                        <ThumbsDown size={14} className={feedback === 'dislike' ? styles.iconActive : ''} fill={feedback === 'dislike' ? "currentColor" : "none"} />
+                                    </button>
+                                    <button
+                                        className={styles.actionBtn}
+                                        title="Share"
+                                        onClick={() => {
+                                            // Simple share: copy message content for now, or specific link if available
+                                            navigator.clipboard.writeText(message.content);
+                                            toast.success('Message copied!');
+                                        }}
+                                    >
+                                        <Share2 size={14} />
+                                    </button>
+                                </>
+                            )
+                        }
 
-                    {/* Token Usage - Cost Display */}
-                    {
-                        !isUser && message.usage && (
-                            <div
-                                className={styles.tokenUsage}
-                                title={`Total: ${message.usage.total_tokens} tokens (Prompt: ${message.usage.prompt_tokens}, Completion: ${message.usage.completion_tokens})`}
-                            >
-                                <Flame size={13} className={styles.tokenIcon} />
-                                <span>{formatCost(calculateCost(modelId, message.usage.prompt_tokens, message.usage.completion_tokens, message.tool_calls?.length || 0))}</span>
-                            </div>
-                        )
-                    }
-
-                    {/* Sources Button - Single button with icon and count */}
-                    {
-                        !isUser && message.citations && message.citations.length > 0 && (
-                            <button
-                                className={styles.sourcesButton}
-                                onClick={() => setShowCitations(true)}
-                                title={`View all ${message.citations.length} sources`}
-                            >
-                                <div className={styles.sourcesButtonIcons}>
-                                    {message.citations.slice(0, 3).map((citation, index) => {
-                                        const logoProps = getSourceLogoProps(citation);
-                                        return (
-                                            <div
-                                                key={index}
-                                                className={clsx(styles.sourceIconCircle, styles.sourceIconZIndex)}
-                                                style={{ zIndex: 3 - index }}
-                                            >
-                                                {logoProps.avatarUrl ? (
-                                                    <img
-                                                        src={logoProps.avatarUrl}
-                                                        alt={logoProps.domain}
-                                                        className={styles.sourceLogoCircle}
-                                                        onError={(e) => {
-                                                            const target = e.target as HTMLImageElement;
-                                                            target.style.display = 'none';
-                                                        }}
-                                                    />
-                                                ) : logoProps.isX ? (
-                                                    <XIcon size={14} />
-                                                ) : (
-                                                    <ExternalLink size={14} />
-                                                )}
-                                            </div>
-                                        );
-                                    })}
+                        {/* Token Usage - Cost Display */}
+                        {
+                            !isUser && message.usage && (
+                                <div
+                                    className={styles.tokenUsage}
+                                    title={`Total: ${message.usage.total_tokens} tokens (Prompt: ${message.usage.prompt_tokens}, Completion: ${message.usage.completion_tokens})`}
+                                >
+                                    <Flame size={13} className={styles.tokenIcon} />
+                                    <span>{formatCost(calculateCost(modelId, message.usage.prompt_tokens, message.usage.completion_tokens, message.tool_calls?.length || 0))}</span>
                                 </div>
-                                <span className={styles.sourcesButtonText}>{message.citations.length} sources</span>
-                            </button>
-                        )
-                    }
-                </div>
+                            )
+                        }
+
+                        {/* Sources Button - Single button with icon and count */}
+                        {
+                            !isUser && message.citations && message.citations.length > 0 && (
+                                <button
+                                    className={styles.sourcesButton}
+                                    onClick={() => setShowCitations(true)}
+                                    title={`View all ${message.citations.length} sources`}
+                                >
+                                    <div className={styles.sourcesButtonIcons}>
+                                        {message.citations.slice(0, 3).map((citation, index) => {
+                                            const logoProps = getSourceLogoProps(citation);
+                                            return (
+                                                <div
+                                                    key={index}
+                                                    className={clsx(styles.sourceIconCircle, styles.sourceIconZIndex)}
+                                                    style={{ zIndex: 3 - index }}
+                                                >
+                                                    {logoProps.avatarUrl ? (
+                                                        <img
+                                                            src={logoProps.avatarUrl}
+                                                            alt={logoProps.domain}
+                                                            className={styles.sourceLogoCircle}
+                                                            onError={(e) => {
+                                                                const target = e.target as HTMLImageElement;
+                                                                target.style.display = 'none';
+                                                            }}
+                                                        />
+                                                    ) : logoProps.isX ? (
+                                                        <XIcon size={14} />
+                                                    ) : (
+                                                        <ExternalLink size={14} />
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <span className={styles.sourcesButtonText}>{message.citations.length} sources</span>
+                                </button>
+                            )
+                        }
+                    </div>
+                )}
 
                 {/* Sources Sidebar - Use React Portal for proper z-index */}
                 {
@@ -614,6 +646,8 @@ const areEqual = (prevProps: MessageBubbleProps, nextProps: MessageBubbleProps) 
         prevProps.message.id === nextProps.message.id &&
         prevProps.message.content === nextProps.message.content &&
         prevProps.message.reasoning_content === nextProps.message.reasoning_content &&
+        prevProps.message.type === nextProps.message.type && // CRITICAL: Compare type for card updates
+        JSON.stringify(prevProps.message.data) === JSON.stringify(nextProps.message.data) && // CRITICAL: Compare data for card updates
         JSON.stringify(prevProps.message.usage) === JSON.stringify(nextProps.message.usage) &&
         JSON.stringify(prevProps.message.citations) === JSON.stringify(nextProps.message.citations) &&
         prevProps.isGrouped === nextProps.isGrouped &&

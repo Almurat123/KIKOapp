@@ -128,17 +128,28 @@ export const GetWalletInfoTool: Tool = {
             const result: any = {
                 address: targetAddress,
                 chain: chain,
-                // Use Alchemy data primarily
-                ethBalance: balanceData.ethBalance ? `${balanceData.ethBalanceFormatted.toFixed(4)} ${chain.toUpperCase() === 'ETH' ? 'ETH' : 'Native Token'}` : '0.0000 ETH',
-                tokens: balanceData.tokens.map((t: any) => ({
-                    symbol: t.symbol,
-                    balance: t.balance || t.tokenBalance, // Handle both formats
-                    contract: t.contract || t.contractAddress,
-                    valueUsd: t.valueUsd ?? (() => {
-                        const balance = parseFloat(t.balance || t.tokenBalance || '0');
-                        return t.price ? balance * t.price : undefined;
-                    })()
-                }))
+                // Native balance with proper formatting
+                ethBalance: balanceData.ethBalance ? `${balanceData.ethBalanceFormatted.toFixed(4)} ${chain.toUpperCase() === 'ETH' ? 'ETH' : chain.toUpperCase()}` : '0.0000 ETH',
+                ethBalanceFormatted: balanceData.ethBalanceFormatted || 0,
+                // CRITICAL FIX: Ensure consistent token format with BOTH symbol and contract
+                tokens: balanceData.tokens.map((t: any) => {
+                    const balance = t.balance || t.tokenBalance || '0';
+                    const contract = t.contract || t.contractAddress || '';
+                    const symbol = t.symbol || 'Unknown';
+                    const valueUsd = t.valueUsd ?? (() => {
+                        const balanceNum = parseFloat(balance);
+                        return t.price ? balanceNum * t.price : undefined;
+                    })();
+                    
+                    return {
+                        symbol,
+                        balance,
+                        contract,  // Always include contract address
+                        contractAddress: contract,  // Alias for compatibility
+                        decimals: t.decimals,
+                        valueUsd
+                    };
+                })
             };
 
             const nativePriceUsd = balanceData.ethPrice ?? null;

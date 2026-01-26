@@ -140,7 +140,10 @@ export async function getWalletTokenBalances(
 
         const response = await fetch(rpcUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'gzip'
+            },
             body: JSON.stringify({
                 id: 1,
                 jsonrpc: '2.0',
@@ -242,7 +245,10 @@ export async function getNativeBalance(
 
         const response = await fetch(rpcUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'gzip'
+            },
             body: JSON.stringify({
                 id: 1,
                 jsonrpc: '2.0',

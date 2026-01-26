@@ -49,22 +49,16 @@ export const useSmartSuggestions = (
 
     // Intent Detection
     const detectIntent = useCallback((text: string) => {
-        console.log('[useSmartSuggestions] detectIntent called with:', text);
-
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
         debounceTimerRef.current = setTimeout(() => {
-            console.log('[useSmartSuggestions] Debounce timeout fired for:', text);
-
             if (!text || text.trim().length === 0) {
-                console.log('[useSmartSuggestions] Empty text, clearing suggestions');
                 setSuggestions([]);
                 setShowSuggestions(false);
                 return;
             }
 
             const results = SuggestionEngine.getSuggestions(text, handleCommit, { chainId });
-            console.log('[useSmartSuggestions] Got results:', results);
 
             setSuggestions(results);
             setShowSuggestions(results.length > 0);

@@ -109,6 +109,7 @@ export interface UseSwapOptions {
   userAddress?: string;
   initialTokenIn?: Token;
   initialTokenOut?: Token;
+  initialQuote?: any;
   maxPriceImpact?: number;
 }
 
@@ -119,6 +120,7 @@ export function useSwap(options: UseSwapOptions = {}) {
     userAddress,
     initialTokenIn: optionTokenIn,
     initialTokenOut: optionTokenOut,
+    initialQuote,
     maxPriceImpact,
   } = options;
 
@@ -188,20 +190,34 @@ export function useSwap(options: UseSwapOptions = {}) {
       tokenOut = tokenOut || tokens[1] || tokens[0] || null;
     }
 
-    console.log('[useSwap] Initial state tokens:', tokenIn?.symbol, '->', tokenOut?.symbol);
+    // Hydrate from initialQuote if available
+    let initialAmountIn = '';
+    let initialAmountOut = '0';
+    let initialPriceImpact = 0;
+
+    if (initialQuote) {
+      // If we have a quote, we MUST have an amountIn
+      initialAmountIn = initialQuote.amountIn || '';
+      initialAmountOut = initialQuote.amountOut || '0';
+      initialPriceImpact = initialQuote.priceImpact || 0;
+      console.log('[useSwap] Hydrated from initial quote:', { initialAmountIn, initialAmountOut });
+    }
 
     return {
       tokenIn,
       tokenOut,
-      amountIn: '', // Initialize as empty to prevent default '1' quote
-      amountOut: '0',
-      quote: null,
+      amountIn: initialAmountIn,
+      amountOut: initialAmountOut,
+      quote: initialQuote ? normalizeAggregatorQuote(initialQuote, initialAmountIn) : null,
+      priceImpact: initialPriceImpact,
       isLoading: false,
       isExecuting: false,
       error: null,
       priceImpactUSD: 0,
       gasCostUSD: 0,
       isApproved: false,
+      availableQuotes: initialQuote ? [initialQuote] : [],
+      selectedDex: initialQuote?.dexName || initialQuote?.dex,
     };
   });
 
@@ -269,6 +285,13 @@ export function useSwap(options: UseSwapOptions = {}) {
       }
 
       setState(prev => ({ ...prev, isLoading: true, error: null }));
+
+      // SKIP FETCH if we just initialized with a valid quote (Instant Swap)
+      if (initialQuote && state.quote === initialQuote && state.amountIn === initialQuote.amountIn) {
+        console.log('[useSwap] Skipping fetch - using pre-warmed initial quote');
+        setState(prev => ({ ...prev, isLoading: false }));
+        return;
+      }
 
       try {
         // Calculate dynamic slippage if in auto mode

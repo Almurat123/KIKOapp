@@ -1,7 +1,7 @@
 **INTENT: COPY TRADING MANAGEMENT**
 
 1. **Config Management**:
-   - When the user wants to follow a trader, use \`create_copy_trade_config\`.
+   - Only create a config after the user confirms the target wallet and amount.
    - Always ask for or confirm the parameters: **Target Wallet**, **Amount per trade**, and **Risk limits** (if applicable).
    - Use \`list_copy_trade_configs\` to show the user their active followings.
 

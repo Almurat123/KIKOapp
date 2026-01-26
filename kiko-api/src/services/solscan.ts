@@ -1,14 +1,14 @@
 /**
- * Solscan API Service
+ * Solscan API Service (uses unified scan service)
  * Backup provider for Solana transaction history
  * Docs: https://pro-api.solscan.io/pro-api-v2
  */
 
-import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { callSolscan } from '../config/unifiedScanService.js';
 
-const SOLSCAN_API_KEY = env.apiKeys.solscan || process.env.SOLSCAN_API_KEY || '';
+const SOLSCAN_API_KEY = process.env.SOLSCAN_API_KEY;
 const BASE_URL = 'https://pro-api.solscan.io/v2.0';
 
 export interface SolscanTransaction {
@@ -34,34 +34,12 @@ export async function getAddressTransactions(
     limit: number = 20,
     before?: string
 ): Promise<SolscanResponse> {
-    if (!SOLSCAN_API_KEY) {
-        logger.warn(LogCode.SYS_INFO, 'Solscan API key not configured');
-        return { success: false, data: [] };
-    }
-
     try {
-        const params = new URLSearchParams({
+        const data = await callSolscan('/transaction/list', {
             address,
-            limit: Math.min(limit, 40).toString(), // Solscan usually limits to 40 per request
+            limit: Math.min(limit, 40),
+            before
         });
-
-        if (before) {
-            params.append('before', before);
-        }
-
-        const response = await fetch(`${BASE_URL}/account/transactions?${params.toString()}`, {
-            headers: {
-                'token': SOLSCAN_API_KEY,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            logger.error(LogCode.API_FETCH_FAILED, 'Solscan API error', { status: response.status, statusText: response.statusText });
-            return { success: false, data: [] };
-        }
-
-        const data = await response.json();
         return data as SolscanResponse;
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, 'Solscan: Error fetching transactions', { error: error.message });
@@ -73,7 +51,7 @@ export async function getAddressTransactions(
  * Check if Solscan is configured
  */
 export function isConfigured(): boolean {
-    return !!SOLSCAN_API_KEY;
+    return true; // Using unified scan service with auto failover
 }
 
 export interface SolscanTokenTransfer {

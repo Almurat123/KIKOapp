@@ -25,6 +25,10 @@ interface SendMessageBody {
     toolConfig?: any;
     allowanceMode?: string;
     balance?: any;
+    nativeBalance?: string;
+    currentPage?: string;
+    pageContext?: string;
+    context?: any;
 }
 
 interface UpdateSessionBody {
@@ -199,7 +203,18 @@ export async function chatRoutes(fastify: FastifyInstance) {
             try {
                 const userId = (request as any).user?.sub;
                 const { sessionId } = request.params;
-                const { content, model, walletAddress, chainId, toolConfig, balance } = request.body;
+                const {
+                    content,
+                    model,
+                    walletAddress,
+                    chainId,
+                    toolConfig,
+                    balance,
+                    nativeBalance,
+                    currentPage,
+                    pageContext,
+                    context,
+                } = request.body;
 
                 if (!content?.trim()) {
                     return reply.code(400).send({ error: 'Message content is required' });
@@ -259,12 +274,31 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 const authHeader = request.headers.authorization || '';
                 const accessToken = authHeader.replace('Bearer ', '');
 
+                const normalizedPageContext =
+                    typeof pageContext === 'string'
+                        ? pageContext
+                        : context
+                            ? JSON.stringify(context)
+                            : undefined;
+
                 const task = await chatRepo.createTask(
                     sessionId,
                     taskModel,
                     userMessage.id,
                     assistantMessage.id,
-                    { userId, walletAddress, chainId, toolConfig, allowanceMode, balance, accessToken }
+                    {
+                        userId,
+                        sessionId, // Add sessionId to toolContext for backend execution
+                        walletAddress,
+                        chainId,
+                        toolConfig,
+                        allowanceMode,
+                        balance,
+                        nativeBalance,
+                        accessToken,
+                        currentPage,
+                        pageContext: normalizedPageContext,
+                    }
                 );
 
                 // Update session model if different

@@ -40,6 +40,8 @@ export enum LogCode {
     EXE_INSUFFICIENT_FUNDS = 'EXE-4006',
     EXE_SLIPPAGE_EXCEEDED = 'EXE-4007',
     EXE_MIN_AMOUNT_NOT_MET = 'EXE-4008',
+    TX_START = 'TX-4009',
+    TX_FAILED = 'TX-4010',
 
     // --- API & External Services (5xxx) ---
     API_FETCH_SUCCESS = 'API-5001',
@@ -60,6 +62,7 @@ export enum LogCode {
     AI_TOOL_USED = 'AI-6008',
     AI_MODE_ROUTED = 'AI-6009',
     AI_SKILLS_ATTACHED = 'AI-6010',
+    AI_ORCHESTRATOR = 'AI-6011',
 
     // --- Social & Farcaster (7xxx) ---
     SOC_CAST_FETCHED = 'SOC-7001',

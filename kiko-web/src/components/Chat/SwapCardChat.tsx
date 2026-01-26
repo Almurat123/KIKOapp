@@ -1,9 +1,10 @@
 /**
  * SwapCardChat - AI 聊天中的 Swap 卡片适配组件
+ * @deprecated This component is no longer used in chat interface (MessageBubble), replaced by allowance trade flow.
  * 包装 SwapCardIntegrated，支持从 AI 解析的数据初始化
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { SwapCardIntegrated } from '../Swap/SwapCardIntegrated';
 
 import { getCommonTokens } from '../../services/tokenDataService';
@@ -56,24 +57,21 @@ function getTokenEmoji(symbol: string): string {
 /**
  * 将网络名称转换为 chainId
  */
-function networkToChainId(network: string): number {
-  const networkMap: Record<string, number> = {
-    'eth': 1,
-    'ethereum': 1,
-    'base': 8453,
-    'bsc': 56,
-    'binance': 56,
-    'arbitrum': 42161,
-    'polygon': 137,
-    'optimism': 10,
-    'avalanche': 43114,
-    'avax': 43114,
-    'fantom': 250,
-    'solana': 900,
-    'sol': 900,
-  };
-  return networkMap[network.toLowerCase()] || 1;
-}
+// function networkToChainId(network: string): number {
+// const networkMap: Record<string, number> = {
+//   'eth': 1,
+//   'ethereum': 1,
+//   'base': 8453,
+//   'bsc': 56,
+//   'binance': 56,
+//   'arbitrum': 42161,
+//   'polygon': 137,
+//   'optimism': 10,
+//   'solana': 900,
+//   'sol': 900,
+// };
+// return networkMap[network.toLowerCase()] || 1;
+// }
 
 
 
@@ -205,71 +203,38 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
   onSwapSuccess,
   onSwapError,
 }) => {
-  // 确定使用的 chainId - 优先使用 AI 检测到的网络
-  const chainId = useMemo(() => {
-    // Smart detection: If tokenIn or tokenOut is SOL, force Solana chain
-    const tokenInSymbol = initialData?.tokenIn?.symbol?.toUpperCase();
-    const tokenOutSymbol = initialData?.tokenOut?.symbol?.toUpperCase();
+  // State for logic
+  const [activeChainId, setActiveChainId] = useState(propChainId || 1);
+  const [initialTokens, setInitialTokens] = useState<{ tokenIn: Token | null, tokenOut: Token | null, amountIn: string } | null>(null);
 
-    // Solana-specific tokens
-    // Solana-specific tokens
-    const solanaTokens = ['SOL', 'USDC-SOL', 'USDT-SOL', 'RAY', 'SRM', 'JUP', 'BONK', 'WIF'];
-    const isSolanaToken = (token?: any, symbol?: string) => {
-      if (!token) return false;
-      const address = token.address;
-
-      // Check explicit Solana symbols using pre-extracted symbol
-      if (symbol === 'SOL' || (symbol && solanaTokens.includes(symbol))) return true;
-
-      // Check address format (Solana addresses are Base58 and don't start with 0x)
-      if (address && typeof address === 'string') {
-        // EVM addresses start with 0x, Solana addresses do not
-        if (address.length > 30 && !address.startsWith('0x')) return true;
-      }
-      return false;
-    };
-
-    if (isSolanaToken(initialData?.tokenIn, tokenInSymbol) || isSolanaToken(initialData?.tokenOut, tokenOutSymbol)) {
-      return 900; // Force Solana
-    }
-
-    // Priority 1: Use network from AI-detected swap data
-    if (initialData?.network) {
-      return networkToChainId(initialData.network);
-    }
-    // Priority 2: Use chainId from props (user's current wallet chain)
-    // FIXED: Always use propChainId, don't fallback to Ethereum
-    if (propChainId) return propChainId;
-    // Priority 3: propChainId should always be provided from ChatInterface
-    // This fallback should rarely be hit, but use propChainId or log a warning
-    logger.warn('[SwapCardChat] No chainId provided in props, this should not happen');
-    return propChainId || 1; // Keep final fallback to prevent crash
-  }, [initialData?.network, initialData?.tokenIn?.symbol, initialData?.tokenOut?.symbol, propChainId]);
-
-  // 转换初始代币数据
-  const [initialTokens, setInitialTokens] = useState<{
-    tokenIn: Token | null;
-    tokenOut: Token | null;
-    amountIn: string;
-  } | null>(null);
-
-  // Internal chainId state that can be updated if token is found on another chain
-  const [activeChainId, setActiveChainId] = useState<number>(chainId);
-
-  useEffect(() => {
-    setActiveChainId(chainId);
-  }, [chainId]);
-
+  // Effect to initialize tokens
   useEffect(() => {
     const initTokens = async () => {
-      if (!initialData) {
-        setInitialTokens(null);
-        return;
-      }
-
       try {
+        if (!initialData) {
+          setInitialTokens(null);
+          return;
+        }
+
         // Helper to resolve token data
         const resolveToken = async (data: SwapCardData['tokenIn'] | SwapCardData['tokenOut']): Promise<Token | null> => {
+          // 🚀 SMART OPTIMIZATION: Check if backend already enriched this data
+          if (data && typeof data === 'object' && data.address) {
+            // If we have logo/decimal from backend, USE IT INSTANTLY
+            if ((data.logoUrl || data.logoURI)) {
+              logger.debug('[SwapCardChat] 🚀 Using enriched backend data (Instant)', data.symbol);
+              return {
+                address: data.address,
+                symbol: data.symbol,
+                name: data.name || data.symbol,
+                decimals: data.decimals || 18,
+                chainId: data.chainId || activeChainId,
+                logoUrl: data.logoUrl || data.logoURI,
+                emoji: getTokenEmoji(data.symbol),
+              };
+            }
+          }
+
           // Handle string input (e.g., just "ETH" or "USDC")
           if (typeof data === 'string') {
             const symbol = data;
@@ -396,13 +361,12 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
   // 使用 SwapCardIntegrated，传递初始值
   // CRITICAL: Use a key based on token addresses to force remount when tokens resolve
   // This ensures useSwap hook initializes with correct tokens from the start
-  const swapKey = initialTokens
-    ? `swap_${initialTokens.tokenIn?.address}_${initialTokens.tokenOut?.address}`
-    : 'swap_loading';
+  // const swapKey = initialTokens
+  //   ?`swap_${initialTokens.tokenIn?.address}_${initialTokens.tokenOut?.address}`
+  //   : 'swap_loading';
 
   return (
     <SwapCardIntegrated
-      key={swapKey}
       userAddress={userAddress}
       chainId={activeChainId}
       onSwapSuccess={onSwapSuccess}
@@ -410,6 +374,7 @@ export const SwapCardChat: React.FC<SwapCardChatProps> = ({
       initialTokenIn={initialTokens?.tokenIn || null}
       initialTokenOut={initialTokens?.tokenOut || null}
       initialAmountIn={initialTokens?.amountIn}
+      initialQuote={initialData?.quote}
       isGenerating={!initialTokens}
       maxPriceImpact={initialData?.maxPriceImpact}
       autoExecute={initialData?.autoExecute}

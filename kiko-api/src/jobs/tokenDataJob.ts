@@ -200,6 +200,7 @@ export function startTokenDataJobs(): void {
 
   // Run initial refresh on startup (with delay for services to be ready)
   setTimeout(() => {
+    console.log('[TokenJob] Starting initial token refresh...');
     refreshAllChains();
-  }, 5000); // Wait 5 seconds for services to be ready
+  }, 30000); // Wait 30 seconds for services to be ready and user to settle
 }

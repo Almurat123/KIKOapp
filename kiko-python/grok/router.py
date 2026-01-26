@@ -1591,8 +1591,9 @@ async def chat_completions(
                 tool_choice = "required"
         include_options = None
         if has_search_tools:
-            # Request both inline and top-level citations to ensure sources are returned.
-            include_options = ["inline_citations", "citations"]
+            # Request inline citations so we can surface sources during/after streaming.
+            # NOTE: xai-sdk IncludeOption list does not include a "citations" flag; citations may still appear on the response object.
+            include_options = ["inline_citations"]
             if force_search:
                 include_options.extend(["web_search_call_output", "x_search_call_output"])
                 def tool_priority(t):
@@ -1807,28 +1808,7 @@ async def chat_completions(
                                 
                                 # Get chunk content
                                 raw_content = getattr(chunk, 'content', None)
-                                raw_reasoning = getattr(chunk, 'reasoning_content', None)
                                 finish_reason = getattr(chunk, 'finish_reason', None)
-                                
-                                # If we have reasoning_content, stream it (for thinking models)
-                                if raw_reasoning:
-                                    reasoning_chunk = {
-                                        "id": f"chatcmpl-{hash(str(request.messages))}",
-                                        "object": "chat.completion.chunk",
-                                        "created": int(__import__('time').time()),
-                                        "model": request.model,
-                                        "choices": [{
-                                            "index": 0,
-                                            "delta": {
-                                                "reasoning_content": raw_reasoning
-                                            },
-                                            "finish_reason": None
-                                        }]
-                                    }
-                                    try:
-                                        yield f"data: {json.dumps(reasoning_chunk)}\n\n"
-                                    except (BrokenPipeError, ConnectionResetError, OSError):
-                                        return
                                 
                                 # IMPROVED TOOL CALL DETECTION: Check both chunk and response
                                 # Primary detection: chunk.tool_calls (streaming chunks)

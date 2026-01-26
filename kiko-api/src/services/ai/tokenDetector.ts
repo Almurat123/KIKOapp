@@ -241,6 +241,8 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
             };
 
             // Check if this is a launchpad token
+            // User Rule: We MUST detect launchpad status so we can SKIP active scanning for them.
+            // "Active scanning is for != launchpad tokens"
             const launchpadResult = await detectLaunchpadToken(address, chainId);
             if (launchpadResult) {
                 tokenInfo.launchpad = {

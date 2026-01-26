@@ -177,6 +177,7 @@ export type FinalDecision = 'ALLOW' | 'ALLOW_WITH_RISK' | 'BLOCK';
 export interface FinalDecisionOutput {
     decision: FinalDecision;
     overall_risk_score: number;          // 0-1 (higher = safer)
+    overall_risk_level?: string;         // 'low', 'medium', 'high', 'critical'
     slippage_estimate: number;           // 0-1
     reasons: string[];
     ai_rationale?: string;

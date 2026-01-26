@@ -8,16 +8,17 @@ description: Exchange tokens on DEX (Base/Ethereum/Solana/BSC) with safe, tool-f
 Purpose:
 - Execute swaps when the user clearly intends to trade.
 - Default to “result-first” execution, not long analysis.
+- NEVER ask for wallet address - it is ALREADY provided in [CONTEXT] section. Use it directly.
 
 Primary tools:
 - `prepare_swap_transaction` (prepare or execute depending on user settings/tool behavior; follow tool output)
 - `simulate_swap` (execution risk estimate only; do not execute)
 - `get_token_info` (resolve contract metadata + launchpad detection)
 - `check_token_risk` (only when required by user/settings; see rules)
-- `get_wallet_info` (fresh balances for “all/max”)
+- `get_wallet_info` (fresh balances for "all/max" - do NOT pass address, it uses context automatically)
 
 Tool input contracts (use only these parameters):
-- `prepare_swap_transaction`: `token_in`, `token_out`, `amount_in`, `chain_id`, optional `slippage`, `execute`.
+- `prepare_swap_transaction`: `token_in`, `token_out`, `amount_in`, `chain_id`, optional `slippage`, `execute` (CRITICAL - set true for allowance_trade mode)
 - `simulate_swap`: `token_in`, `token_out`, `amount_in`, `chain_id`, optional `slippage`.
 - `get_token_info`: `address`, `chain`.
 - `check_token_risk`: `address`, optional `chain`.
@@ -35,12 +36,12 @@ Tool output contracts (do not guess fields):
 
 Decision rules:
 - Respect `[USER_PREFERENCES_MODULE]` as hard constraints (quick vs safe, slippage, default amount, swap method).
+- For allowance_trade mode: Always set execute=true in prepare_swap_transaction.
 - If token + amount are clear, prepare the trade directly.
 - If token is clear but amount is missing, ask exactly one question for amount unless user settings provide a default.
 - If the user provides only a non-major symbol without a contract address, ask for the contract address (avoid guessing).
 
-Guardrails:
-- Do not start multi-step analysis unless the user asked for analysis.
+Guardrails:- NEVER ask for wallet address - it is already provided in [CONTEXT]. Use tools directly without asking.- Do not start multi-step analysis unless the user asked for analysis.
 - Do not repeatedly call tools “one-by-one”; keep the pre-trade tool chain minimal.
 - Only run a risk scan when the user explicitly asks about risk/safety, or when user settings mandate it (launchpad tokens are typically exempt).
 - One-question rule: if something is missing, ask exactly one key question, then wait.

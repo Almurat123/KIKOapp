@@ -6,6 +6,7 @@
 import { BaseSwapProvider } from './BaseProvider.js';
 import { SwapQuote, SwapRequest } from '../types.js';
 import { getSolanaQuote } from '../../solanaSwap.js';
+import { getTokenInfo } from '../../tokenService.js';
 
 export class JupiterProvider extends BaseSwapProvider {
     readonly name = 'jupiter';
@@ -15,13 +16,13 @@ export class JupiterProvider extends BaseSwapProvider {
         try {
             const WSOL = 'So11111111111111111111111111111111111111112';
 
-            // Determine mints based on sell/buy
-            const tokenInMint = request.isSell ? request.tokenIn : WSOL;
-            const tokenOutMint = request.isSell ? WSOL : request.tokenOut;
+            // Use provided mints from request
+            const tokenInMint = request.tokenIn;
+            const tokenOutMint = request.tokenOut;
 
-            // For Solana, amount is usually in lamports/smallest unit
-            // Assume input is already in correct units or convert
-            const decimals = request.isSell ? 6 : 9; // Simplified
+            // Fetch actual decimals
+            const tokenInInfo = await getTokenInfo(tokenInMint, 101);
+            const decimals = tokenInInfo?.decimals ?? (request.isSell ? 6 : 9);
             const amountInLamports = Math.floor(parseFloat(request.amountIn) * Math.pow(10, decimals)).toString();
 
             const jupiterQuote = await getSolanaQuote(

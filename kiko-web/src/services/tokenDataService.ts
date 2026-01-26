@@ -4,7 +4,8 @@
  * 功能: 获取代币信息（头像、名字、decimal等）
  */
 
-import { getTokenInfo } from './dexAggregatorService';
+import { tokenApi } from './api';
+import { logger } from '../utils/logger';
 
 export interface TokenData {
   address: string;
@@ -34,321 +35,153 @@ const getTokenCacheKey = (address: string, chainId: number) => `${chainId}:${add
 
 /**
  * 获取代币数据（包含价格信息和头像）
- * 优先级: DexScreener → GeckoTerminal → 基础信息
+ * 优先级: API (Backend Proxy) → Cache
+ * 所有的代币数据获取必须通过此服务，确保统一的数据源和缓存管理
  */
 export async function getTokenData(address: string, chainId: number): Promise<TokenData> {
+  // 1. Check Memory Cache
   const cacheKey = getTokenCacheKey(address, chainId);
   const cached = tokenDataCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data;
   }
 
+  // 2. Check In-flight Requests (Deduplication)
   const inflight = tokenDataInflight.get(cacheKey);
   if (inflight) {
     return inflight;
   }
 
   const request = (async () => {
-  try {
-    // 1. 先尝试从 DexScreener 获取完整信息（包括头像）
-    try {
-      const dexData = await fetchTokenFromDexScreener(address, chainId);
-      if (dexData && dexData.logoURI) {
-        console.log('[TokenData] Got token data from DexScreener:', dexData.symbol);
-        return dexData;
-      }
-    } catch (error) {
-      console.warn('[TokenData] DexScreener fetch failed:', error);
+    // 3. Check Common Tokens (Fastest)
+    const tokensForChain = COMMON_TOKENS[chainId];
+    const common = tokensForChain ? Object.values(tokensForChain).find(t => t.address.toLowerCase() === address.toLowerCase()) : undefined;
+    if (common) {
+      // Refresh cache with common token data
+      return common;
     }
 
-    // 2. 尝试从 GeckoTerminal 获取信息
     try {
-      const geckoData = await fetchTokenFromGeckoTerminal(address, chainId);
-      if (geckoData && geckoData.logoURI) {
-        console.log('[TokenData] Got token data from GeckoTerminal:', geckoData.symbol);
-        return geckoData;
+      // 4. Fetch from Unified Backend API
+      const networkSlug = getNetworkSlug(chainId);
+      // NOTE: Using getDetails (calls /api/tokens/:network/:address) which internally handles
+      // DexScreener/GeckoTerminal/RPC fallback logic on the backend.
+      const data = await tokenApi.getDetails(networkSlug, address);
+
+      if (data && data.address) {
+        logger.log(`[TokenDataService] Got token data from API for ${address} on ${chainId}`);
+
+        // Ensure decimals is a number
+        const decimals = typeof data.decimals === 'number' ? data.decimals :
+          (data.decimals ? parseInt(String(data.decimals)) : 18);
+
+        return {
+          address: data.address,
+          symbol: data.symbol || 'UNKNOWN',
+          name: data.name || 'Unknown Token',
+          decimals: decimals || 18,
+          chainId: chainId,
+          logoURI: data.imageUrl || data.logoUrl || '',
+          price: typeof data.price === 'number' ? data.price : parseFloat(String(data.price || 0)),
+          priceChange24h: typeof data.priceChange24h === 'number' ? data.priceChange24h : parseFloat(String(data.priceChange24h || 0)),
+          marketCap: typeof data.fdv === 'number' ? data.fdv : parseFloat(String(data.fdv || 0)),
+          volume24h: typeof data.volume24h === 'number' ? data.volume24h : parseFloat(String(data.volume24h || 0)),
+        };
       }
     } catch (error) {
-      console.warn('[TokenData] GeckoTerminal fetch failed:', error);
+      logger.warn(`[TokenDataService] API fetch failed for ${address} on ${chainId}`, error);
     }
 
-    // 3. 最后尝试从 dexAggregatorService 获取基础信息
-    const baseInfo = await getTokenInfo(address, chainId);
-    console.log('[TokenData] Using base token info:', baseInfo.symbol);
-
+    // 5. Fallback: Return minimal info if API fails
+    // We do NOT call dexAggregatorService.getTokenInfo here to avoid circular dependencies
+    // and because the backend is the source of truth.
+    logger.warn(`[TokenDataService] Returning minimal fallback for ${address}`);
     return {
-      address: baseInfo.address,
-      symbol: baseInfo.symbol,
-      name: baseInfo.name,
-      decimals: baseInfo.decimals,
-      logoURI: baseInfo.logoURI,
+      address,
+      symbol: 'UNK',
+      name: 'Unknown Token',
+      decimals: 18,
       chainId,
+      logoURI: undefined
     };
-  } catch (error) {
-    console.error('[TokenData] Error getting token data:', error);
-    throw error;
-  }
   })();
 
   tokenDataInflight.set(cacheKey, request);
   try {
     const data = await request;
-    tokenDataCache.set(cacheKey, { data, expiresAt: Date.now() + TOKEN_DATA_CACHE_TTL_MS });
+    // Cache successful results (if not UNK or even if UNK to prevent spamming?)
+    // Let's cache everything for a short time if failed, long if success
+    if (data.symbol !== 'UNK') {
+      tokenDataCache.set(cacheKey, { data, expiresAt: Date.now() + TOKEN_DATA_CACHE_TTL_MS });
+    } else {
+      // Cache failures briefly (1 min) to avoid hammer
+      tokenDataCache.set(cacheKey, { data, expiresAt: Date.now() + 60000 });
+    }
     return data;
   } finally {
     tokenDataInflight.delete(cacheKey);
   }
 }
 
+// Helper to map chain ID to backend slug
+function getNetworkSlug(chainId: number): string {
+  const map: Record<number, string> = {
+    1: 'eth',
+    8453: 'base',
+    56: 'bsc',
+    42161: 'arbitrum',
+    137: 'polygon',
+    10: 'optimism',
+    43114: 'avalanche',
+    250: 'fantom',
+    900: 'solana'
+  };
+  return map[chainId] || 'eth';
+}
+
 /**
- * 在所有支持的链上查找代币
+ * Search for a token across all supported networks using Unified API
  */
 export async function findTokenOnAnyChain(address: string): Promise<TokenData | null> {
-  // Try DexScreener first as it's fastest for multi-chain check (it returns chainId in response)
   try {
-    console.log('[TokenData] Searching for token globally:', address);
-    const response = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(address)}`);
-    if (response.ok) {
-      const data = await response.json() as {
-        pairs?: Array<{
-          chainId: string;
-          baseToken?: { address: string; name: string; symbol: string };
-          priceUsd: string;
-          info?: { imageUrl?: string };
-        }>
+    console.log('[TokenDataService] Searching for token globally via Unified API:', address);
+    const results = await tokenApi.search(address);
+
+    // Return first exact match
+    const match = results.find(r => r.address.toLowerCase() === address.toLowerCase());
+
+    if (match) {
+      const chainMapInverse: Record<string, number> = {
+        'eth': 1, 'ethereum': 1,
+        'base': 8453,
+        'bsc': 56, 'binance': 56,
+        'arbitrum': 42161,
+        'polygon': 137,
+        'optimism': 10,
+        'avalanche': 43114, 'avax': 43114,
+        'fantom': 250,
+        'solana': 900
       };
+      const chainId = chainMapInverse[match.network?.toLowerCase()] || 1;
 
-      console.log('[TokenData] DexScreener search result:', {
-        pairsFound: data.pairs?.length || 0,
-        firstPair: data.pairs?.[0] ? {
-          chainId: data.pairs[0].chainId,
-          baseToken: data.pairs[0].baseToken?.symbol,
-          hasImage: !!data.pairs[0].info?.imageUrl
-        } : null
-      });
-
-      if (data.pairs && data.pairs.length > 0) {
-        // Find the pair that matches the token address exactly
-        const match = data.pairs.find(p => p.baseToken?.address.toLowerCase() === address.toLowerCase());
-
-        if (match) {
-          // Map DexScreener chain slug to chainId
-          const chainMap: Record<string, number> = {
-            'ethereum': 1,
-            'base': 8453,
-            'bsc': 56,
-            'polygon': 137,
-            'arbitrum': 42161,
-            'optimism': 10,
-            'avalanche': 43114,
-            'fantom': 250,
-            'solana': 900
-          };
-
-          const detectedChainId = chainMap[match.chainId];
-          if (detectedChainId) {
-            const tokenData = {
-              address: match.baseToken!.address,
-              symbol: match.baseToken!.symbol,
-              name: match.baseToken!.name,
-              decimals: 18,
-              logoURI: match.info?.imageUrl, // Image is in info.imageUrl
-              chainId: detectedChainId,
-              price: parseFloat(match.priceUsd)
-            };
-            console.log(`[TokenData] ✓ Found token on chain: ${match.chainId} (${detectedChainId})`, tokenData);
-            return tokenData;
-          }
-        } else {
-          console.warn('[TokenData] Token address not found in pairs baseToken');
-        }
-      } else {
-        console.warn('[TokenData] No pairs found in DexScreener response');
-      }
-    } else {
-      console.warn('[TokenData] DexScreener API returned non-OK status:', response.status);
+      return {
+        address: match.address,
+        symbol: match.symbol,
+        name: match.name,
+        decimals: 18,
+        chainId: chainId,
+        logoURI: match.imageUrl || '',
+      };
     }
-  } catch (e) {
-    console.error('[TokenData] Global search failed:', e);
+  } catch (error) {
+    logger.error('[TokenDataService] Search failed:', error);
   }
-
-  // Fallback: Search in COMMON_TOKENS across all chains
-  console.log('[TokenData] Falling back to COMMON_TOKENS search');
-  for (const [chainIdStr, tokens] of Object.entries(COMMON_TOKENS)) {
-    const chainId = parseInt(chainIdStr);
-    for (const token of Object.values(tokens)) {
-      if (token.address.toLowerCase() === address.toLowerCase()) {
-        console.log(`[TokenData] ✓ Found token in COMMON_TOKENS: ${token.symbol} on chain ${chainId}`);
-        return token;
-      }
-    }
-  }
-
-  console.warn('[TokenData] Token not found in DexScreener or COMMON_TOKENS');
   return null;
 }
 
-/**
- * 从 DexScreener 获取完整代币信息（包括头像、价格等）
- */
-async function fetchTokenFromDexScreener(
-  tokenAddress: string,
-  chainId: number
-): Promise<TokenData | null> {
-  try {
-    const chainMap: Record<number, string> = {
-      1: 'ethereum',
-      8453: 'base',
-      42161: 'arbitrum',
-      56: 'bsc',
-      137: 'polygon',
-      250: 'fantom',
-      10: 'optimism',
-      43114: 'avalanche',
-    };
-
-    const chain = chainMap[chainId];
-    if (!chain) {
-      console.warn(`[DexScreener] Unsupported chainId: ${chainId}`);
-      return null;
-    }
-
-    const response = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(tokenAddress)}`);
-    if (!response.ok) {
-      console.warn(`[DexScreener] API error: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json() as {
-      pairs?: Array<{
-        chainId: string;
-        baseToken?: {
-          address: string;
-          name: string;
-          symbol: string;
-          imageUrl?: string;
-        };
-        priceUsd: string;
-        priceChange?: { h24: string };
-        marketCap?: number;
-        volume?: { h24: number };
-        liquidity?: { usd: number };
-      }>
-    };
-
-    if (!data.pairs || data.pairs.length === 0) {
-      console.warn(`[DexScreener] No pairs found for token: ${tokenAddress}`);
-      return null;
-    }
-
-    // 找到匹配的链和代币
-    const pair = data.pairs.find((p) =>
-      p.chainId === chain &&
-      p.baseToken?.address.toLowerCase() === tokenAddress.toLowerCase()
-    );
-
-    if (!pair || !pair.baseToken) {
-      console.warn(`[DexScreener] No matching pair found for chain: ${chain}`);
-      return null;
-    }
-
-    return {
-      address: pair.baseToken.address,
-      symbol: pair.baseToken.symbol,
-      name: pair.baseToken.name,
-      decimals: 18, // DexScreener doesn't provide decimals, use default
-      logoURI: pair.baseToken.imageUrl,
-      chainId,
-      price: parseFloat(pair.priceUsd),
-      priceChange24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : undefined,
-      marketCap: pair.marketCap,
-      volume24h: pair.volume?.h24,
-    };
-  } catch (error) {
-    console.error('[DexScreener] Error fetching token:', error);
-    return null;
-  }
-}
-
-/**
- * 从 DexScreener 获取价格信息（保留用于向后兼容）
- */
-async function fetchPriceFromDexScreener(
-  tokenAddress: string,
-  chainId: number
-): Promise<{ logoURI?: string; price?: number; priceChange24h?: number; marketCap?: number; volume24h?: number }> {
-  const tokenData = await fetchTokenFromDexScreener(tokenAddress, chainId);
-  if (!tokenData) return {};
-
-  return {
-    logoURI: tokenData.logoURI,
-    price: tokenData.price,
-    priceChange24h: tokenData.priceChange24h,
-    marketCap: tokenData.marketCap,
-    volume24h: tokenData.volume24h,
-  };
-}
-
-/**
- * 从 GeckoTerminal 获取完整代币信息
- */
-async function fetchTokenFromGeckoTerminal(
-  tokenAddress: string,
-  chainId: number
-): Promise<TokenData | null> {
-  try {
-    const networkMap: Record<number, string> = {
-      1: 'eth',
-      8453: 'base',
-      42161: 'arbitrum',
-      56: 'bsc',
-      137: 'polygon',
-      250: 'fantom',
-      10: 'optimism',
-      43114: 'avax',
-      900: 'solana',
-    };
-
-    const network = networkMap[chainId];
-    if (!network) {
-      console.warn(`[GeckoTerminal] Unsupported chainId: ${chainId}`);
-      return null;
-    }
-
-    const url = `https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${tokenAddress}`;
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      console.warn(`[GeckoTerminal] API error: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-
-    if (!data.data || !data.data.attributes) {
-      console.warn(`[GeckoTerminal] No data found for token: ${tokenAddress}`);
-      return null;
-    }
-
-    const attrs = data.data.attributes;
-
-    return {
-      address: tokenAddress,
-      symbol: attrs.symbol || 'UNKNOWN',
-      name: attrs.name || 'Unknown Token',
-      decimals: attrs.decimals || 18,
-      logoURI: attrs.image_url,
-      chainId,
-      price: attrs.price_usd ? parseFloat(attrs.price_usd) : undefined,
-      priceChange24h: attrs.price_change_percentage?.h24,
-      marketCap: attrs.market_cap_usd,
-      volume24h: attrs.volume_usd?.h24,
-    };
-  } catch (error) {
-    console.error('[GeckoTerminal] Error fetching token:', error);
-    return null;
-  }
-}
+// [Removed Legacy Fetch Functions]
+// fetchTokenFromDexScreener, fetchPriceFromDexScreener, fetchTokenFromGeckoTerminal
+// These are now handled by the backend via tokenApi.getDetails
 
 /**
  * 批量获取代币数据
@@ -701,6 +534,5 @@ export default {
   getTokenData,
   getTokensData,
   getCommonTokens,
-  fetchPriceFromDexScreener,
   COMMON_TOKENS,
 };

@@ -124,7 +124,7 @@ export class SolanaLaunchpadSwapService {
      * Calculate tokens out for a given SOL input
      */
     calculateTokensOut(state: PumpBondingCurveState, solIn: bigint): bigint {
-        if (solIn <= 0n) return 0n;
+        if (solIn <= BigInt(0)) return BigInt(0);
 
         // Formula: tokensOut = virtualTokenReserves - (virtualSolReserves * virtualTokenReserves) / (virtualSolReserves + solIn)
         const k = state.virtualSolReserves * state.virtualTokenReserves;
@@ -139,7 +139,7 @@ export class SolanaLaunchpadSwapService {
      * Calculate SOL out for a given token input
      */
     calculateSolOut(state: PumpBondingCurveState, tokensIn: bigint): bigint {
-        if (tokensIn <= 0n) return 0n;
+        if (tokensIn <= BigInt(0)) return BigInt(0);
 
         // Formula: solOut = virtualSolReserves - (virtualSolReserves * virtualTokenReserves) / (virtualTokenReserves + tokensIn)
         const k = state.virtualSolReserves * state.virtualTokenReserves;
@@ -176,8 +176,8 @@ export class SolanaLaunchpadSwapService {
             const solAmount = parseFloat(effectiveAmount);
             if (Number.isFinite(solAmount) && solAmount > 0) {
                 const lamports = BigInt(Math.floor(solAmount * 1e9));
-                const feeLamports = (lamports * BigInt(fee.bps)) / 10000n;
-                if (feeLamports > 0n && lamports > feeLamports) {
+                const feeLamports = (lamports * BigInt(fee.bps)) / BigInt(10000);
+                if (feeLamports > BigInt(0) && lamports > feeLamports) {
                     const recipient = new PublicKey(fee.solanaRecipient);
                     const recentBlockhash = await connection.getLatestBlockhash();
                     const messageV0 = new TransactionMessage({
@@ -249,7 +249,7 @@ export class SolanaLaunchpadSwapService {
             const state = await this.getBondingCurveState(connection, mint);
             const tokensOut = this.calculateTokensOut(state, amountBI);
 
-            if (tokensOut <= 0n) {
+            if (tokensOut <= BigInt(0)) {
                 throw new Error('Calculated zero tokens out for the given SOL amount');
             }
 
@@ -257,7 +257,7 @@ export class SolanaLaunchpadSwapService {
             // We use a small slippage for max_sol (sol_in + 1% typically, but since we are buying 'fixed tokens'
             // we should set max_sol to what we are actually sending or slightly more)
             // Pump.fun instruction: if you want to buy X tokens, what's the max SOL you pay.
-            const maxSol = amountBI + (amountBI * BigInt(slippageBps) / 10000n);
+            const maxSol = amountBI + (amountBI * BigInt(slippageBps) / BigInt(10000));
 
             data = Buffer.concat([
                 PUMP_BUY_DISCRIMINATOR,
@@ -272,7 +272,7 @@ export class SolanaLaunchpadSwapService {
             const solOut = this.calculateSolOut(state, amountBI);
 
             // data: [disc, tokens, min_sol]
-            const minSol = solOut - (solOut * BigInt(slippageBps) / 10000n);
+            const minSol = solOut - (solOut * BigInt(slippageBps) / BigInt(10000));
 
             data = Buffer.concat([
                 PUMP_SELL_DISCRIMINATOR,
@@ -393,24 +393,24 @@ export class SolanaLaunchpadSwapService {
             // we will set minAmountA to 0 for now or a very conservative estimate if possible.
             // TODO: Implement getRaydiumCurveState for proper slippage.
 
-            const minAmountA = 0n; // Allow max slippage for now (or implement calc)
+            const minAmountA = BigInt(0); // Allow max slippage for now (or implement calc)
 
             const buffer = Buffer.alloc(24); // 3 * u64
             buffer.writeBigUInt64LE(amountBI, 0); // amountB (SOL in)
             buffer.writeBigUInt64LE(minAmountA, 8); // minAmountA (Tokens out)
-            buffer.writeBigUInt64LE(0n, 16); // shareFeeRate
+            buffer.writeBigUInt64LE(BigInt(0), 16); // shareFeeRate
 
             ixData = Buffer.concat([RAYDIUM_BUY_DISCRIMINATOR, buffer]);
         } else {
             // SELL: amount is Tokens (input A)
             // sellExactIn: [disc, amountA, minAmountB, shareFeeRate]
 
-            const minAmountB = 0n; // TODO: slippage
+            const minAmountB = BigInt(0); // TODO: slippage
 
             const buffer = Buffer.alloc(24);
             buffer.writeBigUInt64LE(amountBI, 0); // amountA (Tokens in)
             buffer.writeBigUInt64LE(minAmountB, 8); // minAmountB (SOL out)
-            buffer.writeBigUInt64LE(0n, 16); // shareFeeRate
+            buffer.writeBigUInt64LE(BigInt(0), 16); // shareFeeRate
 
             ixData = Buffer.concat([RAYDIUM_SELL_DISCRIMINATOR, buffer]);
         }

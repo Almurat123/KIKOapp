@@ -4,7 +4,7 @@
  * 端点：/api/swap/quote, /api/swap/execute, /api/swap/status, /api/swap/history, /api/swap/prices
  */
 
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
     getZeroExPrice,
     getZeroExQuote,
@@ -36,7 +36,8 @@ import * as coinbaseCdpService from '../services/coinbaseCdp.js';
 import { getTransactionReceipt } from '../services/rpcManager.js';
 import prisma from '../db/prisma.js';
 import { trackSwap } from '../services/userActivityService.js';
-import { runJudgeEngine } from '../services/judge/judgeEngine.js';
+// REMOVED: import { runJudgeEngine } from '../services/judge/judgeEngine.js';
+// Judge Engine should ONLY be used in Copy Trade, not in regular swaps
 import { getPlatformFee, isValidEvmAddress } from '../services/platformFeeService.js';
 
 // 类型定义
@@ -48,6 +49,7 @@ export interface SwapQuoteRequest {
     slippageBps?: number;
     userAddress?: string;
     aggregator?: 'jupiter' | 'raydium' | 'orca' | 'auto' | '0x' | 'zeroex' | 'kyber'; // aggregator selector
+    messageId?: string; // Optional message ID for context
 }
 
 export interface SwapQuoteResponse {
@@ -123,8 +125,12 @@ interface CachedPendingTransaction {
 import { env } from '../config/env.js';
 
 // 从配置读取常量
-const SWAP_CONFIRMATION_TIMEOUT_MS = 30000; // 30 seconds to wait for confirmation
-const SWAP_CONFIRMATION_POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
+// ========== SWAP CONFIGURATION ==========
+// 🚀 PERFORMANCE CRITICAL: Reduced from 30s to 5s
+// Transaction broadcast is what matters - confirmation can happen async
+// User gets instant feedback, card displays immediately
+const SWAP_CONFIRMATION_TIMEOUT_MS = 5000; // 5 seconds (was 30s - too slow!)
+const SWAP_CONFIRMATION_POLL_INTERVAL_MS = 1000; // Poll every 1 second (was 2s)
 const SWAP_MAX_RETRIES = 2; // Maximum number of retry attempts
 
 /**
@@ -314,7 +320,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
             // Validate sellAmount is greater than 0
             const sellAmountBigInt = BigInt(sellAmount || '0');
-            if (sellAmountBigInt === 0n) {
+            if (sellAmountBigInt === BigInt(0)) {
                 throw new AppError(
                     400,
                     `Invalid amount: ${amountIn}. Amount must be greater than 0.`,
@@ -671,8 +677,15 @@ export async function swapRoutes(fastify: FastifyInstance) {
      */
     fastify.post<{ Body: SwapQuoteRequest }>(
         '/execute-instant',
-        { preHandler: requireAuth },
-        async (request, reply) => {
+        {
+            preHandler: requireAuth,
+            // CRITICAL: Swap execution can take 60-90s (approval + swap confirmation)
+            // Set timeout to 150s to prevent socket closure during transaction
+            config: {
+                requestTimeout: 150000 // 150 seconds (client has 120s timeout)
+            } as any
+        },
+        async (request: FastifyRequest<{ Body: SwapQuoteRequest }>, reply: FastifyReply) => {
             try {
                 // Import Privy wallet service dynamically to avoid startup errors if not configured
                 const { sendTransaction, isPrivyConfigured, getEmbeddedWalletAddress } = await import('../services/privyWallet.js');
@@ -681,7 +694,10 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     throw new AppError(503, 'Instant trading not configured. Set PRIVY_APP_SECRET.', 'NOT_CONFIGURED');
                 }
 
-                const { tokenIn: rawTokenIn, tokenOut: rawTokenOut, amountIn, chainId, slippageBps = 50 } = request.body;
+                const { tokenIn: rawTokenIn, tokenOut: rawTokenOut, amountIn, chainId, slippageBps = 50, messageId } = request.body;
+
+                // Extract messageId from header if provided (for WebSocket updates)
+                const transactionMessageId = messageId || request.headers['x-transaction-message-id'];
 
                 // Normalize token addresses: ensure lowercase 0x prefix for consistency
                 // This fixes issues where frontend sends '0X...' (uppercase) which causes API failures
@@ -879,38 +895,12 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     const isStableOut = resolvedTokenOut === usdcMint || resolvedTokenOut === usdtMint;
                     const isNativeOut = resolvedTokenOut === solMint;
 
-                    if (!isStableOut && !isNativeOut) {
-                        let tradeUsd = 0;
-                        if (resolvedTokenIn === usdcMint || resolvedTokenIn === usdtMint) {
-                            tradeUsd = parseFloat(resolvedAmountIn);
-                        } else {
-                            const priceQuote = await getSolanaPrice(resolvedTokenIn, usdcMint, amountInAtomic);
-                            if (priceQuote?.outAmount) {
-                                tradeUsd = parseFloat(priceQuote.outAmount) / 1e6;
-                            }
-                        }
-
-                        if (tradeUsd > 0) {
-                            let judgeOutput;
-                            try {
-                                judgeOutput = await runJudgeEngine(
-                                    resolvedTokenOut,
-                                    validatedChainId,
-                                    tradeUsd
-                                );
-                            } catch (judgeError: any) {
-                                console.warn('[Swap Execute Instant] Judge pre-check failed:', judgeError.message);
-                            }
-
-                            if (judgeOutput?.decision_engine.final_decision.decision === 'BLOCK') {
-                                throw new AppError(
-                                    400,
-                                    `AI risk block: ${judgeOutput.decision_engine.final_decision.reasons.join(' | ')}`,
-                                    'AI_RISK_BLOCK'
-                                );
-                            }
-                        }
-                    }
+                    // REMOVED: Judge Engine should ONLY run for Copy Trade, NOT for regular swaps
+                    // Judge Engine with Grok costs money and should only be used when:
+                    // 1. User is copy trading (following smart wallets)
+                    // 2. User has explicitly enabled copy trade AI analysis
+                    // For regular chat swaps (including Solana), we skip Judge entirely to save costs
+                    console.log('[Swap Execute Instant] Solana swap - Judge engine skipped (only runs for copy trade)');
 
                     // Detect launchpad provider (use resolved address)
                     const tokenInfo = await findTokenOnAnyChain(resolvedTokenOut);
@@ -1090,50 +1080,36 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
                 const isNativeTokenIn = actualTokenIn.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
                 const isNativeTokenOut = actualTokenOut.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-                if (isNativeTokenIn && !isNativeTokenOut) {
-                    const tradeUsd = tokenInUsd ? parseFloat(resolvedAmountIn) * tokenInUsd : 0;
-                    if (tradeUsd > 0) {
-                        let judgeOutput;
-                        try {
-                            judgeOutput = await runJudgeEngine(
-                                resolvedTokenOut,
-                                validatedChainId,
-                                tradeUsd
-                            );
-                        } catch (judgeError: any) {
-                            console.warn('[Swap Execute Instant] Judge pre-check failed:', judgeError.message);
-                        }
 
-                        if (judgeOutput?.decision_engine.final_decision.decision === 'BLOCK') {
-                            throw new AppError(
-                                400,
-                                `AI risk block: ${judgeOutput.decision_engine.final_decision.reasons.join(' | ')}`,
-                                'AI_RISK_BLOCK'
-                            );
-                        }
-                    }
-                }
+                // REMOVED: Judge Engine should ONLY run for Copy Trade, NOT for regular swaps
+                // Judge Engine with Grok costs money and should only be used when:
+                // 1. User is copy trading (following smart wallets)
+                // 2. User has explicitly enabled copy trade AI analysis
+                // For regular chat swaps, we skip Judge entirely to save costs
+                console.log('[Swap Execute Instant] Judge engine skipped - only runs for copy trade');
 
                 // =================================================================
-                // ⚡ UNIFIED SWAP EXECUTION (Refactored)
+                // ⚡ UNIFIED SWAP EXECUTION via MainSwapService
                 // =================================================================
 
-                // Import the new executor dynamically to avoid circular deps if any
-                const { SwapExecutor } = await import('../services/swap/SwapExecutor.js');
+                // Import MainSwapService - unified entry point for all swaps
+                const { MainSwapService } = await import('../services/MainSwapService.js');
 
-                // Determine context
-                const isSell = !isNativeTokenIn && isNativeTokenOut; // Token -> ETH = Sell
-
-                const swapResult = await SwapExecutor.execute({
+                // Use MainSwapService for consistent routing and logging
+                const swapResult = await MainSwapService.executeSwap({
                     userId,
                     walletAddress,
-                    tokenIn,
-                    tokenOut,
+                    tokenIn: actualTokenIn,
+                    tokenOut: actualTokenOut,
                     amountIn: resolvedAmountIn, // Human readable
                     chainId: validatedChainId,
                     slippageBps,
-                    feeContext: 'swap', // Chat swap uses standard fee
-                    isSell
+                    mode: 'swap-card', // Indicates UI-triggered swap
+                    messageId: transactionMessageId as string, // For WebSocket updates during retry
+                    userSettings: {
+                        swapMethod: 'wallet_sign',
+                        mevProtection: false
+                    }
                 });
 
                 if (!swapResult.success) {
@@ -1144,11 +1120,11 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 const txHash = swapResult.txHash!;
                 const finalQuote = {
                     amountOutBase: swapResult.amountOut || '0',
-                    dexName: swapResult.method
+                    dexName: swapResult.metadata?.provider || 'fast_swap'
                 }; // Minimal mock for DB logging below
 
 
-                // Record trade in DB
+                // Record trade in DB (PENDING State)
                 const tradeRecord = await prisma.swapHistory.create({
                     data: {
                         user: { connect: { privyDid: userId } },
@@ -1166,24 +1142,50 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
                         chainId: validatedChainId,
                         txHash,
-                        status: 'success',
+                        status: 'pending', // Set to PENDING initially
                         source: 'fast_swap',
                         slippageBps: slippageBps,
-                        confirmedAt: new Date()
+                        // confirmedAt: null // Not confirmed yet
                     }
                 });
 
+                // ⚡ BACKGROUND MONITORING: Wait for confirmation and update DB
+                // This ensures the API returns immediately, preventing socket timeouts
+                (async () => {
+                    try {
+                        // Monitor transaction (uses 60s timeout from waitForTransaction helper)
+                        const confirmResult = await waitForTransaction(txHash, validatedChainId);
 
-                // Track User Activity
-                const volumeUsd = tradeRecord.tokenInUsd || 0;
-                trackSwap(tradeRecord.userId, volumeUsd);
+                        const finalStatus = confirmResult.success ? 'success' : 'failed';
 
+                        await prisma.swapHistory.update({
+                            where: { id: tradeRecord.id },
+                            data: {
+                                status: finalStatus,
+                                confirmedAt: confirmResult.success ? new Date() : undefined,
+                                failureReason: confirmResult.error
+                            }
+                        });
+
+                        console.log(`[Swap Background] Trade ${tradeRecord.id} updated to ${finalStatus}`);
+
+                        // Track activity only on success
+                        if (confirmResult.success) {
+                            const volumeUsd = tradeRecord.tokenInUsd || 0;
+                            trackSwap(tradeRecord.userId, volumeUsd);
+                        }
+                    } catch (bgError) {
+                        console.error(`[Swap Background] Failed to monitor trade ${tradeRecord.id}:`, bgError);
+                    }
+                })();
+
+                // Return PENDING status immediately
                 return reply.send({
                     success: true,
                     data: {
                         txHash,
                         tradeId: tradeRecord.id,
-                        status: 'SUCCESS',
+                        status: 'PENDING',
                         amountOut: finalQuote.amountOutBase,
                     },
                 });
@@ -1682,4 +1684,35 @@ async function handleSolanaQuote(
         }
         throw handleExternalApiError(error as Error, 'Solana Swap');
     }
+}
+
+/**
+ * Helper to wait for transaction confirmation
+ * Polls RPC for receipt until timeout
+ */
+async function waitForTransaction(txHash: string, chainId: number, timeoutMs = 60000): Promise<{ success: boolean; binding?: any; error?: string }> {
+    const startTime = Date.now();
+    const pollInterval = 2000;
+
+    while (Date.now() - startTime < timeoutMs) {
+        try {
+            const receipt = await getTransactionReceipt(chainId, txHash);
+
+            if (receipt) {
+                // EVM receipt status: 0x1 (success) or 0x0 (failure)
+                const status = receipt.status;
+                const isSuccess = status === 1 || status === '0x1' || status === true;
+                const isFailure = status === 0 || status === '0x0' || status === false;
+
+                if (isSuccess) return { success: true, binding: receipt };
+                if (isFailure) return { success: false, error: 'Transaction reverted on-chain' };
+            }
+        } catch (e) {
+            // Ignore RPC errors during polling
+        }
+
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+
+    return { success: false, error: 'Confirmation timeout' };
 }

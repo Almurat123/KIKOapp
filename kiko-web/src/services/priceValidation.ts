@@ -30,99 +30,49 @@ const DEVIATION_THRESHOLDS = {
     BLOCKED: 50, // > 50% deviation (block trade)
 };
 
+import { tokenApi } from './api';
+
+function calculateDeviation(priceA: number, priceB: number): number {
+    if (priceB === 0) return 0;
+    return Math.abs((priceA - priceB) / priceB) * 100;
+}
+
 /**
- * Fetch price from DEX Screener
+ * Fetch reference price from centralized API (Unified Source)
  */
-async function fetchDexScreenerPrice(
+async function fetchReferencePrice(
     tokenAddress: string,
     chainId: number
 ): Promise<PriceSource | null> {
     try {
-        // Map chainId to DEX Screener chain name
-        const chainMap: Record<number, string> = {
-            1: 'ethereum',
-            56: 'bsc',
-            137: 'polygon',
-            8453: 'base',
-            42161: 'arbitrum',
-        };
+        const network = getMappingNetwork(chainId);
+        const details = await tokenApi.getDetails(network, tokenAddress);
 
-        const chain = chainMap[chainId];
-        if (!chain) return null;
-
-        const response = await fetch(
-            `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`
-        );
-
-        if (!response.ok) return null;
-
-        const data = await response.json();
-
-        // Get the first pair with matching chain
-        const pair = data.pairs?.find((p: any) => p.chainId === chain);
-        if (!pair) return null;
-
-        return {
-            name: 'DEX Screener',
-            price: parseFloat(pair.priceUsd || '0'),
-            timestamp: Date.now(),
-            url: `https://dexscreener.com/${chain}/${tokenAddress}`,
-        };
+        if (details && details.price) {
+            return {
+                name: 'Market Price (Centralized)',
+                price: details.price,
+                timestamp: Date.now(),
+                url: undefined
+            };
+        }
+        return null;
     } catch (error) {
-        console.error('[PriceValidation] DEX Screener error:', error);
+        console.error('[PriceValidation] API error:', error);
         return null;
     }
 }
 
-/**
- * Fetch price from GeckoTerminal
- */
-async function fetchGeckoTerminalPrice(
-    tokenAddress: string,
-    chainId: number
-): Promise<PriceSource | null> {
-    try {
-        // Map chainId to GeckoTerminal network
-        const networkMap: Record<number, string> = {
-            1: 'eth',
-            56: 'bsc',
-            137: 'polygon_pos',
-            8453: 'base',
-            42161: 'arbitrum',
-        };
-
-        const network = networkMap[chainId];
-        if (!network) return null;
-
-        const response = await fetch(
-            `https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${tokenAddress}`
-        );
-
-        if (!response.ok) return null;
-
-        const data = await response.json();
-        const price = data.data?.attributes?.price_usd;
-
-        if (!price) return null;
-
-        return {
-            name: 'GeckoTerminal',
-            price: parseFloat(price),
-            timestamp: Date.now(),
-            url: `https://www.geckoterminal.com/${network}/tokens/${tokenAddress}`,
-        };
-    } catch (error) {
-        console.error('[PriceValidation] GeckoTerminal error:', error);
-        return null;
-    }
-}
-
-/**
- * Calculate price deviation percentage
- */
-function calculateDeviation(price1: number, price2: number): number {
-    if (price2 === 0) return 0;
-    return Math.abs((price1 - price2) / price2) * 100;
+function getMappingNetwork(chainId: number): string {
+    const map: Record<number, string> = {
+        1: 'eth',
+        56: 'bsc',
+        137: 'polygon',
+        8453: 'base',
+        42161: 'arbitrum',
+        900: 'solana'
+    };
+    return map[chainId] || 'eth';
 }
 
 /**
@@ -133,16 +83,10 @@ export async function validateSwapPrice(
     chainId: number,
     swapPrice: number
 ): Promise<PriceValidationResult> {
-    // Fetch prices from multiple sources
-    const [dexScreenerPrice, geckoTerminalPrice] = await Promise.all([
-        fetchDexScreenerPrice(tokenAddress, chainId),
-        fetchGeckoTerminalPrice(tokenAddress, chainId),
-    ]);
+    // Fetch reference price from backend (which aggregates sources)
+    const referencePrice = await fetchReferencePrice(tokenAddress, chainId);
 
-    const externalPrices: PriceSource[] = [
-        dexScreenerPrice,
-        geckoTerminalPrice,
-    ].filter((p): p is PriceSource => p !== null);
+    const externalPrices: PriceSource[] = referencePrice ? [referencePrice] : [];
 
     // If no external prices available, allow trade (can't validate)
     if (externalPrices.length === 0) {

@@ -26,20 +26,23 @@ export interface EnvConfig {
         fred?: string; // FRED API key for economic indicators (Federal Reserve Economic Data)
         goplus?: string; // GoPlus Security API key for token security scanning
         quickintel?: string; // QuickIntel API key for honeypot detection
-        etherscan?: string; // Etherscan API key for fetching contract source code
-        solscan?: string; // Solscan API key
-        alchemy?: string; // Alchemy API key for wallet transactions and balances
+        etherscan?: string; // Etherscan API key for fetching contract source code and transactions
+        routescan?: string; // RouteScan API key for multi-chain explorer (free tier)
+        blockscout?: string; // Blockscout API key for block explorer (free tier)
+        solscan?: string; // Solscan API key for Solana explorer (paid tier)
+        alchemy?: string; // Alchemy API key for wallet transactions and balances (EVM + Solana)
+        moralis?: string; // Moralis API key for wallet PNL analysis and token balances
         zeroEx?: string; // 0x API key for swap quotes and prices
         jupiter?: string; // Jupiter Ultra Swap API key for Solana swaps
         okxApiKey?: string; // OKX DEX API key
         okxSecretKey?: string; // OKX DEX secret
         okxPassphrase?: string; // OKX DEX passphrase
         okxProjectId?: string; // OKX DEX project ID
-        infuraGas?: string; // Infura Gas API key
+        infuraGas?: string; // Infura Gas API key for gas price estimation
         infuraGasSecret?: string; // Infura Gas API secret
-        quicknode?: string; // QuickNode API key
-        helius?: string; // Helius API key
-        ankr?: string; // Ankr API key
+        quicknode?: string; // QuickNode API key for token balance queries (multi-chain)
+        helius?: string; // Helius API key for Solana transaction history and token balances
+        ankr?: string; // Ankr API key for multi-chain RPC fallback (free tier)
         coinbaseCdp?: string; // Coinbase CDP API key for wallet token balances
         coinbaseCdpKeyId?: string; // Coinbase CDP API Key ID
         coinbaseCdpKeySecret?: string; // Coinbase CDP API Key Secret
@@ -139,20 +142,23 @@ function validateEnv(): EnvConfig {
             goplus: process.env.GOPLUS_API_KEY,
             quickintel: process.env.QUICKINTEL_API_KEY,
             etherscan: process.env.ETHERSCAN_API_KEY,
-            solscan: process.env.SOLSCAN_API_KEY, // Solscan API key
+            routescan: process.env.ROUTESCAN_API_KEY,
+            blockscout: process.env.BLOCKSCOUT_API_KEY,
+            solscan: process.env.SOLSCAN_API_KEY,
             alchemy: process.env.ALCHEMY_API_KEY,
+            moralis: process.env.MORALIS_API_KEY,
             zeroEx: process.env.ZEROX_API_KEY,
             jupiter: process.env.JUPITER_API_KEY,
-            infuraGas: process.env.INFURA_GAS_API_KEY, // Infura Gas API Key
-            infuraGasSecret: process.env.INFURA_GAS_API_SECRET, // Infura Gas API Secret
-            quicknode: process.env.QUICKNODE_API_KEY, // QuickNode API Key
-            helius: process.env.HELIUS_API_KEY, // Helius API Key
-            ankr: process.env.ANKR_API_KEY, // Ankr API Key
-            coinbaseCdp: process.env.COINBASE_CDP_API_KEY_ID, // Coinbase CDP API Key ID (deprecated, use KEY_ID and KEY_SECRET)
-            coinbaseCdpKeyId: process.env.COINBASE_CDP_API_KEY_ID, // Coinbase CDP API Key ID
-            coinbaseCdpKeySecret: process.env.COINBASE_CDP_API_KEY_SECRET, // Coinbase CDP API Key Secret
-            paragraph: process.env.PARAGRAPH_API_KEY, // Paragraph API Key
-            resendApiKey: process.env.RESEND_API_KEY, // Resend API Key
+            infuraGas: process.env.INFURA_GAS_API_KEY,
+            infuraGasSecret: process.env.INFURA_GAS_API_SECRET,
+            quicknode: process.env.QUICKNODE_API_KEY,
+            helius: process.env.HELIUS_API_KEY,
+            ankr: process.env.ANKR_API_KEY,
+            coinbaseCdp: process.env.COINBASE_CDP_API_KEY_ID,
+            coinbaseCdpKeyId: process.env.COINBASE_CDP_API_KEY_ID,
+            coinbaseCdpKeySecret: process.env.COINBASE_CDP_API_KEY_SECRET,
+            paragraph: process.env.PARAGRAPH_API_KEY,
+            resendApiKey: process.env.RESEND_API_KEY,
         },
         xai: {
             apiKey: process.env.XAI_API_KEY || '',

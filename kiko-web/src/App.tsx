@@ -138,6 +138,7 @@ function App() {
   const pendingByConversationRef = useRef<Map<string, Map<string, Message>>>(new Map());
   // Ref to track the last processed message completion to prevent duplicate handling
   const lastProcessedCompletionRef = useRef<string | null>(null);
+  const pendingFlushTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Global WebSocket listener - persists across page navigation
   // This ensures message updates are captured even when not on chat page
@@ -201,7 +202,11 @@ function App() {
           }
         }
       } else if (event.type === 'chunk') {
-        const { messageId, content, delta, reasoning_content, type } = event.data;
+        const messageId = event.data.messageId || event.data.message_id;
+        const content = event.data.content;
+        const delta = event.data.delta;
+        const reasoning_content = event.data.reasoning_content;
+        const type = event.data.type;
         if (!messageId) return;
 
         // Update pending messages ref for this session
@@ -222,8 +227,46 @@ function App() {
 
         sessionPending.set(messageId, msg);
 
-        // Background capture: We don't update React state for every chunk to avoid lag.
-        // ChatInterface has its own local WS listener for the ACTIVE conversation.
+        // Background capture: if user navigates away from the generating conversation,
+        // we still need to persist chunks into React state; otherwise switching back will
+        // show partial/empty content until DB catches up.
+        const shouldFlushBackground =
+          targetSessionId === generatingConversationId &&
+          activeConversationId !== targetSessionId;
+        if (shouldFlushBackground && !pendingFlushTimersRef.current.has(targetSessionId)) {
+          const timer = setTimeout(() => {
+            pendingFlushTimersRef.current.delete(targetSessionId);
+            const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
+            if (!targetConv) return;
+
+            const pending = pendingByConversationRef.current.get(targetSessionId);
+            if (!pending || pending.size === 0) return;
+
+            const updatedMessages = [...targetConv.messages];
+            pending.forEach((pendingMsg, pendingId) => {
+              const existingIdx = updatedMessages.findIndex(m => m.id === pendingId);
+              if (existingIdx >= 0) {
+                const existing = updatedMessages[existingIdx];
+                const existingContent = existing.content || '';
+                const pendingContent = pendingMsg.content || '';
+                const existingReasoning = existing.reasoning_content || '';
+                const pendingReasoning = pendingMsg.reasoning_content || '';
+                updatedMessages[existingIdx] = {
+                  ...existing,
+                  content: existingContent.length >= pendingContent.length ? existingContent : pendingContent,
+                  reasoning_content: existingReasoning.length >= pendingReasoning.length ? existingReasoning : pendingReasoning,
+                  citations: pendingMsg.citations ?? existing.citations,
+                  status: 'streaming',
+                };
+              } else {
+                updatedMessages.push({ ...pendingMsg, status: 'streaming' });
+              }
+            });
+
+            updateConversation(targetSessionId, { messages: updatedMessages });
+          }, 250);
+          pendingFlushTimersRef.current.set(targetSessionId, timer);
+        }
 
       } else if (event.type === 'message_complete' || (event.type === 'task_status' && event.data.status === 'done')) {
         const completionId = event.data.messageId || event.data.task_id || (Array.from(sessionPending.keys())[0]);
@@ -336,6 +379,8 @@ function App() {
     return () => {
       isSubscribed = false;
       unsubscribe();
+      pendingFlushTimersRef.current.forEach(t => clearTimeout(t));
+      pendingFlushTimersRef.current.clear();
     };
   }, [authenticated, ready, updateConversation, generatingConversationId, getAccessToken, activeConversationId]);
 

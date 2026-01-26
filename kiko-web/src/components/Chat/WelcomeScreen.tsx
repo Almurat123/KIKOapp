@@ -55,7 +55,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
   useEffect(() => {
     try {
       localStorage.setItem('kiko-selected-model', JSON.stringify(selectedModel));
-      logger.debug('[WelcomeScreen] Saved model selection:', selectedModel.id);
       // Dispatch custom event to notify other components
       window.dispatchEvent(new CustomEvent('kiko-model-changed', { detail: selectedModel }));
     } catch (e) {

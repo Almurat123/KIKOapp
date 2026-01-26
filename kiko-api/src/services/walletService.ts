@@ -1,7 +1,7 @@
 import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio, getNativeBalances } from './alchemy.js';
 import prisma from '../db/prisma.js';
 
-const ALL_BALANCES_CACHE_TTL_MS = 20_000;
+const ALL_BALANCES_CACHE_TTL_MS = 60_000; // 增加到 60 秒，减少 RPC 调用
 const allBalancesCache = new Map<string, { timestamp: number; data: Record<string, WalletBalance> }>();
 const allBalancesInflight = new Map<string, Promise<Record<string, WalletBalance>>>();
 

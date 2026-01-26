@@ -74,6 +74,8 @@ export interface TokenSearchResult {
     holders?: number;
     socials?: Array<{ type: string; url: string }>;
     websites?: Array<{ url: string; label?: string }>;
+    decimals?: number;        // Token decimals
+    logoUrl?: string;         // Legacy alias for imageUrl
 }
 
 /**

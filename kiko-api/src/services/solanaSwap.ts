@@ -22,6 +22,8 @@ import { PublicKey } from '@solana/web3.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { TOKEN_REGISTRY, SOLANA_NATIVE_MINT } from '../config/tokenRegistry.js';
+import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 
 export interface SolanaQuote {
   inputMint: string;
@@ -655,35 +657,26 @@ export async function getSolanaPrice(
 }
 
 
-/**
- * Common Solana token addresses
- */
-export const SOLANA_NATIVE_MINT = 'So11111111111111111111111111111111111111112'; // Wrapped SOL
-export const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-export const SOLANA_USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+export { SOLANA_NATIVE_MINT };
 
 /**
  * Convert token symbols to Solana Mint addresses
  * Handles both symbols (SOL, USDC) and addresses (So111..., EPjF...)
  */
 export function normalizeSolanaTokenAddress(address: string): string {
-  // If it's already a valid Solana address (base58, 32-44 chars), return it
+  // 1. If it's already a valid Solana address (base58, 32-44 chars), return it
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
     return address;
   }
 
-  // Common Solana token addresses
-  const SOLANA_TOKENS: Record<string, string> = {
-    'SOL': SOLANA_NATIVE_MINT,
-    'WSOL': SOLANA_NATIVE_MINT,
-    'USDC': SOLANA_USDC_MINT,
-    'USDT': SOLANA_USDT_MINT,
-    'RAY': '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // Raydium
-    'SRM': 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt', // Serum
-    'BONK': 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // Bonk
-  };
-
+  // 2. Lookup in Centralized Token Registry
   const upperSymbol = address.toUpperCase();
-  return SOLANA_TOKENS[upperSymbol] || address;
+  const token = TOKEN_REGISTRY[upperSymbol];
+
+  if (token && token.addresses[SOLANA_CONFIG.CHAIN_ID]) {
+    return token.addresses[SOLANA_CONFIG.CHAIN_ID];
+  }
+
+  return address;
 }
 

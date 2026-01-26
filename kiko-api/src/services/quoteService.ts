@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { getZeroExQuote, getDefaultTakerAddress } from './zeroEx.js';
+import { getZeroExQuote } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { ZeroExAffiliateFee } from './zeroEx.js';
@@ -37,12 +37,51 @@ export interface BestQuoteParams {
     userAddress?: string;
     refPrice?: number | null; // USD price ratio for price impact calc
     affiliateFee?: ZeroExAffiliateFee;
+    excludeDex?: string; // Exclude this DEX from selection (for retry)
 }
 
 /**
  * Fetch quotes from multiple aggregators and return the best one
  */
 export async function getBestQuote(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {
+    const {
+        tokenIn, tokenOut, actualTokenIn, actualTokenOut,
+        amountInBase, amountInHuman,
+        tokenInDecimals, tokenOutDecimals,
+        chainId, slippageBps, userAddress, refPrice, affiliateFee
+    } = params;
+
+    // ⚡ OPTIMIZATION: Check cache first
+    const { QuoteCache } = await import('./QuoteCache.js');
+    const cachedQuote = QuoteCache.get(actualTokenIn, actualTokenOut, chainId);
+    
+    if (cachedQuote) {
+        console.log('[QuoteService] Using cached quote, fetching fresh in background');
+        // Return cached quote immediately, but refresh in background
+        setImmediate(() => {
+            // Refresh cache in background
+            getBestQuoteInternal(params).then(({ best }) => {
+                if (best) {
+                    QuoteCache.set(actualTokenIn, actualTokenOut, chainId, best);
+                }
+            }).catch(() => {/* ignore background refresh errors */});
+        });
+        
+        return { best: cachedQuote, quotes: [cachedQuote] };
+    }
+
+    // No cache, fetch fresh
+    const result = await getBestQuoteInternal(params);
+    
+    // Cache the result
+    if (result.best) {
+        QuoteCache.set(actualTokenIn, actualTokenOut, chainId, result.best);
+    }
+    
+    return result;
+}
+
+async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {
     const {
         tokenIn, tokenOut, actualTokenIn, actualTokenOut,
         amountInBase, amountInHuman,
@@ -72,11 +111,15 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
             formula: `((${quotePrice} - ${refPrice}) / ${refPrice}) * 100 = ${impact}`
         });
 
-        // SANITY CHECK: If impact is absurdly high (> 50%), the refPrice is likely wrong
-        // This happens with low-liquidity tokens where price data is unreliable
-        // Return null to fall back to 0x API's estimatedPriceImpact (or 0 if unavailable)
-        if (Math.abs(impact) > 50) {
-            console.warn('[QuoteService] Price impact > 50%, refPrice likely unreliable. Returning null.');
+        // SANITY CHECK: If impact is > 10% and < 0 (profit?), likely refPrice is wrong
+        // Legitimate slippage is usually 0.5-3%, not 4-5%+ on major pairs
+        // For low-liquidity/new tokens, impact can be higher but > 10% suggests bad refPrice
+        if (Math.abs(impact) > 10) {
+            console.warn('[QuoteService] Price impact > 10%, refPrice likely unreliable. Returning null.', {
+                impact,
+                refPrice,
+                quotePrice
+            });
             return null;
         }
 
@@ -86,15 +129,18 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
     // 1. 0x Aggregator
     const fetchZeroEx = async () => {
         try {
-            const takerAddress = userAddress || getDefaultTakerAddress(chainId);
+            // For quote-only requests (no userAddress), we can still get prices
+            // For actual swap execution, userAddress is REQUIRED
+            const isQuoteOnly = !userAddress;
             const q = await getZeroExQuote(
                 actualTokenIn,
                 actualTokenOut,
                 amountInBase,
                 chainId,
                 slippageBps,
-                takerAddress,
-                affiliateFee
+                userAddress,
+                affiliateFee,
+                isQuoteOnly // Price quote only if no user address
             );
 
             if (q) {
@@ -116,7 +162,9 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
                     dexName: '0x Aggregator',
                     amountOut: amountOutHuman,
                     amountOutBase: q.buyAmount,
-                    gasEstimate: q.estimatedGas ? parseInt(q.estimatedGas) : 150000,
+                    // CRITICAL FIX: Use q.gas (actual gas from API) instead of q.estimatedGas (which doesn't exist)
+                    // If gas is missing, use a reasonable default of 250000 (not 150000 which is too low)
+                    gasEstimate: q.gas ? parseInt(q.gas) : 250000,
                     priceImpact: impactVsMkt ?? parseFloat(q.estimatedPriceImpact || '0') * 100,
                     priceImpactVsMkt: impactVsMkt ?? null,
                     path: [tokenIn, tokenOut],
@@ -142,13 +190,16 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
             // If platform fee is requested, prefer 0x so we can actually collect it.
             if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) return;
 
+            // Kyber requires recipient address - skip if not provided
+            if (!userAddress) return;
+
             const kyberQuote = await getKyberQuote(
                 actualTokenIn,
                 actualTokenOut,
                 amountInBase,
                 chainId,
                 slippageBps,
-                userAddress || getDefaultTakerAddress(chainId) || ''
+                userAddress
             );
 
             if (kyberQuote) {
@@ -161,7 +212,8 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
                     dexName: 'KyberSwap',
                     amountOut: humanOut,
                     amountOutBase: kyberQuote.amountOutBase || kyberQuote.amountOut,
-                    gasEstimate: kyberQuote.gas || 200000,
+                    // Use actual gas from Kyber, fallback to 300000 (not 200000 which is too low for large swaps)
+                    gasEstimate: kyberQuote.gas ? parseInt(String(kyberQuote.gas)) : 300000,
                     priceImpact: impactVsMkt ?? kyberQuote.priceImpact ?? 0,
                     priceImpactVsMkt: impactVsMkt ?? null,
                     path: [tokenIn, tokenOut],
@@ -187,12 +239,74 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
         return { best: null as any, quotes: [] };
     }
 
-    // Sort by highest return
-    quotes.sort((a, b) => {
+    // CRITICAL: Exclude failed DEX on retry
+    // Filter out the excluded DEX before selection logic
+    const availableQuotes = params.excludeDex 
+        ? quotes.filter(q => q.dex !== params.excludeDex)
+        : quotes;
+
+    if (params.excludeDex) {
+        console.log('[QuoteService] Excluding DEX on retry:', {
+            excluded: params.excludeDex,
+            available: availableQuotes.map(q => q.dex).join(', ')
+        });
+    }
+
+    // CRITICAL: Prefer 0x over KyberSwap for execution reliability
+    // 0x has been proven to execute reliably; KyberSwap quotes well but often reverts
+    // EXCEPTION: On Base chain, prefer Kyber due to 0x allowance-holder execution issues
+    // Only use KyberSwap if 0x is unavailable or significantly worse (>10% difference)
+    const zeroExQuote = availableQuotes.find(q => q.dex === '0x');
+    const kyberQuote = availableQuotes.find(q => q.dex === 'kyber');
+
+    if (zeroExQuote && kyberQuote) {
+        const zeroExAmount = BigInt(zeroExQuote.amountOutBase || '0');
+        const kyberAmount = BigInt(kyberQuote.amountOutBase || '0');
+        
+        // Calculate percentage difference
+        const percentDiff = kyberAmount > 0n && zeroExAmount > 0n 
+            ? Math.abs(Number((kyberAmount - zeroExAmount) * 100n / zeroExAmount))
+            : 0;
+        
+        console.log('[QuoteService] Quote comparison:', {
+            '0x_amount': zeroExQuote.amountOut,
+            'kyber_amount': kyberQuote.amountOut,
+            'kyber_advantage_pct': percentDiff.toFixed(2),
+            chainId: params.chainId
+        });
+
+        // CRITICAL FIX: Prefer 0x for ALL chains including Base
+        // Previous logic: Base preferred Kyber due to "0x allowance-holder issues"
+        // Reality: Kyber transactions are reverting frequently on Base
+        // 0x allowance-holder is more reliable despite initial concerns
+        
+        // If 0x advantage or near-equal (< 2% difference), prefer 0x for reliability
+        const zeroExAdvantage = zeroExAmount > kyberAmount;
+        const nearEqual = percentDiff < 2;
+        
+        if (zeroExAdvantage || nearEqual) {
+            console.log('[QuoteService] Preferring 0x for reliability', {
+                reason: zeroExAdvantage ? '0x has better price' : 'prices within 2%',
+                percentDiff: percentDiff.toFixed(2)
+            });
+            return { best: zeroExQuote, quotes };
+        }
+        
+        // Only use Kyber if it's significantly better (>= 2% advantage)
+        if (percentDiff >= 2) {
+            console.log('[QuoteService] Using Kyber due to significant price advantage', {
+                advantage: percentDiff.toFixed(2) + '%'
+            });
+            return { best: kyberQuote, quotes };
+        }
+    }
+
+    // Otherwise sort by highest return from available quotes
+    availableQuotes.sort((a, b) => {
         const valA = BigInt(a.amountOutBase || '0');
         const valB = BigInt(b.amountOutBase || '0');
         return valA > valB ? -1 : 1; // Descending
     });
 
-    return { best: quotes[0], quotes };
+    return { best: availableQuotes[0], quotes };
 }

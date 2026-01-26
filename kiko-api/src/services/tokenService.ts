@@ -4,6 +4,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { getChainSlug, CHAINS } from '../config/chainConfig.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { getTokenDetails } from './geckoTerminal.js';
+import { getTokenMetadata } from './rpcService.js';
 
 /**
  * Token Service
@@ -209,6 +210,37 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
         } catch (e: any) {
             logger.debug(LogCode.API_FETCH_FAILED, 'Zora API fallback failed', { token: tokenAddress, error: e.message });
         }
+    }
+
+    // --- STEP 4: Force RPC Fallback (The "Must Proceed" Layer) ---
+    // If all APIs fail (rate limits/downtime), we MUST fetch on-chain metadata
+    // so that trading execution (which depends on decimals) doesn't fail.
+    try {
+        logger.warn(LogCode.API_FETCH_FAILED, 'All APIs failed, attempting on-chain RPC fallback', { token: tokenAddress });
+
+        // This uses viem/ethers to call calling decimals() symbol() name()
+        const rpcData = await getTokenMetadata(chainId, tokenAddress);
+
+        const result = {
+            price: 0, // Price unknown, but trading can proceed
+            symbol: rpcData.symbol,
+            name: rpcData.name,
+            decimals: rpcData.decimals,
+            liquidity: 0,
+            volume24h: 0,
+            fdv: 0,
+            marketCap: 0,
+            provider: 'rpc'
+        };
+
+        logger.info(LogCode.API_FETCH_SUCCESS, 'Recovered token metadata via RPC', { symbol: result.symbol, decimals: result.decimals });
+
+        // Cache this fallback data but with short TTL so we retry APIs soon
+        tokenInfoCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        return result;
+
+    } catch (rpcErr: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Critical: RPC fallback also failed', { token: tokenAddress, error: rpcErr.message });
     }
 
     logger.error(LogCode.API_FETCH_FAILED, 'All token info data sources failed', { token: tokenAddress, lastError: dsError?.message });

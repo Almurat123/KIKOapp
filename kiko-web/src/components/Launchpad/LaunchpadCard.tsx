@@ -175,6 +175,54 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
             || (isSolanaLaunchpad ? 900 : (isBscLaunchpad ? 56 : (isBaseLaunchpad ? 8453 : 1)));
     }, [chainId, isBaseLaunchpad, isBscLaunchpad, isSolanaLaunchpad]);
 
+    const [secondaryAvatar, setSecondaryAvatar] = useState<string | null>(null);
+
+    // Effect: Fetch secondary avatar (DexScreener/Gecko) if primary is missing
+    useEffect(() => {
+        if (!tokenAddress || !effectiveChainId) return;
+
+        // If we already have a good avatar from initialData or provider token, skip fetch
+        // (This logic needs to mirror the "avatar" derivation below to be accurate)
+        let hasAvatar = false;
+        if (initialData && (initialData.image || initialData.data?.image || initialData.data?.img_url || initialData.data?.logoURI || initialData.img_url || initialData.image_url || initialData.image_uri)) hasAvatar = true;
+        else if (provider === 'clanker' && clankerToken?.img_url) hasAvatar = true;
+        else if (provider === 'paragraph' && paragraphToken?.image) hasAvatar = true;
+        else if (provider === 'fourmeme' && fourMemeToken?.image) hasAvatar = true;
+        else if (provider === 'pumpfun' && pumpFunToken?.image_uri) hasAvatar = true;
+        else if ((provider === 'raydium' || provider === 'bonkfun') && raydiumToken?.image_uri) hasAvatar = true;
+
+        if (hasAvatar) return;
+
+        // Map chainId to API network strings
+        const networkMap: Record<number, string> = {
+            1: 'eth',
+            8453: 'base',
+            56: 'bsc',
+            900: 'solana', // Internal ID for Solana
+            137: 'polygon',
+            42161: 'arbitrum',
+            10: 'optimism',
+            43114: 'avax'
+        };
+
+        const network = networkMap[effectiveChainId] || 'eth';
+
+        async function fetchSecondary() {
+            try {
+                // DexScreener often indexes tokens faster/better for images
+                const details = await tokenApi.getDetails(network, tokenAddress!);
+                if (details && details.imageUrl) {
+                    setSecondaryAvatar(details.imageUrl);
+                }
+            } catch (e) {
+                // Ignore errors
+            }
+        }
+
+        fetchSecondary();
+    }, [tokenAddress, effectiveChainId, provider, initialData, clankerToken, paragraphToken, fourMemeToken, pumpFunToken, raydiumToken]);
+
+
 
 
 
@@ -185,11 +233,48 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
 
     // Determine Avatar
     let avatar = tokenAvatar;
-    if (provider === 'clanker') avatar = clankerToken?.img_url;
-    if (provider === 'paragraph') avatar = paragraphToken?.image;
-    if (provider === 'fourmeme') avatar = fourMemeToken?.image;
-    if (provider === 'pumpfun') avatar = pumpFunToken?.image_uri;
-    if (provider === 'raydium' || provider === 'bonkfun') avatar = raydiumToken?.image_uri;
+
+    // PRIORITY 1: Check initialData first (Backend source of truth)
+    // NOTE: initialData IS the token object directly (passed as message.data.data in MessageBubble)
+    // So we check initialData.img_url, NOT initialData.data.img_url
+    if (initialData) {
+        // Try all possible image field names that different APIs might use
+        avatar = initialData.img_url        // Clanker API field
+            || initialData.image_url      // Alternative field name
+            || initialData.image          // Zora, Paragraph field
+            || initialData.image_uri      // PumpFun, Raydium field
+            || initialData.logoURI        // Generic token field
+            || avatar;                    // Keep fallback
+    }
+
+    // PRIORITY 2: Override with provider-specific data ONLY if it exists and has an image
+    // This handles cases where we fetch fresh data that might have a better image
+    if (provider === 'clanker' && clankerToken) {
+        const clankerImg = clankerToken.img_url || (clankerToken as any).image_url || (clankerToken as any).image;
+        if (clankerImg) avatar = clankerImg;
+    }
+    else if (provider === 'paragraph' && paragraphToken) {
+        const paraImg = paragraphToken.image || (paragraphToken as any).img_url;
+        if (paraImg) avatar = paraImg;
+    }
+    else if (provider === 'fourmeme' && fourMemeToken) {
+        const memeImg = fourMemeToken.image || (fourMemeToken as any).logoURI;
+        if (memeImg) avatar = memeImg;
+    }
+    else if (provider === 'pumpfun' && pumpFunToken) {
+        const pumpImg = pumpFunToken.image_uri || (pumpFunToken as any).image;
+        if (pumpImg) avatar = pumpImg;
+    }
+    else if ((provider === 'raydium' || provider === 'bonkfun') && raydiumToken) {
+        const rayImg = raydiumToken.image_uri || (raydiumToken as any).logoURI || (raydiumToken as any).image;
+        if (rayImg) avatar = rayImg;
+    }
+
+    // PRIORITY 3: Secondary Avatar (Fetched asynchronously from DexScreener/Gecko)
+    if (!avatar && secondaryAvatar) {
+        avatar = secondaryAvatar;
+    }
+
 
     // Helper for safe access based on provider types via union discrimination (or simple casting)
     let safeSymbol = 'TOKEN';

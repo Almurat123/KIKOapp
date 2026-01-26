@@ -68,16 +68,12 @@ export const AuthorizationPromptModal: React.FC = () => {
 
     // Check if should show modal
     useEffect(() => {
-        console.log('[AuthPrompt] Checking:', { ready, authenticated, needsAuth, evmNeedsAuth, solanaNeedsAuth, userId: user?.id });
-
         if (!ready || !authenticated || !user) {
-            console.log('[AuthPrompt] Not ready or not authenticated');
             setShowModal(false);
             return;
         }
 
         if (!needsAuth) {
-            console.log('[AuthPrompt] No auth needed, wallets already delegated');
             setShowModal(false);
             return;
         }

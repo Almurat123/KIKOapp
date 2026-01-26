@@ -1,4 +1,5 @@
 import { Tool, ToolContext } from './registry.js';
+import { normalizeTokenAddress, resolveTokenAddress } from '../services/tokens.js';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -64,9 +65,59 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
         try {
             console.log('[PrepareSwapTransaction] Preparing swap:', args);
 
+            // 0. Normalize inputs (Fix hardcode/logic symbols)
+            // Resolve symbols (e.g. "USDC" -> 0x...) and normalize native (ETH -> 0xEeee...)
+            const token_in = normalizeTokenAddress(resolveTokenAddress(args.token_in, args.chain_id));
+            const token_out = normalizeTokenAddress(resolveTokenAddress(args.token_out, args.chain_id));
+
+            // Use normalized tokens for the rest of the logic
+            const normalizedArgs = { ...args, token_in, token_out };
+
             // 1. Validate inputs (basic)
             if (isNaN(parseFloat(args.amount_in)) || parseFloat(args.amount_in) <= 0) {
                 return { error: 'Invalid amount. Please provide a positive number.' };
+            }
+
+            // 1.5. SOLANA RENT PROTECTION LOGIC
+            // Error "insufficient funds for rent" happens when account is drained to < 0.002 SOL (account rent exempt minimum)
+            // We MUST leave at least 0.002 SOL + fees (approx 0.005 total safe buffer)
+            const isSolana = args.chain_id === 900 || args.chain_id === 101;
+            const isNativeSol = isSolana && (
+                normalizedArgs.token_in === 'So11111111111111111111111111111111111111112' ||
+                normalizedArgs.token_in === 'SOL'
+            );
+
+            if (isNativeSol) {
+                try {
+                    // Check user's actual SOL balance if possible
+                    const userId = context?.userId;
+                    const walletAddress = context?.walletAddress;
+
+                    if (walletAddress) {
+                        try {
+                            const { getWalletBalance } = await import('../services/alchemy.js');
+                            const balanceData = await getWalletBalance(walletAddress, 'solana');
+                            const maxBalance = parseFloat(balanceData.ethBalance || '0');
+                            const amountIn = parseFloat(args.amount_in);
+
+                            // Define safe buffer: 0.005 SOL
+                            const SAFE_BUFFER = 0.005;
+
+                            // If amount is dangerously close to max (within buffer + small margin)
+                            if (maxBalance > 0 && amountIn >= (maxBalance - SAFE_BUFFER)) {
+                                const safeAmount = Math.max(0, maxBalance - SAFE_BUFFER);
+                                console.log(`[PrepareSwapTransaction] Solana Rent Safety: Adjusted amount from ${args.amount_in} to ${safeAmount.toFixed(6)} to leave buffer`);
+                                args.amount_in = safeAmount.toFixed(6);
+                                // Also update normalizedArgs to propagate change
+                                normalizedArgs.amount_in = args.amount_in;
+                            }
+                        } catch (err: any) {
+                            console.warn('[PrepareSwapTransaction] Failed to check Solana balance:', err.message);
+                        }
+                    }
+                } catch (e) {
+                    // ignore
+                }
             }
 
             // 2. CODE-LEVEL SAFETY GATE (MANDATORY - Cannot be bypassed by LLM)
@@ -87,7 +138,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                 try {
                     // 1. FAST MARKET STRUCTURE CHECK (Liquidity / FDV)
                     const { getTokenDetails } = await import('../services/geckoTerminal.js');
-                    const tokenData = await getTokenDetails(args.chain_id.toString(), args.token_out);
+                    const tokenData = await getTokenDetails(args.chain_id.toString(), normalizedArgs.token_out);
 
                     if (tokenData) {
                         const liquidity = parseFloat(String(tokenData.liquidity || '0'));
@@ -113,8 +164,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                             'Authorization': `Bearer ${accessToken}`
                         },
                         body: JSON.stringify({
-                            tokenIn: args.token_in,
-                            tokenOut: args.token_out,
+                            tokenIn: normalizedArgs.token_in,   // ✅ Normalized
+                            tokenOut: normalizedArgs.token_out, // ✅ Normalized
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
                             slippageBps: 100 // 1% for simulation
@@ -175,8 +226,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         __client_action: {
                             type: 'execute_swap_instant',
                             payload: {
-                                tokenIn: args.token_in,
-                                tokenOut: args.token_out,
+                                tokenIn: normalizedArgs.token_in,   // ✅ Normalized
+                                tokenOut: normalizedArgs.token_out, // ✅ Normalized
                                 amountIn: args.amount_in,
                                 chainId: args.chain_id,
                                 slippage: args.slippage || 0.5
@@ -205,7 +256,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                                     'Authorization': `Bearer ${accessToken}`
                                 },
                                 body: JSON.stringify({
-                                    tokenAddress: args.token_out, // The token we're buying
+                                    tokenAddress: normalizedArgs.token_out, // ✅ Normalized
                                     buyAmountEth: args.amount_in.toString(),
                                     maxSlippage: args.slippage || 1.5
                                 })
@@ -239,8 +290,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                             'Authorization': `Bearer ${accessToken}`
                         },
                         body: JSON.stringify({
-                            tokenIn: args.token_in,
-                            tokenOut: args.token_out,
+                            tokenIn: normalizedArgs.token_in,   // ✅ Normalized
+                            tokenOut: normalizedArgs.token_out, // ✅ Normalized
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
                             slippageBps: Math.round((args.slippage || 0.5) * 100) // Convert percentage to basis points
@@ -274,8 +325,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         __client_action: {
                             type: 'execute_swap_instant',
                             payload: {
-                                tokenIn: args.token_in,
-                                tokenOut: args.token_out,
+                                tokenIn: normalizedArgs.token_in,   // ✅ Normalized
+                                tokenOut: normalizedArgs.token_out, // ✅ Normalized
                                 amountIn: args.amount_in,
                                 chainId: args.chain_id,
                                 slippage: args.slippage || 0.5
@@ -292,8 +343,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                 __client_action: {
                     type: 'show_swap_card',
                     payload: {
-                        tokenIn: args.token_in,
-                        tokenOut: args.token_out,
+                        tokenIn: normalizedArgs.token_in,   // ✅ Normalized
+                        tokenOut: normalizedArgs.token_out, // ✅ Normalized
                         amountIn: args.amount_in,
                         chainId: args.chain_id,
                         slippage: args.slippage || 0.5

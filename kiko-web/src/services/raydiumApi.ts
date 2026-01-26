@@ -1,9 +1,10 @@
-// Raydium API Service (Enhanced with DexScreener & On-Chain Data)
-// Using @raydium-io/raydium-sdk-v2 and DexScreener API
+// Raydium API Service (Enhanced with Centralized Token Data & On-Chain Data)
+// Using @raydium-io/raydium-sdk-v2 and Centralized API
 import { Connection, PublicKey } from '@solana/web3.js';
 import {
-    Raydium
+    // Raydium - removed unused import
 } from '@raydium-io/raydium-sdk-v2';
+import { tokenApi } from './api';
 
 export interface RaydiumToken {
     mint: string;
@@ -22,117 +23,79 @@ const FALLBACK_RPCS = [
     'https://solana.drpc.org',                        // DRPC (free, CORS enabled)
 ].filter(Boolean) as string[];
 
-// Helper to fetch data from DexScreener
-const fetchDexScreenerData = async (mintAddress: string): Promise<RaydiumToken | null> => {
+/**
+ * Fetch token data using centralized tokenApi (Unified Search Service)
+ */
+const fetchTokenMetadata = async (mintAddress: string): Promise<RaydiumToken | null> => {
     try {
-        const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`);
-        if (!response.ok) return null;
+        // Use the centralized tokenApi which handles DexScreener/GeckoTerminal logic on the backend
+        const data = await tokenApi.getDetails('solana', mintAddress);
 
-        const data = await response.json();
-        if (!data.pairs || data.pairs.length === 0) return null;
-
-        // Use the first pair (usually most liquid)
-        const pair = data.pairs[0];
-        const token = pair.baseToken.address === mintAddress ? pair.baseToken : pair.quoteToken;
-
-        // DexScreener info object often has the high res image
-        const imgUrl = pair.info?.imageUrl || token.logoURI;
-
-        return {
-            mint: mintAddress,
-            name: token.name || 'Unknown',
-            symbol: token.symbol || 'UNKNOWN',
-            image_uri: imgUrl || '',
-            decimals: 9,
-            created_at: pair.pairCreatedAt
-        };
+        if (data && data.address) {
+            return {
+                mint: data.address,
+                name: data.name,
+                symbol: data.symbol,
+                image_uri: data.imageUrl || data.logoUrl || '',
+                decimals: typeof data.decimals === 'number' ? data.decimals : 9, // Default to 9 for SOL
+                created_at: data.poolCreatedAt ? new Date(data.poolCreatedAt).getTime() : undefined
+            };
+        }
+        return null;
     } catch (e) {
-        console.warn('DexScreener fetch failed', e);
+        console.warn('[RaydiumApi] Token metadata fetch failed via API', e);
         return null;
     }
-};
+}
 
 export const getRaydiumToken = async (mintAddress: string): Promise<RaydiumToken | null> => {
+    let creatorAddress: string | undefined;
     try {
-        // Try multiple RPCs until one works (avoid 403/key-blocked endpoints)
+        // Parallel fetch: Metadata via API + On-Chain for Mint Authority
+        // We still need on-chain data for Mint Authority (Creator) checking since it's specific to Raydium/Solana checks
+
         let connection: Connection | null = null;
+        // Try to get connection for creator check
         for (const rpc of FALLBACK_RPCS) {
             try {
                 connection = new Connection(rpc);
                 // Lightweight check
-                await connection.getEpochInfo();
+                // await connection.getEpochInfo(); // Skip verify to save time, assume first works or fail later
                 break;
             } catch (e) {
-                console.warn(`[Raydium] RPC failed ${rpc}`, e);
+                console.warn(`[Raydium] RPC init failed ${rpc}`, e);
             }
         }
-        if (!connection) {
-            console.error('[Raydium] No available Solana RPC endpoints, returning fallback metadata only');
-            return {
-                mint: mintAddress,
-                name: 'Unknown Token',
-                symbol: 'UNKNOWN',
-                image_uri: '',
-                decimals: 6,
-                creator: 'Unknown'
-            };
-        }
 
-        // Parallel fetch: DexScreener for metadata + On-Chain for Mint Authority
-        const [dexData, accountInfo] = await Promise.all([
-            fetchDexScreenerData(mintAddress),
-            connection.getParsedAccountInfo(new PublicKey(mintAddress)).catch(e => {
+        const [apiData, accountInfo] = await Promise.all([
+            fetchTokenMetadata(mintAddress),
+            connection ? connection.getParsedAccountInfo(new PublicKey(mintAddress)).catch(e => {
                 console.warn('Failed to fetch account info', e);
                 return { value: null };
-            })
+            }) : Promise.resolve({ value: null })
         ]);
 
-        let creatorAddress: string | undefined;
+        // Initialize creatorAddress
+        // let creatorAddress: string | undefined; // Moved to top function scope
 
-        // Extract Mint Authority as "Creator" - this is a simplification but often correct for non-renounced tokens
-        // Or it at least shows who currently controls the mint
+        // Extract Mint Authority
         if (accountInfo && accountInfo.value && 'parsed' in accountInfo.value.data) {
             const info = accountInfo.value.data.parsed.info;
             if (info && info.mintAuthority) {
                 creatorAddress = info.mintAuthority;
             } else if (info && info.mintAuthority === null) {
-                // Mint authority is null, meaning it's renounced.
-                // This is a positive signal for meme tokens.
                 creatorAddress = 'Renounced 🟢';
             }
         }
 
-        if (dexData) {
+        if (apiData) {
             return {
-                ...dexData,
+                ...apiData,
                 creator: creatorAddress
             };
         }
 
-        // Fallback Strategies if DexScreener failed entirely
-        const raydium = await Raydium.load({
-            connection,
-            disableFeatureCheck: true,
-            disableLoadToken: true
-        });
-
-        try {
-            const tokenInfo = await raydium.token.getTokenInfo(mintAddress);
-            if (tokenInfo) {
-                return {
-                    mint: (tokenInfo as any).address || (tokenInfo as any).mint || mintAddress,
-                    name: tokenInfo.name || 'Unknown',
-                    symbol: tokenInfo.symbol || 'UNKNOWN',
-                    image_uri: tokenInfo.logoURI || '',
-                    decimals: tokenInfo.decimals,
-                    creator: creatorAddress
-                };
-            }
-        } catch (e) {
-            console.warn('Raydium SDK getTokenInfo failed', e);
-        }
-
-        // Final Fallback
+        // Fallback: If API failed, return basic unknown with address
         const fallbackImage = `https://img-v1.raydium.io/icon/${mintAddress}.png`;
 
         return {
@@ -146,14 +109,13 @@ export const getRaydiumToken = async (mintAddress: string): Promise<RaydiumToken
 
     } catch (error) {
         console.error('Error fetching Raydium token:', error);
-        // Last-resort fallback to keep UI functional
         return {
             mint: mintAddress,
             name: 'Unknown Token',
             symbol: 'UNKNOWN',
             image_uri: '',
             decimals: 9,
-            creator: 'Unknown'
+            creator: creatorAddress
         };
     }
 };

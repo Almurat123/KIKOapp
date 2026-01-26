@@ -14,15 +14,14 @@ export interface CustomAISettings {
     defaultSwapAmount: number;
     defaultSwapUnit: string;
     checkTokenBeforeSwap: boolean;
-    quickSwapMode: boolean;
+
     swapMethod: string;
     // Swap Protection fields
     slippageMode: 'auto' | 'custom';
     customSlippage: number | '';
     mevProtection: boolean;
     priceDeviationCheck: boolean;
-    // Copy Trade AI Analysis
-    copyTradeAIMode: 'disabled' | 'analyze_only' | 'auto_decide';
+
     // Fast Swap
     fastSwapMode: boolean;
     // Copy trade safety
@@ -42,15 +41,14 @@ const DEFAULT_SETTINGS: CustomAISettings = {
     defaultSwapAmount: 100,
     defaultSwapUnit: 'native',
     checkTokenBeforeSwap: true,
-    quickSwapMode: false,
-    swapMethod: 'swap_card',
+
+    swapMethod: 'allowance_trade',
     // Swap Protection defaults
     slippageMode: 'auto',
     customSlippage: 0.5,
     mevProtection: true,
     priceDeviationCheck: true,
-    // Copy Trade AI Analysis default
-    copyTradeAIMode: 'disabled',
+
     fastSwapMode: false,
     copyTradeTokenCooldownMinutes: 60,
     minMarketCapUsd: '',
@@ -65,10 +63,7 @@ const USER_ROLE_OPTIONS = [
     { value: 'developer', label: 'Developer' },
 ];
 
-const SWAP_METHOD_OPTIONS = [
-    { value: 'swap_card', label: 'Swap Card' },
-    { value: 'allowance_trade', label: 'Allowance Trade' },
-];
+
 
 const SWAP_UNIT_OPTIONS = [
     { value: 'native', label: 'Native Token' },
@@ -81,11 +76,7 @@ const SLIPPAGE_MODE_OPTIONS = [
     { value: 'custom', label: 'Custom' },
 ];
 
-const COPY_TRADE_AI_OPTIONS = [
-    { value: 'disabled', label: 'Disabled (Fastest)' },
-    { value: 'analyze_only', label: 'Analyze Only (Chat Notify)' },
-    { value: 'auto_decide', label: 'AI Auto Decide' },
-];
+
 
 export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
     isOpen,
@@ -331,14 +322,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                         </div>
                     </div>
 
-                    <div className={styles.inputGroup}>
-                        <label className={styles.label}>Swap Method</label>
-                        <CustomSelect
-                            value={settings.swapMethod}
-                            onChange={val => setSettings(prev => ({ ...prev, swapMethod: val }))}
-                            options={SWAP_METHOD_OPTIONS}
-                        />
-                    </div>
+
 
                     <div className={styles.headerRow}>
                         <div className={styles.headerTitle}>Check token security before swap</div>
@@ -355,35 +339,9 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                         Let AI check token risk before swap
                     </p>
 
-                    <div className={styles.headerRow}>
-                        <div className={styles.headerTitle}>Quick Swap Mode</div>
-                        <label className={styles.toggleSwitch}>
-                            <input
-                                type="checkbox"
-                                checked={settings.quickSwapMode}
-                                onChange={e => setSettings(prev => ({ ...prev, quickSwapMode: e.target.checked }))}
-                            />
-                            <span className={styles.slider}></span>
-                        </label>
-                    </div>
-                    <p className={styles.headerDesc}>
-                        Directly generate swap card without AI response
-                    </p>
 
-                    {/* Copy Trade AI Analysis */}
-                    <div className={clsx(styles.inputGroup, styles.inputGroupWithMargin)}>
-                        <label className={styles.label}>Copy Trade AI Analysis</label>
-                        <CustomSelect
-                            value={settings.copyTradeAIMode}
-                            onChange={val => setSettings(prev => ({ ...prev, copyTradeAIMode: val as 'disabled' | 'analyze_only' | 'auto_decide' }))}
-                            options={COPY_TRADE_AI_OPTIONS}
-                        />
-                        <p className={clsx(styles.headerDesc, styles.headerDescWithTopMargin)}>
-                            {settings.copyTradeAIMode === 'disabled' && 'Executes trade directly without AI analysis'}
-                            {settings.copyTradeAIMode === 'analyze_only' && 'AI analyzes token risks and notifies in Chat, but does not block trades'}
-                            {settings.copyTradeAIMode === 'auto_decide' && 'AI automatically decides whether to execute the trade based on analysis (Safety Mode)'}
-                        </p>
-                    </div>
+
+
                 </div>
 
                 {/* Swap Protection Section */}

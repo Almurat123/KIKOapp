@@ -286,7 +286,8 @@ All tools return a consistent error object on failure:
 
 ### 3. Numeric Precision
 - **Amounts**: For \`prepare_swap_transaction\`, \`amount_in\` MUST be a string representation of a number (e.g., \`"0.5"\`). 
-- **Hallucination Check**: If a user says "Sell all my PEPE", you **MUST** call \`get_wallet_info\` first to get the exact numeric balance, then pass that number to the swap tool. Never pass \`"all"\` or \`"max"\`.
+- **Hallucination Check**: If a user says "Sell all my PEPE", you **MUST** use the balance from \`[REQUESTED_TOKEN_BALANCE]\` or \`[USER_BALANCE_CONTEXT]\` if present. Only call \`get_wallet_info\` when no balance context is provided or the user explicitly asks for a fresh balance. Never pass \`"all"\` or \`"max"\`.
+- **Decimals**: Always respect token decimals in context; do not re-convert formatted balances or assume 18 decimals.
 
 ### 4. Search Priority (The "Fallback Strategy")
 1. Use \`get_token_info\` for contract-based research.
@@ -316,6 +317,12 @@ export const DEEPSEEK_TOOL_DIRECTIVE = `
 
 **AVAILABLE TOOLS REFERENCE**:
 ${TOOL_DEFINITIONS}
+
+**⚠️ BALANCE AWARENESS & WALLET ACCESS**:
+- Use balance data in [REQUESTED_TOKEN_BALANCE], [USER_BALANCE_CONTEXT], or [CLIENT_CONTEXT] when present.
+- Do NOT ask to check balances or call \`get_wallet_info\` if balance context is provided unless the user explicitly asks for a refresh.
+- When user says "sell ALL" or "max", use the EXACT numeric value from context.
+- NEVER invent balances or assume decimals; respect token decimals in context.
 
 **OUTPUT RULES**:
 - Be concise. Use tables for data.

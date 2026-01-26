@@ -1,12 +1,6 @@
-/**
- * DEX 聚合服务 - 支持多个 DEX 和链
- * 位置: kiko-web/src/services/dexAggregatorService.ts
- * 功能: 聚合 Uniswap, Curve, 1inch 等 DEX 的报价
- */
-
 import { apiCache } from '../utils/apiCache';
-const DEXSCREENER_API = 'https://api.dexscreener.com/latest/dex';
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// const DEXSCREENER_API = 'https://api.dexscreener.com/latest/dex';
+// const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export interface TokenInfo {
   symbol: string;
@@ -43,49 +37,24 @@ export interface DEXAggregatorService {
 }
 
 /**
- * 获取代币信息 - 优先用 DexScreener，备用 RPC
+ * 获取代币信息 - Delegates to centralized tokenDataService
  */
 export async function getTokenInfo(address: string, chainId: number): Promise<TokenInfo> {
+  // Dynamically import to avoid circular dependency issues if any remain (though clean now)
+  const { getTokenData } = await import('./tokenDataService');
+
   try {
-    // 0. 首先检查是否是原生代币（0x0000... 或 0xEeee...）
-    const isNativeToken = address.toLowerCase() === '0x0000000000000000000000000000000000000000' ||
-      address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-
-    if (isNativeToken) {
-      // 从 COMMON_TOKENS 获取原生代币信息
-      const { COMMON_TOKENS } = await import('./tokenDataService');
-      const chainTokens = COMMON_TOKENS[chainId];
-      if (chainTokens) {
-        // 找到第一个原生代币（通常是 ETH, BNB, MATIC 等）
-        const nativeToken = Object.values(chainTokens).find(t =>
-          t.address.toLowerCase() === '0x0000000000000000000000000000000000000000'
-        );
-        if (nativeToken) {
-          console.log('[getTokenInfo] Using native token from COMMON_TOKENS:', nativeToken.symbol);
-          return {
-            symbol: nativeToken.symbol,
-            name: nativeToken.name,
-            decimals: nativeToken.decimals,
-            address: nativeToken.address,
-            chainId,
-            logoURI: nativeToken.logoURI,
-          };
-        }
-      }
-    }
-
-    // 1. 首先尝试从 DexScreener 获取代币信息 (含头像)
-    const dexScreenerInfo = await fetchFromDexScreener(address, chainId);
-    if (dexScreenerInfo) {
-      return dexScreenerInfo;
-    }
-
-    // 2. 备用: 通过 RPC 获取代币元数据
-    const rpcInfo = await fetchFromRPC(address, chainId);
-    return rpcInfo;
+    const data = await getTokenData(address, chainId);
+    return {
+      symbol: data.symbol,
+      name: data.name,
+      decimals: data.decimals,
+      address: data.address,
+      chainId: data.chainId,
+      logoURI: data.logoURI,
+    };
   } catch (error) {
-    console.error('Error fetching token info:', error);
-    // 返回基础信息
+    console.error('Error fetching token info via tokenDataService:', error);
     return {
       symbol: 'UNKNOWN',
       name: 'Unknown Token',
@@ -96,201 +65,16 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
   }
 }
 
-/**
- * 从 DexScreener 获取代币信息
- */
-async function fetchFromDexScreener(tokenAddress: string, chainId: number): Promise<TokenInfo | null> {
-  try {
-    const chainMap: Record<number, string> = {
-      1: 'ethereum',
-      8453: 'base',
-      42161: 'arbitrum',
-      56: 'bsc',
-      137: 'polygon',
-      250: 'fantom',
-    };
-
-    const chain = chainMap[chainId];
-    if (!chain) return null;
-
-    // DexScreener API: /latest/dex/tokens/{address} or /latest/dex/search?q={address}
-    // Try tokens endpoint first
-    // Validate tokenAddress to prevent path injection
-    const sanitizedAddress = tokenAddress.replace(/[^a-zA-Z0-9]/g, '');
-    if (!sanitizedAddress || sanitizedAddress.length < 20) {
-      throw new Error('Invalid token address format');
-    }
-    let response = await fetch(`${DEXSCREENER_API}/tokens/${sanitizedAddress}`);
-    let data: any = null;
-
-    if (response.ok) {
-      data = await response.json();
-      // If tokens endpoint returns pairs, use the most liquid one
-      if (data.pairs && Array.isArray(data.pairs) && data.pairs.length > 0) {
-        const pair = data.pairs.sort((a: any, b: any) =>
-          parseFloat(b.liquidity?.usd || '0') - parseFloat(a.liquidity?.usd || '0')
-        )[0];
-        data = { pair };
-      }
-    } else {
-      // Fallback to search endpoint
-      response = await fetch(`${DEXSCREENER_API}/search?q=${encodeURIComponent(tokenAddress)}`);
-      if (response.ok) {
-        data = await response.json();
-        // Find exact match by address
-        if (data.pairs && Array.isArray(data.pairs)) {
-          const exactMatch = data.pairs.find((p: any) =>
-            p.baseToken?.address?.toLowerCase() === tokenAddress.toLowerCase()
-          );
-          if (exactMatch) {
-            data = { pair: exactMatch };
-          } else if (data.pairs.length > 0) {
-            data = { pair: data.pairs[0] };
-          }
-        }
-      }
-    }
-
-    if (!response.ok || !data?.pair) return null;
-
-    const baseToken = data.pair.baseToken;
-    return {
-      symbol: baseToken.symbol,
-      name: baseToken.name || baseToken.symbol,
-      decimals: baseToken.decimals || 18,
-      address: baseToken.address,
-      logoURI: baseToken.imageUrl,
-      chainId,
-    };
-  } catch (error) {
-    console.error('Error fetching from DexScreener:', error);
-    return null;
-  }
-}
-
-/**
- * 从 RPC 获取代币元数据 (ERC20 标准)
- */
-async function fetchFromRPC(tokenAddress: string, chainId: number): Promise<TokenInfo> {
-  try {
-    const rpcUrl = getRPCUrl(chainId);
-    if (!rpcUrl) throw new Error('Unsupported chain');
-
-    // 构建 RPC 调用
-    const calls = [
-      // name()
-      {
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [
-          {
-            to: tokenAddress,
-            data: '0x06fdde03', // name() 的 selector
-          },
-          'latest',
-        ],
-        id: 1,
-      },
-      // symbol()
-      {
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [
-          {
-            to: tokenAddress,
-            data: '0x95d89b41', // symbol() 的 selector
-          },
-          'latest',
-        ],
-        id: 2,
-      },
-      // decimals()
-      {
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [
-          {
-            to: tokenAddress,
-            data: '0x313ce567', // decimals() 的 selector
-          },
-          'latest',
-        ],
-        id: 3,
-      },
-    ];
-
-    const responses = await Promise.all(
-      calls.map(call =>
-        fetch(`${API_BASE_URL}/api/rpc/evm`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chainId,
-            method: call.method,
-            params: call.params,
-          }),
-        }).then(r => r.json())
-      )
-    );
-
-    const name = decodeString(responses[0].result) || 'Unknown';
-    const symbol = decodeString(responses[1].result) || 'UNKNOWN';
-    const decimals = decodeDecimals(responses[2].result) || 18;
-
-    return {
-      symbol,
-      name,
-      decimals,
-      address: tokenAddress,
-      chainId,
-    };
-  } catch (error) {
-    console.error('Error fetching from RPC:', error);
-    return {
-      symbol: 'UNKNOWN',
-      name: 'Unknown Token',
-      decimals: 18,
-      address: tokenAddress,
-      chainId,
-    };
-  }
-}
-
-/**
- * 解码 RPC 返回的字符串
- */
-function decodeString(hexString: string): string {
-  if (!hexString || hexString === '0x') return '';
-  try {
-    // 跳过 0x 和长度前缀
-    const cleanHex = hexString.slice(2);
-    // 跳过前 64 个字符的长度编码
-    const dataHex = cleanHex.slice(64);
-    // 转换为字符串
-    return Buffer.from(dataHex, 'hex').toString('utf8').replace(/\0/g, '');
-  } catch {
-    return '';
-  }
-}
-
-/**
- * 解码 decimals 返回值
- */
-function decodeDecimals(hexString: string): number {
-  if (!hexString || hexString === '0x') return 18;
-  try {
-    return parseInt(hexString, 16);
-  } catch {
-    return 18;
-  }
-}
+// [Removed Legacy Fetch Functions]
+// fetchFromDexScreener and fetchFromRPC have been removed.
+// All token data is now fetched via tokenDataService -> tokenApi (Backend).
 
 /**
  * RPC URL helper (Deprecated in frontend, use backend proxy)
  */
-function getRPCUrl(_chainId: number): string {
-  return '';
-}
+// function getRPCUrl(_chainId: number): string {
+// return '';
+// }
 
 /**
  * 获取 0xAPI 的报价 - 使用后端 API 获取完整交易数据

@@ -67,31 +67,52 @@ function getPrivyClient(): PrivyClient {
  */
 export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: string; id: string } | null> {
     const client = getPrivyClient();
+    const maxRetries = 3;
+    let lastError: any = null;
 
-    try {
-        const user = await client.getUser(userId);
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const user = await client.getUser(userId);
 
-        // Find embedded wallet in linked accounts
-        const embeddedWallet = user.linkedAccounts?.find(
-            (account: any) => account.type === 'wallet' && account.walletClientType === 'privy'
-        );
+            // Find embedded wallet in linked accounts
+            const embeddedWallet = user.linkedAccounts?.find(
+                (account: any) => account.type === 'wallet' && account.walletClientType === 'privy'
+            );
 
-        if (!embeddedWallet) {
-            logger.warn(LogCode.SYS_INFO, 'User has no embedded wallet', { userId });
-            return null;
+            if (!embeddedWallet) {
+                logger.warn(LogCode.SYS_INFO, 'User has no embedded wallet', { userId });
+                return null;
+            }
+
+            const walletData = embeddedWallet as any;
+            // Privy embedded wallets have an 'id' field that is the internal wallet ID
+            // and an 'address' field that is the Ethereum address
+            return {
+                address: walletData.address || '',
+                id: walletData.id || walletData.address // Fallback to address if id not present
+            };
+        } catch (error: any) {
+            lastError = error;
+            
+            if (attempt < maxRetries - 1) {
+                const delayMs = 500 * Math.pow(2, attempt); // 500ms, 1s, 2s
+                logger.warn(LogCode.SYS_INFO, `Privy wallet fetch failed, retrying in ${delayMs}ms`, { 
+                    userId, 
+                    attempt: attempt + 1, 
+                    maxRetries,
+                    error: error.message 
+                });
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
         }
-
-        const walletData = embeddedWallet as any;
-        // Privy embedded wallets have an 'id' field that is the internal wallet ID
-        // and an 'address' field that is the Ethereum address
-        return {
-            address: walletData.address || '',
-            id: walletData.id || walletData.address // Fallback to address if id not present
-        };
-    } catch (error: any) {
-        logger.error(LogCode.SYS_ERROR, 'Error getting user wallet from Privy', { userId, error: error.message });
-        throw new AppError(500, 'Failed to get user wallet', 'WALLET_ERROR');
     }
+
+    logger.error(LogCode.SYS_ERROR, 'Error getting user wallet from Privy after retries', { 
+        userId, 
+        attempts: maxRetries,
+        error: lastError?.message 
+    });
+    throw new AppError(500, 'Failed to get user wallet', 'WALLET_ERROR');
 }
 
 /**
@@ -193,6 +214,21 @@ export async function sendTransaction(
         if (!walletInfo) {
             throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
         }
+
+        // DEBUG: Log the full transaction parameters before sending
+        console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
+        console.log('[sendTransaction] From:', walletInfo.address);
+        console.log('[sendTransaction] To:', tx.to);
+        console.log('[sendTransaction] Value:', tx.value);
+        console.log('[sendTransaction] ValueHex:', tx.value ? `0x${BigInt(tx.value).toString(16)}` : 'undefined');
+        console.log('[sendTransaction] Data length:', tx.data?.length);
+        console.log('[sendTransaction] Data (full):', tx.data);
+        console.log('[sendTransaction] ChainId:', tx.chainId);
+        console.log('[sendTransaction] Gas:', tx.gas);
+        console.log('[sendTransaction] MaxFeePerGas:', tx.maxFeePerGas);
+        console.log('[sendTransaction] MaxPriorityFeePerGas:', tx.maxPriorityFeePerGas);
+        console.log('[sendTransaction] Full TX object:', tx);
+        console.log('[sendTransaction] ===========================================');
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {

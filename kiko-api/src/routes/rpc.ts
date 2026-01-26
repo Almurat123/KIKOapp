@@ -1,126 +1,53 @@
 /**
  * RPC Proxy Routes
- * Proxies RPC calls to Alchemy (EVM) and Helius (Solana) to hide API keys from frontend
+ * Proxies RPC calls using unified API service with automatic failover
  */
 
 import { FastifyInstance } from 'fastify';
-
-// Chain ID to Alchemy network mapping
-const ALCHEMY_NETWORKS: Record<number, string> = {
-    1: 'eth-mainnet',
-    8453: 'base-mainnet',
-    42161: 'arb-mainnet',
-    137: 'polygon-mainnet',
-    10: 'opt-mainnet',
-};
+import { callRpc } from '../config/unifiedApiService.js';
 
 export async function rpcRoutes(fastify: FastifyInstance) {
-    // API Keys from environment
-    const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || '';
-    const HELIUS_API_KEY = process.env.HELIUS_API_KEY || '';
 
     /**
      * POST /api/rpc/evm
-     * Proxy EVM RPC calls through Alchemy
+     * Proxy EVM RPC calls using unified service with automatic failover
      */
     fastify.post('/evm', async (request, reply) => {
         try {
             const payload = request.body as any;
-            const chainId = payload.chainId || (payload[0]?.chainId); // Handle potential batch
+            const chainId = payload.chainId || (payload[0]?.chainId);
             const method = payload.method || payload[0]?.method;
+            const params = payload.params || [];
 
-            if (!chainId && !request.url.includes('batch')) {
+            if (!chainId) {
                 return reply.status(400).send({ error: 'chainId is required' });
             }
 
-            if (!ALCHEMY_API_KEY) {
-                return reply.status(500).send({ error: 'Alchemy API key not configured' });
-            }
-
-            const network = ALCHEMY_NETWORKS[chainId];
-            if (!network) {
-                // Fallback or error
-                const publicRpcs: Record<number, string> = { 56: 'https://bsc-dataseed.bnbchain.org' };
-                const publicRpc = publicRpcs[chainId];
-                if (!publicRpc) return reply.status(400).send({ error: `Unsupported chainId: ${chainId}` });
-
-                const response = await fetch(publicRpc, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload.method ? {
-                        jsonrpc: '2.0',
-                        id: payload.id || 1,
-                        method: payload.method,
-                        params: payload.params || []
-                    } : payload),
-                });
-
-                const data = await response.json();
-                return reply.send(data);
-            }
-
-            const alchemyUrl = `https://${network}.g.alchemy.com/v2/${ALCHEMY_API_KEY}`;
-            const response = await fetch(alchemyUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload.method ? {
-                    jsonrpc: '2.0',
-                    id: payload.id || 1,
-                    method: payload.method,
-                    params: payload.params || []
-                } : payload),
-            });
-
-            const data = await response.json();
-            return reply.send(data);
-        } catch (error) {
+            // Use unified RPC service with automatic failover
+            const result = await callRpc(chainId, method, params);
+            return reply.send({ result, id: payload.id || 1, jsonrpc: '2.0' });
+        } catch (error: any) {
             console.error('[RPC Proxy] EVM error:', error);
-            return reply.status(500).send({ error: 'RPC request failed' });
+            return reply.status(500).send({ error: 'RPC request failed', message: error.message });
         }
     });
 
     /**
      * POST /api/rpc/solana
-     * Proxy Solana RPC calls through Helius
+     * Proxy Solana RPC calls using unified service
      */
     fastify.post('/solana', async (request, reply) => {
         try {
             const payload = request.body as any;
+            const method = payload.method || payload[0]?.method;
+            const params = payload.params || [];
 
-            if (!HELIUS_API_KEY) {
-                const publicRpc = 'https://api.mainnet-beta.solana.com';
-                const response = await fetch(publicRpc, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload.method ? {
-                        jsonrpc: '2.0',
-                        id: payload.id || 1,
-                        method: payload.method,
-                        params: payload.params || []
-                    } : payload),
-                });
-
-                const data = await response.json();
-                return reply.send(data);
-            }
-
-            const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-            const response = await fetch(heliusUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload.method ? {
-                    jsonrpc: '2.0',
-                    id: payload.id || 1,
-                    method: payload.method,
-                    params: payload.params || []
-                } : payload),
-            });
-
-            const data = await response.json();
-            return reply.send(data);
-        } catch (error) {
+            // Use unified RPC service (Solana chain)
+            const result = await callRpc('solana', method, params);
+            return reply.send({ result, id: payload.id || 1, jsonrpc: '2.0' });
+        } catch (error: any) {
             console.error('[RPC Proxy] Solana error:', error);
-            return reply.status(500).send({ error: 'RPC request failed' });
+            return reply.status(500).send({ error: 'RPC request failed', message: error.message });
         }
     });
 
@@ -136,34 +63,18 @@ export async function rpcRoutes(fastify: FastifyInstance) {
                 return reply.status(400).send({ error: 'chainId and calls array are required' });
             }
 
-            if (!ALCHEMY_API_KEY) {
-                return reply.status(500).send({ error: 'Alchemy API key not configured' });
-            }
+            // Process each call in parallel
+            const results = await Promise.all(
+                calls.map((call: any) => 
+                    callRpc(chainId, call.method, call.params || [])
+                        .catch((err: any) => ({ error: err.message }))
+                )
+            );
 
-            const network = ALCHEMY_NETWORKS[chainId];
-            if (!network) {
-                return reply.status(400).send({ error: `Unsupported chainId for batch: ${chainId}` });
-            }
-
-            const alchemyUrl = `https://${network}.g.alchemy.com/v2/${ALCHEMY_API_KEY}`;
-            const batchBody = calls.map((call: any, index: number) => ({
-                jsonrpc: '2.0',
-                method: call.method,
-                params: call.params || [],
-                id: index + 1,
-            }));
-
-            const response = await fetch(alchemyUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(batchBody),
-            });
-
-            const data = await response.json();
-            return reply.send(data);
-        } catch (error) {
+            return reply.send(results);
+        } catch (error: any) {
             console.error('[RPC Proxy] Batch error:', error);
-            return reply.status(500).send({ error: 'Batch RPC request failed' });
+            return reply.status(500).send({ error: 'Batch RPC request failed', message: error.message });
         }
     });
 }

@@ -215,8 +215,8 @@ export interface CustomAISettings {
   defaultSwapAmount: number;
   defaultSwapUnit: string;
   checkTokenBeforeSwap: boolean;
-  quickSwapMode: boolean;
-  swapMethod: string;
+
+
 }
 
 export async function* streamAIResponse(
@@ -353,13 +353,9 @@ export async function* streamAIResponse(
         customInstructions += `\nSecurity Check: Always check token security and risk before suggesting a swap.`;
       }
 
-      if (customSettings.quickSwapMode) {
-        customInstructions += `\nQuick Swap Mode: ENABLED.Be extremely concise.If the user wants to swap, generate the swap card immediately without lengthy explanation.`;
-      }
 
-      if (customSettings.swapMethod) {
-        customInstructions += `\nPreferred Swap Method: ${customSettings.swapMethod === 'allowance_trade' ? 'Allowance Trade' : 'Swap Card'}.`;
-      }
+
+
 
       if (customSettings.defaultSwapAmount) {
         customInstructions += `\nDefault Swap Amount: ${customSettings.defaultSwapAmount} (Native Token).`;

@@ -14,6 +14,8 @@ import * as geckoTerminal from './geckoTerminal.js';
 import { getSolanaTokenMetadata } from '../utils/solanaToken.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { TOKEN_REGISTRY, SOLANA_NATIVE_MINT, SPL_TOKEN_METADATA } from '../config/tokenRegistry.js';
+import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 
 // Alchemy network endpoints
 const ALCHEMY_NETWORKS: Record<string, string> = {
@@ -27,39 +29,41 @@ const ALCHEMY_NETWORKS: Record<string, string> = {
   sol: 'solana-mainnet',
 };
 
-// Known SPL Token Metadata Cache (to avoid "Unknown Token")
-const SPL_TOKEN_METADATA: Record<string, { symbol: string; name: string; decimals: number }> = {
-  'So11111111111111111111111111111111111111112': { symbol: 'WSOL', name: 'Wrapped SOL', decimals: 9 },
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
-  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN': { symbol: 'JUP', name: 'Jupiter', decimals: 6 },
-  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': { symbol: 'mSOL', name: 'Marinade Staked SOL', decimals: 9 },
-  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': { symbol: 'BONK', name: 'Bonk', decimals: 5 },
-  'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3': { symbol: 'PYTH', name: 'Pyth Network', decimals: 6 },
-  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs': { symbol: 'ETH', name: 'Wrapped Ether (Wormhole)', decimals: 8 },
-  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': { symbol: 'bSOL', name: 'BlazeStake Staked SOL', decimals: 9 },
-  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': { symbol: 'jitoSOL', name: 'Jito Staked SOL', decimals: 9 },
-  'RLBxxFkseAZ4RgJH3Sqn8jXxhmGoz9jWxDNJMh8pL7a': { symbol: 'RLB', name: 'Rollbit Coin', decimals: 2 },
-  'WENWENvqqNya429ubCdR81ZmD69brwQaaBYY6p3LCpk': { symbol: 'WEN', name: 'Wen', decimals: 5 },
-  'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof': { symbol: 'RNDR', name: 'Render Token', decimals: 8 },
-  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': { symbol: 'RAY', name: 'Raydium', decimals: 6 },
-  'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE': { symbol: 'ORCA', name: 'Orca', decimals: 6 },
-  'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt': { symbol: 'SRM', name: 'Serum', decimals: 6 },
-  'MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey': { symbol: 'MNDE', name: 'Marinade', decimals: 9 },
-  '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj': { symbol: 'stSOL', name: 'Lido Staked SOL', decimals: 9 },
-  'AFbX8oGjGpmVFywbVouvhQSRmiW2aR1mohfahi4Y2AdB': { symbol: 'GST', name: 'Green Satoshi Token', decimals: 9 },
-  'kinXdEcpDQeHPEuQnqmUgtYykqKGVFq6CeVX5iAHJq6': { symbol: 'KIN', name: 'Kin', decimals: 5 },
-};
+/**
+ * Helper to retry fetch on 429/503 errors
+ */
+async function fetchWithRetry(fn: () => Promise<Response>, retries = 3, delay = 1000): Promise<Response> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fn();
+      if (res.ok) return res;
+      if (res.status === 429 || res.status >= 500) {
+        if (i === retries - 1) throw new Error(`Request failed with status ${res.status}`);
+        await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+    }
+  }
+  throw new Error('fetchWithRetry failed');
+}
 
 /**
  * Get SPL token symbol from mint address
- * Uses local cache first, then returns shortened address as fallback
+ * Uses local registry first, then returns shortened address as fallback
  */
 function getSplTokenSymbol(mint: string): string {
-  const cached = SPL_TOKEN_METADATA[mint];
-  if (cached) return cached.symbol;
+  // 1. Search in Centralized Token Registry
+  for (const token of Object.values(TOKEN_REGISTRY)) {
+    if (token.addresses[SOLANA_CONFIG.CHAIN_ID]?.toLowerCase() === mint.toLowerCase()) {
+      return token.symbol;
+    }
+  }
 
-  // Return shortened mint address as fallback (first 4 + last 4 chars)
+  // 2. Return shortened mint address as fallback (first 4 + last 4 chars)
   return mint.slice(0, 4) + '...' + mint.slice(-4);
 }
 
@@ -213,73 +217,133 @@ export async function getAssetTransfers(
         };
         logger.debug(LogCode.API_FETCH_SUCCESS, 'Alchemy request body', { method: 'alchemy_getAssetTransfers', id: 1 });
 
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-        });
-        if (!response.ok) {
-          const err = await response.text();
-          logger.error(LogCode.API_FETCH_FAILED, 'Alchemy API error', { status: response.status, error: err.substring(0, 200) });
-          return null;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+        const fetchWithRetry = async (fn: () => Promise<Response>, retries = 3, delay = 1000): Promise<Response> => {
+          try {
+            const res = await fn();
+            if (!res.ok && (res.status === 429 || res.status >= 500) && retries > 0) {
+              logger.warn(LogCode.API_FETCH_FAILED, `Alchemy API ${res.status}, retrying...`, { retriesLeft: retries });
+              await new Promise(r => setTimeout(r, delay));
+              return fetchWithRetry(fn, retries - 1, delay * 2);
+            }
+            return res;
+          } catch (err: any) {
+            const isNetworkError = err.cause?.code === 'ECONNRESET' || err.cause?.code === 'ETIMEDOUT' || err.message.includes('fetch failed');
+            if (isNetworkError && retries > 0) {
+              logger.warn(LogCode.API_FETCH_FAILED, `Alchemy Network Error (${err.message}), retrying...`, { retriesLeft: retries });
+              await new Promise(r => setTimeout(r, delay));
+              return fetchWithRetry(fn, retries - 1, delay * 2);
+            }
+            throw err;
+          }
+        };
+
+        try {
+          const response = await fetchWithRetry(() => fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'gzip', // ✅ Enable gzip compression
+              'Connection': 'keep-alive', // ✅ Connection reuse
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal,
+            keepalive: true,
+          }));
+
+          if (!response.ok) {
+            const err = await response.text();
+            logger.error(LogCode.API_FETCH_FAILED, 'Alchemy API error', { status: response.status, error: err.substring(0, 200) });
+            return null;
+          }
+          const data = await response.json() as { result?: { transfers: AssetTransfer[] }, error?: any };
+          if (data.error) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Alchemy RPC Error', { error: data.error });
+          }
+          logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy transfers received', { count: data.result?.transfers?.length || 0 });
+          return data.result?.transfers || [];
+        } finally {
+          clearTimeout(timeout);
         }
-        const data = await response.json() as { result?: { transfers: AssetTransfer[] }, error?: any };
-        if (data.error) {
-          logger.error(LogCode.API_FETCH_FAILED, 'Alchemy RPC Error', { error: data.error });
-        }
-        logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy transfers received', { count: data.result?.transfers?.length || 0 });
-        return data.result?.transfers || [];
       }
 
       // Otherwise, follow the original logic (incoming + outgoing for a wallet)
       if (!address) return [];
 
       // Fetch transfers TO the address (incoming)
-      const incomingResponse = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 1,
-          jsonrpc: '2.0',
-          method: 'alchemy_getAssetTransfers',
-          params: [{
-            fromBlock,
-            toBlock,
-            toAddress: address,
-            category,
-            contractAddresses,
-            maxCount: `0x${maxCount.toString(16)}`,
-            order,
-            withMetadata: true,
-          }],
-        }),
-      });
+      const incomingController = new AbortController();
+      const incomingTimeout = setTimeout(() => incomingController.abort(), 10000);
+      let incomingResponse;
+      try {
+        incomingResponse = await fetchWithRetry(() => fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'Connection': 'keep-alive', // ✅ Connection reuse
+          },
+          body: JSON.stringify({
+            id: 1,
+            jsonrpc: '2.0',
+            method: 'alchemy_getAssetTransfers',
+            params: [{
+              fromBlock,
+              toBlock,
+              toAddress: address,
+              category,
+              contractAddresses,
+              maxCount: `0x${maxCount.toString(16)}`,
+              order,
+              withMetadata: true,
+            }],
+          }),
+          signal: incomingController.signal,
+          keepalive: true,
+        }));
+      } finally {
+        clearTimeout(incomingTimeout);
+      }
 
       // Fetch transfers FROM the address (outgoing)
-      const outgoingResponse = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 2,
-          jsonrpc: '2.0',
-          method: 'alchemy_getAssetTransfers',
-          params: [{
-            fromBlock,
-            toBlock,
-            fromAddress: address,
-            category,
-            contractAddresses,
-            maxCount: `0x${maxCount.toString(16)}`,
-            order,
-            withMetadata: true,
-          }],
-        }),
-      });
+      const outgoingController = new AbortController();
+      const outgoingTimeout = setTimeout(() => outgoingController.abort(), 10000);
+      let outgoingResponse;
+      try {
+        outgoingResponse = await fetchWithRetry(() => fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'Connection': 'keep-alive', // ✅ Connection reuse
+          },
+          body: JSON.stringify({
+            id: 2,
+            jsonrpc: '2.0',
+            method: 'alchemy_getAssetTransfers',
+            params: [{
+              fromBlock,
+              toBlock,
+              fromAddress: address,
+              category,
+              contractAddresses,
+              maxCount: `0x${maxCount.toString(16)}`,
+              order,
+              withMetadata: true,
+            }],
+          }),
+          signal: outgoingController.signal,
+          keepalive: true,
+        }));
+      } finally {
+        clearTimeout(outgoingTimeout);
+      }
 
-      if (!incomingResponse.ok || !outgoingResponse.ok) {
+      if (!incomingResponse || !outgoingResponse || !incomingResponse.ok || !outgoingResponse.ok) {
         logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch asset transfers from Alchemy', {
-          incomingStatus: incomingResponse.status,
-          outgoingStatus: outgoingResponse.status
+          incomingStatus: incomingResponse?.status,
+          outgoingStatus: outgoingResponse?.status
         });
         return null;
       }
@@ -688,7 +752,10 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept-Encoding': 'gzip'
+      },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -705,7 +772,10 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
     const txPromises = signatures.map(async (sig) => {
       const txResponse = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Encoding': 'gzip'
+        },
         body: JSON.stringify({
           id: 1,
           jsonrpc: '2.0',
@@ -1050,15 +1120,27 @@ export async function getTokenMetadata(chain: string, address: string): Promise<
   };
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'Connection': 'keep-alive',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        keepalive: true,
+      });
 
-    if (response.ok) {
-      const json = await response.json();
-      return json.result;
+      if (response.ok) {
+        const json = await response.json();
+        return json.result;
+      }
+    } finally {
+      clearTimeout(timeout);
     }
   } catch (e: any) {
     logger.error(LogCode.API_FETCH_FAILED, 'Error fetching token metadata from Alchemy', { error: e.message, address });
@@ -1083,66 +1165,99 @@ function getStablecoinPrice(symbol?: string): number | undefined {
   return STABLECOIN_SYMBOLS.has(symbol.toUpperCase()) ? 1 : undefined;
 }
 
+async function fetchTokenDecimalsFromRpc(chain: string, tokenAddress: string): Promise<number | null> {
+  try {
+    const result = await rpcManager.callRpc<string>(chain, 'eth_call', [
+      { to: tokenAddress, data: '0x313ce567' },
+      'latest',
+    ]);
+    const decimals = Number(BigInt(result));
+    if (Number.isFinite(decimals)) {
+      return decimals;
+    }
+    return null;
+  } catch (error: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, 'RPC decimals fetch failed', {
+      chain,
+      token: tokenAddress,
+      error: error.message,
+    });
+    return null;
+  }
+}
+
 async function fetchSolanaTokenAccounts(address: string): Promise<TokenBalance[]> {
   try {
     const alchemyUrl = getAlchemyUrl('solana');
-    const response = await fetch(alchemyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'getTokenAccountsByOwner',
-        params: [
-          address,
-          { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
-          { encoding: 'jsonParsed' },
-        ],
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(alchemyUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'Connection': 'keep-alive',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getTokenAccountsByOwner',
+          params: [
+            address,
+            { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+            { encoding: 'jsonParsed' },
+          ],
+        }),
+        signal: controller.signal,
+        keepalive: true,
+      });
 
-    if (!response.ok) {
-      throw new Error(`Alchemy Solana RPC ${response.status}`);
-    }
-
-    const json = await response.json() as { result?: { value?: Array<{ account?: { data?: { parsed?: { info?: any } } } }> } };
-    const result = json?.result;
-    if (!result) {
-      throw new Error('Alchemy Solana RPC missing result');
-    }
-
-    const accounts = result?.value || [];
-    const tokens: TokenBalance[] = [];
-
-    for (const entry of accounts) {
-      const info = entry?.account?.data?.parsed?.info;
-      const mint = info?.mint as string | undefined;
-      const amountInfo = info?.tokenAmount;
-      const uiAmountString = amountInfo?.uiAmountString as string | undefined;
-      const decimals = typeof amountInfo?.decimals === 'number' ? amountInfo.decimals : 0;
-
-      if (!mint || !uiAmountString || uiAmountString === '0') continue;
-
-      const known = SPL_TOKEN_METADATA[mint];
-      let symbol: string | undefined = known?.symbol;
-      let name: string | undefined = known?.name;
-
-      if (!symbol) {
-        const meta = await getSolanaTokenMetadata(mint);
-        symbol = meta?.symbol;
-        name = meta?.name;
+      if (!response.ok) {
+        throw new Error(`Alchemy Solana RPC ${response.status}`);
       }
 
-      tokens.push({
-        contractAddress: mint,
-        tokenBalance: uiAmountString,
-        symbol: symbol || 'UNKNOWN',
-        name: name || 'Unknown Token',
-        decimals,
-      });
-    }
+      const json = await response.json() as { result?: { value?: Array<{ account?: { data?: { parsed?: { info?: any } } } }> } };
+      const result = json?.result;
+      if (!result) {
+        throw new Error('Alchemy Solana RPC missing result');
+      }
 
-    return tokens;
+      const accounts = result?.value || [];
+      const tokens: TokenBalance[] = [];
+
+      for (const entry of accounts) {
+        const info = entry?.account?.data?.parsed?.info;
+        const mint = info?.mint as string | undefined;
+        const amountInfo = info?.tokenAmount;
+        const uiAmountString = amountInfo?.uiAmountString as string | undefined;
+        const decimals = typeof amountInfo?.decimals === 'number' ? amountInfo.decimals : 0;
+
+        if (!mint || !uiAmountString || uiAmountString === '0') continue;
+
+        const known = SPL_TOKEN_METADATA[mint];
+        let symbol: string | undefined = known?.symbol;
+        let name: string | undefined = known?.name;
+
+        if (!symbol) {
+          const meta = await getSolanaTokenMetadata(mint);
+          symbol = meta?.symbol;
+          name = meta?.name;
+        }
+
+        tokens.push({
+          contractAddress: mint,
+          tokenBalance: uiAmountString,
+          symbol: symbol || 'UNKNOWN',
+          name: name || 'Unknown Token',
+          decimals,
+        });
+      }
+
+      return tokens;
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch (error: any) {
     logger.warn(LogCode.API_FETCH_FAILED, 'Solana token account fallback failed', {
       error: error.message,
@@ -1203,6 +1318,7 @@ const PORTFOLIO_TIMEOUT_MS = 12_000;
 const METADATA_TIMEOUT_MS = 6_000;
 const PRICE_TIMEOUT_MS = 8_000;
 const MAX_METADATA_TOKENS_EVM = 80;
+const MAX_BATCH_SIZE = 10; // ✅ Alchemy best practice: Keep batch size small (10 per request)
 const MAX_PRICE_TOKENS_EVM = 120;
 const tokenPriceCache = new Map<string, { price: number; timestamp: number }>();
 const tokenPriceInFlight = new Map<string, Promise<number | undefined>>();
@@ -1391,7 +1507,10 @@ async function fetchEvmNativeBalance(
   try {
     const response = await fetch(infuraUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept-Encoding': 'gzip'
+      },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -1428,46 +1547,59 @@ async function getTokenMetadataBatch(
   if (uniqueAddresses.length === 0) return {};
 
   const url = getAlchemyUrl(chain);
-  const addressById = new Map<number, string>();
-  const payload = uniqueAddresses.map((addr, index) => {
-    const id = index + 1;
-    addressById.set(id, addr);
-    return {
-      jsonrpc: '2.0',
-      id,
-      method: 'alchemy_getTokenMetadata',
-      params: [addr],
-    };
-  });
+  const results: Record<string, any> = {};
 
-  try {
-    const response = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, METADATA_TIMEOUT_MS);
+  // ✅ Split into smaller batches (Alchemy best practice)
+  // Instead of 80 requests in one batch, do 8 batches of 10
+  for (let batchStart = 0; batchStart < uniqueAddresses.length; batchStart += MAX_BATCH_SIZE) {
+    const batchAddresses = uniqueAddresses.slice(batchStart, batchStart + MAX_BATCH_SIZE);
+    const addressById = new Map<number, string>();
 
-    if (!response.ok) return {};
-
-    const json = await response.json();
-    if (!Array.isArray(json)) return {};
-
-    const results: Record<string, any> = {};
-    json.forEach(entry => {
-      const addr = addressById.get(entry?.id);
-      if (addr && entry?.result) {
-        results[addr] = entry.result;
-      }
+    const payload = batchAddresses.map((addr, index) => {
+      const id = index + 1;
+      addressById.set(id, addr);
+      return {
+        jsonrpc: '2.0',
+        id,
+        method: 'alchemy_getTokenMetadata',
+        params: [addr],
+      };
     });
 
-    return results;
-  } catch (e: any) {
-    logger.error(LogCode.API_FETCH_FAILED, 'Batch token metadata fetch failed', {
-      error: e.message,
-      chain,
-    });
-    return {};
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Encoding': 'gzip'
+        },
+        body: JSON.stringify(payload),
+      }, METADATA_TIMEOUT_MS);
+
+      if (!response.ok) continue; // Skip this batch, try next
+
+      const json = await response.json();
+      if (!Array.isArray(json)) continue;
+
+      json.forEach(entry => {
+        const addr = addressById.get(entry?.id);
+        if (addr && entry?.result) {
+          results[addr] = entry.result;
+        }
+      });
+    } catch (e: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Batch token metadata fetch failed for batch', {
+        error: e.message,
+        chain,
+        batchSize: batchAddresses.length,
+        batchStart
+      });
+      // Continue with next batch even if this one fails
+      continue;
+    }
   }
+
+  return results;
 }
 
 /**
@@ -1591,6 +1723,38 @@ export async function getPortfolio(
       'solana': 'solana-mainnet',
     };
 
+    const stablecoinOverrides: Record<string, Record<string, { symbol: string; name: string; decimals: number }>> = {
+      eth: {
+        '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+        '0xdac17f958d2ee523a2206206994597c13d831ec7': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+        '0x6b175474e89094c44da98b954eedeac495271d0f': { symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
+      },
+      base: {
+        '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+        '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca': { symbol: 'USDbC', name: 'USD Base Coin', decimals: 6 },
+      },
+      arbitrum: {
+        '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+        '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+        '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1': { symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
+      },
+      optimism: {
+        '0x7f5c764cbc14f9669b88837ca1490cca17c31607': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+        '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+        '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1': { symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
+      },
+      polygon: {
+        '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+        '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+        '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063': { symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
+      },
+      bsc: {
+        '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': { symbol: 'USDC', name: 'USD Coin', decimals: 18 },
+        '0x55d398326f99059ff775485246999027b3197955': { symbol: 'USDT', name: 'Tether USD', decimals: 18 },
+        '0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3': { symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
+      },
+    };
+
     const NATIVE_PRICES = await getNativePrices();
 
     const targetNetworks = chains.map(c => networkMap[c.toLowerCase()]).filter(Boolean);
@@ -1629,7 +1793,8 @@ export async function getPortfolio(
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept-Encoding': 'gzip', // ✅ Enable gzip compression (critical for Portfolio API responses)
           },
           body: JSON.stringify(body)
         }, PORTFOLIO_TIMEOUT_MS);
@@ -1682,9 +1847,10 @@ export async function getPortfolio(
               } else {
                 const tokenAddress = t.tokenAddress as string;
                 const meta = metadataByAddress[tokenAddress.toLowerCase()];
-                const decimals = typeof t.decimals === 'number' ? t.decimals : (meta?.decimals ?? 18);
-                const symbol = t.symbol || meta?.symbol || 'UNKNOWN';
-                const name = t.name || meta?.name || 'Unknown Token';
+                const override = stablecoinOverrides[chainKey]?.[tokenAddress.toLowerCase()];
+                const decimals = override?.decimals ?? (typeof t.decimals === 'number' ? t.decimals : (meta?.decimals ?? 18));
+                const symbol = override?.symbol || t.symbol || meta?.symbol || 'UNKNOWN';
+                const name = override?.name || t.name || meta?.name || 'Unknown Token';
                 const logo = t.metadata?.logo || meta?.logo || '';
                 const formattedBalance = formatTokenBalance(balanceBigInt, decimals);
                 const alchemyPrice = typeof t.price === 'number' ? t.price : undefined;
@@ -1707,6 +1873,38 @@ export async function getPortfolio(
             results[chainKey] = { ethBalance, ethBalanceFormatted, ethPrice, tokens } as any;
 
             if (tokens.length > 0) {
+              const tokensByBalance = tokens
+                .slice()
+                .sort((a, b) => {
+                  const aBal = rawBalancesByAddress.get(a.contractAddress.toLowerCase()) || 0n;
+                  const bBal = rawBalancesByAddress.get(b.contractAddress.toLowerCase()) || 0n;
+                  return aBal > bBal ? -1 : aBal < bBal ? 1 : 0;
+                })
+                .slice(0, MAX_METADATA_TOKENS_EVM);
+
+              const decimalsResults = await Promise.all(tokensByBalance.map(async token => {
+                const decimals = await fetchTokenDecimalsFromRpc(chainKey, token.contractAddress);
+                return { token, decimals };
+              }));
+
+              for (const { token, decimals } of decimalsResults) {
+                if (decimals === null || decimals === undefined) continue;
+                if (token.decimals !== decimals) {
+                  const raw = rawBalancesByAddress.get(token.contractAddress.toLowerCase()) || BigInt(0);
+                  token.decimals = decimals;
+                  token.tokenBalance = formatTokenBalance(raw, decimals);
+                  if (token.price !== undefined) {
+                    const balance = parseFloat(token.tokenBalance || '0');
+                    token.valueUsd = balance * token.price;
+                  }
+                  logger.info(LogCode.API_FETCH_SUCCESS, 'Token decimals corrected from RPC', {
+                    chain: chainKey,
+                    token: token.contractAddress,
+                    decimals,
+                  });
+                }
+              }
+
               const tokensMissingPrice = tokens
                 .filter(t => t.price === undefined)
                 .sort((a, b) => {
@@ -1759,7 +1957,8 @@ export async function getPortfolio(
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`
+              'Authorization': `Bearer ${apiKey}`,
+              'Accept-Encoding': 'gzip'
             },
             body: JSON.stringify(body)
           }, PORTFOLIO_TIMEOUT_MS);
@@ -1779,7 +1978,7 @@ export async function getPortfolio(
               const hexBalance = t.tokenBalance || '0';
               const balanceBigInt = parseTokenBalance(hexBalance);
 
-              if (balanceBigInt === 0n) return;
+              if (balanceBigInt === BigInt(0)) return;
 
               if (isNative) {
                 ethBalance = hexBalance;
@@ -1980,13 +2179,13 @@ export async function getNativeBalances(
         token: tokenAddress,
         error: error.message,
       });
-      return 0n;
+      return BigInt(0);
     }
   };
 
   const formatStableBalance = (raw: bigint, decimals: number): string => {
     if (decimals <= 0) return raw.toString();
-    const divisor = 10n ** BigInt(decimals);
+    const divisor = BigInt(10) ** BigInt(decimals);
     const whole = raw / divisor;
     const fraction = raw % divisor;
     const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
@@ -2026,7 +2225,7 @@ export async function getNativeBalances(
       if (stableList.length > 0) {
         const settled = await Promise.all(stableList.map(async (token) => {
           const raw = await readErc20Balance(chainKey, token.address);
-          if (raw === 0n) return null;
+          if (raw === BigInt(0)) return null;
           const formatted = formatStableBalance(raw, token.decimals);
           return {
             contractAddress: token.address,
@@ -2054,4 +2253,125 @@ export async function getNativeBalances(
   }));
 
   return Object.fromEntries(entries);
+}
+
+/**
+ * Direct check for a specific token balance using eth_call
+ * Needed for new tokens that might not be indexed yet
+ */
+export async function getSpecificTokenBalance(
+  address: string,
+  chain: string,
+  tokenAddress: string
+): Promise<{ raw: string; decimals: number; formatted: string }> {
+  const formatTokenBalance = (rawBalance: bigint, decimals: number): string => {
+    if (decimals <= 0) return rawBalance.toString();
+    const divisor = BigInt(10) ** BigInt(decimals);
+    const whole = rawBalance / divisor;
+    const fraction = rawBalance % divisor;
+    const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
+    return fractionStr ? `${whole}.${fractionStr}` : whole.toString();
+  };
+
+  // CRITICAL FIX: Ensure we always return a valid object
+  try {
+    const url = getAlchemyUrl(chain);
+
+    // 1. Get Decimals (try metadata first, default 18)
+    let decimals = 18;
+    try {
+      const rpcDecimals = await fetchTokenDecimalsFromRpc(chain, tokenAddress);
+      if (rpcDecimals !== null && rpcDecimals !== undefined) {
+        decimals = rpcDecimals;
+      }
+    } catch (e) {
+      // Fallback to default
+    }
+
+    try {
+      const metaRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: '2.0',
+          method: 'alchemy_getTokenMetadata',
+          params: [tokenAddress]
+        })
+      });
+      const metaJson = await metaRes.json();
+      if (metaJson.result && typeof metaJson.result.decimals === 'number') {
+        decimals = metaJson.result.decimals;
+      }
+    } catch (error: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy metadata fetch failed for token decimals', {
+        chain,
+        token: tokenAddress,
+        error: error.message,
+      });
+    }
+
+    // 2. Get Balance via eth_call (balanceOf)
+    // Selector: 0x70a08231
+    const methodId = '0x70a08231';
+    // Pad address to 32 bytes (64 hex chars)
+    const cleanAddr = address.startsWith('0x') ? address.slice(2) : address;
+    const paddedAddr = cleanAddr.padStart(64, '0');
+    const data = methodId + paddedAddr;
+
+    // Try RPC first
+    try {
+      const result = await rpcManager.callRpc<string>(chain, 'eth_call', [
+        { to: tokenAddress, data },
+        'latest',
+      ]);
+      const raw = BigInt(result);
+      const formatted = formatTokenBalance(raw, decimals);
+      return { raw: raw.toString(), decimals, formatted };
+    } catch (error: any) {
+      logger.debug(LogCode.API_FETCH_FAILED, 'RPC balance fetch failed, trying Alchemy fetch', {
+        chain,
+        token: tokenAddress,
+        error: error.message,
+      });
+    }
+
+    // Fallback to Alchemy fetch
+    try {
+      const balRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 2,
+          jsonrpc: '2.0',
+          method: 'eth_call',
+          params: [{ to: tokenAddress, data: data }, 'latest'],
+        }),
+      });
+
+      const balJson = await balRes.json();
+      if (balJson.result && balJson.result !== '0x') {
+        const raw = BigInt(balJson.result);
+        const formatted = formatTokenBalance(raw, decimals);
+        return { raw: raw.toString(), decimals, formatted };
+      }
+    } catch (error: any) {
+      logger.debug(LogCode.API_FETCH_FAILED, 'Alchemy fetch also failed', {
+        chain,
+        token: tokenAddress,
+        error: error.message,
+      });
+    }
+
+    // If both methods fail, return zero balance with detected decimals
+    return { raw: '0', decimals, formatted: '0' };
+  } catch (err: any) {
+    logger.warn(LogCode.API_FETCH_FAILED, 'Failed to get specific token balance', {
+      chain,
+      token: tokenAddress,
+      error: err.message,
+    });
+    // CRITICAL: Always return valid object, never undefined
+    return { raw: '0', decimals: 18, formatted: '0' };
+  }
 }

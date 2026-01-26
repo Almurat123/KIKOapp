@@ -1,7 +1,7 @@
 **INTENT: RISK SCANNING & SECURITY**
 
 1. **Mandatory Security Checks**:
-   - For explicit risk queries (e.g., “safe?”, “honeypot?”, “rug?”), use a Risk Scan (do not mention internal tool names).
+   - Only run Risk Scan when the user explicitly asks about safety (e.g., “safe?”, “honeypot?”, “rug?”) or settings require it.
    - If a token is confirmed as a launchpad token, do not auto-run Risk Scan unless the user explicitly requests it.
    - **Key Metrics to Watch**:
      - **Liquidity**: Low Liquidity (<$50k) = HIGH RISK.

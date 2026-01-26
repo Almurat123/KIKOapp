@@ -45,6 +45,9 @@ export async function runJudgeEngine(
     userAmountUsd: number,
     targetWallet?: string
 ): Promise<DecisionEngineOutput> {
+    // Check if Judge Engine is globally disabled via ENV
+
+
     logger.info(LogCode.SYS_INFO, 'Judge Engine: Starting analysis', { tokenAddress, chainId, userAmountUsd, targetWallet: targetWallet || 'N/A' });
 
     const startTime = Date.now();
@@ -183,13 +186,25 @@ async function gatherTokenData(
         checkTokenSecurity(tokenAddress, chainId),
     ]);
 
-    // Merge data (prefer geckoData for price/liquidity if dex is 0)
+    // Merge data with proper validation
+    // CRITICAL: Use explicit undefined checks, not falsy checks, to avoid overwriting 0 with negative values
+    const geckoLiquidity = (geckoData as any)?.liquidity;
+    const dexLiquidity = dexData?.liquidity;
+
+    // Prefer DexScreener, but validate GeckoTerminal fallback (reject negative values)
+    let finalLiquidity = 0;
+    if (dexLiquidity !== undefined && dexLiquidity !== null) {
+        finalLiquidity = Math.max(0, dexLiquidity); // Ensure non-negative
+    } else if (geckoLiquidity !== undefined && geckoLiquidity !== null) {
+        finalLiquidity = Math.max(0, geckoLiquidity); // Ensure non-negative
+    }
+
     const tokenData: TokenData = {
         address: tokenAddress,
         symbol: dexData?.symbol || (geckoData as any)?.symbol || 'UNKNOWN',
         name: dexData?.name || (geckoData as any)?.name || 'Unknown',
         price: dexData?.price || (geckoData as any)?.price || 0,
-        liquidity: dexData?.liquidity || (geckoData as any)?.liquidity || 0,
+        liquidity: finalLiquidity,
         fdv: dexData?.fdv || (geckoData as any)?.fdv || 0,
         marketCap: (dexData as any)?.marketCap || (geckoData as any)?.marketCap || 0,  // marketCap might not exist on DexScreenerToken
         priceChange5m: (geckoData as any)?.priceChange5m || 0,
@@ -249,18 +264,52 @@ async function evaluateTokenIntelligence(
 
     logger.debug(LogCode.SYS_INFO, 'Judge Engine: Token Intelligence links', { twitterUrl, websiteUrl });
 
-    // === CALL GROK FOR REAL ANALYSIS ===
+    // === CALL GROK FOR REAL ANALYSIS (Optional) ===
+    const enableGrok = process.env.ENABLE_GROK_ANALYSIS === 'true';
     let grokAnalysis;
-    try {
-        grokAnalysis = await analyzeTokenWithGrok(
-            tokenData.symbol,
-            tokenData.address,
-            twitterUrl,
-            websiteUrl
-        );
-    } catch (error: any) {
-        logger.error(LogCode.SYS_ERROR, 'Judge Engine: Grok analysis failed', { error: error.message });
-        // Fallback values if Grok is unavailable
+
+    if (enableGrok) {
+        try {
+            grokAnalysis = await analyzeTokenWithGrok(
+                tokenData.symbol,
+                tokenData.address,
+                twitterUrl,
+                websiteUrl
+            );
+        } catch (error: any) {
+            logger.error(LogCode.SYS_ERROR, 'Judge Engine: Grok analysis failed', { error: error.message });
+            // Fallback values if Grok is unavailable
+            grokAnalysis = {
+                twitter: {
+                    twitterActive: false,
+                    twitterFollowers: 0,
+                    hasKOLMentions: false,
+                    communityDiscussionLevel: 0.5,
+                    recentPosts: [],
+                    sentiment: 'neutral' as const,
+                    scamReports: false,
+                    rugReports: false,
+                },
+                website: {
+                    websiteReachable: false,
+                    designQuality: 0.5,
+                    contentDepth: 0.5,
+                    hasDocs: false,
+                    hasProduct: false,
+                    hasTeamInfo: false,
+                    summary: 'Grok analysis failed',
+                },
+                narrative: {
+                    narrativeType: 'unknown',
+                    narrativeStrength: 0.5,
+                    narrativeAlignment: 0.5,
+                    narrativeConsistency: 0.5,
+                },
+            };
+        }
+    } else {
+        // Grok disabled - use fast fallback
+        logger.debug(LogCode.SYS_INFO, 'Judge Engine: Grok analysis disabled via env var');
         grokAnalysis = {
             twitter: {
                 twitterActive: false,
@@ -279,7 +328,7 @@ async function evaluateTokenIntelligence(
                 hasDocs: false,
                 hasProduct: false,
                 hasTeamInfo: false,
-                summary: 'Grok analysis failed',
+                summary: 'Grok analysis disabled',
             },
             narrative: {
                 narrativeType: 'unknown',

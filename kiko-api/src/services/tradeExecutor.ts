@@ -1,3 +1,18 @@
+/**
+ * ⚠️ DEPRECATED - Use MainSwapService instead
+ * 
+ * This file is deprecated and will be removed in a future release.
+ * All callers should migrate to MainSwapService.executeSwap() for:
+ * - Unified swap execution across all platforms
+ * - Consistent fee handling (0.5% for swap, 1% for copy_trade)
+ * - Launchpad token routing
+ * - Better logging and error handling
+ * - Slippage retry mechanism
+ * 
+ * Original functionality:
+ * - executeSwapInstant(): Use mainSwapService.executeSwap() with mode='swap-card' or 'fast-swap'
+ * - executeSellInstant(): Use mainSwapService.executeSwap() with tokenOut as native token
+ */
 import { ethers } from 'ethers';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
@@ -20,11 +35,17 @@ interface ExecuteSwapParams {
 }
 
 /**
+ * ⚠️ DEPRECATED - Use MainSwapService instead
  * Execute an instant swap using 0x API for quotes and Privy for execution
+ * 
+ * Migration: Call mainSwapService.executeSwap() instead
  */
-// ... (imports)
-
 export async function executeSwapInstant(params: ExecuteSwapParams): Promise<string> {
+    logger.warn(LogCode.SYS_INFO, '⚠️ DEPRECATED: tradeExecutor.executeSwapInstant() called - migrate to MainSwapService', {
+        caller: new Error().stack?.split('\n')[2],
+        tokenIn: params.tokenIn.slice(0, 10),
+        tokenOut: params.tokenOut.slice(0, 10)
+    });
     const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = 50 } = params;
     const timerLabel = `swap_instant_${walletAddress.slice(0, 8)}_${tokenIn}_${tokenOut}`;
     logger.startTimer(timerLabel);

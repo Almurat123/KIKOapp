@@ -164,9 +164,7 @@ USER_QUERY_END
                 parts.push(`- Role: The user is ${roleName}. Adjust explanation depth.`);
             }
 
-            if (config.quickSwapMode) {
-                parts.push(`- Quick mode: Enabled. Prioritize speed and result-first responses.`);
-            }
+
 
             if (config.checkTokenBeforeSwap) {
                 parts.push(`- Risk check: Required before swaps unless explicitly exempted by a policy exception.`);
@@ -175,9 +173,9 @@ USER_QUERY_END
             }
 
             if (config.swapMethod === 'allowance_trade' || config.swap_method === 'allowance') {
-                parts.push(`- Swap execution: Allowance trade mode (execute immediately when preparing).`);
+                parts.push(`- Swap execution: ⚡ ALLOWANCE TRADE MODE ENABLED. When calling prepare_swap_transaction, ALWAYS set execute: true parameter. This enables instant execution without user confirmation.`);
             } else {
-                parts.push(`- Swap execution: Review mode (prepare only, user confirms).`);
+                parts.push(`- Swap execution: Review mode. When calling prepare_swap_transaction, ALWAYS set execute: false parameter. User will confirm in a card before execution.`);
             }
 
             if (config.defaultSwapAmount) {
@@ -199,9 +197,7 @@ USER_QUERY_END
                 parts.push(`- Price deviation check: Enabled. Warn and halt if deviation is excessive.`);
             }
 
-            if (config.copyTradeAIMode && config.copyTradeAIMode !== 'disabled') {
-                parts.push(`- Copy trade AI: ${config.copyTradeAIMode === 'analyze_only' ? 'Analyze only' : 'Auto decide'} mode.`);
-            }
+
         }
 
         if (ctx.intentHints) {

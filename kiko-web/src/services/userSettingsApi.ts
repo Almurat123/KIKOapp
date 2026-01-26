@@ -10,13 +10,13 @@ export interface UserSettings {
     defaultSwapAmount: number;
     defaultSwapUnit: string;
     checkTokenBeforeSwap: boolean;
-    quickSwapMode: boolean;
-    swapMethod: string;
+
+
     slippageMode: string;
     customSlippage: number | '';
     mevProtection: boolean;
     priceDeviationCheck: boolean;
-    copyTradeAIMode: string;
+
     fastSwapMode?: boolean;
     copyTradeTokenCooldownMinutes?: number | null;
     minMarketCapUsd?: number | null;

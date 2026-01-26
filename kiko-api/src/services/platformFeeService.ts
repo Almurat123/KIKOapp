@@ -9,10 +9,15 @@ export interface PlatformFee {
 }
 
 export function getPlatformFee(context: FeeContext): PlatformFee {
-  if (!env.platformFees?.enabled) return { bps: 0 };
+  if (!env.platformFees?.enabled) {
+    console.log('[PlatformFee] Fees DISABLED, returning 0 bps');
+    return { bps: 0 };
+  }
 
   const bps = context === 'copyTrade' ? env.platformFees.copyTradeBps : env.platformFees.swapBps;
   const safeBps = Number.isFinite(bps) ? Math.max(0, Math.min(1000, Math.floor(bps))) : 0; // hard cap 10%
+
+  console.log('[PlatformFee] Fees ENABLED:', { context, bps: safeBps, evmRecipient: env.platformFees.evmRecipient?.slice(0, 12) });
 
   return {
     bps: safeBps,

@@ -23,7 +23,7 @@ export async function getTokenAccountAmount(connection: Connection, ata: PublicK
   const info = await connection.getParsedAccountInfo(ata, 'confirmed');
   const parsed = info.value?.data as ParsedAccountData | null | undefined;
   const amountStr = parsed?.parsed?.info?.tokenAmount?.amount;
-  return amountStr ? BigInt(amountStr) : 0n;
+  return amountStr ? BigInt(amountStr) : BigInt(0);
 }
 
 export interface SolanaTokenMetadata {

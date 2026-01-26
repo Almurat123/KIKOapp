@@ -2,11 +2,10 @@ cid# Token Alert Skill
 
 Manage price and market cap alerts for tokens. Set automated notifications or trading positions.
 
-## Intents
-- Set price alerts (above/below)
-- Set market cap alerts
-- Set automated buy/sell positions based on price triggers
-- List and manage active alerts
+## Trigger rules
+- Only create an alert after the user confirms token, condition, and action.
+- If token address or chain is missing, ask once for the missing info.
+- Do not execute trades here; this skill only creates/updates alerts.
 
 ## Tools
 

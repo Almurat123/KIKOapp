@@ -15,16 +15,15 @@ import { LogCode } from '../config/logRegistry.js';
 const ZEROX_BASE_URL = 'https://api.0x.org';
 const ZEROX_API_KEY = env.apiKeys.zeroEx || '';
 
-// Chain ID mapping for 0x API (use chain names for base URL)
+// Chain ID mapping for 0x API (verified supported chains only)
+// Based on: https://0x.org/docs/introduction/0x-cheat-sheet#-chain-support
 const CHAIN_ID_MAP: Record<number, string> = {
-  1: '1',        // Ethereum
-  8453: '8453',  // Base
-  42161: '42161', // Arbitrum
-  56: '56',      // BSC
-  137: '137',    // Polygon
-  10: '10',      // Optimism
-  43114: '43114', // Avalanche
-  250: '250',    // Fantom
+  1: '1',        // Ethereum - ✅ Verified
+  8453: '8453',  // Base - ✅ Verified  
+  42161: '42161', // Arbitrum - ✅ Verified
+  56: '56',      // BSC - ✅ Verified
+  137: '137',    // Polygon - ✅ Verified
+  10: '10',      // Optimism - ✅ Verified
 };
 
 const FALLBACK_TOKEN_METADATA: Record<number, Record<string, ZeroExTokenMetadata>> = {
@@ -181,30 +180,84 @@ const CHAIN_BASE_URLS: Record<number, string> = {
   10: 'https://api.0x.org',           // Optimism - use main API with chainId param
 };
 
+// 0x API v2 Response Interfaces (based on official examples)
 export interface ZeroExPrice {
-  price: string;
+  blockNumber?: string;
   buyAmount: string;
-  sellAmount: string;
   buyToken: string;
+  fees: {
+    integratorFee: {
+      amount: string;
+      token: string;
+      type: string;
+    } | null;
+    zeroExFee: {
+      amount: string;
+      token: string;
+      type: string;
+    };
+    gasFee: null;
+  } | null;
+  gas: string;
+  gasPrice: string;
+  grossBuyAmount?: string;
+  grossSellAmount?: string;
+  issues: {
+    allowance: {
+      actual: string;
+      spender: string;
+    } | null;
+    balance: null;
+    simulationIncomplete: boolean;
+    invalidSourcesPassed: any[];
+  };
+  liquidityAvailable?: boolean; // CRITICAL: Check this before using quote
+  minBuyAmount?: string;
+  price: string;
+  route?: any;
+  sellAmount: string;
   sellToken: string;
+  totalNetworkFee?: string;
+  zid?: string;
+  validationErrors?: Array<{
+    field: string;
+    code: number;
+    reason: string;
+  }>; // API validation errors (e.g., sellAmount too low)
+  // Legacy fields for backward compatibility
   allowanceTarget?: string;
   to?: string;
   data?: string;
   value?: string;
-  gas?: string;
-  gasPrice?: string;
   estimatedGas?: string;
 }
 
 export interface ZeroExQuote extends ZeroExPrice {
-  guaranteedPrice: string;
-  estimatedPriceImpact: string;
-  sources: Array<{
+  transaction: {
+    to: string;
+    data: string;
+    gas: string | null;
+    gasPrice: string;
+    value: string;
+  };
+  tokenMetadata?: {
+    buyToken: {
+      buyTaxBps: string;
+      sellTaxBps: string;
+    };
+    sellToken: {
+      buyTaxBps: string;
+      sellTaxBps: string | null;
+    };
+  };
+  // Additional quote-specific fields
+  guaranteedPrice?: string;
+  estimatedPriceImpact?: string;
+  sources?: Array<{
     name: string;
     proportion: string;
   }>;
-  orders: any[];
-  minBuyAmount?: string;
+  orders?: any[];
 }
 
 export interface ZeroExTokenMetadata {
@@ -262,10 +315,20 @@ export async function getZeroExPrice(
 
     logger.debug(LogCode.API_FETCH_SUCCESS, '0x API price request', { url });
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers,
-    });
+    // Add timeout for 0x API price calls (10 seconds)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -274,7 +337,23 @@ export async function getZeroExPrice(
     }
 
     const data = await response.json() as ZeroExPrice;
-    logger.info(LogCode.API_FETCH_SUCCESS, '0x API price received successfully', { sellToken, buyToken, chainId });
+
+    // Check if liquidity is available
+    if (data.liquidityAvailable === false) {
+      logger.warn(LogCode.API_FETCH_FAILED, '0x API price returned liquidityAvailable=false', {
+        sellToken,
+        buyToken,
+        chainId
+      });
+      return null; // No liquidity available for price
+    }
+
+    logger.info(LogCode.API_FETCH_SUCCESS, '0x API price received successfully', {
+      sellToken,
+      buyToken,
+      chainId,
+      liquidityAvailable: data.liquidityAvailable ?? 'not-specified'
+    });
     return data;
   } catch (error: any) {
     logger.error(LogCode.API_FETCH_FAILED, '0x API price fetch error', { error: error.message });
@@ -298,13 +377,20 @@ export async function getZeroExQuote(
   sellAmount: string,
   chainId: number,
   slippageBps: number = 50,
-  takerAddress?: string,
-  affiliateFee?: ZeroExAffiliateFee
+  takerAddress?: string, // User's wallet address - CRITICAL for actual swaps
+  affiliateFee?: ZeroExAffiliateFee,
+  quoteOnly: boolean = false // Set true for price quotes that won't execute
 ): Promise<ZeroExQuote | null> {
   try {
+    // CRITICAL: For actual swap execution (quoteOnly=false), takerAddress is REQUIRED
+    // This prevents funds from being sent to wrong addresses
+    if (!quoteOnly && (!takerAddress || takerAddress.length !== 42 || !takerAddress.startsWith('0x'))) {
+      logger.error(LogCode.API_FETCH_FAILED, 'Invalid takerAddress - this is REQUIRED to receive swap output', { takerAddress, chainId });
+      throw new Error(`takerAddress is required for swap execution. Got: ${takerAddress}`);
+    }
     // Validate sellAmount - must be greater than 0
     const sellAmountBigInt = BigInt(sellAmount || '0');
-    if (sellAmountBigInt === 0n) {
+    if (sellAmountBigInt === BigInt(0)) {
       logger.error(LogCode.API_FETCH_FAILED, 'Invalid sellAmount: must be greater than 0', { sellAmount, sellToken, buyToken, chainId });
       return null;
     }
@@ -314,13 +400,15 @@ export async function getZeroExQuote(
 
     // Polygon: Try permit2 endpoint first (via main API), fallback to v1 if needed
     // Other chains (Arbitrum, Optimism, Base, BSC) use permit2 endpoint via main API with chainId param
-    // For Base (8453), try permit2 first, fallback to v1 if needed
-    const useLegacyEndpoint = false; // Try permit2 for all chains first, fallback to v1 if needed
+
+    // CRITICAL: Use AllowanceHolder, NOT Permit2
+    // AllowanceHolder is recommended for most integrators - simpler UX, lower gas, no double signatures
+    // Permit2 requires complex EIP-712 signing which our current setup doesn't handle
+    const useLegacyEndpoint = false; // False = use allowance-holder (V2)
     const isPolygon = chainId === 137;
 
     // Normalize native token addresses
-    // All chains now use permit2 endpoint first, which accepts 0xEeee... format for native tokens
-    // Only when falling back to v1 endpoint do we need to use wrapped native token addresses
+    // allowance-holder endpoint accepts 0xEeee... format for native tokens
     const normalizeToken = (token: string, isSell: boolean): string => {
       const isNative = token.toLowerCase() === '0x0000000000000000000000000000000000000000'
         || token.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
@@ -329,8 +417,7 @@ export async function getZeroExQuote(
         return token;
       }
 
-      // For permit2 endpoint (default for all chains), use 0xEeee... format
-      // For v1 endpoint (fallback only), we'll convert to wrapped native token in fallback logic
+      // For allowance-holder endpoint, use 0xEeee... format
       return '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
     };
 
@@ -343,38 +430,52 @@ export async function getZeroExQuote(
       sellToken: normalizeSellToken,
       buyToken: normalizeBuyToken,
       sellAmount,
+      // CRITICAL FIX: Disable sellEntireBalance to avoid conflicts
+      // sellEntireBalance causes issues when combined with explicit sellAmount
+      // especially for tokens with transfer restrictions or high taxes
+      // Instead, we explicitly pass the amount we want to sell
+      // sellEntireBalance: 'true',
     });
 
     // Add slippage parameter based on endpoint type
     if (useLegacyEndpoint) {
-      // v1 endpoint: slippagePercentage as decimal (0.5 = 0.5%)
-      params.append('slippagePercentage', (slippageBps / 100).toString());
+      // v1 endpoint: slippagePercentage as decimal (0.005 = 0.5%, 0.03 = 3%)
+      // slippageBps is in basis points (50 = 0.5%, 300 = 3%)
+      // Convert: bps / 10000 = decimal (50 / 10000 = 0.005)
+      params.append('slippagePercentage', (slippageBps / 10000).toString());
     } else {
-      // permit2 endpoint: slippageBps in basis points (50 = 0.5%)
+      // allowance-holder endpoint uses slippageBps in basis points (50 = 0.5%)
       params.append('slippageBps', Math.round(slippageBps).toString());
     }
 
+    // Use allowance-holder endpoint (recommended approach)
+    // This is the standard V2 flow - no complex permit2 signatures needed
     const endpoint = useLegacyEndpoint ? '/swap/v1/quote' : '/swap/allowance-holder/quote';
 
-    // 0x API v2 (permit2) uses 'taker', v1 uses 'takerAddress'
-    // Both endpoints require taker address, so we always need to provide it
-    // If takerAddress is not provided, we should use a default or throw an error
-    const finalTakerAddress = takerAddress || getDefaultTakerAddress(chainId);
-    if (!finalTakerAddress) {
-      throw new Error(`Taker address is required for chain ${chainId}. Please provide a takerAddress or ensure getDefaultTakerAddress returns a value for this chain.`);
-    }
-
-    // v1 endpoint uses 'takerAddress', permit2 uses 'taker'
-    if (useLegacyEndpoint) {
-      params.append('takerAddress', finalTakerAddress);
-    } else {
-      params.append('taker', finalTakerAddress);
+    // Add taker address if provided (required for actual swap execution, optional for price quotes)
+    if (takerAddress) {
+      // v1 endpoint uses 'takerAddress', permit2/allowance-holder uses 'taker'
+      if (useLegacyEndpoint) {
+        params.append('takerAddress', takerAddress);
+      } else {
+        params.append('taker', takerAddress);
+      }
     }
 
     // Platform / affiliate fee (0x feature): fee is taken from buyToken and sent to affiliateAddress
+    // V2 API uses swapFee parameters (recommended)
     if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) {
-      params.append('affiliateAddress', affiliateFee.affiliateAddress);
-      params.append('buyTokenPercentageFee', (affiliateFee.buyTokenPercentageFeeBps / 10000).toString());
+      if (useLegacyEndpoint) {
+        // V1 endpoint uses old parameters
+        params.append('affiliateAddress', affiliateFee.affiliateAddress);
+        params.append('buyTokenPercentageFee', (affiliateFee.buyTokenPercentageFeeBps / 10000).toString());
+      } else {
+        // V2 endpoint uses new swap fee parameters
+        params.append('swapFeeRecipient', affiliateFee.affiliateAddress);
+        params.append('swapFeeBps', affiliateFee.buyTokenPercentageFeeBps.toString());
+        params.append('swapFeeToken', normalizeBuyToken);
+        params.append('tradeSurplusRecipient', affiliateFee.affiliateAddress);
+      }
     }
 
     // For chain-specific base URLs (bsc.api.0x.org, polygon.api.0x.org, etc.),
@@ -387,10 +488,18 @@ export async function getZeroExQuote(
 
     // Debug logging
     logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Quote requesting', {
-      endpoint,
+      endpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder',
       chainId,
       sellToken: normalizeSellToken,
-      buyToken: normalizeBuyToken
+      buyToken: normalizeBuyToken,
+      url: url.substring(0, 150) + '...', // Log partial URL for debugging
+    });
+
+    logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Quote request', {
+      sellToken: `${normalizeSellToken.slice(0, 6)}...${normalizeSellToken.slice(-4)}`,
+      buyToken: `${normalizeBuyToken.slice(0, 6)}...${normalizeBuyToken.slice(-4)}`,
+      amount: sellAmount,
+      endpoint: 'allowance-holder'
     });
 
     const headers: Record<string, string> = {
@@ -412,14 +521,24 @@ export async function getZeroExQuote(
       sellAmount,
       slippageBps: Math.round(slippageBps),
       chainId,
-      takerAddress: finalTakerAddress,
+      takerAddress: takerAddress || 'not-specified',
       endpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder',
     });
 
-    let response = await fetch(url, {
-      method: 'GET',
-      headers,
-    });
+    // Add timeout for 0x API calls (15 seconds)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     // Parse the response first to check if it has valid data
     let rawData: any = null;
@@ -444,8 +563,8 @@ export async function getZeroExQuote(
     );
 
     // If permit2 endpoint fails OR returns empty data for certain chains, try v1 endpoint as fallback
-    // Supported chains for fallback: Base (8453), Arbitrum (42161), Optimism (10), Polygon (137)
-    const chainsWithFallback = [8453, 42161, 10, 137]; // Base, Arbitrum, Optimism, Polygon
+    // Supported chains for fallback: Base (8453), Arbitrum (42161), Optimism (10), Polygon (137), BSC (56)
+    const chainsWithFallback = [8453, 42161, 10, 137, 56]; // Base, Arbitrum, Optimism, Polygon, BSC
     if ((!responseWasOk || !hasValidData) && !useLegacyEndpoint && chainsWithFallback.includes(chainId)) {
       let originalErrorText = '';
       try {
@@ -458,10 +577,14 @@ export async function getZeroExQuote(
         // Ignore if we can't read the error
       }
 
-      logger.warn(LogCode.API_FETCH_FAILED, `0x API Permit2 endpoint failure, trying v1 fallback`, {
+      logger.warn(LogCode.API_FETCH_FAILED, `0x API allowance-holder endpoint returned error, attempting v1 fallback`, {
         status: response.status,
         chainId,
         hasValidData,
+        attemptedEndpoint: 'allowance-holder',
+        sellToken: normalizeSellToken.slice(0, 10) + '...',
+        buyToken: normalizeBuyToken.slice(0, 10) + '...',
+        reason: !responseWasOk ? 'HTTP error' : 'Invalid response data',
       });
 
       // For v1 fallback, we need to use wrapped native token addresses
@@ -484,8 +607,10 @@ export async function getZeroExQuote(
         slippagePercentage: (slippageBps / 100).toString(),
       });
 
-      // v1 endpoint uses 'takerAddress' parameter
-      fallbackParams.append('takerAddress', finalTakerAddress);
+      // v1 endpoint uses 'takerAddress' parameter (if provided)
+      if (takerAddress) {
+        fallbackParams.append('takerAddress', takerAddress);
+      }
 
       if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) {
         fallbackParams.append('affiliateAddress', affiliateFee.affiliateAddress);
@@ -590,19 +715,66 @@ export async function getZeroExQuote(
     // 0x API v2 (allowance-holder) returns { transaction: { to, data, value, ... }, ... }
     // 0x API v1 returns { to, data, value, ... } directly
     // We need to flatten v2 for backward compatibility
+    let quoteValue = rawData.transaction?.value || rawData.value || '0';
+
+    // CRITICAL: For native token sell, ensure value is set to sellAmount
+    // The API should return this, but we validate it for safety
+    const isNativeSell = sellToken.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+      sellToken.toLowerCase() === '0x0000000000000000000000000000000000000000';
+    if (isNativeSell && (!quoteValue || quoteValue === '0')) {
+      quoteValue = sellAmount; // Force value to match sellAmount for native token
+    }
+
     const data: ZeroExQuote = {
       ...rawData,
       to: rawData.transaction?.to || rawData.to,
       data: rawData.transaction?.data || rawData.data,
-      value: rawData.transaction?.value || rawData.value || '0',
+      value: quoteValue,
       gas: rawData.transaction?.gas || rawData.gas,
       gasPrice: rawData.transaction?.gasPrice || rawData.gasPrice,
+      transaction: rawData.transaction || {
+        to: rawData.to,
+        data: rawData.data,
+        gas: rawData.gas,
+        gasPrice: rawData.gasPrice,
+        value: quoteValue,
+      },
     };
+
+    // Compact log for quote response
+    logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Quote response', {
+      buyAmount: data.buyAmount,
+      gas: data.gas,
+      hasAllowanceIssue: !!data.issues?.allowance,
+      hasBalanceIssue: !!data.issues?.balance,
+      liquidityAvailable: data.liquidityAvailable,
+    });
 
     logger.debug(LogCode.API_FETCH_SUCCESS, '0x API Flattened quote data', {
       to: data.to?.substring(0, 10),
       buyAmount: data.buyAmount,
     });
+
+    // CRITICAL VALIDATION: Check for API validation errors first
+    if (data.validationErrors && data.validationErrors.length > 0) {
+      const errorMessages = data.validationErrors.map(e => `${e.field}: ${e.reason}`).join(', ');
+      logger.warn(LogCode.API_FETCH_FAILED, '0x API returned validation errors', {
+        errors: errorMessages,
+        sellToken: normalizeSellToken.slice(0, 12),
+        buyToken: normalizeBuyToken.slice(0, 12),
+      });
+      throw new Error(`0x API validation error: ${errorMessages}`);
+    }
+
+    // CRITICAL VALIDATION: Check liquidity (based on official examples)
+    if (data.liquidityAvailable === false) {
+      logger.warn(LogCode.API_FETCH_FAILED, '0x API returned liquidityAvailable=false', {
+        sellToken: normalizeSellToken.slice(0, 12),
+        buyToken: normalizeBuyToken.slice(0, 12),
+        sellAmount,
+      });
+      throw new Error(`Insufficient liquidity for this trade. Try a smaller amount or different token pair.`);
+    }
 
     // CRITICAL VALIDATION: Ensure the quote has valid transaction data
     // If to/data are missing, the token is likely not tradeable via DEX aggregators
@@ -625,6 +797,14 @@ export async function getZeroExQuote(
       throw new Error(`0x API error: Zero or invalid output amount for token ${buyToken}. Check liquidity or try a smaller amount.`);
     }
 
+    logger.info(LogCode.API_FETCH_SUCCESS, '0x API Quote successful', {
+      sellToken: normalizeSellToken.slice(0, 12),
+      buyToken: normalizeBuyToken.slice(0, 12),
+      buyAmount: data.buyAmount,
+      hasAllowanceIssue: !!data.issues?.allowance,
+      usedEndpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder'
+    });
+
     return data;
   } catch (error: any) {
     logger.error(LogCode.API_FETCH_FAILED, '0x API Error fetching quote', { error: error.message });
@@ -644,7 +824,7 @@ export async function fetchTokenDecimalsFromRPC(
   // Default to 18 if RPC call fails
   const DEFAULT_DECIMALS = 18;
 
-  // RPC URLs for supported chains
+  // RPC URLs for supported chains (officially verified by 0x API)
   const rpcUrls: Record<number, string> = {
     1: 'https://eth.llamarpc.com',
     8453: 'https://mainnet.base.org',
@@ -652,8 +832,6 @@ export async function fetchTokenDecimalsFromRPC(
     42161: 'https://arb1.arbitrum.io/rpc',
     137: 'https://polygon-rpc.com',
     10: 'https://mainnet.optimism.io',
-    43114: 'https://api.avax.network/ext/bc/C/rpc',
-    250: 'https://rpc.ftm.tools',
   };
 
   const rpcUrl = rpcUrls[chainId];
@@ -801,8 +979,8 @@ export function toWei(amount: string | number, decimals: number = 18): string {
   const truncatedFraction = fractionalPart.slice(0, decimals);
   const paddedFraction = truncatedFraction.padEnd(decimals, '0');
 
-  const integerWei = BigInt(sanitizedInteger) * (10n ** BigInt(decimals));
-  const fractionWei = paddedFraction ? BigInt(paddedFraction) : 0n;
+  const integerWei = BigInt(sanitizedInteger) * (BigInt(10) ** BigInt(decimals));
+  const fractionWei = paddedFraction ? BigInt(paddedFraction) : BigInt(0);
 
   return (integerWei + fractionWei).toString();
 }
@@ -827,20 +1005,6 @@ export function getNativeTokenAddress(chainId: number): string | undefined {
   return wrappedNativeAddresses[chainId];
 }
 
-export function getDefaultTakerAddress(chainId: number): string | undefined {
-  const takerMap: Record<number, string> = {
-    1: '0xDef1C0ded9bec7F1a1670819833240f027b25EfF',
-    10: '0xf740b67Da229E02E40Eb673cA13e92B3205B0600',
-    56: '0xDef1C0ded9bec7F1a1670819833240f027b25EfF',
-    137: '0xDef1C0ded9bec7F1a1670819833240f027b25EfF',
-    250: '0xDef1C0ded9bec7F1a1670819833240f027b25EfF',
-    42161: '0xDef1C0ded9bec7F1a1670819833240f027b25EfF',
-    43114: '0xDef1C0ded9bec7F1a1670819833240f027b25EfF',
-    8453: '0xf740b67Da229E02E40Eb673cA13e92B3205B0600',
-  };
-  return takerMap[chainId];
-}
-
 /**
  * Get token price in USD using 0x API
  * This uses a stablecoin pair (USDC/USDT) to get USD price
@@ -853,6 +1017,27 @@ export async function getTokenPriceUSD(
   chainId: number
 ): Promise<number | null> {
   try {
+    // Use USDC as reference (most chains have USDC)
+    const usdcAddresses: Record<number, string> = {
+      1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC on Ethereum
+      8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bDa02913', // USDC on Base
+      42161: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', // USDC on Arbitrum
+      56: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', // USDC on BSC
+      137: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // USDC on Polygon
+      10: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607', // USDC on Optimism
+    };
+
+    const usdcAddress = usdcAddresses[chainId];
+    if (!usdcAddress) {
+      console.warn(`[0x API] No USDC address for chain ${chainId}`);
+      return null;
+    }
+
+    // CRITICAL FIX: If token IS USDC itself, return 1.0 (don't call API with same token)
+    if (tokenAddress.toLowerCase() === usdcAddress.toLowerCase()) {
+      return 1.0;
+    }
+
     // Handle native token - use wrapped native token address (WETH, WBNB, etc.)
     let actualTokenAddress = tokenAddress;
     if (tokenAddress === '0x0000000000000000000000000000000000000000' || !tokenAddress) {
@@ -869,22 +1054,6 @@ export async function getTokenPriceUSD(
     // Get token metadata to determine decimals
     const tokenMetadata = await getZeroExTokenMetadata(actualTokenAddress, chainId);
     const tokenDecimals = tokenMetadata?.decimals || 18;
-
-    // Use USDC as reference (most chains have USDC)
-    const usdcAddresses: Record<number, string> = {
-      1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC on Ethereum
-      8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bDa02913', // USDC on Base
-      42161: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', // USDC on Arbitrum
-      56: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', // USDC on BSC
-      137: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // USDC on Polygon
-      10: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607', // USDC on Optimism
-    };
-
-    const usdcAddress = usdcAddresses[chainId];
-    if (!usdcAddress) {
-      console.warn(`[0x API] No USDC address for chain ${chainId}`);
-      return null;
-    }
 
     // Get USDC metadata to determine its decimals
     const usdcMetadata = await getZeroExTokenMetadata(usdcAddress, chainId);
@@ -911,4 +1080,15 @@ export async function getTokenPriceUSD(
     console.error('[0x API] Error fetching token price:', error);
     return null;
   }
+}
+
+/**
+ * Get default taker address for 0x API quotes
+ * @param chainId - Chain ID
+ * @returns Default taker address (usually zero address or undefined for 0x to omit)
+ */
+export function getDefaultTakerAddress(chainId: number): string {
+  // For most chains, 0x API expects takerAddress to be the user or generic
+  // Returning zero address is a safe default for public quotes
+  return '0x0000000000000000000000000000000000000000';
 }

@@ -48,9 +48,9 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     let effectiveAmountIn = amountIn;
     if (fee.bps > 0 && fee.solanaRecipient && tokenInMint === SOLANA_CONFIG.TOKENS.SOL) {
         const amountBI = BigInt(amountIn || '0');
-        const feeLamports = (amountBI * BigInt(fee.bps)) / 10000n;
+        const feeLamports = (amountBI * BigInt(fee.bps)) / BigInt(10000);
 
-        if (feeLamports > 0n && amountBI > feeLamports) {
+        if (feeLamports > BigInt(0) && amountBI > feeLamports) {
             const payer = new PublicKey(walletAddress);
             const recipient = new PublicKey(fee.solanaRecipient);
             const blockhashConnection = getSolanaConnection();
@@ -85,9 +85,9 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
 
     if (fee.bps > 0 && fee.solanaRecipient && tokenInMint !== SOLANA_CONFIG.TOKENS.SOL) {
         const amountBI = BigInt(amountIn || '0');
-        const feeAmount = (amountBI * BigInt(fee.bps)) / 10000n;
+        const feeAmount = (amountBI * BigInt(fee.bps)) / BigInt(10000);
 
-        if (feeAmount > 0n && amountBI > feeAmount) {
+        if (feeAmount > BigInt(0) && amountBI > feeAmount) {
             const payer = new PublicKey(walletAddress);
             const recipient = new PublicKey(fee.solanaRecipient);
             const mint = new PublicKey(tokenInMint);

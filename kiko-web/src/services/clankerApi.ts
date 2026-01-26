@@ -31,20 +31,23 @@ export interface ClankerResponse {
 
 export async function getClankerToken(address: string): Promise<ClankerToken | null> {
     try {
-        // Use local proxy path to avoid CORS issues
-        const response = await fetch(`/clanker-api/tokens?q=${address}`);
+        // Use the backend launchpad detection endpoint which has robust logic
+        // This replaces the old /clanker-api proxy which was unreliable
+        const response = await fetch(`/api/tokens/launchpad/detect?address=${address}&chainId=8453`);
+
         if (!response.ok) {
-            throw new Error(`Failed to fetch from Clanker API: ${response.statusText}`);
+            // Silently fail for 404s (not found) to avoid console noise
+            if (response.status === 404) return null;
+            throw new Error(`Failed to fetch from Launchpad API: ${response.statusText}`);
         }
 
-        const data: ClankerResponse = await response.json();
+        const json = await response.json();
 
-        // Find exact match just in case, though 'q' usually searches well
-        const token = data.data.find(t =>
-            t.contract_address.toLowerCase() === address.toLowerCase()
-        );
+        if (json.success && json.data && json.data.provider === 'clanker') {
+            return json.data.data as ClankerToken;
+        }
 
-        return token || (data.data.length > 0 ? data.data[0] : null);
+        return null;
     } catch (error) {
         console.error('Error fetching Clanker token:', error);
         return null;

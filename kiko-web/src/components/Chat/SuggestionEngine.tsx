@@ -54,16 +54,13 @@ export class SuggestionEngine {
         onCommit: (text: string) => void,
         context?: SuggestionContext  // Optional context for smart boosting
     ): SuggestionGroup[] {
-        console.log('[SuggestionEngine] getSuggestions called with:', text);
         const trimmedText = text.trim();
 
         if (!text || trimmedText.length === 0) {
             if (context?.mode === 'focus') {
-                console.log('[SuggestionEngine] Empty text with focus mode, returning top suggestions');
                 // For focus mode with empty text, we show top/recent commands
                 return this.getTopSuggestions(onCommit, context);
             }
-            console.log('[SuggestionEngine] Empty text, returning []');
             return [];
         }
 
@@ -74,12 +71,10 @@ export class SuggestionEngine {
         );
 
         if (isCompleteOption) {
-            console.log('[SuggestionEngine] Input matches complete option, hiding suggestions');
             return [];
         }
 
         const stage = this.detectStage(text);
-        console.log('[SuggestionEngine] Detected stage:', stage);
 
         // If command is complete (all stages satisfied), hide suggestions
         if (stage === 'COMPLETE') {

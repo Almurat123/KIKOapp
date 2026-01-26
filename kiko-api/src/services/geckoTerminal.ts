@@ -39,6 +39,9 @@ export class GeckoTerminalError extends Error {
   }
 }
 
+// Module-level circuit breaker for rate limits
+let globalBackoffUntil = 0;
+
 /**
  * Fetch with timeout and retry logic
  */
@@ -47,6 +50,13 @@ async function fetchWithRetry(
   options: RequestInit = {},
   retries: number = MAX_RETRIES
 ): Promise<Response> {
+  // Check global circuit breaker
+  if (Date.now() < globalBackoffUntil) {
+    const waitTime = Math.ceil((globalBackoffUntil - Date.now()) / 1000);
+    logger.throttled(LogCode.API_RATE_LIMIT, `GeckoTerminal global backoff active`, { waitTimeSeconds: waitTime });
+    throw new GeckoTerminalError(`Global rate limit backoff active (${waitTime}s remaining)`, 'data'); // use 'data' to avoid retry loop
+  }
+
   let lastError: any = null;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -67,6 +77,15 @@ async function fetchWithRetry(
         if ((response.status === 429 || response.status >= 500) && attempt < retries) {
           const retryAfter = response.headers.get('retry-after');
           const retryAfterMs = retryAfter ? Number(retryAfter) * 1000 : NaN;
+
+          // CRITICAL: If 429, trigger global backoff to spare the API
+          if (response.status === 429) {
+            const backoffMs = Number.isFinite(retryAfterMs) ? retryAfterMs : 30000; // Default 30s
+            globalBackoffUntil = Date.now() + backoffMs;
+            logger.debug(LogCode.API_RATE_LIMIT, `GeckoTerminal 429 triggered global backoff`, { backoffMs });
+            throw new GeckoTerminalError(`Rate limit hit, backing off for ${backoffMs}ms`, 'data');
+          }
+
           const delay = Math.max(
             1000,
             Number.isFinite(retryAfterMs)
@@ -525,8 +544,11 @@ export async function getTokenDetails(
       fdv: attributes.fdv_usd,
     };
 
-    // Update cache
-    tokenCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    // Cache the result
+    tokenCache.set(address.toLowerCase(), {
+      data: result,
+      timestamp: Date.now()
+    });
 
     return result;
   } catch (error: any) {

@@ -15,7 +15,13 @@ export interface UserContext {
     chainId?: number;
     chainName?: string;
     isWalletConnected?: boolean;
-    balance?: Record<string, string>;
+    balance?: Record<string, string> | Array<{
+        symbol: string;
+        balance: string;
+        decimals?: number;
+        contractAddress?: string;
+        raw?: string;
+    }>;
     nativeBalance?: string;
     pageContext?: string;
     currentPage?: string;

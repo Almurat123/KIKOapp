@@ -178,19 +178,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const getInitialModel = () => {
         try {
             const saved = localStorage.getItem('kiko-selected-model');
-            logger.debug('Loading model from localStorage:', saved);
             if (saved) {
                 const parsed = JSON.parse(saved);
                 const found = MODEL_OPTIONS.find(m => m.id === parsed.id);
                 if (found) {
-                    logger.debug('Found saved model:', found.id);
                     return found;
                 }
             }
         } catch (e) {
             logger.warn('Failed to load saved model from localStorage:', e);
         }
-        logger.debug('Using default model:', MODEL_OPTIONS[0].id);
         return MODEL_OPTIONS[0];
     };
 
@@ -362,42 +359,56 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     // This prevents React 18's automatic batching from grouping chunks
                     flushSync(() => {
                         setMessages(prev => {
-                            const lastMsg = prev[prev.length - 1];
                             // Database returns snake_case field names
                             const chunkMessageId = event.data.message_id || event.data.messageId;
-                            const hasReasoning = event.data.reasoning_content && event.data.reasoning_content.length > 0;
 
-                            // DEBUG: Log chunk info
-                            if (hasReasoning) {
-                                logger.debug('Got reasoning chunk:', event.data.reasoning_content.substring(0, 30));
-                            }
+                            // DEBUG: Log chunk info - COMMENTED OUT TO REDUCE NOISE
+                            // if (hasReasoning) {
+                            //    logger.debug('Got reasoning chunk:', event.data.reasoning_content.substring(0, 30));
+                            // }
 
                             if (!chunkMessageId) return prev;
 
-                            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.id === chunkMessageId) {
-                                return prev.map(m => m.id === chunkMessageId
+                            const idx = prev.findIndex(m => m.id === chunkMessageId);
+                            const deltaContent = event.data.content || '';
+                            const deltaReasoning = event.data.reasoning_content || '';
+
+                            if (idx === -1) {
+                                return [
+                                    ...prev,
+                                    {
+                                        id: chunkMessageId,
+                                        role: 'assistant',
+                                        content: deltaContent,
+                                        reasoning_content: deltaReasoning,
+                                        status: 'streaming',
+                                        timestamp: new Date().toISOString(),
+                                        type: 'text',
+                                    },
+                                ];
+                            }
+
+                            return prev.map(m =>
+                                m.id === chunkMessageId
                                     ? {
                                         ...m,
-                                        content: (m.content || '') + (event.data.content || ''),
-                                        reasoning_content: (m.reasoning_content || '') + (event.data.reasoning_content || '')
+                                        content: (m.content || '') + deltaContent,
+                                        reasoning_content: (m.reasoning_content || '') + deltaReasoning,
                                     }
-                                    : m);
-                            } else {
-                                logger.debug('Chunk mismatch! Expected:', lastMsg?.id, 'Got:', chunkMessageId);
-                            }
-                            return prev;
+                                    : m
+                            );
                         });
-                    });
 
-                    // Only stop thinking when actual content arrives
-                    // If we're receiving reasoning_content, keep the "Thinking" state
-                    if (event.data.content && event.data.content.length > 0) {
-                        setIsThinking(false);
-                        setIsStreaming(true);
-                    } else if (event.data.reasoning_content) {
-                        // Still in thinking/reasoning phase
-                        setThinkingText('Thinking');
-                    }
+                        // CRITICAL FIX: Update thinking/streaming state INSIDE flushSync
+                        // to ensure immediate UI update when content arrives
+                        if (event.data.content && event.data.content.length > 0) {
+                            setIsThinking(false);
+                            setIsStreaming(true);
+                        } else if (event.data.reasoning_content) {
+                            // Still in thinking/reasoning phase
+                            setThinkingText('Thinking');
+                        }
+                    });
                     break;
                 case 'task_status':
                     if (event.data.status === 'running') {
@@ -575,31 +586,31 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             slippageBps
                         });
 
-                        // Update message to show transaction status card
-                        setMessages(prev => {
-                            const lastMsg = prev[prev.length - 1];
-                            if (lastMsg && lastMsg.role === 'assistant') {
-                                // Extract token symbols - handle both string and object formats
-                                const getSymbol = (token: any): string => {
-                                    if (typeof token === 'string') return token;
-                                    return token?.symbol || token?.name || 'Unknown';
-                                };
+                        // CREATE NEW MESSAGE for transaction status (don't overwrite launchpad card)
+                        const getSymbol = (token: any): string => {
+                            if (typeof token === 'string') return token;
+                            return token?.symbol || token?.name || 'Unknown';
+                        };
 
-                                return prev.map((m, idx) => idx === prev.length - 1 ? {
-                                    ...m,
-                                    type: 'transaction-status-card',
-                                    data: {
-                                        status: 'pending',
-                                        tokenInSymbol: getSymbol(actionData.tokenIn || actionData.token_in),
-                                        tokenOutSymbol: getSymbol(actionData.tokenOut || actionData.token_out),
-                                        amountIn: String(amountIn),
-                                        chainId: targetChainId,
-                                        isLoading: true
-                                    }
-                                } : m);
+                        const txCardMsg: Message = {
+                            id: `tx-${Date.now()}`,
+                            role: 'assistant',
+                            content: '',
+                            reasoning_content: '',
+                            status: 'complete',
+                            timestamp: new Date().toISOString(),
+                            type: 'transaction-status-card',
+                            data: {
+                                status: 'pending',
+                                tokenInSymbol: getSymbol(actionData.tokenIn || actionData.token_in),
+                                tokenOutSymbol: getSymbol(actionData.tokenOut || actionData.token_out),
+                                amountIn: String(amountIn),
+                                chainId: targetChainId,
+                                isLoading: true
                             }
-                            return prev;
-                        });
+                        };
+
+                        setMessages(prev => [...prev, txCardMsg]);
 
                         // Call executeSwapInstant directly
                         import('../../services/swapService').then(({ executeSwapInstant }) => {
@@ -611,114 +622,55 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 slippageBps
                             }).then(result => {
                                 if (result.success && result.txHash) {
-                                    // Update message with success status
+                                    // Find the transaction card we created and update it
                                     setMessages(prev => {
-                                        const lastMsg = prev[prev.length - 1];
-                                        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.type === 'transaction-status-card') {
-                                            return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                        return prev.map(m =>
+                                            m.id === txCardMsg.id && m.type === 'transaction-status-card' ? {
                                                 ...m,
                                                 data: {
-                                                    ...lastMsg.data,
+                                                    ...m.data,
                                                     status: 'success',
                                                     txHash: result.txHash,
                                                     isLoading: false
                                                 }
-                                            } : m);
-                                        }
-                                        return prev;
+                                            } : m
+                                        );
                                     });
                                 } else {
-                                    // Update message with error status
+                                    // Update with error
                                     setMessages(prev => {
-                                        const lastMsg = prev[prev.length - 1];
-                                        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.type === 'transaction-status-card') {
-                                            return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                        return prev.map(m =>
+                                            m.id === txCardMsg.id && m.type === 'transaction-status-card' ? {
                                                 ...m,
                                                 data: {
-                                                    ...lastMsg.data,
+                                                    ...m.data,
                                                     status: 'failed',
                                                     errorMessage: result.error,
                                                     isLoading: false
                                                 }
-                                            } : m);
-                                        }
-                                        return prev;
+                                            } : m
+                                        );
                                     });
                                 }
                             }).catch(err => {
+                                // Update with error
                                 setMessages(prev => {
-                                    const lastMsg = prev[prev.length - 1];
-                                    if (lastMsg && lastMsg.role === 'assistant' && lastMsg.type === 'transaction-status-card') {
-                                        return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                    return prev.map(m =>
+                                        m.id === txCardMsg.id && m.type === 'transaction-status-card' ? {
                                             ...m,
                                             data: {
-                                                ...lastMsg.data,
+                                                ...m.data,
                                                 status: 'failed',
                                                 errorMessage: err.message,
                                                 isLoading: false
                                             }
-                                        } : m);
-                                    }
-                                    return prev;
+                                        } : m
+                                    );
                                 });
                             });
                         });
 
-                    } else if (event.data.action.type === 'show_swap_card') {
-                        // Show SwapCard UI for user confirmation (manual swap)
-                        setMessages(prev => {
-                            const lastMsg = prev[prev.length - 1];
-                            if (lastMsg && lastMsg.role === 'assistant') {
-                                const actionData = event.data.action.payload || event.data.action.data;
-                                const targetChainId = actionData.chainId || actionData.chain_id || chainId;
 
-                                // Helper to resolve token object from symbol
-                                const resolveToken = (symbolOrObj: any): any => {
-                                    if (!symbolOrObj) return undefined;
-                                    const symbol = typeof symbolOrObj === 'string' ? symbolOrObj : symbolOrObj.symbol;
-
-                                    // Handle Native
-                                    if (['ETH', 'SOL', 'BNB', 'MATIC', 'AVAX'].includes(symbol)) {
-                                        return {
-                                            symbol,
-                                            address: '0x0000000000000000000000000000000000000000',
-                                            decimals: 18,
-                                            chainId: targetChainId
-                                        };
-                                    }
-
-                                    // Lookup in COMMON_TOKENS
-                                    const common = COMMON_TOKENS[targetChainId]?.find(t => t.symbol === symbol);
-                                    if (common) {
-                                        return { ...common, chainId: targetChainId };
-                                    }
-
-                                    // Fallback: return as-is
-                                    if (typeof symbolOrObj === 'object' && symbolOrObj.address) {
-                                        return symbolOrObj;
-                                    }
-                                    return { symbol, address: '', chainId: targetChainId };
-                                };
-
-                                const swapData = {
-                                    tokenIn: resolveToken(actionData.tokenIn || actionData.token_in),
-                                    tokenOut: resolveToken(actionData.tokenOut || actionData.token_out),
-                                    amountIn: actionData.amountIn || actionData.amount_in,
-                                    amountOutMin: actionData.amountOutMin || actionData.amount_out_min,
-                                    slippageBps: actionData.slippageBps || actionData.slippage_bps || (actionData.slippage ? actionData.slippage * 100 : undefined),
-                                    chainId: targetChainId,
-                                    autoExecute: false,
-                                    useServerExecution: false
-                                };
-
-                                return prev.map((m, idx) => idx === prev.length - 1 ? {
-                                    ...m,
-                                    type: 'swap-card',
-                                    data: swapData
-                                } : m);
-                            }
-                            return prev;
-                        });
                     } else if (event.data.action.type === 'show_strategy_card') {
                         // For strategy cards, trigger an immediate refresh of the strategies list
                         // This helps avoid the "deleted" race condition
@@ -749,15 +701,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             return prev;
                         });
                     } else if (['show_chart_card', 'show_launchpad_card', 'show_transaction_status_card'].includes(event.data.action.type)) {
-                        // Update the specific message or the latest assistant message
-                        const targetMessageId = event.data.message_id || event.data.messageId;
+                        const targetMessageId = event.data.targetMessageId;
+                        const actionType = event.data.action.type;
+                        logger.debug('Handling card action:', { type: actionType, targetMsgId: targetMessageId });
 
                         setMessages(prev => {
                             // First, try to find by ID
                             const targetIdx = targetMessageId ? prev.findIndex(m => m.id === targetMessageId) : -1;
 
-                            const getCardType = (actionType: string) => {
-                                switch (actionType) {
+                            const getCardType = (type: string) => {
+                                switch (type) {
                                     case 'show_strategy_card': return 'strategy-card';
                                     case 'show_chart_card': return 'chart-card';
                                     case 'show_launchpad_card': return 'launchpad-card';
@@ -766,27 +719,157 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 }
                             };
 
+                            // CRITICAL: Check card type compatibility
+                            // Never convert a launchpad-card to transaction-status-card
+                            // These should be SEPARATE messages
+                            const newCardType = getCardType(actionType);
+                            const isCardTypeIncompatible = (existingMsg: Message, newType: string) => {
+                                // Don't update launchpad cards with transaction/swap cards
+                                if (existingMsg.type === 'launchpad-card' &&
+                                    ['transaction-status-card', 'swap-card'].includes(newType)) {
+                                    logger.warn('🚨 PREVENTED: Transaction card attempting to overwrite launchpad card');
+                                    return true;
+                                }
+                                return false;
+                            };
+
                             if (targetIdx !== -1) {
-                                return prev.map((m, idx) => idx === targetIdx ? {
-                                    ...m,
-                                    type: getCardType(event.data.action.type) as any,
-                                    data: event.data.action.data
-                                } : m);
+                                const targetMsg = prev[targetIdx];
+                                if (!isCardTypeIncompatible(targetMsg, newCardType)) {
+                                    logger.debug('✅ Found target message, updating card:', targetMessageId);
+                                    return prev.map((m, idx) => idx === targetIdx ? {
+                                        ...m,
+                                        type: newCardType as any,
+                                        data: event.data.action.data
+                                    } : m);
+                                } else {
+                                    // Type incompatible - create new message instead
+                                    logger.warn('Type incompatible, creating new message for card');
+                                    return [...prev, {
+                                        id: `${targetMessageId}-card-${Date.now()}`,
+                                        role: 'assistant',
+                                        content: '',
+                                        reasoning_content: '',
+                                        status: 'complete',
+                                        timestamp: new Date().toISOString(),
+                                        type: newCardType as any,
+                                        data: event.data.action.data
+                                    } as Message];
+                                }
                             }
 
-                            // Fallback to latest assistant message
+                            // Race condition fix: If message ID provided but not found, CREATE IT
+                            // This handles cases where client_action arrives before message_start processed
+                            if (targetMessageId) {
+                                logger.warn('Target message not found for action, creating new message:', targetMessageId);
+                                return [...prev, {
+                                    id: targetMessageId,
+                                    role: 'assistant',
+                                    content: '',
+                                    reasoning_content: '',
+                                    status: 'complete', // Mark complete since we have the final card
+                                    timestamp: new Date().toISOString(),
+                                    type: newCardType as any,
+                                    data: event.data.action.data
+                                } as Message];
+                            }
+
+                            // CRITICAL FIX: For transaction/swap cards with no targetMessageId,
+                            // ALWAYS create a new message instead of falling back to last assistant message
+                            // This prevents overwriting launchpad cards
+                            if (['transaction-status-card', 'swap-card'].includes(newCardType)) {
+                                logger.debug('No targetMessageId for transaction/swap card, creating new message');
+                                return [...prev, {
+                                    id: `assistant-${Date.now()}`,
+                                    role: 'assistant',
+                                    content: '',
+                                    reasoning_content: '',
+                                    status: 'complete',
+                                    timestamp: new Date().toISOString(),
+                                    type: newCardType as any,
+                                    data: event.data.action.data
+                                } as Message];
+                            }
+
+                            // For other safe card types, find or create
                             const lastMsgIdx = [...prev].reverse().findIndex(m => m.role === 'assistant');
                             if (lastMsgIdx !== -1) {
                                 const actualIdx = prev.length - 1 - lastMsgIdx;
-                                return prev.map((m, idx) => idx === actualIdx ? {
-                                    ...m,
-                                    type: getCardType(event.data.action.type) as any,
-                                    data: event.data.action.data
-                                } : m);
+                                const lastMsg = prev[actualIdx];
+                                // Only update if compatible
+                                if (lastMsg.type !== 'launchpad-card') {
+                                    return prev.map((m, idx) => idx === actualIdx ? {
+                                        ...m,
+                                        type: newCardType as any,
+                                        data: event.data.action.data
+                                    } : m);
+                                }
                             }
 
                             return prev;
                         });
+                    } else if (event.data.action.type === 'transaction_update') {
+                        // Handle partial updates for transaction cards (e.g. pending status)
+                        const { messageId, status, data } = event.data.action;
+                        logger.debug('Handling transaction update:', { messageId, status });
+
+                        setMessages(prev => {
+                            const exists = prev.some(m => m.id === messageId);
+                            if (exists) {
+                                return prev.map(m => {
+                                    if (m.id === messageId) {
+                                        return {
+                                            ...m,
+                                            data: {
+                                                ...m.data,
+                                                ...data,
+                                                status: status || m.data?.status,
+                                                isLoading: status === 'pending'
+                                            }
+                                        };
+                                    }
+                                    return m;
+                                });
+                            } else {
+                                // CRITICAL FIX: Create message if it doesn't exist (for initial pending state)
+                                logger.debug('Message not found for update, creating new:', messageId);
+                                return [...prev, {
+                                    id: messageId,
+                                    role: 'assistant',
+                                    content: '',
+                                    reasoning_content: '',
+                                    status: 'complete',
+                                    timestamp: new Date().toISOString(),
+                                    type: 'transaction-status-card',
+                                    data: {
+                                        ...data,
+                                        status: status || 'pending',
+                                        isLoading: status === 'pending'
+                                    }
+                                }];
+                            }
+                        });
+                    } else if (event.data.action.type === 'transaction_complete') {
+                        // Handle completion of transaction (success or failure)
+                        const { messageId, status, txHash, error } = event.data.action;
+                        logger.debug('Handling transaction completion:', { messageId, status, txHash });
+
+                        setMessages(prev => prev.map(m => {
+                            if (m.id === messageId) {
+                                return {
+                                    ...m,
+                                    data: {
+                                        ...m.data,
+                                        status: status,
+                                        txHash: txHash,
+                                        errorMessage: error,
+                                        error: error,
+                                        isLoading: false
+                                    }
+                                };
+                            }
+                            return m;
+                        }));
                     }
                     break;
                 case 'content_block':
@@ -886,7 +969,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     useEffect(() => {
         try {
             localStorage.setItem('kiko-selected-model', JSON.stringify(selectedModel));
-            logger.debug('Saved model selection to localStorage:', selectedModel.id);
         } catch (e) {
             logger.warn('Failed to save model selection to localStorage:', e);
         }
@@ -1042,6 +1124,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 return;
             }
 
+            // CRITICAL FIX: Do NOT sync during active AI tasks to prevent race conditions
+            // If there's an active task, our local WebSocket state is the source of truth
+            if (activeTaskId || isStreaming || isThinking) {
+                return;
+            }
+
             // Only sync background updates if we are NOT currently streaming
             // (If we ARE streaming, our local state is more up-to-date)
             if (!isStreaming && !isThinking) {
@@ -1063,7 +1151,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 }
             }
         }
-    }, [conversationId, initialMessages, isStreaming, isThinking, setHasStarted, messages.length]);
+    }, [conversationId, initialMessages, isStreaming, isThinking, setHasStarted, messages.length, activeTaskId]);
 
     // Check active task and restore UI state when conversationId changes or component mounts
     useEffect(() => {
@@ -1712,11 +1800,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Auto-resize when input is set programmatically (e.g., from AI analyze or suggestions)
     useEffect(() => {
-        console.log('[ChatInterface] useEffect fired! input:', input, 'length:', input.length);
-        console.log('[ChatInterface] Active element:', document.activeElement);
-        console.log('[ChatInterface] Textarea ref:', textareaRef.current);
-        console.log('[ChatInterface] Are they equal?', document.activeElement === textareaRef.current);
-
         if (textareaRef.current && input) {
             autoResizeTextarea(textareaRef.current);
         }
@@ -1886,128 +1969,144 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
             >
-                {enrichedMessages.map((msg, index, enrichedMessages) => {
-                    const isGrouped = index > 0 && enrichedMessages[index - 1].role === msg.role;
-                    const prevMsg = index > 0 ? enrichedMessages[index - 1] : null;
-                    const showDateSeparator = prevMsg && prevMsg.date && msg.date && prevMsg.date !== msg.date;
+                {/* Find the last text-type assistant message for thinking indicator */}
+                {(() => {
+                    // Find the ID of the last text-type assistant message
+                    const lastTextAssistantId = [...enrichedMessages]
+                        .reverse()
+                        .find(m => m.role === 'assistant' && (!m.type || m.type === 'text'))?.id;
 
-                    return (
-                        <React.Fragment key={msg.id}>
-                            {showDateSeparator && (
-                                <div className={styles.dateSeparator}>
-                                    <span>{formatDateSeparator(msg.date!)}</span>
-                                </div>
-                            )}
-                            <MessageBubble
-                                message={msg}
-                                isGrouped={isGrouped}
-                                thinkingText={msg.role === 'assistant' && msg.id === messages[messages.length - 1]?.id ? thinkingText : undefined}
-                                userAddress={walletAddress}
-                                chainId={chainId}
-                                sessionId={conversationId || undefined}
-                                modelId={selectedModel?.id} // Pass current model for pricing calculation
-                                onFeedback={handleMessageFeedback}
-                                onCardAction={(action, data) => {
-                                    if (action === 'swap-cancel') {
-                                        // Update transaction status to cancelled
-                                        setMessages(prev => {
-                                            const updated = prev.map(m =>
-                                                m.id === msg.id ? {
-                                                    ...m,
-                                                    transactionStatus: 'cancelled' as const
-                                                } : m
-                                            );
-                                            messagesRef.current = updated;
-                                            if (onMessagesChange && currentConversationIdRef.current) {
-                                                setTimeout(() => {
-                                                    onMessagesChange(updated);
-                                                }, 0);
-                                            }
-                                            return updated;
-                                        });
-                                    } else if (action === 'swap-success') {
-                                        // Update transaction status to success
-                                        const txHash = (data as { txHash: string }).txHash;
-                                        setMessages(prev => {
-                                            const updated = prev.map(m =>
-                                                m.id === msg.id ? {
-                                                    ...m,
-                                                    transactionStatus: 'success' as const,
-                                                    transactionHash: txHash
-                                                } : m
-                                            );
-                                            messagesRef.current = updated;
-                                            if (onMessagesChange && currentConversationIdRef.current) {
-                                                setTimeout(() => onMessagesChange(updated), 0);
-                                            }
-                                            return updated;
-                                        });
-                                    } else if (action === 'swap-error') {
-                                        // Update transaction status to failed
-                                        setMessages(prev => {
-                                            const updated = prev.map(m =>
-                                                m.id === msg.id ? {
-                                                    ...m,
-                                                    transactionStatus: 'failed' as const
-                                                } : m
-                                            );
-                                            messagesRef.current = updated;
-                                            if (onMessagesChange && currentConversationIdRef.current) {
-                                                setTimeout(() => onMessagesChange(updated), 0);
-                                            }
-                                            return updated;
-                                        });
-                                    } else if (action === 'strategy-edit') {
-                                        // Navigate to trade page or open edit modal
-                                    } else if (action === 'strategy-delete') {
-                                        const strategyId = data;
-                                        deleteStrategy(strategyId);
-                                        // Remove strategy card from message
-                                        setMessages(prev => {
-                                            const updated = prev.map(m => {
-                                                if (m.type === 'strategy-card' && m.data?.id === strategyId) {
-                                                    return {
-                                                        ...m,
-                                                        type: 'text' as const,
-                                                        data: undefined
-                                                    };
-                                                }
-                                                return m;
-                                            });
-                                            messagesRef.current = updated;
-                                            if (onMessagesChange && currentConversationIdRef.current) {
-                                                setTimeout(() => onMessagesChange(updated), 0);
-                                            }
-                                            return updated;
-                                        });
-                                    } else if (action === 'strategy-toggle') {
-                                        const strategyId = data;
-                                        toggleStrategyStatus(strategyId);
+                    return enrichedMessages.map((msg, index, enrichedMessages) => {
+                        const isGrouped = index > 0 && enrichedMessages[index - 1].role === msg.role;
+                        const prevMsg = index > 0 ? enrichedMessages[index - 1] : null;
+                        const showDateSeparator = prevMsg && prevMsg.date && msg.date && prevMsg.date !== msg.date;
 
-                                        // Also update the message data locally to reflect the UI change immediately
-                                        setMessages(prev => {
-                                            const updated = prev.map(m => {
-                                                if (m.type === 'strategy-card' && m.data?.id === strategyId) {
-                                                    const newStatus = m.data.status === 'active' ? 'paused' : 'active';
-                                                    return {
-                                                        ...m,
-                                                        data: { ...m.data, status: newStatus }
-                                                    };
-                                                }
-                                                return m;
-                                            });
-                                            messagesRef.current = updated;
-                                            return updated;
-                                        });
-                                    } else if (action === 'strategy-details') {
+                        return (
+                            <React.Fragment key={msg.id}>
+                                {showDateSeparator && (
+                                    <div className={styles.dateSeparator}>
+                                        <span>{formatDateSeparator(msg.date!)}</span>
+                                    </div>
+                                )}
+                                <MessageBubble
+                                    message={msg}
+                                    isGrouped={isGrouped}
+                                    thinkingText={
+                                        // Only show thinking on the LAST text-type assistant message
+                                        // Never show on special cards (launchpad-card, transaction-status-card, etc.)
+                                        msg.role === 'assistant' &&
+                                            msg.id === lastTextAssistantId &&
+                                            (!msg.type || msg.type === 'text')
+                                            ? thinkingText
+                                            : undefined
                                     }
-                                }
-                                }
-                            />
+                                    userAddress={walletAddress}
+                                    chainId={chainId}
+                                    sessionId={conversationId || undefined}
+                                    modelId={selectedModel?.id} // Pass current model for pricing calculation
+                                    onFeedback={handleMessageFeedback}
+                                    onCardAction={(action, data) => {
+                                        if (action === 'swap-cancel') {
+                                            // Update transaction status to cancelled
+                                            setMessages(prev => {
+                                                const updated = prev.map(m =>
+                                                    m.id === msg.id ? {
+                                                        ...m,
+                                                        transactionStatus: 'cancelled' as const
+                                                    } : m
+                                                );
+                                                messagesRef.current = updated;
+                                                if (onMessagesChange && currentConversationIdRef.current) {
+                                                    setTimeout(() => {
+                                                        onMessagesChange(updated);
+                                                    }, 0);
+                                                }
+                                                return updated;
+                                            });
+                                        } else if (action === 'swap-success') {
+                                            // Update transaction status to success
+                                            const txHash = (data as { txHash: string }).txHash;
+                                            setMessages(prev => {
+                                                const updated = prev.map(m =>
+                                                    m.id === msg.id ? {
+                                                        ...m,
+                                                        transactionStatus: 'success' as const,
+                                                        transactionHash: txHash
+                                                    } : m
+                                                );
+                                                messagesRef.current = updated;
+                                                if (onMessagesChange && currentConversationIdRef.current) {
+                                                    setTimeout(() => onMessagesChange(updated), 0);
+                                                }
+                                                return updated;
+                                            });
+                                        } else if (action === 'swap-error') {
+                                            // Update transaction status to failed
+                                            setMessages(prev => {
+                                                const updated = prev.map(m =>
+                                                    m.id === msg.id ? {
+                                                        ...m,
+                                                        transactionStatus: 'failed' as const
+                                                    } : m
+                                                );
+                                                messagesRef.current = updated;
+                                                if (onMessagesChange && currentConversationIdRef.current) {
+                                                    setTimeout(() => onMessagesChange(updated), 0);
+                                                }
+                                                return updated;
+                                            });
+                                        } else if (action === 'strategy-edit') {
+                                            // Navigate to trade page or open edit modal
+                                        } else if (action === 'strategy-delete') {
+                                            const strategyId = data;
+                                            deleteStrategy(strategyId);
+                                            // Remove strategy card from message
+                                            setMessages(prev => {
+                                                const updated = prev.map(m => {
+                                                    if (m.type === 'strategy-card' && m.data?.id === strategyId) {
+                                                        return {
+                                                            ...m,
+                                                            type: 'text' as const,
+                                                            data: undefined
+                                                        };
+                                                    }
+                                                    return m;
+                                                });
+                                                messagesRef.current = updated;
+                                                if (onMessagesChange && currentConversationIdRef.current) {
+                                                    setTimeout(() => onMessagesChange(updated), 0);
+                                                }
+                                                return updated;
+                                            });
+                                        } else if (action === 'strategy-toggle') {
+                                            const strategyId = data;
+                                            toggleStrategyStatus(strategyId);
 
-                        </React.Fragment>
-                    );
-                })}
+                                            // Also update the message data locally to reflect the UI change immediately
+                                            setMessages(prev => {
+                                                const updated = prev.map(m => {
+                                                    if (m.type === 'strategy-card' && m.data?.id === strategyId) {
+                                                        const newStatus = m.data.status === 'active' ? 'paused' : 'active';
+                                                        return {
+                                                            ...m,
+                                                            data: { ...m.data, status: newStatus }
+                                                        };
+                                                    }
+                                                    return m;
+                                                });
+                                                messagesRef.current = updated;
+                                                return updated;
+                                            });
+                                        } else if (action === 'strategy-details') {
+                                        }
+                                    }
+                                    }
+                                />
+
+                            </React.Fragment>
+                        );
+                    });
+                })()}
 
                 {/* Thinking State indicator is now part of the message itself, no separate bubble needed */}
 
