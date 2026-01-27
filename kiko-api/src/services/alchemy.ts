@@ -30,28 +30,6 @@ const ALCHEMY_NETWORKS: Record<string, string> = {
 };
 
 /**
- * Helper to retry fetch on 429/503 errors
- */
-async function fetchWithRetry(fn: () => Promise<Response>, retries = 3, delay = 1000): Promise<Response> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fn();
-      if (res.ok) return res;
-      if (res.status === 429 || res.status >= 500) {
-        if (i === retries - 1) throw new Error(`Request failed with status ${res.status}`);
-        await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
-        continue;
-      }
-      return res;
-    } catch (err) {
-      if (i === retries - 1) throw err;
-      await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
-    }
-  }
-  throw new Error('fetchWithRetry failed');
-}
-
-/**
  * Get SPL token symbol from mint address
  * Uses local registry first, then returns shortened address as fallback
  */
@@ -161,6 +139,8 @@ const getInfuraUrl = (chain: string = 'eth') => {
   return `https://${network}.infura.io/v3/${apiKey}`;
 };
 
+import { fetchJson } from '../config/unifiedApiService.js';
+
 // ============ API Functions ============
 
 /**
@@ -217,146 +197,102 @@ export async function getAssetTransfers(
         };
         logger.debug(LogCode.API_FETCH_SUCCESS, 'Alchemy request body', { method: 'alchemy_getAssetTransfers', id: 1 });
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-        const fetchWithRetry = async (fn: () => Promise<Response>, retries = 3, delay = 1000): Promise<Response> => {
-          try {
-            const res = await fn();
-            if (!res.ok && (res.status === 429 || res.status >= 500) && retries > 0) {
-              logger.warn(LogCode.API_FETCH_FAILED, `Alchemy API ${res.status}, retrying...`, { retriesLeft: retries });
-              await new Promise(r => setTimeout(r, delay));
-              return fetchWithRetry(fn, retries - 1, delay * 2);
-            }
-            return res;
-          } catch (err: any) {
-            const isNetworkError = err.cause?.code === 'ECONNRESET' || err.cause?.code === 'ETIMEDOUT' || err.message.includes('fetch failed');
-            if (isNetworkError && retries > 0) {
-              logger.warn(LogCode.API_FETCH_FAILED, `Alchemy Network Error (${err.message}), retrying...`, { retriesLeft: retries });
-              await new Promise(r => setTimeout(r, delay));
-              return fetchWithRetry(fn, retries - 1, delay * 2);
-            }
-            throw err;
-          }
-        };
-
         try {
-          const response = await fetchWithRetry(() => fetch(url, {
+          // Use fetchJson instead of direct fetch
+          const data = await fetchJson<{ result?: { transfers: AssetTransfer[] }, error?: any }>({
+            url,
             method: 'POST',
+            body: JSON.stringify(requestBody),
             headers: {
               'Content-Type': 'application/json',
-              'Accept-Encoding': 'gzip', // ✅ Enable gzip compression
-              'Connection': 'keep-alive', // ✅ Connection reuse
+              'Accept-Encoding': 'gzip',
+              'Connection': 'keep-alive',
             },
-            body: JSON.stringify(requestBody),
-            signal: controller.signal,
             keepalive: true,
-          }));
+            requestTimeout: 10000
+          });
 
-          if (!response.ok) {
-            const err = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Alchemy API error', { status: response.status, error: err.substring(0, 200) });
-            return null;
-          }
-          const data = await response.json() as { result?: { transfers: AssetTransfer[] }, error?: any };
           if (data.error) {
             logger.error(LogCode.API_FETCH_FAILED, 'Alchemy RPC Error', { error: data.error });
           }
           logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy transfers received', { count: data.result?.transfers?.length || 0 });
           return data.result?.transfers || [];
-        } finally {
-          clearTimeout(timeout);
+        } catch (error: any) {
+          logger.error(LogCode.API_FETCH_FAILED, 'Alchemy API error', { error: error.message });
+          return null;
         }
       }
 
       // Otherwise, follow the original logic (incoming + outgoing for a wallet)
       if (!address) return [];
 
-      // Fetch transfers TO the address (incoming)
-      const incomingController = new AbortController();
-      const incomingTimeout = setTimeout(() => incomingController.abort(), 10000);
-      let incomingResponse;
+      // Use fetchJson parallel requests
       try {
-        incomingResponse = await fetchWithRetry(() => fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept-Encoding': 'gzip',
-            'Connection': 'keep-alive', // ✅ Connection reuse
-          },
-          body: JSON.stringify({
-            id: 1,
-            jsonrpc: '2.0',
-            method: 'alchemy_getAssetTransfers',
-            params: [{
-              fromBlock,
-              toBlock,
-              toAddress: address,
-              category,
-              contractAddresses,
-              maxCount: `0x${maxCount.toString(16)}`,
-              order,
-              withMetadata: true,
-            }],
+        const [incomingData, outgoingData] = await Promise.all([
+          fetchJson<{ result?: { transfers: AssetTransfer[] } }>({
+            url,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'gzip',
+              'Connection': 'keep-alive',
+            },
+            body: JSON.stringify({
+              id: 1,
+              jsonrpc: '2.0',
+              method: 'alchemy_getAssetTransfers',
+              params: [{
+                fromBlock,
+                toBlock,
+                toAddress: address,
+                category,
+                contractAddresses,
+                maxCount: `0x${maxCount.toString(16)}`,
+                order,
+                withMetadata: true,
+              }],
+            }),
+            requestTimeout: 10000,
+            keepalive: true
           }),
-          signal: incomingController.signal,
-          keepalive: true,
-        }));
-      } finally {
-        clearTimeout(incomingTimeout);
-      }
+          fetchJson<{ result?: { transfers: AssetTransfer[] } }>({
+            url,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept-Encoding': 'gzip',
+              'Connection': 'keep-alive',
+            },
+            body: JSON.stringify({
+              id: 2,
+              jsonrpc: '2.0',
+              method: 'alchemy_getAssetTransfers',
+              params: [{
+                fromBlock,
+                toBlock,
+                fromAddress: address,
+                category,
+                contractAddresses,
+                maxCount: `0x${maxCount.toString(16)}`,
+                order,
+                withMetadata: true,
+              }],
+            }),
+            requestTimeout: 10000,
+            keepalive: true
+          })
+        ]);
 
-      // Fetch transfers FROM the address (outgoing)
-      const outgoingController = new AbortController();
-      const outgoingTimeout = setTimeout(() => outgoingController.abort(), 10000);
-      let outgoingResponse;
-      try {
-        outgoingResponse = await fetchWithRetry(() => fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept-Encoding': 'gzip',
-            'Connection': 'keep-alive', // ✅ Connection reuse
-          },
-          body: JSON.stringify({
-            id: 2,
-            jsonrpc: '2.0',
-            method: 'alchemy_getAssetTransfers',
-            params: [{
-              fromBlock,
-              toBlock,
-              fromAddress: address,
-              category,
-              contractAddresses,
-              maxCount: `0x${maxCount.toString(16)}`,
-              order,
-              withMetadata: true,
-            }],
-          }),
-          signal: outgoingController.signal,
-          keepalive: true,
-        }));
-      } finally {
-        clearTimeout(outgoingTimeout);
-      }
+        const incomingTransfers: AssetTransfer[] = incomingData.result?.transfers || [];
+        const outgoingTransfers: AssetTransfer[] = outgoingData.result?.transfers || [];
 
-      if (!incomingResponse || !outgoingResponse || !incomingResponse.ok || !outgoingResponse.ok) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch asset transfers from Alchemy', {
-          incomingStatus: incomingResponse?.status,
-          outgoingStatus: outgoingResponse?.status
-        });
+        return [...incomingTransfers, ...outgoingTransfers];
+      } catch (e: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Error fetching asset transfers from Alchemy', { error: e.message });
         return null;
       }
-
-      const incomingData = await incomingResponse.json() as { result?: { transfers: AssetTransfer[] } };
-      const outgoingData = await outgoingResponse.json() as { result?: { transfers: AssetTransfer[] } };
-
-      const incomingTransfers: AssetTransfer[] = incomingData.result?.transfers || [];
-      const outgoingTransfers: AssetTransfer[] = outgoingData.result?.transfers || [];
-
-      return [...incomingTransfers, ...outgoingTransfers];
     } catch (e: any) {
-      logger.error(LogCode.API_FETCH_FAILED, 'Error fetching asset transfers from Alchemy', { error: e.message });
+      logger.error(LogCode.API_FETCH_FAILED, 'Error in tryAlchemy', { error: e.message });
       return null;
     }
   };
@@ -747,10 +683,12 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
     }
 
     // Fallback to basic RPC if Helius not configured
+    // Fallback to basic RPC if Helius not configured
     logger.warn(LogCode.API_FETCH_FAILED, 'Helius not configured for Solana history, using basic RPC');
     const url = getAlchemyUrl('solana');
 
-    const response = await fetch(url, {
+    const data = await fetchJson<{ result?: Array<{ signature: string; slot: number; blockTime?: number }> }>({
+      url,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -764,28 +702,29 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
       })
     });
 
-    if (!response.ok) return [];
-    const data = await response.json() as { result?: Array<{ signature: string; slot: number; blockTime?: number }> };
+    if (!data) return [];
     const signatures = data.result || [];
 
     // Fetch full transaction details
     const txPromises = signatures.map(async (sig) => {
-      const txResponse = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'gzip'
-        },
-        body: JSON.stringify({
-          id: 1,
-          jsonrpc: '2.0',
-          method: 'getTransaction',
-          params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }]
-        })
-      });
-
-      if (!txResponse.ok) return null;
-      return txResponse.json();
+      try {
+        return await fetchJson<any>({
+          url,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'gzip'
+          },
+          body: JSON.stringify({
+            id: 1,
+            jsonrpc: '2.0',
+            method: 'getTransaction',
+            params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }]
+          })
+        });
+      } catch (e) {
+        return null;
+      }
     });
 
     const txResults = await Promise.all(txPromises);
@@ -1120,28 +1059,19 @@ export async function getTokenMetadata(chain: string, address: string): Promise<
   };
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'gzip',
-          'Connection': 'keep-alive',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-        keepalive: true,
-      });
+    const json = await fetchJson<{ result: any }>({
+      url,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept-Encoding': 'gzip',
+        'Connection': 'keep-alive',
+      },
+      body: JSON.stringify(body),
+      requestTimeout: 10000
+    });
 
-      if (response.ok) {
-        const json = await response.json();
-        return json.result;
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
+    return json.result;
   } catch (e: any) {
     logger.error(LogCode.API_FETCH_FAILED, 'Error fetching token metadata from Alchemy', { error: e.message, address });
   }
@@ -1189,75 +1119,65 @@ async function fetchTokenDecimalsFromRpc(chain: string, tokenAddress: string): P
 async function fetchSolanaTokenAccounts(address: string): Promise<TokenBalance[]> {
   try {
     const alchemyUrl = getAlchemyUrl('solana');
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(alchemyUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept-Encoding': 'gzip',
-          'Connection': 'keep-alive',
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getTokenAccountsByOwner',
-          params: [
-            address,
-            { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
-            { encoding: 'jsonParsed' },
-          ],
-        }),
-        signal: controller.signal,
-        keepalive: true,
-      });
 
-      if (!response.ok) {
-        throw new Error(`Alchemy Solana RPC ${response.status}`);
-      }
+    const json = await fetchJson<{ result?: { value?: Array<{ account?: { data?: { parsed?: { info?: any } } } }> } }>({
+      url: alchemyUrl,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept-Encoding': 'gzip',
+        'Connection': 'keep-alive',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getTokenAccountsByOwner',
+        params: [
+          address,
+          { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+          { encoding: 'jsonParsed' },
+        ],
+      }),
+      requestTimeout: 10000
+    });
 
-      const json = await response.json() as { result?: { value?: Array<{ account?: { data?: { parsed?: { info?: any } } } }> } };
-      const result = json?.result;
-      if (!result) {
-        throw new Error('Alchemy Solana RPC missing result');
-      }
-
-      const accounts = result?.value || [];
-      const tokens: TokenBalance[] = [];
-
-      for (const entry of accounts) {
-        const info = entry?.account?.data?.parsed?.info;
-        const mint = info?.mint as string | undefined;
-        const amountInfo = info?.tokenAmount;
-        const uiAmountString = amountInfo?.uiAmountString as string | undefined;
-        const decimals = typeof amountInfo?.decimals === 'number' ? amountInfo.decimals : 0;
-
-        if (!mint || !uiAmountString || uiAmountString === '0') continue;
-
-        const known = SPL_TOKEN_METADATA[mint];
-        let symbol: string | undefined = known?.symbol;
-        let name: string | undefined = known?.name;
-
-        if (!symbol) {
-          const meta = await getSolanaTokenMetadata(mint);
-          symbol = meta?.symbol;
-          name = meta?.name;
-        }
-
-        tokens.push({
-          contractAddress: mint,
-          tokenBalance: uiAmountString,
-          symbol: symbol || 'UNKNOWN',
-          name: name || 'Unknown Token',
-          decimals,
-        });
-      }
-
-      return tokens;
-    } finally {
-      clearTimeout(timeout);
+    const result = json?.result;
+    if (!result) {
+      throw new Error('Alchemy Solana RPC missing result');
     }
+
+    const accounts = result?.value || [];
+    const tokens: TokenBalance[] = [];
+
+    for (const entry of accounts) {
+      const info = entry?.account?.data?.parsed?.info;
+      const mint = info?.mint as string | undefined;
+      const amountInfo = info?.tokenAmount;
+      const uiAmountString = amountInfo?.uiAmountString as string | undefined;
+      const decimals = typeof amountInfo?.decimals === 'number' ? amountInfo.decimals : 0;
+
+      if (!mint || !uiAmountString || uiAmountString === '0') continue;
+
+      const known = SPL_TOKEN_METADATA[mint];
+      let symbol: string | undefined = known?.symbol;
+      let name: string | undefined = known?.name;
+
+      if (!symbol) {
+        const meta = await getSolanaTokenMetadata(mint);
+        symbol = meta?.symbol;
+        name = meta?.name;
+      }
+
+      tokens.push({
+        contractAddress: mint,
+        tokenBalance: uiAmountString,
+        symbol: symbol || 'UNKNOWN',
+        name: name || 'Unknown Token',
+        decimals,
+      });
+    }
+
+    return tokens;
   } catch (error: any) {
     logger.warn(LogCode.API_FETCH_FAILED, 'Solana token account fallback failed', {
       error: error.message,
@@ -1324,15 +1244,7 @@ const tokenPriceCache = new Map<string, { price: number; timestamp: number }>();
 const tokenPriceInFlight = new Map<string, Promise<number | undefined>>();
 const solanaBalanceCache = new Map<string, { tokens: TokenBalance[]; nativeBalance?: number; timestamp: number }>();
 
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+// fetchWithTimeout removed - replaced by fetchJson
 
 function priceCacheKey(chain: string, address: string): string {
   return `${chain.toLowerCase()}:${address.toLowerCase()}`;
@@ -1366,17 +1278,18 @@ async function fetchAlchemyPricesByAddress(
   };
 
   try {
-    const response = await fetchWithTimeout(url, {
+    // Use fetchJson instead of custom fetchWithTimeout
+    const json = await fetchJson<any>({
+      url,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
-    }, PRICE_TIMEOUT_MS);
+      timeout: PRICE_TIMEOUT_MS
+    });
 
-    if (!response.ok) return {};
-    const json = await response.json();
     if (!Array.isArray(json?.data)) return {};
 
     const results: Record<string, number> = {};
@@ -1505,7 +1418,8 @@ async function fetchEvmNativeBalance(
   if (!infuraUrl) return null;
 
   try {
-    const response = await fetch(infuraUrl, {
+    const json = await fetchJson<any>({
+      url: infuraUrl,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1519,8 +1433,6 @@ async function fetchEvmNativeBalance(
       }),
     });
 
-    if (!response.ok) return null;
-    const json = await response.json();
     const balanceHex = json?.result;
     if (!balanceHex) return null;
     const balanceBigInt = BigInt(balanceHex);
@@ -1567,18 +1479,19 @@ async function getTokenMetadataBatch(
     });
 
     try {
-      const response = await fetchWithTimeout(url, {
+      const data = await fetchJson<any[]>({
+        url,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept-Encoding': 'gzip'
         },
         body: JSON.stringify(payload),
-      }, METADATA_TIMEOUT_MS);
+        requestTimeout: METADATA_TIMEOUT_MS
+      });
 
-      if (!response.ok) continue; // Skip this batch, try next
-
-      const json = await response.json();
+      // fetchJson returns parsed JSON directly
+      const json = data;
       if (!Array.isArray(json)) continue;
 
       json.forEach(entry => {
@@ -1789,15 +1702,17 @@ export async function getPortfolio(
 
       let response: Response | null = null;
       try {
-        response = await fetchWithTimeout(url, {
+        response = await fetchJson<any>({
+          url,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
             'Accept-Encoding': 'gzip', // ✅ Enable gzip compression (critical for Portfolio API responses)
           },
-          body: JSON.stringify(body)
-        }, PORTFOLIO_TIMEOUT_MS);
+          body: JSON.stringify(body),
+          requestTimeout: PORTFOLIO_TIMEOUT_MS
+        });
       } catch (e: any) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API timeout', { error: e.message });
       }
@@ -1890,7 +1805,7 @@ export async function getPortfolio(
               for (const { token, decimals } of decimalsResults) {
                 if (decimals === null || decimals === undefined) continue;
                 if (token.decimals !== decimals) {
-                  const raw = rawBalancesByAddress.get(token.contractAddress.toLowerCase()) || BigInt(0);
+                  const raw = rawBalancesByAddress.get(token.contractAddress.toLowerCase()) || 0n;
                   token.decimals = decimals;
                   token.tokenBalance = formatTokenBalance(raw, decimals);
                   if (token.price !== undefined) {
@@ -1953,15 +1868,17 @@ export async function getPortfolio(
         };
         let response: Response | null = null;
         try {
-          response = await fetchWithTimeout(url, {
+          response = await fetchJson<any>({
+            url,
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiKey}`,
               'Accept-Encoding': 'gzip'
             },
-            body: JSON.stringify(body)
-          }, PORTFOLIO_TIMEOUT_MS);
+            body: JSON.stringify(body),
+            requestTimeout: PORTFOLIO_TIMEOUT_MS
+          });
         } catch (e: any) {
           logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio Solana timeout', { error: e.message });
         }
@@ -1978,7 +1895,7 @@ export async function getPortfolio(
               const hexBalance = t.tokenBalance || '0';
               const balanceBigInt = parseTokenBalance(hexBalance);
 
-              if (balanceBigInt === BigInt(0)) return;
+              if (balanceBigInt === 0n) return;
 
               if (isNative) {
                 ethBalance = hexBalance;
@@ -2179,13 +2096,13 @@ export async function getNativeBalances(
         token: tokenAddress,
         error: error.message,
       });
-      return BigInt(0);
+      return 0n;
     }
   };
 
   const formatStableBalance = (raw: bigint, decimals: number): string => {
     if (decimals <= 0) return raw.toString();
-    const divisor = BigInt(10) ** BigInt(decimals);
+    const divisor = 10n ** BigInt(decimals);
     const whole = raw / divisor;
     const fraction = raw % divisor;
     const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
@@ -2225,7 +2142,7 @@ export async function getNativeBalances(
       if (stableList.length > 0) {
         const settled = await Promise.all(stableList.map(async (token) => {
           const raw = await readErc20Balance(chainKey, token.address);
-          if (raw === BigInt(0)) return null;
+          if (raw === 0n) return null;
           const formatted = formatStableBalance(raw, token.decimals);
           return {
             contractAddress: token.address,
@@ -2266,7 +2183,7 @@ export async function getSpecificTokenBalance(
 ): Promise<{ raw: string; decimals: number; formatted: string }> {
   const formatTokenBalance = (rawBalance: bigint, decimals: number): string => {
     if (decimals <= 0) return rawBalance.toString();
-    const divisor = BigInt(10) ** BigInt(decimals);
+    const divisor = 10n ** BigInt(decimals);
     const whole = rawBalance / divisor;
     const fraction = rawBalance % divisor;
     const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');

@@ -70,28 +70,28 @@ model WalletExport {
 }
 
 model UserSettings {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  userRole             String   @default("default")
-  defaultSwapAmount    Float    @default(100)
-  defaultSwapUnit      String   @default("native")
-  checkTokenBeforeSwap Boolean  @default(true)
-  quickSwapMode        Boolean  @default(false)
-  swapMethod           String   @default("swap_card")
-  slippageMode         String   @default("auto")
-  customSlippage       Float    @default(0.5)
-  mevProtection        Boolean  @default(true)
-  priceDeviationCheck  Boolean  @default(true)
-  copyTradeAIMode      String   @default("disabled")
-  fastSwapMode         Boolean  @default(false)
-  copyTradeTokenCooldownMinutes Int?   @default(60)
-  minMarketCapUsd     Float?
-  minLiquidityUsd     Float?
-  minTargetValueUsd   Float?
-  zoraNotificationThreshold Int? @default(5000)
-  updatedAt            DateTime @updatedAt
-  createdAt            DateTime @default(now())
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                            String   @id @default(cuid())
+  userId                        String   @unique
+  userRole                      String   @default("default")
+  defaultSwapAmount             Float    @default(100)
+  defaultSwapUnit               String   @default("native")
+  checkTokenBeforeSwap          Boolean  @default(true)
+  quickSwapMode                 Boolean  @default(false)
+  swapMethod                    String   @default("swap_card")
+  slippageMode                  String   @default("auto")
+  customSlippage                Float    @default(0.5)
+  mevProtection                 Boolean  @default(true)
+  priceDeviationCheck           Boolean  @default(true)
+  copyTradeAIMode               String   @default("disabled")
+  fastSwapMode                  Boolean  @default(false)
+  updatedAt                     DateTime @updatedAt
+  createdAt                     DateTime @default(now())
+  copyTradeTokenCooldownMinutes Int?     @default(60)
+  minLiquidityUsd               Float?
+  minMarketCapUsd               Float?
+  minTargetValueUsd             Float?
+  zoraNotificationThreshold     Int?     @default(5000)
+  user                          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model CopyTradeConfig {
@@ -322,9 +322,9 @@ model ChatMessage {
   toolCalls         String?
   toolCallId        String?
   messageIndex      Int
-  feedback          String?        // 'like' | 'dislike' | null
   status            String         @default("complete")
   createdAt         DateTime       @default(now())
+  feedback          String?
   session           ChatSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   chunks            MessageChunk[]
 
@@ -522,24 +522,24 @@ model ProtocolMetric {
 }
 
 model TrendingToken {
-  id             String   @id @default(cuid())
-  chain          String   @default("eth")
+  id             String    @id @default(cuid())
+  chain          String    @default("eth")
   address        String
   name           String
   symbol         String
-  imageUrl       String?  @map("image_url")
-  poolCreatedAt  DateTime? @map("pool_created_at")
+  imageUrl       String?   @map("image_url")
   price          Decimal?
-  priceChange5m  Decimal? @map("price_change_5m")
-  priceChange1h  Decimal? @map("price_change_1h")
-  priceChange6h  Decimal? @map("price_change_6h")
-  priceChange24h Decimal? @map("price_change_24h")
-  volume24h      Decimal? @map("volume_24h")
+  priceChange5m  Decimal?  @map("price_change_5m")
+  priceChange1h  Decimal?  @map("price_change_1h")
+  priceChange6h  Decimal?  @map("price_change_6h")
+  priceChange24h Decimal?  @map("price_change_24h")
+  volume24h      Decimal?  @map("volume_24h")
   liquidity      Decimal?
   fdv            Decimal?
   rank           Int?
-  updatedAt      DateTime @default(now()) @updatedAt
-  createdAt      DateTime @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+  createdAt      DateTime  @default(now())
+  poolCreatedAt  DateTime? @map("pool_created_at")
 
   @@unique([chain, address])
   @@index([rank])
@@ -601,20 +601,20 @@ model QualityFarcasterUser {
 }
 
 model TokenRule {
-  id              Int      @id @default(autoincrement())
-  userId          String   @map("user_id")
-  chain           String   @default("base")
-  chainId         Int      @default(8453) @map("chain_id")
+  id              Int       @id @default(autoincrement())
+  userId          String    @map("user_id")
+  chain           String    @default("base")
   address         String
-  targetType      String   @default("price") @map("target_type") // price, market_cap, price_change_24h
-  ruleType        String   @map("rule_type") // above, below, drop_pct, rise_pct
-  conditionValue  Decimal  @map("condition_value")
-  action          String   // notify, buy, sell
-  actionAmount    Float?   @map("action_amount") // Amount to buy/sell
-  isActive        Boolean  @default(true) @map("is_active")
+  ruleType        String    @map("rule_type")
+  conditionValue  Decimal   @map("condition_value")
+  action          String
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+  actionAmount    Float?    @map("action_amount")
+  chainId         Int       @default(8453) @map("chain_id")
   lastTriggeredAt DateTime? @map("last_triggered_at")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+  targetType      String    @default("price") @map("target_type")
 
   @@map("token_rules")
 }

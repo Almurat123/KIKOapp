@@ -1,5 +1,6 @@
 import { Tool } from './registry.js';
 import * as coinbase from '../services/coinbase.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 export const GetTokenPriceTool: Tool = {
     definition: {
@@ -61,13 +62,15 @@ export const GetTokenPriceTool: Tool = {
             // 2. Fallback: CoinGecko
             try {
                 console.log('[GetTokenPrice] Fallback to CoinGecko...');
-                const coinListRes = await fetch(`https://api.coingecko.com/api/v3/search?query=${symbol}`);
-                const coinList = await coinListRes.json() as any;
+                const coinList = await fetchJson({
+                    url: `https://api.coingecko.com/api/v3/search?query=${symbol}`
+                }) as any;
 
                 if (coinList.coins && coinList.coins.length > 0) {
                     const coinId = coinList.coins[0].id; // Top result
-                    const priceRes = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`);
-                    const priceData = await priceRes.json() as any;
+                    const priceData = await fetchJson({
+                        url: `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`
+                    }) as any;
 
                     if (priceData[coinId]?.usd) {
                         return {

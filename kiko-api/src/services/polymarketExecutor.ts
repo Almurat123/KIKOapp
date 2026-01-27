@@ -12,6 +12,7 @@ import prisma from '../db/prisma.js';
 import { PolymarketUserPosition } from './polymarketDataService.js';
 import { createLimitOrderData, buildSignedOrder, SignedOrder, getUserWalletAddress } from './polymarketOrderBuilder.js';
 import { getEmbeddedWalletInfo } from './privyWallet.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 import crypto from 'crypto';
 
 // CLOB API endpoints
@@ -105,7 +106,8 @@ async function postSignedOrder(
     const hmacSignature = generateHmacSignature(creds.apiSecret, timestamp, method, requestPath, body);
 
     try {
-        const response = await fetch(`${CLOB_API}${requestPath}`, {
+        const result = await fetchJson({
+            url: `${CLOB_API}${requestPath}`,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -116,14 +118,7 @@ async function postSignedOrder(
                 'POLY_SIGNATURE': hmacSignature
             },
             body
-        });
-
-        const result = await response.json() as { error?: string; message?: string; orderID?: string; id?: string };
-
-        if (!response.ok) {
-            console.error('[PolymarketExecutor] Order POST failed:', result);
-            return { success: false, error: result.error || result.message || 'Order rejected' };
-        }
+        }) as { error?: string; message?: string; orderID?: string; id?: string };
 
         console.log('[PolymarketExecutor] Order posted successfully:', result);
         return { success: true, orderId: result.orderID || result.id };
@@ -641,7 +636,8 @@ export async function cancelOrder(params: CancelOrderParams): Promise<{
         );
 
         // Send cancellation request
-        const response = await fetch(`${CLOB_API}${requestPath}`, {
+        const result = await fetchJson({
+            url: `${CLOB_API}${requestPath}`,
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
@@ -651,14 +647,7 @@ export async function cancelOrder(params: CancelOrderParams): Promise<{
                 'POLY_TIMESTAMP': timestamp,
                 'POLY_SIGNATURE': signature
             }
-        });
-
-        const result = await response.json() as { error?: string; message?: string; success?: boolean };
-
-        if (!response.ok) {
-            console.error('[PolymarketExecutor] Order cancellation failed:', result);
-            return { success: false, error: result.error || result.message || 'Cancellation failed' };
-        }
+        }) as { error?: string; message?: string; success?: boolean };
 
         console.log('[PolymarketExecutor] Order cancelled successfully');
 

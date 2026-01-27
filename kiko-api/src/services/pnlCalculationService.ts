@@ -4,6 +4,7 @@ import { getCoinbaseSpotPrice } from './coinbase.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 interface TokenPosition {
     symbol: string;
@@ -84,7 +85,8 @@ async function getHistoricalPrice(tokenAddress: string, chain: string, timestamp
         if (ALCHEMY_API_KEY) {
             const url = `https://api.g.alchemy.com/prices/v1/${ALCHEMY_API_KEY}/tokens/historical`;
 
-            const response = await fetch(url, {
+            const data = await fetchJson({
+                url,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -95,13 +97,10 @@ async function getHistoricalPrice(tokenAddress: string, chain: string, timestamp
                 })
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                if (data.data?.[0]?.price) {
-                    const price = parseFloat(data.data[0].price);
-                    priceCache.set(cacheKey, price);
-                    return price;
-                }
+            if (data.data?.[0]?.price) {
+                const price = parseFloat(data.data[0].price);
+                priceCache.set(cacheKey, price);
+                return price;
             }
         }
     } catch (e) {
@@ -154,9 +153,7 @@ async function prefetchDexScreenerPrices(chain: string, tokenAddresses: string[]
         const batch = normalized.slice(i, i + batchSize);
         try {
             const url = `https://api.dexscreener.com/latest/dex/tokens/${batch.join(',')}`;
-            const response = await fetch(url);
-            if (!response.ok) continue;
-            const data: any = await response.json();
+            const data: any = await fetchJson({ url });
             const pairs: any[] = Array.isArray(data?.pairs) ? data.pairs : [];
 
             const bestByBase = new Map<string, { price: number; liquidityUsd: number }>();

@@ -24,6 +24,7 @@ export interface EthGasOracle {
  */
 // Chain API mapping
 import { env } from '../config/env.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 // Chain API mapping
 const CHAIN_API_MAP: Record<string, string> = {
@@ -57,14 +58,21 @@ export async function getGasPrice(chain: string = 'eth', apiKey?: string): Promi
     // Note: If using real Etherscan V2 in future, would need chainid=1 here. 
     // But Blockscout handles it beautifully without.
 
-    const response = await fetch(url);
+    const response = await unifiedApiService.fetchJson<any>({
+      url,
+      method: 'GET',
+      timeout: 10000,
+      endpointName: 'api.etherscan.io'
+    });
 
-    if (!response.ok) {
-      console.error(`Etherscan/Blockscout API error for ${chain}:`, response.statusText);
+    // Simulate response object for compatibility
+    const data = response;
+    const responseOk = !!data;
+
+    if (!responseOk) {
+      console.error(`Etherscan/Blockscout API error for ${chain}: failed to fetch`);
       return null;
     }
-
-    const data = await response.json() as any;
 
     // Handle standard response
     if (data.status === '1' && data.result) {
@@ -125,13 +133,7 @@ export async function getContractSourceCode(
     // Standard V1 API call (Works for Blockscout and V1 Etherscan clones)
     const url = `${baseUrl}/api?module=contract&action=getsourcecode&address=${address}${apiKey ? `&apikey=${apiKey}` : ''}`;
 
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json() as {
+    const data = await unifiedApiService.fetchJson<{
       status: string; result: Array<{
         SourceCode?: string;
         ContractName?: string;
@@ -139,7 +141,14 @@ export async function getContractSourceCode(
         OptimizationUsed?: string;
         License?: string;
       }>
-    };
+    }>({
+      url,
+      method: 'GET',
+      timeout: 10000,
+      endpointName: 'api.etherscan.io'
+    });
+
+    if (!data) return null;
 
     if (data.status === '1' && data.result && data.result.length > 0) {
       const contract = data.result[0];
@@ -175,15 +184,15 @@ export async function getSolscanVerification(address: string): Promise<{ verifie
     // Solscan Public/Pro API: Token Metadata usually contains verification info
     const url = `https://public-api.solscan.io/token/meta?tokenAddress=${address}`;
 
-    const response = await fetch(url, {
+    const data = await unifiedApiService.fetchJson<any>({
+      url,
+      method: 'GET',
       headers: {
         'token': apiKey
-      }
+      },
+      timeout: 10000,
+      endpointName: 'public-api.solscan.io'
     });
-
-    if (!response.ok) return null;
-
-    const data = await response.json() as any;
 
     // Look for indicators of verification in metadata
     // Since specific endpoint for verification might be Pro only, we infer or check fields
@@ -225,10 +234,15 @@ export async function getSourcifyData(chainId: number | string, address: string)
     const v2Url = `https://sourcify.dev/server/v2/contract/${chainId}/${address}?fields=abi,metadata,match`;
 
     try {
-      const responseV2 = await fetch(v2Url);
+      const data = await unifiedApiService.fetchJson<any>({
+        url: v2Url,
+        method: 'GET',
+        timeout: 5000,
+        endpointName: 'sourcify.dev'
+      });
+      const responseV2Ok = !!data;
 
-      if (responseV2.ok) {
-        const data = await responseV2.json() as any;
+      if (responseV2Ok) {
 
         // Check if verified
         // V2 response structure: { match: 'match'|'partial'|null, abi: [...], metadata: {...} }
@@ -249,13 +263,14 @@ export async function getSourcifyData(chainId: number | string, address: string)
     const baseUrl = 'https://sourcify.dev/server';
     const urlv1 = `${baseUrl}/files/${chainId}/${address}`;
 
-    const response = await fetch(urlv1);
+    const data = await unifiedApiService.fetchJson<any>({
+      url: urlv1,
+      method: 'GET',
+      timeout: 5000,
+      endpointName: 'sourcify.dev'
+    });
 
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json() as any;
+    if (!data) return null;
     const metadataFile = data.find((f: any) => f.name === 'metadata.json');
 
     if (metadataFile) {

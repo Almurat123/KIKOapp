@@ -3,6 +3,8 @@
  * Read-only access to prediction market data
  */
 
+import * as unifiedApiService from '../config/unifiedApiService.js';
+
 const GAMMA_API_BASE = 'https://gamma-api.polymarket.com';
 
 interface PolymarketEvent {
@@ -77,12 +79,18 @@ export async function getTrendingEvents(limit: number = 10): Promise<{
 }> {
     const url = `${GAMMA_API_BASE}/events?limit=${limit}&active=true&closed=false&order=volume24hr&ascending=false`;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Polymarket API error: ${response.status}`);
-    }
-
-    const data = await response.json() as PolymarketEvent[];
+    // # [Logic]: Fetch trending events via Unified Transport
+    // # [Ref]: "The Polymarket Gamma API provides several endpoints" [Polymarket Docs]
+    const data = await unifiedApiService.fetchJson<PolymarketEvent[]>({
+        url,
+        method: 'GET',
+        requestTimeout: 10000,
+        endpointName: 'polymarket-trending-events',
+        retry: {
+            retries: 2,
+            minTimeout: 500
+        }
+    });
 
     return {
         events: data.map(event => ({
@@ -109,12 +117,13 @@ export async function getEventDetails(eventId: string): Promise<{
 }> {
     const url = `${GAMMA_API_BASE}/events/${eventId}`;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Polymarket API error: ${response.status}`);
-    }
-
-    const event = await response.json() as PolymarketEvent;
+    // # [Logic]: Fetch event details
+    const event = await unifiedApiService.fetchJson<PolymarketEvent>({
+        url,
+        method: 'GET',
+        requestTimeout: 10000,
+        endpointName: 'polymarket-event-details'
+    });
 
     // Filter and parse markets
     const markets: ParsedMarket[] = (event.markets || [])
@@ -154,12 +163,13 @@ export async function getTrendingMarkets(limit: number = 10): Promise<{
 }> {
     const url = `${GAMMA_API_BASE}/markets?limit=${limit}&active=true&closed=false&order=volume24hr&ascending=false`;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Polymarket API error: ${response.status}`);
-    }
-
-    const data = await response.json() as PolymarketMarket[];
+    // # [Logic]: Fetch trending markets
+    const data = await unifiedApiService.fetchJson<PolymarketMarket[]>({
+        url,
+        method: 'GET',
+        requestTimeout: 10000,
+        endpointName: 'polymarket-trending-markets'
+    });
 
     const markets: ParsedMarket[] = data.map(market => {
         const prices = parseOutcomePrices(market.outcomePrices);
@@ -195,12 +205,13 @@ export async function searchEvents(query: string, limit: number = 10): Promise<{
     // Use the optimized public-search endpoint
     const url = `${GAMMA_API_BASE}/public-search?q=${encodeURIComponent(query)}&limit=${limit}&events_status=active`;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Polymarket API error: ${response.status}`);
-    }
-
-    const data = await response.json() as any[];
+    // # [Logic]: Search events
+    const data = await unifiedApiService.fetchJson<any[]>({
+        url,
+        method: 'GET',
+        requestTimeout: 15000,
+        endpointName: 'polymarket-search'
+    });
 
     if (!Array.isArray(data)) {
         return { events: [] };
@@ -232,12 +243,13 @@ export async function getNewMarkets(limit: number = 10): Promise<{
 }> {
     const url = `${GAMMA_API_BASE}/events?limit=${limit}&active=true&closed=false&order=createdAt&ascending=false`;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Polymarket API error: ${response.status}`);
-    }
-
-    const data = await response.json() as PolymarketEvent[];
+    // # [Logic]: Fetch new markets
+    const data = await unifiedApiService.fetchJson<PolymarketEvent[]>({
+        url,
+        method: 'GET',
+        requestTimeout: 10000,
+        endpointName: 'polymarket-new-markets'
+    });
 
     return {
         events: data.map(event => ({

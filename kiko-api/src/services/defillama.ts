@@ -4,6 +4,7 @@
  */
 
 const DEFILLAMA_BASE_URL = 'https://api.llama.fi';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 export interface ChainData {
   name: string;
@@ -48,13 +49,17 @@ async function getChainTvlChange(chainName: string, currentTvl: number): Promise
     // Try to get historical data to calculate 24h change
     // DeFiLlama uses chain name in the URL (e.g., "Ethereum", "Arbitrum")
     const url = `${DEFILLAMA_BASE_URL}/v2/historicalChainTvl/${chainName}`;
-    const response = await fetch(url);
+    // # [Logic]: Fetch historical chain TVL via Unified Transport
+    const data = await unifiedApiService.fetchJson<Array<{ date: number; tvl: number }>>({
+      url,
+      method: 'GET',
+      requestTimeout: 10000,
+      endpointName: 'defillama-historical-chain-tvl'
+    }).catch(() => []);
 
-    if (!response.ok) {
-      return 0; // Return 0 if historical data not available
+    if (!Array.isArray(data) || data.length < 2) {
+      return 0; // Return 0 if historical data not available or format invalid
     }
-
-    const data = await response.json() as Array<{ date: number; tvl: number }>;
 
     if (!Array.isArray(data) || data.length < 2) {
       return 0;
@@ -104,13 +109,13 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
   try {
     // Use the correct DeFiLlama API endpoint
     const url = `${DEFILLAMA_BASE_URL}/v2/chains`;
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      throw new Error(`DeFiLlama API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as Array<DeFiLlamaChain>;
+    // # [Logic]: Fetch all chains data via Unified Transport
+    const data = await unifiedApiService.fetchJson<Array<DeFiLlamaChain>>({
+      url,
+      method: 'GET',
+      requestTimeout: 15000,
+      endpointName: 'defillama-chains'
+    });
 
     // Create a map of DeFiLlama chains for quick lookup (lowercase key)
     const defiLlamaChainMap = new Map<string, { name: string; tvl: number; change_1d?: number }>();
@@ -318,13 +323,8 @@ function getProperChainName(
 export async function getProtocolsData(): Promise<ProtocolData[]> {
   try {
     const url = `${DEFILLAMA_BASE_URL}/protocols`;
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      throw new Error(`DeFiLlama API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as Array<{
+    // # [Logic]: Fetch protocols data via Unified Transport
+    const data = await unifiedApiService.fetchJson<Array<{
       name: string;
       symbol?: string;
       category?: string;
@@ -335,7 +335,12 @@ export async function getProtocolsData(): Promise<ProtocolData[]> {
       chains?: string[];
       mcapTvlRatio?: number;
       logo?: string;
-    }>;
+    }>>({
+      url,
+      method: 'GET',
+      requestTimeout: 15000,
+      endpointName: 'defillama-protocols'
+    });
 
     return data.map((protocol) => ({
       name: protocol.name,
@@ -389,29 +394,52 @@ export async function getProtocolHistoricalTvl(protocolName: string): Promise<Ar
 
     // Try the protocol endpoint first
     let url = `${DEFILLAMA_BASE_URL}/protocol/${protocolSlug}`;
-    let response = await fetch(url);
+    // # [Logic]: Fetch protocol specific TVL via Unified Transport with retries/fallbacks
+    let protocolData: any = null;
 
-    if (!response.ok) {
+    try {
+      protocolData = await unifiedApiService.fetchJson<any>({
+        url,
+        method: 'GET',
+        requestTimeout: 10000,
+        endpointName: 'defillama-protocol-detail'
+      });
+    } catch {
       // Try alternative: /tvl/{protocol}
       url = `${DEFILLAMA_BASE_URL}/tvl/${protocolSlug}`;
-      response = await fetch(url);
-
-      if (!response.ok) {
+      try {
+        protocolData = await unifiedApiService.fetchJson<any>({
+          url,
+          method: 'GET',
+          requestTimeout: 10000,
+          endpointName: 'defillama-protocol-tvl'
+        });
+      } catch {
         // Try without version suffix (e.g., "aave-v3" -> "aave")
         const baseSlug = protocolSlug.split('-').slice(0, -1).join('-');
         if (baseSlug && baseSlug !== protocolSlug) {
           url = `${DEFILLAMA_BASE_URL}/protocol/${baseSlug}`;
-          response = await fetch(url);
-        }
-
-        if (!response.ok) {
+          try {
+            protocolData = await unifiedApiService.fetchJson<any>({
+              url,
+              method: 'GET',
+              requestTimeout: 10000,
+              endpointName: 'defillama-protocol-detail-fallback'
+            });
+          } catch (e) {
+            // Final fallback failed
+            console.warn(`Protocol ${protocolName} (slug: ${protocolSlug}) not found in DeFiLlama`);
+            return [];
+          }
+        } else {
           console.warn(`Protocol ${protocolName} (slug: ${protocolSlug}) not found in DeFiLlama`);
           return [];
         }
       }
     }
 
-    const data = await response.json() as any;
+    // Assign data for downstream processing
+    const data = protocolData;
 
     // Handle different response formats
     if (Array.isArray(data)) {
@@ -453,22 +481,25 @@ export async function getProtocolHistoricalTvl(protocolName: string): Promise<Ar
 export async function getDerivativesOpenInterest(): Promise<number | undefined> {
   try {
     const url = `${DEFILLAMA_BASE_URL}/overview/derivatives`;
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      console.warn(`DeFiLlama derivatives API error: ${response.statusText}`);
-      return undefined;
-    }
-
-    const data = await response.json() as {
+    // # [Logic]: Fetch derivatives OI via Unified Transport
+    const data = await unifiedApiService.fetchJson<{
       total24h?: number;
       totalDataChart?: Array<[number, number]>;
-    };
+    }>({
+      url,
+      method: 'GET',
+      requestTimeout: 10000,
+      endpointName: 'defillama-derivatives'
+    }).catch(e => {
+      console.warn(`DeFiLlama derivatives API error: ${e.message}`);
+      return {};
+    });
 
     // total24h represents total Open Interest across all derivatives protocols
-    if (data.total24h && data.total24h > 0) {
-      console.log(`DeFiLlama Derivatives Open Interest: $${(data.total24h / 1e9).toFixed(2)}B`);
-      return data.total24h;
+    const dataAny = data as any;
+    if (dataAny.total24h && dataAny.total24h > 0) {
+      console.log(`DeFiLlama Derivatives Open Interest: $${(dataAny.total24h / 1e9).toFixed(2)}B`);
+      return dataAny.total24h;
     }
 
     return undefined;
@@ -489,13 +520,14 @@ export async function getProtocolDetails(protocolName: string): Promise<any | nu
       .replace(/[^a-z0-9-]/g, '');
 
     const url = `${DEFILLAMA_BASE_URL}/protocol/${protocolSlug}`;
-    const response = await fetch(url);
+    const data = await unifiedApiService.fetchJson<any>({
+      url,
+      method: 'GET',
+      requestTimeout: 10000,
+      endpointName: 'defillama-protocol-details'
+    });
 
-    if (!response.ok) {
-      return null;
-    }
-
-    return await response.json();
+    return data;
   } catch (error) {
     console.error(`Error fetching protocol details for ${protocolName}:`, error);
     return null;

@@ -24,6 +24,27 @@ export async function get(key: string): Promise<string | null> {
 }
 
 /**
+ * Get cache entry with metadata (no auto-delete of expired items).
+ */
+export async function getEntry(key: string): Promise<{ value: string; expiresAt: Date | null; updatedAt: Date } | null> {
+    try {
+        const item = await prisma.cache.findUnique({
+            where: { key },
+            select: { value: true, expiresAt: true, updatedAt: true }
+        });
+        if (!item) return null;
+        return {
+            value: item.value,
+            expiresAt: item.expiresAt,
+            updatedAt: item.updatedAt
+        };
+    } catch (error) {
+        console.error(`[DBCache] GetEntry error for ${key}:`, error);
+        return null;
+    }
+}
+
+/**
  * Set item in PostgreSQL Cache
  * ttl: Time to live in seconds
  */

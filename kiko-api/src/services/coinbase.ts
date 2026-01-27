@@ -3,6 +3,8 @@
  * Documentation: https://docs.cloud.coinbase.com/sign-in-with-coinbase/docs/api-prices
  */
 
+import * as unifiedApiService from '../config/unifiedApiService.js';
+
 const COINBASE_API_BASE_URL = 'https://api.coinbase.com/v2';
 
 /**
@@ -18,20 +20,18 @@ export async function getCoinbaseSpotPrice(
         const pair = `${symbol.toUpperCase()}-${currency.toUpperCase()}`;
         const url = `${COINBASE_API_BASE_URL}/prices/${pair}/spot`;
 
-        const response = await fetch(url);
-
-        if (!response.ok) {
-            console.warn(`[Coinbase] API error for ${pair}: ${response.status} ${response.statusText}`);
-            return null;
-        }
-
-        const data = await response.json() as {
+        const data = await unifiedApiService.fetchJson<{
             data: {
                 amount: string;
                 base: string;
                 currency: string;
             };
-        };
+        }>({
+            url,
+            method: 'GET',
+            timeout: 5000,
+            endpointName: 'api.coinbase.com'
+        });
 
         return {
             symbol: data.data.base,
@@ -84,20 +84,18 @@ export async function getHistoricalPrice(
         const url = `${COINBASE_API_BASE_URL}/prices/${pair}/spot?date=${date}`;
 
         console.log(`[Coinbase] Fetching historical price: ${url}`);
-        const response = await fetch(url);
-
-        if (!response.ok) {
-            console.warn(`[Coinbase] Historical price error for ${pair} on ${date}: ${response.status}`);
-            return null;
-        }
-
-        const data = await response.json() as {
+        const data = await unifiedApiService.fetchJson<{
             data: {
                 amount: string;
                 base: string;
                 currency: string;
             };
-        };
+        }>({
+            url,
+            method: 'GET',
+            timeout: 5000,
+            endpointName: 'api.coinbase.com'
+        });
 
         return {
             symbol: data.data.base,

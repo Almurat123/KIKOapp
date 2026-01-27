@@ -24,6 +24,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { TOKEN_REGISTRY, SOLANA_NATIVE_MINT } from '../config/tokenRegistry.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 export interface SolanaQuote {
   inputMint: string;
@@ -40,6 +41,7 @@ export interface SolanaQuote {
   swapMode?: string;             // Required for Jupiter V6/Ultra swap
   slippageBps?: number;          // Required for Jupiter V6/Ultra swap
   rawQuoteResponse?: any;        // Raw quote response from API (for swap endpoint)
+  computeUnitPriceMicroLamports?: number; // Priority fee rate
 }
 
 export interface SolanaPrice {
@@ -83,7 +85,8 @@ async function getJupiterQuote(
   outputMint: string,
   amount: string,
   slippageBps: number = 50,
-  userAddress?: string
+  userAddress?: string,
+  computeUnitPriceMicroLamports?: number
 ): Promise<SolanaQuote | null> {
   try {
     // Build headers with API key if available
@@ -119,27 +122,20 @@ async function getJupiterQuote(
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
     const quoteStartTime = Date.now();
-    const quoteResponse = await fetch(quoteUrl, {
+    let quoteData = await fetchJson({
+      url: quoteUrl,
       method: 'GET',
       headers,
-      signal: controller.signal,
+      timeout: FETCH_TIMEOUT
     });
 
-    clearTimeout(timeoutId);
     logger.debug(LogCode.SYS_INFO, 'Jupiter API quote fetched', { duration: `${Date.now() - quoteStartTime}ms` });
 
-    if (!quoteResponse.ok) {
-      const errorText = await quoteResponse.text();
-      logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API request failed', { status: quoteResponse.status, error: errorText });
-      return null;
-    }
-
-    let quoteData: any;
     let swapTransaction: string | undefined;
 
     if (isUltra) {
       // Parse ULTRA response
-      const ultraData = await quoteResponse.json() as any;
+      const ultraData = quoteData as any;
       if (ultraData.error) {
         logger.error(LogCode.API_FETCH_FAILED, 'Jupiter Ultra API error', { error: ultraData.error });
         return null;
@@ -164,7 +160,7 @@ async function getJupiterQuote(
       }
     } else {
       // Parse PUBLIC response - store the full raw response for /swap endpoint
-      quoteData = await quoteResponse.json() as any;
+      // quoteData is already parsed from fetchJson
     }
 
     if (!quoteData || quoteData.error) {
@@ -178,25 +174,27 @@ async function getJupiterQuote(
         logger.warn(LogCode.EXE_TX_BROADCAST, 'Jupiter Ultra: User address provided but no transaction returned');
       } else {
         logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Getting swap transaction');
-        const swapResponse = await fetch(`${JUPITER_PUBLIC_API}/swap`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            quoteResponse: quoteData,
-            userPublicKey: userAddress,
-            wrapAndUnwrapSol: true,
-            dynamicComputeUnitLimit: true,
-            prioritizationFeeLamports: 'auto',
-          }),
-        });
+        try {
+          const swapData = await fetchJson({
+            url: `${JUPITER_PUBLIC_API}/swap`,
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              quoteResponse: quoteData,
+              userPublicKey: userAddress,
+              wrapAndUnwrapSol: true,
+              dynamicComputeUnitLimit: true,
+              // Use explicit microLamports if provided, otherwise fallback to 'auto'
+              prioritizationFeeLamports: computeUnitPriceMicroLamports
+                ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: computeUnitPriceMicroLamports } }
+                : 'auto',
+            })
+          });
 
-        if (swapResponse.ok) {
-          const swapData = await swapResponse.json() as { swapTransaction: string };
           swapTransaction = swapData.swapTransaction;
           logger.debug(LogCode.EXE_TX_BROADCAST, 'Jupiter Public: Got swap transaction successfully');
-        } else {
-          const errorText = await swapResponse.text();
-          logger.error(LogCode.API_FETCH_FAILED, 'Jupiter Public swap transaction failed', { error: errorText });
+        } catch (error: any) {
+          logger.error(LogCode.API_FETCH_FAILED, 'Jupiter Public swap transaction failed', { error: error.message });
         }
       }
     }
@@ -248,7 +246,8 @@ export async function getJupiterSwapTransaction(
     // Ultra does not seem to have a standalone /swap endpoint documented in the same way.
     const url = `${JUPITER_PUBLIC_API}/swap`;
 
-    const response = await fetch(url, {
+    const data = await fetchJson<{ swapTransaction: string }>({
+      url,
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -268,17 +267,13 @@ export async function getJupiterSwapTransaction(
         userPublicKey,
         wrapUnwrapSOL,
         dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: 'auto',
-      }),
+        // Use explicit microLamports if provided, otherwise fallback to 'auto'
+        prioritizationFeeLamports: quote.computeUnitPriceMicroLamports
+          ? { priorityLevelWithMaxLamports: { priorityLevel: "veryHigh", maxLamports: quote.computeUnitPriceMicroLamports * 1000 } }
+          : 'auto',
+      })
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API swap transaction request failed', { status: response.status, error: errorText });
-      return null;
-    }
-
-    const data = await response.json() as { swapTransaction: string };
     return data.swapTransaction;
   } catch (error: any) {
     logger.error(LogCode.API_FETCH_FAILED, 'Jupiter API error fetching swap transaction', { error: error.message });
@@ -319,31 +314,8 @@ async function getRaydiumQuote(
     const url = `${RAYDIUM_SWAP_HOST}/compute/swap-base-in?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}&txVersion=V0`;
 
     const quoteStartTime = Date.now();
-    const controller = new AbortController();
-    // Use a very aggressive timeout for Raydium (2.5s) to prevent blocking Jupiter
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 2500);
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    logger.debug(LogCode.SYS_INFO, 'Raydium API quote fetched', { duration: `${Date.now() - quoteStartTime}ms` });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(LogCode.API_FETCH_FAILED, 'Raydium API quote request failed', { status: response.status, error: errorText });
-      return null;
-    }
-
-    const data = await response.json() as {
+    const data = await fetchJson<{
       id: string;
       success: boolean;
       version: string;
@@ -367,7 +339,16 @@ async function getRaydiumQuote(
           lastPoolPriceX64: string;
         }>;
       };
-    };
+    }>({
+      url,
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 2500 // Use a very aggressive timeout for Raydium (2.5s) to prevent blocking Jupiter
+    });
+
+    logger.debug(LogCode.SYS_INFO, 'Raydium API quote fetched', { duration: `${Date.now() - quoteStartTime}ms` });
 
     if (!data.success || !data.data) {
       return null;
@@ -448,24 +429,17 @@ async function getRaydiumSwapTransaction(
       }
     }
 
-    const response = await fetch(url, {
+    const data = await fetchJson<{
+      success: boolean;
+      data: Array<{ transaction: string }>;
+    }>({
+      url,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(requestBody)
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(LogCode.API_FETCH_FAILED, 'Raydium API transaction request failed', { status: response.status, error: errorText });
-      return null;
-    }
-
-    const data = await response.json() as {
-      success: boolean;
-      data: Array<{ transaction: string }>;
-    };
 
     // Debug: Log the full response to understand structure
     logger.debug(LogCode.API_FETCH_SUCCESS, 'Raydium API transaction response', {
@@ -496,11 +470,12 @@ export async function getSolanaQuoteFromAggregator(
   outputMint: string,
   amount: string,
   slippageBps: number = 50,
-  userAddress?: string
+  userAddress?: string,
+  computeUnitPriceMicroLamports?: number
 ): Promise<SolanaQuote | null> {
   switch (aggregator) {
     case 'jupiter':
-      return getJupiterQuote(inputMint, outputMint, amount, slippageBps, userAddress);
+      return getJupiterQuote(inputMint, outputMint, amount, slippageBps, userAddress, computeUnitPriceMicroLamports);
     case 'raydium':
       return getRaydiumQuote(inputMint, outputMint, amount, slippageBps, userAddress);
     default:
@@ -525,7 +500,8 @@ export async function getSolanaQuote(
   amount: string,
   slippageBps: number = 50,
   aggregator?: 'jupiter' | 'raydium' | 'auto',
-  userAddress?: string
+  userAddress?: string,
+  computeUnitPriceMicroLamports?: number
 ): Promise<SolanaQuote | null> {
   try {
     // If specific aggregator is requested, use only that one
@@ -543,7 +519,7 @@ export async function getSolanaQuote(
 
     const startTime = Date.now();
     const quotes = await Promise.allSettled([
-      getJupiterQuote(inputMint, outputMint, amount, slippageBps, undefined),
+      getJupiterQuote(inputMint, outputMint, amount, slippageBps, undefined, computeUnitPriceMicroLamports),
       getRaydiumQuote(inputMint, outputMint, amount, slippageBps, undefined),
     ]);
 

@@ -173,6 +173,12 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
         walletAddress // Build transaction for the SAME wallet that will sign
     );
 
+    // [Expert Logic]: Add explicit priority fee context for copytrading
+    // Competitive environment requires > 50th percentile of recent fees
+    if (quote && params.feeContext === 'copyTrade') {
+        quote.computeUnitPriceMicroLamports = 100000; // 100k microLamports (Aggressive base)
+    }
+
     if (!quote) {
         throw new AppError(400, 'Solana Swap Failed: No valid quotes found from Jupiter or Raydium', 'QUOTE_FAILED');
     }

@@ -9,6 +9,7 @@ import { getTokenDetails as getGeckoTokenDetails } from '../geckoTerminal.js';
 import { detectLaunchpadToken } from './launchpadDetector.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { fetchJson } from '../../config/unifiedApiService.js';
 
 export interface TokenInfo {
     address: string;
@@ -51,17 +52,10 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
         logger.debug(LogCode.AI_TOKEN_DETECTED, 'TokenDetector: Searching for token globally', { address });
 
         // Use DexScreener global search (fastest for multi-chain)
-        const response = await fetch(
-            `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(address)}`,
-            { signal: AbortSignal.timeout(5000) }
-        );
-
-        if (!response.ok) {
-            logger.error(LogCode.API_FETCH_FAILED, 'TokenDetector: DexScreener search failed', { status: response.status, address });
-            return null;
-        }
-
-        const data = await response.json() as {
+        const data = await fetchJson({
+            url: `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(address)}`,
+            timeout: 5000
+        }) as {
             pairs?: Array<{
                 chainId: string;
                 baseToken?: {

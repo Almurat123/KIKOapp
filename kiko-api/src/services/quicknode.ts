@@ -4,6 +4,7 @@
  */
 
 import { env } from '../config/env.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 export interface QuickNodeTokenBalance {
     address: string; // Contract address
@@ -138,7 +139,8 @@ export async function getWalletTokenBalances(
             console.warn('[QuickNode] API key is not a full URL. Multi-chain support may be limited.');
         }
 
-        const response = await fetch(rpcUrl, {
+        const response = await fetchJson({
+            url: rpcUrl,
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',
@@ -155,18 +157,12 @@ export async function getWalletTokenBalances(
             }),
         });
 
-        if (!response.ok) {
-            throw new Error(`QuickNode API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if ((data as any).error) {
-            console.warn('[QuickNode] API Error:', (data as any).error);
+        if (response.error) {
+            console.warn('[QuickNode] API Error:', response.error);
             return [];
         }
 
-        return (data as any).result.result || [];
+        return response.result.result || [];
     } catch (error: any) {
         console.error('[QuickNode] Error fetching token balances:', error.message);
         return [];
@@ -243,7 +239,8 @@ export async function getNativeBalance(
         const method = isSolana ? 'getBalance' : 'eth_getBalance';
         const params = isSolana ? [address] : [address, 'latest'];
 
-        const response = await fetch(rpcUrl, {
+        const response = await fetchJson({
+            url: rpcUrl,
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',
@@ -257,19 +254,16 @@ export async function getNativeBalance(
             }),
         });
 
-        if (!response.ok) throw new Error(`Status ${response.status}`);
-
-        const data = await response.json();
-        if ((data as any).error) throw new Error((data as any).error.message || 'RPC Error');
+        if (response.error) throw new Error(response.error.message || 'RPC Error');
 
         // Parse Result
         if (isSolana) {
             // Solana: { result: { context: {...}, value: 123456789 } }
             // Return as string (lamports)
-            return (data as any).result?.value?.toString() || '0';
+            return response.result?.value?.toString() || '0';
         } else {
             // EVM: { result: "0x123..." }
-            return (data as any).result || '0x0';
+            return response.result || '0x0';
         }
 
     } catch (error) {

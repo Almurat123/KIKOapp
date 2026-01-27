@@ -10,6 +10,7 @@ import { getChainConfig } from '../../../config/chainConfig.js';
 import { sendTransaction } from '../../privyWallet.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
+import { getEthersProvider } from '../../rpcManager.js';
 
 export class EvmExecutor implements SwapExecutor {
     private readonly EVM_CHAINS = [1, 8453, 56, 42161, 10, 137, 43114, 250];
@@ -90,7 +91,7 @@ export class EvmExecutor implements SwapExecutor {
         provider: string
     ): Promise<SwapResult> {
         const config = getChainConfig(chainId);
-        const rpcProvider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
+        const rpcProvider = getEthersProvider(chainId);
 
         try {
             const receipt = await rpcProvider.waitForTransaction(txHash, 1, 30000);
@@ -166,7 +167,7 @@ export class EvmExecutor implements SwapExecutor {
         }
 
         const config = getChainConfig(chainId);
-        const provider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
+        const provider = getEthersProvider(chainId);
 
         const contract = new ethers.Contract(
             token,

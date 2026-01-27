@@ -10,6 +10,7 @@ import type { TokenBalance, WalletBalance } from './alchemy.js';
 import { logger } from '../utils/logger.js';
 import { getSolanaTokenMetadata } from '../utils/solanaToken.js';
 import { LogCode } from '../config/logRegistry.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 const COINBASE_CDP_API_BASE_URL = '/platform/v2';
 const COINBASE_CDP_API_HOST = 'api.cdp.coinbase.com';
@@ -179,27 +180,35 @@ export async function getEvmTokenBalances(
       requestPath
     );
 
-    const response = await fetch(url, {
+    // # [Logic]: Fetch EVM token balances via Unified Transport
+    // # [Ref]: "The Coinbase Developer Platform (CDP) API allows you to retrieve token balances" [Coinbase Docs]
+    // # [Risk]: API requires JWT auth, handled here. 401/403 errors will be thrown.
+    const data = await unifiedApiService.fetchJson<CoinbaseEvmTokenBalancesResponse>({
+      url,
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${jwt}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
+      requestTimeout: 10000,
+      endpointName: 'coinbase-cdp-evm',
+      retry: {
+        retries: 2,
+        minTimeout: 1000
+      }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(LogCode.API_FETCH_FAILED, 'CoinbaseCDP API error (EVM)', {
-        chainId,
-        network,
-        status: response.status,
-        error: errorText.substring(0, 500),
-      });
-      return [];
-    }
+    // Old fetch error handling removed in favor of unifiedApiService throwing on non-2xx
 
-    const data = await response.json() as CoinbaseEvmTokenBalancesResponse;
+    // unifiedApiService throws error if !response.ok, so we catch it in the outer try/catch block
+    // or we can remove this block entirely as data is already typed above.
+
+    // Logic flow: fetchJson returns parsed JSON.
+    /* [DANGER_ZONE_UNVERIFIED]
+       Verified that fetchJson returns T directly. 
+       The error check below for errorText is handled by UnifiedApiService which throws with status/text.
+    */
     const balances = data.balances || [];
 
     logger.debug(LogCode.SYS_INFO, 'CoinbaseCDP: Received EVM balances', { count: balances.length });
@@ -282,32 +291,32 @@ export async function getSolanaTokenBalances(
       requestPath
     );
 
-    const response = await fetch(url, {
+    // # [Logic]: Fetch Solana token balances (Beta endpoint)
+    // # [Ref]: "listSolanaTokenBalances" [Coinbase Docs]
+    const data = await unifiedApiService.fetchJson<CoinbaseSolanaTokenBalancesResponse>({
+      url,
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${jwt}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
+      requestTimeout: 10000,
+      endpointName: 'coinbase-cdp-solana',
+      retry: {
+        retries: 2,
+        minTimeout: 1000
+      }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
+    // unifiedApiService handles non-200 by throwing.
+    // 500 errors will be caught by the catch block below and return []
 
-      // 500 errors are common for this beta endpoint, log as warn to indicate fallback will be used
-      if (response.status >= 500) {
-        logger.warn(LogCode.API_FETCH_FAILED, 'CoinbaseCDP: Solana API unavailable, falling back', { network, status: response.status });
-      } else {
-        logger.error(LogCode.API_FETCH_FAILED, 'CoinbaseCDP: Solana API error', {
-          network,
-          status: response.status,
-          error: errorText.substring(0, 500),
-        });
-      }
-      return [];
-    }
-
-    const data = await response.json() as CoinbaseSolanaTokenBalancesResponse;
+    // const data assignment is now done in fetchJson call above
+    /* [DANGER_ZONE_UNVERIFIED] 
+       Original code had specific handling for 500 errors as warnings.
+       Now unexpected errors go to catch block.
+    */
     const balances = data.balances || [];
 
     logger.debug(LogCode.SYS_INFO, 'CoinbaseCDP: Received Solana balances', { count: balances.length });

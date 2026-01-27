@@ -4,6 +4,7 @@
  */
 
 import { env } from '../config/env.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 const GOPLUS_BASE_URL = 'https://api.gopluslabs.io/api/v1';
 const API_KEY = env.apiKeys.goplus;
@@ -53,20 +54,16 @@ export async function getTokenSecurity(network: string, address: string): Promis
         const endpoint = isSolana ? 'solana/token_security' : `token_security/${chainId}`;
         const url = `${GOPLUS_BASE_URL}/${endpoint}?contract_addresses=${address}`;
 
-        const response = await fetch(url, {
+        const data = await unifiedApiService.fetchJson<any>({
+            url,
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
                 ...(API_KEY ? { 'access-token': API_KEY } : {}),
             },
+            timeout: 10000,
+            endpointName: 'api.gopluslabs.io'
         });
-
-        if (!response.ok) {
-            console.error(`[GoPlus] API error ${response.status}: ${response.statusText}`);
-            return null;
-        }
-
-        const data = await response.json();
 
         // GoPlus returns data in format: { code: 1, message: "OK", result: { "0x...": { ... } } }
         if (data.code === 1 && data.result && data.result[address.toLowerCase()]) {

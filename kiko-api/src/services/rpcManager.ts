@@ -10,7 +10,7 @@
 import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { callRpc as unifiedCallRpc, getEndpointHealthStats } from '../config/unifiedApiService.js';
+import { callRpc as unifiedCallRpc, getEndpointHealthStats, fetchJson } from '../config/unifiedApiService.js';
 
 const RPC_TIMEOUT_MS = 10000; // 10s timeout for reliable RPC calls (Alchemy can be slow)
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
@@ -207,84 +207,6 @@ export async function callRpc<T = any>(
 }
 
 /**
- * Execute a batch of RPC calls
- */
-export async function callRpcBatch<T = any>(
-    chainIdOrName: number | string,
-    requests: RpcRequest[]
-): Promise<RpcResponse<T>[]> {
-    let endpoints: string[] = [];
-    let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
-    let chainId: number;
-
-    // Resolve Chain ID
-    if (typeof chainIdOrName === 'number') {
-        chainId = chainIdOrName;
-    } else {
-        const id = CHAIN_NAME_TO_ID[chainIdOrName.toLowerCase()];
-        if (!id) throw new Error(`Unsupported chain name: ${chainIdOrName}`);
-        chainId = id;
-    }
-
-    try {
-        const config = getChainConfig(chainId);
-        endpoints = config.rpcUrls;
-        chainName = config.name;
-    } catch (e) {
-        throw new Error(`Unsupported chain ID: ${chainId}`);
-    }
-
-    if (!endpoints || endpoints.length === 0) {
-        throw new Error(`No RPC endpoints configured for ${chainName}`);
-    }
-
-    // Sort endpoints by health and priority
-    const sortedEndpoints = sortEndpointsByHealth(endpoints);
-    let lastError: Error | null = null;
-
-    // Try each endpoint
-    for (const endpoint of sortedEndpoints) {
-        if (!endpoint || isCircuitOpen(endpoint)) continue;
-
-        const startTime = Date.now();
-        try {
-            recordAttempt(endpoint);
-
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
-
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept-Encoding': 'gzip',
-                    'Connection': 'keep-alive',
-                },
-                body: JSON.stringify(requests),
-                signal: controller.signal,
-                keepalive: true,
-            }).finally(() => clearTimeout(timeout));
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-
-            const data = await response.json() as RpcResponse<T>[];
-
-            // Check if result is array (batch response)
-            if (!Array.isArray(data)) throw new Error('RPC returned non-array result for batch request');
-
-            recordSuccess(endpoint, Date.now() - startTime);
-            return data;
-        } catch (error: any) {
-            lastError = error;
-            recordFailure(endpoint);
-        }
-    }
-
-    throw new Error(`All RPC endpoints failed for ${chainName} batch call. Last error: ${lastError?.message}`);
-}
-
-
-/**
  * Health tracking functions
  */
 function getOrCreateHealth(url: string): EndpointHealth {
@@ -475,7 +397,85 @@ export async function getGasPrice(chainId: number): Promise<string> {
         const hex = await callRpc<string>(chainId, 'eth_gasPrice', []);
         return parseInt(hex, 16).toString();
     }
+
 }
+
+interface BatchRequest {
+    id: string | number;
+    method: string;
+    params: any[];
+}
+
+interface BatchResponse {
+    id: string | number;
+    result?: any;
+    error?: { code: number; message: string };
+}
+
+class RpcManager {
+    /**
+     * Call a single RPC method
+     */
+    async callRpc<T = any>(chain: string | number, method: string, params: any[] = []): Promise<T> {
+        const chainName = typeof chain === 'string' ? chain : (CHAIN_ID_TO_NAME[chain] || 'eth');
+        return unifiedCallRpc(chainName, method, params);
+    }
+
+    /**
+     * Call multiple RPC methods in a single batch request
+     */
+    async callRpcBatch<T = any>(chain: string | number, requests: BatchRequest[]): Promise<BatchResponse[]> {
+        const chainId = typeof chain === 'string' ? (CHAIN_NAME_TO_ID[chain] || 1) : chain;
+        const endpoints = getRpcEndpoints(chainId);
+
+        if (endpoints.length === 0) {
+            throw new Error(`No RPC endpoints configured for chain ${chainId}`);
+        }
+
+        // Use the first (best) endpoint
+        const url = endpoints[0];
+
+        try {
+            // Construct batch payload
+            const payload = requests.map(req => ({
+                jsonrpc: '2.0',
+                id: req.id,
+                method: req.method,
+                params: req.params
+            }));
+
+            // Make the batch call
+            const results = await fetchJson<BatchResponse[]>({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+                requestTimeout: RPC_TIMEOUT_MS,
+                endpointName: `rpc-batch-${chainId}`
+            });
+
+            return results;
+        } catch (error: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Batch RPC call failed', {
+                chain: chainId,
+                error: error.message,
+                batchSize: requests.length
+            });
+
+            // Return error for all requests in batch
+            return requests.map(req => ({
+                id: req.id,
+                error: { code: -32603, message: `Batch failed: ${error.message}` }
+            }));
+        }
+    }
+}
+
+export const rpcManager = new RpcManager();
+
+import { ethers } from 'ethers';
 
 /**
  * Get available RPC endpoints for a chain
@@ -487,3 +487,48 @@ export function getRpcEndpoints(chainId: number): string[] {
         return [];
     }
 }
+
+// Cache providers to avoid creating new instances for every call (memory optimization)
+// Key: chainId, Value: { provider: JsonRpcProvider, url: string, timestamp: number }
+const providerCache = new Map<number, { provider: ethers.JsonRpcProvider, url: string, timestamp: number }>();
+const PROVIDER_CACHE_TTL = 60000; // Refresh provider mapping every 1 minute
+
+/**
+ * Get an ethers.js Provider instance for a chain
+ * Uses the highest priority (healthiest) RPC endpoint available
+ * 
+ * @param chainId Chain ID
+ * @returns ethers.JsonRpcProvider
+ */
+export function getEthersProvider(chainId: number): ethers.JsonRpcProvider {
+    const endpoints = getRpcEndpoints(chainId);
+
+    if (endpoints.length === 0) {
+        throw new Error(`No RPC endpoints configured for chain ${chainId}`);
+    }
+
+    // Use the first (best) endpoint
+    const bestUrl = endpoints[0];
+
+    const now = Date.now();
+    const cached = providerCache.get(chainId);
+
+    // Return cached provider if valid and URL matches (and not too old)
+    if (cached && cached.url === bestUrl && (now - cached.timestamp < PROVIDER_CACHE_TTL)) {
+        return cached.provider;
+    }
+
+    // Create new provider
+    const provider = new ethers.JsonRpcProvider(bestUrl, undefined, {
+        staticNetwork: true // Optimization
+    });
+
+    providerCache.set(chainId, {
+        provider,
+        url: bestUrl,
+        timestamp: now
+    });
+
+    return provider;
+}
+

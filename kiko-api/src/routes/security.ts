@@ -9,6 +9,7 @@ import { get, set } from '../cache/redis.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 import { validateAddress } from '../utils/validation.js';
 import { CheckTokenRiskTool } from '../skills/RiskSkill/index.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 const SECURITY_CACHE_TTL = env.cacheConfig.securityCacheTtl;
 
@@ -44,58 +45,44 @@ async function fetchGoPlusSecurity(chainId: number, contractAddress: string): Pr
   console.log(`[Security] Fetching from GoPlus: ${url}`);
 
   try {
-    // Create timeout controller for compatibility
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    const response = await fetch(url, {
+    const data = await fetchJson({
+      url,
       headers,
-      signal: controller.signal,
+      timeout: 15000
     });
 
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[Security] GoPlus API HTTP error: ${response.status} ${response.statusText}`, errorText.substring(0, 200));
-
-      // If it's a signature/auth error, try without API key
-      if (response.status === 401 || response.status === 403 || errorText.includes('signature')) {
-        console.log('[Security] Retrying GoPlus without API key...');
-        const retryHeaders: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        };
-        const retryResponse = await fetch(url, { headers: retryHeaders });
-        if (retryResponse.ok) {
-          const retryData: any = await retryResponse.json();
-          if (retryData.code === 1 && retryData.result && retryData.result[contractAddress]) {
-            console.log('[Security] GoPlus API succeeded without API key');
-            return retryData.result[contractAddress];
-          }
-        }
-      }
-
-      throw new Error(`GoPlus API error: ${response.status} ${response.statusText} - ${errorText.substring(0, 200)}`);
+    if (data.code === 1 && data.result && data.result[contractAddress]) {
+      console.log('[Security] GoPlus API succeeded');
+      return data.result[contractAddress];
     }
 
-    const data: any = await response.json();
-    console.log(`[Security] GoPlus API response code: ${data.code}, has result: ${!!data.result}`);
-
-    if (data.code !== 1 || !data.result || !data.result[contractAddress]) {
-      console.error('[Security] GoPlus API invalid response:', {
-        code: data.code,
-        message: data.message,
-        hasResult: !!data.result,
-        hasAddress: !!(data.result && data.result[contractAddress]),
-      });
-      throw new Error(data.message || 'GoPlus API returned invalid data');
-    }
-
-    return data.result[contractAddress];
+    throw new Error(`GoPlus API returned invalid data: ${JSON.stringify(data).substring(0, 200)}`);
   } catch (error: any) {
-    console.error('[Security] GoPlus fetch error:', error.message || error);
-    throw error;
+    console.error(`[Security] GoPlus API error:`, error.message);
+
+    // If it's a signature/auth error, try without API key
+    if (error.message.includes('401') || error.message.includes('403') || error.message.includes('signature')) {
+      console.log('[Security] Retrying GoPlus without API key...');
+      try {
+        const retryData = await fetchJson({
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          timeout: 15000
+        });
+        
+        if (retryData.code === 1 && retryData.result && retryData.result[contractAddress]) {
+          console.log('[Security] GoPlus API succeeded without API key');
+          return retryData.result[contractAddress];
+        }
+      } catch (retryError) {
+        // Continue to throw original error
+      }
+    }
+
+    throw new Error(`GoPlus API error: ${error.message}`);
   }
 }
 
@@ -440,19 +427,20 @@ export async function securityRoutes(fastify: FastifyInstance) {
 
       // Try Go scanner first for near-instant results
       try {
-        const goResp = await fetch(`http://localhost:8080/api/scan?address=${normalizedAddress}&chain=${chain}`);
-        if (goResp.ok) {
-          const goData = await goResp.json() as any;
-          console.log(`[Security] ✓ Using high-performance Go flash-scanner for ${normalizedAddress}`);
-          // Cache and return
-          await set(cacheKey, JSON.stringify(goData), 3600);
-          return reply.send({
-            success: true,
-            data: goData,
-            cached: false,
-            source: 'go-engine'
-          });
-        }
+        const goData = await fetchJson({
+          url: `http://localhost:8080/api/scan?address=${normalizedAddress}&chain=${chain}`,
+          timeout: 5000
+        });
+        
+        console.log(`[Security] ✓ Using high-performance Go flash-scanner for ${normalizedAddress}`);
+        // Cache and return
+        await set(cacheKey, JSON.stringify(goData), 3600);
+        return reply.send({
+          success: true,
+          data: goData,
+          cached: false,
+          source: 'go-engine'
+        });
       } catch (e) {
         console.warn('[Security] Go scanner unavailable, falling back to Node.js scan...', e);
       }

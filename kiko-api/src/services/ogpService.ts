@@ -2,6 +2,7 @@
 import * as cheerio from 'cheerio';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 // Add stealth plugin
 (puppeteer as any).use(StealthPlugin());
@@ -25,49 +26,41 @@ export const ogpService = {
     async fetchOGP(url: string): Promise<OGPMetadata | null> {
         // 1. Try simple fetch first (fast)
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
-
-            const response = await fetch(url, {
+            const html = await fetchJson({
+                url,
                 headers: {
                     // Use a real browser User-Agent
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9'
                 },
-                signal: controller.signal
-            });
+                timeout: 8000
+            }) as string;
+            const $ = cheerio.load(html);
 
-            clearTimeout(timeoutId);
+            const getMeta = (property: string) => {
+                return $(`meta[property="${property}"]`).attr('content') ||
+                    $(`meta[name="${property}"]`).attr('content');
+            };
 
-            if (response.ok) {
-                const html = await response.text();
-                const $ = cheerio.load(html);
+            const metadata: OGPMetadata = {
+                url: url
+            };
 
-                const getMeta = (property: string) => {
-                    return $(`meta[property="${property}"]`).attr('content') ||
-                        $(`meta[name="${property}"]`).attr('content');
-                };
+            metadata.title = getMeta('og:title') || $('title').text();
+            metadata.description = getMeta('og:description') || getMeta('description');
+            metadata.image = getMeta('og:image');
+            metadata.siteName = getMeta('og:site_name');
+            metadata.type = getMeta('og:type');
+            metadata.twitterCard = getMeta('twitter:card');
+            metadata.video = getMeta('og:video');
 
-                const metadata: OGPMetadata = {
-                    url: url
-                };
-
-                metadata.title = getMeta('og:title') || $('title').text();
-                metadata.description = getMeta('og:description') || getMeta('description');
-                metadata.image = getMeta('og:image');
-                metadata.siteName = getMeta('og:site_name');
-                metadata.type = getMeta('og:type');
-                metadata.twitterCard = getMeta('twitter:card');
-                metadata.video = getMeta('og:video');
-
-                // If we got good data, return it
-                if (metadata.title && metadata.image) {
-                    return metadata;
-                }
-
-                // If we got partial data but it looks like a bot challenge/SPA, fallback
+            // If we got good data, return it
+            if (metadata.title && metadata.image) {
+                return metadata;
             }
+
+            // If we got partial data but it looks like a bot challenge/SPA, fallback
         } catch (error) {
             console.warn(`[OGPService] Simple fetch failed for ${url}, trying Puppeteer...`);
         }

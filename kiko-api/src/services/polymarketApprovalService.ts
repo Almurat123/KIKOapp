@@ -43,11 +43,13 @@ const CTF_ABI = [
 // Polygon RPC endpoint
 const POLYGON_RPC = process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com';
 
+import { getEthersProvider } from './rpcManager.js';
+
 /**
  * Get a read-only provider for Polygon
  */
 function getPolygonProvider(): ethers.JsonRpcProvider {
-    return new ethers.JsonRpcProvider(POLYGON_RPC, 137);
+    return getEthersProvider(137);
 }
 
 /**

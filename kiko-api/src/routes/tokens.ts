@@ -12,6 +12,7 @@ import { get, set } from '../cache/redis.js';
 import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime } from '../repositories/tokenRepository.js';
 import { getSupportedChains, refreshSingleChain } from '../jobs/tokenDataJob.js';
 import { env } from '../config/env.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 import { sanitizeString, validateNetwork, validateAddress, validateLimit, validateTimeframe } from '../utils/validation.js';
 import { detectLaunchpadToken, getParagraphToken } from '../services/ai/launchpadDetector.js';
@@ -500,23 +501,17 @@ export async function tokenRoutes(fastify: FastifyInstance) {
           const geckoNetwork = networkMap[network.toLowerCase()] || network.toLowerCase();
           const poolsUrl = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/tokens/${address}/pools`;
 
-          const poolsResponse = await fetch(poolsUrl, {
+          const poolsResponse = await fetchJson({
+            url: poolsUrl,
             headers: { 'Accept': 'application/json' },
           });
 
-          if (!poolsResponse.ok) {
-            const errorText = await poolsResponse.text().catch(() => '');
-            throw new Error(`HTTP ${poolsResponse.status}: ${errorText.substring(0, 200)}`);
-          }
-
-          const poolsData = await poolsResponse.json() as { data?: Array<{ attributes?: { reserve_in_usd?: string } }> };
-
-          if (!poolsData.data || !Array.isArray(poolsData.data) || poolsData.data.length === 0) {
+          if (!poolsResponse.data || !Array.isArray(poolsResponse.data) || poolsResponse.data.length === 0) {
             throw new Error(`No pools found for token ${address} on ${network}`);
           }
 
           // Sort by liquidity (descending)
-          const sortedPools = poolsData.data.sort((a, b) => {
+          const sortedPools = poolsResponse.data.sort((a: any, b: any) => {
             const liquidityA = parseFloat(a.attributes?.reserve_in_usd || '0');
             const liquidityB = parseFloat(b.attributes?.reserve_in_usd || '0');
             return liquidityB - liquidityA;
@@ -776,17 +771,15 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         },
       ];
 
-      const rpcResponse = await fetch(rpcUrl, {
+      const rpcResponse = await fetchJson({
+        url: rpcUrl,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(calls),
       });
 
-      if (!rpcResponse.ok) {
-        throw new Error(`RPC failed: ${rpcResponse.status}`);
-      }
-
-      const rpcData = await rpcResponse.json();
+      // Result is an array of responses
+      const results = Array.isArray(rpcResponse) ? rpcResponse : [rpcResponse];
 
       // Helper to decode RPC string result
       const decodeString = (hex: string) => {
@@ -814,9 +807,6 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         if (!hex || hex === '0x') return 18;
         return parseInt(hex, 16);
       };
-
-      // Result is an array of responses
-      const results = Array.isArray(rpcData) ? rpcData : [rpcData];
 
       const nameHex = results.find(r => r.id === 1)?.result;
       const symbolHex = results.find(r => r.id === 2)?.result;

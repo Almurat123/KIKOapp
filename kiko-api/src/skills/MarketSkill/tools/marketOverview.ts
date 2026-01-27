@@ -1,5 +1,6 @@
 import { Tool } from '../../../tools/registry.js';
 import { z } from 'zod';
+import { fetchJson } from '../../../config/unifiedApiService.js';
 
 // Interfaces for market data
 export interface MarketIndicator {
@@ -71,16 +72,13 @@ async function fetchYahooQuote(symbol: string): Promise<any> {
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2d`;
 
         // Backend can fetch directly, unlike frontend
-        const response = await fetch(url, {
+        const data: any = await fetchJson({
+            url,
+            timeout: 3000,
+            endpointName: 'yahoo-finance',
             headers: { 'User-Agent': 'Mozilla/5.0' },
-            signal: AbortSignal.timeout(3000), // 3s timeout
         });
 
-        if (!response.ok) {
-            return FALLBACK_MARKET_DATA[symbol];
-        }
-
-        const data: any = await response.json();
         const result = data.chart?.result?.[0];
 
         if (!result?.meta) {

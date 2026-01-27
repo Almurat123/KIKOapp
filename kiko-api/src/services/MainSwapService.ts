@@ -24,13 +24,15 @@ import { SwapExecutor, SwapParams, SwapResult } from './swap/SwapExecutor.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 
 import { zoraSniperService, ZoraSniperService } from './zoraSniperService.js';
-import { buyTokenAMAP, sellToken } from './fourMemeService.js';
+import { buyTokenAMAP } from './fourMemeService.js';
 import { SolanaLaunchpadSwapService } from './solanaLaunchpadSwapService.js';
 import { getTokenInfo } from './tokenService.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, isNativeToken } from '../config/tokenRegistry.js';
 import { toWei } from './zeroEx.js';
 import { ethers } from 'ethers';
+import { TradeContext, getTradeContext } from './TradeContext.js';
+import { getTokenData } from './UnifiedDataLayer.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -108,16 +110,24 @@ export class MainSwapService {
    * Execute a swap with full routing and error handling
    * This is the single entry point for all swap operations
    */
-  static async executeSwap(request: MainSwapRequest): Promise<MainSwapResult> {
+  static async executeSwap(request: MainSwapRequest, tradeContext?: TradeContext): Promise<MainSwapResult> {
     const traceId = `${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const trace = (msg: string) => `${this.TRACE_PREFIX}[${traceId}] ${msg}`;
+
+    // ⚡ Get or create TradeContext for cached data access
+    const ctx = tradeContext || TradeContext.create({
+      userId: request.userId,
+      walletAddress: request.walletAddress,
+      chainId: request.chainId,
+    });
 
     logger.info(LogCode.EXE_TX_BROADCAST, trace('Starting unified swap execution'), {
       mode: request.mode,
       tokenIn: request.tokenIn.slice(0, 12),
       tokenOut: request.tokenOut.slice(0, 12),
       amount: request.amountIn,
-      chainId: request.chainId
+      chainId: request.chainId,
+      tradeContextId: ctx.id
     });
 
     try {
@@ -160,11 +170,11 @@ export class MainSwapService {
 
       // 5. ROUTE TO APPROPRIATE EXECUTOR
       if (request.launchpadProvider) {
-        return await this.executeLaunchpadSwap(request, feeContext, trace);
+        return await this.executeLaunchpadSwap(request, feeContext, trace, ctx);
       } else if (isSolana) {
-        return await this.executeSolanaSwap(request, feeContext, trace);
+        return await this.executeSolanaSwap(request, feeContext, trace, ctx);
       } else {
-        return await this.executeEvmSwap(request, feeContext, trace);
+        return await this.executeEvmSwap(request, feeContext, trace, ctx);
       }
 
     } catch (error: any) {
@@ -223,9 +233,8 @@ export class MainSwapService {
   private static determineFeeContext(mode: SwapMode): FeeContext {
     switch (mode) {
       case 'copytrade':
-        return 'copyTrade'; // 1% fee
+        return 'copyTrade'; // 1% fee (fixed typo)
       case 'launchpad':
-        return 'swap'; // 0.5% fee (launchpad not in FeeContext yet, use swap)
       case 'fast-swap':
       case 'swap-card':
       case 'allowance':
@@ -261,7 +270,8 @@ export class MainSwapService {
   private static async executeLaunchpadSwap(
     request: MainSwapRequest,
     feeContext: FeeContext,
-    trace: (msg: string) => string
+    trace: (msg: string) => string,
+    ctx: TradeContext
   ): Promise<MainSwapResult> {
     const provider = request.launchpadProvider!;
     logger.info(LogCode.EXE_TX_BROADCAST, trace(`Executing ${provider} launchpad swap`), {
@@ -277,7 +287,7 @@ export class MainSwapService {
         case 'clanker': {
           // DISABLED: ClankerService not ready - fall through to standard EVM swap
           logger.info(LogCode.SYS_INFO, trace('Clanker disabled - routing to standard EVM swap'));
-          return await this.executeEvmSwap(request, feeContext, trace);
+          return await this.executeEvmSwap(request, feeContext, trace, ctx);
         }
 
         case 'zora': {
@@ -287,12 +297,13 @@ export class MainSwapService {
           logger.warn(LogCode.SYS_INFO, trace('Zora swap: using standard EVM routing'), {
             reason: 'Zora sniper handles notifications; swaps via standard DEX'
           });
-          return await this.executeEvmSwap(request, feeContext, trace);
+          return await this.executeEvmSwap(request, feeContext, trace, ctx);
         }
 
         case 'fourmeme': {
           // BSC - Four.meme using TokenManager2
-          const tokenInfo = await getTokenInfo(request.tokenIn, request.chainId);
+          // ⚡ Use TradeContext-aware data fetching (auto-caches)
+          const tokenInfo = await getTokenData(request.tokenIn, request.chainId, ctx);
           const decimals = tokenInfo?.decimals || 18;
           const amountInWei = toWei(request.amountIn, decimals);
 
@@ -312,7 +323,8 @@ export class MainSwapService {
         case 'bonkfun': {
           // Solana - Pump.fun or Bonk.fun (LaunchLab)
           const service = new SolanaLaunchpadSwapService();
-          const tokenInInfo = await getTokenInfo(request.tokenIn, SOLANA_CONFIG.CHAIN_ID);
+          // ⚡ Use TradeContext-aware data fetching (auto-caches)
+          const tokenInInfo = await getTokenData(request.tokenIn, SOLANA_CONFIG.CHAIN_ID, ctx);
           const decimals = tokenInInfo?.decimals || (provider === 'bonkfun' ? 6 : 9);
 
           const amountAtomic = Math.floor(
@@ -366,7 +378,8 @@ export class MainSwapService {
   private static async executeEvmSwap(
     request: MainSwapRequest,
     feeContext: FeeContext,
-    trace: (msg: string) => string
+    trace: (msg: string) => string,
+    ctx: TradeContext
   ): Promise<MainSwapResult> {
     logger.info(LogCode.EXE_TX_BROADCAST, trace('Executing EVM swap via SwapExecutor'), {
       chainId: request.chainId,
@@ -387,22 +400,75 @@ export class MainSwapService {
       messageId: request.messageId // For WebSocket progress updates
     };
 
-    const result = await SwapExecutor.execute(swapParams);
+    const executionResult = await SwapExecutor.execute(swapParams);
 
-    if (!result.success) {
-      throw new Error(result.error || 'EVM swap execution failed');
+    if (!executionResult.success) {
+      throw new Error(executionResult.error || 'EVM swap execution failed');
     }
 
-    return {
+    const result = {
       success: true,
-      txHash: result.txHash,
-      amountOut: result.amountOut,
+      txHash: executionResult.txHash,
+      amountOut: executionResult.amountOut,
       metadata: {
-        provider: result.method,
+        provider: executionResult.method,
         mode: request.mode,
-        gasUsed: result.approvalTx?.value
+        gasUsed: executionResult.approvalTx?.value,
+        launchpad: undefined
       }
     };
+
+    // ⚡ OPTIMIZATION: Post-Buy Pre-Approval
+    // If we just BOUGHT a token, valid logic dictates we might sell it later.
+    // To save 20s+ on the sell, we approve the router immediately after buying.
+    // This is "fire-and-forget" - we do not block the buy response.
+    /* [DANGER_ZONE_UNVERIFIED]
+    * Logic: Auto-approve newly bought tokens for 0x/Kyber
+    * Risk: User pays gas for approval immediately (even if holding).
+    * Mitigation: Only for fast-swap/swap-card modes where speed is priority.
+    */
+    const isBuy = !swapParams.isSell; // SwapExecutor determines isSell=false for buys
+    const targetSpender = executionResult.metadata?.allowanceTarget;
+    const isNativeOut = request.tokenOut.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+    if (result.success && isBuy && targetSpender && !isNativeOut &&
+      (request.mode === 'fast-swap' || request.mode === 'swap-card')) {
+
+      logger.info(LogCode.EXE_TX_BROADCAST, trace('Initiating Post-Buy Pre-Approval'), {
+        token: request.tokenOut,
+        spender: targetSpender
+      });
+
+      // Async execution to not block response
+      (async () => {
+        try {
+          // Import privy service dynamically to avoid circular deps if any nearby
+          const { sendTransaction } = await import('./privyWallet.js');
+
+          const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
+          const approvalData = iface.encodeFunctionData('approve', [targetSpender, ethers.MaxUint256]);
+
+          const approveTxHash = await sendTransaction(request.userId, '', {
+            to: request.tokenOut,
+            data: approvalData,
+            value: '0',
+            chainId: request.chainId
+          });
+
+          logger.info(LogCode.EXE_TX_CONFIRMED, trace('Post-Buy Pre-Approval Sent'), {
+            txHash: approveTxHash,
+            token: request.tokenOut
+          });
+        } catch (approvalErr: any) {
+          // Non-fatal error, just log it
+          logger.warn(LogCode.SYS_ERROR, trace('Failed to execute Post-Buy Pre-Approval'), {
+            error: approvalErr.message
+          });
+        }
+      })().catch(err => logger.error(LogCode.SYS_ERROR, 'Uncaught error in pre-approve async', { error: err.message }));
+    }
+
+    return result;
   }
 
   /**
@@ -411,7 +477,8 @@ export class MainSwapService {
   private static async executeSolanaSwap(
     request: MainSwapRequest,
     feeContext: FeeContext,
-    trace: (msg: string) => string
+    trace: (msg: string) => string,
+    ctx: TradeContext
   ): Promise<MainSwapResult> {
     logger.info(LogCode.EXE_TX_BROADCAST, trace('Executing Solana swap via Jupiter'), {
       chainId: request.chainId,

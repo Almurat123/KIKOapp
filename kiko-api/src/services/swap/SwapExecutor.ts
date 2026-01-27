@@ -14,7 +14,7 @@ import { walletService } from '../walletService.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken } from '../../config/tokenRegistry.js';
 import { handleSwapError } from './handleSwapError.js';
-import { getTransactionReceipt, getTransactionByHash, callRpc } from '../../services/rpcManager.js';
+import { getTransactionReceipt, getTransactionByHash, callRpc, getEthersProvider } from '../../services/rpcManager.js';
 
 export interface SwapParams {
     userId: string;
@@ -43,6 +43,9 @@ export interface SwapResult {
         data: string;
         value: string;
         chainId: number;
+    };
+    metadata?: {
+        allowanceTarget?: string;
     };
 }
 
@@ -93,7 +96,10 @@ export class SwapExecutor {
      * Handle EVM Swaps (Ethereum, Base, BSC, etc.)
      */
     private static async executeEvm(params: SwapParams): Promise<SwapResult> {
-        const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = 50, feeContext } = params;
+        // FIXED: Increase default slippage for SELL operations (0.5% → 2%)
+        // Selling often has higher slippage due to price impact and approval delays
+        const defaultSlippage = params.isSell ? 200 : 50;
+        const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = defaultSlippage, feeContext } = params;
 
         // 1. Resolve Token Addresses & Metadata
         const resolveToken = async (token: string) => {
@@ -138,7 +144,7 @@ export class SwapExecutor {
                     const config = getChainConfig(chainId);
                     // Use rpcManager helper if possible, or ethers provider
                     // Here we construct a temp provider to ensure we get the value
-                    const provider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
+                    const provider = getEthersProvider(chainId);
                     const contract = new ethers.Contract(actualTokenInFixed, ['function decimals() view returns (uint8)'], provider);
                     decimalsIn = Number(await contract.decimals());
                     logger.info(LogCode.SYS_INFO, 'Fetched missing decimals on-chain', { token: actualTokenInFixed, decimals: decimalsIn });
@@ -277,6 +283,11 @@ export class SwapExecutor {
                         blockNumber: receipt.blockNumber
                     });
 
+                    // Wait for state propagation across RPC nodes (2 seconds)
+                    // This ensures 0x API backend sees the approval before we fetch a fresh quote
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for state propagation across network...');
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
                     // Re-fetch quote after approval to ensure fresh pricing
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Re-fetching quote after approval confirmation', {
                         originalDex: best.dexName
@@ -308,9 +319,13 @@ export class SwapExecutor {
                         // Replace stale quote with fresh one
                         Object.assign(best, freshQuote);
                     } else {
-                        logger.warn(LogCode.SYS_ERROR, 'Failed to fetch fresh quote, using original (may be stale)', {
-                            dex: best.dexName
+                        // CRITICAL: Don't use stale quote - it will likely revert
+                        // Instead, throw error and let retry logic handle it with higher slippage
+                        logger.error(LogCode.SYS_ERROR, 'Failed to fetch fresh quote after approval - cannot proceed with stale data', {
+                            dex: best.dexName,
+                            timeSinceOriginalQuote: 'unknown'
                         });
+                        throw new Error('Failed to fetch fresh quote after approval. Price may have moved significantly. Please try again.');
                     }
                 } catch (approvalError: any) {
                     logger.error(LogCode.EXE_TX_REVERTED, 'Approval failed', { error: approvalError.message });
@@ -388,6 +403,18 @@ export class SwapExecutor {
         });
 
         // RETRY LOGIC for Reverts (Slippage handling)
+        // [Expert Logic]: Aggressive Gas Bidding for CopyTrade
+        const isCopyTrade = params.feeContext === 'copyTrade';
+        let maxFeePerGasCap = feeData?.maxFeePerGas;
+        let maxPriorityFeeCap = feeData?.maxPriorityFeePerGas;
+
+        if (isCopyTrade && maxPriorityFeeCap) {
+            // Increase priority fee by 20% to outbid standard transactions
+            maxPriorityFeeCap = (maxPriorityFeeCap * 120n) / 100n;
+            // Ensure maxFeePerGas is also bumped to accommodate higher priority
+            if (maxFeePerGasCap) maxFeePerGasCap = maxFeePerGasCap + (maxPriorityFeeCap / 5n);
+        }
+
         try {
             const txHash = await sendTransaction(userId, '', {
                 to: best.to,
@@ -395,8 +422,8 @@ export class SwapExecutor {
                 value: best.value,
                 chainId,
                 gas: gasLimit,
-                maxFeePerGas: feeData?.maxFeePerGas?.toString(),
-                maxPriorityFeePerGas: feeData?.maxPriorityFeePerGas?.toString()
+                maxFeePerGas: maxFeePerGasCap?.toString(),
+                maxPriorityFeePerGas: maxPriorityFeeCap?.toString()
             });
 
             logger.info(LogCode.EXE_TX_BROADCAST, 'Swap Broadcast', { txHash, method: best.dexName });
@@ -415,7 +442,10 @@ export class SwapExecutor {
                 status: 'SUCCESS', // Changed from PENDING to align with type definition
                 txHash,
                 amountOut: best.amountOut,
-                method: best.dexName
+                method: best.dexName,
+                metadata: {
+                    allowanceTarget: best.allowanceTarget
+                }
             };
         } catch (execError: any) {
             console.log('[SwapExecutor] ========== EXECUTION FAILED ==========');
@@ -756,8 +786,7 @@ export class SwapExecutor {
     ): Promise<boolean> {
         if (isNativeToken(token, chainId)) return false;
 
-        const config = getChainConfig(chainId);
-        const provider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
+        const provider = getEthersProvider(chainId);
         const contract = new ethers.Contract(token, [
             'function allowance(address owner, address spender) view returns (uint256)'
         ], provider);
@@ -806,8 +835,7 @@ export class SwapExecutor {
             chainId
         });
 
-        const config = getChainConfig(chainId);
-        const provider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
+        const provider = getEthersProvider(chainId);
         await provider.waitForTransaction(txHash, 1, 60000); // 1 min timeout
         return txHash;
     }

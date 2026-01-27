@@ -2,6 +2,7 @@
  * Environment Configuration
  * Validates and loads environment variables
  */
+import 'dotenv/config';
 
 export interface EnvConfig {
     port: number;

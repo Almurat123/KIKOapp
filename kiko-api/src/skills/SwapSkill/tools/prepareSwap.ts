@@ -1,4 +1,6 @@
 import { Tool, ToolContext } from '../../../tools/registry.js';
+import { TradeContext, getTradeContext } from '../../../services/TradeContext.js';
+import { getTokenData } from '../../../services/UnifiedDataLayer.js';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -8,8 +10,6 @@ interface SwapArgs {
     chain_id: number;
     slippage?: number; // percentage, e.g. 0.5
     execute?: boolean; // If true, execute the swap directly (instant trading)
-    token_symbol_in?: string; // Optional: Symbol provided by upstream context (e.g. from balance)
-    token_symbol_out?: string; // Optional: Symbol provided by upstream context
 }
 
 export const PrepareSwapTransactionTool: Tool<SwapArgs> = {
@@ -59,24 +59,16 @@ The amount_in parameter MUST be a numeric string like '0.1' or '100'. Never pass
                     description: 'Slippage tolerance in percentage. Use value from user settings if available.',
                     default: 0.5
                 },
-                token_symbol_in: {
-                    type: 'string',
-                    description: 'Optional: The symbol of token_in if known (e.g. "ETH"). Optimization to skip lookup.'
-                },
-                token_symbol_out: {
-                    type: 'string',
-                    description: 'Optional: The symbol of token_out if known (e.g. "USDC"). Optimization to skip lookup.'
-                },
                 execute: {
                     type: 'boolean',
-                    description: `CRITICAL: Controls whether the swap executes automatically via the Allowance Trade flow.
-- Set to TRUE (Preferred): Executes the swap automatically using allowance trade flow.
-- Set to FALSE: Was previously used for Swap Card (DEPRECATED). Now defaults to text confirmation or specific frontend handling.
+                    description: `CRITICAL: Controls whether the swap executes automatically or shows a confirmation card.
+- Set to FALSE (default): Shows a swap card for user to review and confirm manually.
+- Set to TRUE: Executes the swap automatically without confirmation.
 
 You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
-- If "ALLOWANCE TRADE MODE": Set execute=true
-- If "SWAP CARD MODE" (Legacy): Use judgement, but prefer execute=true for smoother UX.`,
-                    default: true
+- If "SWAP CARD MODE": Always set execute=false
+- If "ALLOWANCE TRADE MODE": Set execute=true`,
+                    default: false
                 }
             },
             required: ['token_in', 'token_out', 'amount_in', 'chain_id']
@@ -85,6 +77,11 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
     handler: async (args, context) => {
         try {
             console.log('[PrepareSwapTransaction] Preparing swap:', args);
+
+            // ========== ⚡ TRADE CONTEXT OPTIMIZATION ⚡ ==========
+            // Get or create TradeContext for caching token data across the swap flow
+            const tradeCtx = getTradeContext(context);
+            console.log(`[PrepareSwapTransaction] Using TradeContext: ${tradeCtx.id}`);
 
             // ========== ⚡ INSTANT PRE-WARMING OPTIMIZATION ⚡ ==========
             // Start quote fetch IMMEDIATELY before any checks
@@ -96,11 +93,6 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
             // Launch quote fetch in background (don't await yet)
             const preWarmQuotePromise = (async () => {
                 try {
-                    // Safety Check: Don't pre-warm if inputs are obviously invalid
-                    if (!args.amount_in || isNaN(parseFloat(args.amount_in)) || parseFloat(args.amount_in) <= 0) {
-                        return null;
-                    }
-
                     console.log('[PrepareSwapTransaction] ⚡ PRE-WARMING: Quote fetch started (performance optimization, non-critical)');
                     const startTime = Date.now();
 
@@ -158,13 +150,12 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
 
                 try {
                     // 1. FAST MARKET STRUCTURE CHECK (Liquidity / FDV)
-                    // Updated import path for services
-                    const { getTokenDetails } = await import('../../../services/geckoTerminal.js');
-                    const tokenData = await getTokenDetails(args.chain_id.toString(), args.token_out);
+                    // ⚡ Use TradeContext-aware data fetching (auto-caches)
+                    const tokenData = await getTokenData(args.token_out, args.chain_id, tradeCtx);
 
                     if (tokenData) {
-                        const liquidity = parseFloat(String(tokenData.liquidity || '0'));
-                        const fdv = parseFloat(String(tokenData.fdv || '0'));
+                        const liquidity = tokenData.liquidity || 0;
+                        const fdv = tokenData.marketCap || 0;
 
                         // Rule: Block if Liquidity is extremely low compared to trade size or absolute minimum
                         if (liquidity < 1000) {
@@ -237,11 +228,9 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
             const fastSwapMode = config?.fastSwapMode === true;
 
             // Execute instantly if:
-            // 1. User has 'allowance_trade' enabled (Strictly enforced - overrides LLM args)
+            // 1. args.execute is explicitly true AND swapMethod is 'allowance_trade', OR
             // 2. fastSwapMode is enabled (for Zora fast swap)
-            // 3. args.execute is explicitly TRUE (LLM confident)
-            const isAllowance = swapMethod === 'allowance' || swapMethod === 'allowance_trade';
-            const shouldExecute = isAllowance || fastSwapMode || args.execute === true;
+            const shouldExecute = (args.execute !== false && (swapMethod === 'allowance' || swapMethod === 'allowance_trade')) || fastSwapMode;
 
             console.log('[PrepareSwapTransaction] Execution Decision:', {
                 argsExecute: args.execute,
@@ -251,16 +240,6 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
             });
 
             if (shouldExecute) {
-                // VALIDATION: Prevent 0-amount swaps which crash the backend
-                if (parseFloat(args.amount_in) <= 0) {
-                    console.warn('[PrepareSwapTransaction] Blocked 0-amount swap execution');
-                    return {
-                        error: 'Insufficient balance to swap. Please check your wallet funds.',
-                        mode: 'error',
-                        _user_message: `⚠️ **Insufficient Balance**\n\nYou are trying to swap ${args.amount_in} which is not a valid amount. Please check your wallet balance.`
-                    };
-                }
-
                 console.log('[PrepareSwapTransaction] Executing backend swap via internal API...');
 
                 // Get user ID and access token from context
@@ -288,118 +267,39 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     };
                 }
 
-                // ⚡ STEP 1: Wait for Quote Data (Price, Amount Out, Symbols)
-                // Use the pre-warmed quote if available, or fetch now
-                let quoteData = await preWarmQuotePromise;
-
-                // Extract better metadata if available
-                let displayTokenIn = args.token_in;
-                let displayTokenOut = args.token_out;
-                let displayAmountOut = '...';
-
-                // Resolve Symbols if they are addresses
-                // OPTIMIZATION: Use upstream symbols if provided to avoid API calls
-                const resolveSymbol = async (chain: number, token: string, defaultVal: string, upstreamSymbol?: string) => {
-                    // 1. Use upstream symbol if available and valid
-                    if (upstreamSymbol && upstreamSymbol !== 'UNKNOWN') return upstreamSymbol.toUpperCase();
-
-                    // 2. If not address-like, treat as symbol
-                    if (!token.startsWith('0x')) return token;
-
-                    try {
-                        // 3. Use GeckoTerminal to get symbol
-                        const { getTokenDetails } = await import('../../../services/geckoTerminal.js');
-                        const details = await getTokenDetails(chain.toString(), token);
-                        if (details && details.symbol) return details.symbol.toUpperCase();
-                    } catch (e) {
-                        // Ignore error
-                    }
-                    return `${token.slice(0, 6)}...`;
-                };
-
-                // Run resolution in parallel
-                const [resolvedIn, resolvedOut] = await Promise.all([
-                    resolveSymbol(args.chain_id, args.token_in, displayTokenIn, args.token_symbol_in),
-                    resolveSymbol(args.chain_id, args.token_out, displayTokenOut, args.token_symbol_out)
-                ]);
-                displayTokenIn = resolvedIn;
-                displayTokenOut = resolvedOut;
-
-                if (quoteData && quoteData.quote) {
-                    if (quoteData.quote.buyAmount) {
-                        // Format amount logic
-                        if (args.token_out.toUpperCase() === 'ETH' || args.token_out.toUpperCase() === 'WETH' || displayTokenOut === 'ETH' || displayTokenOut === 'WETH') {
-                            displayAmountOut = (parseFloat(quoteData.quote.buyAmount) / 1e18).toLocaleString('en-US', { maximumFractionDigits: 6 });
-                        } else if (args.token_out.toUpperCase() === 'USDC' || args.token_out.toUpperCase() === 'USDT' || displayTokenOut === 'USDC' || displayTokenOut === 'USDT') {
-                            displayAmountOut = (parseFloat(quoteData.quote.buyAmount) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 2 });
-                        } else {
-                            const raw = parseFloat(quoteData.quote.buyAmount);
-                            if (raw > 1e15) {
-                                displayAmountOut = (raw / 1e18).toLocaleString('en-US', { maximumFractionDigits: 4 });
-                            } else {
-                                displayAmountOut = raw.toLocaleString('en-US');
-                            }
-                        }
-                    }
-                }
-
+                // ⚡ STEP 1: Create persistent transaction card message IMMEDIATELY
                 const { createMessage, updateMessage } = await import('../../../repositories/chatRepository.js');
                 const { chatWS } = await import('../../../services/chatWebSocket.js');
 
-                const cardData = {
-                    type: 'transaction-status-card',
-                    status: 'pending',
-                    swapType: 'buy',
-                    tokenInSymbol: displayTokenIn,
-                    tokenOutSymbol: displayTokenOut,
-                    amountIn: args.amount_in,
-                    amountOut: displayAmountOut,
-                    chainId: args.chain_id,
-                    slippage: args.slippage || 0.5,
-                    startedAt: Date.now(),
-                    message: '⏳ Initiating swap transaction...'
-                };
-
-                let transactionMessage;
-                // Always create a NEW message for the card to preserve the AI's explanatory text
-                // The AI text (e.g. "I'll help you sell X...") stays in assistantMessageId
-                const txCardMessageId = `tx-${Date.now()}`; // Optional unique ID tracking
-
-                transactionMessage = await createMessage(
+                const transactionMessage = await createMessage(
                     sessionId,
                     'assistant',
-                    '', // Empty content so it doesn't render as text
-                    {
-                        type: 'transaction-status-card',
-                        data: cardData
-                    }
+                    JSON.stringify({
+                        type: 'transaction_card',
+                        status: 'pending',
+                        swapType: 'buy',
+                        tokenIn: args.token_in,
+                        tokenOut: args.token_out,
+                        amountIn: args.amount_in,
+                        chainId: args.chain_id,
+                        slippage: args.slippage || 0.5,
+                        startedAt: Date.now(),
+                        message: '⏳ Initiating swap transaction...'
+                    }),
+                    { type: 'transaction_card' }
                 );
 
                 console.log(`[PrepareSwapTransaction] Created transaction message: ${transactionMessage.id}`);
 
-                // ⚡ CRITICAL: Broadcast message_start first so frontend creates the message container
-                // This ensures the subsequent client_action has a target to update
-                chatWS.broadcast(userId, {
-                    type: 'message_start',
-                    sessionId: sessionId,
-                    data: {
-                        messageId: transactionMessage.id,
-                        role: 'assistant',
-                        timestamp: Date.now()
-                    }
-                });
-
                 // Push pending card to frontend via WebSocket
                 chatWS.broadcast(userId, {
-                    type: 'client_action',
-                    sessionId: sessionId,
+                    type: 'transaction_update',
+                    messageId: transactionMessage.id,
+                    status: 'pending',
                     data: {
-                        message_id: transactionMessage.id,
-                        targetMessageId: transactionMessage.id, // Critical for frontend update
-                        action: {
-                            type: 'show_transaction_status_card',
-                            data: cardData
-                        }
+                        tokenIn: args.token_in,
+                        tokenOut: args.token_out,
+                        amountIn: args.amount_in
                     }
                 });
 
@@ -434,38 +334,30 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
 
                     // ⚡ STEP 3: Update transaction message with final result
                     const finalStatus = response.ok && result.success ? 'success' : 'failed';
-
-                    // Retrieve existing data to preserve startedAt
-                    const existingData = transactionMessage.data || cardData;
-
-                    const updatedData = {
-                        ...existingData,
-                        status: finalStatus,
-                        txHash: result.data?.txHash,
-                        errorMessage: result.error, // Use errorMessage key for TransactionStatusCard
-                        completedAt: Date.now(),
-                        duration: Date.now() - existingData.startedAt,
-                        message: finalStatus === 'success'
-                            ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
-                            : `❌ Swap failed: ${result.error || 'Unknown error'}`
-                    };
+                    const messageContent = JSON.parse(transactionMessage.content as string);
 
                     await updateMessage(transactionMessage.id, {
-                        data: updatedData
+                        content: JSON.stringify({
+                            ...messageContent,
+                            status: finalStatus,
+                            txHash: result.data?.txHash,
+                            error: result.error,
+                            completedAt: Date.now(),
+                            duration: Date.now() - messageContent.startedAt,
+                            message: finalStatus === 'success'
+                                ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
+                                : `❌ Swap failed: ${result.error || 'Unknown error'}`
+                        })
                     });
 
                     // Push final status to frontend
                     chatWS.broadcast(userId, {
-                        type: 'client_action',
-                        sessionId: sessionId,
-                        data: {
-                            message_id: transactionMessage.id,
-                            targetMessageId: transactionMessage.id,
-                            action: {
-                                type: 'show_transaction_status_card',
-                                data: updatedData
-                            }
-                        }
+                        type: 'transaction_complete',
+                        messageId: transactionMessage.id,
+                        status: finalStatus,
+                        txHash: result.data?.txHash,
+                        error: result.error,
+                        data: {}
                     });
 
                     if (!response.ok || !result.success) {
@@ -490,8 +382,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         mode: 'executed',
                         txHash: result.data?.txHash,
                         messageId: transactionMessage.id,
-                        summary: ' ', // Set to space to suppress text but pass falsy check if needed (though || check treats space as true-ish)
-                        message: '',
+                        summary: `✅ Swap executed successfully! ${args.amount_in} ${args.token_in} → ${args.token_out}. Transaction: ${result.data?.txHash?.slice(0, 10)}...`,
                         data: result.data,
                         _final: true // Force AI to stop iterating
                     };
@@ -504,16 +395,14 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         console.error('[PrepareSwapTransaction] Request timeout after 150s');
 
                         // Update message to timeout status
-                        const existingData = transactionMessage.data || cardData;
-                        const updatedData = {
-                            ...existingData,
-                            status: 'failed',
-                            errorMessage: 'Transaction timeout',
-                            completedAt: Date.now()
-                        };
-
+                        const messageContent = JSON.parse(transactionMessage.content as string);
                         await updateMessage(transactionMessage.id, {
-                            data: updatedData
+                            content: JSON.stringify({
+                                ...messageContent,
+                                status: 'failed',
+                                error: 'Transaction timeout',
+                                completedAt: Date.now()
+                            })
                         });
 
                         return {
@@ -554,7 +443,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                                 // Query most recent swap for this user
                                 recentSwap = await prisma.swapHistory.findFirst({
                                     where: {
-                                        user: { privyDid: context?.userId },
+                                        userId: context?.userId,
                                         createdAt: {
                                             gte: new Date(startTime - 5000) // Include 5s buffer before socket error
                                         },
@@ -571,18 +460,6 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                                 if (recentSwap && recentSwap.txHash) {
                                     // Transaction was recorded! Return success
                                     console.log(`[PrepareSwapTransaction] ✅ Found transaction after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls):`, recentSwap.txHash);
-
-                                    // Update message to success
-                                    const existingData = transactionMessage.data || cardData;
-                                    await updateMessage(transactionMessage.id, {
-                                        data: {
-                                            ...existingData,
-                                            status: 'success',
-                                            txHash: recentSwap.txHash,
-                                            completedAt: Date.now()
-                                        }
-                                    });
-
                                     return {
                                         success: true,
                                         mode: 'executed',
@@ -615,14 +492,13 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         }
 
                         // If no transaction found in DB, ask user to verify manually
-                        const existingData = transactionMessage.data || cardData;
                         await updateMessage(transactionMessage.id, {
-                            data: {
-                                ...existingData,
+                            content: JSON.stringify({
+                                ...JSON.parse(transactionMessage.content as string),
                                 status: 'pending_verification',
-                                errorMessage: 'Connection lost during transaction',
+                                error: 'Connection lost during transaction',
                                 completedAt: Date.now()
-                            }
+                            })
                         });
 
                         return {
@@ -637,14 +513,13 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     // Other network error
                     console.error('[PrepareSwapTransaction] Network error:', innerError.message);
 
-                    const existingData = transactionMessage.data || cardData;
                     await updateMessage(transactionMessage.id, {
-                        data: {
-                            ...existingData,
+                        content: JSON.stringify({
+                            ...JSON.parse(transactionMessage.content as string),
                             status: 'failed',
-                            errorMessage: innerError.message,
+                            error: innerError.message,
                             completedAt: Date.now()
-                        }
+                        })
                     });
 
                     return {
@@ -657,65 +532,16 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                 }
             }
 
-            // 🔹 SMART ENRICHMENT: Fetch full token metadata (logos, decimals) for frontend
-            // This prevents the frontend from needing to fetch again, enabling "Instant" UI
-            let enrichedTokenIn: any = null;
-            let enrichedTokenOut: any = null;
-
-            try {
-                // Dynamic import to avoid circular deps
-                const { getTokenInfo } = await import('../../../services/tokenService.js');
-
-                console.log('[PrepareSwapTransaction] 🧠 Smart Enrichment: Fetching token metadata...');
-                const [inData, outData] = await Promise.all([
-                    getTokenInfo(args.token_in, args.chain_id).catch(() => null),
-                    getTokenInfo(args.token_out, args.chain_id).catch(() => null)
-                ]);
-
-                if (inData) {
-                    enrichedTokenIn = {
-                        address: args.token_in,
-                        symbol: inData.symbol,
-                        name: inData.name,
-                        decimals: inData.decimals,
-                        logoUrl: inData.logoURI || inData.logoUrl, // Handle both formats
-                        chainId: args.chain_id
-                    };
-                }
-
-                if (outData) {
-                    enrichedTokenOut = {
-                        address: args.token_out,
-                        symbol: outData.symbol,
-                        name: outData.name,
-                        decimals: outData.decimals,
-                        logoUrl: outData.logoURI || outData.logoUrl,
-                        chainId: args.chain_id
-                    };
-                }
-                console.log('[PrepareSwapTransaction] 🧠 Enrichment complete:', {
-                    hasIn: !!enrichedTokenIn,
-                    hasOut: !!enrichedTokenOut,
-                    inLogo: !!enrichedTokenIn?.logoUrl,
-                    outLogo: !!enrichedTokenOut?.logoUrl
-                });
-
-            } catch (enrichError) {
-                console.warn('[PrepareSwapTransaction] Enrichment failed (non-critical):', enrichError);
-            }
-
             // Fallback: show swap card for manual confirmation
             return {
                 __client_action: {
                     type: 'show_swap_card',
                     payload: {
-                        tokenIn: enrichedTokenIn || args.token_in, // Pass object if enriched, else string
-                        tokenOut: enrichedTokenOut || args.token_out,
+                        tokenIn: args.token_in,
+                        tokenOut: args.token_out,
                         amountIn: args.amount_in,
                         chainId: args.chain_id,
-                        slippage: args.slippage || 0.5,
-                        // Pass pre-warmed quote to frontend for instant display
-                        quote: (await preWarmQuotePromise)?.quote
+                        slippage: args.slippage || 0.5
                     }
                 },
                 mode: 'prepared',

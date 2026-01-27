@@ -1,4 +1,5 @@
 import { normalizeAddress } from '../utils/address.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 const ALCHEMY_AUTH_TOKEN = process.env.ALCHEMY_AUTH_TOKEN || '';
 const ALCHEMY_NOTIFY_URL = 'https://dashboard.alchemy.com/api/update-webhook-addresses';
@@ -47,7 +48,8 @@ export async function addAddressToWebhook(
 
         console.log(`[AlchemyWebhook] Raw Request Body to Alchemy:`, JSON.stringify(body));
 
-        const response = await fetch(ALCHEMY_NOTIFY_URL, {
+        await fetchJson({
+            url: ALCHEMY_NOTIFY_URL,
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -55,12 +57,6 @@ export async function addAddressToWebhook(
             },
             body: JSON.stringify(body),
         });
-
-        if (!response.ok) {
-            const error = await response.text();
-            console.error(`[AlchemyWebhook] Failed to add address: ${error}`);
-            return false;
-        }
 
         console.log(`[AlchemyWebhook] Added address ${address.slice(0, 10)}... to chain ${chainId} webhook`);
         return true;
@@ -89,7 +85,8 @@ export async function removeAddressFromWebhook(
     }
 
     try {
-        const response = await fetch(ALCHEMY_NOTIFY_URL, {
+        await fetchJson({
+            url: ALCHEMY_NOTIFY_URL,
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -101,12 +98,6 @@ export async function removeAddressFromWebhook(
                 addresses_to_remove: [normalizeAddress(address)],
             }),
         });
-
-        if (!response.ok) {
-            const error = await response.text();
-            console.error(`[AlchemyWebhook] Failed to remove address: ${error}`);
-            return false;
-        }
 
         console.log(`[AlchemyWebhook] Removed address ${address.slice(0, 10)}... from chain ${chainId} webhook`);
         return true;

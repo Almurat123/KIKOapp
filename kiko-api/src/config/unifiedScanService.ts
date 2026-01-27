@@ -5,6 +5,7 @@
 
 import { logger } from '../utils/logger.js';
 import { LogCode } from './logRegistry.js';
+import { fetchJson } from './unifiedApiService.js';
 import {
   ETHERSCAN_CONFIG,
   ROUTESCAN_CONFIG,
@@ -90,31 +91,17 @@ export async function callEtherscan(
     params
   ).toString()}`;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ETHERSCAN_CONFIG.timeout);
-
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
+    const data = await fetchJson({
+      url,
+      requestTimeout: ETHERSCAN_CONFIG.timeout,
+      endpointName: 'etherscan',
       headers: { 'Content-Type': 'application/json' },
     });
 
-    clearTimeout(timeout);
-
-    if (response.status === 429) {
-      recordScanFailure('etherscan');
-      throw new Error('Rate limited');
-    }
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
     recordScanSuccess('etherscan');
     return data;
   } catch (error: any) {
-    clearTimeout(timeout);
     recordScanFailure('etherscan');
     logger.error(LogCode.API_FETCH_FAILED, 'Etherscan API error', {
       error: error.message,
@@ -145,31 +132,17 @@ export async function callRoutescan(
     params
   ).toString()}`;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ROUTESCAN_CONFIG.timeout);
-
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
+    const data = await fetchJson({
+      url,
+      requestTimeout: ROUTESCAN_CONFIG.timeout,
+      endpointName: 'routescan',
       headers: { 'Content-Type': 'application/json' },
     });
 
-    clearTimeout(timeout);
-
-    if (response.status === 429) {
-      recordScanFailure('routescan');
-      throw new Error('Rate limited');
-    }
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
     recordScanSuccess('routescan');
     return data;
   } catch (error: any) {
-    clearTimeout(timeout);
     recordScanFailure('routescan');
     logger.error(LogCode.API_FETCH_FAILED, 'RouteScan API error', {
       error: error.message,
@@ -200,31 +173,17 @@ export async function callBlockscout(
     params
   ).toString()}`;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), BLOCKSCOUT_CONFIG.timeout);
-
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
+    const data = await fetchJson({
+      url,
+      requestTimeout: BLOCKSCOUT_CONFIG.timeout,
+      endpointName: 'blockscout',
       headers: { 'Content-Type': 'application/json' },
     });
 
-    clearTimeout(timeout);
-
-    if (response.status === 429) {
-      recordScanFailure('blockscout');
-      throw new Error('Rate limited');
-    }
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
     recordScanSuccess('blockscout');
     return data;
   } catch (error: any) {
-    clearTimeout(timeout);
     recordScanFailure('blockscout');
     logger.error(LogCode.API_FETCH_FAILED, 'Blockscout API error', {
       error: error.message,
@@ -251,31 +210,17 @@ export async function callSolscan(
     token: SOLSCAN_CONFIG.apiKey,
   }).toString()}`;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SOLSCAN_CONFIG.timeout);
-
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
+    const data = await fetchJson({
+      url,
+      requestTimeout: SOLSCAN_CONFIG.timeout,
+      endpointName: 'solscan',
       headers: { 'Content-Type': 'application/json' },
     });
 
-    clearTimeout(timeout);
-
-    if (response.status === 429) {
-      recordScanFailure('solscan');
-      throw new Error('Rate limited');
-    }
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
     recordScanSuccess('solscan');
     return data;
   } catch (error: any) {
-    clearTimeout(timeout);
     recordScanFailure('solscan');
     logger.error(LogCode.API_FETCH_FAILED, 'Solscan API error', {
       error: error.message,

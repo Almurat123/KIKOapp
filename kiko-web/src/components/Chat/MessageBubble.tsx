@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { preprocessMarkdown } from '../../utils/markdownUtils';
-// import { SwapCardChat } from './SwapCardChat'; // Deprecated: Swap card removed from chat
+import { SwapCardChat } from './SwapCardChat';
 import { StrategyCard } from '../Trade/StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { LaunchpadCard } from '../Launchpad/LaunchpadCard';
@@ -81,10 +81,7 @@ const MarkdownComponents = {
 };
 
 // Memoized MessageBubble to prevent re-renders during streaming
-const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction,
-    chainId,
-    sessionId,
-    userAddress: _userAddress, // Unused
+const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction, userAddress, chainId, sessionId,
     thinkingText,
     modelId,
     onFeedback
@@ -191,12 +188,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
             // logger.debug('[MessageBubble] Rendering launchpad-card', { hasData: !!message.data, provider: message.data?.provider });
         }
 
-        // CRITICAL FIX: Allow rendering cards even if content is present (but empty string or just whitespace)
-        // This ensures cards appear even if there's a tiny bit of content
         if (!message.type || !message.data) return null;
 
         switch (message.type) {
-            /*
             case 'swap-card':
                 return (
                     <div className={styles.inlineCard}>
@@ -218,7 +212,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                         </div>
                     </div>
                 );
-            */
             case 'strategy-card':
                 return (
                     <div className={styles.inlineCard}>
@@ -461,37 +454,37 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                     title={`View all ${message.citations.length} sources`}
                                 >
                                     <div className={styles.sourcesButtonIcons}>
-                                        {message.citations.slice(0, 3).map((citation, index) => {
-                                            const logoProps = getSourceLogoProps(citation);
-                                            return (
-                                                <div
-                                                    key={index}
-                                                    className={clsx(styles.sourceIconCircle, styles.sourceIconZIndex)}
-                                                    style={{ zIndex: 3 - index }}
-                                                >
-                                                    {logoProps.avatarUrl ? (
-                                                        <img
-                                                            src={logoProps.avatarUrl}
-                                                            alt={logoProps.domain}
-                                                            className={styles.sourceLogoCircle}
-                                                            onError={(e) => {
-                                                                const target = e.target as HTMLImageElement;
-                                                                target.style.display = 'none';
-                                                            }}
-                                                        />
-                                                    ) : logoProps.isX ? (
-                                                        <XIcon size={14} />
-                                                    ) : (
-                                                        <ExternalLink size={14} />
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                    <span className={styles.sourcesButtonText}>{message.citations.length} sources</span>
-                                </button>
-                            )
-                        }
+                                    {message.citations.slice(0, 3).map((citation, index) => {
+                                        const logoProps = getSourceLogoProps(citation);
+                                        return (
+                                            <div
+                                                key={index}
+                                                className={clsx(styles.sourceIconCircle, styles.sourceIconZIndex)}
+                                                style={{ zIndex: 3 - index }}
+                                            >
+                                                {logoProps.avatarUrl ? (
+                                                    <img
+                                                        src={logoProps.avatarUrl}
+                                                        alt={logoProps.domain}
+                                                        className={styles.sourceLogoCircle}
+                                                        onError={(e) => {
+                                                            const target = e.target as HTMLImageElement;
+                                                            target.style.display = 'none';
+                                                        }}
+                                                    />
+                                                ) : logoProps.isX ? (
+                                                    <XIcon size={14} />
+                                                ) : (
+                                                    <ExternalLink size={14} />
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <span className={styles.sourcesButtonText}>{message.citations.length} sources</span>
+                            </button>
+                        )
+                    }
                     </div>
                 )}
 

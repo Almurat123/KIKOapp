@@ -9,6 +9,7 @@ import {
     DecisionEngineLayers,
     FinalDecision
 } from '../../types/judgeTypes.js';
+import { fetchJson } from '../../config/unifiedApiService.js';
 
 
 const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
@@ -25,34 +26,28 @@ function sanitizeInput(input: string, maxLength = 100): string {
 }
 
 /**
- * Fetch with timeout and retry
+ * Fetch with timeout and retry using unifiedApiService
  */
-async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<any> {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(options.headers as Record<string, string> || {})
+    };
+
+    if (process.env.INTERNAL_SERVICE_KEY) {
+        headers['X-Service-Key'] = process.env.INTERNAL_SERVICE_KEY;
+    }
 
     try {
-        const headers = new Headers(options.headers || {});
-        if (process.env.INTERNAL_SERVICE_KEY) {
-            headers.set('X-Service-Key', process.env.INTERNAL_SERVICE_KEY);
-        }
-
-        const response = await fetch(url, { ...options, headers, signal: controller.signal });
-        clearTimeout(timeout);
-
-        if (!response.ok && retries > 0) {
-            console.log(`[Grok Tools] Request failed (${response.status}), retrying... (${retries} left)`);
-            await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
-            return fetchWithRetry(url, options, retries - 1);
-        }
-        return response;
+        return await fetchJson({
+            url,
+            method: options.method || 'GET',
+            headers,
+            body: options.body,
+            timeout: TIMEOUT_MS,
+            retry: { retries },
+        });
     } catch (error) {
-        clearTimeout(timeout);
-        if (retries > 0 && (error as any).name !== 'AbortError') {
-            console.log(`[Grok Tools] Request error, retrying... (${retries} left)`);
-            await new Promise(r => setTimeout(r, 1000));
-            return fetchWithRetry(url, options, retries - 1);
-        }
         throw error;
     }
 }
@@ -119,7 +114,7 @@ Output ONLY this JSON:
 `.trim();
 
     try {
-        const response = await fetchWithRetry(`${GROK_SERVICE_URL}/v1/chat/completions`, {
+        const data = await fetchWithRetry(`${GROK_SERVICE_URL}/v1/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -131,7 +126,6 @@ Output ONLY this JSON:
             }),
         });
 
-        const data = await response.json() as any;
         const content = data?.choices?.[0]?.message?.content || '{}';
 
         // Parse JSON response
@@ -218,7 +212,7 @@ Output ONLY this JSON:
 `.trim();
 
     try {
-        const response = await fetchWithRetry(`${GROK_SERVICE_URL}/v1/chat/completions`, {
+        const data = await fetchWithRetry(`${GROK_SERVICE_URL}/v1/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -230,7 +224,6 @@ Output ONLY this JSON:
             }),
         });
 
-        const data = await response.json() as any;
         const content = data?.choices?.[0]?.message?.content || '{}';
 
         const jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
@@ -320,7 +313,7 @@ Classify the narrative type and strength. Output JSON:
     };
 
     try {
-        const response = await fetchWithRetry(`${GROK_SERVICE_URL}/v1/chat/completions`, {
+        const data = await fetchWithRetry(`${GROK_SERVICE_URL}/v1/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -331,7 +324,6 @@ Classify the narrative type and strength. Output JSON:
             }),
         });
 
-        const data = await response.json() as any;
         const content = data?.choices?.[0]?.message?.content || '{}';
         const jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
         const result = JSON.parse(jsonStr);
@@ -390,7 +382,7 @@ Instructions:
 `;
 
     try {
-        const response = await fetchWithRetry(`${GROK_SERVICE_URL}/v1/chat/completions`, {
+        const data = await fetchWithRetry(`${GROK_SERVICE_URL}/v1/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -402,9 +394,6 @@ Instructions:
             })
         });
 
-        if (!response.ok) return "AI Summary unavailable (API error).";
-
-        const data = await response.json() as any;
         return data.choices?.[0]?.message?.content || "AI Summary unavailable.";
     } catch (error: any) {
         console.warn(`[Grok Tools] Rationale generation failed:`, error.message);

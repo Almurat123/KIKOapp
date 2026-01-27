@@ -6,6 +6,7 @@
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 export interface EconomicCalendarEvent {
   id: string;
@@ -39,24 +40,13 @@ async function fetchFromAlphaVantage(): Promise<EconomicCalendarEvent[]> {
 
     const url = `https://www.alphavantage.co/query?function=ECONOMIC_CALENDAR&apikey=${env.apiKeys.alphavantage}&from=${startDate.toISOString().split('T')[0]}&to=${endDate.toISOString().split('T')[0]}`;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(url, {
-      signal: controller.signal,
+    const data = await fetchJson({
+      url,
+      timeout: 10000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; KikoBot/1.0)',
       },
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'Alpha Vantage API error', { status: response.status, statusText: response.statusText });
-      return [];
-    }
-
-    const data = await response.json() as {
+    }) as {
       data?: Array<{
         date: string;
         time: string;

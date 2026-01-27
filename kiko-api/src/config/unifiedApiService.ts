@@ -103,6 +103,119 @@ function isCircuitOpen(url: string): boolean {
 }
 
 // ============================================================================
+// GENERIC FETCH SERVICE
+// ============================================================================
+
+export interface FetchJsonOptions extends RequestInit {
+  url: string;
+  endpointName?: string; // For logging/metrics
+  requestTimeout?: number; // ms, default 10000
+  /** @deprecated Use requestTimeout instead */
+  timeout?: number;
+  retry?: {
+    retries: number;
+    factor?: number; // default 2
+    minTimeout?: number; // ms, default 1000
+    maxTimeout?: number; // ms, default 5000
+    randomize?: boolean;
+  };
+}
+
+/**
+ * Generic fetch wrapper with retries, timeout, and better error handling
+ * Used by zeroEx, tokenService, etc.
+ */
+export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> {
+  const {
+    url,
+    endpointName = 'api',
+    requestTimeout: configuredTimeout = 10000,
+    timeout: legacyTimeout,
+    retry = { retries: 0 },
+    ...fetchOptions
+  } = options;
+
+  const requestTimeout = legacyTimeout ?? configuredTimeout;
+
+  const maxRetries = retry.retries || 0;
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), requestTimeout);
+
+    try {
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          ...fetchOptions.headers
+        }
+      });
+
+      clearTimeout(timeout);
+
+      // Handle 429 Rate Limit specifically
+      if (response.status === 429) {
+        throw new Error('429 Rate Limit Exceeded');
+      }
+
+      if (!response.ok) {
+        // Try to get error text
+        const errorText = await response.text().catch(() => response.statusText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      // Check for empty body if we expect JSON
+      const text = await response.text();
+      if (!text) return {} as T;
+
+      try {
+        return JSON.parse(text) as T;
+      } catch (parseError) {
+        throw new Error(`Invalid JSON response: ${text.substring(0, 50)}...`);
+      }
+
+    } catch (error: any) {
+      clearTimeout(timeout);
+      lastError = error;
+
+      // Don't retry if max retries reached or if it's a 4xx error (except 429)
+      const isRateLimit = error.message.includes('429');
+      const isClientError = error.message.match(/HTTP 4\d\d/) && !isRateLimit;
+
+      if (attempt >= maxRetries || (isClientError && !isRateLimit)) {
+        break;
+      }
+
+      // Calculate backoff
+      const baseDelay = retry.minTimeout || 1000;
+      const factor = retry.factor || 2;
+      const delay = Math.min(
+        retry.maxTimeout || 5000,
+        baseDelay * Math.pow(factor, attempt)
+      );
+
+      logger.warn(LogCode.API_FETCH_FAILED, `${endpointName} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms`, {
+        error: error.message,
+        url: url.substring(0, 60)
+      });
+
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  // Final failure
+  logger.error(LogCode.API_FETCH_FAILED, `${endpointName} failed after ${maxRetries + 1} attempts`, {
+    error: lastError?.message,
+    url: url.substring(0, 60)
+  });
+
+  throw lastError;
+}
+
+// ============================================================================
 // RPC SERVICE
 // ============================================================================
 
@@ -372,7 +485,7 @@ export function getEndpointHealthStats(): Array<{
 }> {
   const stats: Array<any> = [];
 
-  for (const [url, health] of Array.from(endpointHealthMap.entries())) {
+  for (const [url, health] of endpointHealthMap.entries()) {
     const successRate = health.totalAttempts > 0
       ? (health.successCount / health.totalAttempts) * 100
       : 0;

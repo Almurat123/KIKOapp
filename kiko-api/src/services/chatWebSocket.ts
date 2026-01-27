@@ -6,8 +6,12 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
 export interface ChatEvent {
-    type: 'chunk' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'usage' | 'citations' | 'content_block' | 'client_action' | 'transaction_update' | 'transaction_confirmed';
-    sessionId: string;
+    type: 'chunk' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'usage' | 'citations' | 'content_block' | 'client_action' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete';
+    sessionId?: string; // Optional because some events are user-level
+    messageId?: string;
+    status?: string;
+    txHash?: string;
+    error?: string;
     data: any;
 }
 

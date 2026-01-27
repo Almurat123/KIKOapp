@@ -4,9 +4,10 @@
  * Supports Tavily API (primary) and DuckDuckGo (free fallback)
  */
 
-import { search as duckDuckGoSearch } from 'duck-duck-scrape';
+import { search as duckDuckGoSearch, SafeSearchType } from 'duck-duck-scrape';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 interface TavilySearchResult {
     title: string;
@@ -52,7 +53,10 @@ async function searchWithTavily(
         throw new Error('TAVILY_API_KEY not configured');
     }
 
-    const response = await fetch(TAVILY_API_URL, {
+    // # [Logic]: Execute Tavily search via Unified Transport
+    // # [Ref]: "Tavily API... POST https://api.tavily.com/search" [Tavily Docs] 
+    const data = await unifiedApiService.fetchJson<TavilyResponse>({
+        url: TAVILY_API_URL,
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -66,15 +70,15 @@ async function searchWithTavily(
             include_raw_content: false, // Don't need full HTML
             include_images: false, // Don't need images for now
         }),
+        requestTimeout: 15000,
+        endpointName: 'tavily-search',
+        retry: {
+            retries: 2,
+            minTimeout: 500
+        }
     });
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(LogCode.API_FETCH_FAILED, 'Tavily API error', { status: response.status, error: errorText });
-        throw new Error(`Tavily API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json() as TavilyResponse;
+    // Old fetch error handling removed as unifiedApiService throws on non-2xx
 
     // Transform Tavily results to our format
     const results: SearchResult[] = data.results.map((result) => ({
@@ -100,7 +104,7 @@ async function searchWithDuckDuckGo(query: string, maxResults: number = 5): Prom
         logger.debug(LogCode.SYS_INFO, 'Using DuckDuckGo search', { query });
 
         const searchResults = await duckDuckGoSearch(query, {
-            safeSearch: 'off' as any, // Valid values: 'off', 'moderate', 'strict' - type might be restrictive
+            safeSearch: SafeSearchType.OFF,
         });
 
         const results: SearchResult[] = [];

@@ -7,6 +7,7 @@
 const NEYNAR_API_BASE = 'https://api.neynar.com/v2';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 interface NeynarCast {
     hash: string;
@@ -76,21 +77,16 @@ export async function searchCastsNeynar(
         url.searchParams.set('mode', mode);
         url.searchParams.set('sort_type', 'algorithmic'); // Sort by engagement
 
-        const response = await fetch(url.toString(), {
+        const data = await unifiedApiService.fetchJson<NeynarSearchResponse>({
+            url: url.toString(),
             method: 'GET',
             headers: {
                 'x-api-key': apiKey,
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'api.neynar.com'
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Neynar search failed', { status: response.status, error: errorText });
-            return [];
-        }
-
-        const data = await response.json() as NeynarSearchResponse;
         const casts = data.result?.casts || [];
 
         logger.debug(LogCode.SYS_INFO, 'Neynar search results', { query, count: casts.length });
@@ -141,21 +137,16 @@ export async function getTrendingFeed(limit: number = 25): Promise<any[]> {
         url.searchParams.set('time_window', '24h');
         url.searchParams.set('provider', 'neynar'); // or 'farcaster_network'
 
-        const response = await fetch(url.toString(), {
+        const data = await unifiedApiService.fetchJson<{ casts: NeynarCast[] }>({
+            url: url.toString(),
             method: 'GET',
             headers: {
                 'x-api-key': apiKey,
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'api.neynar.com'
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Neynar feed fetch failed', { status: response.status, error: errorText });
-            return [];
-        }
-
-        const data = await response.json() as { casts: NeynarCast[] };
         const casts = data.casts || [];
 
         logger.debug(LogCode.SYS_INFO, 'Neynar trending casts count', { count: casts.length });
@@ -212,20 +203,16 @@ export async function getUsersNeynar(fids: number[]): Promise<any[]> {
         const url = new URL(`${NEYNAR_API_BASE}/farcaster/user/bulk`);
         url.searchParams.set('fids', fids.join(','));
 
-        const response = await fetch(url.toString(), {
+        const data = await unifiedApiService.fetchJson<NeynarUserResponse>({
+            url: url.toString(),
             method: 'GET',
             headers: {
                 'x-api-key': apiKey,
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'api.neynar.com'
         });
-
-        if (!response.ok) {
-            logger.warn(LogCode.API_FETCH_FAILED, 'Neynar: Users bulk fetch failed', { status: response.status });
-            return [];
-        }
-
-        const data = await response.json() as NeynarUserResponse;
         return data.users.map(u => ({
             fid: u.fid,
             username: u.username,
@@ -254,20 +241,16 @@ export async function getUserByUsername(username: string): Promise<any | null> {
         const url = new URL(`${NEYNAR_API_BASE}/farcaster/user/by_username`);
         url.searchParams.set('username', username);
 
-        const response = await fetch(url.toString(), {
+        const data = await unifiedApiService.fetchJson<{ user: any }>({
+            url: url.toString(),
             method: 'GET',
             headers: {
                 'x-api-key': apiKey,
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'api.neynar.com'
         });
-
-        if (!response.ok) {
-            logger.warn(LogCode.API_FETCH_FAILED, 'Neynar: User by username fetch failed', { status: response.status, username });
-            return null;
-        }
-
-        const data = await response.json() as { user: any };
         const u = data.user;
 
         if (!u) {
@@ -305,19 +288,16 @@ export async function checkIsFollowing(fid: number, targetFid: number): Promise<
         url.searchParams.set('fids', String(targetFid));
         url.searchParams.set('viewer_fid', String(fid));
 
-        const response = await fetch(url.toString(), {
+        const data = await unifiedApiService.fetchJson<{ users: any[] }>({
+            url: url.toString(),
             method: 'GET',
             headers: {
                 'x-api-key': apiKey,
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'api.neynar.com'
         });
-
-        if (!response.ok) {
-            return false;
-        }
-
-        const data = await response.json() as { users: any[] };
         const u = data.users?.[0];
 
         // viewer_context.following is true if viewer_fid follows the user in bulk request

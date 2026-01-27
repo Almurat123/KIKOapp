@@ -4,6 +4,7 @@
  */
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 const POLYMARKET_DATA_API = 'https://data-api.polymarket.com';
 
@@ -38,17 +39,15 @@ export async function getWalletPositions(wallet: string): Promise<PolymarketUser
     const url = `${POLYMARKET_DATA_API}/positions?user=${wallet.toLowerCase()}`;
 
     try {
-        const response = await fetch(url, {
+        const data = await unifiedApiService.fetchJson<any[]>({
+            url,
+            method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'data-api.polymarket.com'
         });
-        if (!response.ok) {
-            console.error(`[PolymarketData] API error: ${response.status}`);
-            return [];
-        }
-
-        const data = await response.json() as any[];
 
         let positions = data.map(pos => ({
             market: pos.slug || pos.market || '',
@@ -103,17 +102,15 @@ export async function getWalletStats(wallet: string): Promise<PolymarketUserStat
     const url = `${POLYMARKET_DATA_API}/users/${wallet.toLowerCase()}`;
 
     try {
-        const response = await fetch(url, {
+        const data = await unifiedApiService.fetchJson<any>({
+            url,
+            method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'data-api.polymarket.com'
         });
-        if (!response.ok) {
-            logger.error(LogCode.API_FETCH_FAILED, 'Polymarket Data API error (stats)', { status: response.status, wallet });
-            return null;
-        }
-
-        const data = await response.json() as any;
 
         return {
             wallet: wallet,
@@ -192,17 +189,15 @@ export async function getWalletTrades(wallet: string): Promise<PolymarketTrade[]
     const url = `${POLYMARKET_DATA_API}/trades?user=${wallet.toLowerCase()}&limit=50`;
 
     try {
-        const response = await fetch(url, {
+        const data = await unifiedApiService.fetchJson<any[]>({
+            url,
+            method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'data-api.polymarket.com'
         });
-        if (!response.ok) {
-            console.error(`[PolymarketData] API error: ${response.status}`);
-            return [];
-        }
-
-        const data = await response.json() as any[];
 
         const trades: PolymarketTrade[] = data.map(trade => ({
             id: trade.id || '',
@@ -287,16 +282,15 @@ export async function getOpenOrders(wallet: string): Promise<PolymarketOpenOrder
     const url = `https://clob.polymarket.com/orders?maker_address=${wallet.toLowerCase()}`;
 
     try {
-        const response = await fetch(url, {
+        const data = await unifiedApiService.fetchJson<any>({
+            url,
+            method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+            },
+            timeout: 10000,
+            endpointName: 'clob.polymarket.com'
         });
-        if (!response.ok) {
-            return [];
-        }
-
-        const data = await response.json() as any;
 
         // The CLOB API might return an array or an object with a data field
         const orders = Array.isArray(data) ? data : (data?.data || data?.results || []);
@@ -330,16 +324,15 @@ export async function getBestBid(tokenId: string): Promise<number | null> {
     const url = `https://clob.polymarket.com/book?token_id=${tokenId}`;
 
     try {
-        const response = await fetch(url, {
+        const data = await unifiedApiService.fetchJson<any>({
+            url,
+            method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+            },
+            timeout: 5000, // Faster timeout for order book
+            endpointName: 'clob.polymarket.com'
         });
-        if (!response.ok) {
-            return null;
-        }
-
-        const data = await response.json() as any;
         const bids = data.bids || [];
 
         if (bids.length > 0) {

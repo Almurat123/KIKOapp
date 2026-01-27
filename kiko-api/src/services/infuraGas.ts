@@ -4,6 +4,7 @@
  */
 
 import { env } from '../config/env.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 // Chain ID mapping for Infura Gas API
 const CHAIN_ID_MAP: Record<string, string> = {
@@ -98,17 +99,17 @@ export async function getInfuraGasFees(chain: string = 'eth'): Promise<InfuraGas
             headers['Authorization'] = `Basic ${auth}`;
         }
 
-        const response = await fetch(url, { method: 'GET', headers });
+        // # [Logic]: Fetch gas fees via Unified Transport
+        // # [Ref]: "Infura Gas API"
+        const data = await unifiedApiService.fetchJson<InfuraGasResponse>({
+            url,
+            method: 'GET',
+            headers,
+            requestTimeout: 10000,
+            endpointName: 'infura-gas'
+        });
 
-        if (!response.ok) {
-            console.error(`[InfuraGas] API error for ${chain}: ${response.status} ${response.statusText}`);
-            const text = await response.text();
-            console.error(`[InfuraGas] Response: ${text}`);
-            return null;
-        }
-
-        const data = await response.json();
-        return data as InfuraGasResponse;
+        return data;
 
     } catch (error: any) {
         console.error(`[InfuraGas] Error fetching gas fees:`, error.message);

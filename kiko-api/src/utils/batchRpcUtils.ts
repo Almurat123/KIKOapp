@@ -13,11 +13,10 @@
 
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { callRpcBatch } from '../services/rpcManager.js';
+import { rpcManager } from '../services/rpcManager.js';
 
 export interface BatchRequest {
-  jsonrpc: string; // Required for RpcRequest compatibility
-  id: number;
+  id: string | number;
   method: string;
   params: any[];
 }
@@ -54,14 +53,14 @@ export async function batchRpcCall<T = any>(
   }
 
   try {
-    const results: BatchResult<T>[] = await callRpcBatch<T>(chainName, requests);
+    const results = await (rpcManager as any).callRpcBatch(chainName, requests) as any[];
 
     if (requests.length > 1) {
       logger.info(LogCode.API_FETCH_SUCCESS, 'Batch RPC completed', {
         chain: chainName,
         batchSize: requests.length,
-        success: results.filter(r => !r.error).length,
-        failed: results.filter(r => r.error).length,
+        success: results.filter((r: any) => !r.error).length,
+        failed: results.filter((r: any) => r.error).length,
       });
     }
 
@@ -112,8 +111,7 @@ export async function getMultipleTokenBalances(
   const paddedAddress = walletAddress.slice(2).padStart(64, '0');
 
   // Create batch requests
-  const requests: any[] = tokenAddresses.map((token, i) => ({
-    jsonrpc: '2.0',
+  const requests: BatchRequest[] = tokenAddresses.map((token, i) => ({
     id: i,
     method: 'eth_call',
     params: [

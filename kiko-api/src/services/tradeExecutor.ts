@@ -138,7 +138,10 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         try {
             logger.debug(LogCode.EXE_TX_BROADCAST, 'Waiting for buy confirmation before auto-approval', { txHash });
 
-            const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
+            // CRITICAL: Check if the buy transaction actually succeeded
+            // Use unified provider
+            const { getEthersProvider } = await import('./rpcManager.js');
+            const provider = getEthersProvider(chainId);
             const receipt = await provider.waitForTransaction(txHash, 1);
 
             // CRITICAL: Check if the buy transaction actually succeeded
@@ -291,8 +294,9 @@ export async function executeSellInstant({
     logger.info(LogCode.EXE_TX_BROADCAST, 'Sell transaction broadcasted', { txHash, chainId });
 
     // WAIT for confirmation and check status
-    const chainConfig = getChainConfig(chainId);
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
+    // WAIT for confirmation and check status
+    const { getEthersProvider } = await import('./rpcManager.js');
+    const provider = getEthersProvider(chainId);
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
@@ -321,8 +325,8 @@ async function checkAndApproveToken(
         // Simple ERC20 ABI for allowance
         const abi = ['function allowance(address owner, address spender) view returns (uint256)'];
 
-        const chainConfig = getChainConfig(chainId);
-        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
+        const { getEthersProvider } = await import('./rpcManager.js');
+        const provider = getEthersProvider(chainId);
         const contract = new ethers.Contract(tokenAddress, abi, provider);
 
         const currentAllowance = await contract.allowance(owner, spender);

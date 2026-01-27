@@ -4,6 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 const ZORA_API_BASE = 'https://api-sdk.zora.engineering';
 
@@ -33,18 +34,12 @@ export async function zoraProxyRoutes(fastify: FastifyInstance) {
                 headers['api-key'] = ZORA_API_KEY;
             }
 
-            const response = await fetch(url, {
+            const data = await fetchJson({
+                url,
                 method: 'GET',
                 headers,
             });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`[Zora Proxy] API error: ${response.status} ${errorText}`);
-                return reply.status(response.status).send({ error: 'Zora API error' });
-            }
-
-            const data = await response.json();
             return reply.send(data);
         } catch (error) {
             console.error('[Zora Proxy] Error:', error);

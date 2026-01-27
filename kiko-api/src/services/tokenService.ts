@@ -5,6 +5,7 @@ import { getChainSlug, CHAINS } from '../config/chainConfig.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { getTokenDetails } from './geckoTerminal.js';
 import { getTokenMetadata } from './rpcService.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 /**
  * Token Service
@@ -65,31 +66,14 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
     let dsError: any = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        let timeoutId: NodeJS.Timeout | undefined;
         try {
-            const controller = new AbortController();
-            timeoutId = setTimeout(() => controller.abort(), 8000);
-
-            const res = await fetch(dsUrl, {
+            const data = await fetchJson({
+                url: dsUrl,
                 headers: { 'Connection': 'close', 'Accept': 'application/json' },
-                signal: controller.signal
-            });
+                timeout: 8000,
+                retry: { retries: 0 } // Handle retries manually
+            }) as any;
 
-            if (res.status === 429) {
-                logger.warn(LogCode.API_RATE_LIMIT, 'DexScreener rate limited', { token: tokenAddress, attempt });
-                throw new Error('429');
-            }
-
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-
-            const contentType = res.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-                throw new Error('Non-JSON response');
-            }
-
-            const data = await res.json() as any;
             if (data.pairs && data.pairs.length > 0) {
                 // Step 1: Filter by correct chain only
                 const chainPairs = data.pairs.filter((p: any) => p.chainId === dsSlug);
@@ -142,15 +126,13 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
 
         } catch (e: any) {
             dsError = e;
-            if (attempt < MAX_RETRIES && (e.message === '429' || e.name === 'AbortError')) {
+            if (attempt < MAX_RETRIES && (e.message?.includes('429') || e.name === 'AbortError')) {
                 const wait = 1000 * Math.pow(2, attempt - 1);
                 logger.debug(LogCode.API_TIMEOUT, 'Retrying DexScreener fetch', { waitMs: wait, attempt });
                 await new Promise(resolve => setTimeout(resolve, wait));
                 continue;
             }
             break;
-        } finally {
-            if (timeoutId) clearTimeout(timeoutId);
         }
     }
 
@@ -185,27 +167,25 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
         logger.debug(LogCode.API_FETCH_SUCCESS, 'Attempting Zora API fallback for Base token', { token: tokenAddress });
         try {
             const zoraUrl = `https://api-sdk.zora.engineering/coin?address=${tokenAddress}&chain=8453`;
-            const zoraRes = await fetch(zoraUrl, {
+            const zoraData = await fetchJson({
+                url: zoraUrl,
                 headers: { 'Accept': 'application/json' }
-            });
+            }) as any;
 
-            if (zoraRes.ok) {
-                const zoraData = await zoraRes.json() as any;
-                if (zoraData && zoraData.tokenPrice) {
-                    const result = {
-                        price: parseFloat(zoraData.tokenPrice.priceInUsdc),
-                        symbol: zoraData.symbol,
-                        name: zoraData.name,
-                        decimals: 18,
-                        liquidity: parseFloat(zoraData.marketCap) * 0.1, // Proxy
-                        volume24h: parseFloat(zoraData.volume24h),
-                        fdv: parseFloat(zoraData.marketCap),
-                        marketCap: parseFloat(zoraData.marketCap),
-                        provider: 'zora'
-                    };
-                    logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from Zora', { symbol: result.symbol, price: result.price });
-                    return result;
-                }
+            if (zoraData && zoraData.tokenPrice) {
+                const result = {
+                    price: parseFloat(zoraData.tokenPrice.priceInUsdc),
+                    symbol: zoraData.symbol,
+                    name: zoraData.name,
+                    decimals: 18,
+                    liquidity: parseFloat(zoraData.marketCap) * 0.1, // Proxy
+                    volume24h: parseFloat(zoraData.volume24h),
+                    fdv: parseFloat(zoraData.marketCap),
+                    marketCap: parseFloat(zoraData.marketCap),
+                    provider: 'zora'
+                };
+                logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from Zora', { symbol: result.symbol, price: result.price });
+                return result;
             }
         } catch (e: any) {
             logger.debug(LogCode.API_FETCH_FAILED, 'Zora API fallback failed', { token: tokenAddress, error: e.message });

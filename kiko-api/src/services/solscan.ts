@@ -7,6 +7,7 @@
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { callSolscan } from '../config/unifiedScanService.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 const SOLSCAN_API_KEY = process.env.SOLSCAN_API_KEY;
 const BASE_URL = 'https://pro-api.solscan.io/v2.0';
@@ -97,22 +98,27 @@ export async function getTokenTransfers(
         const url = `${BASE_URL}/token/transfer?${params.toString()}`;
         logger.debug(LogCode.SYS_INFO, 'Solscan: Fetching token transfers', { tokenAddress, sortOrder });
 
-        const response = await fetch(url, {
+
+
+        // # [Logic]: Fetch token transfers via Unified Transport
+        // # [Ref]: Docs: https://pro-api.solscan.io/pro-api-v2
+        const data = await unifiedApiService.fetchJson<SolscanTokenTransferResponse>({
+            url,
+            method: 'GET',
             headers: {
                 'token': SOLSCAN_API_KEY,
                 'Content-Type': 'application/json'
+            },
+            requestTimeout: 10000,
+            endpointName: 'solscan-token-transfers',
+            retry: {
+                retries: 2,
+                minTimeout: 1000
             }
         });
 
-        if (!response.ok) {
-            const errText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Solscan API error', { status: response.status, error: errText });
-            return { success: false, data: [] };
-        }
-
-        const data = await response.json();
-        logger.debug(LogCode.SYS_INFO, 'Solscan: Received token transfers', { tokenAddress, count: (data as any).data?.length || 0 });
-        return data as SolscanTokenTransferResponse;
+        logger.debug(LogCode.SYS_INFO, 'Solscan: Received token transfers', { tokenAddress, count: data.data?.length || 0 });
+        return data;
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, 'Solscan: Error fetching token transfers', { error: error.message });
         return { success: false, data: [] };

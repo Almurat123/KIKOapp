@@ -6,8 +6,10 @@
 
 import { Tool, ToolContext } from '../../../tools/registry.js';
 import { SwapStateManager } from '../../../services/SwapStateManager.js';
+import { getTradeContext } from '../../../services/TradeContext.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
+import { fetchJson } from '../../../config/unifiedApiService.js';
 
 export const executeSwapTool: Tool = {
     definition: {
@@ -63,6 +65,10 @@ The result will be either:
 
         console.log(`[ExecuteSwap] Starting atomic swap execution for task ${taskId}`);
 
+        // ⚡ Get TradeContext for cached data access
+        const tradeCtx = getTradeContext(context);
+        console.log(`[ExecuteSwap] Using TradeContext: ${tradeCtx.id} (${tradeCtx.toSummary()})`);
+
         // Initialize state
         SwapStateManager.initSwap({
             userId: context?.userId || '',
@@ -82,8 +88,11 @@ The result will be either:
             console.log('[ExecuteSwap] Calling unified swap API...');
             SwapStateManager.updateState(taskId, 'QUOTE_PENDING');
 
-            const response = await fetch(`${API_BASE}/api/swap/execute-instant`, {
+            const result = await fetchJson({
+                url: `${API_BASE}/api/swap/execute-instant`,
                 method: 'POST',
+                timeout: 150000,
+                endpointName: 'swap-api',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${context?.accessToken}`
@@ -94,13 +103,10 @@ The result will be either:
                     amountIn: args.amount_in,
                     chainId: args.chain_id,
                     slippageBps: Math.round((args.slippage || 0.5) * 100)
-                }),
-                signal: AbortSignal.timeout(150000) // 150s timeout
+                })
             });
 
-            const result = await response.json();
-
-            if (!response.ok || !result.success) {
+            if (!result.success) {
                 // Handle failure
                 const errorMsg = result.error || result.message || 'Swap execution failed';
                 SwapStateManager.markFailed(taskId, errorMsg);

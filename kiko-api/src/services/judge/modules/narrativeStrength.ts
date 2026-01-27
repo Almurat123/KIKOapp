@@ -6,6 +6,7 @@
  */
 
 import { NarrativeStrength } from '../../../types/judgeTypes.js';
+import { fetchJson } from '../../../config/unifiedApiService.js';
 
 export interface NarrativeStrengthInput {
     narrativeType: string;           // From LLM classification
@@ -68,7 +69,8 @@ Output JSON:
     try {
         const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
 
-        const response = await fetch(`${GROK_SERVICE_URL}/v1/chat/completions`, {
+        const data = await fetchJson({
+            url: `${GROK_SERVICE_URL}/v1/chat/completions`,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -79,7 +81,6 @@ Output JSON:
             }),
         });
 
-        const data = await response.json() as any;
         const content = data?.choices?.[0]?.message?.content || '{}';
 
         // Parse JSON response

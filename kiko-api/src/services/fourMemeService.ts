@@ -12,6 +12,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
+import { getEthersProvider } from './rpcManager.js';
 
 // TokenManager2 contract address on BSC
 const TOKEN_MANAGER_V2 = '0x5c952063c7fc8610FFDB798152D69F0B9550762b';
@@ -173,7 +174,7 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
     logger.debug(LogCode.EXE_TX_BROADCAST, 'Transaction sent, waiting for confirmation', { txHash });
 
     // Wait for confirmation and check status
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
+    const provider = getEthersProvider(chainId);
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
@@ -266,7 +267,7 @@ async function checkAndApproveForFourMeme(
     chainId: number
 ): Promise<void> {
     const chainConfig = getChainConfig(chainId);
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
+    const provider = getEthersProvider(chainId);
 
     const ERC20_ABI = [
         'function allowance(address owner, address spender) view returns (uint256)',

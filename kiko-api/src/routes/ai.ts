@@ -8,6 +8,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { toolRegistry } from '../tools/index.js';
 import { searchWeb, formatSearchResults } from '../services/searchService.js';
 import { requireAuth } from '../middleware/auth.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';

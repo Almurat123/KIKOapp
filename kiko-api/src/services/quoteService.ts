@@ -51,34 +51,7 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
         chainId, slippageBps, userAddress, refPrice, affiliateFee
     } = params;
 
-    // ⚡ OPTIMIZATION: Check cache first
-    const { QuoteCache } = await import('./QuoteCache.js');
-    const cachedQuote = QuoteCache.get(actualTokenIn, actualTokenOut, chainId);
-    
-    if (cachedQuote) {
-        console.log('[QuoteService] Using cached quote, fetching fresh in background');
-        // Return cached quote immediately, but refresh in background
-        setImmediate(() => {
-            // Refresh cache in background
-            getBestQuoteInternal(params).then(({ best }) => {
-                if (best) {
-                    QuoteCache.set(actualTokenIn, actualTokenOut, chainId, best);
-                }
-            }).catch(() => {/* ignore background refresh errors */});
-        });
-        
-        return { best: cachedQuote, quotes: [cachedQuote] };
-    }
-
-    // No cache, fetch fresh
-    const result = await getBestQuoteInternal(params);
-    
-    // Cache the result
-    if (result.best) {
-        QuoteCache.set(actualTokenIn, actualTokenOut, chainId, result.best);
-    }
-    
-    return result;
+    return getBestQuoteInternal(params);
 }
 
 async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: QuoteResult, quotes: QuoteResult[] }> {

@@ -1,5 +1,5 @@
-import axios from 'axios';
-import dotenv from 'dotenv';
+import { fetchJson } from '../config/unifiedApiService.js';
+import * as dotenv from 'dotenv';
 import { createModerationLog } from '../repositories/chatRepository.js';
 import { redact } from '../utils/sanitizer.js';
 import { scrub } from '../utils/scrubber.js';
@@ -45,19 +45,25 @@ export class ModerationClient {
         model: string | null = null
     ): Promise<ModerationResult> {
         try {
-            const response = await axios.post(`${MODERATION_SERVICE_URL}/input`, {
-                text,
-                context
-            }, { timeout: 3000 });
+            const response = await fetchJson({
+                url: `${MODERATION_SERVICE_URL}/input`,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text,
+                    context
+                }),
+                timeout: 3000
+            });
 
             // Log to DB
             logger.debug(LogCode.SYS_INFO, 'Logging input check to DB', { userId: userId ?? undefined });
-            createModerationLog(userId || '', 'input', text, response.data, sessionId, model).catch((err: any) =>
+            createModerationLog(userId || '', 'input', text, response, sessionId, model).catch((err: any) =>
                 logger.error(LogCode.SYS_ERROR, 'Moderation input log to DB failed', { error: err.message })
             );
 
-            logger.info(LogCode.SYS_INFO, 'Moderation Input check result', { safe: response.data.safe, action: response.data.action, userId: userId ?? undefined });
-            return response.data;
+            logger.info(LogCode.SYS_INFO, 'Moderation Input check result', { safe: response.safe, action: response.action, userId: userId ?? undefined });
+            return response;
         } catch (error: any) {
             logger.warn(LogCode.API_FETCH_FAILED, 'Input moderation request failed, defaulting to safe', { error: error.message });
             return { safe: true, action: 'allow' };
@@ -74,18 +80,24 @@ export class ModerationClient {
         model: string | null = null
     ): Promise<ModerationResult> {
         try {
-            const response = await axios.post(`${MODERATION_SERVICE_URL}/output`, {
-                text
-            }, { timeout: 3000 });
+            const response = await fetchJson({
+                url: `${MODERATION_SERVICE_URL}/output`,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text
+                }),
+                timeout: 3000
+            });
 
             // Log to DB
             logger.debug(LogCode.SYS_INFO, 'Logging output check to DB', { userId: userId ?? undefined });
-            createModerationLog(userId || '', 'output', text, response.data, sessionId, model).catch((err: any) =>
+            createModerationLog(userId || '', 'output', text, response, sessionId, model).catch((err: any) =>
                 logger.error(LogCode.SYS_ERROR, 'Moderation output log to DB failed', { error: err.message })
             );
 
-            logger.info(LogCode.SYS_INFO, 'Moderation Output check result', { safe: response.data.safe, userId: userId ?? undefined });
-            return response.data;
+            logger.info(LogCode.SYS_INFO, 'Moderation Output check result', { safe: response.safe, userId: userId ?? undefined });
+            return response;
         } catch (error: any) {
             logger.warn(LogCode.API_FETCH_FAILED, 'Output moderation request failed, defaulting to original', { error: error.message });
             return { safe: true, filtered_text: scrub(text) };

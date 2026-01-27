@@ -8,6 +8,7 @@ import type { UserContext } from './types.js';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { fetchJson } from '../../config/unifiedApiService.js';
 
 // High-level intent types (for system prompt selection)
 export type HighLevelIntentType =
@@ -908,7 +909,8 @@ async function parseDetailedIntentAI(
     ];
 
     try {
-        const response = await fetch(DEEPSEEK_API_URL, {
+        const data = await fetchJson({
+            url: DEEPSEEK_API_URL,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -923,13 +925,6 @@ async function parseDetailedIntentAI(
             }),
         });
 
-        if (!response.ok) {
-            const error = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'IntentParser: DeepSeek API error', { error });
-            return null;
-        }
-
-        const data = await response.json() as any;
         const content = data.choices[0]?.message?.content || '{}';
 
         // Extract JSON from response (might be wrapped in markdown code blocks)

@@ -9,6 +9,7 @@
 
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 const MORALIS_API_KEY = process.env.MORALIS_API_KEY || '';
 const MORALIS_BASE_URL = 'https://deep-index.moralis.io/api/v2.2';
@@ -101,25 +102,15 @@ export async function getWalletProfitability(
             days
         });
 
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-                'X-API-Key': MORALIS_API_KEY,
-            },
+        const data = await unifiedApiService.fetchJson<WalletProfitabilityResponse>({
+            url,
+            headers: { 'X-API-Key': MORALIS_API_KEY },
+            timeout: 30000,
+            retry: { retries: 2 },
+            endpointName: 'moralis.io'
         });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Moralis API error', {
-                status: response.status,
-                error: errorText,
-                wallet: walletAddress.slice(0, 10)
-            });
-            return null;
-        }
 
-        const data: WalletProfitabilityResponse = await response.json();
 
         if (!data.result || data.result.length === 0) {
             logger.info(LogCode.API_FETCH_SUCCESS, 'No profitability data found', {
@@ -266,25 +257,14 @@ export async function getWalletProfitabilitySummary(
             days
         });
 
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-                'X-API-Key': MORALIS_API_KEY,
-            },
+        const data = await unifiedApiService.fetchJson<any>({
+            url,
+            headers: { 'X-API-Key': MORALIS_API_KEY },
+            timeout: 30000,
+            endpointName: 'moralis.io'
         });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Moralis summary API error', {
-                status: response.status,
-                error: errorText,
-                wallet: walletAddress.slice(0, 10)
-            });
-            return null;
-        }
 
-        const data = await response.json();
 
         const summary: ProfitabilitySummary = {
             totalCountOfTrades: data.total_count_of_trades || 0,

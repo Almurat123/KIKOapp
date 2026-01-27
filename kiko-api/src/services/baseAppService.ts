@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import snapchainService from './snapchainService.js';
+import { getEthersProvider } from './rpcManager.js';
 
 // Base RPC URL
 const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://mainnet.base.org';
@@ -15,7 +16,7 @@ export class BaseAppService {
     private poolManager: ethers.Contract;
 
     constructor() {
-        this.provider = new ethers.JsonRpcProvider(BASE_RPC_URL);
+        this.provider = getEthersProvider(8453); // Base Chain ID
         this.poolManager = new ethers.Contract(POOL_MANAGER_ADDRESS, POOL_MANAGER_ABI, this.provider);
     }
 

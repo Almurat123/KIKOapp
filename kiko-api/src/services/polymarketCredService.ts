@@ -7,6 +7,7 @@
 
 import prisma from '../db/prisma.js';
 import { signTypedData, getEmbeddedWalletInfo } from './privyWallet.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 const CLOB_API = 'https://clob.polymarket.com';
 
@@ -33,12 +34,7 @@ const L1_AUTH_TYPES = {
  */
 async function getServerTime(): Promise<number> {
     try {
-        const response = await fetch(`${CLOB_API}/time`);
-        if (!response.ok) {
-            console.warn('[PolymarketCreds] Failed to get server time, falling back to local time');
-            return Math.floor(Date.now() / 1000);
-        }
-        const serverTime = await response.json() as number;
+        const serverTime = await fetchJson({ url: `${CLOB_API}/time` }) as number;
         console.log('[PolymarketCreds] Server timestamp:', serverTime);
         return serverTime;
     } catch (error) {
@@ -165,15 +161,14 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
 
         // First, try to derive existing credentials (in case nonce was already used)
         console.log('[PolymarketCreds] Trying to derive existing API key...');
-        const deriveResponse = await fetch(`${CLOB_API}/auth/derive-api-key`, {
-            method: 'GET',
-            headers: {
-                ...headers
-            }
-        });
-
-        if (deriveResponse.ok) {
-            const deriveResult = await deriveResponse.json() as {
+        try {
+            const deriveResult = await fetchJson({
+                url: `${CLOB_API}/auth/derive-api-key`,
+                method: 'GET',
+                headers: {
+                    ...headers
+                }
+            }) as {
                 apiKey?: string;
                 secret?: string;
                 passphrase?: string;
@@ -204,28 +199,27 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
                     }
                 };
             }
+        } catch (error) {
+            console.log('[PolymarketCreds] Derive failed, trying to create new API key...');
         }
 
-        console.log('[PolymarketCreds] Derive failed, trying to create new API key...');
-
         // Fallback: Call CLOB API to create API key
-        const response = await fetch(`${CLOB_API}/auth/api-key`, {
+        const result = await fetchJson({
+            url: `${CLOB_API}/auth/api-key`,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 ...headers
             }
-        });
-
-        const result = await response.json() as {
+        }) as {
             apiKey?: string;
             secret?: string;
             passphrase?: string;
             error?: string;
         };
 
-        if (!response.ok || !result.apiKey) {
-            console.error('[PolymarketCreds] API key creation failed:', result, 'status:', response.status);
+        if (!result.apiKey) {
+            console.error('[PolymarketCreds] API key creation failed:', result);
             return { success: false, error: result.error || 'Failed to create API key' };
         }
 

@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { fetchJson } from '../config/unifiedApiService.js';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -43,12 +43,18 @@ export class RAGClient {
         try {
             logger.debug(LogCode.SYS_INFO, 'RAGClient: Querying', { text, k });
 
-            const response = await axios.post<RAGResponse>(`${this.baseUrl}/query`, {
-                query: text,
-                k: k
-            }, { timeout: 3000 }); // Fast timeout, don't block chat too long
+            const response = await fetchJson<RAGResponse>({
+                url: `${this.baseUrl}/query`,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: text,
+                    k: k
+                }),
+                timeout: 3000 // Fast timeout, don't block chat too long
+            });
 
-            const results = response.data.results;
+            const results = response.results;
 
             if (!results || results.length === 0) {
                 return '';
@@ -74,7 +80,12 @@ export class RAGClient {
      */
     public async ingest(url: string): Promise<boolean> {
         try {
-            await axios.post(`${this.baseUrl}/ingest`, { url });
+            await fetchJson({
+                url: `${this.baseUrl}/ingest`,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
             return true;
         } catch (error: any) {
             logger.error(LogCode.SYS_ERROR, 'RAGClient: Ingest failed', { url, error: error.message });

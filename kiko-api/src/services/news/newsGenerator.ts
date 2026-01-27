@@ -3,7 +3,7 @@ import { collectTrendingTokens } from './trendingCollector.js';
 import { generateCoverImage } from './coverImageGenerator.js';
 import { reviewContent } from './contentReviewer.js';
 import { publishToParagraph } from './paragraphPublisher.js';
-import fetch from 'node-fetch';
+import { fetchJson } from '../../config/unifiedApiService.js';
 
 const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
 
@@ -47,19 +47,15 @@ export async function generateNewsArticle(manualTrigger = false) {
         }
 
         // 2. Generate Content via Grok Service (Internal API Call)
-        // Note: Using node-fetch to call Python service
+        // Note: Using unifiedApiService to call Python service
         console.log('[NewsGen] Requesting content from Grok...');
-        const grokResponse = await fetch(`${GROK_SERVICE_URL}/chat/write_news`, {
+        const grokResult = await fetchJson({
+            url: `${GROK_SERVICE_URL}/chat/write_news`,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tokens: data.tokens })
         });
 
-        if (!grokResponse.ok) {
-            throw new Error(`Grok service failed: ${grokResponse.statusText}`);
-        }
-
-        const grokResult = await grokResponse.json() as { content: string };
         const markdownContent = grokResult.content;
 
         // Extract title - Try multiple patterns:
@@ -79,7 +75,7 @@ export async function generateNewsArticle(manualTrigger = false) {
                 title = h1Match[1].replace(/[*"]/g, '').trim();
             } else {
                 // Fallback to first non-empty line
-                const firstLine = markdownContent.split('\n').find(line => line.trim());
+                const firstLine = markdownContent.split('\n').find((line: string) => line.trim());
                 if (firstLine) {
                     title = firstLine.replace(/[*#"]/g, '').trim();
                 }

@@ -9,6 +9,8 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
+import { fetchJson } from '../config/unifiedApiService.js';
+import { getEthersProvider } from './rpcManager.js';
 
 const CHAIN_ID = 8453; // Base Mainnet
 const ZORA_TOKEN_ADDRESS = '0x1111111111166b7fe7bd91427724b487980afc69' as `0x${string}`; // ZORA token on Base
@@ -38,7 +40,7 @@ export class ZoraSniperService {
 
     constructor() {
         const chainConfig = getChainConfig(CHAIN_ID);
-        this.provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
+        this.provider = getEthersProvider(CHAIN_ID);
         this.factoryContract = new ethers.Contract(ZORA_FACTORY_ADDRESS, ZORA_FACTORY_ABI, this.provider);
     }
 
@@ -282,8 +284,7 @@ export class ZoraSniperService {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Zora Sniper: Could not check ZORA balance via SDK', { error: balanceError.message });
                 // Fallback to provider check if SDK fails
                 try {
-                    const chainConfig = getChainConfig(CHAIN_ID);
-                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
+                    const provider = getEthersProvider(CHAIN_ID);
                     const zoraContract = new ethers.Contract(ZORA_TOKEN_ADDRESS, ['function balanceOf(address) view returns (uint256)'], provider);
                     zoraBalance = await zoraContract.balanceOf(params.walletAddress);
                     if (zoraBalance > ethers.parseUnits('100', 18)) {
@@ -329,8 +330,7 @@ export class ZoraSniperService {
 
                 // Check and approve ZORA token if needed
                 try {
-                    const chainConfig = getChainConfig(CHAIN_ID);
-                    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
+                    const provider = getEthersProvider(CHAIN_ID);
                     const zoraContract = new ethers.Contract(
                         ZORA_TOKEN_ADDRESS,
                         [
@@ -433,8 +433,7 @@ export class ZoraSniperService {
             if (!useZoraToken && coin?.tokenPrice?.priceInUsdc && expectedAmountOut !== 'N/A') {
                 try {
                     const marketPrice = parseFloat(coin.tokenPrice.priceInUsdc);
-                    const ethPriceResponse = await fetch('https://api.coinbase.com/v2/prices/ETH-USD/spot');
-                    const ethPriceData: any = await ethPriceResponse.json();
+                    const ethPriceData = await fetchJson({ url: 'https://api.coinbase.com/v2/prices/ETH-USD/spot' }) as any;
                     const ethPrice = parseFloat(ethPriceData.data.amount);
 
                     const quotePrice = (parseFloat(params.amountIn) * ethPrice) / parseFloat(expectedAmountOut);
@@ -467,7 +466,7 @@ export class ZoraSniperService {
 
             try {
                 // Hardcoded RPC for Base (Zora usually on Base) or use env
-                const provider = new ethers.JsonRpcProvider('https://mainnet.base.org');
+                const provider = getEthersProvider(CHAIN_ID);
                 const receipt = await provider.waitForTransaction(txHash, 1);
 
                 if (!receipt || receipt.status === 0) {
@@ -559,8 +558,7 @@ export class ZoraSniperService {
             if (coin?.tokenPrice?.priceInUsdc && expectedAmountOutEth !== 'N/A') {
                 try {
                     const marketPrice = parseFloat(coin.tokenPrice.priceInUsdc);
-                    const ethPriceResponse = await fetch('https://api.coinbase.com/v2/prices/ETH-USD/spot');
-                    const ethPriceData: any = await ethPriceResponse.json();
+                    const ethPriceData = await fetchJson({ url: 'https://api.coinbase.com/v2/prices/ETH-USD/spot' }) as any;
                     const ethPrice = parseFloat(ethPriceData.data.amount);
 
                     // For sell: quotePrice = eth_out * eth_price / tokens_in

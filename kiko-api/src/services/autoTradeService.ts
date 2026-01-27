@@ -522,8 +522,9 @@ async function processBuyWithInfo(
                     let tradeCostWei = 0n;
                     if (nativePrice > 0) {
                         const amountInNative = usdAmount / nativePrice;
-                        // Use exact string conversion to avoid precision loss
-                        tradeCostWei = ethers.parseEther(amountInNative.toString());
+                        // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
+                        // [Ref]: ethers.parseEther documentation.
+                        tradeCostWei = ethers.parseEther(amountInNative.toFixed(18));
                     }
 
                     if (nativeBalance < (tradeCostWei + gasBufferWei)) {
@@ -671,7 +672,8 @@ async function processBuyWithInfo(
                             accessToken: '', // Privy server-side doesn't need token if configured
                             walletAddress: effectiveConfig.user.walletAddress,
                             tokenOut: tokenToBuy,
-                            amountIn: (usdAmount / nativePrice).toString(),
+                            // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
+                            amountIn: (usdAmount / nativePrice).toFixed(18),
                             // Use universal global slippage directly
                             slippage: effectiveConfig.maxSlippageBps / 100,
                             feeContext: 'copyTrade'
@@ -686,7 +688,7 @@ async function processBuyWithInfo(
                     // UNLESS they have graduated, in which case this might fail and we should try standard swap
                     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting specialized contract buy', { userId: config.userId, token: tokenToBuy });
                     try {
-                        const bnbAmount = (usdAmount / nativePrice).toString();
+                        const bnbAmount = (usdAmount / nativePrice).toFixed(18);
                         txHash = await fourMemeService.buyTokenAMAP({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
@@ -728,7 +730,8 @@ async function processBuyWithInfo(
                             walletAddress: effectiveConfig.user.walletAddress,
                             tokenIn: 'ETH',
                             tokenOut: tokenToBuy,
-                            amountIn: baseAmount.toString(),
+                            // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
+                            amountIn: baseAmount.toFixed(18),
                             chainId,
                             slippageBps: baseSlippage,
                             mode: 'copytrade'
@@ -780,7 +783,8 @@ async function processBuyWithInfo(
                                 walletAddress: effectiveConfig.user.walletAddress,
                                 tokenIn: 'ETH',
                                 tokenOut: tokenToBuy,
-                                amountIn: amount99.toString(),
+                                // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
+                                amountIn: amount99.toFixed(18),
                                 chainId,
                                 slippageBps: slippage2,
                                 mode: 'copytrade'
@@ -801,7 +805,8 @@ async function processBuyWithInfo(
                                     walletAddress: effectiveConfig.user.walletAddress,
                                     tokenIn: 'ETH',
                                     tokenOut: tokenToBuy,
-                                    amountIn: amount98.toString(),
+                                    // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
+                                    amountIn: amount98.toFixed(18),
                                     chainId,
                                     slippageBps: slippage3,
                                     mode: 'copytrade'
@@ -1146,7 +1151,7 @@ async function executePositionExit(params: {
                     let remainingBalance = 0n;
                     for (const acc of postSellAccounts.value) { remainingBalance += BigInt(acc.account.data.parsed.info.tokenAmount.amount); }
                     if (remainingBalance > 0n) {
-                        const dustUsd = (Number(remainingBalance) / (10 ** decimals)) * (tokenInfo?.price || 0);
+                        const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                         if (dustUsd >= 0.05 || isPartialSell) {
                             await executeSolanaSwap({
                                 userId: user.privyDid,
@@ -1196,9 +1201,10 @@ async function executePositionExit(params: {
                 const initialSlippage = universalSlippageBps;
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Attempting EVM sell with slippage', { userId, slippageBps: initialSlippage });
 
-                // Convert amountToSell from wei to human readable
-                const amountToSellHuman = (Number(safeBalance) / Math.pow(10, decimals)).toString();
-                
+                // [Logic]: Use ethers.formatUnits to prevent precision loss when converting BigInt to string.
+                // [Ref]: ethers.js v6 documentation "formatUnits".
+                const amountToSellHuman = ethers.formatUnits(safeBalance, decimals);
+
                 const sellResult = await MainSwapService.executeSwap({
                     userId: user.privyDid,
                     walletAddress: user.walletAddress,
@@ -1219,8 +1225,8 @@ async function executePositionExit(params: {
                     const retrySlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                     logger.debug(LogCode.EXE_TX_BROADCAST, 'Retrying EVM sell with higher slippage', { userId, slippageBps: retrySlippage });
 
-                    const amountToSellHuman999 = (Number(safeBalance999) / Math.pow(10, decimals)).toString();
-                    
+                    const amountToSellHuman999 = ethers.formatUnits(safeBalance999, decimals);
+
                     const retryResult = await MainSwapService.executeSwap({
                         userId: user.privyDid,
                         walletAddress: user.walletAddress,
@@ -1260,8 +1266,8 @@ async function executePositionExit(params: {
                     const remainingBalance = await contract.balanceOf(user.walletAddress);
                     const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                     if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
-                        const dustAmountHuman = (Number(remainingBalance) / Math.pow(10, decimals)).toString();
-                        
+                        const dustAmountHuman = ethers.formatUnits(remainingBalance, decimals);
+
                         const dustResult = await MainSwapService.executeSwap({
                             userId: user.privyDid,
                             walletAddress: user.walletAddress,

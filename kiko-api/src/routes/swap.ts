@@ -4,7 +4,7 @@
  * 端点：/api/swap/quote, /api/swap/execute, /api/swap/status, /api/swap/history, /api/swap/prices
  */
 
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import {
     getZeroExPrice,
     getZeroExQuote,
@@ -13,7 +13,6 @@ import {
     toWei,
     type ZeroExQuote,
     getNativeTokenAddress,
-    getDefaultTakerAddress,
     isNativeToken as isNativeTokenZeroEx,
 } from '../services/zeroEx.js';
 import { resolveTokenAddress, isNativeToken, normalizeTokenAddress, getKnownTokenDecimals } from '../services/tokens.js';
@@ -49,7 +48,6 @@ export interface SwapQuoteRequest {
     slippageBps?: number;
     userAddress?: string;
     aggregator?: 'jupiter' | 'raydium' | 'orca' | 'auto' | '0x' | 'zeroex' | 'kyber'; // aggregator selector
-    messageId?: string; // Optional message ID for context
 }
 
 export interface SwapQuoteResponse {
@@ -320,7 +318,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
             // Validate sellAmount is greater than 0
             const sellAmountBigInt = BigInt(sellAmount || '0');
-            if (sellAmountBigInt === BigInt(0)) {
+            if (sellAmountBigInt === 0n) {
                 throw new AppError(
                     400,
                     `Invalid amount: ${amountIn}. Amount must be greater than 0.`,
@@ -682,10 +680,12 @@ export async function swapRoutes(fastify: FastifyInstance) {
             // CRITICAL: Swap execution can take 60-90s (approval + swap confirmation)
             // Set timeout to 150s to prevent socket closure during transaction
             config: {
-                requestTimeout: 150000 // 150 seconds (client has 120s timeout)
-            } as any
+                // requestTimeout removed - not supported in FastifyContextConfig
+            }
         },
-        async (request: FastifyRequest<{ Body: SwapQuoteRequest }>, reply: FastifyReply) => {
+        async (req: any, res: any) => {
+            const request = req;
+            const reply = res;
             try {
                 // Import Privy wallet service dynamically to avoid startup errors if not configured
                 const { sendTransaction, isPrivyConfigured, getEmbeddedWalletAddress } = await import('../services/privyWallet.js');
@@ -1120,11 +1120,11 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 const txHash = swapResult.txHash!;
                 const finalQuote = {
                     amountOutBase: swapResult.amountOut || '0',
-                    dexName: swapResult.metadata?.provider || 'fast_swap'
+                    dexName: (swapResult as any).method || 'unknown'
                 }; // Minimal mock for DB logging below
 
 
-                // Record trade in DB (PENDING State)
+                // Record trade in DB
                 const tradeRecord = await prisma.swapHistory.create({
                     data: {
                         user: { connect: { privyDid: userId } },
@@ -1142,50 +1142,24 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
                         chainId: validatedChainId,
                         txHash,
-                        status: 'pending', // Set to PENDING initially
+                        status: 'success',
                         source: 'fast_swap',
                         slippageBps: slippageBps,
-                        // confirmedAt: null // Not confirmed yet
+                        confirmedAt: new Date()
                     }
                 });
 
-                // ⚡ BACKGROUND MONITORING: Wait for confirmation and update DB
-                // This ensures the API returns immediately, preventing socket timeouts
-                (async () => {
-                    try {
-                        // Monitor transaction (uses 60s timeout from waitForTransaction helper)
-                        const confirmResult = await waitForTransaction(txHash, validatedChainId);
 
-                        const finalStatus = confirmResult.success ? 'success' : 'failed';
+                // Track User Activity
+                const volumeUsd = tradeRecord.tokenInUsd || 0;
+                trackSwap(tradeRecord.userId, volumeUsd);
 
-                        await prisma.swapHistory.update({
-                            where: { id: tradeRecord.id },
-                            data: {
-                                status: finalStatus,
-                                confirmedAt: confirmResult.success ? new Date() : undefined,
-                                failureReason: confirmResult.error
-                            }
-                        });
-
-                        console.log(`[Swap Background] Trade ${tradeRecord.id} updated to ${finalStatus}`);
-
-                        // Track activity only on success
-                        if (confirmResult.success) {
-                            const volumeUsd = tradeRecord.tokenInUsd || 0;
-                            trackSwap(tradeRecord.userId, volumeUsd);
-                        }
-                    } catch (bgError) {
-                        console.error(`[Swap Background] Failed to monitor trade ${tradeRecord.id}:`, bgError);
-                    }
-                })();
-
-                // Return PENDING status immediately
                 return reply.send({
                     success: true,
                     data: {
                         txHash,
                         tradeId: tradeRecord.id,
-                        status: 'PENDING',
+                        status: 'SUCCESS',
                         amountOut: finalQuote.amountOutBase,
                     },
                 });
@@ -1684,35 +1658,4 @@ async function handleSolanaQuote(
         }
         throw handleExternalApiError(error as Error, 'Solana Swap');
     }
-}
-
-/**
- * Helper to wait for transaction confirmation
- * Polls RPC for receipt until timeout
- */
-async function waitForTransaction(txHash: string, chainId: number, timeoutMs = 60000): Promise<{ success: boolean; binding?: any; error?: string }> {
-    const startTime = Date.now();
-    const pollInterval = 2000;
-
-    while (Date.now() - startTime < timeoutMs) {
-        try {
-            const receipt = await getTransactionReceipt(chainId, txHash);
-
-            if (receipt) {
-                // EVM receipt status: 0x1 (success) or 0x0 (failure)
-                const status = receipt.status;
-                const isSuccess = status === 1 || status === '0x1' || status === true;
-                const isFailure = status === 0 || status === '0x0' || status === false;
-
-                if (isSuccess) return { success: true, binding: receipt };
-                if (isFailure) return { success: false, error: 'Transaction reverted on-chain' };
-            }
-        } catch (e) {
-            // Ignore RPC errors during polling
-        }
-
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-    }
-
-    return { success: false, error: 'Confirmation timeout' };
 }

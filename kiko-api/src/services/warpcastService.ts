@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 /**
  * Service for interacting with Warpcast API
@@ -185,21 +186,18 @@ export class WarpcastService {
 
             const url = `${WARPCAST_API_BASE}/ext-send-direct-cast`;
 
-            const response = await fetch(url, {
+            const response = await unifiedApiService.fetchJson<any>({
+                url,
                 method: 'PUT',
                 headers: this.getHeaders(apiKey),
                 body: JSON.stringify({
                     recipientFid,
                     message,
                     idempotencyKey
-                })
+                }),
+                timeout: 10000,
+                endpointName: 'api.warpcast.com'
             });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`[Warpcast] Send failed: ${response.status} - ${errorText}`);
-                return false;
-            }
 
             // Record successful usage
             this.recordUsage(apiKey);

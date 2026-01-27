@@ -119,6 +119,27 @@ export const CHAINS: Record<number, ChainConfig> = {
         },
         gasReserve: '0.05',
         slugs: { dexScreener: 'solana', geckoTerminal: 'solana' }
+    },
+    // Polygon
+    137: {
+        id: 137,
+        name: 'Polygon',
+        rpcUrls: buildRpcList(process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com', 'polygon'),
+        nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
+        wrappedNativeAddress: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', // WMATIC
+        stablecoins: [
+            '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', // USDT
+            '0x2791bca1f2de4661ed88a30c99a7a9449aa84174', // USDC.e
+            '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359'  // USDC Native
+        ],
+        explorerUrl: 'https://polygonscan.com',
+        contracts: {
+            zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
+            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
+        },
+        gasReserve: '0.1',
+        slugs: { dexScreener: 'polygon', geckoTerminal: 'polygon_pos' }
     }
 };
 

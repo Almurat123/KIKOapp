@@ -1,14 +1,19 @@
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
+
 
 const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
 
 export async function getMarketOverview(apiKey?: string) {
     try {
         const url = `${COINGECKO_BASE_URL}/global${apiKey ? `?x_cg_demo_api_key=${apiKey}` : ''}`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
-        const data = await response.json();
+        const data = await unifiedApiService.fetchJson<any>({
+            url,
+            method: 'GET',
+            timeout: 10000,
+            endpointName: 'api.coingecko.com'
+        });
         const globalData = data.data;
 
         return {
@@ -27,9 +32,12 @@ export async function getMarketOverview(apiKey?: string) {
 export async function getTrendingTokens(apiKey?: string) {
     try {
         const url = `${COINGECKO_BASE_URL}/search/trending${apiKey ? `?x_cg_demo_api_key=${apiKey}` : ''}`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
-        return await response.json();
+        return await unifiedApiService.fetchJson<any>({
+            url,
+            method: 'GET',
+            timeout: 10000,
+            endpointName: 'api.coingecko.com'
+        });
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching CoinGecko trending tokens', { error: error.message });
         return { coins: [] };
@@ -39,9 +47,12 @@ export async function getTrendingTokens(apiKey?: string) {
 export async function getTopGainers(apiKey?: string, limit: number = 10): Promise<any[]> {
     try {
         const url = `${COINGECKO_BASE_URL}/coins/markets?vs_currency=usd&order=price_change_percentage_24h_desc&per_page=${limit}&page=1${apiKey ? `&x_cg_demo_api_key=${apiKey}` : ''}`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`CoinGecko API error: ${response.status}`);
-        return await response.json();
+        return await unifiedApiService.fetchJson<any[]>({
+            url,
+            method: 'GET',
+            timeout: 10000,
+            endpointName: 'api.coingecko.com'
+        });
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching CoinGecko top gainers', { error: error.message });
         return [];

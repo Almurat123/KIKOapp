@@ -7,6 +7,7 @@ import prisma from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 // Alchemy API for Base
 const ALCHEMY_BASE_URL = process.env.ALCHEMY_BASE_URL || 'https://base-mainnet.g.alchemy.com/v2';
@@ -67,7 +68,8 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
     try {
         const { rpcUrls } = getChainConfig(chainId);
         const rpcUrl = rpcUrls[0];
-        const response = await fetch(rpcUrl, {
+        const data = await fetchJson({
+            url: rpcUrl,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -75,9 +77,8 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
                 id: 1,
                 method: 'eth_getTransactionByHash',
                 params: [txHash],
-            }),
+            })
         });
-        const data = await response.json() as { result?: any };
         return data.result;
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction by hash', { txHash, chainId, error: error.message });
@@ -92,7 +93,8 @@ export async function fetchTransactionReceipt(txHash: string, chainId: number): 
     try {
         const { rpcUrls } = getChainConfig(chainId);
         const rpcUrl = rpcUrls[0];
-        const response = await fetch(rpcUrl, {
+        const data = await fetchJson({
+            url: rpcUrl,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -100,9 +102,8 @@ export async function fetchTransactionReceipt(txHash: string, chainId: number): 
                 id: 1,
                 method: 'eth_getTransactionReceipt',
                 params: [txHash],
-            }),
+            })
         });
-        const data = await response.json() as { result?: any };
         return data.result;
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction receipt', { txHash, chainId, error: error.message });
@@ -121,12 +122,12 @@ async function fetchRecentTransactionsRpc(address: string, chainId: number): Pro
         const rpcUrl = rpcUrls[0];
 
         // 1. Get latest block number
-        const blockRes = await fetch(rpcUrl, {
+        const blockData = await fetchJson<{ result?: string }>({
+            url: rpcUrl,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] })
         });
-        const blockData = await blockRes.json() as { result?: string };
         if (!blockData.result) return [];
 
         const latestBlock = parseInt(blockData.result, 16);
@@ -138,13 +139,14 @@ async function fetchRecentTransactionsRpc(address: string, chainId: number): Pro
         const promises = [];
         for (let i = 0; i < lookback; i++) {
             const blockNum = '0x' + (latestBlock - i).toString(16);
-            promises.push(fetch(rpcUrl, {
+            promises.push(fetchJson({
+                url: rpcUrl,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     jsonrpc: '2.0', id: 1, method: 'eth_getBlockByNumber', params: [blockNum, true]
                 })
-            }).then(r => r.json()));
+            }));
         }
 
         const results = await Promise.all(promises);
@@ -205,7 +207,8 @@ async function fetchRecentTransactions(
 
             while (retries > 0) {
                 try {
-                    const response = await fetch(url, {
+                    const data = await fetchJson<{ error?: any; result?: { transfers?: any[] } }>({
+                        url,
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -222,14 +225,9 @@ async function fetchRecentTransactions(
                                 maxCount: '0x14', // Last 20 txs
                                 withMetadata: true,
                             }],
-                        }),
+                        })
                     });
 
-                    if (!response.ok) {
-                        throw new Error(`Alchemy responded with ${response.status}: ${response.statusText}`);
-                    }
-
-                    const data = await response.json() as { error?: any; result?: { transfers?: any[] } };
                     if (!data.error) {
                         const transfers = data.result?.transfers || [];
                         return transfers;

@@ -1,6 +1,6 @@
 
 import { Tool } from './registry.js';
-import fetch from 'node-fetch';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 export const SimulateSwapTool: Tool = {
     definition: {
@@ -23,8 +23,10 @@ export const SimulateSwapTool: Tool = {
             const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
             const accessToken = context?.accessToken;
 
-            const response = await fetch(`${API_BASE}/api/swap/quote`, {
+            const result = await fetchJson({
+                url: `${API_BASE}/api/swap/quote`,
                 method: 'POST',
+                endpointName: 'swap-api',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${accessToken}`
@@ -37,13 +39,6 @@ export const SimulateSwapTool: Tool = {
                     slippageBps: Math.round((args.slippage || 1.0) * 100)
                 })
             });
-
-            if (!response.ok) {
-                const error = await response.json() as any;
-                return { error: error.message || 'Failed to fetch quote' };
-            }
-
-            const result = await response.json() as any;
 
             // Basic safety check from simulation
             const priceImpact = result.quote?.priceImpact || 0;

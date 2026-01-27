@@ -31,7 +31,8 @@ export async function rateLimiterMiddleware(
     }
 
     // Skip if Redis client is not available or not connected
-    if (!redis || !redis.isOpen || !redis.isReady) {
+    const redisAny = redis as any;
+    if (!redisAny || !redisAny.isOpen || !redisAny.isReady) {
         return;
     }
 
@@ -59,7 +60,8 @@ export async function rateLimiterMiddleware(
 
     try {
         // Use Redis INCR for atomic counting with timeout
-        const incrPromise = redis.incr(key);
+        const redisAny = redis as any;
+        const incrPromise = redisAny.incr(key);
         const timeoutPromise = new Promise<number>((_, reject) =>
             setTimeout(() => reject(new Error('Redis timeout')), 1000)
         );
@@ -68,12 +70,12 @@ export async function rateLimiterMiddleware(
 
         // On first request, set the expiration window
         if (current === 1) {
-            await redis.expire(key, WINDOW_SIZE_IN_SECONDS).catch(() => { });
+            await (redis as any).expire(key, WINDOW_SIZE_IN_SECONDS).catch(() => { });
         }
 
         // Check if limit exceeded
         if (current > maxRequests) {
-            const ttl = await redis.ttl(key).catch(() => WINDOW_SIZE_IN_SECONDS);
+            const ttl = await (redis as any).ttl(key).catch(() => WINDOW_SIZE_IN_SECONDS);
 
             reply.status(429).header('Retry-After', ttl).send({
                 success: false,

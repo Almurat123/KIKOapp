@@ -1,5 +1,7 @@
 import { Tool, ToolContext } from './registry.js';
 import { normalizeTokenAddress, resolveTokenAddress } from '../services/tokens.js';
+import { fetchJson } from '../config/unifiedApiService.js';
+import { getTradeContext } from '../services/TradeContext.js';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -64,6 +66,10 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
     handler: async (args, context) => {
         try {
             console.log('[PrepareSwapTransaction] Preparing swap:', args);
+
+            // ⚡ Get TradeContext for cached data access
+            const tradeCtx = getTradeContext(context);
+            console.log(`[PrepareSwapTransaction] Using TradeContext: ${tradeCtx.id}`);
 
             // 0. Normalize inputs (Fix hardcode/logic symbols)
             // Resolve symbols (e.g. "USDC" -> 0x...) and normalize native (ETH -> 0xEeee...)
@@ -157,8 +163,10 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
                     const accessToken = context?.accessToken;
 
-                    const quoteResponse = await fetch(`${API_BASE}/api/swap/quote`, {
+                    const quoteData = await fetchJson({
+                        url: `${API_BASE}/api/swap/quote`,
                         method: 'POST',
+                        endpointName: 'swap-api',
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${accessToken}`
@@ -172,16 +180,13 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         })
                     });
 
-                    if (quoteResponse.ok) {
-                        const quoteData = await quoteResponse.json() as any;
-                        const impact = parseFloat(quoteData.quote?.priceImpact || '0');
+                    const impact = parseFloat(quoteData.quote?.priceImpact || '0');
 
-                        if (impact > 20) {
-                            return {
-                                error: `🚨 SECURITY BLOCK: Price Impact is too high (${impact}%). You would lose significantly on this trade.`,
-                                riskDetails: { priceImpact: impact, status: 'High Slippage' }
-                            };
-                        }
+                    if (impact > 20) {
+                        return {
+                            error: `🚨 SECURITY BLOCK: Price Impact is too high (${impact}%). You would lose significantly on this trade.`,
+                            riskDetails: { priceImpact: impact, status: 'High Slippage' }
+                        };
                     }
                 } catch (safetyError: any) {
                     console.error('[PrepareSwapTransaction] Safety check error:', safetyError.message);

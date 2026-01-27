@@ -27,7 +27,8 @@
     "sec:slither": "slither contracts/**/*.sol --exclude-dependencies --json slither.json",
     "sec:myth": "myth analyze contracts/Token.sol --max-depth 50 --solver-timeout 60",
     "sec:fuzz": "forge test --mc TokenTest --ffi",
-    "sec:storage": "forge inspect Proxy implementation && forge inspect Impl storage"
+    "sec:storage": "forge inspect Proxy implementation && forge inspect Impl storage",
+    "analyze-api-unification": "tsx scripts/analyze-api-unification.ts"
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.40.0",

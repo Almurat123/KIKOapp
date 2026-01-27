@@ -1,4 +1,5 @@
 import { Connection, PublicKey, type ParsedAccountData } from '@solana/web3.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 // SPL Token program IDs
 export const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -49,23 +50,13 @@ export async function getSolanaTokenMetadata(
 
   for (const url of TOKENLIST_URLS) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-      const response = await fetch(url, {
+      const payload = await fetchJson({
+        url,
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
+        timeout: 8000,
       });
 
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        console.warn(`[Solana Token Metadata] Request failed ${url}: ${response.status}`);
-        continue;
-      }
-
-      const payload = await response.json();
       const tokens = Array.isArray(payload) ? payload : (payload as any)?.tokens || [];
       if (!Array.isArray(tokens)) {
         console.warn(`[Solana Token Metadata] Unexpected token list shape from ${url}`);

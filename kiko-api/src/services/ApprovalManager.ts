@@ -7,6 +7,7 @@ import { ethers } from 'ethers';
 import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getEthersProvider } from './rpcManager.js';
 
 interface ApprovalCache {
     token: string;
@@ -42,8 +43,7 @@ class ApprovalManagerClass {
 
         // Check on-chain
         try {
-            const config = getChainConfig(chainId);
-            const provider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
+            const provider = getEthersProvider(chainId);
             const tokenContract = new ethers.Contract(
                 tokenAddress,
                 ['function allowance(address owner, address spender) view returns (uint256)'],

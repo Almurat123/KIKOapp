@@ -7,6 +7,7 @@
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import * as unifiedApiService from '../config/unifiedApiService.js';
 
 const HELIUS_API_KEY = env.apiKeys.helius || process.env.HELIUS_API_KEY || '';
 const HELIUS_BASE_URL = 'https://api.helius.xyz';
@@ -81,20 +82,15 @@ export async function getAddressTransactions(
             params.append('before', before);
         }
 
-        const response = await fetch(`${url}?${params.toString()}`, {
+        const data = await unifiedApiService.fetchJson<any>({
+            url: `${url}?${params.toString()}`,
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
             },
+            timeout: 10000,
+            endpointName: 'api.helius.xyz'
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Helius API error', { status: response.status, error: errorText.substring(0, 200) });
-            return { transactions: [] };
-        }
-
-        const data = await response.json();
 
         if (Array.isArray(data)) {
             return { transactions: data as HeliusTransaction[] };
@@ -134,7 +130,8 @@ export async function getFungibleTokenBalances(
 
     try {
         do {
-            const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`, {
+            const json = await unifiedApiService.fetchJson<any>({
+                url: `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -148,18 +145,9 @@ export async function getFungibleTokenBalances(
                         options: { showFungible: true, showNativeBalance: true },
                     },
                 }),
+                timeout: 30000,
+                endpointName: 'helius-rpc'
             });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.error(LogCode.API_FETCH_FAILED, 'Helius DAS API error', {
-                    status: response.status,
-                    error: errorText.substring(0, 200),
-                });
-                break;
-            }
-
-            const json = await response.json() as any;
             const result = json?.result;
             if (!result || !Array.isArray(result.items)) break;
 
@@ -213,7 +201,8 @@ export async function getTransaction(signature: string): Promise<HeliusTransacti
             'api-key': HELIUS_API_KEY,
         });
 
-        const response = await fetch(`${url}?${params.toString()}`, {
+        const data = await unifiedApiService.fetchJson<any[]>({
+            url: `${url}?${params.toString()}`,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -221,15 +210,9 @@ export async function getTransaction(signature: string): Promise<HeliusTransacti
             body: JSON.stringify({
                 transactions: [signature],
             }),
+            timeout: 10000,
+            endpointName: 'api.helius.xyz'
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Helius API error', { status: response.status, error: errorText.substring(0, 200) });
-            return null;
-        }
-
-        const data = await response.json() as any[];
         return data[0] || null;
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction from Helius', { error: error.message, signature: signature.slice(0, 10) });
@@ -259,7 +242,8 @@ export async function getTransactionsBatch(signatures: string[]): Promise<Helius
         const batchSize = Math.min(signatures.length, 100);
         logger.debug(LogCode.API_FETCH_SUCCESS, 'Batch parsing transactions via Helius', { count: batchSize });
 
-        const response = await fetch(`${url}?${params.toString()}`, {
+        const data = await unifiedApiService.fetchJson<HeliusTransaction[]>({
+            url: `${url}?${params.toString()}`,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -267,15 +251,9 @@ export async function getTransactionsBatch(signatures: string[]): Promise<Helius
             body: JSON.stringify({
                 transactions: signatures.slice(0, 100),
             }),
+            timeout: 30000,
+            endpointName: 'api.helius.xyz'
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Helius batch API error', { status: response.status, error: errorText.substring(0, 200) });
-            return [];
-        }
-
-        const data = await response.json() as HeliusTransaction[];
         logger.info(LogCode.API_FETCH_SUCCESS, 'Helius batch parsed successfully', { count: data.length });
         return data;
     } catch (error: any) {
@@ -317,18 +295,13 @@ export async function getEarliestTransactionsForAddress(
 
         logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching earliest transactions from Helius', { address: address.slice(0, 10) });
 
-        const response = await fetch(`${url}?${params.toString()}`, {
+        const data = await unifiedApiService.fetchJson<HeliusTransaction[]>({
+            url: `${url}?${params.toString()}`,
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+            endpointName: 'api.helius.xyz'
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error(LogCode.API_FETCH_FAILED, 'Helius API error', { status: response.status, error: errorText.substring(0, 200) });
-            return [];
-        }
-
-        const data = await response.json() as HeliusTransaction[];
 
         // Sort by timestamp ascending (oldest first)
         const sorted = data.sort((a, b) => a.timestamp - b.timestamp);
@@ -356,7 +329,8 @@ export async function getTokenLargestAccounts(mint: string): Promise<any[]> {
 
     try {
         const HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-        const response = await fetch(HELIUS_RPC_URL, {
+        const data = await unifiedApiService.fetchJson<any>({
+            url: HELIUS_RPC_URL,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -364,15 +338,10 @@ export async function getTokenLargestAccounts(mint: string): Promise<any[]> {
                 id: 1,
                 method: 'getTokenLargestAccounts',
                 params: [mint]
-            })
+            }),
+            timeout: 10000,
+            endpointName: 'helius-rpc'
         });
-
-        if (!response.ok) {
-            logger.error(LogCode.API_FETCH_FAILED, 'Helius RPC error', { status: response.status, method: 'getTokenLargestAccounts' });
-            return [];
-        }
-
-        const data = await response.json() as any;
         return data.result?.value || [];
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching largest token accounts from Helius', { error: error.message, mint });
@@ -398,15 +367,14 @@ export async function getAccountOwnersBatch(accountAddresses: string[]): Promise
             params: [addr, { encoding: 'jsonParsed' }]
         }));
 
-        const response = await fetch(HELIUS_RPC_URL, {
+        const data = await unifiedApiService.fetchJson<any>({
+            url: HELIUS_RPC_URL,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(batchRequests)
+            body: JSON.stringify(batchRequests),
+            timeout: 10000,
+            endpointName: 'helius-rpc'
         });
-
-        if (!response.ok) return {};
-
-        const data = await response.json();
         logger.debug(LogCode.API_FETCH_SUCCESS, 'Helius account owners batch received', {
             count: Array.isArray(data) ? data.length : 'N/A',
             isArray: Array.isArray(data)

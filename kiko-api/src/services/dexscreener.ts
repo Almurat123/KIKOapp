@@ -17,6 +17,7 @@ import { fetchTrendingAddresses, isWSSupportedChain } from './dexscreenerWS.js';
 import { computeTrendingScore } from './trendingScore.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 export interface DexScreenerToken {
   address: string;
@@ -161,79 +162,14 @@ function normalizeImageUrl(url?: string | null): string | undefined {
 }
 
 /**
- * Rate Limiter for DexScreener
- * Limit: ~300 requests/minute (5 requests/second)
- */
-const RATE_LIMIT_DELAY = 250; // 250ms = 4 requests/second (conservative)
-let nextAvailableTime = 0;
-
-// Simple memory cache for token details to prevent redundant fetches during swap flows
-const tokenCache = new Map<string, { data: DexScreenerToken, expiresAt: number }>();
-const CACHE_TTL = 60 * 1000; // 1 minute cache
-
-async function fetchWithRateLimit(url: string, options?: RequestInit, retries = 3): Promise<Response> {
-  // 1. Reserve a time slot
-  const now = Date.now();
-  let mySlot = nextAvailableTime;
-  if (mySlot < now) {
-    mySlot = now;
-  }
-  nextAvailableTime = mySlot + RATE_LIMIT_DELAY;
-
-  // 2. Wait for our slot
-  const waitTime = mySlot - now;
-  if (waitTime > 0) {
-    await new Promise(resolve => setTimeout(resolve, waitTime));
-  }
-
-  try {
-    const response = await fetch(url, options);
-
-    // 3. Handle Rate Limits
-    if (response.status === 429) {
-      if (retries > 0) {
-        const retryAfter = parseInt(response.headers.get('Retry-After') || '5', 10) * 1000;
-        logger.warn(LogCode.API_FETCH_FAILED, `DexScreener Rate Limit (429), retrying after ${retryAfter}ms...`);
-        // Wait independently before retrying
-        await new Promise(resolve => setTimeout(resolve, retryAfter));
-        return fetchWithRateLimit(url, options, retries - 1);
-      }
-    }
-
-    // 4. Handle Server Errors
-    if (response.status >= 500 && retries > 0) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return fetchWithRateLimit(url, options, retries - 1);
-    }
-
-    return response;
-  } catch (error: any) {
-    // 5. Handle Network Errors
-    if (retries > 0) {
-      const isNetworkError = error.cause?.code === 'ECONNRESET' || error.message.includes('fetch failed');
-      if (isNetworkError) {
-        logger.warn(LogCode.API_FETCH_FAILED, `DexScreener Network Error, retrying...`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return fetchWithRateLimit(url, options, retries - 1);
-      }
-    }
-    throw error;
-  }
-}
-
-/**
  * Search for tokens
  */
 export async function searchTokens(query: string): Promise<DexScreenerToken[]> {
   try {
     const url = `${DEXSCREENER_BASE_URL}/search?q=${encodeURIComponent(query)}`;
-    const response = await fetchWithRateLimit(url);
 
-    if (!response.ok) {
-      return [];
-    }
-
-    const data = await response.json() as { pairs?: any[] };
+    // Use unified fetchJson
+    const data = await fetchJson<any>({ url });
 
     if (!data.pairs || !Array.isArray(data.pairs)) {
       return [];
@@ -275,31 +211,13 @@ export async function getTokenDetails(chainId: string, address: string): Promise
     const url = `${DEXSCREENER_BASE_URL}/tokens/${address}`;
     logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching token details from DexScreener', { url });
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-    // Check cache
-    const cached = tokenCache.get(address.toLowerCase());
-    if (cached && Date.now() < cached.expiresAt) {
-      logger.debug(LogCode.API_FETCH_SUCCESS, 'Returning cached DexScreener token details', { address });
-      return cached.data;
-    }
-
-    const response = await fetchWithRateLimit(url, {
-      signal: controller.signal,
+    const data = await fetchJson<any>({
+      url,
       headers: {
-        'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }
+      },
+      timeout: 10000
     });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener token details HTTP error', { status: response.status, address });
-      return null;
-    }
-
-    const data = await response.json() as { pairs?: any[] };
 
     if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
       logger.debug(LogCode.API_FETCH_SUCCESS, 'No pairs found for token on DexScreener', { address });
@@ -316,7 +234,7 @@ export async function getTokenDetails(chainId: string, address: string): Promise
     // Map network from Dexscreener to our schema
     const network = NETWORK_MAP[chainId.toLowerCase()] || chainId.toLowerCase();
 
-    const result = {
+    return {
       address: address,
       name: pair.baseToken?.name || '',
       symbol: pair.baseToken?.symbol || '',
@@ -333,14 +251,6 @@ export async function getTokenDetails(chainId: string, address: string): Promise
       socials: pair.info?.socials || [], // Twitter, Discord links
       websites: pair.info?.websites || [], // Official websites
     };
-
-    // Cache the result
-    tokenCache.set(address.toLowerCase(), {
-      data: result,
-      expiresAt: Date.now() + CACHE_TTL
-    });
-
-    return result;
   } catch (error: any) {
     if (error.name === 'AbortError') {
       logger.error(LogCode.API_FETCH_FAILED, 'DexScreener request timeout', { address });
@@ -373,20 +283,12 @@ export async function getTokenPairAddress(
 
     logger.debug(LogCode.API_FETCH_SUCCESS, 'DexScreener request URL', { url });
 
-    const response = await fetchWithRateLimit(url, {
+    const data = await fetchJson<any>({
+      url,
       headers: {
-        'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }, // Add User-Agent to avoid Cloudflare 403
+      }
     });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener pair address API error', { status: response.status, tokenAddress, error: errorText.substring(0, 200) });
-      return null;
-    }
-
-    const data = await response.json() as { pairs?: any[] };
 
     if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
       logger.debug(LogCode.API_FETCH_SUCCESS, 'No pairs found for token during pair address lookup', { tokenAddress, network });
@@ -457,18 +359,11 @@ export async function getTrendingTokensByChain(
 
     // 1. Get Boosted Tokens (Seed 1)
     try {
-      const boostsResponse = await fetchWithRateLimit(DEXSCREENER_TOKEN_BOOSTS_URL);
-      if (boostsResponse.ok) {
-        const boostsData = await boostsResponse.json();
-        if (Array.isArray(boostsData)) {
-          for (const item of boostsData) {
-            if (item.chainId?.toLowerCase() === dexScreenerChainId && item.tokenAddress) {
-              // Boosts endpoint doesn't return full stats, so we'll need to fetch them
-              // We defer fetching details to the scoring phase to batch or prioritize
-              // For now, we add them to candidates. Score will be calculated after fetching details.
-              // Actually, efficiency is key. Let's fetch pairwise details later.
-              tokenCandidates.set(item.tokenAddress.toLowerCase(), { address: item.tokenAddress, type: 'boost' });
-            }
+      const boostsData = await fetchJson<any[]>({ url: DEXSCREENER_TOKEN_BOOSTS_URL });
+      if (Array.isArray(boostsData)) {
+        for (const item of boostsData) {
+          if (item.chainId?.toLowerCase() === dexScreenerChainId && item.tokenAddress) {
+            tokenCandidates.set(item.tokenAddress.toLowerCase(), { address: item.tokenAddress, type: 'boost' });
           }
         }
       }
@@ -491,13 +386,11 @@ export async function getTrendingTokensByChain(
 
     const searchTerms = CHAIN_SEARCH_TERMS[dexScreenerChainId] || ['WETH', 'USDC', 'USDT'];
 
-    // Execute searches in parallel (throttled by fetchWithRateLimit)
+    // Execute searches in parallel
     const searchPromises = searchTerms.map(async (term) => {
       try {
         const searchUrl = `${DEXSCREENER_BASE_URL}/search?q=${term}`;
-        const res = await fetchWithRateLimit(searchUrl);
-        if (!res.ok) return [];
-        const data = await res.json() as { pairs?: any[] };
+        const data = await fetchJson<any>({ url: searchUrl });
         return data.pairs || [];
       } catch (e) {
         return [];
@@ -683,11 +576,7 @@ export async function getTrendingTokensByChain(
 async function getTokenPairData(chainId: string, tokenAddress: string): Promise<TokenSearchResult | null> {
   try {
     const url = `${DEXSCREENER_BASE_URL}/tokens/${tokenAddress}`;
-    const response = await fetchWithRateLimit(url);
-
-    if (!response.ok) return null;
-
-    const data = await response.json() as { pairs?: any[] };
+    const data = await fetchJson<any>({ url });
 
     if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
       return null;
@@ -761,36 +650,16 @@ export async function getCandlestickData(
 
     console.log(`[DexScreener] Request URL: ${url}`);
 
-    // Add timeout to fetch
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    const data = await fetchJson<any>({
+      url,
+      headers: {
+        'Accept': 'application/json'
+      },
+      timeout: REQUEST_TIMEOUT
+    });
 
-    let response: Response;
-    try {
-      response = await fetchWithRateLimit(url, {
-        headers: { 'Accept': 'application/json' },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError') {
-        throw new Error(`Request timeout after ${REQUEST_TIMEOUT}ms`);
-      }
-      throw fetchError;
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener candlestick API error', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText.substring(0, 200)
-      });
-      return [];
-    }
-
-    const data = await response.json() as { pair?: any; pairs?: any[] };
+    if (!data) return []; // fetchJson returns null on failure if not thrown properly? Or typically throws.
+    // fetchJson throws on error. So data is valid here.
 
     // DexScreener can return either { pair: {...} } or { pairs: [...] }
     let pair: any = null;

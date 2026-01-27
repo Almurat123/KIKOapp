@@ -164,7 +164,9 @@ USER_QUERY_END
                 parts.push(`- Role: The user is ${roleName}. Adjust explanation depth.`);
             }
 
-
+            if (config.quickSwapMode) {
+                parts.push(`- Quick mode: Enabled. Prioritize speed and result-first responses.`);
+            }
 
             if (config.checkTokenBeforeSwap) {
                 parts.push(`- Risk check: Required before swaps unless explicitly exempted by a policy exception.`);
@@ -197,7 +199,9 @@ USER_QUERY_END
                 parts.push(`- Price deviation check: Enabled. Warn and halt if deviation is excessive.`);
             }
 
-
+            if (config.copyTradeAIMode && config.copyTradeAIMode !== 'disabled') {
+                parts.push(`- Copy trade AI: ${config.copyTradeAIMode === 'analyze_only' ? 'Analyze only' : 'Auto decide'} mode.`);
+            }
         }
 
         if (ctx.intentHints) {

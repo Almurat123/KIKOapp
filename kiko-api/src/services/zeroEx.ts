@@ -11,6 +11,7 @@
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 const ZEROX_BASE_URL = 'https://api.0x.org';
 const ZEROX_API_KEY = env.apiKeys.zeroEx || '';
@@ -316,27 +317,14 @@ export async function getZeroExPrice(
     logger.debug(LogCode.API_FETCH_SUCCESS, '0x API price request', { url });
 
     // Add timeout for 0x API price calls (10 seconds)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const data = await fetchJson<ZeroExPrice>({
+      url,
+      method: 'GET',
+      headers,
+      timeout: 10000
+    });
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(LogCode.API_FETCH_FAILED, '0x API Price request failed', { status: response.status, error: errorText });
-      return null;
-    }
-
-    const data = await response.json() as ZeroExPrice;
+    // Check if liquidity is available
 
     // Check if liquidity is available
     if (data.liquidityAvailable === false) {
@@ -390,7 +378,7 @@ export async function getZeroExQuote(
     }
     // Validate sellAmount - must be greater than 0
     const sellAmountBigInt = BigInt(sellAmount || '0');
-    if (sellAmountBigInt === BigInt(0)) {
+    if (sellAmountBigInt === 0n) {
       logger.error(LogCode.API_FETCH_FAILED, 'Invalid sellAmount: must be greater than 0', { sellAmount, sellToken, buyToken, chainId });
       return null;
     }
@@ -525,32 +513,39 @@ export async function getZeroExQuote(
       endpoint: useLegacyEndpoint ? 'v1' : 'allowance-holder',
     });
 
-    // Add timeout for 0x API calls (15 seconds)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    // Fetch quote from 0x API using unified service
+    let rawData: any = null;
+    let responseWasOk = false;
+    let httpStatus = 0;
+    let httpStatusText = '';
 
-    let response: Response;
     try {
-      response = await fetch(url, {
+      rawData = await fetchJson<any>({
+        url,
         method: 'GET',
         headers,
-        signal: controller.signal,
+        timeout: 15000
       });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+      responseWasOk = true;
+      httpStatus = 200; // fetchJson only succeeds for 2xx responses
+    } catch (e: any) {
+      responseWasOk = false;
 
-    // Parse the response first to check if it has valid data
-    let rawData: any = null;
-    let responseWasOk = response.ok;
-
-    if (response.ok) {
-      try {
-        rawData = await response.json();
-      } catch (e: any) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Failed to parse 0x API response JSON', { error: e.message });
-        responseWasOk = false;
+      // Extract HTTP status from error message (format: "HTTP 404: Not Found")
+      const statusMatch = e.message.match(/HTTP (\d+):\s*(.+)/);
+      if (statusMatch) {
+        httpStatus = parseInt(statusMatch[1], 10);
+        httpStatusText = statusMatch[2];
+      } else {
+        httpStatus = 500;
+        httpStatusText = e.message;
       }
+
+      logger.debug(LogCode.API_FETCH_FAILED, '0x API quote request failed', {
+        status: httpStatus,
+        error: httpStatusText,
+        chainId
+      });
     }
 
     // Check if response has valid transaction data
@@ -566,25 +561,19 @@ export async function getZeroExQuote(
     // Supported chains for fallback: Base (8453), Arbitrum (42161), Optimism (10), Polygon (137), BSC (56)
     const chainsWithFallback = [8453, 42161, 10, 137, 56]; // Base, Arbitrum, Optimism, Polygon, BSC
     if ((!responseWasOk || !hasValidData) && !useLegacyEndpoint && chainsWithFallback.includes(chainId)) {
-      let originalErrorText = '';
-      try {
-        if (!responseWasOk) {
-          originalErrorText = await response.text();
-        } else {
-          originalErrorText = `Empty response: ${JSON.stringify(rawData)}`;
-        }
-      } catch (e) {
-        // Ignore if we can't read the error
-      }
+      const originalErrorText = !responseWasOk
+        ? httpStatusText
+        : `Empty response: ${JSON.stringify(rawData)}`;
 
       logger.warn(LogCode.API_FETCH_FAILED, `0x API allowance-holder endpoint returned error, attempting v1 fallback`, {
-        status: response.status,
+        status: httpStatus,
         chainId,
         hasValidData,
         attemptedEndpoint: 'allowance-holder',
         sellToken: normalizeSellToken.slice(0, 10) + '...',
         buyToken: normalizeBuyToken.slice(0, 10) + '...',
         reason: !responseWasOk ? 'HTTP error' : 'Invalid response data',
+        error: originalErrorText.substring(0, 100)
       });
 
       // For v1 fallback, we need to use wrapped native token addresses
@@ -634,14 +623,19 @@ export async function getZeroExQuote(
 
       logger.debug(LogCode.API_FETCH_SUCCESS, 'Trying 0x API v1 fallback', { fallbackUrl });
 
-      const fallbackResponse = await fetch(fallbackUrl, {
-        method: 'GET',
-        headers: fallbackHeaders,
-      });
+      try {
+        const fallbackData = await fetchJson<any>({
+          url: fallbackUrl,
+          method: 'GET',
+          headers: fallbackHeaders
+        });
 
-      if (fallbackResponse.ok) {
         logger.info(LogCode.API_FETCH_SUCCESS, '0x API Fallback to v1 endpoint succeeded');
-        rawData = await fallbackResponse.json();
+        rawData = fallbackData;
+        responseWasOk = true;
+
+        // Transform fallback data to expected format if needed
+        // But here we just return the compatible shape below
         const data: ZeroExQuote = {
           ...rawData,
           to: rawData.to,
@@ -651,10 +645,24 @@ export async function getZeroExQuote(
           gasPrice: rawData.gasPrice,
         };
         return data;
-      } else {
-        // If fallback also fails, use the fallback error for final error handling
-        response = fallbackResponse;
-        responseWasOk = false;
+
+      } catch (fallbackError: any) {
+        // Fallback fetch itself failed (network error, timeout, etc.)
+        logger.warn(LogCode.API_FETCH_FAILED, '0x API v1 fallback fetch failed', {
+          error: fallbackError.message,
+          originalError: originalErrorText
+        });
+        // Keep original response and error state to handle below
+        // response is still the original failed response
+        // responseWasOk is already false or we wouldn't be here (unless it was invalid data)
+        // If it was invalid data, we want to fail now.
+        if (responseWasOk && !hasValidData) {
+          // It was a valid HTTP response but invalid data, and fallback failed.
+          // We should probably treat it as failed.
+          responseWasOk = false;
+          httpStatus = 502; // Bad Gateway / Invalid Upstream Response
+          httpStatusText = 'Invalid Data from Primary, Fallback Failed: ' + fallbackError.message;
+        }
         rawData = null;
       }
     }
@@ -662,48 +670,24 @@ export async function getZeroExQuote(
     // Note: v0 endpoint doesn't exist for BSC, so we skip that fallback
     // The 404 error likely indicates insufficient liquidity or unsupported token pair
 
-    if (!responseWasOk) {
-      let errorText = '';
-      let errorJson: any = null;
-      try {
-        errorText = await response.text();
-        try {
-          errorJson = JSON.parse(errorText);
-        } catch (e) {
-          // If parsing fails, use the text as is
-        }
-      } catch (e) {
-        // If we can't read the response, use status text
-        errorText = response.statusText;
-      }
-
+    if (!responseWasOk || !rawData) {
       logger.error(LogCode.API_FETCH_FAILED, `0x API Quote request failed`, {
-        status: response.status,
-        statusText: response.statusText,
-        errorJson,
+        status: httpStatus,
+        statusText: httpStatusText,
         chainId,
         sellToken: normalizeSellToken,
         buyToken: normalizeBuyToken
       });
 
       // For 404 errors, provide more helpful message
-      if (response.status === 404) {
-        const errorMessage = errorJson?.message || errorText || 'No route found';
-        // Note: We can't convert sellAmount to human-readable here because we don't know the token's decimals
-        // (could be 6 for USDC, 18 for most ERC20s, etc.)
-        throw new Error(`0x API error (404): ${errorMessage}. Request details: sellToken=${normalizeSellToken}, buyToken=${normalizeBuyToken}, sellAmount=${sellAmount} (raw), chainId=${chainId}. This may indicate insufficient liquidity for this amount or the token pair is not supported.`);
+      if (httpStatus === 404) {
+        throw new Error(`0x API error (404): No route found. Request details: sellToken=${normalizeSellToken}, buyToken=${normalizeBuyToken}, sellAmount=${sellAmount} (raw), chainId=${chainId}. This may indicate insufficient liquidity for this amount or the token pair is not supported.`);
       }
 
-      // Throw error with more details for better debugging
-      const errorMessage = errorJson?.reason || errorJson?.validationErrors?.[0]?.reason || errorJson?.message || errorText || response.statusText;
-      throw new Error(`0x API error (${response.status}): ${errorMessage}`);
+      throw new Error(`0x API error (${httpStatus}): ${httpStatusText}`);
     }
 
-    // If we haven't parsed rawData yet (because response was ok from the start and we didn't go through fallback),
-    // parse it now
-    if (!rawData) {
-      rawData = await response.json();
-    }
+
 
     logger.info(LogCode.API_FETCH_SUCCESS, '0x API Quote received successfully', {
       sellToken,
@@ -979,8 +963,8 @@ export function toWei(amount: string | number, decimals: number = 18): string {
   const truncatedFraction = fractionalPart.slice(0, decimals);
   const paddedFraction = truncatedFraction.padEnd(decimals, '0');
 
-  const integerWei = BigInt(sanitizedInteger) * (BigInt(10) ** BigInt(decimals));
-  const fractionWei = paddedFraction ? BigInt(paddedFraction) : BigInt(0);
+  const integerWei = BigInt(sanitizedInteger) * (10n ** BigInt(decimals));
+  const fractionWei = paddedFraction ? BigInt(paddedFraction) : 0n;
 
   return (integerWei + fractionWei).toString();
 }
@@ -1080,15 +1064,4 @@ export async function getTokenPriceUSD(
     console.error('[0x API] Error fetching token price:', error);
     return null;
   }
-}
-
-/**
- * Get default taker address for 0x API quotes
- * @param chainId - Chain ID
- * @returns Default taker address (usually zero address or undefined for 0x to omit)
- */
-export function getDefaultTakerAddress(chainId: number): string {
-  // For most chains, 0x API expects takerAddress to be the user or generic
-  // Returning zero address is a safe default for public quotes
-  return '0x0000000000000000000000000000000000000000';
 }

@@ -6,6 +6,7 @@ import { scanContract, SecurityFinding } from '../../../services/contractScanner
 import { JsonRpcProvider } from 'ethers';
 import fs from 'fs';
 import path from 'path';
+import { fetchJson } from '../../../config/unifiedApiService.js';
 
 const CHAIN_IDS: Record<string, string | number> = {
     eth: 1,
@@ -238,28 +239,15 @@ async function fetchGoPlusSecurity(chainId: string | number, address: string): P
     console.log(`[CheckTokenRisk] Fetching from GoPlus: ${url}`);
 
     try {
-        // Add 15 second timeout to prevent hanging
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-        const response = await fetch(url, {
+        const data = await fetchJson({
+            url,
+            timeout: 15000,
+            endpointName: 'goplus',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
             },
-            signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            // Log detailed error if possible
-            const errorText = await response.text();
-            console.error(`[CheckTokenRisk] GoPlus API HTTP Error: ${response.status} - ${errorText}`);
-            throw new Error(`GoPlus API error: ${response.status}`);
-        }
-
-        const data = await response.json() as any;
 
         // Solana response structure might be slightly different
         const resultKey = isSolana ? address : address.toLowerCase();
@@ -300,24 +288,14 @@ async function fetchRugcheckSecurity(address: string): Promise<{
     console.log(`[CheckTokenRisk] Fetching from Rugcheck: ${url}`);
 
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-        const response = await fetch(url, {
+        const data = await fetchJson({
+            url,
+            timeout: 15000,
+            endpointName: 'rugcheck',
             headers: {
                 'Accept': 'application/json',
             },
-            signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            console.warn(`[CheckTokenRisk] Rugcheck API error: ${response.status}`);
-            return null;
-        }
-
-        const data = await response.json() as any;
 
         if (!data || !data.mint) {
             console.warn(`[CheckTokenRisk] Rugcheck returned invalid data for ${address}`);

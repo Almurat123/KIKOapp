@@ -1,6 +1,7 @@
 import { AppError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 // Per latest docs: https://docs.kyberswap.com/kyberswap-solutions/kyberswap-aggregator/aggregator-api-specification/evm-swaps
 // Latest endpoints:
@@ -62,40 +63,23 @@ export async function getKyberQuote(
     const routesUrl = `${KYBER_BASE}/${chainName}/api/v1/routes?${params.toString()}`;
     console.log('[Kyber] GET routes', { routesUrl });
 
-    // Add timeout for Kyber API calls (10 seconds)
-    const routesController = new AbortController();
-    const routesTimeoutId = setTimeout(() => routesController.abort(), 10000);
+    // Step 1.5: fetch routes using unified fetchJson
+    const routesJson = await fetchJson<any>({
+        url: routesUrl,
+        headers: {
+            'Content-Type': 'application/json',
+            'x-client-id': CLIENT_ID,
+        },
+        timeout: 10000 // 10s timeout
+    });
 
-    let routesRes: Response;
-    try {
-        routesRes = await fetch(routesUrl, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-client-id': CLIENT_ID,
-            },
-            signal: routesController.signal,
-        });
-    } finally {
-        clearTimeout(routesTimeoutId);
-    }
-
-    let routesJson: any = null;
-    try {
-        routesJson = await routesRes.json();
-    } catch (e) {
-        console.error('[Kyber] routes parse error', e);
-    }
-
-    if (!routesRes.ok) {
-        console.error('[Kyber] routes error', routesRes.status, {
-            body: routesJson,
-        });
+    if (!routesJson) {
+        console.error('[Kyber] routes error (null response)');
         return null;
     }
 
     console.log('[Kyber] routes response', {
-        status: routesRes.status,
+        status: 200,
         hasData: !!routesJson?.data,
         keys: routesJson ? Object.keys(routesJson) : [],
     });
@@ -159,50 +143,34 @@ export async function getKyberQuote(
     }
 
     logger.debug(LogCode.API_FETCH_SUCCESS, '[Kyber] route/build request', {
-      tokenIn: `${tokenIn.slice(0, 6)}...`,
-      tokenOut: `${tokenOut.slice(0, 6)}...`,
-      amountIn,
-      slippage: slippageToleranceBps
+        tokenIn: `${tokenIn.slice(0, 6)}...`,
+        tokenOut: `${tokenOut.slice(0, 6)}...`,
+        amountIn,
+        slippage: slippageToleranceBps
     });
 
     // Add timeout for Kyber build API (10 seconds)
-    const buildController = new AbortController();
-    const buildTimeoutId = setTimeout(() => buildController.abort(), 10000);
+    const buildJson = await fetchJson<any>({
+        url: buildUrl,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-client-id': CLIENT_ID,
+        },
+        body: buildBody,
+        timeout: 10000
+    });
 
-    let buildRes: Response;
-    try {
-        buildRes = await fetch(buildUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-client-id': CLIENT_ID,
-            },
-            body: JSON.stringify(buildBody),
-            signal: buildController.signal,
-        });
-    } finally {
-        clearTimeout(buildTimeoutId);
-    }
-
-    let buildJson: any = null;
-    try {
-        buildJson = await buildRes.json();
-    } catch (e) {
-        console.error('[Kyber] build parse error', e);
-    }
-
-    if (!buildRes.ok) {
-        console.error('[Kyber] build error', buildRes.status, {
-            body: buildJson,
-        });
+    if (!buildJson) {
+        console.error('[Kyber] build error (null response)');
         return null;
     }
 
     const buildData = buildJson?.data;
-    
+
     logger.debug(LogCode.API_FETCH_SUCCESS, '[Kyber] route/build response', {
-      amountOut: buildData?.amountOut,
-      gas: buildData?.gas
+        amountOut: buildData?.amountOut,
+        gas: buildData?.gas
     });
 
     const encoded =
@@ -230,7 +198,7 @@ export async function getKyberQuote(
     // CRITICAL: For native token swaps (ETH), value MUST be the amountIn
     // Kyber's transactionValue might be incorrect, so we force it for native token
     const isNativeIn = tokenIn.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
-                       tokenIn.toLowerCase() === '0x0000000000000000000000000000000000000000';
+        tokenIn.toLowerCase() === '0x0000000000000000000000000000000000000000';
     const finalValue = isNativeIn ? amountIn : txValue;
 
     // Value handling for native tokens (logged at debug level only)
@@ -291,21 +259,21 @@ async function getKyberQuoteLegacy(
         const url = `${KYBER_BASE}/${chainName}/route/encode?${params.toString()}`;
         console.log('[Kyber Legacy] GET route/encode', { url: url.substring(0, 100) + '...' });
 
-        const res = await fetch(url, {
-            method: 'GET',
+        const json = await fetchJson<any>({
+            url,
             headers: {
                 'Content-Type': 'application/json',
                 'x-client-id': CLIENT_ID,
-            },
+            }
         });
 
-        if (!res.ok) {
-            console.warn('[Kyber Legacy] request failed', res.status);
+        if (!json) {
+            console.warn('[Kyber Legacy] request failed (null response)');
             return null;
         }
 
-        const json: any = await res.json();
-        
+
+
         console.log('[Kyber Legacy] response', {
             hasEncodedSwapData: !!json?.encodedSwapData,
             hasRouterAddress: !!json?.routerAddress,
@@ -319,7 +287,7 @@ async function getKyberQuoteLegacy(
 
         // For native token input, value should be amountIn
         const isNativeIn = tokenIn.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
-                           tokenIn.toLowerCase() === '0x0000000000000000000000000000000000000000';
+            tokenIn.toLowerCase() === '0x0000000000000000000000000000000000000000';
         const txValue = isNativeIn ? amountIn : '0';
 
         return {

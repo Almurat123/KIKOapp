@@ -9,167 +9,26 @@ import { getAddress } from 'ethers';
 
 const GECKO_TERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 
-/**
- * Request timeout in milliseconds (30 seconds)
- */
-const REQUEST_TIMEOUT = 30000;
+import { callGeckoTerminal, fetchJson } from '../config/unifiedApiService.js';
 
-/**
- * Maximum number of retries
- */
-const MAX_RETRIES = 3;
-
-/**
- * Base delay for exponential backoff (in milliseconds)
- */
-const BASE_RETRY_DELAY = 1000;
-
-/**
- * Custom error types for better error handling
- */
-export class GeckoTerminalError extends Error {
+class GeckoTerminalError extends Error {
   constructor(
-    message: string,
-    public readonly type: 'network' | 'api' | 'data' | 'timeout',
-    public readonly statusCode?: number,
-    public readonly originalError?: any
+    public message: string,
+    public type: string,
+    public code?: number,
+    public data?: any
   ) {
     super(message);
     this.name = 'GeckoTerminalError';
   }
 }
 
-// Module-level circuit breaker for rate limits
-let globalBackoffUntil = 0;
+// Legacy constants removed in favor of unifiedApiService config
 
 /**
  * Fetch with timeout and retry logic
  */
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit = {},
-  retries: number = MAX_RETRIES
-): Promise<Response> {
-  // Check global circuit breaker
-  if (Date.now() < globalBackoffUntil) {
-    const waitTime = Math.ceil((globalBackoffUntil - Date.now()) / 1000);
-    logger.throttled(LogCode.API_RATE_LIMIT, `GeckoTerminal global backoff active`, { waitTimeSeconds: waitTime });
-    throw new GeckoTerminalError(`Global rate limit backoff active (${waitTime}s remaining)`, 'data'); // use 'data' to avoid retry loop
-  }
-
-  let lastError: any = null;
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
-
-      try {
-        const response = await fetch(url, {
-          ...options,
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        // Handle rate limiting / transient server errors with backoff
-        if ((response.status === 429 || response.status >= 500) && attempt < retries) {
-          const retryAfter = response.headers.get('retry-after');
-          const retryAfterMs = retryAfter ? Number(retryAfter) * 1000 : NaN;
-
-          // CRITICAL: If 429, trigger global backoff to spare the API
-          if (response.status === 429) {
-            const backoffMs = Number.isFinite(retryAfterMs) ? retryAfterMs : 30000; // Default 30s
-            globalBackoffUntil = Date.now() + backoffMs;
-            logger.debug(LogCode.API_RATE_LIMIT, `GeckoTerminal 429 triggered global backoff`, { backoffMs });
-            throw new GeckoTerminalError(`Rate limit hit, backing off for ${backoffMs}ms`, 'data');
-          }
-
-          const delay = Math.max(
-            1000,
-            Number.isFinite(retryAfterMs)
-              ? retryAfterMs
-              : BASE_RETRY_DELAY * Math.pow(2, attempt)
-          );
-
-          logger.throttled(LogCode.API_RATE_LIMIT, `External API requested retry`, {
-            status: response.status,
-            attempt: attempt + 1,
-            delayMs: delay,
-            url: url.split('?')[0] // Log base URL only to avoid leaking query params
-          });
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-
-        return response;
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-
-        // Check if it's a timeout
-        if (fetchError.name === 'AbortError' || fetchError.message?.includes('timeout')) {
-          throw new GeckoTerminalError(
-            `Request timeout after ${REQUEST_TIMEOUT}ms`,
-            'timeout',
-            undefined,
-            fetchError
-          );
-        }
-        throw fetchError;
-      }
-    } catch (error: any) {
-      lastError = error;
-
-      // Don't retry on certain errors
-      if (error instanceof GeckoTerminalError && error.type === 'timeout') {
-        // For timeout, retry with exponential backoff
-        if (attempt < retries) {
-          const delay = BASE_RETRY_DELAY * Math.pow(2, attempt);
-          logger.warn(LogCode.API_TIMEOUT, `External API request timed out, retrying`, {
-            attempt: attempt + 1,
-            delayMs: delay,
-            url: url.split('?')[0]
-          });
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-      }
-
-      // Check if it's a network error (should retry)
-      if (
-        error.message?.includes('Failed to fetch') ||
-        error.message?.includes('NetworkError') ||
-        error.message?.includes('ECONNREFUSED') ||
-        error.message?.includes('ENOTFOUND')
-      ) {
-        if (attempt < retries) {
-          const delay = BASE_RETRY_DELAY * Math.pow(2, attempt);
-          logger.warn(LogCode.API_FETCH_FAILED, `External API network error, retrying`, {
-            error: error.message,
-            attempt: attempt + 1,
-            delayMs: delay,
-            url: url.split('?')[0]
-          });
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-        throw new GeckoTerminalError(
-          `Network error after ${retries + 1} attempts: ${error.message}`,
-          'network',
-          undefined,
-          error
-        );
-      }
-
-      // For other errors, don't retry
-      throw error;
-    }
-  }
-
-  // If we get here, all retries failed
-  throw lastError;
-}
+// fetchWithRetry removed - usage replaced by callGeckoTerminal
 
 export interface TokenSearchResult {
   address: string;
@@ -256,15 +115,10 @@ function normalizeImageUrl(url?: string | null): string | undefined {
 export async function searchTokens(query: string, network?: string): Promise<TokenSearchResult[]> {
   try {
     // Use search/pools endpoint which works better for general search
-    const url = `${GECKO_TERMINAL_BASE_URL}/search/pools?query=${encodeURIComponent(query)}`;
+    const endpoint = `/search/pools?query=${encodeURIComponent(query)}`;
 
-    const response = await fetchWithRetry(url);
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const data = await response.json();
+    // callGeckoTerminal returns parsed JSON data directly
+    const data = await callGeckoTerminal(endpoint);
 
     if (!(data as any).data || !Array.isArray((data as any).data)) {
       return [];
@@ -389,27 +243,11 @@ export async function getTokenDetails(
     }
 
     // First, get pools for this token to find the most liquid pool
-    const poolsUrl = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/tokens/${address}/pools?include=base_token,quote_token`;
+    const poolsEndpoint = `/networks/${geckoNetwork}/tokens/${address}/pools?include=base_token,quote_token`;
 
-    const poolsResponse = await fetchWithRetry(poolsUrl, {
+    const poolsData = await callGeckoTerminal(poolsEndpoint, {
       headers: { 'Accept': 'application/json' },
     });
-
-
-    if (!poolsResponse.ok) {
-      const errorText = await poolsResponse.text().catch(() => '');
-      logger.error(LogCode.API_FETCH_FAILED, `GeckoTerminal API error fetching token pools`, {
-        status: poolsResponse.status,
-        statusText: poolsResponse.statusText,
-        error: errorText.substring(0, 500),
-        url: poolsUrl,
-        address,
-        network
-      });
-      return null;
-    }
-
-    const poolsData = await poolsResponse.json();
 
     if (!(poolsData as any).data || !Array.isArray((poolsData as any).data) || (poolsData as any).data.length === 0) {
       return null;
@@ -544,11 +382,8 @@ export async function getTokenDetails(
       fdv: attributes.fdv_usd,
     };
 
-    // Cache the result
-    tokenCache.set(address.toLowerCase(), {
-      data: result,
-      timestamp: Date.now()
-    });
+    // Update cache
+    tokenCache.set(cacheKey, { data: result, timestamp: Date.now() });
 
     return result;
   } catch (error: any) {
@@ -608,18 +443,13 @@ export async function getTrendingTokens(
     for (let page = 1; page <= maxPages && tokenMap.size < limit; page++) {
       // Use trending_pools endpoint with duration parameter
       // Supported durations: 5m, 1h, 6h, 24h
-      const url = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/trending_pools?page=${page}&include=base_token&duration=${duration}`;
+      // Use trending_pools endpoint with duration parameter
+      // Supported durations: 5m, 1h, 6h, 24h
+      const endpoint = `/networks/${geckoNetwork}/trending_pools?page=${page}&include=base_token&duration=${duration}`;
 
-      logger.debug(LogCode.API_FETCH_SUCCESS, `Requesting trending page`, { page, duration, url });
+      logger.debug(LogCode.API_FETCH_SUCCESS, `Requesting trending page`, { page, duration, endpoint });
 
-      const response = await fetchWithRetry(url);
-
-      if (!response.ok) {
-        logger.error(LogCode.API_FETCH_FAILED, `API error on trending page`, { page, status: response.status, statusText: response.statusText });
-        break; // Stop if we hit an error
-      }
-
-      const data = await response.json();
+      const data = await callGeckoTerminal(endpoint);
 
       if (!(data as any).data || !Array.isArray((data as any).data) || (data as any).data.length === 0) {
         logger.debug(LogCode.API_FETCH_SUCCESS, `No more pools on page`, { page });
@@ -841,14 +671,13 @@ export async function getPoolsByDex(
 
       logger.debug(LogCode.API_FETCH_SUCCESS, `Requesting DEX pools page`, { page, url });
 
-      const response = await fetchWithRetry(url);
-
-      if (!response.ok) {
-        logger.error(LogCode.API_FETCH_FAILED, `API error on DEX pools page`, { page, status: response.status, statusText: response.statusText });
+      let data: any;
+      try {
+        data = await fetchJson({ url });
+      } catch (e: any) {
+        logger.error(LogCode.API_FETCH_FAILED, `API error on DEX pools page`, { page, error: e.message });
         break;
       }
-
-      const data = await response.json();
 
       if (!(data as any).data || !Array.isArray((data as any).data) || (data as any).data.length === 0) {
         logger.debug(LogCode.API_FETCH_SUCCESS, `No more DEX pools on page`, { page });
@@ -1278,12 +1107,17 @@ export async function getCandlestickData(
 
     let response: Response;
     try {
-      response = await fetchWithRetry(url, {
+      const data = await fetchJson<any>({
+        url,
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'KiKo/1.0',
         },
       });
+      // Legacy code expected a Response object, but we now have data directly.
+      // We'll mock a response structure for minimal code change or refactor deeply.
+      // Refactoring deeply to use 'data' directly is better.
+      response = { ok: true, json: async () => data, status: 200 } as any;
     } catch (error: any) {
       if (error instanceof GeckoTerminalError) {
         logger.error(LogCode.API_FETCH_FAILED, `GeckoTerminal error during candlestick fetch`, { type: error.type, message: error.message });
@@ -1383,19 +1217,19 @@ export async function getCandlestickData(
           logger.debug(LogCode.API_FETCH_SUCCESS, `Retrying candlestick fetch with smaller limit`, { retryLimit, originalTimeframe });
           const retryUrl = `${GECKO_TERMINAL_BASE_URL}/networks/${geckoNetwork}/pools/${pairAddress}/ohlcv/${geckoTimeframe}?limit=${retryLimit}`;
           try {
-            const retryResponse = await fetchWithRetry(retryUrl, {
-              headers: {
-                'Accept': 'application/json',
-                'User-Agent': 'KiKo/1.0',
-              },
-            }, 2); // Use fewer retries for retry attempts
-
-            if (!retryResponse.ok) {
-              logger.warn(LogCode.API_FETCH_FAILED, `Retry with smaller limit failed`, { retryLimit, status: retryResponse.status });
+            let retryData: any;
+            try {
+              retryData = await fetchJson<any>({
+                url: retryUrl,
+                headers: {
+                  'Accept': 'application/json',
+                  'User-Agent': 'KiKo/1.0',
+                }
+              });
+            } catch (e) {
+              logger.warn(LogCode.API_FETCH_FAILED, `Retry with smaller limit failed`, { retryLimit, error: (e as any).message });
               continue;
             }
-
-            const retryData = await retryResponse.json() as any;
 
             if (retryData?.data?.attributes?.ohlcv_list && Array.isArray(retryData.data.attributes.ohlcv_list) && retryData.data.attributes.ohlcv_list.length > 0) {
               logger.info(LogCode.API_FETCH_SUCCESS, `Retry successful with smaller limit`, { retryLimit, count: retryData.data.attributes.ohlcv_list.length });

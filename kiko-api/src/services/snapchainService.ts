@@ -8,30 +8,23 @@
 import prisma from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
 
 /**
- * Fetch with timeout wrapper
+ * Fetch with timeout wrapper - now using unified service
  */
 async function fetchWithTimeout(url: string, options: any = {}, timeout = 5000) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'User-Agent': 'KiKo/1.0',
-        ...(options.headers || {})
-      },
-      signal: controller.signal
-    });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    throw error;
-  }
+  return await fetchJson({
+    url,
+    timeout,
+    headers: {
+      'User-Agent': 'KiKo/1.0',
+      ...(options.headers || {})
+    },
+    ...options
+  });
 }
 
 /**
@@ -125,11 +118,9 @@ interface CastWithReactions {
  * Get Hub info
  */
 export async function getHubInfo(): Promise<any> {
-  const response = await fetch(`${HUB_URL}/v1/info`);
-  if (!response.ok) {
-    throw new Error(`Hub info request failed: ${response.status}`);
-  }
-  return response.json();
+  return await fetchJson({
+    url: `${HUB_URL}/v1/info`
+  });
 }
 
 /**
@@ -139,12 +130,8 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
   try {
     // Use reverse=true to get newest casts first
     const url = `${HUB_URL}/v1/castsByFid?fid=${fid}&pageSize=${pageSize}&reverse=true`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      logger.error(LogCode.API_FETCH_FAILED, 'Error fetching casts from Snapchain Hub', { fid, status: response.status });
-      return [];
-    }
-    const data = await response.json();
+    const data = await fetchJson({ url });
+    
     if (!(data as any).messages || (data as any).messages.length === 0) {
       return [];
     }
@@ -291,11 +278,7 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData> {
 export async function getRepliesCount(targetFid: number, targetHash: string): Promise<number> {
   try {
     const url = `${HUB_URL}/v1/castsByParent?fid=${targetFid}&hash=${targetHash}&pageSize=1000`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      return 0;
-    }
-    const data = await response.json();
+    const data = await fetchJson({ url });
     return (data as any).messages?.length || 0;
   } catch (error: any) {
     // Silent fail for network errors in background jobs
@@ -312,13 +295,12 @@ export async function getRepliesCount(targetFid: number, targetHash: string): Pr
 export async function getReactionsByCast(targetFid: number, targetHash: string): Promise<SnapchainReactions> {
   try {
     // Get likes, recasts, and replies in parallel
-    const [likesRes, recastsRes, repliesCount] = await Promise.all([
-      fetch(`${HUB_URL}/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Like&pageSize=1000`),
-      fetch(`${HUB_URL}/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Recast&pageSize=1000`),
+    const [likesData, recastsData, repliesCount] = await Promise.all([
+      fetchJson({ url: `${HUB_URL}/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Like&pageSize=1000` }),
+      fetchJson({ url: `${HUB_URL}/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Recast&pageSize=1000` }),
       getRepliesCount(targetFid, targetHash),
     ]);
-    const likesData = likesRes.ok ? await likesRes.json() : { messages: [] };
-    const recastsData = recastsRes.ok ? await recastsRes.json() : { messages: [] };
+    
     return {
       likes: (likesData as any).messages?.length || 0,
       recasts: (recastsData as any).messages?.length || 0,
@@ -358,10 +340,7 @@ export async function getCastByHash(hash: string): Promise<HubCast | null> {
 export async function getCastById(fid: number, hash: string): Promise<HubCast | null> {
   try {
     const url = `${HUB_URL}/v1/castById?fid=${fid}&hash=${hash}`;
-    const response = await fetch(url);
-    if (!response.ok) return null;
-
-    const responseData = await response.json() as any;
+    const responseData = await fetchJson({ url });
     const messageData = responseData.data; // The message data
 
     if (!messageData || !messageData.castAddBody) return null;
@@ -537,11 +516,9 @@ export function snapchainToTrendingCast(result: CastWithReactions): any {
  */
 export async function getCastByIdWithReactions(fid: number, hash: string): Promise<CastWithReactions | null> {
   try {
-    const response = await fetch(`${HUB_URL}/v1/castById?fid=${fid}&hash=${hash}`);
-    if (!response.ok) {
-      return null;
-    }
-    const data = await response.json();
+    const data = await fetchJson({
+      url: `${HUB_URL}/v1/castById?fid=${fid}&hash=${hash}`
+    });
     const message = data as any; // Hub response format
 
     if (!message || !message.data) return null;
