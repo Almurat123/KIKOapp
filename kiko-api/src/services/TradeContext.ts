@@ -214,7 +214,7 @@ export class TradeContext {
                 slippage: toolContext?.toolConfig?.customSlippage,
                 mevProtection: toolContext?.toolConfig?.mevProtection,
                 fastSwapMode: toolContext?.toolConfig?.fastSwapMode,
-                swapMethod: toolContext?.toolConfig?.swapMethod,
+                swapMethod: 'allowance_trade', // FORCED: Always use allowance_trade
             },
         });
     }

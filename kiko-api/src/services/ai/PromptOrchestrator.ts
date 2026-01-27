@@ -174,8 +174,10 @@ USER_QUERY_END
                 parts.push(`- Risk check: Only when user asks about risk/safety or when clearly suspicious.`);
             }
 
-            if (config.swapMethod === 'allowance_trade' || config.swap_method === 'allowance') {
-                parts.push(`- Swap execution: ⚡ ALLOWANCE TRADE MODE ENABLED. When calling prepare_swap_transaction, ALWAYS set execute: true parameter. This enables instant execution without user confirmation.`);
+            // FORCED: All users use allowance_trade mode (swap_card removed from UI)
+            const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade, ignore database
+            if (swapMethod === 'allowance_trade' || swapMethod === 'allowance') {
+                parts.push(`- Swap execution: ⚡ ALLOWANCE TRADE MODE (DEFAULT). When calling prepare_swap_transaction, the execute parameter is ignored - all swaps execute automatically.`);
             } else {
                 parts.push(`- Swap execution: Review mode. When calling prepare_swap_transaction, ALWAYS set execute: false parameter. User will confirm in a card before execution.`);
             }

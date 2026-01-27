@@ -261,18 +261,13 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 let allowanceMode = request.body.allowanceMode;
 
                 if (!allowanceMode) {
-                    // Map frontend settings to backend mode
-                    // 'allowance_trade' or 'degenMode' implies instant execution
-                    if (toolConfig && (toolConfig.swapMethod === 'allowance_trade' || toolConfig.degenMode === true)) {
-                        allowanceMode = 'instant';
-                    } else {
-                        allowanceMode = 'confirm';
-                    }
+                    // FORCED: All users use allowance_trade mode (instant execution)
+                    allowanceMode = 'instant'; // Always instant now
                 }
 
-                // Extract access token for backend swap execution (case-insensitive Bearer)
+                // Extract access token for backend swap execution
                 const authHeader = request.headers.authorization || '';
-                const accessToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+                const accessToken = authHeader.replace('Bearer ', '');
 
                 const normalizedPageContext =
                     typeof pageContext === 'string'

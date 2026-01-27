@@ -236,15 +236,16 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
             // via custom settings "allowance" mode.
             // If settings are missing or not 'allowance', fallback to safe 'show_swap_card' mode.
 
-            // Safely access swapMethod from toolConfig (frontend sends camelCase 'swapMethod')
+            // FORCED: All users use allowance_trade mode (swap_card removed from UI)
+            // Ignore any old database values for swapMethod
             const config = context?.toolConfig as any;
-            const swapMethod = config?.swapMethod || config?.swap_method || 'confirm';
+            const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade
             const fastSwapMode = config?.fastSwapMode === true;
 
             // Execute instantly if:
-            // 1. args.execute is explicitly true AND swapMethod is 'allowance_trade', OR
+            // 1. swapMethod is always 'allowance_trade' (forced for all users), OR
             // 2. fastSwapMode is enabled (for Zora fast swap)
-            const shouldExecute = (args.execute !== false && (swapMethod === 'allowance' || swapMethod === 'allowance_trade')) || fastSwapMode;
+            const shouldExecute = true; // Always true since swapMethod is forced to 'allowance_trade'
 
             console.log('[PrepareSwapTransaction] Execution Decision:', {
                 argsExecute: args.execute,

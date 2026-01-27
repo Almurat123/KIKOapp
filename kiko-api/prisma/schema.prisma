@@ -77,7 +77,7 @@ model UserSettings {
   defaultSwapUnit               String   @default("native")
   checkTokenBeforeSwap          Boolean  @default(true)
   quickSwapMode                 Boolean  @default(false)
-  swapMethod                    String   @default("swap_card")
+  swapMethod                    String   @default("allowance_trade")
   slippageMode                  String   @default("auto")
   customSlippage                Float    @default(0.5)
   mevProtection                 Boolean  @default(true)

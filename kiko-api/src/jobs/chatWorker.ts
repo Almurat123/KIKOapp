@@ -1068,19 +1068,19 @@ export class ChatWorker {
             // 🔧 DEBUG: Log user settings for diagnostics
             console.log('[ChatWorker] User Settings:', {
                 fastSwapMode: task.toolContext?.toolConfig?.fastSwapMode,
-                swapMethod: task.toolContext?.toolConfig?.swapMethod,
+                swapMethod: 'allowance_trade', // FORCED: Always allowance_trade
                 toolConfig: task.toolContext?.toolConfig ? Object.keys(task.toolContext.toolConfig) : 'none',
                 walletConnected: !!task.toolContext?.walletAddress,
                 chainId: task.toolContext?.chainId,
             });
 
             // ⚡ FAST SWAP BYPASS: Skip LLM if swap conditions met
-            // UPDATED: allowance_trade mode also enables fast swap (no need to separately enable fastSwapMode)
+            // FORCED: All users use allowance_trade mode (swap_card removed from UI)
             const fastSwapModeEnabled = task.toolContext?.toolConfig?.fastSwapMode === true;
-            const swapMethod = task.toolContext?.toolConfig?.swapMethod;
-            const isAllowanceTradeMode = swapMethod === 'allowance' || swapMethod === 'allowance_trade';
+            const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade, ignore database
+            const isAllowanceTradeMode = true; // FORCED: Always true
 
-            // Fast swap triggers if: explicit fastSwapMode OR allowance_trade mode
+            // Fast swap triggers if: explicit fastSwapMode OR allowance_trade mode (always true now)
             const fastSwapMode = fastSwapModeEnabled || isAllowanceTradeMode;
 
             const isSwapIntent = parsedIntent.detailed.action === 'swap';
@@ -1655,7 +1655,11 @@ export class ChatWorker {
                 }
 
                 // Show launchpad card if detected (only once per task)
-                if (detectedLaunchpadInfo && !launchpadCardShown) {
+                // BUT: Skip if user has explicit swap/trade intent (they want to execute, not view info)
+                const hasExplicitTradeIntent = parsedIntent.detailed.action === 'swap' && 
+                    (parsedIntent.swapIntent?.amount || /\b(swap|buy|sell|trade)\b/i.test(lastUserMessage));
+                
+                if (detectedLaunchpadInfo && !launchpadCardShown && !hasExplicitTradeIntent) {
                     launchpadCardShown = true; // Mark as shown to prevent duplicates
                     console.log(`[ChatWorker] Token is from launchpad: ${detectedLaunchpadInfo.provider}`);
 
@@ -1715,6 +1719,8 @@ export class ChatWorker {
                         sessionId: task.sessionId,
                         data: initialChunk
                     });
+                } else if (detectedLaunchpadInfo && hasExplicitTradeIntent) {
+                    console.log(`[ChatWorker] 🚫 Skipping launchpad card: User has explicit trade intent`);
                 }
             }
 

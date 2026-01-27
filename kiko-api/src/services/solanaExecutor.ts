@@ -81,7 +81,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
                 recipient: fee.solanaRecipient,
             });
 
-            await sendSolanaTransaction(userId, feeTxB64, accessToken);
+            await sendSolanaTransaction(userId, feeTxB64);
 
             effectiveAmountIn = (amountBI - feeLamports).toString();
         }
@@ -160,7 +160,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
                 createdAta: !destInfo,
             });
 
-            await sendSolanaTransaction(userId, feeTxB64, accessToken);
+            await sendSolanaTransaction(userId, feeTxB64);
 
             effectiveAmountIn = (amountBI - feeAmount).toString();
         }
@@ -218,7 +218,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     // Reserialize to base64
     const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
 
-    const signature = await sendSolanaTransaction(userId, freshTransactionBase64, accessToken);
+    const signature = await sendSolanaTransaction(userId, freshTransactionBase64);
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Transaction sent', { signature });
 

@@ -16,7 +16,6 @@ import { LogCode } from '../config/logRegistry.js';
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
 const PRIVY_APP_SECRET = process.env.PRIVY_APP_SECRET || '';
 const PRIVY_AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_KEY || '';
-const PRIVY_USER_SIGNER_REQUIRED = process.env.PRIVY_USER_SIGNER_REQUIRED === 'true';
 
 let privyClient: PrivyClient | null = null;
 
@@ -59,162 +58,6 @@ function getPrivyClient(): PrivyClient {
 
     privyClient = new PrivyClient(PRIVY_APP_ID, PRIVY_APP_SECRET, config);
     return privyClient;
-}
-
-type PrivyClientMode = 'app' | 'user';
-
-async function getPrivyClientForUser(accessToken?: string, walletId?: string): Promise<{ client: PrivyClient; mode: PrivyClientMode }> {
-    const baseClient = getPrivyClient();
-
-    if (!accessToken) {
-        return { client: baseClient, mode: 'app' };
-    }
-
-    try {
-        // CRITICAL: Validate JWT token format before attempting to use it
-        // JWT tokens have 3 parts separated by dots: header.payload.signature
-        const tokenParts = accessToken.split('.');
-        if (tokenParts.length !== 3) {
-            logger.error(LogCode.SYS_ERROR, 'Invalid JWT token format', {
-                hasAccessToken: !!accessToken,
-                tokenLength: accessToken.length,
-                parts: tokenParts.length
-            });
-            throw new AppError(403, 'Invalid authentication token format. Please refresh and try again.', 'INVALID_TOKEN');
-        }
-
-        // Try to decode the JWT payload to check expiration and validity (without verification)
-        let tokenPayload: any = null;
-        try {
-            tokenPayload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
-            const currentTime = Math.floor(Date.now() / 1000);
-
-            // Log token details for debugging (without sensitive info)
-            logger.debug(LogCode.SYS_INFO, 'JWT token payload decoded', {
-                hasExp: !!tokenPayload.exp,
-                hasSub: !!tokenPayload.sub,
-                hasIss: !!tokenPayload.iss,
-                exp: tokenPayload.exp ? new Date(tokenPayload.exp * 1000).toISOString() : 'none',
-                iat: tokenPayload.iat ? new Date(tokenPayload.iat * 1000).toISOString() : 'none',
-                currentTime: new Date(currentTime * 1000).toISOString(),
-            });
-
-            if (tokenPayload.exp && tokenPayload.exp < currentTime) {
-                const expiredAgo = currentTime - tokenPayload.exp;
-                logger.warn(LogCode.SYS_ERROR, 'JWT token expired', {
-                    expiredAgoSeconds: expiredAgo,
-                    expiredAt: new Date(tokenPayload.exp * 1000).toISOString()
-                });
-                throw new AppError(403, 'Authentication token expired. Please refresh your session and try again.', 'TOKEN_EXPIRED');
-            }
-
-            // Check if token will expire soon (within 5 minutes)
-            const expiresIn = tokenPayload.exp ? tokenPayload.exp - currentTime : 0;
-            if (expiresIn > 0 && expiresIn < 300) {
-                logger.warn(LogCode.SYS_INFO, 'JWT token expiring soon', {
-                    expiresInSeconds: expiresIn,
-                    expiresAt: new Date(tokenPayload.exp * 1000).toISOString()
-                });
-            }
-        } catch (decodeError: any) {
-            // If we can't decode the token, it's likely malformed
-            logger.warn(LogCode.SYS_ERROR, 'Could not decode JWT payload - token may be malformed', {
-                error: decodeError.message,
-                tokenLength: accessToken.length
-            });
-            // Still try with Privy - it will give a more specific error
-        }
-
-        // Generate user signer from JWT - this validates the token with Privy
-        let signer;
-        try {
-            signer = await baseClient.walletApi.generateUserSigner({ userJwt: accessToken });
-            logger.debug(LogCode.SYS_INFO, 'Privy generateUserSigner succeeded', {
-                walletCount: signer.wallets?.length || 0
-            });
-        } catch (privyError: any) {
-            logger.error(LogCode.SYS_ERROR, 'Privy generateUserSigner failed', {
-                error: privyError.message,
-                errorCode: privyError.code,
-                errorName: privyError.name,
-                errorDetails: JSON.stringify(privyError).substring(0, 200),
-                tokenPayloadSub: tokenPayload?.sub,
-                tokenPayloadIss: tokenPayload?.iss,
-            });
-            throw privyError; // Re-throw to be caught by outer catch block
-        }
-
-        if (walletId && !signer.wallets.find(w => w.id === walletId)) {
-            logger.warn(LogCode.SYS_ERROR, 'Wallet not found in user signer wallets', {
-                requestedWalletId: walletId,
-                availableWallets: signer.wallets.map(w => w.id)
-            });
-            throw new AppError(403, 'User authorization required. Please authorize server signing in Wallet Settings.', 'DELEGATION_REQUIRED');
-        }
-
-        const userClient = new PrivyClient(PRIVY_APP_ID, PRIVY_APP_SECRET, {
-            walletApi: {
-                authorizationPrivateKey: signer.authorizationKey
-            }
-        });
-
-        logger.debug(LogCode.SYS_INFO, 'User signer generated successfully', {
-            walletCount: signer.wallets.length
-        });
-
-        return { client: userClient, mode: 'user' };
-    } catch (error: any) {
-        if (!PRIVY_USER_SIGNER_REQUIRED) {
-            logger.warn(LogCode.SYS_ERROR, 'User signer unavailable; falling back to app signer', {
-                error: error?.message,
-                errorCode: error?.code,
-                errorName: error?.name,
-                hasAccessToken: !!accessToken,
-                tokenLength: accessToken?.length,
-            });
-            return { client: baseClient, mode: 'app' };
-        }
-
-        // Check if this is already an AppError we threw above
-        if (error instanceof AppError) {
-            throw error;
-        }
-
-        // Enhanced error logging for Privy-specific errors
-        const errorDetails: any = {
-            error: error?.message,
-            errorCode: error?.code,
-            errorName: error?.name,
-            hasAccessToken: !!accessToken,
-            tokenLength: accessToken?.length,
-        };
-
-        // Check for specific Privy error messages
-        if (error?.message?.includes('invalid token') || error?.message?.includes('jwt')) {
-            logger.warn(LogCode.SYS_ERROR, 'Failed to generate user signer - Invalid JWT token', errorDetails);
-            throw new AppError(
-                403,
-                'Invalid authentication token. Please log out and log back in, then try again.',
-                'INVALID_TOKEN'
-            );
-        }
-
-        if (error?.message?.includes('expired')) {
-            logger.warn(LogCode.SYS_ERROR, 'Failed to generate user signer - Expired JWT token', errorDetails);
-            throw new AppError(
-                403,
-                'Authentication token expired. Please refresh your session and try again.',
-                'TOKEN_EXPIRED'
-            );
-        }
-
-        logger.warn(LogCode.SYS_ERROR, 'Failed to generate user signer for Privy', errorDetails);
-        throw new AppError(
-            403,
-            'User authorization required. Please authorize server signing in Wallet Settings.',
-            'DELEGATION_REQUIRED'
-        );
-    }
 }
 
 /**
@@ -362,6 +205,7 @@ export async function sendTransaction(
 ): Promise<string> {
     // Wrap entire execution in a per-user lock
     return withUserLock(userId, async () => {
+        const client = getPrivyClient();
         const MAX_RETRIES = 3;
         const RETRY_DELAY_MS = 2000;
 
@@ -370,8 +214,6 @@ export async function sendTransaction(
         if (!walletInfo) {
             throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
         }
-
-        const { client, mode } = await getPrivyClientForUser(accessToken, walletInfo.id);
 
         // DEBUG: Log the full transaction parameters before sending
         console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
@@ -386,7 +228,6 @@ export async function sendTransaction(
         console.log('[sendTransaction] MaxFeePerGas:', tx.maxFeePerGas);
         console.log('[sendTransaction] MaxPriorityFeePerGas:', tx.maxPriorityFeePerGas);
         console.log('[sendTransaction] Full TX object:', tx);
-        console.log('[sendTransaction] Auth Mode:', mode);
         console.log('[sendTransaction] ===========================================');
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -564,14 +405,14 @@ export async function getDelegatedSolanaWallet(userId: string): Promise<{ id: st
  */
 export async function sendSolanaTransaction(
     userId: string,
-    transactionBase64: string, // Base64 encoded transaction from Jupiter
-    accessToken?: string
+    transactionBase64: string // Base64 encoded transaction from Jupiter
 ): Promise<string> {
+    const client = getPrivyClient();
+
     try {
         // Try to get user's delegated wallet first (preferred for fund isolation)
         let wallet = await getDelegatedSolanaWallet(userId);
         let walletSource = 'delegated';
-        let clientMode: PrivyClientMode = 'app';
 
         // Fallback to server wallet if user hasn't granted delegation
         if (!wallet) {
@@ -580,19 +421,10 @@ export async function sendSolanaTransaction(
             logger.info(LogCode.SYS_INFO, 'Using server wallet (user has not delegated)', { userId });
         }
 
-        // Use user signer only for delegated wallet and only if accessToken is provided
-        let client = getPrivyClient();
-        if (walletSource === 'delegated' && accessToken) {
-            const userClient = await getPrivyClientForUser(accessToken, wallet.id);
-            client = userClient.client;
-            clientMode = userClient.mode;
-        }
-
         logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Solana transaction via Privy', {
             walletSource,
             address: wallet.address,
             userId,
-            authMode: clientMode
         });
 
         // Deserialize transaction
@@ -642,22 +474,20 @@ export interface EIP712TypedData {
 export async function signTypedData(
     userId: string,
     typedData: EIP712TypedData,
-    chainId: number = 137, // Default to Polygon for Polymarket
-    accessToken?: string
+    chainId: number = 137 // Default to Polygon for Polymarket
 ): Promise<string> {
+    const client = getPrivyClient();
+
     // Get user's wallet info
     const walletInfo = await getEmbeddedWalletInfo(userId);
     if (!walletInfo) {
         throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
     }
 
-    const { client, mode } = await getPrivyClientForUser(accessToken, walletInfo.id);
-
     logger.debug(LogCode.SYS_INFO, 'Signing EIP-712 typed data via Privy', {
         userId,
         primaryType: typedData.primaryType,
         chainId,
-        authMode: mode
     });
 
     try {
@@ -703,3 +533,4 @@ export async function signTypedData(
 export function isPrivyConfigured(): boolean {
     return !!(PRIVY_APP_ID && PRIVY_APP_SECRET);
 }
+

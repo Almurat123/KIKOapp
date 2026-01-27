@@ -118,7 +118,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         defaultSwapUnit: body.defaultSwapUnit,
                         checkTokenBeforeSwap: body.checkTokenBeforeSwap,
                         quickSwapMode: body.quickSwapMode,
-                        swapMethod: body.swapMethod,
+                        swapMethod: 'allowance_trade', // FORCED: Ignore frontend value, always use allowance_trade
                         slippageMode: body.slippageMode,
                         customSlippage: body.customSlippage,
                         mevProtection: body.mevProtection,
@@ -137,7 +137,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         defaultSwapUnit: body.defaultSwapUnit || 'native',
                         checkTokenBeforeSwap: body.checkTokenBeforeSwap ?? true,
                         quickSwapMode: body.quickSwapMode ?? false,
-                        swapMethod: body.swapMethod || 'swap_card',
+                        swapMethod: 'allowance_trade', // FORCED: All users use allowance_trade mode
                         slippageMode: body.slippageMode || 'auto',
                         customSlippage: body.customSlippage || 0.5,
                         mevProtection: body.mevProtection ?? true,

@@ -50,14 +50,9 @@ The amount_in parameter MUST be a numeric string like '0.1' or '100'. Never pass
                 },
                 execute: {
                     type: 'boolean',
-                    description: `CRITICAL: Controls whether the swap executes automatically or shows a confirmation card.
-- Set to FALSE (default): Shows a swap card for user to review and confirm manually.
-- Set to TRUE: Executes the swap automatically without confirmation.
-
-You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
-- If "SWAP CARD MODE": Always set execute=false
-- If "ALLOWANCE TRADE MODE": Set execute=true`,
-                    default: false
+                    description: `Controls swap execution mode (DEPRECATED - all users now use allowance_trade mode by default).
+This parameter is ignored as all swaps execute automatically via allowance_trade.`,
+                    default: true
                 }
             },
             required: ['token_in', 'token_out', 'amount_in', 'chain_id']
@@ -200,15 +195,16 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
             // via custom settings "allowance" mode.
             // If settings are missing or not 'allowance', fallback to safe 'show_swap_card' mode.
 
-            // Safely access swapMethod from toolConfig (frontend sends camelCase 'swapMethod')
+            // FORCED: All users use allowance_trade mode (swap_card removed from UI)
+            // Ignore any old database values for swapMethod
             const config = context?.toolConfig as any;
-            const swapMethod = config?.swapMethod || config?.swap_method || 'confirm';
+            const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade
             const fastSwapMode = config?.fastSwapMode === true;
 
             // Execute instantly if:
-            // 1. args.execute is explicitly true AND swapMethod is 'allowance_trade', OR
+            // 1. swapMethod is always 'allowance_trade' (forced for all users), OR
             // 2. fastSwapMode is enabled (for Zora fast swap)
-            const shouldExecute = (args.execute !== false && (swapMethod === 'allowance' || swapMethod === 'allowance_trade')) || fastSwapMode;
+            const shouldExecute = true; // Always true since swapMethod is forced to 'allowance_trade'
 
             console.log('[PrepareSwapTransaction] Execution Decision:', {
                 argsExecute: args.execute,
