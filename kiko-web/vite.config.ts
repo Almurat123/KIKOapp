@@ -35,6 +35,11 @@ export default defineConfig({
       '@xenova/transformers',
     ],
   },
+  build: {
+    // iOS Safari compatibility settings
+    target: 'es2020', // Support iOS 14+ Safari (ES2020 includes BigInt, optional chaining, nullish coalescing)
+    minify: 'esbuild', // Use esbuild for faster builds and better compatibility
+  },
   server: {
     headers: {
       // Relaxed CSP for local development - Privy requires embedded iframes

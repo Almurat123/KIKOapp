@@ -8,7 +8,7 @@ import { useTheme } from './hooks/useTheme';
 import { usePrivy } from '@privy-io/react-auth';
 import { setAuthTokenProvider } from './utils/authToken';
 import { ThemeProvider } from './contexts/ThemeContext'; // Added ThemeProvider
-import { logger, redact } from './utils/logger';
+import { logger } from './utils/logger';
 import './index.css';
 // import './styles/global.css'; // Removed to fix Beige theme conflict
 import './styles/theme.css';
@@ -18,27 +18,44 @@ import './styles/design-tokens.css';
 if (typeof window !== 'undefined') {
   const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
 
+  // iOS Safari Debug: Always allow console.error in production to catch errors
+  const originalConsoleError = console.error;
+  const originalConsoleWarn = console.warn;
+
   if (!isDev) {
-    // Production: Suppress verbose logs and sanitize errors
+    // Production: Suppress verbose logs but keep errors visible
     const noop = () => { };
-    const originalConsoleError = console.error;
 
     console.log = noop;
     console.info = noop;
     console.debug = noop;
-    console.warn = noop;
-    console.error = (...args) => originalConsoleError(...args.map(a => redact(a)));
+    // Keep warn and error active for iOS Safari debugging
+    console.warn = originalConsoleWarn;
+    console.error = originalConsoleError;
   }
 
-  // Global error handlers
+  // Global error handlers with iOS Safari fallback
   window.onerror = function (message, source, lineno, colno, error) {
-    // These will be routed through our sanitized console.error
+    // Log to console for iOS Safari debugging
+    originalConsoleError('[Global Error]', { message, source, lineno, colno, error });
     logger.error('[Global Error]', { message, source, lineno, colno, error });
     return false;
   };
   window.onunhandledrejection = function (event) {
+    originalConsoleError('[Unhandled Rejection]', event.reason);
     logger.error('[Unhandled Rejection]', event.reason);
   };
+
+  // iOS Safari BigInt support check
+  try {
+    const testBigInt = BigInt(1);
+    if (typeof testBigInt !== 'bigint') {
+      throw new Error('BigInt not supported');
+    }
+  } catch (e) {
+    originalConsoleError('[iOS Safari] BigInt not supported:', e);
+    alert('Your browser does not support BigInt. Please update to the latest iOS version or use a different browser.');
+  }
 }
 
 const queryClient = new QueryClient();
