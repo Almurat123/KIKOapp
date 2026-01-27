@@ -41,7 +41,7 @@ const CTF_ABI = [
 ];
 
 // Polygon RPC endpoint
-const POLYGON_RPC = process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com';
+const POLYGON_RPC = process.env.POLYGON_RPC_URL || '';
 
 import { getEthersProvider } from './rpcManager.js';
 

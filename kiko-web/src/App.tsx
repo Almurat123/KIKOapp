@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
 import { Layout } from './components/Layout/Layout';
 // import { ThemeProvider } from './contexts/ThemeContext'; // Moved to main.tsx
 import { ChatInterface } from './components/Chat/ChatInterface';
@@ -17,12 +17,10 @@ import type { Message } from './hooks/useConversations';
 import { chatWSClient, type ChatEvent } from './utils/chatWebSocket';
 import { chatApi } from './services/api';
 import { ToastContainer, useToast } from './components/Toast';
-import { AuthorizationPromptModal } from './components/Wallet/AuthorizationPromptModal';
 
 
 function App() {
-  const { authenticated, ready, logout, getAccessToken } = usePrivy();
-  const { wallets } = useWallets();
+  const { authenticated, ready, getAccessToken } = usePrivy();
 
   const [activeTab, setActiveTab] = useState('chat');
   const [pendingAIPrompt, setPendingAIPrompt] = useState<string | null>(null);
@@ -52,7 +50,6 @@ function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
-  // Automatically detect wallet disconnection via browser events
   useEffect(() => {
     // Check for pre-filled AI query from session storage (e.g. from Token Detail page)
     try {
@@ -66,58 +63,7 @@ function App() {
       // Ignored
     }
 
-    if (typeof window === 'undefined') return;
-
-    const handleDisconnect = async () => {
-      console.log('[App] Wallet disconnected via browser event');
-      // If user is authenticated but wallet disconnected, clear Privy state
-      if (authenticated && wallets.length > 0) {
-        console.log('[App] Clearing Privy state due to wallet disconnect');
-        try {
-          await logout();
-        } catch (error) {
-          console.error('[App] Error during logout:', error);
-        }
-      }
-    };
-
-    const handleAccountsChanged = (accounts: string[]) => {
-      console.log('[App] Accounts changed:', accounts);
-      // If accounts become empty, wallet is disconnected
-      if (accounts.length === 0) {
-        handleDisconnect();
-      }
-    };
-
-    // Listen to Ethereum wallet events
-    if (window.ethereum) {
-      window.ethereum.on('disconnect', handleDisconnect);
-      window.ethereum.on('accountsChanged', handleAccountsChanged);
-    }
-
-    // Listen to Solana wallet events
-    const solanaWallet = (window as any).okxwallet?.solana || (window as any).phantom?.solana || (window as any).solana;
-    if (solanaWallet) {
-      solanaWallet.on?.('disconnect', handleDisconnect);
-      solanaWallet.on?.('accountChanged', (publicKey: any) => {
-        if (!publicKey) {
-          handleDisconnect();
-        }
-      });
-    }
-
-    // Cleanup
-    return () => {
-      if (window.ethereum) {
-        window.ethereum.removeListener?.('disconnect', handleDisconnect);
-        window.ethereum.removeListener?.('accountsChanged', handleAccountsChanged);
-      }
-      if (solanaWallet) {
-        solanaWallet.off?.('disconnect', handleDisconnect);
-        solanaWallet.off?.('accountChanged', handleDisconnect);
-      }
-    };
-  }, [authenticated, wallets.length, logout]);
+  }, []);
 
   // Wallet disconnection detection removed - not needed
 
@@ -498,7 +444,6 @@ function App() {
 
         {activeTab === 'trade' && <TradePage />}
       </Layout>
-      <AuthorizationPromptModal />
       <GlobalToast />
     </>
   );

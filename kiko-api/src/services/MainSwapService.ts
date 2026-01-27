@@ -46,6 +46,7 @@ export interface MainSwapRequest {
   // Identity
   userId: string;
   walletAddress: string;
+  accessToken?: string;
 
   // Tokens
   tokenIn: string; // Address or symbol (e.g., "ETH", "0x...")
@@ -53,7 +54,7 @@ export interface MainSwapRequest {
   amountIn: string; // Human readable (e.g., "0.1")
 
   // Chain & Context
-  chainId: number; // 900/101 = Solana, others = EVM
+  chainId: number; // 900 = Solana, others = EVM
   slippageBps?: number; // Default: user setting or 50 (0.5%)
 
   // Execution Mode (determines fee structure and behavior)
@@ -138,7 +139,7 @@ export class MainSwapService {
       const feeContext = this.determineFeeContext(request.mode);
 
       // 3. CHAIN DETECTION
-      const isSolana = request.chainId === SOLANA_CONFIG.CHAIN_ID || request.chainId === 101;
+      const isSolana = request.chainId === SOLANA_CONFIG.CHAIN_ID;
       const isEvm = !isSolana;
 
       // 4. LAUNCHPAD DETECTION (EVM only)
@@ -397,7 +398,8 @@ export class MainSwapService {
       slippageBps: request.slippageBps || 50,
       feeContext,
       isSell: false, // Determined automatically by SwapExecutor
-      messageId: request.messageId // For WebSocket progress updates
+      messageId: request.messageId, // For WebSocket progress updates
+      accessToken: request.accessToken
     };
 
     const executionResult = await SwapExecutor.execute(swapParams);
@@ -413,7 +415,7 @@ export class MainSwapService {
       metadata: {
         provider: executionResult.method,
         mode: request.mode,
-        gasUsed: executionResult.approvalTx?.value,
+        gasUsed: undefined,
         launchpad: undefined
       }
     };
@@ -448,7 +450,7 @@ export class MainSwapService {
           const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
           const approvalData = iface.encodeFunctionData('approve', [targetSpender, ethers.MaxUint256]);
 
-          const approveTxHash = await sendTransaction(request.userId, '', {
+          const approveTxHash = await sendTransaction(request.userId, request.accessToken || '', {
             to: request.tokenOut,
             data: approvalData,
             value: '0',
@@ -495,7 +497,8 @@ export class MainSwapService {
       chainId: request.chainId,
       slippageBps: request.slippageBps || 100, // Jupiter default
       feeContext,
-      isSell: false
+      isSell: false,
+      accessToken: request.accessToken
     };
 
     const result = await SwapExecutor.execute(swapParams);

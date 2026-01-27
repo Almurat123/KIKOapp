@@ -124,7 +124,7 @@ export const CHAINS: Record<number, ChainConfig> = {
     137: {
         id: 137,
         name: 'Polygon',
-        rpcUrls: buildRpcList(process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com', 'polygon'),
+        rpcUrls: buildRpcList(process.env.POLYGON_RPC_URL, 'polygon'),
         nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
         wrappedNativeAddress: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', // WMATIC
         stablecoins: [
@@ -140,6 +140,48 @@ export const CHAINS: Record<number, ChainConfig> = {
         },
         gasReserve: '0.1',
         slugs: { dexScreener: 'polygon', geckoTerminal: 'polygon_pos' }
+    },
+    // Arbitrum
+    42161: {
+        id: 42161,
+        name: 'Arbitrum',
+        rpcUrls: buildRpcList(process.env.ARBITRUM_RPC_URL, 'arbitrum'),
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        wrappedNativeAddress: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+        stablecoins: [
+            '0xaf88d065e77c8cc2239327c5edb3a432268e5831', // USDC
+            '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8', // USDC.e
+            '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9'  // USDT
+        ],
+        explorerUrl: 'https://arbiscan.io',
+        contracts: {
+            zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
+            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
+        },
+        gasReserve: '0.002',
+        slugs: { dexScreener: 'arbitrum', geckoTerminal: 'arbitrum' }
+    },
+    // Optimism
+    10: {
+        id: 10,
+        name: 'Optimism',
+        rpcUrls: buildRpcList(process.env.OPTIMISM_RPC_URL, 'optimism'),
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        wrappedNativeAddress: '0x4200000000000000000000000000000000000006',
+        stablecoins: [
+            '0x0b2c639c533813f4aa9d7837caf62653d097ff85', // USDC
+            '0x7f5c764cbc14f9669b88837ca1490cca17c31607', // USDC.e
+            '0x94b008aa00579c1307b0ef2b499ad98a8ce58e58'  // USDT
+        ],
+        explorerUrl: 'https://optimistic.etherscan.io',
+        contracts: {
+            zeroExProxy: '0xdef1c0ded9bec7f1a1670819833240faca6db2a2',
+            permit2: '0x000000000022d473030f116ddee9dad608d18000',
+            kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
+        },
+        gasReserve: '0.002',
+        slugs: { dexScreener: 'optimism', geckoTerminal: 'optimism' }
     }
 };
 

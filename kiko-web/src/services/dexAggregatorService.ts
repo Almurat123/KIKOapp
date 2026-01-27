@@ -1,4 +1,4 @@
-import { apiCache } from '../utils/apiCache';
+// Quote caching removed for safety (quotes are user/address/amount specific)
 // const DEXSCREENER_API = 'https://api.dexscreener.com/latest/dex';
 // const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -87,9 +87,7 @@ export async function getZeroExQuote(
   userAddress?: string,
   slippageBps?: number,
 ): Promise<SwapQuote | null> {
-  // 报价不应该缓存太久，因为价格会变化
-  // 但我们可以使用速率限制来避免频繁请求
-  const cacheKey = `quote_${chainId}_${tokenIn}_${tokenOut}_${amount.slice(0, 10)}`;
+  const cacheKey = `quote_${chainId}_${tokenIn}_${tokenOut}_${amount}_${slippageBps || 50}_${userAddress || 'anon'}`;
 
   // 动态导入 rateLimiter 避免循环依赖
   const { quoteRateLimiter } = await import('@/utils/apiRateLimiter');
@@ -173,8 +171,8 @@ export async function getZeroExQuote(
     {
       maxRequests: 30, // 每分钟最多 30 次报价请求（增加）
       windowMs: 60000,
-      cacheTTL: 10000, // 报价缓存 10 秒（延长）
-      useCache: true,
+      cacheTTL: 0, // Disable cache for quotes
+      useCache: false,
     }
   );
 }
@@ -247,14 +245,6 @@ export async function getBestSwapQuote(
   userAddress?: string,
   slippageBps?: number
 ): Promise<{ best: SwapQuote; quotes: SwapQuote[] }> {
-  // 15-second cache to reduce excessive API calls
-  const cacheKey = `quote_${chainId}_${tokenIn}_${tokenOut}_${amount}_${slippageBps || 50}`;
-  const cached = apiCache.get<{ best: SwapQuote; quotes: SwapQuote[] }>(cacheKey);
-  if (cached) {
-    console.log('[dexAggregatorService] Returning cached quote for', cacheKey.substring(0, 40));
-    return cached;
-  }
-
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const body = {
     tokenIn,
@@ -292,12 +282,7 @@ export async function getBestSwapQuote(
     return currVal > prevVal ? curr : prev;
   }, quotes[0]);
 
-  const result = { best, quotes };
-
-  // Cache for 15 seconds
-  apiCache.set(cacheKey, result, 15000);
-
-  return result;
+  return { best, quotes };
 }
 
 function getComparableAmount(quote: SwapQuote): bigint {

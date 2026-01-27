@@ -94,7 +94,7 @@ export class TxBus {
     }
 
     private normalizeAddress(token: string, chainId: number): string {
-        const isSolana = chainId === 900 || chainId === 101;
+        const isSolana = chainId === 900;
 
         if (isSolana) {
             if (token === 'SOL') return SOLANA_NATIVE_MINT;

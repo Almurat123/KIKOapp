@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { useChainId, useSwitchChain } from 'wagmi';
 import { usePrivy } from '@privy-io/react-auth';
 import { mainnet, base, arbitrum, bsc, optimism, polygon } from 'viem/chains';
 
@@ -85,9 +84,7 @@ interface ChainProviderProps {
 }
 
 export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
-  const chainId = useChainId();
-  const { switchChain: wagmiSwitchChain } = useSwitchChain();
-  const { connectWallet, authenticated } = usePrivy();
+  const { login, authenticated } = usePrivy();
 
   // Load initial chain from localStorage or default to first supported chain
   const [currentChain, setCurrentChain] = useState<ChainInfo>(() => {
@@ -113,31 +110,13 @@ export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
     }
   }, [currentChain.id]);
 
-  // Track previous chainId to distinguishing between "mounting" and "wallet switching"
-  const prevChainIdRef = React.useRef<number | undefined>(undefined);
-
-  // Sync with Wallet: Update current chain ONLY when Wagmi chainId changes.
-  useEffect(() => {
-    // Store current chainId as previous for next run
-    const prevChainId = prevChainIdRef.current;
-    prevChainIdRef.current = chainId;
-
-    if (prevChainId !== undefined && chainId && chainId !== prevChainId && currentChain.id !== 900) {
-      const chain = SUPPORTED_CHAINS.find(c => c.id === chainId);
-      if (chain && chain.id !== currentChain.id) {
-        console.log('[ChainContext] Wallet network changed from', prevChainId, 'to', chainId, '- Syncing UI');
-        setCurrentChain(chain);
-      }
-    }
-  }, [chainId, currentChain.id]);
-
   const handleSwitchChain = async (targetChainId: number) => {
     try {
       // 1. Solana Switch Logic
       if (targetChainId === 900) {
         // If not authenticated, prompt connect
         if (!authenticated) {
-          connectWallet();
+          login();
           return;
         }
 
@@ -154,22 +133,13 @@ export const ChainProvider: React.FC<ChainProviderProps> = ({ children }) => {
       if (targetChain) {
         // If not authenticated, prompt connect
         if (!authenticated) {
-          connectWallet();
+          login();
           return;
         }
 
         // ALWAYS update UI immediately - this is a "view" switch
         console.log('[ChainContext] Switching UI to', targetChain.name);
         setCurrentChain(targetChain);
-
-        // Attempt to switch wallet network in background (best-effort, non-blocking)
-        if (chainId !== targetChainId && wagmiSwitchChain) {
-          try {
-            wagmiSwitchChain({ chainId: targetChainId });
-          } catch (error) {
-            console.warn('[ChainContext] Wallet network switch failed (non-blocking):', error);
-          }
-        }
       }
     } catch (error) {
       console.error('Failed to switch chain:', error);

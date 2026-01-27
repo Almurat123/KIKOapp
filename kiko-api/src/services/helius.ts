@@ -396,3 +396,51 @@ export async function getAccountOwnersBatch(accountAddresses: string[]): Promise
         return {};
     }
 }
+
+export interface HeliusAsset {
+    id: string;
+    symbol: string;
+    name: string;
+    decimals: number;
+    logo?: string;
+}
+
+/**
+ * Get multiple assets (tokens, NFTs) by ID (mint address) via Helius DAS API
+ * Limit: 1000 IDs per call
+ */
+export async function getAssetBatch(ids: string[]): Promise<HeliusAsset[]> {
+    if (!HELIUS_API_KEY || ids.length === 0) return [];
+
+    try {
+        const json = await unifiedApiService.fetchJson<any>({
+            url: `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'getAssetBatch',
+                params: {
+                    ids: ids.slice(0, 1000) // DAS API supports up to 1000 IDs
+                },
+            }),
+            timeout: 15000,
+            endpointName: 'helius-rpc'
+        });
+
+        if (json?.result && Array.isArray(json.result)) {
+            return json.result.map((item: any) => ({
+                id: item.id,
+                symbol: item.content?.metadata?.symbol || 'UNKNOWN',
+                name: item.content?.metadata?.name || 'Unknown Asset',
+                decimals: item.token_info?.decimals || 0,
+                logo: item.content?.links?.image
+            }));
+        }
+        return [];
+    } catch (error: any) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Helius DAS getAssetBatch failed', { error: error.message });
+        return [];
+    }
+}

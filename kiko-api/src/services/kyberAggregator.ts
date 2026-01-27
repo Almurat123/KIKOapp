@@ -121,26 +121,43 @@ export async function getKyberQuote(
     // Kyber V1 expects slippageTolerance in bps (10 = 0.1%)
     const slippageToleranceBps = Math.max(1, Math.round(slippageBps));
 
+    // CRITICAL: Kyber API V1 expects EXACT structure per their documentation
+    // Missing fields or wrong types cause "unable to bind request body" error
     const buildBody: any = {
-        routeSummary, // required
-        recipient, // required
-        sender: recipient, // required
-        slippageTolerance: slippageToleranceBps,
-        deadline: Math.floor(Date.now() / 1000) + 600,
-        clientId: CLIENT_ID,
-        source: CLIENT_ID, // Per docs: should match x-client-id header
-        // CRITICAL: Disable gas estimation per official Kyber documentation
-        // Gas estimation calls eth_gasEstimate which simulates the full transaction
-        // This fails if the user hasn't approved Kyber's router yet
-        // Since we handle approvals separately in SwapExecutor, we disable this
-        // to avoid false negatives. See: https://docs.kyberswap.com/kyberswap-solutions/kyberswap-aggregator/aggregator-api-specification/permit#example
-        enableGasEstimation: false,
+        routeSummary: routeSummary, // REQUIRED: Must be exact object from GET /routes
+        sender: recipient,           // REQUIRED: Must be string (wallet address)
+        recipient: recipient,        // REQUIRED: Must be string (wallet address)
+        slippageTolerance: slippageToleranceBps, // REQUIRED: Must be number (not string)
     };
 
-    // route is optional; include when available
-    if (routePath && (!Array.isArray(routePath) || routePath.length > 0)) {
-        buildBody.route = routeDetail?.route ? routeDetail : { route: routePath };
-    }
+    // Add optional fields - Kyber API may require these even though docs say optional
+    buildBody.deadline = Math.floor(Date.now() / 1000) + 600; // Unix timestamp
+    buildBody.clientId = CLIENT_ID; // Match x-client-id header
+    buildBody.source = CLIENT_ID; // Should match client ID
+
+    // CRITICAL: Disable gas estimation per official Kyber documentation
+    // Gas estimation calls eth_gasEstimate which simulates the full transaction
+    // This fails if the user hasn't approved Kyber's router yet
+    // Since we handle approvals separately in SwapExecutor, we disable this
+    // to avoid false negatives.
+    buildBody.enableGasEstimation = false;
+
+    // Debug: Log the exact structure being sent to help diagnose binding issues
+    console.log('[Kyber] Building route/build request body:', {
+        hasRouteSummary: !!buildBody.routeSummary,
+        routeSummaryKeys: buildBody.routeSummary ? Object.keys(buildBody.routeSummary).slice(0, 8) : [],
+        sender: buildBody.sender?.slice(0, 10),
+        recipient: buildBody.recipient?.slice(0, 10),
+        slippageTolerance: buildBody.slippageTolerance,
+        slippageToleranceType: typeof buildBody.slippageTolerance,
+        deadline: buildBody.deadline,
+        deadlineType: typeof buildBody.deadline,
+        clientId: buildBody.clientId,
+        source: buildBody.source,
+        enableGasEstimation: buildBody.enableGasEstimation,
+        enableGasEstimationType: typeof buildBody.enableGasEstimation,
+        allBodyKeys: Object.keys(buildBody),
+    });
 
     logger.debug(LogCode.API_FETCH_SUCCESS, '[Kyber] route/build request', {
         tokenIn: `${tokenIn.slice(0, 6)}...`,

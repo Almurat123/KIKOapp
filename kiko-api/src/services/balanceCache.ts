@@ -5,7 +5,7 @@
 
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getPortfolio, getEthBalance, TokenBalance } from './alchemy.js';
+import { getPortfolio, getEthBalance, TokenBalance, getSpecificTokenBalance } from './alchemy.js';
 
 interface CachedBalance {
   balance: number;
@@ -93,7 +93,21 @@ export async function getBalanceOptimized(
     const portfolio = await getPortfolio(walletAddress, [chainName]);
     const chainData = portfolio[chainName];
     
-    if (!chainData) return 0;
+    if (!chainData) {
+      if (chainName !== 'solana') {
+        const direct = await getSpecificTokenBalance(walletAddress, chainName, tokenAddress);
+        const directBalance = parseFloat(direct.formatted || '0');
+        const newChainCache: ChainBalances = {
+          native: { balance: 0, timestamp: now },
+          tokens: new Map([[tokenKey, { balance: directBalance, timestamp: now, decimals: direct.decimals }]]),
+          lastFullRefresh: 0
+        };
+        userCache.set(chainName, newChainCache);
+        balanceCache.set(userId, userCache);
+        return directBalance;
+      }
+      return 0;
+    }
 
     // Update cache with all tokens
     const newChainCache: ChainBalances = {
@@ -119,7 +133,16 @@ export async function getBalanceOptimized(
 
     // Return requested token balance
     const found = newChainCache.tokens.get(tokenKey);
-    return found?.balance || 0;
+    if (found) return found.balance;
+
+    if (chainName !== 'solana') {
+      const direct = await getSpecificTokenBalance(walletAddress, chainName, tokenAddress);
+      const directBalance = parseFloat(direct.formatted || '0');
+      newChainCache.tokens.set(tokenKey, { balance: directBalance, timestamp: now, decimals: direct.decimals });
+      return directBalance;
+    }
+
+    return 0;
   }
 
   // Fetch only this specific token (lightweight)
@@ -129,14 +152,30 @@ export async function getBalanceOptimized(
     token: tokenAddress.slice(0, 8) 
   });
 
-  // TODO: Implement single-token fetch using eth_call
-  // For now, fall back to full refresh
+  if (chainName !== 'solana') {
+    const direct = await getSpecificTokenBalance(walletAddress, chainName, tokenAddress);
+    const balance = parseFloat(direct.formatted || '0');
+
+    if (!chainCache) {
+      userCache.set(chainName, {
+        native: { balance: 0, timestamp: now },
+        tokens: new Map([[tokenKey, { balance, timestamp: now, decimals: direct.decimals }]]),
+        lastFullRefresh: 0
+      });
+      balanceCache.set(userId, userCache);
+    } else {
+      chainCache.tokens.set(tokenKey, { balance, timestamp: now, decimals: direct.decimals });
+    }
+
+    return balance;
+  }
+
   const portfolio = await getPortfolio(walletAddress, [chainName]);
   const chainData = portfolio[chainName];
-  const token = chainData?.tokens?.find(t => 
+  const token = chainData?.tokens?.find(t =>
     t.contractAddress.toLowerCase() === tokenKey
   );
-  
+
   const balance = parseFloat(token?.tokenBalance || '0');
   
   // Cache it

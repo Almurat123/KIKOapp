@@ -7,7 +7,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import { DelegatedActionRequest } from '../Privy/DelegatedActionRequest';
-import { useAccount, useBalance } from 'wagmi';
 import { MessageBubble } from './MessageBubble';
 import { toast } from '../Toast';
 import { WelcomeScreen } from './WelcomeScreen';
@@ -25,6 +24,7 @@ import { useSafariKeyboardFix } from '../../hooks/useSafariKeyboardFix';
 import styles from './Chat.module.css';
 import clsx from 'clsx';
 import { chatApi } from '../../services/api';
+import { getWalletBalance } from '../../services/walletApi';
 import { chatWSClient, type ChatEvent } from '../../utils/chatWebSocket';
 import type { Message } from '../../hooks/useConversations';
 import { moderationService } from '../../services/moderation';
@@ -105,7 +105,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // this ensures AI knows about selected chain even if wallet is on different chain
     const { currentChain } = useChain();
     const chainId = currentChain.id;
-    const { address: wagmiAddress } = useAccount();
     const [messages, setMessages] = useState<Message[]>(initialMessages);
 
     // CRITICAL: Keep messagesRef in sync with messages state at all times.
@@ -137,17 +136,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (embeddedEVM) return embeddedEVM.address;
 
         const evmWallet = wallets.find(w => w.walletClientType !== 'solana');
-        return evmWallet?.address || wagmiAddress || user?.wallet?.address || '';
-    }, [wallets, wagmiAddress, user, currentChain.id]);
-
-    // Get native balance
-    const { data: nativeBalanceData } = useBalance({
-        address: walletAddress as `0x${string}` | undefined,
-        chainId: chainId,
-        query: {
-            enabled: !!walletAddress && authenticated,
-        },
-    });
+        return evmWallet?.address || user?.wallet?.address || '';
+    }, [wallets, user, currentChain.id]);
 
 
 
@@ -1234,16 +1224,24 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     42161: 'ETH',   // Arbitrum
                     56: 'BNB',      // BSC
                     137: 'MATIC',   // Polygon
-                    43114: 'AVAX',  // Avalanche
-                    250: 'FTM',     // Fantom
                     900: 'SOL',     // Solana
                 };
 
-                if (nativeBalanceData && nativeBalanceData.value) {
-                    const nativeSymbol = nativeBalanceData.symbol || NATIVE_SYMBOLS[chainId] || 'ETH';
-                    const nativeBalance = parseFloat(nativeBalanceData.formatted);
-                    if (nativeBalance > 0) {
-                        balances[nativeSymbol] = nativeBalance.toFixed(4);
+                const chainNameMap: Record<number, string> = {
+                    1: 'eth',
+                    8453: 'base',
+                    10: 'optimism',
+                    42161: 'arbitrum',
+                    56: 'bsc',
+                    137: 'polygon',
+                    900: 'solana',
+                };
+                const chainName = chainNameMap[chainId] || 'eth';
+                const nativeBalance = await getWalletBalance(walletAddress, chainName);
+                if (nativeBalance?.ethBalanceFormatted) {
+                    const nativeSymbol = NATIVE_SYMBOLS[chainId] || 'ETH';
+                    if (nativeBalance.ethBalanceFormatted > 0) {
+                        balances[nativeSymbol] = nativeBalance.ethBalanceFormatted.toFixed(4);
                     }
                 }
 
@@ -1305,7 +1303,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         };
 
         fetchBalances();
-    }, [walletAddress, authenticated, chainId, nativeBalanceData, messages.length]); // Re-run when new messages arrive
+    }, [walletAddress, authenticated, chainId, messages.length]); // Re-run when new messages arrive
 
     // Extract strategies from messages
     useEffect(() => {

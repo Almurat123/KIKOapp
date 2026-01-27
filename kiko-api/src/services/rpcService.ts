@@ -19,7 +19,7 @@ export interface OnChainMetadata {
  */
 export async function getTokenMetadata(chainId: number, address: string): Promise<OnChainMetadata> {
     // 1. Solana Handling
-    if (chainId === 900 || chainId === 101) { // 101 is Solana in some configs
+    if (chainId === 900) {
         try {
             // Solana Token Program: Get Mint Info
             // We use callRpc with 'getAccountInfo' and parse data manually or use a simple heuristic

@@ -61,7 +61,7 @@ export async function executeDirectSwap(params: DirectSwapParams): Promise<Direc
     // 0x API and Kyber require the specific native address, not the symbol.
     let normalizedTokenIn = params.tokenIn;
     let normalizedTokenOut = params.tokenOut;
-    const isSolana = params.chainId === 900 || params.chainId === 101;
+    const isSolana = params.chainId === 900;
 
     if (isSolana) {
         if (normalizedTokenIn === 'SOL') normalizedTokenIn = SOLANA_NATIVE_MINT;

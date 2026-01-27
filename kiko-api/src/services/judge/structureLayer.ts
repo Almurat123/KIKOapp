@@ -230,7 +230,7 @@ export async function detectLaunchpadType(
     let chainId = 1; // Default ETH
     switch (normalizedChain) {
         case 'base': chainId = 8453; break;
-        case 'solana': chainId = 101; break; // Custom ID for Solana
+        case 'solana': chainId = 900; break;
         case 'bsc': chainId = 56; break;
         case 'arbitrum': chainId = 42161; break;
         case 'optimism': chainId = 10; break;

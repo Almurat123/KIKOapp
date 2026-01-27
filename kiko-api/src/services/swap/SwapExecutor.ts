@@ -29,6 +29,7 @@ export interface SwapParams {
     messageId?: string; // For WebSocket transaction progress updates
     excludeDex?: string; // Exclude this DEX from quote selection (for retry after failure)
     affiliateFee?: string; // Optional affiliate fee BPS or amount
+    accessToken?: string; // User JWT for Privy user signer
 }
 
 export interface SwapResult {
@@ -154,7 +155,19 @@ export class SwapExecutor {
                 decimalsIn = 18;
             }
         }
-        const decimalsOut = tokenOutInfo?.decimals || 18;
+        let decimalsOut = tokenOutInfo?.decimals;
+        // SAFETY: Detect incorrect cached decimals for USDC/USDT (often cached as 18 but are 6)
+        if (decimalsOut === 18 &&
+            ['USDC', 'USDT'].includes(tokenOutInfo?.symbol?.toUpperCase() || '')) {
+            logger.warn(LogCode.SYS_INFO, 'Suspicious 18 decimals for stablecoin (tokenOut), forcing 6', {
+                token: actualTokenOutFixed,
+                symbol: tokenOutInfo?.symbol
+            });
+            decimalsOut = 6;
+        }
+        if (typeof decimalsOut !== 'number') {
+            decimalsOut = 18;
+        }
 
         // 1.5 Gas Reservation for Native Token
         let amountInBase = toWei(amountIn, decimalsIn);
@@ -256,7 +269,7 @@ export class SwapExecutor {
                 const approvalData = iface.encodeFunctionData('approve', [best.allowanceTarget, ethers.MaxUint256]);
 
                 try {
-                    const approveTxHash = await sendTransaction(userId, '', {
+                    const approveTxHash = await sendTransaction(userId, params.accessToken || '', {
                         to: actualTokenIn,
                         data: approvalData,
                         value: '0',
@@ -416,7 +429,7 @@ export class SwapExecutor {
         }
 
         try {
-            const txHash = await sendTransaction(userId, '', {
+            const txHash = await sendTransaction(userId, params.accessToken || '', {
                 to: best.to,
                 data: best.data,
                 value: best.value,
@@ -577,7 +590,7 @@ export class SwapExecutor {
                             error: execError.message.slice(0, 100)
                         });
                         try {
-                            await this.executeApproval(userId, actualTokenInFixed, best.allowanceTarget, chainId);
+                            await this.executeApproval(userId, actualTokenInFixed, best.allowanceTarget, chainId, params.accessToken);
                         } catch (approveErr: any) {
                             logger.warn(LogCode.SYS_ERROR, 'Forced approval failed, continuing with retry...', { error: approveErr.message });
                         }
@@ -706,7 +719,7 @@ export class SwapExecutor {
      * Handle Solana Swaps via Jupiter
      */
     private static async executeSolana(params: SwapParams): Promise<SwapResult> {
-        const { userId, tokenIn, tokenOut, amountIn, slippageBps = 100 } = params;
+        const { userId, tokenIn, tokenOut, amountIn, slippageBps = 100, accessToken } = params;
 
         // Use provided mints
         const tokenInMint = tokenIn;
@@ -745,7 +758,8 @@ export class SwapExecutor {
             tokenOutMint,
             amountIn: amountAtomic,
             slippageBps,
-            feeContext: params.feeContext || 'swap'
+            feeContext: params.feeContext || 'swap',
+            accessToken
         });
 
         return {
@@ -823,12 +837,13 @@ export class SwapExecutor {
         userId: string,
         token: string,
         spender: string,
-        chainId: number
+        chainId: number,
+        accessToken?: string
     ): Promise<string> {
         const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
         const data = iface.encodeFunctionData('approve', [spender, ethers.MaxUint256]);
 
-        const txHash = await sendTransaction(userId, '', {
+        const txHash = await sendTransaction(userId, accessToken || '', {
             to: token,
             data,
             value: '0',

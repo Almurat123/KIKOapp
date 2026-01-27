@@ -11,9 +11,16 @@ export function validateAddress(address: string, label?: string): boolean {
     return (address.startsWith('0x') && address.length === 42) || (address.length >= 32 && address.length <= 44);
 }
 
+const SUPPORTED_CHAIN_IDS = new Set([1, 8453, 42161, 137, 10, 56, 900]);
+
 export function validateChainId(chainId: any): number {
     const val = parseInt(chainId);
-    if (isNaN(val)) return 1; // Default to Ethereum
+    if (isNaN(val)) {
+        throw new Error('Invalid chainId');
+    }
+    if (!SUPPORTED_CHAIN_IDS.has(val)) {
+        throw new Error(`Unsupported chainId: ${val}`);
+    }
     return val;
 }
 

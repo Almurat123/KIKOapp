@@ -164,8 +164,7 @@ export class NotificationService {
             case 8453: return 'Base';
             case 1: return 'Ethereum';
             case 56: return 'BSC';
-            case 900:
-            case 101: return 'Solana';
+            case 900: return 'Solana';
             case 42161: return 'Arbitrum';
             case 10: return 'Optimism';
             default: return `Chain ${chainId}`;

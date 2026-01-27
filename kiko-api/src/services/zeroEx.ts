@@ -12,6 +12,7 @@ import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { callRpc } from './rpcManager.js';
 
 const ZEROX_BASE_URL = 'https://api.0x.org';
 const ZEROX_API_KEY = env.apiKeys.zeroEx || '';
@@ -370,11 +371,30 @@ export async function getZeroExQuote(
   quoteOnly: boolean = false // Set true for price quotes that won't execute
 ): Promise<ZeroExQuote | null> {
   try {
-    // CRITICAL: For actual swap execution (quoteOnly=false), takerAddress is REQUIRED
-    // This prevents funds from being sent to wrong addresses
-    if (!quoteOnly && (!takerAddress || takerAddress.length !== 42 || !takerAddress.startsWith('0x'))) {
-      logger.error(LogCode.API_FETCH_FAILED, 'Invalid takerAddress - this is REQUIRED to receive swap output', { takerAddress, chainId });
-      throw new Error(`takerAddress is required for swap execution. Got: ${takerAddress}`);
+    // CRITICAL: takerAddress is REQUIRED for allowance-holder endpoint (both price and quote)
+    // If no takerAddress is provided, we must use the /price endpoint instead
+    if (!takerAddress || takerAddress.length !== 42 || !takerAddress.startsWith('0x')) {
+      if (!quoteOnly) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Invalid takerAddress - this is REQUIRED to receive swap output', { takerAddress, chainId });
+        throw new Error(`takerAddress is required for swap execution. Got: ${takerAddress}`);
+      }
+      // For price quotes without a taker address, use the /price endpoint instead
+      logger.debug(LogCode.API_FETCH_SUCCESS, '0x API: No taker address provided, using /price endpoint for indicative quote', { chainId });
+      const priceData = await getZeroExPrice(sellToken, buyToken, sellAmount, chainId);
+      if (!priceData) {
+        return null;
+      }
+      // Transform price response to quote format
+      return {
+        ...priceData,
+        transaction: {
+          to: priceData.to || '',
+          data: priceData.data || '',
+          gas: priceData.gas || null,
+          gasPrice: priceData.gasPrice || '',
+          value: priceData.value || '0',
+        },
+      } as ZeroExQuote;
     }
     // Validate sellAmount - must be greater than 0
     const sellAmountBigInt = BigInt(sellAmount || '0');
@@ -440,14 +460,13 @@ export async function getZeroExQuote(
     // This is the standard V2 flow - no complex permit2 signatures needed
     const endpoint = useLegacyEndpoint ? '/swap/v1/quote' : '/swap/allowance-holder/quote';
 
-    // Add taker address if provided (required for actual swap execution, optional for price quotes)
-    if (takerAddress) {
-      // v1 endpoint uses 'takerAddress', permit2/allowance-holder uses 'taker'
-      if (useLegacyEndpoint) {
-        params.append('takerAddress', takerAddress);
-      } else {
-        params.append('taker', takerAddress);
-      }
+    // CRITICAL: taker parameter is REQUIRED for allowance-holder endpoint
+    // At this point, takerAddress is guaranteed to be valid (checked above)
+    // v1 endpoint uses 'takerAddress', permit2/allowance-holder uses 'taker'
+    if (useLegacyEndpoint) {
+      params.append('takerAddress', takerAddress);
+    } else {
+      params.append('taker', takerAddress);
     }
 
     // Platform / affiliate fee (0x feature): fee is taken from buyToken and sent to affiliateAddress
@@ -593,7 +612,8 @@ export async function getZeroExQuote(
         sellToken: fallbackSellToken,
         buyToken: fallbackBuyToken,
         sellAmount,
-        slippagePercentage: (slippageBps / 100).toString(),
+        // v1 expects decimal percent (0.005 = 0.5%)
+        slippagePercentage: (slippageBps / 10000).toString(),
       });
 
       // v1 endpoint uses 'takerAddress' parameter (if provided)
@@ -808,53 +828,22 @@ export async function fetchTokenDecimalsFromRPC(
   // Default to 18 if RPC call fails
   const DEFAULT_DECIMALS = 18;
 
-  // RPC URLs for supported chains (officially verified by 0x API)
-  const rpcUrls: Record<number, string> = {
-    1: 'https://eth.llamarpc.com',
-    8453: 'https://mainnet.base.org',
-    56: 'https://bsc-dataseed.bnbchain.org',
-    42161: 'https://arb1.arbitrum.io/rpc',
-    137: 'https://polygon-rpc.com',
-    10: 'https://mainnet.optimism.io',
-  };
-
-  const rpcUrl = rpcUrls[chainId];
-  if (!rpcUrl) {
-    logger.warn(LogCode.API_FETCH_FAILED, 'No RPC URL for chain, using default decimals', { chainId });
-    return DEFAULT_DECIMALS;
-  }
-
   try {
     // decimals() selector = 0x313ce567
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [
-          { to: tokenAddress, data: '0x313ce567' },
-          'latest'
-        ],
-        id: 1
-      }),
-    });
+    const result = await callRpc<string>(chainId, 'eth_call', [
+      { to: tokenAddress, data: '0x313ce567' },
+      'latest'
+    ]);
 
-    if (!response.ok) {
-      logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch decimals from RPC', { tokenAddress, status: response.status });
-      return DEFAULT_DECIMALS;
-    }
-
-    const data = await response.json() as { result?: string; error?: unknown };
-    if (data.result && data.result !== '0x') {
-      const decimals = parseInt(data.result, 16);
+    if (result && result !== '0x') {
+      const decimals = parseInt(result, 16);
       if (decimals >= 0 && decimals <= 24) {
         logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetched decimals from RPC', { tokenAddress, decimals });
         return decimals;
       }
     }
 
-    logger.warn(LogCode.API_FETCH_FAILED, 'Invalid decimals response from RPC', { tokenAddress, data });
+    logger.warn(LogCode.API_FETCH_FAILED, 'Invalid decimals response from RPC', { tokenAddress, result });
     return DEFAULT_DECIMALS;
   } catch (error: any) {
     logger.error(LogCode.API_FETCH_FAILED, 'Error fetching decimals from RPC', { tokenAddress, error: error.message });
@@ -1008,7 +997,7 @@ export async function getTokenPriceUSD(
       42161: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', // USDC on Arbitrum
       56: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', // USDC on BSC
       137: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // USDC on Polygon
-      10: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607', // USDC on Optimism
+      10: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', // USDC on Optimism (native)
     };
 
     const usdcAddress = usdcAddresses[chainId];
@@ -1024,7 +1013,10 @@ export async function getTokenPriceUSD(
 
     // Handle native token - use wrapped native token address (WETH, WBNB, etc.)
     let actualTokenAddress = tokenAddress;
-    if (tokenAddress === '0x0000000000000000000000000000000000000000' || !tokenAddress) {
+    const lowerToken = tokenAddress?.toLowerCase() || '';
+    if (lowerToken === '0x0000000000000000000000000000000000000000' ||
+        lowerToken === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+        !tokenAddress) {
       // Use getNativeTokenAddress which returns the wrapped native token for each chain
       const wrappedNativeAddress = getNativeTokenAddress(chainId);
       if (wrappedNativeAddress) {

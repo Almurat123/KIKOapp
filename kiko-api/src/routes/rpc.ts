@@ -15,9 +15,11 @@ export async function rpcRoutes(fastify: FastifyInstance) {
     fastify.post('/evm', async (request, reply) => {
         try {
             const payload = request.body as any;
-            const chainId = payload.chainId || (payload[0]?.chainId);
+            const queryChainId = (request.query as any)?.chainId;
+            const headerChainId = (request.headers as any)?.['x-chain-id'];
+            const chainId = payload.chainId || (payload[0]?.chainId) || queryChainId || headerChainId;
             const method = payload.method || payload[0]?.method;
-            const params = payload.params || [];
+            const params = payload.params || payload[0]?.params || [];
 
             if (!chainId) {
                 return reply.status(400).send({ error: 'chainId is required' });

@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Newspaper, BarChart2, Layers, Plus, PanelLeftClose, ChevronDown, ChevronRight, Pencil, Trash2, Users, RefreshCw, Coins, Network } from 'lucide-react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
+import type { WalletWithMetadata } from '@privy-io/react-auth';
 import clsx from 'clsx';
 import kikoLogo from '../../assets/images/kiko-logo.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
@@ -41,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   isDesktopOpen,
   onDesktopClose,
+  onProfileClick,
 
   conversations = [],
   activeConversationId,
@@ -52,7 +54,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { resolvedTheme } = useThemeContext();
   const { user } = usePrivy();
-  const { wallets } = useWallets();
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['chat']));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
@@ -67,10 +68,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const walletAddress = wallets[0]?.address || '';
+  const walletAddress = (() => {
+    const linked = user?.linkedAccounts || [];
+    const embeddedEvm = linked.find(
+      (acc): acc is WalletWithMetadata =>
+        acc.type === 'wallet' && acc.walletClientType === 'privy' && acc.chainType === 'ethereum'
+    );
+    if (embeddedEvm) return embeddedEvm.address;
+    const embeddedSol = linked.find(
+      (acc): acc is WalletWithMetadata =>
+        acc.type === 'wallet' && acc.walletClientType === 'privy' && acc.chainType === 'solana'
+    );
+    return embeddedSol?.address || '';
+  })();
   const displayAddress = walletAddress
     ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-2)}`
-    : 'Not connected';
+    : 'No embedded wallet';
 
   // Get user info and avatar
   const { name: userName, initials: userInitials, avatarUrl } = getUserInfo(user);
@@ -317,7 +330,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             className={styles.userProfile}
             onClick={() => {
-              onTabChange('wallet');
+              onProfileClick();
               if (isMobile) onClose();
             }}
           >

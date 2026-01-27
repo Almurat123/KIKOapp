@@ -1,9 +1,9 @@
 import React, { useState, createContext, useContext, useCallback } from 'react';
 import { PanelLeftOpen, ArrowLeft } from 'lucide-react';
-import { usePrivy, useWallets, useLinkAccount } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
 import { Sidebar } from './Sidebar';
 import { useThemeContext } from '../../contexts/ThemeContext';
-import { getUserInfo, clearWalletData } from '../../utils/privyUtils';
+import { getUserInfo } from '../../utils/privyUtils';
 import styles from './Layout.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 import { PreLoginWarningModal } from '../Privy/PreLoginWarningModal';
@@ -63,10 +63,8 @@ export const Layout: React.FC<LayoutProps> = ({
     const { resolvedTheme } = useThemeContext();
     const { user, authenticated, ready } = usePrivy();
     const { secureLogin, isWarningOpen, closeWarning, confirmLogin } = useSecureLogin();
-    const { wallets } = useWallets();
-    const { linkWallet } = useLinkAccount();
 
-    // Handle profile click - check authentication and wallet connection status
+    // Handle profile click - check authentication status
     const handleProfileClick = useCallback(() => {
         if (!ready) return; // Wait for Privy to be ready
 
@@ -75,31 +73,15 @@ export const Layout: React.FC<LayoutProps> = ({
                 // User is not logged in, show login modal
                 secureLogin();
             } else {
-                // User is logged in, check if they have a wallet connected
-                const hasWallet = wallets.length > 0 && wallets.some(wallet => wallet?.address);
-
-                if (hasWallet) {
-                    // User has wallet connected, navigate to wallet page
-                    onTabChange('wallet');
-                } else {
-                    // User is logged in but no wallet connected
-                    // Clear any stale wallet data first to ensure clean state
-                    clearWalletData();
-                    // Trigger wallet connection
-                    if (linkWallet) {
-                        // Small delay to ensure data is cleared
-                        setTimeout(() => {
-                            linkWallet();
-                        }, 100);
-                    }
-                }
+                // Embedded wallets are created on login; just open wallet page
+                onTabChange('wallet');
             }
         } catch (error) {
             if (import.meta.env.DEV) {
                 console.error('Error in handleProfileClick:', error);
             }
         }
-    }, [ready, authenticated, secureLogin, wallets, onTabChange, linkWallet]);
+    }, [ready, authenticated, secureLogin, onTabChange]);
 
     // Get user info and avatar
     const { name: userName, initials: userInitials, avatarUrl } = getUserInfo(user);

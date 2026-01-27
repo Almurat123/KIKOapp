@@ -87,7 +87,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
             // 1.5. SOLANA RENT PROTECTION LOGIC
             // Error "insufficient funds for rent" happens when account is drained to < 0.002 SOL (account rent exempt minimum)
             // We MUST leave at least 0.002 SOL + fees (approx 0.005 total safe buffer)
-            const isSolana = args.chain_id === 900 || args.chain_id === 101;
+            const isSolana = args.chain_id === 900;
             const isNativeSol = isSolana && (
                 normalizedArgs.token_in === 'So11111111111111111111111111111111111111112' ||
                 normalizedArgs.token_in === 'SOL'

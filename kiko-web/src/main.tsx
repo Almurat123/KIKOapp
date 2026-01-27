@@ -1,11 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { PrivyProvider } from '@privy-io/react-auth';
-import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana';
-import { WagmiProvider, createConfig } from '@privy-io/wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { http } from 'wagmi';
-import { mainnet, base, arbitrum, bsc, optimism, polygon } from 'viem/chains';
 import App from './App';
 import { ChainProvider } from './contexts/ChainContext';
 import { useTheme } from './hooks/useTheme';
@@ -47,18 +43,6 @@ if (typeof window !== 'undefined') {
 
 const queryClient = new QueryClient();
 
-const wagmiConfig = createConfig({
-  chains: [mainnet, base, arbitrum, bsc, optimism, polygon],
-  transports: {
-    [mainnet.id]: http(),
-    [base.id]: http(),
-    [arbitrum.id]: http(),
-    [bsc.id]: http('https://bsc-dataseed.binance.org/'),
-    [optimism.id]: http(),
-    [polygon.id]: http(),
-  },
-});
-
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 
 // Privy Provider with theme support
@@ -81,15 +65,9 @@ const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ children
           showWalletLoginFirst: false,
           logo: privyLogo,
           walletChainType: 'ethereum-and-solana',
-          walletList: [
-            'metamask',
-            'coinbase_wallet',
-            'rainbow',
-            'wallet_connect',
-            'phantom',
-          ],
+          walletList: [],
         },
-        loginMethods: ['email', 'wallet', 'farcaster', 'google'],
+        loginMethods: ['email', 'farcaster', 'google', 'twitter'],
         fundingMethodConfig: {
           moonpay: {
             useSandbox: true,
@@ -110,20 +88,6 @@ const ThemedPrivyProvider: React.FC<{ children: React.ReactNode }> = ({ children
         mfa: {
           noPromptOnMfaRequired: false,
         },
-        // Keep external wallets for users who prefer their own wallets
-        externalWallets: {
-          ethereum: {
-            connectors: [
-              'metamask',
-              'coinbase_wallet',
-              'wallet_connect',
-              'rainbow',
-            ],
-          },
-          solana: {
-            connectors: toSolanaWalletConnectors(),
-          },
-        } as any,
         solana: {
           rpcs: {
             'solana:mainnet': {
@@ -181,7 +145,7 @@ const PrivyConfigError: React.FC = () => {
           ⚠️ Privy App ID Not Configured
         </h1>
         <p style={{ margin: '0 0 24px 0', color: '#666', lineHeight: 1.6 }}>
-          Please set your Privy App ID to use wallet connection features.
+          Please set your Privy App ID to use embedded wallet features.
         </p>
         <div style={{
           background: '#f8f9fa',
@@ -259,11 +223,9 @@ if (!privyAppId || privyAppId === 'your-privy-app-id') {
         <ThemedPrivyProvider>
           <AuthTokenBridge>
             <QueryClientProvider client={queryClient}>
-              <WagmiProvider config={wagmiConfig}>
-                <ChainProvider>
-                  <App />
-                </ChainProvider>
-              </WagmiProvider>
+              <ChainProvider>
+                <App />
+              </ChainProvider>
             </QueryClientProvider>
           </AuthTokenBridge>
         </ThemedPrivyProvider>

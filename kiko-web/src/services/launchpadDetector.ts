@@ -25,7 +25,7 @@ export const detectLaunchpadToken = async (
     // 2. Prioritize current chain, but allow cross-chain detection if pattern matches
     // Base (8453) -> Clanker, Zora, Paragraph
     // BSC (56) -> Four.meme
-    // Solana (900/101) -> Pump.fun, Raydium
+    // Solana (900) -> Pump.fun, Raydium
 
     // Solana Checks
     if (isSolana) {

@@ -73,7 +73,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   solanaAggregator = 'auto',
   maxPriceImpact: initialMaxPriceImpact = 5,
   autoExecute = false,
-  useServerExecution = false,
+  useServerExecution = true,
   userHoldings = [],
   initialQuote: _initialQuote,
 }) => {
@@ -111,6 +111,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
   // Use Solana swap hook for Solana (chainId 900), otherwise use EVM swap hook
   const isSolana = chainId === 900;
+  const serverExecutionEnabled = !isSolana && useServerExecution;
 
   const evmSwap = useSwap({
     chainId: isSolana ? 1 : chainId, // Fallback to Ethereum if Solana
@@ -232,8 +233,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   ]);
 
   const executeSwapNow = async () => {
-    // If not using server execution, require auth
-    if (!useServerExecution && !authenticated) {
+    // Always require auth for embedded wallet execution
+    if (!authenticated) {
       login();
       return;
     }
@@ -276,7 +277,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       }
     }
 
-    if (useServerExecution) {
+    if (serverExecutionEnabled) {
       // Server-side Execution Mode
       if (!userAddress || !swapState?.tokenIn || !swapState?.tokenOut) {
         onSwapError?.('Missing swap parameters');
@@ -321,7 +322,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     // If approval is needed, do that first - NO separate confirmation modal needed for approval
     // (Wallet will provide the confirmation UI)
     // SKIP if using server execution (server handles allowance verification/error)
-    if (!useServerExecution && needsApproval && evmSwapTyped?.approveToken) {
+    if (!serverExecutionEnabled && needsApproval && evmSwapTyped?.approveToken) {
       const result = await evmSwapTyped.approveToken();
       if (result?.error) {
         onSwapError?.(result.error);
@@ -393,7 +394,8 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   }
 
   // Check if approval is needed (only for EVM chains, Solana doesn't need approval)
-  const needsApproval = !isSolana &&
+  const needsApproval = !serverExecutionEnabled &&
+    !isSolana &&
     swapState?.tokenIn?.address &&
     swapState.tokenIn.address !== '0x0000000000000000000000000000000000000000' &&
     swapState.tokenIn.address !== '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' &&
@@ -408,7 +410,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
     if (canExecute && !hasAutoExecutedRef.current) {
       // Special handling for approval
       // SKIP if using server execution
-      if (!useServerExecution && needsApproval && evmSwapTyped?.approveToken) {
+      if (!serverExecutionEnabled && needsApproval && evmSwapTyped?.approveToken) {
         if (import.meta.env.DEV) {
           console.log('[SwapCard] Auto-triggering approval...');
         }
@@ -429,7 +431,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
       // Bypassing confirmation modal for auto execution
       executeSwapNow();
     }
-  }, [autoExecute, canExecute, isExecuting, isLoading, needsApproval, useServerExecution, evmSwapTyped]);
+  }, [autoExecute, canExecute, isExecuting, isLoading, needsApproval, serverExecutionEnabled, evmSwapTyped]);
 
   // Normalize Solana native token addresses (both So11111111111111111111111111111111111111111 and So11111111111111111111111111111111111111112 represent SOL)
   const normalizeAddress = React.useCallback((address: string): string => {

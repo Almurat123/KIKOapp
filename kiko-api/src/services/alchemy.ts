@@ -70,7 +70,7 @@ export interface AssetTransfer {
   to: string;
   value: number | null;
   asset: string | null;
-  category: 'external' | 'internal' | 'erc20' | 'erc721' | 'erc1155' | 'specialnft';
+  category: 'external' | 'internal' | 'erc20' | 'erc721' | 'erc1155' | 'specialnft' | 'spl';
   rawContract: {
     value: string | null;
     address: string | null;
@@ -154,7 +154,7 @@ export async function getAssetTransfers(
     fromBlock?: string;
     toBlock?: string;
     maxCount?: number;
-    category?: ('external' | 'internal' | 'erc20' | 'erc721' | 'erc1155')[];
+    category?: ('external' | 'internal' | 'erc20' | 'erc721' | 'erc1155' | 'spl')[];
     order?: 'asc' | 'desc';
     contractAddresses?: string[];
   } = {}
@@ -169,11 +169,13 @@ export async function getAssetTransfers(
         return null;
       }
 
+      const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
       const {
         fromBlock = '0x0',
         toBlock = 'latest',
         maxCount = 100,
-        category = ['external', 'erc20'],
+        // [Ref]: Alchemy Solana Asset Transfers support 'external' and 'spl'.
+        category = isSolana ? ['external', 'spl'] : ['external', 'internal', 'erc20', 'erc721', 'erc1155'],
         order = 'desc',
         contractAddresses = options.contractAddresses,
       } = options;
@@ -192,6 +194,7 @@ export async function getAssetTransfers(
             category,
             maxCount: `0x${maxCount.toString(16)}`,
             order,
+            excludeZeroValue: true,
             withMetadata: true,
           }],
         };
@@ -249,6 +252,7 @@ export async function getAssetTransfers(
                 contractAddresses,
                 maxCount: `0x${maxCount.toString(16)}`,
                 order,
+                excludeZeroValue: true,
                 withMetadata: true,
               }],
             }),
@@ -275,6 +279,7 @@ export async function getAssetTransfers(
                 contractAddresses,
                 maxCount: `0x${maxCount.toString(16)}`,
                 order,
+                excludeZeroValue: true,
                 withMetadata: true,
               }],
             }),
@@ -342,19 +347,13 @@ export async function getAssetTransfers(
     } as AssetTransfer));
   };
 
-  const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
-  if (isSolana) {
-    // For Solana history, use standard RPC methods
-    return []; // Handled in getWalletTransactions directly
-  }
-
-
   // For EVM history, we prefer Scan API if we have a wallet address
   // But for contract-only searches (early buyers), we MUST use Alchemy
   let transfers: AssetTransfer[] = [];
   const wantsInternal = options.category?.includes('internal') === true;
   const wantsContractFilter = Array.isArray(options.contractAddresses) && options.contractAddresses.length > 0;
-  const canUseScanApi = !!address && !wantsInternal && !wantsContractFilter;
+  const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
+  const canUseScanApi = !!address && !wantsInternal && !wantsContractFilter && !isSolana;
 
   if (canUseScanApi) {
     try {
@@ -477,11 +476,22 @@ export function convertToWalletTransactions(
     // Default to TRANSFER_IN for incoming, TRANSFER_OUT for outgoing
     let txType: WalletTransaction['txType'] = isIncoming ? 'TRANSFER_IN' : 'TRANSFER_OUT';
 
+    let tokenSymbol = transfer.asset;
+    const tokenAddress = transfer.rawContract?.address || null;
+
+    // [Logic]: Alchemy often fails to resolve SPL symbols correctly for Solana or returns 'SOL' for tokens.
+    // If it's SPL category, we should prioritize our registry/mint address over a generic 'SOL' or 'Unknown' asset tag.
+    if (chain === 'solana' && transfer.category === 'spl' && tokenAddress) {
+      if (!tokenSymbol || tokenSymbol === 'SOL' || tokenSymbol === 'Unknown') {
+        tokenSymbol = getSplTokenSymbol(tokenAddress);
+      }
+    }
+
     // Only mark as BUY/SELL if this is a DEX transaction
     // DEX transactions are identified by:
     // 1. The from/to address is a known DEX router
-    // 2. It's an ERC20 token transfer (not native ETH)
-    if (transfer.category === 'erc20') {
+    // 2. It's an ERC20/spl token transfer (not native asset)
+    if (transfer.category === 'erc20' || transfer.category === 'spl') {
       const fromIsDex = isDexRouter(transfer.from, chain);
       const toIsDex = isDexRouter(transfer.to, chain);
 
@@ -507,8 +517,8 @@ export function convertToWalletTransactions(
       txType,
       fromAddress: transfer.from,
       toAddress: transfer.to,
-      tokenSymbol: transfer.asset,
-      tokenAddress: transfer.rawContract?.address || null,
+      tokenSymbol,
+      tokenAddress,
       amount: transfer.value?.toString() || '0',
       valueUsd: null,
       blockNumber: parseInt(transfer.blockNum, 16),
@@ -628,13 +638,17 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
             let tokenSymbol = 'SOL';
             let tokenAddress: string | null = null;
 
-            if (tx.nativeTransfers && tx.nativeTransfers.length > 0) {
-              amount = (tx.nativeTransfers[0].amount / 1e9).toString();
-            } else if (tx.tokenTransfers && tx.tokenTransfers.length > 0) {
+            if (tx.tokenTransfers && tx.tokenTransfers.length > 0) {
               const transfer = tx.tokenTransfers[0];
               amount = transfer.tokenAmount.toString();
               tokenAddress = transfer.mint;
-              // Token symbol would need additional lookup
+              // Set to null or generic so enrichment logic picks it up
+              tokenSymbol = getSplTokenSymbol(transfer.mint);
+              if (tokenSymbol.includes('...')) tokenSymbol = 'Unknown';
+            } else if (tx.nativeTransfers && tx.nativeTransfers.length > 0) {
+              amount = (tx.nativeTransfers[0].amount / 1e9).toString();
+              tokenSymbol = 'SOL';
+              tokenAddress = 'So11111111111111111111111111111111111111112'; // Native SOL mint
             }
 
             return {
@@ -894,6 +908,59 @@ async function getSolanaTransactions(address: string, limit: number = 20): Promi
 }
 
 /**
+ * [Logic]: Centralized helper to enrich Solana transactions with correct symbols.
+ * Alchemy and fallbacks often return 'SOL' or 'Unknown' for SPL tokens.
+ * We collect missing symbols and batch fetch from Helius DAS API.
+ */
+async function enrichSolanaTransactionSymbols(transactions: WalletTransaction[]): Promise<WalletTransaction[]> {
+  const missingMetadataMints = new Set<string>();
+  transactions.forEach(tx => {
+    if ((tx.chain === 'solana' || tx.chain === 'sol') && tx.tokenAddress && (tx.tokenSymbol === 'SOL' || tx.tokenSymbol === 'Unknown' || !tx.tokenSymbol)) {
+      // Logic: Native SOL doesn't have a tokenAddress in our system, 
+      // or its address is the native mint. So if tokenAddress exists and it's not native mint, it's an SPL token.
+      if (tx.tokenAddress !== 'So11111111111111111111111111111111111111112') {
+        missingMetadataMints.add(tx.tokenAddress);
+      }
+    }
+  });
+
+  if (missingMetadataMints.size === 0) return transactions;
+
+  try {
+    const mints = Array.from(missingMetadataMints);
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Fetching missing SPL metadata via Helius DAS', { count: mints.length, mints });
+    const assets = await helius.getAssetBatch(mints);
+
+    if (!assets || assets.length === 0) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Helius DAS returned no assets for enrichment');
+    }
+
+    const assetMap = new Map<string, string>();
+    assets.forEach(a => {
+      if (a.symbol && a.symbol !== 'UNKNOWN') {
+        assetMap.set(a.id, a.symbol);
+      }
+    });
+
+    // Update transactions with resolved symbols
+    let fixedCount = 0;
+    transactions.forEach(tx => {
+      if (tx.tokenAddress && assetMap.has(tx.tokenAddress)) {
+        const oldSymbol = tx.tokenSymbol;
+        tx.tokenSymbol = assetMap.get(tx.tokenAddress)!;
+        logger.debug(LogCode.API_FETCH_SUCCESS, `Enriched Solana symbol: ${oldSymbol} -> ${tx.tokenSymbol}`, { mint: tx.tokenAddress });
+        fixedCount++;
+      }
+    });
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Enriched Solana transactions successfully', { fixed: fixedCount });
+  } catch (err: any) {
+    logger.error(LogCode.API_FETCH_FAILED, 'Failed to enrich SPL symbols via Helius', { error: err.message, stack: err.stack });
+  }
+
+  return transactions;
+}
+
+/**
  * Get recent transactions for a wallet (formatted for feed display)
  */
 export async function getWalletTransactions(
@@ -916,9 +983,27 @@ export async function getWalletTransactions(
   const isSolana = chain.toLowerCase() === 'solana' || chain.toLowerCase() === 'sol';
 
   if (isSolana) {
-    const solTxs = await getSolanaTransactions(address, limit);
-    logger.info(LogCode.API_FETCH_SUCCESS, 'Solana transactions fetched', { count: solTxs.length });
-    return solTxs;
+    let transactions: WalletTransaction[] = [];
+    try {
+      const transfers = await getAssetTransfers(address, chain, {
+        maxCount: limit,
+        category: ['external', 'spl'] as any,
+        order: 'desc',
+      });
+      if (transfers && transfers.length > 0) {
+        transactions = convertToWalletTransactions(transfers, address, chain);
+        logger.info(LogCode.API_FETCH_SUCCESS, 'Solana transactions fetched via Asset Transfers', { count: transactions.length });
+      }
+    } catch (e: any) {
+      logger.warn(LogCode.API_FETCH_FAILED, 'Solana Asset Transfers failed, falling back to manual polling', { error: e.message });
+    }
+
+    if (transactions.length === 0) {
+      transactions = await getSolanaTransactions(address, limit);
+    }
+
+    // [Logic]: Apply centralized enrichment via Helius DAS API to fix generic symbols.
+    return await enrichSolanaTransactionSymbols(transactions);
   }
 
   // Use Alchemy's getAssetTransfers API for EVM chains (more accurate)
@@ -952,12 +1037,16 @@ export async function getWalletTransactions(
       const symbol = tx.tokenSymbol || '';
       const suspiciousPatterns = [
         'visit', 'claim', 'reward', 'airdrop', 'bonus',
-        'http', 'www', '.com', 'free', 'winner', 'unknown'
+        'http', 'www', '.com', 'free', 'winner', 'unknown',
+        'lp token', 'liquidity pool'
       ];
 
-      // Skip if symbol is suspicious
-      if (!symbol || symbol.length > 20) return false;
+      // [Logic]: Refined filtering to avoid over-blocking legitimate new tokens.
+      // If the symbol is just an address-like string or too long, it's likely garbage.
+      if (!symbol || symbol.length > 12) return false;
       const lowerSymbol = symbol.toLowerCase();
+      // Allow if it's a known symbol despite suspicious patterns (e.g., "BONUS" token that is real)
+      // But for now, we stick to strict patterns for safety.
       if (suspiciousPatterns.some(p => lowerSymbol.includes(p))) return false;
 
       return true;
@@ -1231,7 +1320,7 @@ async function fetchSolanaTokenAccounts(address: string): Promise<TokenBalance[]
 }
 
 const PRICE_CACHE_TTL_MS = 2 * 60 * 1000;
-const MAX_FALLBACK_TOKENS = 20;
+const MAX_FALLBACK_TOKENS = 50; // ✅ Increased to cover more long-tail assets
 const MAX_PRICE_TOKENS_SOLANA = 25;
 const SOL_BALANCE_CACHE_TTL_MS = 60 * 1000;
 const PORTFOLIO_TIMEOUT_MS = 12_000;
@@ -1313,30 +1402,7 @@ async function fetchAlchemyPricesByAddress(
   }
 }
 
-async function fetchFallbackTokenPrice(chain: string, address: string): Promise<number | undefined> {
-  const cached = getCachedTokenPrice(chain, address);
-  if (cached !== undefined) return cached;
-
-  const key = priceCacheKey(chain, address);
-  const inflight = tokenPriceInFlight.get(key);
-  if (inflight) return inflight;
-
-  const promise = (async () => {
-    const ds = await dexscreener.getTokenDetails(chain, address);
-    if (ds?.price && ds.price > 0) return ds.price;
-    const gt = await geckoTerminal.getTokenDetails(chain, address);
-    if (gt?.price && gt.price > 0) return gt.price;
-    return undefined;
-  })();
-
-  tokenPriceInFlight.set(key, promise);
-  const price = await promise;
-  tokenPriceInFlight.delete(key);
-  if (price !== undefined) {
-    setCachedTokenPrice(chain, address, price);
-  }
-  return price;
-}
+// [Removed] fetchFallbackTokenPrice removed to avoid rate limiting as per user request.
 
 async function fetchTokenPrices(
   apiKey: string,
@@ -1369,19 +1435,8 @@ async function fetchTokenPrices(
     });
   }
 
-  const stillMissing = missing.filter(addr => results[addr.toLowerCase()] === undefined).slice(0, MAX_FALLBACK_TOKENS);
-  const fallbackBatchSize = 5;
-  for (let i = 0; i < stillMissing.length; i += fallbackBatchSize) {
-    const batch = stillMissing.slice(i, i + fallbackBatchSize);
-    const settled = await Promise.allSettled(
-      batch.map(addr => fetchFallbackTokenPrice(chain, addr))
-    );
-    settled.forEach((entry, idx) => {
-      if (entry.status === 'fulfilled' && entry.value !== undefined) {
-        results[batch[idx].toLowerCase()] = entry.value;
-      }
-    });
-  }
+  // [Removed] External fallback logic removed to prevent rate limiting issues.
+  // If Alchemy doesn't have the price, we respect that as the source of truth.
 
   return results;
 }

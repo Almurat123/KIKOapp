@@ -90,6 +90,19 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                 (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
             const accessToken = context?.accessToken;
 
+            // Get user's wallet address for quote (required by 0x API)
+            let userWalletAddress: string | undefined;
+            try {
+                const userId = context?.userId;
+                if (userId && accessToken) {
+                    const { getEmbeddedWalletAddress } = await import('../../../services/privyWallet.js');
+                    userWalletAddress = await getEmbeddedWalletAddress(userId) || undefined;
+                    console.log('[PrepareSwapTransaction] User wallet address:', userWalletAddress?.slice(0, 10) + '...');
+                }
+            } catch (err) {
+                console.debug('[PrepareSwapTransaction] Could not get wallet address, proceeding without it');
+            }
+
             // Launch quote fetch in background (don't await yet)
             const preWarmQuotePromise = (async () => {
                 try {
@@ -107,7 +120,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                             tokenOut: args.token_out,
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
-                            slippageBps: Math.round((args.slippage || 0.5) * 100)
+                            slippageBps: Math.round((args.slippage || 0.5) * 100),
+                            userAddress: userWalletAddress // CRITICAL: Include user address for 0x API taker parameter
                         })
                     });
 

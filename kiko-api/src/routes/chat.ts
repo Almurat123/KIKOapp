@@ -270,9 +270,9 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     }
                 }
 
-                // Extract access token for backend swap execution
+                // Extract access token for backend swap execution (case-insensitive Bearer)
                 const authHeader = request.headers.authorization || '';
-                const accessToken = authHeader.replace('Bearer ', '');
+                const accessToken = authHeader.replace(/^Bearer\s+/i, '').trim();
 
                 const normalizedPageContext =
                     typeof pageContext === 'string'

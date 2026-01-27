@@ -91,9 +91,14 @@
     align-items: center;
 }
 
-/* Override SVG color in light container */
-.qrCode path {
-    fill: #000000;
+.qrPlaceholder {
+    width: 180px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #a1a1aa;
+    font-size: 14px;
 }
 
 .addressContainer {

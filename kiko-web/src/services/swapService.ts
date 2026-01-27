@@ -65,79 +65,6 @@ export async function getSwapQuote(params: SwapParams): Promise<SwapQuote | null
 }
 
 /**
- * 执行 Swap 交易 - 使用钱包直接发送交易
- * @param quote - 报价信息（必须包含 data, to, value 等交易数据）
- * @param userAddress - 用户地址
- * @param sendTransaction - wagmi 的 sendTransaction 函数
- * @returns 交易结果
- */
-export async function executeSwap(
-    quote: SwapQuote,
-    userAddress: string,
-    sendTransaction?: (args: { to: `0x${string}`; data: `0x${string}`; value?: bigint }) => Promise<`0x${string}`>
-): Promise<TradeExecutionResult> {
-    try {
-        // 检查 quote 是否包含必要的交易数据
-        if (!quote.data || !quote.to) {
-            throw new Error('Quote missing transaction data. Please get a new quote.');
-        }
-
-        // 如果提供了 sendTransaction 函数，使用钱包直接发送交易
-        if (sendTransaction) {
-            try {
-                const txHash = await sendTransaction({
-                    to: quote.to as `0x${string}`,
-                    data: quote.data as `0x${string}`,
-                    value: quote.value ? BigInt(quote.value) : undefined,
-                });
-
-                // 记录交易到后端（可选）
-                try {
-                    await fetch(`${API_BASE_URL}/api/swap/execute`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            tokenIn: quote.path[0] || '',
-                            tokenOut: quote.path[quote.path.length - 1] || '',
-                            amountIn: quote.amountIn,
-                            amountOutMin: quote.minAmountOut,
-                            chainId: 1, // TODO: Get from context
-                            userAddress,
-                            txHash,
-                        }),
-                    });
-                } catch (recordError) {
-                    console.warn('[SwapService] Failed to record transaction to backend:', recordError);
-                    // 不阻止交易成功，只是记录失败
-                }
-
-                return {
-                    success: true,
-                    txHash: txHash,
-                };
-            } catch (txError) {
-                const message = txError instanceof Error ? txError.message : 'Transaction failed';
-                console.error('[SwapService] Transaction error:', txError);
-                return {
-                    success: false,
-                    error: message,
-                };
-            }
-        }
-
-        // 如果没有提供 sendTransaction，返回错误
-        throw new Error('Wallet not connected. Please connect your wallet to execute swaps.');
-    } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error occurred';
-        console.error('[SwapService] Error executing swap:', error);
-        return {
-            success: false,
-            error: message,
-        };
-    }
-}
-
-/**
  * Execute Swap instantly using backend server-side signing (no user popup)
  * This is the preferred method for embedded wallets with instant trading enabled
  * @param params - Swap parameters
@@ -335,9 +262,13 @@ export async function checkApproval(
     userAddress: string,
     tokenAddress: string,
     requiredAmount: string,
-    chainId: number
+    chainId: number,
+    spender?: string
 ): Promise<boolean> {
     try {
+        if (!spender) {
+            return false;
+        }
         const response = await fetch(`${API_BASE_URL}/api/swap/approval-status`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -346,6 +277,7 @@ export async function checkApproval(
                 tokenAddress,
                 requiredAmount,
                 chainId,
+                spender,
             }),
         });
 
@@ -393,8 +325,6 @@ export async function getUserBalance(
                     42161: 'arbitrum',
                     10: 'optimism',
                     137: 'polygon',
-                    43114: 'avalanche',
-                    250: 'fantom',
                     900: 'solana', // Solana
                 };
                 const chain = chainIdToName[chainId] || 'eth';
@@ -543,8 +473,6 @@ export async function getWalletPortfolio(
                     42161: 'arbitrum',
                     10: 'optimism',
                     137: 'polygon',
-                    43114: 'avalanche',
-                    250: 'fantom',
                     900: 'solana', // Solana
                 };
                 const chain = chainIdToName[chainId] || 'eth';

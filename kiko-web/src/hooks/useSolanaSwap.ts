@@ -1,13 +1,13 @@
 /**
  * Solana Swap Hook
  * Manages Solana swap state and logic using Privy Solana wallet
- * Supports both embedded Privy wallets and external wallets (Phantom, Solflare, etc.)
+ * Embedded Privy wallets only
  */
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useWallets, usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets } from '@privy-io/react-auth/solana';
-import { getSolanaSwapQuote, type SolanaSwapQuote } from '@/services/solanaSwapService';
+import { getSolanaSwapQuote, executeSolanaSwap, type SolanaSwapQuote } from '@/services/solanaSwapService';
 import { getCommonTokens } from '@/services/tokenDataService';
 import type { Token } from '@/types/swap';
 
@@ -58,7 +58,6 @@ export function useSolanaSwap({
   aggregator = 'auto',
 }: UseSolanaSwapParams): UseSolanaSwapReturn {
   const { user, getAccessToken } = usePrivy();
-  const { wallets: privyWallets } = useWallets();
 
   // Get Privy embedded Solana wallets using the Solana-specific hook
   const { wallets: embeddedSolanaWallets } = useSolanaWallets();
@@ -68,15 +67,14 @@ export function useSolanaSwap({
   // Privy stores Solana wallets in linkedAccounts, not in the wallets array
   // Also include embedded Solana wallets from useSolanaWallets hook
   const allWallets = useMemo(() => {
-    const walletsFromHook = privyWallets || [];
     const walletsFromLinkedAccounts = (user?.linkedAccounts || [])
-      .filter((account: any) => account.type === 'wallet')
+      .filter((account: any) => account.type === 'wallet' && account.walletClientType === 'privy')
       .map((account: any) => ({
         address: account.address,
         chainType: account.chainType,
         walletClientType: account.walletClientType,
         connectorType: account.connectorType,
-        isEmbedded: account.walletClientType === 'privy', // Mark embedded wallets
+        isEmbedded: true,
         ...account,
       }));
 
@@ -93,19 +91,18 @@ export function useSolanaSwap({
     }));
 
     // Combine and deduplicate by address, prioritizing embedded wallets
-    const combined = [...embeddedWallets, ...walletsFromHook, ...walletsFromLinkedAccounts];
+    const combined = [...embeddedWallets, ...walletsFromLinkedAccounts];
     const uniqueWallets = combined.filter((wallet, index, self) =>
       index === self.findIndex((w) => w.address === wallet.address)
     );
 
     console.log('[useSolanaSwap] Combined wallets:', uniqueWallets.length, {
       embedded: embeddedWallets.length,
-      fromHook: walletsFromHook.length,
       fromLinked: walletsFromLinkedAccounts.length,
     });
 
     return uniqueWallets;
-  }, [privyWallets, user, embeddedSolanaWallets]);
+  }, [user, embeddedSolanaWallets]);
 
   // Filter Solana wallets from all wallets
   // Solana wallets have chainType === 'solana' or walletClientType includes 'solana'
@@ -155,8 +152,7 @@ export function useSolanaSwap({
     return filtered;
   }, [allWallets]);
 
-  // Find the active Solana wallet
-  // Prioritize embedded Privy wallets, then external wallets
+  // Find the active Solana wallet (embedded only)
   const activeWallet = useMemo(() => {
     console.log('[useSolanaSwap] ========== ACTIVE WALLET SELECTION ==========');
     console.log('[useSolanaSwap] solanaWallets count:', solanaWallets.length);
@@ -166,7 +162,7 @@ export function useSolanaSwap({
       return null;
     }
 
-    // First, check for embedded Privy wallet (these have walletInstance directly attached)
+    // Use embedded Privy wallet (these have walletInstance directly attached)
     const embeddedWallet = solanaWallets.find((w: any) => w.isEmbedded && w.walletInstance);
     if (embeddedWallet) {
       console.log('[useSolanaSwap] ✅ Using embedded Privy Solana wallet:', embeddedWallet.address);
@@ -175,53 +171,6 @@ export function useSolanaSwap({
         isEmbedded: true,
       };
     }
-
-    // Fallback to external wallet (Phantom, Solflare, etc.)
-    const solanaWalletData = solanaWallets[0];
-    const walletType = (solanaWalletData as any)?.walletClientType;
-    console.log('[useSolanaSwap] Solana wallet type:', walletType);
-    console.log('[useSolanaSwap] Solana wallet address:', solanaWalletData?.address);
-
-    // Access the actual wallet from browser window object
-    let walletInstance: any = null;
-
-    if (typeof window !== 'undefined') {
-      // Map wallet type to window object
-      if (walletType?.toLowerCase().includes('okx')) {
-        walletInstance = (window as any).okxwallet?.solana;
-        console.log('[useSolanaSwap] Accessing OKX Wallet from window.okxwallet.solana');
-      } else if (walletType?.toLowerCase().includes('phantom')) {
-        walletInstance = (window as any).phantom?.solana;
-        console.log('[useSolanaSwap] Accessing Phantom from window.phantom.solana');
-      } else if (walletType?.toLowerCase().includes('solflare')) {
-        walletInstance = (window as any).solflare;
-        console.log('[useSolanaSwap] Accessing Solflare from window.solflare');
-      } else {
-        // Fallback: try common Solana wallet objects
-        walletInstance = (window as any).solana || (window as any).phantom?.solana;
-        console.log('[useSolanaSwap] Using fallback window.solana');
-      }
-    }
-
-    if (walletInstance) {
-      console.log('[useSolanaSwap] ✅ Found external wallet instance:', walletInstance);
-      console.log('[useSolanaSwap] Wallet has signAndSendTransaction?', typeof walletInstance.signAndSendTransaction);
-      console.log('[useSolanaSwap] Wallet has signTransaction?', typeof walletInstance.signTransaction);
-      console.log('[useSolanaSwap] Wallet publicKey:', walletInstance.publicKey?.toString());
-
-      // Return a combined object with both data and methods
-      return {
-        ...solanaWalletData,
-        walletInstance,
-        address: solanaWalletData.address,
-        signAndSendTransaction: walletInstance.signAndSendTransaction?.bind(walletInstance),
-        signTransaction: walletInstance.signTransaction?.bind(walletInstance),
-        publicKey: walletInstance.publicKey,
-        isEmbedded: false,
-      };
-    }
-
-    console.error('[useSolanaSwap] ❌ Could not find wallet instance in window object');
     return null;
   }, [solanaWallets]);
 
@@ -270,7 +219,6 @@ export function useSolanaSwap({
   useEffect(() => {
     const fetchBalance = async () => {
       // For Privy embedded wallets, use address directly
-      // For external wallets, use walletInstance.publicKey
       const walletAddress = activeWallet?.address;
 
       if (!walletAddress) {
@@ -286,7 +234,7 @@ export function useSolanaSwap({
 
         const connection = new Connection(rpcUrl, 'confirmed');
 
-        // Use wallet address directly (works for both embedded and external wallets)
+        // Use wallet address directly (embedded only)
         const publicKey = new PublicKey(walletAddress);
 
         // Fetch SOL balance
@@ -342,7 +290,7 @@ export function useSolanaSwap({
     // Refresh balance every 10 seconds
     const interval = setInterval(fetchBalance, 10000);
     return () => clearInterval(interval);
-  }, [activeWallet?.walletInstance?.publicKey, state.tokenIn?.address, state.tokenIn?.decimals]);
+  }, [activeWallet?.address, state.tokenIn?.address, state.tokenIn?.decimals]);
 
   // Fetch quote when inputs change
   useEffect(() => {
@@ -453,20 +401,9 @@ export function useSolanaSwap({
     }
 
     if (!activeWallet) {
-      // Check if we have other wallets (likely EVM)
-      const hasEVMWallet = allWallets.some(w => w.address && w.address.startsWith('0x'));
-
-      const error = hasEVMWallet
-        ? 'Please connect a Solana wallet (e.g. Phantom, Solflare) to swap on Solana. Click the "Connect Solana Wallet" button.'
-        : 'No Solana wallet connected';
+      const error = 'No embedded Solana wallet found. Please sign in to create your wallet.';
 
       console.error('[useSolanaSwap]', error);
-      console.log('[useSolanaSwap] Available wallets:', allWallets.map(w => ({
-        type: (w as any).walletClientType,
-        chainType: (w as any).chainType,
-        connectorType: (w as any).connectorType,
-        address: w.address
-      })));
       setState(prev => ({
         ...prev,
         error,
@@ -489,6 +426,26 @@ export function useSolanaSwap({
     setState(prev => ({ ...prev, isExecuting: true, error: null }));
 
     try {
+      // Prefer local wallet execution if available
+      if (activeWallet?.signAndSendTransaction) {
+        const result = await executeSolanaSwap(
+          state.quote,
+          activeWallet.signAndSendTransaction,
+          activeWallet.address
+        );
+        if (result.success) {
+          setState(prev => ({
+            ...prev,
+            isExecuting: false,
+            error: null,
+            amountIn: '',
+            amountOut: '',
+            quote: null,
+          }));
+          return { success: true, txHash: result.txHash };
+        }
+      }
+
       console.log('[useSolanaSwap] Executing swap via backend auto-trade service...');
 
       // Get JWT token for authentication
@@ -543,7 +500,7 @@ export function useSolanaSwap({
       }));
       return { success: false, error: message };
     }
-  }, [state.quote, state.tokenIn, state.tokenOut, state.amountIn, activeWallet, allWallets, slippageBps, getAccessToken]);
+  }, [state.quote, state.tokenIn, state.tokenOut, state.amountIn, activeWallet, slippageBps, getAccessToken]);
 
 
   // Get available tokens for Solana
@@ -641,4 +598,3 @@ export function useSolanaSwap({
     selectQuote: (_dex: string) => { /* no-op for Solana for now */ },
   };
 }
-

@@ -68,13 +68,18 @@ export const ReceiveModal: React.FC<ReceiveModalProps> = ({
                     </p>
 
                     <div className={styles.qrContainer}>
-                        <QRCodeSVG
-                            value={walletAddress}
-                            size={180}
-                            className={styles.qrCode}
-                            bgColor="#ffffff"
-                            fgColor="#000000"
-                        />
+                        {walletAddress ? (
+                            <QRCodeSVG
+                                value={walletAddress}
+                                size={180}
+                                bgColor="#ffffff"
+                                fgColor="#000000"
+                            />
+                        ) : (
+                            <div className={styles.qrPlaceholder}>
+                                Loading...
+                            </div>
+                        )}
                     </div>
 
                     <div className={styles.addressContainer}>

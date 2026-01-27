@@ -32,7 +32,7 @@ import { validateAddress, validateAmount, validateChainId } from '../utils/valid
 import { requireAuth } from '../middleware/auth.js';
 import { getWalletBalance, getTokenBalances } from '../services/alchemy.js';
 import * as coinbaseCdpService from '../services/coinbaseCdp.js';
-import { getTransactionReceipt } from '../services/rpcManager.js';
+import { getTransactionReceipt, callRpc } from '../services/rpcManager.js';
 import prisma from '../db/prisma.js';
 import { trackSwap } from '../services/userActivityService.js';
 // REMOVED: import { runJudgeEngine } from '../services/judge/judgeEngine.js';
@@ -210,18 +210,22 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 return handleSolanaQuote(request, reply);
             }
 
+            // Resolve symbols to addresses for EVM (e.g., ETH, USDC)
+            const resolvedTokenInInput = resolveTokenAddress(tokenIn, validatedChainId);
+            const resolvedTokenOutInput = resolveTokenAddress(tokenOut, validatedChainId);
+
             // 验证地址格式（如果不是原生代币）- only for EVM chains
-            if (!isNativeToken(tokenIn)) {
-                validateAddress(tokenIn, 'tokenIn');
+            if (!isNativeToken(resolvedTokenInInput)) {
+                validateAddress(resolvedTokenInInput, 'tokenIn');
             }
-            if (!isNativeToken(tokenOut)) {
-                validateAddress(tokenOut, 'tokenOut');
+            if (!isNativeToken(resolvedTokenOutInput)) {
+                validateAddress(resolvedTokenOutInput, 'tokenOut');
             }
 
             // Normalize native token address to 0xEeee... format for 0x API permit2 endpoint
             // The 0x permit2 endpoint expects 0xEeee... for native ETH, not WETH
-            const actualTokenIn = normalizeTokenAddress(tokenIn);
-            const actualTokenOut = normalizeTokenAddress(tokenOut);
+            const actualTokenIn = normalizeTokenAddress(resolvedTokenInInput);
+            const actualTokenOut = normalizeTokenAddress(resolvedTokenOutInput);
 
             // Validate token addresses match the chain to prevent cross-chain address confusion
             const chainTokenValidation: Record<number, { invalid: string[] }> = {
@@ -239,20 +243,20 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
             const validation = chainTokenValidation[validatedChainId];
             if (validation) {
-                const tokenInLower = tokenIn.toLowerCase();
-                const tokenOutLower = tokenOut.toLowerCase();
+                const tokenInLower = actualTokenIn.toLowerCase();
+                const tokenOutLower = actualTokenOut.toLowerCase();
 
                 if (validation.invalid.includes(tokenInLower)) {
                     throw new AppError(
                         400,
-                        `Invalid tokenIn address for chain ${validatedChainId}: ${tokenIn} is not supported on this chain. This may cause incorrect token transfers.`,
+                        `Invalid tokenIn address for chain ${validatedChainId}: ${actualTokenIn} is not supported on this chain. This may cause incorrect token transfers.`,
                         'INVALID_TOKEN_ADDRESS'
                     );
                 }
                 if (validation.invalid.includes(tokenOutLower)) {
                     throw new AppError(
                         400,
-                        `Invalid tokenOut address for chain ${validatedChainId}: ${tokenOut} is not supported on this chain. This may cause incorrect token transfers.`,
+                        `Invalid tokenOut address for chain ${validatedChainId}: ${actualTokenOut} is not supported on this chain. This may cause incorrect token transfers.`,
                         'INVALID_TOKEN_ADDRESS'
                     );
                 }
@@ -344,8 +348,8 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
             // Get Best Quote (Compare 0x and Kyber)
             const { best, quotes } = await getBestQuote({
-                tokenIn,
-                tokenOut,
+                tokenIn: actualTokenIn,
+                tokenOut: actualTokenOut,
                 actualTokenIn,
                 actualTokenOut,
                 amountInBase: sellAmount,
@@ -733,7 +737,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
                 // Get user's access token from Authorization header
                 const authHeader = request.headers.authorization || '';
-                const accessToken = authHeader.replace('Bearer ', '');
+                const accessToken = authHeader.replace(/^Bearer\s+/i, '').trim();
 
                 if (!accessToken) {
                     throw new AppError(401, 'Missing access token', 'UNAUTHORIZED');
@@ -774,19 +778,18 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     const chainName = chainNameMap[validatedChainId] || 'eth';
 
                     // Check if tokenIn is native token
-                    const isNativeTokenIn = isNativeToken(tokenIn);
+                const isNativeTokenIn = isNativeToken(tokenIn);
 
-                    if (isNativeTokenIn) {
-                        // Get native balance (Now using Infura via alchemyService.getEthBalance)
-                        const walletBalance = await getWalletBalance(walletAddress, chainName);
-                        // For native tokens, we must leave some for gas, but "all" usually implies "max swappable"
-                        // However, without complex gas estimation, "all" for native is risky.
-                        // For now, we use the balance but the subsequent gas check might fail or we rely on the user understanding.
-                        // Better to subtract a fixed gas buffer if generic.
-                        // Let's rely on the straightforward logic for now, or just return the balance.
-                        resolvedAmountIn = walletBalance.ethBalanceFormatted.toString();
-                        console.log('[Swap Execute Instant] Native balance:', resolvedAmountIn);
-                    } else {
+                if (isNativeTokenIn) {
+                    // Get native balance (Now using Infura via alchemyService.getEthBalance)
+                    const walletBalance = await getWalletBalance(walletAddress, chainName);
+                    // For native tokens, leave a small gas buffer to prevent insufficient gas
+                    const isL2 = validatedChainId === 8453 || validatedChainId === 42161 || validatedChainId === 10;
+                    const gasBuffer = isL2 ? 0.0001 : 0.001;
+                    const maxSpendable = Math.max(walletBalance.ethBalanceFormatted - gasBuffer, 0);
+                    resolvedAmountIn = maxSpendable.toString();
+                    console.log('[Swap Execute Instant] Native balance:', resolvedAmountIn);
+                } else {
                         // Get token balance
                         let tokenBalances: any[] = [];
                         const chainIdNum = parseInt(validatedChainId.toString(), 10);
@@ -951,6 +954,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         amountIn: amountInAtomic,
                         slippageBps,
                         feeContext: 'swap',
+                        accessToken,
                     });
 
                     return reply.send({
@@ -1001,66 +1005,46 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 // Verify that resolvedAmountIn does not exceed actual on-chain balance
                 // This prevents TRANSFER_FROM_FAILED errors when cached/stale balance data is used
                 if (!isNativeToken(actualTokenIn)) {
-                    const rpcUrls: Record<number, string> = {
-                        1: 'https://eth.llamarpc.com',
-                        8453: 'https://mainnet.base.org',
-                        56: 'https://bsc-dataseed.bnbchain.org',
-                        42161: 'https://arb1.arbitrum.io/rpc',
-                        137: 'https://polygon-rpc.com',
-                        10: 'https://mainnet.optimism.io',
-                    };
+                    try {
+                        // ERC20 balanceOf(address) selector: 0x70a08231
+                        const ownerPadded = walletAddress.slice(2).toLowerCase().padStart(64, '0');
+                        const balanceOfData = `0x70a08231${ownerPadded}`;
 
-                    const rpcUrl = rpcUrls[validatedChainId];
-                    if (rpcUrl) {
-                        try {
-                            // ERC20 balanceOf(address) selector: 0x70a08231
-                            const ownerPadded = walletAddress.slice(2).toLowerCase().padStart(64, '0');
-                            const balanceOfData = `0x70a08231${ownerPadded}`;
+                        const balanceResult = await callRpc<string>(validatedChainId, 'eth_call', [
+                            { to: actualTokenIn, data: balanceOfData },
+                            'latest',
+                        ]);
+                        const onChainBalanceWei = BigInt(balanceResult || '0x0');
 
-                            const balanceResponse = await fetch(rpcUrl, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    jsonrpc: '2.0',
-                                    method: 'eth_call',
-                                    params: [{ to: actualTokenIn, data: balanceOfData }, 'latest'],
-                                    id: 1
-                                }),
-                            });
+                        // Convert resolvedAmountIn to Wei for comparison
+                        const requestedAmountWei = BigInt(toWei(resolvedAmountIn, tokenInDecimals));
 
-                            const balanceData = await balanceResponse.json() as { result?: string };
-                            const onChainBalanceWei = BigInt(balanceData.result || '0x0');
+                        console.log('[Swap Execute Instant] On-chain balance verification:', {
+                            token: actualTokenIn.slice(0, 10),
+                            onChainBalance: onChainBalanceWei.toString(),
+                            requestedAmount: requestedAmountWei.toString(),
+                            decimals: tokenInDecimals,
+                        });
 
-                            // Convert resolvedAmountIn to Wei for comparison
-                            const requestedAmountWei = BigInt(toWei(resolvedAmountIn, tokenInDecimals));
+                        // If requested amount exceeds on-chain balance, cap it
+                        if (requestedAmountWei > onChainBalanceWei) {
+                            console.warn('[Swap Execute Instant] AMOUNT EXCEEDS BALANCE! Capping to on-chain balance.');
 
-                            console.log('[Swap Execute Instant] On-chain balance verification:', {
-                                token: actualTokenIn.slice(0, 10),
-                                onChainBalance: onChainBalanceWei.toString(),
-                                requestedAmount: requestedAmountWei.toString(),
-                                decimals: tokenInDecimals,
-                            });
+                            // Apply safety margin (subtract 1000 base units to avoid rounding issues)
+                            const safeBalance = onChainBalanceWei > 1000n ? onChainBalanceWei - 1000n : onChainBalanceWei;
 
-                            // If requested amount exceeds on-chain balance, cap it
-                            if (requestedAmountWei > onChainBalanceWei) {
-                                console.warn('[Swap Execute Instant] AMOUNT EXCEEDS BALANCE! Capping to on-chain balance.');
+                            // Convert back to human readable
+                            const divisor = 10n ** BigInt(tokenInDecimals);
+                            const whole = safeBalance / divisor;
+                            const remainder = safeBalance % divisor;
+                            const remainderStr = remainder.toString().padStart(tokenInDecimals, '0');
+                            resolvedAmountIn = `${whole}.${remainderStr}`;
 
-                                // Apply safety margin (subtract 1000 base units to avoid rounding issues)
-                                const safeBalance = onChainBalanceWei > 1000n ? onChainBalanceWei - 1000n : onChainBalanceWei;
-
-                                // Convert back to human readable
-                                const divisor = 10n ** BigInt(tokenInDecimals);
-                                const whole = safeBalance / divisor;
-                                const remainder = safeBalance % divisor;
-                                const remainderStr = remainder.toString().padStart(tokenInDecimals, '0');
-                                resolvedAmountIn = `${whole}.${remainderStr}`;
-
-                                console.log('[Swap Execute Instant] Capped amount to:', resolvedAmountIn);
-                            }
-                        } catch (rpcError) {
-                            console.warn('[Swap Execute Instant] RPC balance check failed, proceeding with original amount:', rpcError);
-                            // Continue with original amount if RPC fails - better to try and fail with clear error
+                            console.log('[Swap Execute Instant] Capped amount to:', resolvedAmountIn);
                         }
+                    } catch (rpcError) {
+                        console.warn('[Swap Execute Instant] RPC balance check failed, proceeding with original amount:', rpcError);
+                        // Continue with original amount if RPC fails - better to try and fail with clear error
                     }
                 }
                 // ========== END BALANCE VERIFICATION ==========
@@ -1099,6 +1083,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 const swapResult = await MainSwapService.executeSwap({
                     userId,
                     walletAddress,
+                    accessToken,
                     tokenIn: actualTokenIn,
                     tokenOut: actualTokenOut,
                     amountIn: resolvedAmountIn, // Human readable
@@ -1118,27 +1103,22 @@ export async function swapRoutes(fastify: FastifyInstance) {
 
                 // Compatible response for downstream logic
                 const txHash = swapResult.txHash!;
-                const finalQuote = {
-                    amountOutBase: swapResult.amountOut || '0',
-                    dexName: (swapResult as any).method || 'unknown'
-                }; // Minimal mock for DB logging below
-
-
                 // Record trade in DB
                 const tradeRecord = await prisma.swapHistory.create({
                     data: {
                         user: { connect: { privyDid: userId } },
 
                         tokenInAddress: tokenIn,
-                        tokenInSymbol: tokenIn.slice(0, 6).toUpperCase(),
-                        tokenInAmount: amountIn,
+                        tokenInSymbol: tokenInMetadata?.symbol || tokenIn.slice(0, 6).toUpperCase(),
+                        tokenInAmount: resolvedAmountIn,
                         tokenInUsd: tokenInUsd ? parseFloat(amountIn) * tokenInUsd : 0,
 
                         tokenOutAddress: tokenOut,
-                        tokenOutSymbol: tokenOut.slice(0, 6).toUpperCase(),
-                        tokenOutAmount: finalQuote.amountOutBase,
-                        tokenOutUsd: tokenOutUsd && finalQuote.amountOutBase ?
-                            (parseFloat(finalQuote.amountOutBase) / (10 ** tokenOutDecimals)) * tokenOutUsd : 0,
+                        tokenOutSymbol: tokenOutMetadata?.symbol || tokenOut.slice(0, 6).toUpperCase(),
+                        tokenOutAmount: swapResult.amountOut || null,
+                        tokenOutUsd: tokenOutUsd && swapResult.amountOut
+                            ? (parseFloat(swapResult.amountOut) * tokenOutUsd)
+                            : 0,
 
                         chainId: validatedChainId,
                         txHash,
@@ -1160,7 +1140,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         txHash,
                         tradeId: tradeRecord.id,
                         status: 'SUCCESS',
-                        amountOut: finalQuote.amountOutBase,
+                        amountOut: swapResult.amountOut || null,
                     },
                 });
             } catch (error) {
@@ -1373,10 +1353,11 @@ export async function swapRoutes(fastify: FastifyInstance) {
             tokenAddress: string;
             requiredAmount: string;
             chainId: number;
+            spender?: string;
         }
     }>('/approval-status', async (request, reply) => {
         try {
-            const { userAddress, tokenAddress, requiredAmount, chainId } = request.body;
+            const { userAddress, tokenAddress, requiredAmount, chainId, spender } = request.body;
 
             if (!userAddress || !tokenAddress || !requiredAmount || !chainId) {
                 return reply.status(400).send({
@@ -1392,10 +1373,49 @@ export async function swapRoutes(fastify: FastifyInstance) {
             validateAmount(requiredAmount);
             validateChainId(chainId);
 
-            // ⚠️ SECURITY ALERT: Removed Math.random() mock logic.
-            // TODO: MUST implement real blockchain allowance check via ethers/web3.
-            // For now, we return false by default for safety in production.
-            const isApproved = false;
+            // Real allowance check via RPC
+            // Normalize native tokens: no approval needed
+            if (isNativeToken(tokenAddress)) {
+                return reply.send({
+                    success: true,
+                    data: {
+                        isApproved: true,
+                        userAddress,
+                        tokenAddress,
+                        chainId,
+                        message: 'Native token does not require approval',
+                    },
+                });
+            }
+
+            // ERC20 allowance(owner, spender)
+            // spender must be provided as allowanceTarget in quote; if not, we cannot check
+            if (!spender) {
+                return reply.status(400).send({
+                    success: false,
+                    error: 'spender is required for allowance check',
+                });
+            }
+            validateAddress(spender, 'spender');
+
+            // Resolve decimals for requiredAmount (human-readable)
+            let decimals = getKnownTokenDecimals(tokenAddress, chainId);
+            if (decimals === undefined) {
+                const metadata = await getZeroExTokenMetadata(tokenAddress, chainId);
+                decimals = metadata?.decimals ?? 18;
+            }
+
+            const ownerPadded = userAddress.slice(2).toLowerCase().padStart(64, '0');
+            const spenderPadded = spender.slice(2).toLowerCase().padStart(64, '0');
+            const allowanceData = `0xdd62ed3e${ownerPadded}${spenderPadded}`; // allowance(address,address)
+
+            const allowanceResult = await callRpc<string>(chainId, 'eth_call', [
+                { to: tokenAddress, data: allowanceData },
+                'latest',
+            ]);
+            const allowanceWei = BigInt(allowanceResult || '0x0');
+            const requiredWei = BigInt(toWei(requiredAmount, decimals));
+            const isApproved = allowanceWei >= requiredWei;
 
             return reply.send({
                 success: true,

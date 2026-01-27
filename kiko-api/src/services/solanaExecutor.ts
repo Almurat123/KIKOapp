@@ -16,10 +16,11 @@ export interface SolanaSwapParams {
     amountIn: string; // Atomic units (lamports/etc)
     slippageBps?: number;
     feeContext?: FeeContext;
+    accessToken?: string;
 }
 
 export async function executeSolanaSwap(params: SolanaSwapParams): Promise<string> {
-    const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 300 } = params;
+    const { userId, tokenInMint, tokenOutMint, amountIn, slippageBps = 300, accessToken } = params;
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
@@ -56,6 +57,9 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
             const blockhashConnection = getSolanaConnection();
             const { blockhash } = await blockhashConnection.getLatestBlockhash('finalized');
 
+            if (feeLamports > BigInt(Number.MAX_SAFE_INTEGER)) {
+                throw new AppError(400, 'Solana fee amount too large', 'FEE_TRANSFER_FAILED');
+            }
             const ix = SystemProgram.transfer({
                 fromPubkey: payer,
                 toPubkey: recipient,
@@ -77,7 +81,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
                 recipient: fee.solanaRecipient,
             });
 
-            await sendSolanaTransaction(userId, feeTxB64);
+            await sendSolanaTransaction(userId, feeTxB64, accessToken);
 
             effectiveAmountIn = (amountBI - feeLamports).toString();
         }
@@ -156,7 +160,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
                 createdAta: !destInfo,
             });
 
-            await sendSolanaTransaction(userId, feeTxB64);
+            await sendSolanaTransaction(userId, feeTxB64, accessToken);
 
             effectiveAmountIn = (amountBI - feeAmount).toString();
         }
@@ -214,7 +218,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     // Reserialize to base64
     const freshTransactionBase64 = Buffer.from(transaction.serialize()).toString('base64');
 
-    const signature = await sendSolanaTransaction(userId, freshTransactionBase64);
+    const signature = await sendSolanaTransaction(userId, freshTransactionBase64, accessToken);
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Transaction sent', { signature });
 

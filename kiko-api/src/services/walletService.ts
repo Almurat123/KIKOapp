@@ -78,13 +78,34 @@ export const walletService = {
         });
 
         if (user) {
-            const allowed =
+            const isAddressMatch =
                 user.walletAddress.toLowerCase() === normalizedAddress ||
-                user.solanaWalletAddress?.toLowerCase() === normalizedAddress;
-            accessCache.set(cacheKey, { timestamp: Date.now(), allowed });
-            if (allowed) console.log('[verifyAccess] ✅ Access granted');
-            else console.log('[verifyAccess] ❌ Access denied (address mismatch)');
-            return allowed;
+                user.solanaWalletAddress?.toLowerCase() === normalizedAddress ||
+                // Solana addresses are base58 (case-sensitive), but we normalize to be safe for legacy/db consistency.
+                // Re-checking against raw address for Solana specifically.
+                user.solanaWalletAddress === address;
+
+            if (isAddressMatch) {
+                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
+                console.log('[verifyAccess] ✅ Access granted');
+                return true;
+            }
+
+            // [Logic]: Auto-link Solana wallet if missing but requested by authorized user.
+            const isSolanaAddress = !isEvmAddress && address.length >= 32 && address.length <= 44;
+            if (isSolanaAddress && !user.solanaWalletAddress) {
+                console.log('[verifyAccess] 🔄 Auto-linking Solana wallet for user:', { userId, address });
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: { solanaWalletAddress: address }
+                });
+                accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
+                return true;
+            }
+
+            console.log('[verifyAccess] ❌ Access denied (address mismatch)');
+            accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+            return false;
         } else {
             console.log('[verifyAccess] ❌ User not found');
             if (!isEvmAddress) {

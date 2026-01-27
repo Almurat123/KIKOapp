@@ -18,9 +18,7 @@ export interface RaydiumToken {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const FALLBACK_RPCS = [
-    `${API_BASE_URL}/api/rpc/solana`,                 // Backend Solana Proxy
-    'https://solana-rpc.publicnode.com',              // PublicNode (free, CORS enabled)
-    'https://solana.drpc.org',                        // DRPC (free, CORS enabled)
+    `${API_BASE_URL}/api/rpc/solana`,                 // Backend Solana Proxy (private)
 ].filter(Boolean) as string[];
 
 /**

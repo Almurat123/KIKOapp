@@ -274,6 +274,10 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         }
     }
 
+    if (!availableQuotes.length) {
+        return { best: null as any, quotes };
+    }
+
     // Otherwise sort by highest return from available quotes
     availableQuotes.sort((a, b) => {
         const valA = BigInt(a.amountOutBase || '0');

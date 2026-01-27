@@ -575,8 +575,7 @@ export class ChatWorker {
             }
 
             // Fallback to chain-specific getTokenInfo (internal detector fallback)
-            // Use 101 for Solana to match tokenDetector's mapping
-            const specificInfo = await getTokenInfo(token, chainId === 900 ? 101 : chainId);
+            const specificInfo = await getTokenInfo(token, chainId);
             if (specificInfo && specificInfo.symbol && specificInfo.symbol !== 'UNKNOWN') {
                 return specificInfo.symbol.toUpperCase();
             }
@@ -1137,7 +1136,7 @@ export class ChatWorker {
                     // Detect if this is a SELL or BUY operation from user message
                     const isSellOperation = /\b(sell|卖)\b/i.test(lastUserMessage);
                     const isBuyOperation = /\b(buy|买|purchase|get)\b/i.test(lastUserMessage);
-                    const isSolana = chainId === 900 || chainId === 101;
+                    const isSolana = chainId === 900;
                     const isBsc = chainId === 56 || /\bBNB\b/i.test(lastUserMessage);
                     const nativeToken = isSolana ? 'SOL' : (isBsc ? 'BNB' : 'ETH');
 
@@ -1302,21 +1301,31 @@ export class ChatWorker {
                     const { createMessage, updateMessage } = await import('../repositories/chatRepository.js');
                     const { chatWS } = await import('../services/chatWebSocket.js');
 
+                    // Resolve token symbols for display
+                    const tokenInSymbol = await this.resolveTokenSymbol(tokenIn, chainId);
+                    const tokenOutSymbol = await this.resolveTokenSymbol(tokenOut, chainId);
+
                     const transactionMessage = await createMessage(
                         task.sessionId,
                         'assistant',
-                        JSON.stringify({
-                            type: 'transaction_card',
-                            status: 'pending',
-                            swapType: 'buy',
-                            tokenIn,
-                            tokenOut,
-                            amountIn,
-                            chainId,
-                            startedAt: Date.now(),
-                            message: '⏳ Initiating fast swap...'
-                        }),
-                        { type: 'transaction_card' }
+                        '',
+                        {
+                            type: 'transaction-status-card',
+                            data: {
+                                status: 'pending',
+                                swapType: 'buy',
+                                tokenIn,
+                                tokenOut,
+                                tokenInSymbol,
+                                tokenOutSymbol,
+                                amountIn,
+                                chainId,
+                                startedAt: Date.now(),
+                                message: '⏳ Initiating fast swap...',
+                                isLoading: true
+                            },
+                            status: 'streaming'
+                        }
                     );
 
                     logger.info(LogCode.AI_ORCHESTRATOR, 'Created transaction card for fast swap', {
@@ -1331,11 +1340,19 @@ export class ChatWorker {
                             type: 'client_action',
                             sessionId: task.sessionId,
                             data: {
+                                targetMessageId: transactionMessage.id,
                                 action: {
-                                    type: 'transaction_update',
-                                    messageId: transactionMessage.id,
-                                    status: 'pending',
-                                    data: { tokenIn, tokenOut, amountIn }
+                                    type: 'show_transaction_status_card',
+                                    data: {
+                                        status: 'pending',
+                                        tokenIn,
+                                        tokenOut,
+                                        tokenInSymbol,
+                                        tokenOutSymbol,
+                                        amountIn,
+                                        chainId,
+                                        isLoading: true
+                                    }
                                 }
                             }
                         });
@@ -1360,20 +1377,27 @@ export class ChatWorker {
 
                     // ⚡ Update transaction message with final result
                     const finalStatus = swapResult.success ? 'success' : 'failed';
-                    const messageContent = JSON.parse(transactionMessage.content);
+                    const messageData = transactionMessage.data ? JSON.parse(transactionMessage.data) : {};
+                    const formattedAmountOut = swapResult.amountOut
+                        ? parseFloat(swapResult.amountOut).toLocaleString('en-US', { maximumFractionDigits: 6 })
+                        : undefined;
 
                     await updateMessage(transactionMessage.id, {
-                        content: JSON.stringify({
-                            ...messageContent,
+                        data: {
+                            ...messageData,
                             status: finalStatus,
                             txHash: swapResult.txHash,
+                            amountOut: formattedAmountOut,
                             error: swapResult.error,
+                            errorMessage: swapResult.error,
                             completedAt: Date.now(),
-                            duration: Date.now() - messageContent.startedAt,
+                            duration: Date.now() - (messageData.startedAt || Date.now()),
                             message: finalStatus === 'success'
                                 ? `✅ Fast swap completed! ${swapResult.txHash?.slice(0, 10)}...`
-                                : `❌ Swap failed: ${swapResult.error}`
-                        })
+                                : `❌ Swap failed: ${swapResult.error}`,
+                            isLoading: false
+                        },
+                        status: 'complete'
                     });
 
                     // Broadcast final status via WebSocket
@@ -1382,12 +1406,23 @@ export class ChatWorker {
                             type: 'client_action',
                             sessionId: task.sessionId,
                             data: {
+                                targetMessageId: transactionMessage.id,
                                 action: {
-                                    type: 'transaction_complete',
-                                    messageId: transactionMessage.id,
-                                    status: finalStatus,
-                                    txHash: swapResult.txHash,
-                                    error: swapResult.error
+                                    type: 'show_transaction_status_card',
+                                    data: {
+                                        status: finalStatus,
+                                        txHash: swapResult.txHash,
+                                        amountOut: formattedAmountOut,
+                                        error: swapResult.error,
+                                        errorMessage: swapResult.error,
+                                        tokenIn,
+                                        tokenOut,
+                                        tokenInSymbol,
+                                        tokenOutSymbol,
+                                        amountIn,
+                                        chainId,
+                                        isLoading: false
+                                    }
                                 }
                             }
                         });
@@ -3303,7 +3338,6 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                             10: 'optimism',
                             137: 'polygon',
                             900: 'solana',
-                            101: 'solana',
                         };
                         return chainIdToDex[detectedChainId || task.toolContext?.chainId || 8453] || 'base';
                     })();

@@ -10,7 +10,7 @@ import { getTokenInfo } from '../../tokenService.js';
 
 export class JupiterProvider extends BaseSwapProvider {
     readonly name = 'jupiter';
-    readonly supportedChains = [900, 101, -1];
+    readonly supportedChains = [900];
 
     async getQuote(request: SwapRequest): Promise<SwapQuote | null> {
         try {
@@ -21,7 +21,7 @@ export class JupiterProvider extends BaseSwapProvider {
             const tokenOutMint = request.tokenOut;
 
             // Fetch actual decimals
-            const tokenInInfo = await getTokenInfo(tokenInMint, 101);
+            const tokenInInfo = await getTokenInfo(tokenInMint, 900);
             const decimals = tokenInInfo?.decimals ?? (request.isSell ? 6 : 9);
             const amountInLamports = Math.floor(parseFloat(request.amountIn) * Math.pow(10, decimals)).toString();
 

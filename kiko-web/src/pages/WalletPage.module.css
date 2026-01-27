@@ -80,6 +80,38 @@
   margin: 0;
 }
 
+/* Authorization banner */
+.authorizationBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 20px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 184, 0, 0.12);
+  border: 1px solid rgba(255, 184, 0, 0.35);
+}
+
+.authorizationText {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.authorizationButton {
+  background: var(--accent-color);
+  color: #fff;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.authorizationButton:hover {
+  filter: brightness(1.05);
+}
+
 /* Removed manual overrides - simplified to use vars */
 
 /* Main Layout */
@@ -630,7 +662,49 @@
   height: 32px;
   border-radius: 50%;
   object-fit: cover;
-  background: #f2f4f7;
+  background: var(--bg-secondary, #f2f4f7);
+  display: block;
+}
+
+.tokenLogoWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.chainBadge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid #18181b; /* Match theme background */
+  background: #18181b;
+  z-index: 2;
+  object-fit: contain;
+}
+
+:global(.light) .chainBadge {
+  border-color: #ffffff;
+  background: #ffffff;
+}
+
+.tokenIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-secondary, #f2f4f7);
+  color: var(--text-secondary, #64748b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
 }
 
 /* Removed manual overrides - simplified to use vars */

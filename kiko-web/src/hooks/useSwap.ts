@@ -5,9 +5,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
-import { useWriteContract, useSendTransaction, useSwitchChain, useChainId, usePublicClient } from 'wagmi';
-import { formatUnits, erc20Abi } from 'viem';
-import type { Address } from 'viem';
+import { formatUnits } from 'viem';
 import type { Token, SwapState, PriceData, SwapQuote } from '@/types/swap';
 import {
   checkApproval,
@@ -69,14 +67,6 @@ function tokenDataToToken(tokenData: TokenData): Token {
 
 // AggregatedQuotePayload is now just SwapQuote
 
-function toBaseUnits(value: string, decimals: number): string {
-  const [integerPart = '0', fractionalPart = ''] = value.split('.');
-  const padded = (fractionalPart + '0'.repeat(decimals)).slice(0, decimals);
-  const whole = BigInt(integerPart || '0');
-  const fraction = padded ? BigInt(padded) : 0n;
-  return (whole * 10n ** BigInt(decimals) + fraction).toString();
-}
-
 function normalizeAggregatorQuote(
   agg: AggregatorQuote,
   amountIn: string,
@@ -123,15 +113,6 @@ export function useSwap(options: UseSwapOptions = {}) {
     initialQuote,
     maxPriceImpact,
   } = options;
-
-
-
-  // Wagmi hooks for transaction execution
-  const { writeContractAsync } = useWriteContract();
-  const { sendTransactionAsync } = useSendTransaction();
-  const { switchChainAsync } = useSwitchChain();
-  const currentChainId = useChainId();
-  const publicClient = usePublicClient();
 
   // Use Privy to track authentication state
   const { authenticated } = usePrivy();
@@ -411,28 +392,9 @@ export function useSwap(options: UseSwapOptions = {}) {
 
     try {
       let balance = 0n;
-
-      // Use direct RPC fetch if available (faster and more reliable than backend for fresh swaps)
-      if (publicClient) {
-        const isNative = fetchingForToken === '0x0000000000000000000000000000000000000000' ||
-          fetchingForToken === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
-
-        if (isNative) {
-          balance = await publicClient.getBalance({ address: userAddress as Address });
-        } else {
-          balance = await publicClient.readContract({
-            address: fetchingForToken as Address,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [userAddress as Address]
-          }) as bigint;
-        }
-      } else {
-        // Fallback to API
-        const apiBalance = await getUserBalance(userAddress, fetchingForToken, chainId, state.tokenIn.decimals);
-        if (apiBalance) {
-          balance = BigInt(apiBalance);
-        }
+      const apiBalance = await getUserBalance(userAddress, fetchingForToken, chainId, state.tokenIn.decimals);
+      if (apiBalance) {
+        balance = BigInt(apiBalance);
       }
 
       // RACE CONDITION FIX: Check if token has changed since we started the fetch
@@ -448,7 +410,7 @@ export function useSwap(options: UseSwapOptions = {}) {
         token: state.tokenIn.symbol,
         balance: balance.toString(),
         formatted,
-        isRPC: !!publicClient
+        isRPC: false
       });
 
       setUserBalance(prev => {
@@ -475,11 +437,11 @@ export function useSwap(options: UseSwapOptions = {}) {
         }, delay);
       }
     }
-  }, [userAddress, state.tokenIn?.address, chainId, publicClient]);
+  }, [userAddress, state.tokenIn?.address, chainId]);
 
 
   const checkUserApproval = useCallback(async () => {
-    if (!userAddress || !state.tokenIn) return;
+    if (!userAddress || !state.tokenIn || !state.quote?.allowanceTarget) return;
 
     // Don't check approval if amount is empty or zero (would cause 400 error)
     const amountNum = parseFloat(state.amountIn || '0');
@@ -488,7 +450,13 @@ export function useSwap(options: UseSwapOptions = {}) {
     }
 
     try {
-      const isApproved = await checkApproval(userAddress, state.tokenIn.address, state.amountIn, chainId);
+      const isApproved = await checkApproval(
+        userAddress,
+        state.tokenIn.address,
+        state.amountIn,
+        chainId,
+        state.quote.allowanceTarget
+      );
       setState(prev => {
         // Only update if approval status actually changed
         if (prev.isApproved !== isApproved) {
@@ -606,7 +574,11 @@ export function useSwap(options: UseSwapOptions = {}) {
 
   const setAmountIn = useCallback((amount: string) => {
     const sanitized = amount.replace(/[^\d.]/g, '');
-    setState(prev => ({ ...prev, amountIn: sanitized, error: null }));
+    const parts = sanitized.split('.');
+    const normalized = parts.length > 2
+      ? `${parts[0]}.${parts.slice(1).join('')}`
+      : sanitized;
+    setState(prev => ({ ...prev, amountIn: normalized, error: null }));
   }, []);
 
   const swapTokens = useCallback(() => {
@@ -631,45 +603,9 @@ export function useSwap(options: UseSwapOptions = {}) {
   }, []);
 
   const approveToken = useCallback(async () => {
-    if (!state.tokenIn || !state.amountIn || !userAddress || !state.quote?.allowanceTarget) {
-      console.error('Missing prerequisites for approval');
-      return { success: false, error: 'Cannot approve: Missing token or allowance target' };
-    }
-
-    setState(prev => ({ ...prev, isExecuting: true, error: null }));
-
-    try {
-      // Approve just-in-time amount with small buffer (5%) instead of infinite
-      const decimals = state.tokenIn.decimals ?? 18;
-      const amountBaseUnits = toBaseUnits(state.amountIn || '0', decimals);
-      const buffered = BigInt(amountBaseUnits || '0') * 105n / 100n; // +5%
-      const approveAmount = buffered > 0n ? buffered : 0n;
-
-      const approvalTx = await writeContractAsync({
-        address: state.tokenIn.address as Address,
-        abi: erc20Abi,
-        functionName: 'approve',
-        args: [state.quote.allowanceTarget as Address, approveAmount],
-        gas: 100000n,
-      });
-
-      logger.swap('approve', { token: state.tokenIn.symbol, tx: approvalTx });
-
-      // Wait for 3s (Should effectively wait for receipt in real app)
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      // Re-check approval immediately
-      await checkUserApproval();
-
-      setState(prev => ({ ...prev, isExecuting: false, isApproved: true }));
-      return { success: true, txHash: approvalTx };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Approval failed';
-      console.error('[approveToken] failed:', error);
-      setState(prev => ({ ...prev, error: `Approval failed: ${message}`, isExecuting: false }));
-      return { success: false, error: message };
-    }
-  }, [state.tokenIn, state.amountIn, state.quote, userAddress, writeContractAsync, checkUserApproval]);
+    setState(prev => ({ ...prev, error: 'Approvals are handled automatically during swap execution.' }));
+    return { success: false, error: 'Approvals are handled automatically during swap execution.' };
+  }, []);
 
   const executeSwap = useCallback(async () => {
     if (!state.quote || !userAddress) {
@@ -713,87 +649,10 @@ export function useSwap(options: UseSwapOptions = {}) {
         };
       }
 
-      // If instant trading failed (e.g., not configured, external wallet), fall back to wagmi
-      console.log('[useSwap] Instant swap failed, falling back to wagmi:', instantResult.error);
-
-      // Check if token approval is needed (for ERC-20 tokens, not native tokens)
-      const isNativeToken = state.tokenIn.address === '0x0000000000000000000000000000000000000000' ||
-        state.tokenIn.address === '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' ||
-        !state.tokenIn.address;
-
-      if (!isNativeToken && state.quote.allowanceTarget) {
-        // Check current allowance
-        const currentAllowance = await checkApproval(
-          userAddress,
-          state.tokenIn.address,
-          state.amountIn,
-          chainId
-        );
-
-        if (!currentAllowance) {
-          setState(prev => ({ ...prev, error: 'Token not approved. Please approve first.', isExecuting: false }));
-          return { success: false, error: 'Token not approved. Please approve first.' };
-        }
-      }
-
-      // Execute swap transaction
-      if (!state.quote.data || !state.quote.to) {
-        throw new Error('Quote missing transaction data. Please get a new quote.');
-      }
-
-      // Ensure we're on the correct chain before executing the transaction
-      // This prevents wagmi from displaying the wrong token symbol (e.g., BASE_ETH on BSC)
-      if (currentChainId !== chainId) {
-        if (switchChainAsync) {
-          try {
-            await switchChainAsync({ chainId });
-            // Wait a bit for chain switch to complete
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          } catch (switchError) {
-            const switchMsg = switchError instanceof Error ? switchError.message : 'Failed to switch chain';
-            const chainNames: Record<number, string> = {
-              1: 'Ethereum', 56: 'BSC', 8453: 'Base', 42161: 'Arbitrum',
-              137: 'Polygon', 10: 'Optimism', 43114: 'Avalanche', 250: 'Fantom',
-            };
-            const targetChain = chainNames[chainId] || `Chain ${chainId}`;
-            const currentChain = chainNames[currentChainId] || `Chain ${currentChainId}`;
-            setState(prev => ({ ...prev, error: `Please switch your wallet from ${currentChain} to ${targetChain}. ${switchMsg}`, isExecuting: false }));
-            return { success: false, error: `Please switch your wallet from ${currentChain} to ${targetChain}. ${switchMsg}` };
-          }
-        } else {
-          const chainNames: Record<number, string> = {
-            1: 'Ethereum', 56: 'BSC', 8453: 'Base', 42161: 'Arbitrum',
-            137: 'Polygon', 10: 'Optimism', 43114: 'Avalanche', 250: 'Fantom',
-          };
-          const targetChain = chainNames[chainId] || `Chain ${chainId}`;
-          setState(prev => ({ ...prev, error: `Please switch your wallet to ${targetChain}`, isExecuting: false }));
-          return { success: false, error: `Please switch your wallet to ${targetChain}` };
-        }
-      }
-
-      // Use wagmi sendTransaction to send the raw transaction
-      // Specify chainId to ensure wagmi uses the correct chain for token symbol display
-      const txHash = await sendTransactionAsync({
-        chainId, // Explicitly specify chainId to prevent wrong token symbol display
-        to: state.quote.to as Address,
-        data: state.quote.data as `0x${string}`,
-        value: state.quote.value ? BigInt(state.quote.value) : 0n,
-        // Pass gas estimate if available to prevent "intrinsic gas too low" errors
-        // Add 20% buffer to the estimate for safety
-        gas: state.quote.gasEstimate ? BigInt(Math.ceil(state.quote.gasEstimate * 1.2)) : undefined,
-      });
-      logger.swap('execute', { txHash });
-
-      // Record transaction to backend (optional)
-      // Note: We already executed the transaction above, so we don't need to call executeSwapService again
-      // which would try to execute the transaction a second time.
-
-      setState(prev => ({ ...prev, isExecuting: false, amountIn: '0', amountOut: '0', quote: null }));
-      await fetchUserBalance();
-      return {
-        success: true,
-        txHash: txHash,
-      };
+      const errorMessage = instantResult.error || 'Instant swap failed. Please try again later.';
+      console.log('[useSwap] Instant swap failed:', errorMessage);
+      setState(prev => ({ ...prev, isExecuting: false, error: errorMessage }));
+      return { success: false, error: errorMessage };
     } catch (error) {
       console.error('[executeSwap] Transaction failed:', error);
       const message = error instanceof Error ? error.message : 'Failed to execute swap';
@@ -801,7 +660,7 @@ export function useSwap(options: UseSwapOptions = {}) {
       logger.swap('fail', { error: message });
       return { success: false, error: message };
     }
-  }, [state.quote, state.tokenIn, state.tokenOut, state.amountIn, userAddress, chainId, writeContractAsync, sendTransactionAsync, switchChainAsync, currentChainId, fetchUserBalance]);
+  }, [state.quote, state.tokenIn, state.tokenOut, state.amountIn, userAddress, chainId, fetchUserBalance, slippageBps, maxPriceImpact]);
 
   const getDisplayInfo = useCallback(() => {
     // Ensure we have valid token symbols - never show 'UNKNOWN' or empty

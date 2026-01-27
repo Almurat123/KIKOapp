@@ -10,7 +10,7 @@ import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 
 export class SolanaExecutor implements SwapExecutor {
-    private readonly SOLANA_CHAINS = [900, 101, -1];
+    private readonly SOLANA_CHAINS = [900];
 
     supportsChain(chainId: number): boolean {
         return this.SOLANA_CHAINS.includes(chainId);

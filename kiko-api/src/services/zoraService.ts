@@ -1,4 +1,19 @@
 import * as zoraSdk from "@zoralabs/coins-sdk";
+// Define minimal SDK types to avoid 'any'
+interface ZoraSDK {
+    getCoin: (params: { address: string; chain: number }) => Promise<any>;
+    getProfile: (params: { identifier: string }) => Promise<any>;
+    getProfileSocial: (params: { query: { identifier: string } }) => Promise<any>;
+    createTradeCall: (params: any) => Promise<any>; // Complex types, keeping any for now for TradeCall
+    setApiKey: (key: string) => void;
+    getCoinsTopGainers: (params: { count: number }) => Promise<any>;
+    getCoinsTopVolume24h: (params: { count: number }) => Promise<any>;
+    getCoinsNew: (params: { count: number }) => Promise<any>;
+    getCreatorCoins: (params: { count: number }) => Promise<any>;
+    getProfileBalances: (params: { identifier: string; count: number }) => Promise<any>;
+    // Add other methods as needed
+}
+
 const {
     getCoin,
     getProfile,
@@ -6,11 +21,11 @@ const {
     setApiKey,
     getCoinsTopGainers,
     getCoinsTopVolume24h,
-    getCoinsMostValuable,
     getCoinsNew,
+    getCreatorCoins,
     getProfileBalances,
     getProfileSocial
-} = zoraSdk as any;
+} = zoraSdk as unknown as ZoraSDK;
 import { ethers } from "ethers";
 import { logger } from "../utils/logger.js";
 import { LogCode } from "../config/logRegistry.js";
@@ -350,6 +365,57 @@ export class ZoraService {
             return Array.isArray(edges) ? edges.map((edge: any) => edge.node) : [];
         } catch (error: any) {
             logger.error(LogCode.API_FETCH_FAILED, 'Error fetching Zora new coins', { error: error.message });
+            return [];
+        }
+    }
+
+    /**
+     * Get coins launched by new creators
+     * Docs: https://docs.zora.co/coins/sdk/queries/explore#getcreatorcoins
+     */
+    async getNewCreatorCoins(limit: number = 20) {
+        try {
+            if (typeof getCreatorCoins !== 'function') return [];
+            const response = await getCreatorCoins({ count: limit });
+            const edges = response?.data?.exploreList?.edges || [];
+            return Array.isArray(edges) ? edges.map((edge: any) => edge.node) : [];
+        } catch (error: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Error fetching Zora new creator coins', { error: error.message });
+            return [];
+        }
+    }
+
+    /**
+     * Get combined list of new coins from both "New Coins" (all types) and "Creator Coins" (new creators).
+     * This ensures we cover both:
+     * 1. New creators launching their first coin (getCreatorCoins)
+     * 2. Existing creators launching new coins (getNewCoins - filtered)
+     */
+    async getCombinedNewCoins(limit: number = 20): Promise<any[]> {
+        try {
+            // Run both requests in parallel
+            const [newCoins, creatorCoins] = await Promise.all([
+                this.getNewCoins(limit),
+                this.getNewCreatorCoins(limit)
+            ]);
+
+            // Deduplicate by address
+            const coinMap = new Map<string, any>();
+
+            // Add all coins to map
+            [...newCoins, ...creatorCoins].forEach(coin => {
+                if (coin && coin.address) {
+                    coinMap.set(coin.address.toLowerCase(), coin);
+                }
+            });
+
+            // Convert back to array
+            return Array.from(coinMap.values());
+
+        } catch (error: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Error fetching combined Zora coins', { error: error.message });
+            // Fallback: try at least one source if the combined failed (though unlikely if specific methods handle errors)
+            // Since individual methods catch errors and return [], we likely just got strict [] here if both failed.
             return [];
         }
     }

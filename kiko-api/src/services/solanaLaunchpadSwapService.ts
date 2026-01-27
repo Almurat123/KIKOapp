@@ -180,6 +180,9 @@ export class SolanaLaunchpadSwapService {
                 if (feeLamports > BigInt(0) && lamports > feeLamports) {
                     const recipient = new PublicKey(fee.solanaRecipient);
                     const recentBlockhash = await connection.getLatestBlockhash();
+                    if (feeLamports > BigInt(Number.MAX_SAFE_INTEGER)) {
+                        throw new Error('Solana fee amount too large');
+                    }
                     const messageV0 = new TransactionMessage({
                         payerKey: userPubkey,
                         recentBlockhash: recentBlockhash.blockhash,

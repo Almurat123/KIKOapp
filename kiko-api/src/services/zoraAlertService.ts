@@ -68,8 +68,8 @@ export class ZoraAlertService {
      * Fetch new coins from API and check for high-value creators
      */
     private async checkNewCoins() {
-        // Fetch latest 20 coins
-        const coins = await zoraService.getNewCoins(20);
+        // Fetch combined list: New Creators + Existing Creators with New Coins
+        const coins = await zoraService.getCombinedNewCoins(20);
 
         if (!coins || coins.length === 0) return;
 
