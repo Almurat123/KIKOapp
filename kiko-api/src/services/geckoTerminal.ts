@@ -365,6 +365,14 @@ export async function getTokenDetails(
 
     const duration = Date.now() - startTime;
 
+    // CRITICAL FIX: Ensure all numeric fields are parsed as numbers, not strings
+    // GeckoTerminal API sometimes returns numbers as strings
+    const parseNumber = (val: any): number | undefined => {
+      if (val === null || val === undefined) return undefined;
+      const num = parseFloat(String(val));
+      return isNaN(num) ? undefined : num;
+    };
+
     const result = {
       address: address,
       name: tokenMeta.name || '',
@@ -377,9 +385,9 @@ export async function getTokenDetails(
       priceChange1h: priceChange1h,
       priceChange6h: priceChange6h,
       priceChange24h: priceChange24h,
-      volume24h: attributes.volume_usd?.h24,
-      liquidity: attributes.reserve_in_usd,
-      fdv: attributes.fdv_usd,
+      volume24h: parseNumber(attributes.volume_usd?.h24),
+      liquidity: parseNumber(attributes.reserve_in_usd),
+      fdv: parseNumber(attributes.fdv_usd),
     };
 
     // Update cache
