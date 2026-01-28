@@ -64,6 +64,10 @@ export async function getFarcasterUser(fid: number, includeCasts: boolean = true
         // 1. Get User Profile
         const userData = await getUserDataByFid(fid);
 
+        if (!userData) {
+            throw new Error(`User with FID ${fid} not found`);
+        }
+
         // Map consistent with API response
         const userProfile = {
             fid: userData.fid,

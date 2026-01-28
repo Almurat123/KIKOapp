@@ -2,6 +2,11 @@ import { Tool } from '../../../tools/registry.js';
 import prisma from '../../../db/prisma.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../../../services/alchemyWebhookService.js';
 import { normalizeAddress, isSolanaAddress } from '../../../utils/address.js';
+import { validateAddress } from '../../../utils/validation.js';
+import { callRpc } from '../../../services/rpcManager.js';
+import { getSolanaConnection } from '../../../config/solanaConfig.js';
+import { TOKEN_PROGRAM_ID } from '../../../utils/solanaToken.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 
 // --- Tool Definitions ---
 
@@ -67,6 +72,11 @@ export const CreateCopyTradeConfigTool: Tool = {
         try {
             console.log('[Tool] create_copy_trade_config called:', { userId, ...args });
 
+            // Validate address format early
+            if (!validateAddress(args.target_wallet)) {
+                throw new Error('Invalid target wallet address');
+            }
+
             // Determine Chain ID
             let chainId = args.chain_id;
             if (!chainId) {
@@ -100,6 +110,27 @@ export const CreateCopyTradeConfigTool: Tool = {
             }
 
             const normalizedWallet = normalizeAddress(args.target_wallet);
+
+            // Prevent token/contract addresses from being used as copytrade targets
+            if (chainId === 900) {
+                const connection = getSolanaConnection();
+                const pubkey = new PublicKey(normalizedWallet);
+                const info = await connection.getAccountInfo(pubkey, 'confirmed');
+                if (!info) {
+                    throw new Error('Solana address not found on-chain.');
+                }
+                if (info.owner.equals(TOKEN_PROGRAM_ID)) {
+                    throw new Error('Solana address is a token mint/account. Please provide a wallet address.');
+                }
+                if (!info.owner.equals(SystemProgram.programId)) {
+                    throw new Error('Solana address is a program address. Please provide a wallet address.');
+                }
+            } else if (normalizedWallet.startsWith('0x')) {
+                const code = await callRpc<string>(chainId, 'eth_getCode', [normalizedWallet, 'latest']);
+                if (code && code !== '0x' && code !== '0x0') {
+                    throw new Error('Target address is a contract. Please provide a wallet (EOA) address.');
+                }
+            }
 
             // --- Check for existing configuration to prevent duplication ---
             const existingConfig = await prisma.copyTradeConfig.findFirst({

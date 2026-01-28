@@ -465,6 +465,24 @@ async function processBuyWithInfo(
                     userId: config.userId,
                     token: tokenToBuy
                 });
+
+                // Send skip notification to user via Farcaster DC
+                await notificationService.sendNotification({
+                    userId: config.userId,
+                    farcasterFid: config.user.farcasterFid,
+                    type: 'COPY_TRADE_SKIPPED',
+                    data: {
+                        tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                        tokenAddress: tokenToBuy,
+                        targetWallet: targetWallet,
+                        chainId: chainId,
+                        skipReason: filterResult.reason,
+                        targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                        marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                        liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                    }
+                });
+
                 continue;
             }
 
@@ -505,6 +523,25 @@ async function processBuyWithInfo(
                                     targetSwapValueUsd,
                                     estimatedOut
                                 });
+
+                                // Send skip notification for price deviation
+                                await notificationService.sendNotification({
+                                    userId: config.userId,
+                                    farcasterFid: config.user.farcasterFid,
+                                    type: 'COPY_TRADE_SKIPPED',
+                                    data: {
+                                        tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                                        tokenAddress: tokenToBuy,
+                                        targetWallet: targetWallet,
+                                        chainId: chainId,
+                                        skipReason: `Price deviation too high (${priceDeviation.toFixed(1)}x). Oracle: $${tokenInfo.price.toFixed(6)}, Target paid: $${targetExecutionPrice.toFixed(6)}`,
+                                        targetBuyValue: targetSwapValueUsd.toFixed(2),
+                                        marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                                        liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                                        priceImpact: `${priceDeviation.toFixed(1)}x deviation`
+                                    }
+                                });
+
                                 continue; // SKIP TRADE
                             }
                         }
@@ -528,12 +565,33 @@ async function processBuyWithInfo(
                     }
 
                     if (nativeBalance < (tradeCostWei + gasBufferWei)) {
+                        const balanceEth = ethers.formatEther(nativeBalance);
+                        const requiredEth = ethers.formatEther(tradeCostWei + gasBufferWei);
+
                         logger.throttled(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping trade: Insufficient gas buffer', {
                             userId: config.userId,
-                            balance: ethers.formatEther(nativeBalance),
-                            required: ethers.formatEther(tradeCostWei + gasBufferWei),
+                            balance: balanceEth,
+                            required: requiredEth,
                             buffer: "0.005"
                         });
+
+                        // Send skip notification for insufficient gas
+                        await notificationService.sendNotification({
+                            userId: config.userId,
+                            farcasterFid: config.user.farcasterFid,
+                            type: 'COPY_TRADE_SKIPPED',
+                            data: {
+                                tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                                tokenAddress: tokenToBuy,
+                                targetWallet: targetWallet,
+                                chainId: chainId,
+                                skipReason: `Insufficient gas. Balance: ${parseFloat(balanceEth).toFixed(4)} ETH, Required: ${parseFloat(requiredEth).toFixed(4)} ETH`,
+                                targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                                marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                                liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                            }
+                        });
+
                         continue;
                     }
                 }
@@ -1836,7 +1894,7 @@ function formatTokenAmount(amount: bigint, decimals: number): number {
 
 
 
-async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: number) {
+export async function passesFilters(tokenInfo: any, config: any, targetSwapValueUsd: number) {
     if (!tokenInfo) return { passed: false, reason: 'No token info' };
 
     // =========================================================================

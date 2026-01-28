@@ -11,7 +11,7 @@ import { LogCode } from '../config/logRegistry.js';
 export interface TradeNotificationParams {
     userId: string;
     farcasterFid?: number | null;
-    type: 'TRADE_SUCCESS_BUY' | 'TRADE_SUCCESS_SELL' | 'TRADE_FAILURE' | 'SYSTEM_ALERT' | 'ALPHA_CANDIDATE' | 'TOKEN_TARGET_ALERT';
+    type: 'TRADE_SUCCESS_BUY' | 'TRADE_SUCCESS_SELL' | 'TRADE_FAILURE' | 'SYSTEM_ALERT' | 'ALPHA_CANDIDATE' | 'TOKEN_TARGET_ALERT' | 'COPY_TRADE_SKIPPED';
     data: {
         tokenSymbol?: string;
         tokenAddress?: string;
@@ -29,6 +29,12 @@ export interface TradeNotificationParams {
         followerCount?: string;
         zoraUrl?: string;
         targetType?: string;
+        // Skip notification specific fields
+        skipReason?: string;
+        marketCap?: string;
+        liquidity?: string;
+        priceImpact?: string;
+        targetBuyValue?: string;
     };
 }
 
@@ -144,6 +150,23 @@ export class NotificationService {
                     `📈 **Current ${data.targetType}**: ${data.usdValue}\n` +
                     (data.alertMessage ? `📝 **Rule**: ${data.alertMessage}\n` : '') +
                     `\n🤖 *Automated Position Alert*`;
+                break;
+
+            case 'COPY_TRADE_SKIPPED':
+                // Skip notification with reason and evidence
+                firstLine = `⏭️ Copy Trade Skipped: $${data.tokenSymbol}`;
+
+                body = `⏭️ **COPY TRADE SKIPPED**\n\n` +
+                    `💎 **Token**: $${data.tokenSymbol}\n` +
+                    (data.targetWallet ? `👤 **Tracking**: \`${data.targetWallet.slice(0, 6)}...${data.targetWallet.slice(-4)}\`\n` : '') +
+                    (data.skipReason ? `\n❌ **Reason**: ${data.skipReason}\n` : '') +
+                    `\n📊 **Evidence**:\n` +
+                    (data.targetBuyValue ? `• Target Buy: $${data.targetBuyValue}\n` : '') +
+                    (data.marketCap ? `• Market Cap: $${data.marketCap}\n` : '') +
+                    (data.liquidity ? `• Liquidity: $${data.liquidity}\n` : '') +
+                    (data.priceImpact ? `• Price Impact: ${data.priceImpact}\n` : '') +
+                    (data.chainId ? `\n⛓️ **Chain**: ${this.getChainDisplayName(data.chainId)}` : '') +
+                    `\n\n💡 *Adjust filters at kiko.trade if needed*`;
                 break;
         }
 

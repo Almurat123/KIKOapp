@@ -570,9 +570,12 @@ model TrendingCast {
   mentions            Json?    @default("[]")
   authorCreatorCoin   String?  @map("author_creator_coin")
   authorTwitter       String?  @map("author_twitter")
+  statsLastUpdatedAt  DateTime? @map("stats_last_updated_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
   createdAt           DateTime @default(now()) @map("created_at")
 
+  @@index([statsLastUpdatedAt])
+  @@index([timestamp])
   @@map("trending_casts")
 }
 

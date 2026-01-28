@@ -1,5 +1,9 @@
 **INTENT: NFT ANALYSIS (ZORA)**
 
+**Adaptive rule (non-rigid):**
+- Use the smallest set of steps/tools needed. If [CONTEXT] already contains the needed data, skip that step.
+- Do not repeat a tool if it already succeeded in this turn.
+
 1. **NFT Discovery**:
    - Use internal NFT research only when the user asks about Zora mints or collections.
    - Report on mint prices, total mints, and time since launch.

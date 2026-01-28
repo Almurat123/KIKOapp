@@ -1,5 +1,9 @@
 **INTENT: SOCIAL ANALYSIS (FARCASTER)**
 
+**Adaptive rule (non-rigid):**
+- Use the smallest set of steps/tools needed. If [CONTEXT] already contains the needed data, skip that step.
+- Do not repeat a tool if it already succeeded in this turn.
+
 1. **Social Sentiment**:
    - Do not mention internal tool names. Use capability aliases (Social Research / Token Snapshot) and speak in user-facing terms.
    - Use Social Research only when the user asks for social sentiment, community signals, or current discussion.

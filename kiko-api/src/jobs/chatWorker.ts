@@ -108,6 +108,7 @@ type ToolTraceState = {
     skillVersion: 'clean' | 'exec';
     toolCalls: ToolTraceEntry[];
     toolCallCounts: Record<string, number>;
+    toolArgsCounts: Record<string, number>;
     shouldExitImmediately?: boolean;
     toolFailures: Record<string, number>;
     toolRepeats: Record<string, number>;
@@ -322,6 +323,8 @@ export class ChatWorker {
             pageContext: ctx.pageContext,
             nativeBalance: ctx.nativeBalance,
             balance: ctx.balance,
+            tokenSnapshot: (ctx as any).tokenSnapshot || (ctx as any).tokenContext || (ctx as any).tokenInfo,
+            launchpad: (ctx as any).launchpad || (ctx as any).launchpadInfo,
             toolConfig: ctx.toolConfig,
         };
 
@@ -392,7 +395,7 @@ export class ChatWorker {
 
         const normalizedBalance = this.normalizeBalanceSnapshot(ctx.balance);
         const nativeBalance = ctx.nativeBalance;
-        if (!normalizedBalance && !nativeBalance) return;
+        const hasWalletSnapshot = !!normalizedBalance || !!nativeBalance;
 
         const chainName = this.resolveChainNameForContext(chainId);
         const cacheKey = `get_wallet_info:${this.stableStringify({
@@ -400,21 +403,63 @@ export class ChatWorker {
             chainId,
         })}`;
 
-        if (cache.has(cacheKey)) return;
+        if (!cache.has(cacheKey) && hasWalletSnapshot) {
+            const tokens = this.parseBalanceEntries(ctx.balance) || [];
+            cache.set(cacheKey, {
+                address: walletAddress,
+                chain: chainName || String(chainId),
+                ethBalance: nativeBalance ? String(nativeBalance) : undefined,
+                tokens: tokens || [],
+            });
+            logger.info(LogCode.AI_API_CALL, 'ChatWorker: seeded get_wallet_info from client context', {
+                chainId,
+                tokenCount: tokens ? tokens.length : 0,
+                hasNativeBalance: !!nativeBalance,
+            });
+        }
 
-        const tokens = this.parseBalanceEntries(ctx.balance) || [];
+        // Seed token snapshot if upstream context already provided token info
+        const tokenSnapshot = (ctx as any).tokenSnapshot || (ctx as any).tokenContext || (ctx as any).tokenInfo;
+        if (tokenSnapshot && tokenSnapshot.address) {
+            const tokenKey = `get_token_info:${this.stableStringify({
+                address: tokenSnapshot.address,
+                chainId: tokenSnapshot.chainId || chainId,
+            })}`;
+            if (!cache.has(tokenKey)) {
+                cache.set(tokenKey, {
+                    ...tokenSnapshot,
+                    chainId: tokenSnapshot.chainId || chainId,
+                    chainName: tokenSnapshot.chainName || chainName,
+                });
+                logger.info(LogCode.AI_API_CALL, 'ChatWorker: seeded get_token_info from client context', {
+                    address: tokenSnapshot.address,
+                    chainId: tokenSnapshot.chainId || chainId,
+                });
+            }
+        }
 
-        cache.set(cacheKey, {
-            address: walletAddress,
-            chain: chainName || String(chainId),
-            ethBalance: nativeBalance ? String(nativeBalance) : undefined,
-            tokens: tokens || [],
-        });
-        logger.info(LogCode.AI_API_CALL, 'ChatWorker: seeded get_wallet_info from client context', {
-            chainId,
-            tokenCount: tokens ? tokens.length : 0,
-            hasNativeBalance: !!nativeBalance,
-        });
+        // Seed launchpad info if upstream context already provided it
+        const launchpadSnapshot = (ctx as any).launchpad || (ctx as any).launchpadInfo;
+        if (launchpadSnapshot && (launchpadSnapshot.address || (tokenSnapshot && tokenSnapshot.address))) {
+            const address = launchpadSnapshot.address || tokenSnapshot.address;
+            const lpKey = `launchpad_info:${this.stableStringify({
+                address,
+                chainId: launchpadSnapshot.chainId || chainId,
+                provider: launchpadSnapshot.provider,
+            })}`;
+            if (!cache.has(lpKey)) {
+                cache.set(lpKey, {
+                    ...launchpadSnapshot,
+                    address,
+                    chainId: launchpadSnapshot.chainId || chainId,
+                });
+                logger.info(LogCode.AI_API_CALL, 'ChatWorker: seeded launchpad info from client context', {
+                    address,
+                    chainId: launchpadSnapshot.chainId || chainId,
+                    provider: launchpadSnapshot.provider,
+                });
+            }
+        }
     }
 
     private buildEnrichedUserContent(params: {
@@ -861,6 +906,7 @@ export class ChatWorker {
             skillVersion: 'clean',
             toolCalls: [],
             toolCallCounts: {},
+            toolArgsCounts: {},
             toolFailures: {},
             toolRepeats: {},
             stopReasons: [],
@@ -1642,6 +1688,16 @@ export class ChatWorker {
                     }
                 }
 
+                // Seed launchpad info from cache if available (upstream context)
+                const launchpadCacheKey = `launchpad_info:${this.stableStringify({
+                    address: parsedIntent.contractAddress,
+                    chainId: detectedChainId || task.toolContext?.chainId
+                })}`;
+                if (!detectedLaunchpadInfo && toolResultsCache.has(launchpadCacheKey)) {
+                    detectedLaunchpadInfo = toolResultsCache.get(launchpadCacheKey);
+                    console.log(`[ChatWorker] 📦 Launchpad info from cache for ${parsedIntent.contractAddress}`);
+                }
+
 
                 // Store launchpad info when first detected (so it persists across iterations)
                 if (tokenInfo && tokenInfo.launchpad && !detectedLaunchpadInfo) {
@@ -1750,6 +1806,8 @@ export class ChatWorker {
 
             let balanceSystemRule: string | null = null;
             let balanceContextBlock = '';
+            let tokenContextAvailable = false;
+            let launchpadContextAvailable = false;
             if (lastUserIndex !== -1) {
                 const lastMsg = finalMessages[lastUserIndex];
 
@@ -1770,6 +1828,7 @@ ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperC
 
 ⚡ IMPORTANT: This token data is ALREADY AVAILABLE. DO NOT call get_token_info again for ${tokenInfo.symbol || tokenInfo.address}.
 `;
+                    tokenContextAvailable = true;
                 }
                 if (tokenInfo?.launchpad || detectedLaunchpadInfo) {
                     const launchpad = tokenInfo?.launchpad || detectedLaunchpadInfo;
@@ -1779,6 +1838,13 @@ Provider: ${launchpad.provider?.toUpperCase?.() || launchpad.provider}
 Chain: ${launchpad.chainId || tokenInfo?.chainId}
 Address: ${launchpad.address || tokenInfo?.address}
 Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.`;
+                    launchpadContextAvailable = true;
+                }
+
+                if (parsedIntent?.contractAddress) {
+                    tokenContextBlock += `\n\n[USER_INPUT_CONTEXT]
+Detected Contract Address: ${parsedIntent.contractAddress}
+`;
                 }
 
                 // Add balance info if pre-fetched
@@ -2010,6 +2076,26 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                 toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'get_wallet_info');
                 if (toolDefinitions.length !== beforeCount) {
                     logger.info(LogCode.AI_API_CALL, 'ChatWorker: removed get_wallet_info tool (balance context present)', {
+                        before: beforeCount,
+                        after: toolDefinitions.length,
+                    });
+                }
+            }
+            if (tokenContextAvailable) {
+                const beforeCount = toolDefinitions.length;
+                toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'get_token_info');
+                if (toolDefinitions.length !== beforeCount) {
+                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: removed get_token_info tool (token context present)', {
+                        before: beforeCount,
+                        after: toolDefinitions.length,
+                    });
+                }
+            }
+            if (launchpadContextAvailable) {
+                const beforeCount = toolDefinitions.length;
+                toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'check_token_risk');
+                if (toolDefinitions.length !== beforeCount) {
+                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: removed check_token_risk tool (launchpad context present)', {
                         before: beforeCount,
                         after: toolDefinitions.length,
                     });
@@ -2811,6 +2897,12 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             }
             const argsKey = this.buildToolKey(toolName, args);
             if (trace) {
+                const argsCount = (trace.toolArgsCounts[argsKey] || 0) + 1;
+                trace.toolArgsCounts[argsKey] = argsCount;
+                if (argsCount > 1) {
+                    trace.blockedKeys.add(argsKey);
+                    trace.stopReasons.push(`tool_args_repeat:${toolName}`);
+                }
                 trace.toolCallCounts[toolName] = (trace.toolCallCounts[toolName] || 0) + 1;
                 const totalCalls = Object.values(trace.toolCallCounts).reduce((sum, count) => sum + (count || 0), 0);
                 if (totalCalls > this.maxToolCallsPerTask) {
@@ -2840,7 +2932,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 results.push({
                     role: 'tool',
                     tool_call_id: tc.id,
-                    content: 'No further tool calls (limit reached)'
+                    content: 'No further tool calls (duplicate tool+args)'
                 });
                 continue;
             }
@@ -3146,6 +3238,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             skillVersion: 'clean',
             toolCalls: [],
             toolCallCounts: {},
+            toolArgsCounts: {},
             toolFailures: {},
             toolRepeats: {},
             stopReasons: [],
@@ -3402,6 +3495,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         });
         let enrichedHistory = [...history];
         const lastUserIndex = enrichedHistory.map(m => m.role).lastIndexOf('user');
+        let tokenContextAvailable = false;
+        let launchpadContextAvailable = false;
 
         if (lastUserIndex !== -1) {
             const lastMsg = enrichedHistory[lastUserIndex];
@@ -3434,12 +3529,29 @@ ${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperC
 ${xSeedHandles.length > 0 ? `Official X (seed): ${xSeedHandles.join(', ')}` : ''}
 ${officialSites.length > 0 ? `Official Sites (seed): ${officialSites.join(', ')}` : ''}
 `;
+                tokenContextAvailable = true;
             } else if (parsedIntent?.contractAddress) {
                 tokenContextBlock = `\n\n[TOKEN_CONTEXT]
 Token metadata unavailable for ${parsedIntent.contractAddress}.
 Rule: Do not repeatedly query metadata in this turn; proceed with best-effort info.`;
             }
             let launchpadContextBlock = '';
+            if (!tokenInfo) {
+                const launchpadCacheKey = `launchpad_info:${this.stableStringify({
+                    address: parsedIntent.contractAddress || parsedIntent.detailed.token_address,
+                    chainId: parsedIntent.chainId || task.toolContext?.chainId
+                })}`;
+                if (toolResultsCache.has(launchpadCacheKey)) {
+                    const cachedLaunchpad = toolResultsCache.get(launchpadCacheKey);
+                    launchpadContextBlock = `\n\n[LAUNCHPAD_CONTEXT]
+Token is a launchpad token.
+Provider: ${cachedLaunchpad.provider?.toUpperCase?.() || cachedLaunchpad.provider}
+Chain: ${cachedLaunchpad.chainId || task.toolContext?.chainId}
+Address: ${cachedLaunchpad.address || parsedIntent.contractAddress}
+Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.`;
+                    launchpadContextAvailable = true;
+                }
+            }
             if (tokenInfo?.launchpad) {
                 launchpadContextBlock = `\n\n[LAUNCHPAD_CONTEXT]
 Token is a launchpad token.
@@ -3447,6 +3559,7 @@ Provider: ${tokenInfo.launchpad.provider?.toUpperCase?.() || tokenInfo.launchpad
 Chain: ${tokenInfo.chainId}
 Address: ${tokenInfo.address}
 Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.`;
+                launchpadContextAvailable = true;
             }
 
             if (task.toolContext?.walletAddress) {
@@ -3501,6 +3614,27 @@ Status: unavailable (balance data not available from cache).`;
                 extraBlocks: [tokenContextBlock, launchpadContextBlock].filter(Boolean),
             });
             enrichedHistory = this.injectEnrichedUserContent(enrichedHistory, lastUserIndex, enrichedContent);
+        }
+
+        if (tokenContextAvailable) {
+            const beforeCount = toolDefinitions.length;
+            toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'get_token_info');
+            if (toolDefinitions.length !== beforeCount) {
+                logger.info(LogCode.AI_API_CALL, 'Grok: removed get_token_info tool (token context present)', {
+                    before: beforeCount,
+                    after: toolDefinitions.length,
+                });
+            }
+        }
+        if (launchpadContextAvailable) {
+            const beforeCount = toolDefinitions.length;
+            toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'check_token_risk');
+            if (toolDefinitions.length !== beforeCount) {
+                logger.info(LogCode.AI_API_CALL, 'Grok: removed check_token_risk tool (launchpad context present)', {
+                    before: beforeCount,
+                    after: toolDefinitions.length,
+                });
+            }
         }
 
         const grokMessages = [

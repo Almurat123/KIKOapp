@@ -2,6 +2,10 @@
 
 This skill is an execution-oriented contract. Do not describe internal tools or implementation details in user-facing text. Use only the canonical capability aliases from the global policy (e.g., “Trade Preparation”, “Wallet Overview”, “Token Snapshot”, “Risk Scan”).
 
+**Adaptive rule (non-rigid):**
+- Use the smallest set of steps/tools needed. If [CONTEXT] already contains the needed data, skip that step.
+- Do not repeat a tool if it already succeeded in this turn.
+
 1. **Wallet interaction contract**
    - The system may either prepare a client-confirmed transaction or execute instantly depending on user settings and the execution environment.
    - Never claim execution happened unless you received an explicit success signal (e.g., a transaction hash).

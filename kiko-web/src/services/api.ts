@@ -517,9 +517,6 @@ export interface TrendingCast {
         replies: number;
     };
     heatScore: number;
-    isBaseAppCoin?: boolean;
-    baseAppCoinMetadata?: any;
-    coinValue?: string;
 }
 
 export const socialApi = {
@@ -600,9 +597,6 @@ export interface FeedItem {
         likes: string;
     };
     castUrl?: string; // Farcaster cast URL for navigation
-    isBaseAppCoin?: boolean;
-    baseAppCoinMetadata?: any;
-    coinValue?: string;
     timestamp?: number; // Unix timestamp for sorting
 }
 

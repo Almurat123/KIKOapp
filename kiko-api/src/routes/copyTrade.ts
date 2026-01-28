@@ -4,6 +4,11 @@ import { requireAuth } from '../middleware/auth.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../services/alchemyWebhookService.js';
 import { PrivyClient } from '@privy-io/server-auth';
 import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
+import { validateAddress } from '../utils/validation.js';
+import { callRpc } from '../services/rpcManager.js';
+import { getSolanaConnection } from '../config/solanaConfig.js';
+import { TOKEN_PROGRAM_ID } from '../utils/solanaToken.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { notificationService } from '../services/notificationService.js';
 
 interface CreateConfigBody {
@@ -20,6 +25,37 @@ interface CreateConfigBody {
 }
 
 export default async function copyTradeRoutes(fastify: FastifyInstance) {
+    async function assertEoaTarget(chainId: number, address: string): Promise<void> {
+        if (!address || !address.startsWith('0x')) return;
+        // Solana uses non-0x addresses; skip
+        if (chainId === 900) return;
+
+        const code = await callRpc<string>(chainId, 'eth_getCode', [address, 'latest']);
+        if (code && code !== '0x' && code !== '0x0') {
+            throw new Error('Target address is a contract. Please use a wallet (EOA) address.');
+        }
+    }
+
+    async function assertSolanaWalletTarget(address: string): Promise<void> {
+        try {
+            const connection = getSolanaConnection();
+            const pubkey = new PublicKey(address);
+            const info = await connection.getAccountInfo(pubkey, 'confirmed');
+            if (!info) {
+                throw new Error('Solana address not found on-chain.');
+            }
+            if (info.owner.equals(TOKEN_PROGRAM_ID)) {
+                throw new Error('Solana address is a token mint/account. Please use a wallet address.');
+            }
+            if (!info.owner.equals(SystemProgram.programId)) {
+                throw new Error('Solana address is a program address. Please use a wallet address.');
+            }
+        } catch (err: any) {
+            if (err instanceof Error) throw err;
+            throw new Error('Invalid Solana address');
+        }
+    }
+
     /**
      * GET /api/copy-trade/configs
      * List all copy trade configs for the authenticated user
@@ -82,6 +118,9 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
         }
 
         targetWallet = targetWallet.trim();
+        if (!validateAddress(targetWallet)) {
+            return reply.status(400).send({ error: 'Invalid targetWallet address' });
+        }
         if (chainId) chainId = Number(chainId);
 
         // --- INTELLIGENT CHAIN DETECTION ---
@@ -104,6 +143,16 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
         });
 
         try {
+            try {
+                if (chainId === 900) {
+                    await assertSolanaWalletTarget(normalizedTarget);
+                } else {
+                    await assertEoaTarget(chainId, normalizedTarget);
+                }
+            } catch (validationError: any) {
+                return reply.status(400).send({ error: validationError.message || 'Invalid target wallet' });
+            }
+
             // Find or create user
             let user = await prisma.user.findUnique({
                 where: { privyDid: userId },
@@ -347,6 +396,23 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             }
 
             // Update
+            if (updates.targetWallet) {
+                const nextTarget = String(updates.targetWallet).trim();
+                if (!validateAddress(nextTarget)) {
+                    return reply.status(400).send({ error: 'Invalid targetWallet address' });
+                }
+                const normalizedNext = normalizeAddress(nextTarget);
+                try {
+                    if (existing.chainId === 900) {
+                        await assertSolanaWalletTarget(normalizedNext);
+                    } else {
+                        await assertEoaTarget(existing.chainId, normalizedNext);
+                    }
+                } catch (validationError: any) {
+                    return reply.status(400).send({ error: validationError.message || 'Invalid target wallet' });
+                }
+            }
+
             const { userId: _, ...allowedUpdates } = updates as any;
             const config = await prisma.copyTradeConfig.update({
                 where: { id },

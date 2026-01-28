@@ -205,9 +205,11 @@ function formatAge(createdAt: string | undefined): string {
   if (!createdAt) return '-';
 
   try {
-    const created = new Date(createdAt);
-    const now = new Date();
-    const diffMs = now.getTime() - created.getTime();
+    const createdMs = Date.parse(createdAt);
+    if (!Number.isFinite(createdMs)) return '-';
+    const nowMs = Date.now();
+    if (createdMs > nowMs + 5 * 60 * 1000) return '-';
+    const diffMs = nowMs - createdMs;
 
     const minutes = Math.floor(diffMs / (1000 * 60));
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
@@ -233,15 +235,25 @@ function isNewToken(createdAt: string | undefined): boolean {
   if (!createdAt) return false;
 
   try {
-    const created = new Date(createdAt);
-    const now = new Date();
-    const diffMs = now.getTime() - created.getTime();
+    const createdMs = Date.parse(createdAt);
+    if (!Number.isFinite(createdMs)) return false;
+    const nowMs = Date.now();
+    if (createdMs > nowMs) return false;
+    const diffMs = nowMs - createdMs;
     const hours = diffMs / (1000 * 60 * 60);
     return hours < 24;
   } catch {
     return false;
   }
 }
+
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
+const buildProxyUrl = (url?: string): string => {
+  if (!url) return '';
+  const base = API_BASE_URL ? `${API_BASE_URL}/api/images/token` : '/api/images/token';
+  return `${base}?url=${encodeURIComponent(url)}`;
+};
 
 /**
  * Check if token is hot (high volume/activity in 24h)
@@ -483,15 +495,23 @@ const TokenRow = React.memo(({
               </span>
             )}
             <img
-              src={t.imageUrl || `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`}
+              src={buildProxyUrl(t.imageUrl) || buildProxyUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`) || `https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`}
               alt={t.name}
               className={styles.tokenIcon}
               loading="lazy"
               decoding="async"
               onError={(e) => {
-                if (e.currentTarget.dataset.fallbackApplied === '1') return;
-                e.currentTarget.dataset.fallbackApplied = '1';
-                e.currentTarget.src = `https://ui-avatars.com/api/?name=${t.symbol}&background=random&color=fff`;
+                const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`;
+                const stage = e.currentTarget.dataset.fallbackStage || '0';
+                if (stage === '0') {
+                  e.currentTarget.dataset.fallbackStage = '1';
+                  e.currentTarget.src = buildProxyUrl(fallbackUrl) || fallbackUrl;
+                  return;
+                }
+                if (stage === '1') {
+                  e.currentTarget.dataset.fallbackStage = '2';
+                  e.currentTarget.src = fallbackUrl;
+                }
               }}
             />
             <img

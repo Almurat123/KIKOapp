@@ -5,6 +5,10 @@ description: Welcome and onboarding guidance for Kiko. Use when users greet, ask
 
 **INTENT: WELCOME & ONBOARDING**
 
+**Adaptive rule (non-rigid):**
+- Use the smallest set of steps/content needed. If [CONTEXT] already contains the needed data, skip that step.
+- Do not repeat the same step in the same response.
+
 Purpose:
 - Provide a short, friendly welcome and a fast on-ramp to Kiko.
 - Match the user's language; do not force Chinese.

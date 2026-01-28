@@ -1,5 +1,9 @@
 **INTENT: MARKET & MACRO ANALYSIS**
 
+**Adaptive rule (non-rigid):**
+- Use the smallest set of steps/tools needed. If [CONTEXT] already contains the needed data, skip that step.
+- Do not repeat a tool if it already succeeded in this turn.
+
 1. **Trigger rules**:
    - Only use Market Overview when the user asks for market conditions, macro context, or gas/network conditions.
    - Do not pull news unless the user asks for news/events/catalysts.

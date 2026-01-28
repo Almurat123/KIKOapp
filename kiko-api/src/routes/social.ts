@@ -83,10 +83,10 @@ export async function socialRoutes(fastify: FastifyInstance) {
   // 3. Returns the updated data
   fastify.post('/refresh', async (request, reply) => {
     try {
-      const { refreshTrendingCasts } = await import('../jobs/socialDataJob.js');
+      const { runDiscoveryJob } = await import('../jobs/socialDataJob.js');
 
       // Fetch from API and save to database/cache
-      await refreshTrendingCasts();
+      await runDiscoveryJob(true);
 
       // Get updated data from local storage
       const trendingCasts = await getTrendingCasts(50);

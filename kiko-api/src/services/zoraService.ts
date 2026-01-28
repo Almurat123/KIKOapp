@@ -39,7 +39,7 @@ export const ZORA_CREATOR_COIN_HOOKS = [
     "0xc8d077444625eb300a427a6dfb2b1dbf9b159040", // Newer Creator Coin Hook (e.g., Jesse's)
     "0x5e5d19d22c85a4aef7c1fdf25fb22a5a38f71040", // New Creator Coin Hook (e.g. Jacob's)
 ];
-export const ZORA_CONTENT_COIN_HOOK = "0x9ea932730A7787000042e34390B8E435dD839040";
+
 export const BASE_PLATFORM_REFERRER = "0x55c88bb05602da94fce8feadc1cbebf5b72c2453";
 
 export interface ZoraCoin {
@@ -152,8 +152,6 @@ export class ZoraService {
 
             if (hookAddress && ZORA_CREATOR_COIN_HOOKS.some(h => h.toLowerCase() === hookAddress)) {
                 coinType = 'CREATOR';
-            } else if (hookAddress === ZORA_CONTENT_COIN_HOOK.toLowerCase()) {
-                coinType = 'CONTENT';
             } else if (hookAddress) {
                 logger.debug(LogCode.SYS_INFO, 'Zora UNKNOWN HOOK detected', { symbol: token.symbol, address, hookAddress });
             }
@@ -463,90 +461,7 @@ export class ZoraService {
         }
     }
 
-    /**
-     * Check if a cast has an associated Zora coin (via embeds)
-     * Priority: zoraCoin:// protocol is always a Post Coin
-     * OPTIMIZED: Uses regex pre-filter to avoid checking every URL
-     */
-    async checkCastForCoin(cast: any): Promise<{
-        isPostCoin: boolean;
-        coinValue?: string;
-        coinAddress?: string;
-        coinSymbol?: string;
-        metadata?: ZoraCoin;
-    }> {
-        try {
-            if (cast.embeds && cast.embeds.length > 0) {
-                // Pre-filter: Check if ANY embed looks like a Zora/Base coin interaction
-                // This saves us from parsing every URL for clear non-matches
-                // Matches: zora, base.app, 0x...
-                const hasPotentialCoin = cast.embeds.some((e: any) =>
-                    e.url && /zora|base\.app|0x[a-fA-F0-9]{40}/i.test(e.url)
-                );
 
-                if (!hasPotentialCoin) {
-                    return { isPostCoin: false };
-                }
-
-                for (const embed of cast.embeds) {
-                    if (embed.url) {
-                        const address = this.extractAddressFromUrl(embed.url);
-                        if (address) {
-                            // If URL is zoraCoin:// protocol, it's ALWAYS a Post Coin
-                            const isZoraCoinProtocol = embed.url.toLowerCase().startsWith('zoracoin://');
-
-                            // Try to get coin metadata (optional, may timeout)
-                            try {
-                                const coin = await this.getCoinByAddress(address);
-                                if (coin) {
-                                    // console.log(`[ZoraService] ✅ Found Post Coin: ${coin.symbol} (${address})`);
-                                    return {
-                                        isPostCoin: true,
-                                        coinValue: this.formatMarketCap(coin.marketCap),
-                                        coinAddress: coin.address,
-                                        coinSymbol: coin.symbol,
-                                        metadata: coin,
-                                    };
-                                }
-                            } catch (apiError: any) {
-                                logger.warn(LogCode.API_TIMEOUT, 'Zora API timeout for post coin', { address });
-                            }
-
-                            // Fallback: If zoraCoin:// protocol, mark as Post Coin even without API data
-                            if (isZoraCoinProtocol) {
-                                return {
-                                    isPostCoin: true,
-                                    coinAddress: address,
-                                    coinSymbol: 'COIN',
-                                    metadata: {
-                                        address: address,
-                                        symbol: 'COIN',
-                                        name: 'Post Coin',
-                                        chainId: 8453,
-                                        coinType: 'CREATOR',
-                                        marketCap: '0',
-                                        volume24h: '0',
-                                        tokenPrice: {
-                                            priceInUsdc: '0',
-                                            priceInPoolToken: '0'
-                                        },
-                                        totalSupply: '0',
-                                        totalVolume: '0',
-                                        id: address,
-                                        createdAt: new Date().toISOString()
-                                    } as ZoraCoin
-                                };
-                            }
-                        }
-                    }
-                }
-            }
-            return { isPostCoin: false };
-        } catch (error: any) {
-            logger.error(LogCode.SYS_ERROR, 'Cast Coin Detection Error', { hash: cast.hash, error: error.message });
-            return { isPostCoin: false };
-        }
-    }
 
     /**
      * Build a buy transaction call (ETH -> Token)
@@ -586,45 +501,7 @@ export class ZoraService {
         } as any);
     }
 
-    /**
-     * Extract contract address from Zora/Base URLs
-     * Supports multiple formats:
-     * - zoraCoin://0x... (Protocol scheme from embeds)
-     * - zora.co/collect/base:0x... (and zora:0x...)
-     * - zora.co/coin/base:0x...
-     * - zora.co/coin/0x...
-     * - base.app/coin/0x...
-     * - Direct 0x... in URL (fallback)
-     */
-    private extractAddressFromUrl(url: string): string | null {
-        try {
-            // Format 0: zoraCoin generic protocol (most reliable for Farcaster embeds)
-            // Matches zoraCoin://0x... or zoraCoin:0x...
-            const protocolMatch = url.match(/zoraCoin:\/\/?(0x[0-9a-fA-F]{40})/i);
-            if (protocolMatch) return protocolMatch[1];
 
-            // Format 1: zora.co/collect/(base|zora):0x...
-            const collectMatch = url.match(/zora\.co\/collect\/(?:base|zora):(0x[0-9a-fA-F]{40})/i);
-            if (collectMatch) return collectMatch[1];
-
-            // Format 2: zora.co/coin/base:0x... or zora.co/coin/0x...
-            const coinMatch = url.match(/zora\.co\/coin\/(?:base:)?(0x[0-9a-fA-F]{40})/i);
-            if (coinMatch) return coinMatch[1];
-
-            // Format 3: base.app patterns (coin or token)
-            const baseAppMatch = url.match(/base\.app\/(?:coin|token)\/(0x[0-9a-fA-F]{40})/i);
-            if (baseAppMatch) return baseAppMatch[1];
-
-            // Format 4: Generic - any URL containing a contract address at end of path
-            // Be strict here: must be last part of path or followed by query params
-            const genericMatch = url.match(/\/(0x[0-9a-fA-F]{40})(?:\?|\/|$)/i);
-            if (genericMatch) return genericMatch[1];
-
-            return null;
-        } catch {
-            return null;
-        }
-    }
 }
 
 export const zoraService = new ZoraService();

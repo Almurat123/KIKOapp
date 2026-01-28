@@ -122,17 +122,18 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     }
 
     // Save to PostgreSQL database
-    await saveTrendingTokens(chain.id, tokens);
+    const savedTokens = await saveTrendingTokens(chain.id, tokens);
+    const cachedTokens = savedTokens.length > 0 ? savedTokens : tokens;
 
     // Update memory cache for instant API access
     const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain.id);
-    memoryCache.set(cacheKey, tokens, CACHE_TTL.TRENDING_TOKENS);
+    memoryCache.set(cacheKey, cachedTokens, CACHE_TTL.TRENDING_TOKENS);
 
     // Also update Redis cache for legacy compatibility
     const redisCacheKey = `trending:live:${chain.id}:5m`;
-    await set(redisCacheKey, JSON.stringify(tokens), 600);
+    await set(redisCacheKey, JSON.stringify(cachedTokens), 600);
 
-    console.log(`[TokenJob] Saved ${tokens.length} tokens for ${chain.name} to DB + cache`);
+    console.log(`[TokenJob] Saved ${cachedTokens.length} tokens for ${chain.name} to DB + cache`);
 
   } catch (error) {
     console.error(`[TokenJob] Error refreshing ${chain.name}:`, error instanceof Error ? error.message : error);

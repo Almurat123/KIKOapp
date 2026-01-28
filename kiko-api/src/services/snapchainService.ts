@@ -8,6 +8,7 @@
 import prisma from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import * as neynarService from './neynarService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 
 const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
@@ -15,7 +16,7 @@ const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
 /**
  * Fetch with timeout wrapper - now using unified service
  */
-async function fetchWithTimeout(url: string, options: any = {}, timeout = 5000) {
+async function fetchWithTimeout(url: string, options: any = {}, timeout = 15000) {
   return await fetchJson({
     url,
     timeout,
@@ -131,7 +132,7 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
     // Use reverse=true to get newest casts first
     const url = `${HUB_URL}/v1/castsByFid?fid=${fid}&pageSize=${pageSize}&reverse=true`;
     const data = await fetchJson({ url });
-    
+
     if (!(data as any).messages || (data as any).messages.length === 0) {
       return [];
     }
@@ -162,7 +163,7 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
 /**
  * Fetch user data by FID
  */
-export async function getUserDataByFid(fid: number): Promise<HubUserData> {
+export async function getUserDataByFid(fid: number): Promise<HubUserData | null> {
   const MAX_RETRIES = 3;
   let lastError: any;
 
@@ -177,7 +178,7 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData> {
         continue;
       }
 
-      if (!response.ok) return { fid };
+      if (!response.ok) return null;
 
       const data = await response.json();
       const messages = (data as any).messages || [];
@@ -232,11 +233,11 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData> {
     }
   }
 
-  // If we failed after retries, try DB fallback
-  logger.warn(LogCode.API_FETCH_FAILED, 'Snapchain Hub failed after retries, trying DB fallback', { fid });
+  // No cached data in Hub, try DB and Neynar fallbacks
+  logger.info(LogCode.SYS_INFO, 'Snapchain Hub data missing, trying DB/Neynar fallback', { fid });
 
+  // 1. Try DB fallback (Real users previously saved)
   try {
-    // Query DB for any existing valid author data for this FID
     const cachedEntry = await prisma.trendingCast.findFirst({
       where: {
         fid,
@@ -253,23 +254,35 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData> {
     });
 
     if (cachedEntry && cachedEntry.authorUsername) {
-      logger.info(LogCode.SYS_INFO, 'Using DB cached data for FID from Snapchain', { fid, username: cachedEntry.authorUsername });
       return {
         fid,
-        username: cachedEntry.authorUsername || undefined,
+        username: cachedEntry.authorUsername,
         displayName: cachedEntry.authorDisplayName || undefined,
         pfp: cachedEntry.authorAvatar || undefined,
         bio: cachedEntry.authorBio || undefined,
         twitter: cachedEntry.authorTwitter || undefined,
       };
     }
-  } catch (dbError) {
-    // DB query failed, fall through to mock
-  }
+  } catch (e) { }
 
-  // No cached data, return minimal mock
-  logger.warn(LogCode.SYS_INFO, 'No cached data for FID in Snapchain, returning mock', { fid });
-  return { fid };
+  // 2. Try Neynar API (The ultimate source of truth for Farcaster)
+  try {
+    const neynarUser = await neynarService.getUsersNeynar([fid]);
+    if (neynarUser && neynarUser.length > 0) {
+      const u = neynarUser[0];
+      logger.info(LogCode.SYS_INFO, 'Recovered user data from Neynar fallback', { fid, username: u.username });
+      return {
+        fid,
+        username: u.username,
+        displayName: u.displayName,
+        pfp: u.pfp,
+        bio: u.bio,
+        verifications: u.verifications
+      };
+    }
+  } catch (e) { }
+
+  return null;
 }
 
 /**
@@ -300,7 +313,7 @@ export async function getReactionsByCast(targetFid: number, targetHash: string):
       fetchJson({ url: `${HUB_URL}/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Recast&pageSize=1000` }),
       getRepliesCount(targetFid, targetHash),
     ]);
-    
+
     return {
       likes: (likesData as any).messages?.length || 0,
       recasts: (recastsData as any).messages?.length || 0,
@@ -411,6 +424,8 @@ export async function getTrendingCasts(
                       const quotedCast = await getCastById(embed.castId.fid, embed.castId.hash);
                       if (quotedCast) {
                         const quotedAuthor = await getUserDataByFid(embed.castId.fid);
+                        if (!quotedAuthor) return embed; // Skip if author not found
+
                         return {
                           ...embed,
                           cast: {
@@ -420,7 +435,7 @@ export async function getTrendingCasts(
                               username: quotedAuthor.username,
                               displayName: quotedAuthor.displayName,
                               avatar: quotedAuthor.pfp,
-                              verified: false // Hub doesn't provide
+                              verified: false
                             }
                           }
                         };
@@ -486,7 +501,11 @@ export function farcasterToUnixTimestamp(farcasterTimestamp: number): number {
 /**
  * Convert Snapchain cast to the format expected by the social API
  */
-export function snapchainToTrendingCast(result: CastWithReactions): any {
+export function snapchainToTrendingCast(result: CastWithReactions): any | null {
+  if (!result.user || !result.user.username || result.user.username.startsWith('fid')) {
+    return null; // Zero-Mock: Drop if user is invalid or missing
+  }
+
   return {
     hash: result.cast.hash,
     fid: result.user.fid,
@@ -494,10 +513,10 @@ export function snapchainToTrendingCast(result: CastWithReactions): any {
     timestamp: farcasterToUnixTimestamp(result.cast.timestamp),
     author: {
       fid: result.user.fid,
-      username: result.user.username || `fid${result.user.fid}`,
-      displayName: result.user.displayName || result.user.username || `User ${result.user.fid}`,
-      avatar: result.user.pfp || `https://placehold.co/100/6366f1/ffffff?text=${result.user.fid}`,
-      verified: false, // Hub doesn't provide verification status directly
+      username: result.user.username,
+      displayName: result.user.displayName || result.user.username,
+      avatar: result.user.pfp || `https://avatar.vercel.sh/${result.user.username}`, // Better default than placeholder
+      verified: false,
       bio: result.user.bio,
     },
     mentions: result.cast.mentions,
@@ -528,6 +547,7 @@ export async function getCastByIdWithReactions(fid: number, hash: string): Promi
 
     // Get user data
     const userData = await getUserDataByFid(fid);
+    if (!userData) return null;
 
     // Get reactions (approximate since we don't have direct reaction count endpoint for single cast easily without list)
     // For this specific purpose, we might just default to current knowns or fetch via reactionsByCast

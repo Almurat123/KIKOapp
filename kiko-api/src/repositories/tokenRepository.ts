@@ -7,8 +7,10 @@ export interface TrendingToken extends TokenSearchResult {
   rank: number;
 }
 
-export async function saveTrendingTokens(chain: string, tokens: TokenSearchResult[]): Promise<void> {
+export async function saveTrendingTokens(chain: string, tokens: TokenSearchResult[]): Promise<TokenSearchResult[]> {
   try {
+    let mergedTokens: TokenSearchResult[] = [];
+
     await withRetry(async () => {
       // Deduplicate tokens by address to prevent unique constraint failures
       const seenAddresses = new Set<string>();
@@ -20,17 +22,60 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
         return true;
       });
 
+      const addressList = uniqueTokens.map(token => token.address.toLowerCase());
+
+      mergedTokens = uniqueTokens;
+
       // Use a transaction to ensure atomicity
       await prisma.$transaction(async (tx) => {
+        // Preserve existing poolCreatedAt values to avoid "all new" age regressions
+        const existingRows = addressList.length > 0
+          ? await tx.trendingToken.findMany({
+            where: {
+              chain,
+              address: { in: addressList },
+            },
+            select: {
+              address: true,
+              poolCreatedAt: true,
+            },
+          })
+          : [];
+
+        const existingPoolCreatedAt = new Map<string, Date>();
+        for (const row of existingRows) {
+          if (row.poolCreatedAt instanceof Date) {
+            existingPoolCreatedAt.set(row.address.toLowerCase(), row.poolCreatedAt);
+          }
+        }
+
+        mergedTokens = uniqueTokens.map((token) => {
+          const addr = token.address.toLowerCase();
+          const existing = existingPoolCreatedAt.get(addr);
+          const incoming = token.poolCreatedAt ? new Date(token.poolCreatedAt) : null;
+          const incomingValid = incoming instanceof Date && Number.isFinite(incoming.getTime());
+
+          let poolCreatedAt = incomingValid ? incoming : existing || null;
+          if (incomingValid && existing && incoming.getTime() > existing.getTime()) {
+            // Keep earliest known creation time (pool creation shouldn't move forward)
+            poolCreatedAt = existing;
+          }
+
+          return {
+            ...token,
+            poolCreatedAt: poolCreatedAt ? poolCreatedAt.toISOString() : undefined,
+          };
+        });
+
         // 1. Delete old data for this chain
         await tx.trendingToken.deleteMany({
           where: { chain }
         });
 
         // 2. Insert new tokens with rank in bulk
-        if (uniqueTokens.length > 0) {
+        if (mergedTokens.length > 0) {
           await tx.trendingToken.createMany({
-            data: uniqueTokens.map((token, index) => ({
+            data: mergedTokens.map((token, index) => ({
               chain,
               address: token.address,
               name: token.name,
@@ -56,9 +101,10 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
 
     // Update memory cache
     const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain);
-    memoryCache.set(cacheKey, tokens, CACHE_TTL.TRENDING_TOKENS);
+    memoryCache.set(cacheKey, mergedTokens, CACHE_TTL.TRENDING_TOKENS);
 
-    console.log(`Saved ${tokens.length} trending tokens for ${chain} to database and memory cache`);
+    console.log(`Saved ${mergedTokens.length} trending tokens for ${chain} to database and memory cache`);
+    return mergedTokens;
   } catch (error) {
     console.error('Error saving trending tokens:', error);
     throw error;

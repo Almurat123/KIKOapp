@@ -33,6 +33,7 @@ import { zoraRoutes } from './routes/zora.js';
 import { rpcRoutes } from './routes/rpc.js';
 import { zoraProxyRoutes } from './routes/zora-proxy.js';
 import { aiRoutes } from './routes/ai.js';
+import { imageRoutes } from './routes/images.js';
 import { initAutoTradeService, stopAutoTradeService } from './services/autoTradeService.js';
 import { tokenAlertService } from './services/tokenAlertService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
@@ -178,6 +179,7 @@ fastify.register(async (fastify) => {
     fastify.register(zoraRoutes, { prefix: '/api/zora' });
     fastify.register(rpcRoutes, { prefix: '/api/rpc' });
     fastify.register(zoraProxyRoutes, { prefix: '/api/zora-proxy' });
+    fastify.register(imageRoutes, { prefix: '/api/images' });
     fastify.register(aiRoutes, { prefix: '/api/ai' });
     registerUserRoutes(fastify); // User settings routes
 });

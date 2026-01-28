@@ -1,5 +1,9 @@
 **INTENT: COPY TRADING MANAGEMENT**
 
+**Adaptive rule (non-rigid):**
+- Use the smallest set of steps/tools needed. If [CONTEXT] already contains the needed data, skip that step.
+- Do not repeat a tool if it already succeeded in this turn.
+
 1. **Config Management**:
    - Only create a config after the user confirms the target wallet and amount.
    - Always ask for or confirm the parameters: **Target Wallet**, **Amount per trade**, and **Risk limits** (if applicable).

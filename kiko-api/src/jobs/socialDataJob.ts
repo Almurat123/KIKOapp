@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { TrendingCast } from '../types/social.js';
-import { saveTrendingCasts, getLastUpdateTime } from '../repositories/socialRepository.js';
+import { saveTrendingCasts, getLastUpdateTime, getPostsForRefresh, updateCastStats, recalculateHeatScores } from '../repositories/socialRepository.js';
 import { env } from '../config/env.js';
 import snapchainService, { QUALITY_FIDS } from '../services/snapchainService.js';
 import { baseAppService } from '../services/baseAppService.js';
@@ -137,7 +137,7 @@ async function getQualityUserFids(): Promise<number[]> {
  * Does NOT call Dune API - only reads quality users from local storage
  * Preserves existing data if refresh fails
  */
-export async function refreshTrendingCasts(force = false): Promise<void> {
+export async function runDiscoveryJob(force = false): Promise<void> {
   const REFRESH_10M_MS = 9.5 * 60 * 1000; // 9.5 minutes
 
   if (!force) {
@@ -178,9 +178,10 @@ export async function refreshTrendingCasts(force = false): Promise<void> {
 
       if (snapchainResults.length > 0) {
         // Convert Snapchain format to TrendingCast format (take up to TARGET_CASTS)
-        newCasts = snapchainResults.slice(0, TARGET_CASTS).map(result => {
-          const converted = snapchainService.snapchainToTrendingCast(result);
-          return {
+        newCasts = snapchainResults.slice(0, TARGET_CASTS)
+          .map(result => snapchainService.snapchainToTrendingCast(result))
+          .filter((converted): converted is any => converted !== null)
+          .map(converted => ({
             hash: converted.hash,
             fid: converted.fid,
             author: {
@@ -189,7 +190,7 @@ export async function refreshTrendingCasts(force = false): Promise<void> {
               displayName: converted.author.displayName,
               avatar: converted.author.avatar,
               verified: converted.author.verified,
-              bio: converted.author.bio, // Include bio!
+              bio: converted.author.bio,
             },
             text: converted.text,
             timestamp: converted.timestamp,
@@ -197,9 +198,8 @@ export async function refreshTrendingCasts(force = false): Promise<void> {
             parentCastId: undefined,
             stats: converted.stats,
             heatScore: converted.heatScore,
-            mentions: converted.mentions, // Include mentions!
-          } as TrendingCast;
-        });
+            mentions: converted.mentions,
+          } as TrendingCast));
       }
     } catch (snapchainError) {
       console.error('[SocialJob] Snapchain fetch error:', snapchainError);
@@ -237,16 +237,7 @@ export async function refreshTrendingCasts(force = false): Promise<void> {
       await Promise.all(batch.map(async (cast) => {
         try {
           try {
-            // Check specific cast for Zora Coin (via embeds) - uses regex pre-filter
-            const result = await zoraService.checkCastForCoin(cast);
-            if (result.isPostCoin) {
-              cast.isBaseAppCoin = true;
-              if (result.metadata) {
-                cast.baseAppCoinMetadata = result.metadata;
-              }
-              cast.coinValue = result.coinValue;
-              // console.log(`[SocialJob] 💎 Found Zora Coin for cast by @${cast.author?.username}: ${result.coinValue || 'No Value'}`);
-            }
+
 
             // === OPTIMIZED Creator Coin Check ===
             if (cast.author?.fid) {
@@ -338,8 +329,8 @@ async function fetchCastsFromUsers(
   const now = Date.now();
   const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
 
-  // OPTIMIZATION 1: Larger batch size for more parallelism
-  const batchSize = 30;
+  // ADJUSTMENT: Reduced batch size to prevent timeouts and API rate limiting
+  const batchSize = 5;
   let usersProcessed = 0;
 
   // OPTIMIZATION 2: Shuffle FIDs for better distribution (avoid all low-activity users first)
@@ -365,6 +356,8 @@ async function fetchCastsFromUsers(
         if (recentCasts.length === 0) return [];
 
         const userData = await snapchainService.getUserDataByFid(fid);
+        if (!userData) return [];
+
         const castsToProcess = recentCasts.slice(0, Math.min(castsPerUser, 2));
 
         const castsWithReactions = await Promise.all(
@@ -381,6 +374,8 @@ async function fetchCastsFromUsers(
                         const qCast = await snapchainService.getCastById(embed.castId.fid, embed.castId.hash);
                         if (qCast) {
                           const qUser = await snapchainService.getUserDataByFid(embed.castId.fid);
+                          if (!qUser) return embed; // Skip if author missing
+
                           return {
                             ...embed,
                             cast: {
@@ -432,15 +427,86 @@ async function fetchCastsFromUsers(
 }
 
 /**
+ * Refresh engagement stats for existing high-value posts
+ * Updates posts from last 7 days that haven't been updated recently
+ */
+export async function runEngagementRefreshJob(): Promise<void> {
+  // console.log('[SocialJob] Starting Engagement Refresh Job...');
+  try {
+    // 1. Get posts that need refresh
+    const posts = await getPostsForRefresh(200, 7); // Top 200 posts from last 7 days
+
+    if (posts.length === 0) {
+      // console.log('[SocialJob] No posts need refresh');
+      return;
+    }
+
+    console.log(`[SocialJob] Refreshing stats for ${posts.length} posts...`);
+
+    // 2. Fetch updated stats in parallel (batch of 10)
+    const batchSize = 10;
+    let updatedCount = 0;
+
+    for (let i = 0; i < posts.length; i += batchSize) {
+      const batch = posts.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (post) => {
+        try {
+          const reactions = await snapchainService.getReactionsByCast(post.fid, post.hash);
+          // Only update if we got valid positive numbers (avoid wiping data with 0s on partial API failures)
+          if (reactions && typeof reactions.likes === 'number') {
+            await updateCastStats(post.hash, reactions);
+            updatedCount++;
+          }
+        } catch (e) {
+          // Ignore fetch errors
+        }
+      }));
+
+      // Rate limit protection
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    console.log(`[SocialJob] ✅ Refreshed stats for ${updatedCount}/${posts.length} posts`);
+
+  } catch (error) {
+    console.error('[SocialJob] Engagement Refresh Error:', error);
+  }
+}
+
+/**
+ * Recalculate heat scores for all relevant posts
+ * Uses time-decay formula to ensure trending is about "velocity" not just total likes
+ */
+export async function runScoreRecalculationJob(): Promise<void> {
+  // console.log('[SocialJob] Starting Score Recalculation...');
+  try {
+    await recalculateHeatScores();
+  } catch (error) {
+    console.error('[SocialJob] Score Recalculation Error:', error);
+  }
+}
+
+/**
  * Initialize and start cron jobs
  */
 export function startSocialDataJobs(): void {
-  // Trending casts: Every 10 minutes
-  cron.schedule('*/10 * * * *', () => refreshTrendingCasts(), {
+  // 1. Discovery Job: Every 10 minutes (Find NEW content)
+  cron.schedule('*/10 * * * *', () => runDiscoveryJob(), {
     timezone: 'UTC',
   });
 
-  console.log('[SocialJob] Scheduled: Every 10min');
+  // 2. Engagement Refresh: Every 30 minutes (Update OLD content)
+  // Offset by 5 mins to avoid clashing with Discovery
+  cron.schedule('5,35 * * * *', () => runEngagementRefreshJob(), {
+    timezone: 'UTC',
+  });
+
+  // 3. Score Recalc: Every 5 minutes (Keep ranking fresh)
+  cron.schedule('*/5 * * * *', () => runScoreRecalculationJob(), {
+    timezone: 'UTC',
+  });
+
+  console.log('[SocialJob] Scheduled: Discovery (10m), Refresh (30m), Scoring (5m)');
 
   // Run initial setup on startup
   setTimeout(async () => {
@@ -455,8 +521,8 @@ export function startSocialDataJobs(): void {
       // Silently continue
     }
 
-    // Run initial trending casts refresh
-    refreshTrendingCasts();
+    // Run initial discovery
+    runDiscoveryJob();
   }, 5000); // Wait 5 seconds for services to be ready
 }
 

@@ -68,6 +68,19 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
 
                 for (let i = 0; i < sortedCasts.length; i++) {
                     const cast = sortedCasts[i];
+
+                    // FINAL GUARD: Prevent mock data from ever hitting the DB
+                    const isMockUser = !cast.author.username ||
+                        cast.author.username.startsWith('fid') ||
+                        !cast.author.displayName ||
+                        cast.author.displayName.startsWith('User ') ||
+                        (cast.author.avatar && cast.author.avatar.includes('placehold.co'));
+
+                    if (isMockUser) {
+                        logger.warn(LogCode.SOC_TRENDING_UPDATED, 'SocialRepo: Dropping cast with mock user data', { hash: cast.hash, fid: cast.fid });
+                        continue;
+                    }
+
                     const likes = typeof cast.stats.likes === 'number' ? cast.stats.likes : parseInt(String(cast.stats.likes)) || 0;
                     const recasts = typeof cast.stats.recasts === 'number' ? cast.stats.recasts : parseInt(String(cast.stats.recasts)) || 0;
                     const replies = typeof cast.stats.replies === 'number' ? cast.stats.replies : parseInt(String(cast.stats.replies)) || 0;
@@ -579,5 +592,86 @@ export async function checkUserFollowsKiko(fid: number): Promise<boolean> {
     } catch (error: any) {
         logger.error(LogCode.SOC_FOLLOW_DETECTED, `SocialRepo: Error checking if FID ${fid} follows Kiko`, { error: error.message });
         return false;
+    }
+}
+
+/**
+ * Get posts that need engagement refresh
+ * Criteria: High engagement, recent (within 7 days), but haven't been updated recently
+ */
+export async function getPostsForRefresh(limit: number = 200, maxAgeDays: number = 7): Promise<{ hash: string, fid: number }[]> {
+    try {
+        const cutoff = new Date(Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000));
+        // Refresh items that haven't been updated in 30 mins
+        const statsCutoff = new Date(Date.now() - (30 * 60 * 1000));
+
+        // Use raw query to prioritize posts that are BOTH popular AND stale
+        // Score = likes * seconds_since_update
+        const posts = await prisma.$queryRaw<{ hash: string, fid: number }[]>`
+            SELECT hash, fid 
+            FROM trending_casts
+            WHERE timestamp > ${cutoff}
+            AND (stats_last_updated_at < ${statsCutoff} OR stats_last_updated_at IS NULL)
+            ORDER BY 
+                stats_likes DESC,
+                stats_last_updated_at ASC
+            LIMIT ${limit}
+        `;
+
+        return posts;
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'SocialRepo: Error getting posts for refresh', { error: error.message });
+        return [];
+    }
+}
+
+/**
+ * Update engagement stats for a single cast
+ */
+export async function updateCastStats(hash: string, stats: { likes: number, recasts: number, replies: number }): Promise<void> {
+    try {
+        await prisma.trendingCast.update({
+            where: { hash },
+            data: {
+                likes: stats.likes,
+                recasts: stats.recasts,
+                replies: stats.replies,
+                statsLastUpdatedAt: new Date()
+            }
+        });
+    } catch (error: any) {
+        // Warning mainly used if cast was deleted in between reads
+        logger.warn(LogCode.SYS_ERROR, `SocialRepo: Failed to update stats for ${hash}`, { error: error.message });
+    }
+}
+
+/**
+ * Recalculate heat scores for all relevant posts using the decay formula
+ * Formula: (likes + 2*recasts + 0.5*replies) / (ageHours + 2)^1.5
+ */
+export async function recalculateHeatScores(): Promise<void> {
+    const timerLabel = 'recalc_heat_scores';
+    logger.startTimer(timerLabel);
+
+    try {
+        // Update posts from the last 30 days
+        const thirtyDaysAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+
+        // Use raw SQL for efficiency and access to date functions
+        const updated = await prisma.$executeRaw`
+            UPDATE trending_casts
+            SET heat_score = LEAST(
+                CAST((stats_likes + (2 * stats_recasts) + (0.5 * stats_replies)) AS DECIMAL) / 
+                POWER(GREATEST((EXTRACT(EPOCH FROM (NOW() - timestamp)) / 3600) + 2, 0.01), 1.5),
+                99999999.99
+            )
+            WHERE timestamp > ${thirtyDaysAgo}
+            AND timestamp <= NOW()
+        `;
+
+        logger.info(LogCode.SYS_INFO, `SocialRepo: Recalculated heat scores for ${updated} casts`);
+        logger.endTimer(timerLabel, LogCode.SYS_INFO, { count: Number(updated) });
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, 'SocialRepo: Error recalculating heat scores', { error: error.message });
     }
 }

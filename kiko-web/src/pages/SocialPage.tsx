@@ -100,21 +100,25 @@ const SocialIconWrapper = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-const BaseIcon = ({ size = 16, style = {} }: { size?: number, style?: React.CSSProperties }) => (
-  <img
-    src="/baselogo.webp"
-    alt="Base"
-    style={{ ...style, width: size, height: size, borderRadius: '2px' }}
-  />
-);
+
 
 const FarcasterIcon = ({ size = 16, style = {} }: { size?: number, style?: React.CSSProperties }) => (
   <img
     src="/farcasterlogo.webp"
     alt="Farcaster"
-    style={{ ...style, width: size, height: size, borderRadius: '2px' }}
+    style={{ ...style, width: size, height: size, borderRadius: '4px' }}
   />
 );
+
+
+
+// Simplified HSL-based gradient generator for CSS (hsv not native)
+const getAestheticGradient = (id: number | string) => {
+  const num = typeof id === 'string' ? id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) : id;
+  const h1 = num % 360;
+  const h2 = (h1 + 40) % 360;
+  return `linear-gradient(135deg, hsl(${h1}, 75%, 65%) 0%, hsl(${h2}, 85%, 55%) 100%)`;
+};
 
 const TrendingCastItem: React.FC<{
   data: FeedItem;
@@ -178,22 +182,41 @@ const TrendingCastItem: React.FC<{
               }}
               title={data.author.bio ? `${data.author.bio.substring(0, 100)}...` : 'View Profile'}
             >
-              <img
-                src={data.author?.avatar || `https://placehold.co/100/6366f1/ffffff?text=U`}
-                alt={data.author?.handle || 'author'}
-                title={data.author?.bio || ''}
+              <div
                 style={{
                   width: '100%',
                   height: '100%',
                   borderRadius: '50%',
-                  background: colors.bgCard,
-                  objectFit: 'cover',
-                  display: 'block',
+                  background: data.author?.avatar ? 'transparent' : getAestheticGradient(data.id),
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontWeight: 'bold',
+                  fontSize: isMobile ? '14px' : '16px',
+                  overflow: 'hidden'
                 }}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = `https://placehold.co/100/6366f1/ffffff?text=${(data.author?.name || 'U').charAt(0).toUpperCase()}`;
-                }}
-              />
+              >
+                {data.author?.avatar ? (
+                  <img
+                    src={data.author.avatar}
+                    alt={data.author?.handle || 'author'}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      display: 'block',
+                    }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      (e.target as HTMLImageElement).parentElement!.style.background = getAestheticGradient(data.id);
+                      (e.target as HTMLImageElement).parentElement!.innerText = (data.author?.name || 'U').charAt(0).toUpperCase();
+                    }}
+                  />
+                ) : (
+                  (data.author?.name || 'U').charAt(0).toUpperCase()
+                )}
+              </div>
             </div>
           </div>
 
@@ -232,30 +255,7 @@ const TrendingCastItem: React.FC<{
                   {data.author?.handle}
                 </span>
 
-                {/* Post Coin Badge */}
-                {data.isBaseAppCoin && (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    background: 'rgba(0, 82, 255, 0.1)',
-                    border: '1px solid rgba(0, 82, 255, 0.2)',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    marginLeft: '4px',
-                  }}>
-                    {/* Replaced Icon with Base Logo Image */}
-                    <BaseIcon size={12} />
-                    <span style={{
-                      fontSize: '11px',
-                      fontWeight: '700',
-                      color: '#0052FF',
-                      letterSpacing: '0.02em',
-                    }}>
-                      {!isMobile && "Post Coin"}
-                    </span>
-                  </div>
-                )}
+
               </div>
 
               <div style={{
@@ -263,7 +263,7 @@ const TrendingCastItem: React.FC<{
                 alignItems: 'center',
                 gap: '8px',
               }}>
-                {data.isBaseAppCoin ? <BaseIcon size={14} /> : <FarcasterIcon size={14} />}
+                <FarcasterIcon size={14} />
                 <span style={{
                   color: colors.textMuted,
                   fontSize: '12px',
@@ -483,26 +483,7 @@ const TrendingCastItem: React.FC<{
                   }}>{data.stats?.likes}</span>
                 </div>
 
-                {/* Coin Value Display in Stats Row */}
-                {data.coinValue && (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    color: '#10b981', // Green like stock up
-                    fontWeight: '600',
-                    fontSize: '12px',
-                    marginLeft: '4px',
-                  }}>
-                    {/* K-line / Chart Icon */}
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="20" x2="18" y2="10"></line>
-                      <line x1="12" y1="20" x2="12" y2="4"></line>
-                      <line x1="6" y1="20" x2="6" y2="14"></line>
-                    </svg>
-                    {data.coinValue}
-                  </div>
-                )}
+
 
                 {/* 3D View Toggle */}
                 <div
@@ -647,7 +628,7 @@ function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
     author: {
       name: cast.author.displayName || cast.author.username || 'Unknown',
       handle: `@${cast.author.username}`,
-      avatar: cast.author.avatar || `https://placehold.co/100/6366f1/ffffff?text=${cast.author.fid}`,
+      avatar: cast.author.avatar || '',
       isVerified: cast.author.verified || false,
       bio: cast.author.bio,
       creatorCoin: cast.author.creatorCoin // Pass creator coin data
@@ -663,9 +644,7 @@ function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
       likes: formatStat(cast.stats.likes),
     },
     castUrl: castUrl, // Add URL for navigation
-    isBaseAppCoin: cast.isBaseAppCoin,
-    baseAppCoinMetadata: cast.baseAppCoinMetadata,
-    coinValue: cast.coinValue,
+
     mentions: cast.mentions, // Pass mentions
     timestamp: castTimestamp, // Add timestamp for sorting
   };
@@ -720,7 +699,7 @@ export const SocialPage: React.FC = () => {
 
   const [timeRange, setTimeRange] = useState<TimeRange>('trending');
   const [sortBy, setSortBy] = useState<SortOption>('rank');
-  const [filterByBaseAppCoin, setFilterByBaseAppCoin] = useState(false);
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -825,7 +804,7 @@ export const SocialPage: React.FC = () => {
     return () => {
       mountedRef.current = false;
     };
-  }, [timeRange, filterByBaseAppCoin]);
+  }, [timeRange]);
 
   const loadTrendingCasts = async (showLoading: boolean = true, pageNum: number = 1) => {
     if (!mountedRef.current) return;
@@ -881,10 +860,7 @@ export const SocialPage: React.FC = () => {
 
               return true;
             })
-            .filter((cast) => {
-              if (filterByBaseAppCoin) return cast.isBaseAppCoin === true;
-              return true;
-            })
+
             .map((cast, index) => trendingCastToFeedItem(cast, (pageNum - 1) * PAGE_SIZE + index))
             .filter((item) => {
               if (!item.time || item.time.trim() === '') return false;
@@ -1126,30 +1102,7 @@ export const SocialPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Is Post Coin Toggle */}
-              <div
-                onClick={() => setFilterByBaseAppCoin(!filterByBaseAppCoin)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: isMobile ? '8px' : '8px 12px',
-                  borderRadius: '12px',
-                  background: filterByBaseAppCoin ? 'rgba(0, 82, 255, 0.1)' : colors.bgButton,
-                  border: filterByBaseAppCoin ? '1px solid #0052FF' : '1px solid transparent',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                <BaseIcon size={16} style={{ opacity: filterByBaseAppCoin ? 1 : 0.5 }} />
-                <span style={{
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  color: filterByBaseAppCoin ? '#0052FF' : colors.textSecondary
-                }}>
-                  Base Coin
-                </span>
-              </div>
+
             </div>
 
             {/* Hidden original tabs */}

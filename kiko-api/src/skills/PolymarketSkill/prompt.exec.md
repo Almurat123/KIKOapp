@@ -1,5 +1,9 @@
 **INTENT: POLYMARKET PREDICTION MARKETS**
 
+**Adaptive rule (non-rigid):**
+- Use the smallest set of steps/tools needed. If [CONTEXT] already contains the needed data, skip that step.
+- Do not repeat a tool if it already succeeded in this turn.
+
 1. **Market Discovery**:
    - Use Prediction Market Research only when the user asks about prediction markets or a specific topic (e.g., "Election", "NBA").
    - Always provide the probability (price) of outcomes to the user.
