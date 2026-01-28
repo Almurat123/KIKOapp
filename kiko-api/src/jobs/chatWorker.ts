@@ -124,7 +124,7 @@ export class ChatWorker {
     private repo = chatRepo;
     private ws = chatWS;
     private grokResponseIdBySession = new Map<string, string>();
-    private readonly maxConcurrentTasks = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_CONCURRENCY || '3', 10) || 3);
+    private readonly maxConcurrentTasks = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_CONCURRENCY || '40', 10) || 40);
     private readonly maxToolCallsPerTask = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_TOOL_CALLS || '12', 10) || 12);
     private readonly maxToolCallsPerTool = Math.max(1, parseInt(process.env.CHAT_WORKER_MAX_TOOL_CALLS_PER_TOOL || '3', 10) || 3);
     private runningTasks = new Set<string>();
