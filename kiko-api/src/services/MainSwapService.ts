@@ -399,7 +399,10 @@ export class MainSwapService {
       feeContext,
       isSell: false, // Determined automatically by SwapExecutor
       messageId: request.messageId, // For WebSocket progress updates
-      accessToken: request.accessToken
+      accessToken: request.accessToken,
+      // CRITICAL: For copytrade mode, wait for on-chain confirmation before returning
+      // This ensures we don't send success notifications for reverted transactions
+      waitForConfirmation: request.mode === 'copytrade'
     };
 
     const executionResult = await SwapExecutor.execute(swapParams);
@@ -498,7 +501,9 @@ export class MainSwapService {
       slippageBps: request.slippageBps || 100, // Jupiter default
       feeContext,
       isSell: false,
-      accessToken: request.accessToken
+      accessToken: request.accessToken,
+      // CRITICAL: For copytrade mode, wait for on-chain confirmation
+      waitForConfirmation: request.mode === 'copytrade'
     };
 
     const result = await SwapExecutor.execute(swapParams);

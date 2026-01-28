@@ -30,6 +30,7 @@ export interface SwapParams {
     excludeDex?: string; // Exclude this DEX from quote selection (for retry after failure)
     affiliateFee?: string; // Optional affiliate fee BPS or amount
     accessToken?: string; // User JWT for Privy user signer
+    waitForConfirmation?: boolean; // Wait for on-chain confirmation before returning (for copytrade)
 }
 
 export interface SwapResult {
@@ -415,17 +416,68 @@ export class SwapExecutor {
             maxPriorityFeePerGas: feeData?.maxPriorityFeePerGas?.toString()
         });
 
-        // RETRY LOGIC for Reverts (Slippage handling)
-        // [Expert Logic]: Aggressive Gas Bidding for CopyTrade
+        // ⚡ SMART GAS BIDDING STRATEGY FOR COPYTRADE
+        // Base/L2: Low base fee but priority fee critical for transaction ordering
+        // Mainnet: Higher base fee, priority fee for miner tips
         const isCopyTrade = params.feeContext === 'copyTrade';
         let maxFeePerGasCap = feeData?.maxFeePerGas;
         let maxPriorityFeeCap = feeData?.maxPriorityFeePerGas;
 
-        if (isCopyTrade && maxPriorityFeeCap) {
-            // Increase priority fee by 20% to outbid standard transactions
-            maxPriorityFeeCap = (maxPriorityFeeCap * 120n) / 100n;
-            // Ensure maxFeePerGas is also bumped to accommodate higher priority
-            if (maxFeePerGasCap) maxFeePerGasCap = maxFeePerGasCap + (maxPriorityFeeCap / 5n);
+        if (isCopyTrade) {
+            // REAL DATA ANALYSIS (2026-01-28 Base transaction):
+            // - RPC returned: 1 gwei priority fee (0.001 gwei)
+            // - Transaction REVERTED (likely due to low priority, slow inclusion)
+            // - Base mempool competition requires 0.1-0.5 gwei for fast inclusion
+            
+            if (chainId === 8453) {
+                // BASE L2 AGGRESSIVE STRATEGY
+                // Target: Top 5% mempool = 0.15 gwei minimum priority
+                const TARGET_PRIORITY_GWEI = 0.15;
+                const TARGET_PRIORITY_WEI = BigInt(Math.floor(TARGET_PRIORITY_GWEI * 1e9));
+                
+                if (maxPriorityFeeCap && maxPriorityFeeCap > BigInt(0)) {
+                    // 3x boost from RPC value
+                    maxPriorityFeeCap = maxPriorityFeeCap * 300n / 100n;
+                    // Enforce minimum target
+                    if (maxPriorityFeeCap < TARGET_PRIORITY_WEI) {
+                        maxPriorityFeeCap = TARGET_PRIORITY_WEI;
+                    }
+                } else {
+                    // No RPC data: use 2x target
+                    maxPriorityFeeCap = TARGET_PRIORITY_WEI * 2n;
+                }
+
+                // Base fee ~0.05-0.1 gwei, set maxFee with buffer
+                const BASE_FEE_EST = BigInt(Math.floor(0.1 * 1e9));
+                maxFeePerGasCap = BASE_FEE_EST + maxPriorityFeeCap * 2n;
+            } else {
+                // MAINNET/OTHER L1 STRATEGY
+                const MIN_PRIORITY_GWEI = 2;
+                const MIN_PRIORITY_WEI = BigInt(Math.floor(MIN_PRIORITY_GWEI * 1e9));
+                
+                if (maxPriorityFeeCap) {
+                    maxPriorityFeeCap = maxPriorityFeeCap * 200n / 100n;
+                    if (maxPriorityFeeCap < MIN_PRIORITY_WEI) {
+                        maxPriorityFeeCap = MIN_PRIORITY_WEI;
+                    }
+                } else {
+                    maxPriorityFeeCap = MIN_PRIORITY_WEI * 2n;
+                }
+
+                if (maxFeePerGasCap) {
+                    maxFeePerGasCap = maxFeePerGasCap + maxPriorityFeeCap;
+                } else {
+                    const BASE_FEE_EST = BigInt(Math.floor(20 * 1e9));
+                    maxFeePerGasCap = BASE_FEE_EST + maxPriorityFeeCap;
+                }
+            }
+
+            logger.info(LogCode.EXE_TX_BROADCAST, '🚀 CopyTrade Aggressive Gas', {
+                chainId,
+                maxFeeGwei: (Number(maxFeePerGasCap) / 1e9).toFixed(4),
+                priorityGwei: (Number(maxPriorityFeeCap) / 1e9).toFixed(4),
+                mode: chainId === 8453 ? 'Base(3x,min0.15)' : 'L1(2x,min2)'
+            });
         }
 
         try {
@@ -441,14 +493,58 @@ export class SwapExecutor {
 
             logger.info(LogCode.EXE_TX_BROADCAST, 'Swap Broadcast', { txHash, method: best.dexName });
 
-            // 5. Return success immediately (Async Execution)
-            // CRITICAL CHANGE: Do NOT wait for confirmation here. Return TX hash immediately.
-            // Monitor in background for logging purposes only.
+            // 5. Handle confirmation based on mode
+            // For copy trade and critical operations, wait for confirmation
+            // For normal swaps, return immediately and monitor in background
+            if (params.waitForConfirmation) {
+                // SYNCHRONOUS CONFIRMATION: Wait for tx confirmation before returning
+                const confirmed = await this.waitForTransactionConfirmation(txHash, chainId, best.dexName, 60000);
+                if (!confirmed.success) {
+                    logger.error(LogCode.EXE_TX_REVERTED, 'Transaction REVERTED on-chain', { txHash, reason: confirmed.reason });
 
-            // Fire-and-forget monitoring
-            this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId).catch(err => {
-                logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed', { txHash, error: err.message });
-            });
+                    // ⚡ RETRY LOGIC FOR REVERTED TRANSACTIONS
+                    // When waitForConfirmation is enabled and tx reverts, we should retry with higher slippage
+                    // NOTE: autoTradeService has its own multi-step retry, so we only do 1 internal retry here
+                    const MAX_INTERNAL_RETRY_SLIPPAGE = 1000; // 10% internal max (autoTradeService handles higher)
+                    const INCREMENT_STEP = 300;  // 3% step for internal retry
+                    const nextSlippage = slippageBps + INCREMENT_STEP;
+
+                    // Only do internal retry if we're below internal max AND this is first internal retry
+                    const isFirstInternalRetry = !params.excludeDex; // excludeDex is set on retry
+                    if (isFirstInternalRetry && nextSlippage <= MAX_INTERNAL_RETRY_SLIPPAGE) {
+                        logger.warn(LogCode.EXE_TX_REVERTED, `On-chain revert. Quick retry with slippage: ${nextSlippage / 100}%`, {
+                            original: slippageBps,
+                            next: nextSlippage,
+                            reason: confirmed.reason,
+                            dex: best.dexName
+                        });
+
+                        // Add delay before retry to allow mempool/price to stabilize
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+
+                        // Single internal retry with slightly higher slippage
+                        return this.executeEvm({
+                            ...params,
+                            slippageBps: nextSlippage,
+                            excludeDex: best?.dex // Mark as retry
+                        });
+                    }
+
+                    // Return failure - let autoTradeService handle higher-level retry
+                    return {
+                        success: false,
+                        error: `Transaction reverted: ${confirmed.reason || 'Slippage or price impact'}`,
+                        method: best.dexName,
+                        txHash
+                    };
+                }
+                logger.info(LogCode.EXE_TX_CONFIRMED, 'Transaction confirmed on-chain', { txHash });
+            } else {
+                // ASYNC MONITORING: Fire-and-forget for normal swaps
+                this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId).catch(err => {
+                    logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed', { txHash, error: err.message });
+                });
+            }
 
             return {
                 success: true,
@@ -620,6 +716,77 @@ export class SwapExecutor {
 
             throw execError;
         }
+    }
+
+    /**
+     * Wait for transaction confirmation (SYNCHRONOUS)
+     * Used for critical operations like copy trade where we need to verify success before notifying user
+     */
+    private static async waitForTransactionConfirmation(
+        txHash: string,
+        chainId: number,
+        dexName: string,
+        timeoutMs: number = 60000
+    ): Promise<{ success: boolean; reason?: string }> {
+        const startTime = Date.now();
+        let receipt = null;
+
+        logger.info(LogCode.SYS_INFO, `[ConfirmWait] Waiting for confirmation: ${txHash} on ${chainId}`);
+
+        while (Date.now() - startTime < timeoutMs) {
+            try {
+                const rpcReceipt = await getTransactionReceipt(chainId, txHash);
+                if (rpcReceipt) {
+                    receipt = rpcReceipt;
+                    break;
+                }
+            } catch (err) {
+                // Ignore RPC errors during polling
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Check every 2 seconds
+        }
+
+        if (!receipt) {
+            logger.warn(LogCode.SYS_INFO, `[ConfirmWait] Timeout waiting for ${txHash} confirmation`);
+            return { success: false, reason: 'Transaction confirmation timeout' };
+        }
+
+        // Check if successful (status 1)
+        const isSuccess = receipt.status === '0x1' || receipt.status === 1 || receipt.status === true;
+
+        if (isSuccess) {
+            logger.info(LogCode.EXE_TX_CONFIRMED, `[ConfirmWait] Transaction confirmed: ${txHash}`);
+            return { success: true };
+        }
+
+        // FAILED: Try to decode revert reason
+        let revertReason = 'Transaction reverted';
+        try {
+            const tx = await getTransactionByHash(chainId, txHash);
+            if (tx) {
+                const inputData = tx.input || tx.data;
+                try {
+                    await callRpc(chainId, 'eth_call', [{
+                        to: tx.to,
+                        from: tx.from,
+                        data: inputData,
+                        value: tx.value
+                    }, 'latest']);
+                } catch (callErr: any) {
+                    if (callErr.message) {
+                        revertReason = callErr.message
+                            .replace('RPC Error: ', '')
+                            .replace('execution reverted: ', '')
+                            .trim();
+                    }
+                }
+            }
+        } catch (decodeErr: any) {
+            logger.debug(LogCode.SYS_INFO, `[ConfirmWait] Could not decode revert reason`, { error: decodeErr.message });
+        }
+
+        logger.error(LogCode.EXE_TX_REVERTED, `[ConfirmWait] Transaction REVERTED: ${txHash}`, { reason: revertReason });
+        return { success: false, reason: revertReason };
     }
 
     /**

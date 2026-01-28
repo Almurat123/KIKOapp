@@ -1742,7 +1742,24 @@ export async function checkPositionsForExits(): Promise<void> {
 
                     // Auto-Close if balance is empty (0)
                     // Note: We user stricter check here than 'dust', effectively 0 balance
+                    // CRITICAL FIX: Don't auto-close positions created within last 2 minutes
+                    // This prevents false "sold" notifications for reverted buy transactions
                     if (isBalanceCheckSuccess && balance === 0n) {
+                        const positionAgeMs = Date.now() - new Date(position.createdAt).getTime();
+                        const MIN_AGE_FOR_AUTO_CLOSE_MS = 2 * 60 * 1000; // 2 minutes
+
+                        if (positionAgeMs < MIN_AGE_FOR_AUTO_CLOSE_MS) {
+                            // Position is too new - likely a failed/reverted buy transaction
+                            // Delete the position silently instead of notifying about a "sell"
+                            logger.warn(LogCode.EXE_TX_REVERTED, 'Deleting new position with 0 balance (likely reverted buy)', {
+                                positionId: position.id,
+                                ageSeconds: Math.round(positionAgeMs / 1000),
+                                chainId: position.chainId
+                            });
+                            await prisma.position.delete({ where: { id: position.id } });
+                            return; // Stop processing - no notification needed
+                        }
+
                         logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id, chainId: position.chainId });
                         await prisma.position.update({
                             where: { id: position.id },
