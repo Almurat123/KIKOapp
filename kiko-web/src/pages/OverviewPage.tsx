@@ -16,6 +16,7 @@ import { PageContainer } from '../components/Layout/PageContainer';
 import { Skeleton } from '../components/Skeleton';
 import styles from './OverviewPage.module.css';
 import type { MarketOverview } from '../services/api';
+import { proxyImageUrl } from '../utils/imageProxy';
 
 // --- Formatting Helpers ---
 
@@ -681,7 +682,7 @@ export const OverviewPage: React.FC = () => {
                     </span>
                     {token.image ? (
                       <img
-                        src={token.image}
+                        src={proxyImageUrl(token.image) || token.image}
                         alt={token.name}
                         className={styles.tokenIcon}
                         onError={(e) => {
@@ -741,7 +742,7 @@ export const OverviewPage: React.FC = () => {
                       </span>
                       {token.image || token.thumb || token.small ? (
                         <img
-                          src={token.image || token.thumb || token.small}
+                          src={proxyImageUrl(token.image || token.thumb || token.small) || (token.image || token.thumb || token.small)}
                           alt={token.name}
                           className={styles.tokenIcon}
                           onError={(e) => {
@@ -1016,4 +1017,3 @@ export const OverviewPage: React.FC = () => {
     </PageContainer>
   );
 };
-

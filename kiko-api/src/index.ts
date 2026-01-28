@@ -121,6 +121,20 @@ fastify.addHook('onRequest', tracingHook);
 // Register rate limiter for all routes
 fastify.addHook('onRequest', rateLimiter);
 
+// Register App Key validation for all API routes
+import { requireAppKey } from './middleware/apiKey.js';
+import { requireAllowedOrigin } from './middleware/originRestriction.js';
+fastify.addHook('preHandler', async (request, reply) => {
+    // Only skip auth for health check endpoint
+    if (request.url === '/health') {
+        return;
+    }
+    // Validate origin/referer first
+    await requireAllowedOrigin(request, reply);
+    // Then validate app key
+    await requireAppKey(request, reply);
+});
+
 import fastifyStatic from '@fastify/static';
 import path from 'path';
 import fs from 'fs';

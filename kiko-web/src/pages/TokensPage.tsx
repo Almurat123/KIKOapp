@@ -8,6 +8,7 @@ import { PageContainer } from '../components/Layout/PageContainer';
 import styles from './TokensPage.module.css';
 import { usePageVisibility, useTabVisibility } from '../hooks/usePageVisibility';
 import { requestManager } from '../utils/requestManager';
+import { proxyImageUrl } from '../utils/imageProxy';
 import {
   calculateTrendingScore,
   loadFromCache,
@@ -246,14 +247,6 @@ function isNewToken(createdAt: string | undefined): boolean {
     return false;
   }
 }
-
-const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-
-const buildProxyUrl = (url?: string): string => {
-  if (!url) return '';
-  const base = API_BASE_URL ? `${API_BASE_URL}/api/images/token` : '/api/images/token';
-  return `${base}?url=${encodeURIComponent(url)}`;
-};
 
 /**
  * Check if token is hot (high volume/activity in 24h)
@@ -495,7 +488,7 @@ const TokenRow = React.memo(({
               </span>
             )}
             <img
-              src={buildProxyUrl(t.imageUrl) || buildProxyUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`) || `https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`}
+              src={proxyImageUrl(t.imageUrl) || proxyImageUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`) || `https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`}
               alt={t.name}
               className={styles.tokenIcon}
               loading="lazy"
@@ -505,7 +498,7 @@ const TokenRow = React.memo(({
                 const stage = e.currentTarget.dataset.fallbackStage || '0';
                 if (stage === '0') {
                   e.currentTarget.dataset.fallbackStage = '1';
-                  e.currentTarget.src = buildProxyUrl(fallbackUrl) || fallbackUrl;
+                  e.currentTarget.src = proxyImageUrl(fallbackUrl) || fallbackUrl;
                   return;
                 }
                 if (stage === '1') {

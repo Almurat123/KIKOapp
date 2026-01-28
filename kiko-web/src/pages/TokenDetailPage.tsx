@@ -14,6 +14,7 @@ import {
 import { favoriteApi } from '../services/favoriteService';
 import { usePrivy } from '@privy-io/react-auth';
 import { useSidebar } from '../components/Layout/Layout';
+import { proxyImageUrl } from '../utils/imageProxy';
 
 import { GeckoTerminalChart } from '../components/Chart/GeckoTerminalChart';
 import styles from './TokenDetailPage.module.css';
@@ -304,11 +305,19 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
 
             <div className={styles.tokenIconWrapper}>
               <img
-                src={token.imageUrl || `https://ui-avatars.com/api/?name=${token.symbol}&background=random&color=fff`}
+                src={proxyImageUrl(token.imageUrl) || proxyImageUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff`) || `https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff`}
                 alt={token.name}
                 className={styles.tokenIcon}
                 onError={(e) => {
-                  e.currentTarget.src = `https://ui-avatars.com/api/?name=${token.symbol}&background=random&color=fff`;
+                  const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff`;
+                  const stage = e.currentTarget.dataset.fallbackStage || '0';
+                  if (stage === '0') {
+                    e.currentTarget.dataset.fallbackStage = '1';
+                    e.currentTarget.src = proxyImageUrl(fallbackUrl) || fallbackUrl;
+                    return;
+                  }
+                  e.currentTarget.dataset.fallbackStage = '2';
+                  e.currentTarget.src = fallbackUrl;
                 }}
               />
               <img

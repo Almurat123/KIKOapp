@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
     CheckCircle2,
     ShieldCheck,
@@ -12,7 +12,7 @@ import {
 import clsx from 'clsx';
 import styles from './TransactionStatusCard.module.css';
 
-export type TransactionStatus = 'pending' | 'success' | 'failed' | 'cancelled';
+export type TransactionStatus = 'building' | 'sending' | 'pending' | 'success' | 'failed' | 'cancelled';
 
 export interface TransactionStatusCardProps {
     /** 交易状态 */
@@ -37,10 +37,20 @@ export interface TransactionStatusCardProps {
 
 // 交易步骤定义
 const TRANSACTION_STEPS = [
-    { label: "Preparing Transaction", sub: "Constructing payload...", icon: Layers },
-    { label: "Sending Transaction", sub: "Broadcasting to nodes...", icon: ArrowUpRight },
-    { label: "Checking Status", sub: "Waiting for confirmation...", icon: ShieldCheck }
+    { status: 'building', label: "Preparing Transaction", sub: "Constructing payload...", icon: Layers },
+    { status: 'sending', label: "Sending Transaction", sub: "Broadcasting to network...", icon: ArrowUpRight },
+    { status: 'pending', label: "Confirming Transaction", sub: "Waiting for confirmation...", icon: ShieldCheck }
 ];
+
+// 根据status获取步骤索引
+const getStepIndex = (status: TransactionStatus): number => {
+    switch (status) {
+        case 'building': return 0;
+        case 'sending': return 1;
+        case 'pending': return 2;
+        default: return 0;
+    }
+};
 
 // 获取区块浏览器链接
 const getExplorerUrl = (chainId: number, txHash: string): string => {
@@ -83,24 +93,8 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     errorMessage,
     isLoading = false,
 }) => {
-    const [currentStep, setCurrentStep] = useState(0);
-
-    // 当status为pending时，循环显示步骤
-    useEffect(() => {
-        if (status === 'pending') {
-            const stepTimer = setInterval(() => {
-                setCurrentStep(s => (s + 1) % TRANSACTION_STEPS.length);
-            }, 3000);
-            return () => clearInterval(stepTimer);
-        }
-    }, [status]);
-
-    // 重置步骤当状态改变
-    useEffect(() => {
-        if (status !== 'pending') {
-            setCurrentStep(0);
-        }
-    }, [status]);
+    // 根据实际状态获取当前步骤
+    const currentStep = getStepIndex(status);
 
     const explorerUrl = txHash ? getExplorerUrl(chainId, txHash) : '';
     const formattedHash = txHash ? formatTxHash(txHash) : '';
@@ -143,15 +137,15 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                 <div className={styles.statusRow}>
                     <div className={styles.statusContent}>
                         {/* Status Icon */}
-                        <div className={clsx(styles.statusIconWrapper, styles[status])}>
-                            {status === 'pending' && <Layers className={clsx(styles.statusIconSvg, styles.pendingIconSvg)} />}
+                        <div className={clsx(styles.statusIconWrapper, styles[status] || styles.pending)}>
+                            {['building', 'sending', 'pending'].includes(status) && <Layers className={clsx(styles.statusIconSvg, styles.pendingIconSvg)} />}
                             {status === 'success' && <CheckCircle2 className={styles.statusIconSvg} />}
                             {(status === 'failed' || status === 'cancelled') && <XCircle className={styles.statusIconSvg} />}
                         </div>
 
                         {/* Status Text */}
                         <div className={styles.statusTextGroup}>
-                            {status === 'pending' ? (
+                            {['building', 'sending', 'pending'].includes(status) ? (
                                 <>
                                     <p className={clsx(styles.statusLabelText, styles.statusLabelPending)}>
                                         {TRANSACTION_STEPS[currentStep].label}
@@ -179,7 +173,7 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                     </div>
 
                     {/* Right Side Animation */}
-                    {status === 'pending' && <CircleDashed className={styles.spinLoader} />}
+                    {['building', 'sending', 'pending'].includes(status) && <CircleDashed className={styles.spinLoader} />}
                     {status === 'success' && <Sparkles className={styles.sparkleAnim} />}
                 </div>
             </div>

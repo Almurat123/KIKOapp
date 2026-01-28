@@ -780,14 +780,14 @@ export class ChatWorker {
             this.ws.broadcastToUser(userId!, {
                 type: 'task_status',
                 sessionId: task.sessionId,
-                data: { taskId: task.id, status: 'running', message: 'Analyzing query' }
+                data: { taskId: task.id, status: 'running', message: 'Analyzing query', taskType: 'text' }
             });
 
             // 2. Load context
             this.ws.broadcastToUser(userId!, {
                 type: 'task_status',
                 sessionId: task.sessionId,
-                data: { taskId: task.id, status: 'running', message: 'Loading history' }
+                data: { taskId: task.id, status: 'running', message: 'Loading history', taskType: 'text' }
             });
             const messages = await this.repo.getSessionMessages(task.sessionId);
             let conversationHistory = messages.map(msg => ({
@@ -810,7 +810,7 @@ export class ChatWorker {
                 this.ws.broadcastToUser(userId!, {
                     type: 'task_status',
                     sessionId: task.sessionId,
-                    data: { taskId: task.id, status: 'running', message: 'Verifying safety' }
+                    data: { taskId: task.id, status: 'running', message: 'Verifying safety', taskType: 'text' }
                 });
                 const modResult = await moderationClient.moderateInput(lastUserMsg.content, {}, userId, task.sessionId, task.model);
                 if (!modResult.safe) {
@@ -1712,9 +1712,9 @@ export class ChatWorker {
 
                 // Show launchpad card if detected (only once per task)
                 // BUT: Skip if user has explicit swap/trade intent (they want to execute, not view info)
-                const hasExplicitTradeIntent = parsedIntent.detailed.action === 'swap' && 
+                const hasExplicitTradeIntent = parsedIntent.detailed.action === 'swap' &&
                     (parsedIntent.swapIntent?.amount || /\b(swap|buy|sell|trade)\b/i.test(lastUserMessage));
-                
+
                 if (detectedLaunchpadInfo && !launchpadCardShown && !hasExplicitTradeIntent) {
                     launchpadCardShown = true; // Mark as shown to prevent duplicates
                     console.log(`[ChatWorker] Token is from launchpad: ${detectedLaunchpadInfo.provider}`);

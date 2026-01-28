@@ -28,27 +28,83 @@ function App() {
   const [activeTask, setActiveTask] = useState<any | null>(null);
 
   // Global auto-reload if the page has been hidden for a long time (e.g. overnight)
+  // AND Mobile recovery: sync messages when returning from background
   useEffect(() => {
     let lastHiddenTime = 0;
     const RELOAD_STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
+    const MIN_BACKGROUND_MS = 2000; // At least 2 seconds in background to trigger sync
 
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       if (document.hidden) {
         lastHiddenTime = Date.now();
       } else if (lastHiddenTime > 0) {
         const inactiveDuration = Date.now() - lastHiddenTime;
+
         // If hidden for more than 4 hours, reload to refresh sessions/sockets
         if (inactiveDuration >= RELOAD_STALE_MS) {
           console.log(`[App] Page inactive for ${Math.round(inactiveDuration / 1000)}s - triggering auto-refresh...`);
           window.location.reload();
+          return;
         }
+
+        // Mobile recovery: If hidden for at least 2 seconds, force WebSocket reconnect
+        // and reload current conversation messages from DB
+        if (inactiveDuration >= MIN_BACKGROUND_MS) {
+          console.log(`[App] Page returned from background after ${Math.round(inactiveDuration / 1000)}s - syncing...`);
+
+          try {
+            // 1. Force reconnect WebSocket
+            const token = await getAccessToken();
+            if (token) {
+              chatWSClient.connect(token); // Will reconnect if disconnected
+            }
+
+            // 2. If there's an active conversation, reload messages from DB
+            const currentConvId = conversationsRef.current.find(c => c.id === activeConversationId)?.id;
+            if (currentConvId) {
+              console.log(`[App] Syncing messages for conversation ${currentConvId}`);
+              const resp = await chatApi.getSession(currentConvId);
+              if (resp.success && resp.messages) {
+                const dbMessages = resp.messages.map((m: any) => ({
+                  id: m.id,
+                  role: m.role,
+                  content: m.content,
+                  reasoning_content: m.reasoning_content,
+                  citations: m.citations,
+                  usage: m.usage,
+                  tool_calls: m.tool_calls,
+                  tool_call_id: m.tool_call_id,
+                  status: m.status,
+                  message_index: m.message_index,
+                  timestamp: m.created_at,
+                  type: m.data?.type || 'text',
+                  data: m.data,
+                }));
+                updateConversation(currentConvId, { messages: dbMessages });
+                console.log(`[App] Synced ${dbMessages.length} messages from DB`);
+
+                // 3. Check if there's an active task and restore UI state
+                if (resp.activeTask && (resp.activeTask.status === 'running' || resp.activeTask.status === 'queued')) {
+                  setActiveTask(resp.activeTask);
+                  console.log(`[App] Restored active task: ${resp.activeTask.id}`);
+                } else {
+                  setActiveTask(null);
+                }
+              }
+            }
+          } catch (error) {
+            console.error('[App] Failed to sync after visibility change:', error);
+          }
+        }
+
         lastHiddenTime = 0; // Reset
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  }, [activeConversationId, getAccessToken, updateConversation]);
+
 
   useEffect(() => {
     // Check for pre-filled AI query from session storage (e.g. from Token Detail page)

@@ -2,7 +2,11 @@
  * API Service for KIKO Backend
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || (
+    import.meta.env.PROD
+        ? 'https://api.kiko.app' // Production: must use HTTPS
+        : 'http://localhost:3001'
+);
 import { logger } from '../utils/logger';
 
 export type MarketOverview = {
@@ -142,6 +146,18 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
     // Get Privy access token if available
     const authToken = await getAuthToken();
 
+    // Generate request signature if enabled
+    let signatureHeaders = {};
+    if (import.meta.env.VITE_SIGNING_SECRET) {
+        try {
+            const { signRequest } = await import('../utils/signRequest.js');
+            const body = options?.body ? JSON.parse(options.body as string) : undefined;
+            signatureHeaders = await signRequest(options?.method || 'GET', endpoint, body);
+        } catch (error) {
+            console.warn('[API] Failed to sign request:', error);
+        }
+    }
+
     // Create the request promise
     const requestPromise = (async () => {
         try {
@@ -152,8 +168,10 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
                 headers: {
                     'Pragma': 'no-cache',
                     'Cache-Control': 'no-cache',
+                    'X-App-Key': import.meta.env.VITE_APP_KEY || '',
                     ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                    ...signatureHeaders,
                     ...options?.headers,
                 },
             });

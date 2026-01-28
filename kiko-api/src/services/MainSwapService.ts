@@ -400,9 +400,12 @@ export class MainSwapService {
       isSell: false, // Determined automatically by SwapExecutor
       messageId: request.messageId, // For WebSocket progress updates
       accessToken: request.accessToken,
-      // CRITICAL: For copytrade mode, wait for on-chain confirmation before returning
-      // This ensures we don't send success notifications for reverted transactions
-      waitForConfirmation: request.mode === 'copytrade'
+      // CRITICAL: Wait for on-chain confirmation to ensure accurate status reporting
+      // - fast-swap: AI-driven chat swaps need accurate status for user feedback
+      // - swap-card: API/UI swaps need real confirmation before reporting success
+      // - copytrade: Copy trading requires verified confirmation before notifications
+      // Only 'allowance' mode skips confirmation (handles separately via allowance trade flow)
+      waitForConfirmation: request.mode !== 'allowance'
     };
 
     const executionResult = await SwapExecutor.execute(swapParams);

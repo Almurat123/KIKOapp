@@ -5,12 +5,13 @@
 
 const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
-export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action';
+export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete';
 
 export interface ChatEvent {
     type: ChatEventType;
     sessionId: string;
     data: any;
+    seq?: number;  // Sequence number for reliable delivery
 }
 
 export class ChatWebSocketClient {
@@ -21,6 +22,9 @@ export class ChatWebSocketClient {
     private pingInterval: NodeJS.Timeout | null = null;
     private connectionPromise: Promise<void> | null = null;
     private connectionResolver: (() => void) | null = null;
+
+    // Sequence tracking: sessionId -> last received sequence number
+    private lastReceivedSeq: Map<string, number> = new Map();
 
     constructor() { }
 
@@ -49,6 +53,10 @@ export class ChatWebSocketClient {
         this.socket.onopen = () => {
             console.log(`[ChatWS] Connected to user WebSocket`);
             this.startHeartbeat();
+
+            // Request sync for all tracked sessions
+            this.requestSyncForAllSessions();
+
             // Resolve connection promise
             if (this.connectionResolver) {
                 this.connectionResolver();
@@ -59,7 +67,20 @@ export class ChatWebSocketClient {
         this.socket.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data) as ChatEvent;
-                // console.log('[ChatWS] Message received:', data.type, 'sessionId:', data.sessionId);
+
+                // Track sequence number and send ACK
+                if (data.seq !== undefined && data.sessionId) {
+                    this.lastReceivedSeq.set(data.sessionId, data.seq);
+                    this.sendAck(data.sessionId, data.seq);
+                }
+
+                // Handle sync_complete
+                if (data.type === 'sync_complete') {
+                    console.log(`[ChatWS] Sync complete for session ${data.sessionId}`);
+                    return; // Don't forward to listeners
+                }
+
+                // console.log('[ChatWS] Message received:', data.type, 'sessionId:', data.sessionId, 'seq:', data.seq);
                 this.listeners.forEach(listener => listener(data));
             } catch (e) {
                 console.error('[ChatWS] Error parsing message:', e);
@@ -129,6 +150,43 @@ export class ChatWebSocketClient {
             this.socket = null;
         }
         this.stopHeartbeat();
+    }
+
+    /**
+     * Send ACK for a received message
+     */
+    private sendAck(sessionId: string, seq: number) {
+        if (this.socket?.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify({
+                type: 'ack',
+                sessionId,
+                seq
+            }));
+        }
+    }
+
+    /**
+     * Request sync for a specific session
+     */
+    public requestSync(sessionId: string) {
+        const lastSeq = this.lastReceivedSeq.get(sessionId) || 0;
+        if (this.socket?.readyState === WebSocket.OPEN) {
+            console.log(`[ChatWS] Requesting sync for session ${sessionId} from seq ${lastSeq}`);
+            this.socket.send(JSON.stringify({
+                type: 'sync',
+                sessionId,
+                lastSeq
+            }));
+        }
+    }
+
+    /**
+     * Request sync for all tracked sessions after reconnection
+     */
+    private requestSyncForAllSessions() {
+        this.lastReceivedSeq.forEach((lastSeq, sessionId) => {
+            this.requestSync(sessionId);
+        });
     }
 
     private startHeartbeat() {

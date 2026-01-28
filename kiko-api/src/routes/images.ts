@@ -29,6 +29,36 @@ function isAllowedUrl(url: URL): boolean {
   return ALLOWED_HOSTS.has(host);
 }
 
+function hashColor(input: string): string {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0;
+  }
+  const color = Math.abs(hash).toString(16).slice(0, 6).padEnd(6, '0');
+  return `#${color}`;
+}
+
+function buildPlaceholderSvg(label: string): Buffer {
+  const safeLabel = label.trim().slice(0, 6) || '?';
+  const bg = hashColor(safeLabel);
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" fill="${bg}"/>
+  <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#ffffff">${safeLabel}</text>
+</svg>`;
+  return Buffer.from(svg);
+}
+
+function getLabelFromUrl(parsed: URL): string {
+  if (parsed.hostname === 'ui-avatars.com') {
+    const name = parsed.searchParams.get('name');
+    if (name) return decodeURIComponent(name);
+  }
+  const path = parsed.pathname.split('/').filter(Boolean).pop();
+  return path ? decodeURIComponent(path).slice(0, 12) : '?';
+}
+
 export async function imageRoutes(fastify: FastifyInstance) {
   await ensureCacheDir();
 
@@ -89,7 +119,13 @@ export async function imageRoutes(fastify: FastifyInstance) {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        return reply.status(502).send({ error: 'Upstream failed' });
+        const label = getLabelFromUrl(parsed);
+        const fallback = buildPlaceholderSvg(label);
+        reply.header('Content-Type', 'image/svg+xml');
+        reply.header('Cache-Control', 'public, max-age=600');
+        reply.header('Access-Control-Allow-Origin', '*');
+        reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+        return reply.send(fallback);
       }
 
       const arrayBuffer = await response.arrayBuffer();
@@ -106,7 +142,13 @@ export async function imageRoutes(fastify: FastifyInstance) {
       return reply.send(buffer);
     } catch (err) {
       clearTimeout(timeoutId);
-      return reply.status(504).send({ error: 'Upstream timeout' });
+      const label = getLabelFromUrl(parsed);
+      const fallback = buildPlaceholderSvg(label);
+      reply.header('Content-Type', 'image/svg+xml');
+      reply.header('Cache-Control', 'public, max-age=600');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+      return reply.send(fallback);
     }
   });
 }
