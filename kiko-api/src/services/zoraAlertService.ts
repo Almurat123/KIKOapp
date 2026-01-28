@@ -1,10 +1,15 @@
-import { zoraService } from './zoraService.js';
+import { zoraService, ZORA_CREATOR_COIN_HOOKS } from './zoraService.js';
 import { notificationService } from './notificationService.js';
 import { prisma } from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
-const GLOBAL_FOLLOWER_THRESHOLD = 1_000_000;
+const THRESHOLDS = {
+    farcaster: 50000,
+    twitter: 500000,
+    instagram: 500000,
+    tiktok: 500000
+};
 const POLLING_INTERVAL_MS = 60000; // Poll every 60 seconds to respect API limits
 
 /**
@@ -26,7 +31,7 @@ export class ZoraAlertService {
 
         this.isRunning = true;
         logger.info(LogCode.SYS_STARTUP, 'Starting Global Zora Alpha Detector (API Polling)', {
-            threshold: GLOBAL_FOLLOWER_THRESHOLD,
+            thresholds: THRESHOLDS,
             interval: POLLING_INTERVAL_MS
         });
 
@@ -107,9 +112,41 @@ export class ZoraAlertService {
         logger.info(LogCode.SYS_INFO, 'Alpha Detector: Checking new coin', { symbol: coin.symbol, creator: coin.creatorAddress });
 
         try {
+            // Step A: Hook Filter - MUST be a Creator Coin Hook
+            const hookAddress = coin.uniswapV4PoolKey?.hookAddress?.toLowerCase();
+            const isCreatorHook = ZORA_CREATOR_COIN_HOOKS.some(h => h.toLowerCase() === hookAddress);
+
+            if (!isCreatorHook) {
+                logger.debug(LogCode.SYS_INFO, 'Alpha Detector: Skipping non-creator hook coin (Post Coin)', {
+                    symbol: coin.symbol,
+                    hook: hookAddress
+                });
+                return;
+            }
+
             // 1. Fetch creator profile and social stats
             // Note: SDK getNewCoins might returning shallow profile, so we fetch full profile
             const profile = await zoraService.getUserProfile(coin.creatorAddress);
+
+            // Step B: Identity Anchor & Symbol-Handle Match Filter
+            // 1. A Creator Coin is only the 'Official' one if it matches the profile.creatorCoin address
+            // 2. Official Identity Coins use the creator's handle as their ticker ($username)
+            const primaryCoinAddress = profile?.creatorCoin?.address?.toLowerCase();
+            const creatorHandle = profile?.handle?.toLowerCase();
+            const coinSymbol = coin.symbol?.toLowerCase();
+
+            const isCanonical = primaryCoinAddress === coin.address.toLowerCase();
+            const isSymbolMatch = creatorHandle && coinSymbol && (coinSymbol === creatorHandle || coinSymbol === `$` + creatorHandle);
+
+            if (!isCanonical || !isSymbolMatch) {
+                logger.debug(LogCode.SYS_INFO, 'Alpha Detector: Skipping coin - Not a perfect Identity match', {
+                    symbol: coin.symbol,
+                    handle: profile?.handle,
+                    isCanonical,
+                    isSymbolMatch
+                });
+                return;
+            }
 
             const followers = {
                 twitter: profile?.socialAccounts?.twitter?.followerCount || 0,
@@ -118,21 +155,28 @@ export class ZoraAlertService {
                 tiktok: profile?.socialAccounts?.tiktok?.followerCount || 0
             };
 
+            // 2. Multi-Platform Threshold Check
             const maxFollowers = Math.max(...Object.values(followers));
-            const platform = Object.entries(followers).reduce((a, b) => a[1] > b[1] ? a : b)[0];
+            const platform = Object.entries(followers).reduce((a, b) => (a[1] as number) > (b[1] as number) ? a : b)[0];
 
-            logger.debug(LogCode.SYS_INFO, 'Alpha Detector: Creator social check', {
-                symbol: coin.symbol,
-                creator: coin.creatorAddress,
-                stats: followers,
-                max: maxFollowers
-            });
+            const isHighValue =
+                followers.farcaster >= THRESHOLDS.farcaster ||
+                followers.twitter >= THRESHOLDS.twitter ||
+                followers.instagram >= THRESHOLDS.instagram ||
+                followers.tiktok >= THRESHOLDS.tiktok;
 
-            // 2. Check Global Threshold
-            if (maxFollowers >= GLOBAL_FOLLOWER_THRESHOLD) {
+            if (maxFollowers === 0) {
+                logger.debug(LogCode.SYS_INFO, 'Alpha Detector: Skipping creator with zero followers (Not verified)', {
+                    symbol: coin.symbol,
+                    creator: coin.creatorAddress
+                });
+                return;
+            }
+
+            if (isHighValue) {
                 logger.info(LogCode.SYS_INFO, 'Alpha Detector: 🚨 ALPHA DETECTED 🚨', {
                     symbol: coin.symbol,
-                    maxFollowers,
+                    stats: followers,
                     platform
                 });
 

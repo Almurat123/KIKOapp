@@ -34,12 +34,12 @@ const CHAIN_ID = 8453; // Base Mainnet
 
 // Hook Addresses for Coin Classification
 // Note: These are known hook addresses, but new ones may be added
-const ZORA_CREATOR_COIN_HOOKS = [
+export const ZORA_CREATOR_COIN_HOOKS = [
     "0xd61A675F8a0c67A73DC3B54FB7318B4D91409040", // Original Creator Coin Hook
     "0xc8d077444625eb300a427a6dfb2b1dbf9b159040", // Newer Creator Coin Hook (e.g., Jesse's)
     "0x5e5d19d22c85a4aef7c1fdf25fb22a5a38f71040", // New Creator Coin Hook (e.g. Jacob's)
 ];
-const ZORA_CONTENT_COIN_HOOK = "0x9ea932730A7787000042e34390B8E435dD839040";
+export const ZORA_CONTENT_COIN_HOOK = "0x9ea932730A7787000042e34390B8E435dD839040";
 export const BASE_PLATFORM_REFERRER = "0x55c88bb05602da94fce8feadc1cbebf5b72c2453";
 
 export interface ZoraCoin {

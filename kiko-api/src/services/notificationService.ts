@@ -134,6 +134,7 @@ export class NotificationService {
                     (data.followerCount ? `🌟 **Clout**: ${data.followerCount}\n` : '') +
                     (data.usdValue ? `💸 **Mkt Cap**: $${data.usdValue}\n` : '') +
                     `\n🎯 *Sniper Alert*`;
+                break;
             case 'TOKEN_TARGET_ALERT':
                 // Premium "Target" Aesthetic matching User request for "Same Logic"
                 firstLine = `⚡️$${data.tokenSymbol} reached ${data.targetType} target: ${data.usdValue}`;

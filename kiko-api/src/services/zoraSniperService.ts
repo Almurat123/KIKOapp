@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import * as zoraSdk from "@zoralabs/coins-sdk";
 const { createTradeCall } = zoraSdk as any;
-import { zoraService, BASE_PLATFORM_REFERRER } from './zoraService.js';
+import { zoraService, BASE_PLATFORM_REFERRER, ZORA_CREATOR_COIN_HOOKS } from './zoraService.js';
 import { notificationService } from './notificationService.js';
 import { prisma } from '../db/prisma.js';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
@@ -59,31 +59,76 @@ export class ZoraSniperService {
             logger.info(LogCode.SYS_INFO, 'Zora Sniper: New Coin Detected', { name, symbol, coin, creator: caller });
 
             try {
-                // 1. Fetch user threshold from DB
+                // 1. Fetch coin details to verify type (Identity vs Post) via Hook
+                const coinInfo = await zoraService.getCoinByAddress(coin);
+                if (!coinInfo) {
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper: Could not fetch coin info for verification', { coin });
+                    return;
+                }
+
+                // A. Hook Filter - MUST be a Creator Coin Hook
+                // We use the same constant from zoraService
+                const hookAddress = (coinInfo as any).uniswapV4PoolKey?.hookAddress?.toLowerCase();
+                const isCreatorHook = ZORA_CREATOR_COIN_HOOKS.some(h => h.toLowerCase() === hookAddress);
+
+                if (!isCreatorHook) {
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper: Skipping non-creator hook coin (Post Coin)', {
+                        symbol,
+                        hook: hookAddress
+                    });
+                    return;
+                }
+
+                // 2. Fetch creator profile and follower count
+                const profile = await zoraService.getUserProfile(caller);
+
+                // B. Identity Anchor & Symbol-Handle Match Filter
+                const primaryCoinAddress = profile?.creatorCoin?.address?.toLowerCase();
+                const creatorHandle = profile?.handle?.toLowerCase();
+                const coinSymbol = symbol?.toLowerCase();
+
+                const isCanonical = primaryCoinAddress === coin.toLowerCase();
+                const isSymbolMatch = creatorHandle && coinSymbol && (coinSymbol === creatorHandle || coinSymbol === `$` + creatorHandle);
+
+                if (!isCanonical || !isSymbolMatch) {
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper: Skipping coin - Not a perfect Identity match', {
+                        symbol,
+                        handle: profile?.handle,
+                        isCanonical,
+                        isSymbolMatch
+                    });
+                    return;
+                }
+
                 const userSettings = await prisma.userSettings.findUnique({
                     where: { userId: this.config.userId }
                 });
                 const threshold = userSettings?.zoraNotificationThreshold ?? 5000;
 
-                // 2. Fetch creator profile and follower count
-                const profile = await zoraService.getUserProfile(caller);
+                // User requested: Single social media setting, not added together.
                 const farcasterFollowers = profile?.socialAccounts?.farcaster?.followerCount || 0;
                 const twitterFollowers = profile?.socialAccounts?.twitter?.followerCount || 0;
+                const instagramFollowers = profile?.socialAccounts?.instagram?.followerCount || 0;
+                const tiktokFollowers = profile?.socialAccounts?.tiktok?.followerCount || 0;
 
-                // User requested: Single social media setting, not added together.
-                const isHighValue = farcasterFollowers >= threshold || twitterFollowers >= threshold;
-                const maxFollowers = Math.max(farcasterFollowers, twitterFollowers);
+                const maxFollowers = Math.max(farcasterFollowers, twitterFollowers, instagramFollowers, tiktokFollowers);
+                const isHighValue = maxFollowers >= threshold;
 
                 logger.debug(LogCode.SYS_INFO, 'Zora Sniper: Creator social check', {
                     symbol,
                     creator: caller,
-                    farcasterFollowers,
-                    twitterFollowers,
+                    stats: { FC: farcasterFollowers, TW: twitterFollowers, IG: instagramFollowers, TT: tiktokFollowers },
                     threshold,
                     isHighValue
                 });
 
-                // 3. Send notification if threshold met on ANY platform
+                // 3. Zero Clout Guard - If they have 0 followers, it's definitely not "Alpha"
+                if (maxFollowers === 0) {
+                    logger.debug(LogCode.SYS_INFO, 'Zora Sniper: Skipping creator with zero followers', { symbol, creator: caller });
+                    return;
+                }
+
+                // 4. Send notification if threshold met on ANY platform
                 if (isHighValue) {
                     logger.info(LogCode.SYS_INFO, 'Zora Sniper: High quality creator detected, sending notification', {
                         symbol,
@@ -106,7 +151,6 @@ export class ZoraSniperService {
 
                     // If both are high, show the higher one or both? 
                     // Let's show the max one that triggered it, or both if valuable.
-                    // Simple approach: Show the breakdown if both exist.
                     if (twitterFollowers > 0 && farcasterFollowers > 0) {
                         followerDisplay = `${twitterFollowers.toLocaleString()} (X) / ${farcasterFollowers.toLocaleString()} (FC)`;
                     }
