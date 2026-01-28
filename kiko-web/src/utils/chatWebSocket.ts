@@ -184,7 +184,7 @@ export class ChatWebSocketClient {
      * Request sync for all tracked sessions after reconnection
      */
     private requestSyncForAllSessions() {
-        this.lastReceivedSeq.forEach((lastSeq, sessionId) => {
+        this.lastReceivedSeq.forEach((_lastSeq, sessionId) => {
             this.requestSync(sessionId);
         });
     }

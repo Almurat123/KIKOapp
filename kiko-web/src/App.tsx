@@ -103,7 +103,7 @@ function App() {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [activeConversationId, getAccessToken, updateConversation]);
+  }, [getAccessToken]); // Removed activeConversationId and updateConversation - using refs instead
 
 
   useEffect(() => {
