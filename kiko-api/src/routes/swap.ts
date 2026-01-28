@@ -37,7 +37,6 @@ import prisma from '../db/prisma.js';
 import { trackSwap } from '../services/userActivityService.js';
 // REMOVED: import { runJudgeEngine } from '../services/judge/judgeEngine.js';
 // Judge Engine should ONLY be used in Copy Trade, not in regular swaps
-import { getPlatformFee, isValidEvmAddress } from '../services/platformFeeService.js';
 
 // 类型定义
 export interface SwapQuoteRequest {
@@ -340,12 +339,6 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 ? (tokenInUsd / tokenOutUsd)
                 : null;
 
-            const platformFee = getPlatformFee('swap');
-            const affiliateFee =
-                platformFee.bps > 0 && isValidEvmAddress(platformFee.evmRecipient)
-                    ? { affiliateAddress: platformFee.evmRecipient!, buyTokenPercentageFeeBps: platformFee.bps }
-                    : undefined;
-
             // Get Best Quote (Compare 0x and Kyber)
             const { best, quotes } = await getBestQuote({
                 tokenIn: actualTokenIn,
@@ -360,7 +353,6 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 slippageBps,
                 userAddress: userAddress || undefined,
                 refPrice,
-                affiliateFee,
             });
 
             if (!best) {
@@ -1050,7 +1042,9 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 // ========== END BALANCE VERIFICATION ==========
 
                 // Convert amount to base units (use resolved amount which handles 'all')
-                const sellAmount = toWei(resolvedAmountIn, tokenInDecimals);
+                let sellAmount = toWei(resolvedAmountIn, tokenInDecimals);
+
+                // Platform fee handled inside MainSwapService/SwapExecutor
 
                 // Fetch USD reference prices for market comparison (needed for Price Impact)
                 const [tokenInUsd, tokenOutUsd] = await Promise.all([

@@ -469,21 +469,7 @@ export async function getZeroExQuote(
       params.append('taker', takerAddress);
     }
 
-    // Platform / affiliate fee (0x feature): fee is taken from buyToken and sent to affiliateAddress
-    // V2 API uses swapFee parameters (recommended)
-    if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) {
-      if (useLegacyEndpoint) {
-        // V1 endpoint uses old parameters
-        params.append('affiliateAddress', affiliateFee.affiliateAddress);
-        params.append('buyTokenPercentageFee', (affiliateFee.buyTokenPercentageFeeBps / 10000).toString());
-      } else {
-        // V2 endpoint uses new swap fee parameters
-        params.append('swapFeeRecipient', affiliateFee.affiliateAddress);
-        params.append('swapFeeBps', affiliateFee.buyTokenPercentageFeeBps.toString());
-        params.append('swapFeeToken', normalizeBuyToken);
-        params.append('tradeSurplusRecipient', affiliateFee.affiliateAddress);
-      }
-    }
+    // NOTE: Platform fee is handled outside 0x to ensure fee is always taken in native token.
 
     // For chain-specific base URLs (bsc.api.0x.org, polygon.api.0x.org, etc.),
     // we should NOT include chainId in the URL as the base URL already specifies the chain.
@@ -621,10 +607,7 @@ export async function getZeroExQuote(
         fallbackParams.append('takerAddress', takerAddress);
       }
 
-      if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) {
-        fallbackParams.append('affiliateAddress', affiliateFee.affiliateAddress);
-        fallbackParams.append('buyTokenPercentageFee', (affiliateFee.buyTokenPercentageFeeBps / 10000).toString());
-      }
+      // NOTE: Platform fee is handled outside 0x to ensure fee is always taken in native token.
 
       // For v1 fallback, use chain-specific URL for Polygon, main API for others
       // Polygon v1 endpoint requires chain-specific URL

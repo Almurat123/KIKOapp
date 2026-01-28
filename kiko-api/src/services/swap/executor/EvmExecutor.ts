@@ -5,12 +5,13 @@
 
 import { ethers } from 'ethers';
 import { SwapExecutor, SwapQuote, SwapRequest, SwapResult } from '../types.js';
-import { addGasBuffer, parseSwapError } from '../utils.js';
+import { addGasBuffer, parseSwapError, isNativeTokenAddress } from '../utils.js';
 import { getChainConfig } from '../../../config/chainConfig.js';
 import { sendTransaction } from '../../privyWallet.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { getEthersProvider } from '../../rpcManager.js';
+import { getPlatformFee, isValidEvmAddress } from '../../platformFeeService.js';
 
 export class EvmExecutor implements SwapExecutor {
     private readonly EVM_CHAINS = [1, 8453, 56, 42161, 10, 137, 43114, 250];
@@ -63,6 +64,24 @@ export class EvmExecutor implements SwapExecutor {
 
             // 3. Wait for confirmation
             const result = await this.waitForConfirmation(txHash, chainId, quote.provider);
+
+            // Post-sell platform fee in native token
+            if (result.success && (request.isSell || isNativeTokenAddress(request.tokenOut))) {
+                const fee = getPlatformFee((request.feeContext as any) || 'swap');
+                if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
+                    const outBI = BigInt(quote.amountOutBase || '0');
+                    const feeWei = (outBI * BigInt(fee.bps)) / 10000n;
+                    if (feeWei > 0n) {
+                        await sendTransaction(userId, '', {
+                            to: fee.evmRecipient!,
+                            data: '0x',
+                            value: feeWei.toString(),
+                            chainId
+                        });
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Swap fee collected (native sell)', { bps: fee.bps, wei: feeWei.toString(), chainId });
+                    }
+                }
+            }
 
             return {
                 ...result,

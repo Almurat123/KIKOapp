@@ -166,26 +166,6 @@ export class FourMemeSwapService {
             }
         } else {
             // SELL Logic
-            if (canChargeFee && amountInWei > 0n) {
-                const feeAmount = (amountInWei * BigInt(fee.bps)) / 10000n;
-                if (feeAmount > 0n && amountInWei > feeAmount) {
-                    // transfer fee tokens
-                    const data = encodeFunctionData({
-                        abi: ERC20_ABI,
-                        functionName: 'transfer',
-                        args: [fee.evmRecipient! as Address, feeAmount]
-                    });
-                    await sendTransaction(params.userId, params.accessToken, {
-                        to: targetToken,
-                        data,
-                        value: '0',
-                        chainId: params.chainId,
-                    });
-                    amountInWei = amountInWei - feeAmount;
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Collected platform fee (token)', { bps: fee.bps, amount: feeAmount.toString() });
-                }
-            }
-
             // 1. Check Allowance for TokenManager
             const allowance = await client.readContract({
                 address: targetToken,
@@ -231,12 +211,39 @@ export class FourMemeSwapService {
         }
 
         // Execute Transaction
+        const preBalance = (!isBuy && canChargeFee)
+            ? await client.getBalance({ address: params.walletAddress as Address })
+            : null;
+
         const txHash = await sendTransaction(params.userId, params.accessToken, {
             to: txTo,
             data: txData!,
             value: txValue,
             chainId: params.chainId,
         });
+
+        if (!isBuy && canChargeFee) {
+            try {
+                const receipt = await client.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
+                const postBalance = await client.getBalance({ address: params.walletAddress as Address });
+                const gasCost = receipt.gasUsed * (receipt.effectiveGasPrice || 0n);
+                const received = preBalance !== null ? postBalance + gasCost - preBalance : 0n;
+                if (received > 0n) {
+                    const feeWei = (received * BigInt(fee.bps)) / 10000n;
+                    if (feeWei > 0n) {
+                        await sendTransaction(params.userId, params.accessToken, {
+                            to: fee.evmRecipient!,
+                            data: '0x',
+                            value: feeWei.toString(),
+                            chainId: params.chainId,
+                        });
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Collected platform fee (native sell)', { bps: fee.bps, wei: feeWei.toString() });
+                    }
+                }
+            } catch (feeErr: any) {
+                logger.warn(LogCode.EXE_TX_REVERTED, 'Four.Meme: Fee collection failed', { error: feeErr.message });
+            }
+        }
 
         logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme Swap Success', { txHash, chainId: params.chainId });
         return txHash;

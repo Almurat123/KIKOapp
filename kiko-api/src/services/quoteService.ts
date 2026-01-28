@@ -2,7 +2,6 @@ import { ethers } from 'ethers';
 import { getZeroExQuote } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
-import type { ZeroExAffiliateFee } from './zeroEx.js';
 
 export interface QuoteResult {
     dex: string;
@@ -36,7 +35,6 @@ export interface BestQuoteParams {
     slippageBps: number;
     userAddress?: string;
     refPrice?: number | null; // USD price ratio for price impact calc
-    affiliateFee?: ZeroExAffiliateFee;
     excludeDex?: string; // Exclude this DEX from selection (for retry)
 }
 
@@ -48,7 +46,7 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
         tokenIn, tokenOut, actualTokenIn, actualTokenOut,
         amountInBase, amountInHuman,
         tokenInDecimals, tokenOutDecimals,
-        chainId, slippageBps, userAddress, refPrice, affiliateFee
+        chainId, slippageBps, userAddress, refPrice
     } = params;
 
     return getBestQuoteInternal(params);
@@ -59,7 +57,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         tokenIn, tokenOut, actualTokenIn, actualTokenOut,
         amountInBase, amountInHuman,
         tokenInDecimals, tokenOutDecimals,
-        chainId, slippageBps, userAddress, refPrice, affiliateFee
+        chainId, slippageBps, userAddress, refPrice
     } = params;
 
     const quotes: QuoteResult[] = [];
@@ -112,7 +110,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 chainId,
                 slippageBps,
                 userAddress,
-                affiliateFee,
+                undefined,
                 isQuoteOnly // Price quote only if no user address
             );
 
@@ -159,10 +157,6 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     // 2. KyberSwap
     const fetchKyber = async () => {
         try {
-            // Kyber integration currently doesn't expose a reliable integrator-fee mechanism here.
-            // If platform fee is requested, prefer 0x so we can actually collect it.
-            if (affiliateFee && affiliateFee.buyTokenPercentageFeeBps > 0) return;
-
             // Kyber requires recipient address - skip if not provided
             if (!userAddress) return;
 

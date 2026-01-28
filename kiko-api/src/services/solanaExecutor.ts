@@ -6,8 +6,7 @@ import { getSolanaQuote } from './solanaSwap.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getPlatformFee, type FeeContext } from './platformFeeService.js';
-import { PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
-import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '../utils/solanaToken.js';
+import { PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 
 export interface SolanaSwapParams {
     userId: string;
@@ -87,84 +86,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
         }
     }
 
-    if (fee.bps > 0 && fee.solanaRecipient && tokenInMint !== SOLANA_CONFIG.TOKENS.SOL) {
-        const amountBI = BigInt(amountIn || '0');
-        const feeAmount = (amountBI * BigInt(fee.bps)) / BigInt(10000);
-
-        if (feeAmount > BigInt(0) && amountBI > feeAmount) {
-            const payer = new PublicKey(walletAddress);
-            const recipient = new PublicKey(fee.solanaRecipient);
-            const mint = new PublicKey(tokenInMint);
-
-            const sourceAta = await getAssociatedTokenAddress(mint, payer);
-            const destAta = await getAssociatedTokenAddress(mint, recipient);
-
-            const connection = getSolanaConnection();
-            const [sourceInfo, destInfo] = await Promise.all([
-                connection.getAccountInfo(sourceAta, 'confirmed'),
-                connection.getAccountInfo(destAta, 'confirmed'),
-            ]);
-
-            if (!sourceInfo) {
-                throw new AppError(400, `Solana fee transfer failed: missing source ATA for mint ${tokenInMint}`, 'FEE_TRANSFER_FAILED');
-            }
-
-            const instructions: TransactionInstruction[] = [];
-
-            if (!destInfo) {
-                instructions.push(new TransactionInstruction({
-                    programId: ASSOCIATED_TOKEN_PROGRAM_ID,
-                    keys: [
-                        { pubkey: payer, isSigner: true, isWritable: true },
-                        { pubkey: destAta, isSigner: false, isWritable: true },
-                        { pubkey: recipient, isSigner: false, isWritable: false },
-                        { pubkey: mint, isSigner: false, isWritable: false },
-                        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-                        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-                        { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-                    ],
-                    data: Buffer.alloc(0),
-                }));
-            }
-
-            // SPL Token Transfer instruction (3) with u64 amount (little-endian)
-            const data = Buffer.alloc(9);
-            data[0] = 3;
-            data.writeBigUInt64LE(feeAmount, 1);
-
-            instructions.push(new TransactionInstruction({
-                programId: TOKEN_PROGRAM_ID,
-                keys: [
-                    { pubkey: sourceAta, isSigner: false, isWritable: true },
-                    { pubkey: destAta, isSigner: false, isWritable: true },
-                    { pubkey: payer, isSigner: true, isWritable: false },
-                ],
-                data,
-            }));
-
-            const { blockhash } = await connection.getLatestBlockhash('finalized');
-            const messageV0 = new TransactionMessage({
-                payerKey: payer,
-                recentBlockhash: blockhash,
-                instructions,
-            }).compileToV0Message();
-
-            const feeTx = new VersionedTransaction(messageV0);
-            const feeTxB64 = Buffer.from(feeTx.serialize()).toString('base64');
-
-            logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Charging platform fee (SPL)', {
-                bps: fee.bps,
-                amount: feeAmount.toString(),
-                mint: tokenInMint,
-                recipient: fee.solanaRecipient,
-                createdAta: !destInfo,
-            });
-
-            await sendSolanaTransaction(userId, feeTxB64);
-
-            effectiveAmountIn = (amountBI - feeAmount).toString();
-        }
-    }
+    // NOTE: For token->SOL sells, fee is charged in SOL after the swap (see below).
 
     // 1. Get Quote & Transaction (Unified)
     // using 'auto' aggregator to try Jupiter first, then Raydium
@@ -256,6 +178,40 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
         // If confirmation times out or fails, still return signature but log warning
         if (confirmErr?.code === 'TRANSACTION_FAILED') throw confirmErr;
         logger.warn(LogCode.SYS_ERROR, 'SolanaExecutor: Could not confirm tx', { signature, error: confirmErr.message });
+    }
+
+    // Platform fee: charge in SOL after sell (token -> SOL)
+    if (fee.bps > 0 && fee.solanaRecipient && tokenOutMint === SOLANA_CONFIG.TOKENS.SOL && tokenInMint !== SOLANA_CONFIG.TOKENS.SOL) {
+        try {
+            const outLamports = BigInt(quote.outAmount || '0');
+            const feeLamports = (outLamports * BigInt(fee.bps)) / BigInt(10000);
+            if (feeLamports > BigInt(0)) {
+                const payer = new PublicKey(walletAddress);
+                const recipient = new PublicKey(fee.solanaRecipient);
+                const { blockhash } = await getSolanaConnection().getLatestBlockhash('finalized');
+                const messageV0 = new TransactionMessage({
+                    payerKey: payer,
+                    recentBlockhash: blockhash,
+                    instructions: [
+                        SystemProgram.transfer({
+                            fromPubkey: payer,
+                            toPubkey: recipient,
+                            lamports: Number(feeLamports),
+                        }),
+                    ],
+                }).compileToV0Message();
+                const feeTx = new VersionedTransaction(messageV0);
+                const feeTxB64 = Buffer.from(feeTx.serialize()).toString('base64');
+                await sendSolanaTransaction(userId, feeTxB64);
+                logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Collected platform fee (SOL sell)', {
+                    bps: fee.bps,
+                    lamports: feeLamports.toString(),
+                    recipient: fee.solanaRecipient,
+                });
+            }
+        } catch (feeErr: any) {
+            logger.warn(LogCode.EXE_TX_REVERTED, 'SolanaExecutor: Fee collection failed', { error: feeErr.message });
+        }
     }
 
     return signature;

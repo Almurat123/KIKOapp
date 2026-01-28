@@ -101,7 +101,7 @@ export class SwapExecutor {
         // FIXED: Increase default slippage for SELL operations (0.5% → 2%)
         // Selling often has higher slippage due to price impact and approval delays
         const defaultSlippage = params.isSell ? 200 : 50;
-        const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = defaultSlippage, feeContext } = params;
+        let { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = defaultSlippage, feeContext } = params;
 
         // 1. Resolve Token Addresses & Metadata
         const resolveToken = async (token: string) => {
@@ -195,11 +195,25 @@ export class SwapExecutor {
             }
         }
 
-        // 2. Get Best Quote
+        // 2. Platform fee (native-input buy)
         const fee = getPlatformFee(feeContext || 'swap');
-        const affiliateFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)
-            ? { affiliateAddress: fee.evmRecipient!, buyTokenPercentageFeeBps: fee.bps }
-            : undefined;
+        if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient) && isNativeToken(actualTokenInFixed, chainId)) {
+            const amountBI = BigInt(amountInBase);
+            const feeWei = (amountBI * BigInt(fee.bps)) / 10000n;
+            if (feeWei > 0n && amountBI > feeWei) {
+                await sendTransaction(userId, params.accessToken || '', {
+                    to: fee.evmRecipient!,
+                    data: '0x',
+                    value: feeWei.toString(),
+                    chainId
+                });
+                amountInBase = (amountBI - feeWei).toString();
+                amountIn = ethers.formatUnits(amountInBase, decimalsIn);
+                logger.info(LogCode.EXE_TX_BROADCAST, 'SwapExecutor: Collected platform fee (native buy)', { bps: fee.bps, wei: feeWei.toString() });
+            }
+        }
+
+        // 3. Get Best Quote
 
         // 2.5 Fetch token prices for price impact calculation
         let refPrice: number | null = null;
@@ -235,7 +249,6 @@ export class SwapExecutor {
             chainId,
             slippageBps,
             userAddress: walletAddress,
-            affiliateFee,
             refPrice,
             excludeDex: params.excludeDex // Pass through excludeDex for retry logic
         });
@@ -319,8 +332,7 @@ export class SwapExecutor {
                         chainId,
                         slippageBps,
                         userAddress: walletAddress,
-                        refPrice,
-                        affiliateFee // Use the locally computed typed object, not params.affiliateFee
+                        refPrice
                     });
 
                     if (freshQuote && freshQuote.to && freshQuote.data) {
@@ -539,6 +551,21 @@ export class SwapExecutor {
                     };
                 }
                 logger.info(LogCode.EXE_TX_CONFIRMED, 'Transaction confirmed on-chain', { txHash });
+
+                // Post-sell platform fee in native token
+                if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient) && (params.isSell || isNativeToken(actualTokenOutFixed, chainId))) {
+                    const outBI = BigInt(best.amountOutBase || '0');
+                    const feeWei = (outBI * BigInt(fee.bps)) / 10000n;
+                    if (feeWei > 0n) {
+                        await sendTransaction(userId, params.accessToken || '', {
+                            to: fee.evmRecipient!,
+                            data: '0x',
+                            value: feeWei.toString(),
+                            chainId
+                        });
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'SwapExecutor: Collected platform fee (native sell)', { bps: fee.bps, wei: feeWei.toString() });
+                    }
+                }
             } else {
                 // ASYNC MONITORING: Fire-and-forget for normal swaps
                 this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId).catch(err => {

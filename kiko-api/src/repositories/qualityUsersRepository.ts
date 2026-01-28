@@ -6,6 +6,9 @@ export interface QualityFarcasterUser {
   fid: number;
   username?: string;
   displayName?: string;
+  pfp?: string;
+  bio?: string;
+  verifications?: string[];
   followers?: number;
   following?: number;
   totalCasts?: number;
@@ -59,6 +62,9 @@ export async function getQualityUsers(limit: number = 100): Promise<QualityFarca
       fid: row.fid,
       username: row.username || undefined,
       displayName: row.displayName || undefined,
+      pfp: row.pfp || undefined,
+      bio: row.bio || undefined,
+      verifications: Array.isArray(row.verifications) ? row.verifications as string[] : [],
       followers: row.followers,
       following: row.following,
       totalCasts: row.totalCasts,
@@ -88,6 +94,9 @@ export async function saveQualityUsers(users: QualityFarcasterUser[]): Promise<n
             update: {
               username: user.username || undefined,
               displayName: user.displayName || undefined,
+              pfp: user.pfp || undefined,
+              bio: user.bio || undefined,
+              verifications: user.verifications || undefined,
               followers: user.followers || undefined,
               following: user.following || undefined,
               totalCasts: user.totalCasts || undefined,
@@ -101,6 +110,9 @@ export async function saveQualityUsers(users: QualityFarcasterUser[]): Promise<n
               fid: user.fid,
               username: user.username || null,
               displayName: user.displayName || null,
+              pfp: user.pfp || null,
+              bio: user.bio || null,
+              verifications: user.verifications || [],
               followers: user.followers || 0,
               following: user.following || 0,
               totalCasts: user.totalCasts || 0,
@@ -150,6 +162,72 @@ export async function updateUserCoinStatus(
     console.error(`[QualityUsersRepo] Error updating coin status for FID ${fid}:`, error);
   }
 }
+
+/**
+ * Get profile for a specific FID
+ */
+export async function getProfileByFid(fid: number): Promise<QualityFarcasterUser | null> {
+  try {
+    const row = await prisma.qualityFarcasterUser.findUnique({
+      where: { fid }
+    });
+
+    if (!row) return null;
+
+    return {
+      fid: row.fid,
+      username: row.username || undefined,
+      displayName: row.displayName || undefined,
+      pfp: row.pfp || undefined,
+      bio: row.bio || undefined,
+      verifications: Array.isArray(row.verifications) ? row.verifications as string[] : [],
+      followers: row.followers,
+      following: row.following,
+      totalCasts: row.totalCasts,
+      engagementRate: Number(row.engagementRate),
+      source: row.source || undefined,
+      isActive: row.isActive,
+      hasCreatorCoin: row.hasCreatorCoin,
+      creatorCoinAddress: row.creatorCoinAddress || undefined,
+      lastCoinCheck: row.lastCoinCheck || undefined,
+    };
+  } catch (error) {
+    console.error(`[QualityUsersRepo] Error getting profile for FID ${fid}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Update user profile details
+ */
+export async function updateProfile(fid: number, data: Partial<QualityFarcasterUser>): Promise<void> {
+  try {
+    await withRetry(() => prisma.qualityFarcasterUser.upsert({
+      where: { fid },
+      update: {
+        username: data.username,
+        displayName: data.displayName,
+        pfp: data.pfp,
+        bio: data.bio,
+        verifications: data.verifications,
+        updatedAt: new Date(),
+      },
+      create: {
+        fid,
+        username: data.username || null,
+        displayName: data.displayName || null,
+        pfp: data.pfp || null,
+        bio: data.bio || null,
+        verifications: data.verifications || [],
+        source: data.source || 'manual_sync',
+        isActive: true,
+      }
+    }));
+  } catch (error) {
+    console.error(`[QualityUsersRepo] Error updating profile for FID ${fid}:`, error);
+  }
+}
+
 
 /**
  * Seed initial quality users from hardcoded list
@@ -276,4 +354,6 @@ export default {
   hasQualityUsers,
   getQualityUsersStats,
   clearCache,
+  getProfileByFid,
+  updateProfile,
 };

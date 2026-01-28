@@ -202,15 +202,57 @@ export class SolanaLaunchpadSwapService {
             }
         }
 
+        const shouldPostFee = !isBuy && fee.bps > 0 && !!fee.solanaRecipient;
+        const preBalance = shouldPostFee ? await connection.getBalance(userPubkey, 'confirmed') : null;
+
+        let txHash: string;
         if (provider === 'pumpfun') {
-            return this.executePumpFunSwap(connection, userPubkey, mint, effectiveAmount, isBuy, userId, params.slippageBps || 100);
+            txHash = await this.executePumpFunSwap(connection, userPubkey, mint, effectiveAmount, isBuy, userId, params.slippageBps || 100);
         } else if (provider === 'bonkfun') {
             // For Raydium/Bonk.fun, we need mintB (WSOL usually). Assuming paired with SOL.
             const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
-            return this.executeRaydiumSwap(connection, userPubkey, mint, WSOL_MINT, effectiveAmount, isBuy, userId, params.slippageBps || 100);
+            txHash = await this.executeRaydiumSwap(connection, userPubkey, mint, WSOL_MINT, effectiveAmount, isBuy, userId, params.slippageBps || 100);
         } else {
             throw new Error(`Unsupported launchpad provider: ${provider}`);
         }
+
+        if (shouldPostFee && preBalance !== null) {
+            try {
+                // Wait briefly for confirmation
+                for (let i = 0; i < 20; i++) {
+                    const status = await connection.getSignatureStatus(txHash);
+                    if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') break;
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
+                const postBalance = await connection.getBalance(userPubkey, 'confirmed');
+                const received = BigInt(postBalance - preBalance);
+                if (received > 0n) {
+                    const feeLamports = (received * BigInt(fee.bps)) / 10000n;
+                    if (feeLamports > 0n) {
+                        const recentBlockhash = await connection.getLatestBlockhash();
+                        const messageV0 = new TransactionMessage({
+                            payerKey: userPubkey,
+                            recentBlockhash: recentBlockhash.blockhash,
+                            instructions: [
+                                SystemProgram.transfer({
+                                    fromPubkey: userPubkey,
+                                    toPubkey: new PublicKey(fee.solanaRecipient!),
+                                    lamports: Number(feeLamports),
+                                }),
+                            ],
+                        }).compileToV0Message();
+                        const feeTx = new VersionedTransaction(messageV0);
+                        const feeTxB64 = Buffer.from(feeTx.serialize()).toString('base64');
+                        await sendSolanaTransaction(userId, feeTxB64);
+                    }
+                }
+            } catch (feeErr: any) {
+                console.warn('[SolanaLaunchpadSwap] Fee collection failed:', feeErr.message);
+            }
+        }
+
+        return txHash;
     }
 
     /**

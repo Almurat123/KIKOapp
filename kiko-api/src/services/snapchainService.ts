@@ -10,6 +10,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import * as neynarService from './neynarService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import * as qualityUsersRepo from '../repositories/qualityUsersRepository.js';
 
 const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
 
@@ -164,6 +165,24 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
  * Fetch user data by FID
  */
 export async function getUserDataByFid(fid: number): Promise<HubUserData | null> {
+  // 0. Profile First-Look: Check local persistent cache
+  try {
+    const localProfile = await qualityUsersRepo.getProfileByFid(fid);
+    // Only use if it has reasonably high-quality data (not just a registration)
+    if (localProfile && localProfile.username && localProfile.pfp && !localProfile.pfp.includes('placehold.co')) {
+      return {
+        fid: localProfile.fid,
+        username: localProfile.username,
+        displayName: localProfile.displayName,
+        pfp: localProfile.pfp,
+        bio: localProfile.bio,
+        verifications: localProfile.verifications
+      };
+    }
+  } catch (e: any) {
+    logger.error(LogCode.SYS_ERROR, 'Error checking local profile cache', { fid, error: e.message });
+  }
+
   const MAX_RETRIES = 3;
   let lastError: any;
 
@@ -218,6 +237,18 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
           }
         }
       });
+
+      // SYNC to DB: If we got valid data from Hub, update our persistent profile cache
+      if (userData.username && (userData.displayName || userData.pfp)) {
+        qualityUsersRepo.updateProfile(fid, {
+          username: userData.username,
+          displayName: userData.displayName,
+          pfp: userData.pfp,
+          bio: userData.bio,
+          verifications: userData.verifications,
+          source: 'hub_sync'
+        }).catch(err => logger.error(LogCode.SYS_ERROR, 'Error syncing hub profile to DB', { fid, err: err.message }));
+      }
 
       return userData;
 

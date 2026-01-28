@@ -9,8 +9,8 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
-import { fetchJson } from '../config/unifiedApiService.js';
 import { getEthersProvider } from './rpcManager.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 
 const CHAIN_ID = 8453; // Base Mainnet
 const ZORA_TOKEN_ADDRESS = '0x1111111111166b7fe7bd91427724b487980afc69' as `0x${string}`; // ZORA token on Base
@@ -342,6 +342,10 @@ export class ZoraSniperService {
             // 3. Platform fee (charged on input asset)
             const fee = getPlatformFee(params.feeContext || 'swap');
             const canChargeFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient);
+            if (canChargeFee) {
+                // Fee must be in native; disable ZORA-input path when fee is enabled
+                useZoraToken = false;
+            }
 
             // 4. Build trade params (ZORA direct or ETH multi-hop)
             let tradeParams: any = undefined;
@@ -556,23 +560,7 @@ export class ZoraSniperService {
 
             const fee = getPlatformFee(params.feeContext || 'swap');
             const canChargeFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient);
-            let amountInNet = BigInt(params.amountIn);
-
-            if (canChargeFee && amountInNet > 0n) {
-                const feeAmount = (amountInNet * BigInt(fee.bps)) / 10000n;
-                if (feeAmount > 0n && amountInNet > feeAmount) {
-                    const iface = new ethers.Interface(['function transfer(address to, uint256 amount) returns (bool)']);
-                    const data = iface.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]);
-                    await sendTransaction(params.userId, params.accessToken, {
-                        to: params.tokenIn as `0x${string}`,
-                        data,
-                        value: '0',
-                        chainId: CHAIN_ID,
-                    });
-                    amountInNet = amountInNet - feeAmount;
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Collected platform fee (Token)', { bps: fee.bps, amount: feeAmount.toString() });
-                }
-            }
+            const amountInNet = BigInt(params.amountIn);
 
             const tradeParams = {
                 sell: { type: "erc20" as const, address: params.tokenIn as `0x${string} ` },
@@ -632,8 +620,31 @@ export class ZoraSniperService {
                 value: quote.call.value.toString(),
                 chainId: CHAIN_ID,
             };
+            const txHash = await sendTransaction(params.userId, params.accessToken, tx);
 
-            return await sendTransaction(params.userId, params.accessToken, tx);
+            // Wait for confirmation, then charge fee in native ETH
+            if (canChargeFee) {
+                const provider = getEthersProvider(CHAIN_ID);
+                const receipt = await provider.waitForTransaction(txHash, 1);
+                if (!receipt || receipt.status === 0) {
+                    throw new Error(`Zora Sniper sell reverted on-chain: ${txHash}`);
+                }
+
+                const quoteOut = (quote as any)?.quote?.amountOut || (quote as any)?.quote?.minAmountOut || '0';
+                const outBI = BigInt(quoteOut);
+                const feeWei = (outBI * BigInt(fee.bps)) / 10000n;
+                if (feeWei > 0n) {
+                    await sendTransaction(params.userId, params.accessToken, {
+                        to: fee.evmRecipient!,
+                        data: '0x',
+                        value: feeWei.toString(),
+                        chainId: CHAIN_ID,
+                    });
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Collected platform fee (native sell)', { bps: fee.bps, wei: feeWei.toString() });
+                }
+            }
+
+            return txHash;
         } catch (error: any) {
             logger.error(LogCode.EXE_TX_REVERTED, 'Zora Sniper FastSell Error', { error: error.message });
             throw error;

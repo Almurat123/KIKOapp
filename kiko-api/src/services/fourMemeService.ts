@@ -127,7 +127,6 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
     logger.info(LogCode.EXE_TX_BROADCAST, 'Buying token on Four.meme', { token: tokenAddress, bnb: bnbAmount });
 
     const chainId = 56; // BSC
-    const chainConfig = getChainConfig(chainId);
 
     // Convert BNB amount to Wei
     let bnbInWei = ethers.parseEther(bnbAmount);
@@ -199,23 +198,7 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
     const chainId = 56; // BSC
     const chainConfig = getChainConfig(chainId);
 
-    let amountNet = BigInt(amount);
-    const fee = getPlatformFee(params.feeContext || 'swap');
-    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient) && amountNet > 0n) {
-        const feeAmount = (amountNet * BigInt(fee.bps)) / 10000n;
-        if (feeAmount > 0n && amountNet > feeAmount) {
-            const iface = new ethers.Interface(['function transfer(address to, uint256 amount) returns (bool)']);
-            const transferData = iface.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]);
-            await sendTransaction(userId, '', {
-                to: tokenAddress,
-                data: transferData,
-                value: '0',
-                chainId,
-            });
-            amountNet = amountNet - feeAmount;
-            logger.info(LogCode.EXE_TX_BROADCAST, 'Four.meme: Collected platform fee (Token)', { bps: fee.bps, amount: feeAmount.toString() });
-        }
-    }
+    const amountNet = BigInt(amount);
 
     // Check and approve token if needed
     await checkAndApproveForFourMeme(userId, walletAddress, tokenAddress, amountNet.toString(), chainId);
@@ -233,6 +216,10 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
         amount
     });
 
+    // Track native balance for post-sell fee
+    const provider = getEthersProvider(chainId);
+    const preBalance = await provider.getBalance(walletAddress);
+
     // Send transaction via Privy
     const txHash = await sendTransaction(userId, '', {
         to: TOKEN_MANAGER_V2,
@@ -244,12 +231,31 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
     logger.debug(LogCode.EXE_TX_BROADCAST, 'Sell transaction sent, waiting for confirmation', { txHash });
 
     // Wait for confirmation and check status
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrls[0]);
     const receipt = await provider.waitForTransaction(txHash, 1);
 
     if (!receipt || receipt.status === 0) {
         logger.error(LogCode.EXE_TX_REVERTED, 'Four.meme sell transaction REVERTED', { txHash });
         throw new Error(`FourMeme sell reverted on-chain: ${txHash}`);
+    }
+
+    // Platform fee: charge in native after sell (based on net proceeds)
+    const fee = getPlatformFee(params.feeContext || 'swap');
+    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
+        const postBalance = await provider.getBalance(walletAddress);
+        const gasCost = receipt.gasUsed * (receipt.gasPrice || 0n);
+        const received = postBalance + gasCost - preBalance;
+        if (received > 0n) {
+            const feeWei = (received * BigInt(fee.bps)) / 10000n;
+            if (feeWei > 0n) {
+                await sendTransaction(userId, '', {
+                    to: fee.evmRecipient!,
+                    data: '0x',
+                    value: feeWei.toString(),
+                    chainId,
+                });
+                logger.info(LogCode.EXE_TX_BROADCAST, 'Four.meme: Collected platform fee (native sell)', { bps: fee.bps, wei: feeWei.toString() });
+            }
+        }
     }
 
     logger.info(LogCode.EXE_TX_CONFIRMED, 'Four.meme sell confirmed', { txHash });
