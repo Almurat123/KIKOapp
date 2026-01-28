@@ -33,6 +33,10 @@ export async function imageRoutes(fastify: FastifyInstance) {
   await ensureCacheDir();
 
   fastify.get('/token', async (request, reply) => {
+    // Allow image usage across origins (prevents ERR_BLOCKED_BY_RESPONSE.NotSameOrigin)
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+
     const { url } = request.query as { url?: string };
     if (!url) return reply.status(400).send({ error: 'Missing url' });
 
@@ -64,6 +68,8 @@ export async function imageRoutes(fastify: FastifyInstance) {
         const buffer = await fs.readFile(binPath);
         reply.header('Content-Type', meta.contentType || 'image/png');
         reply.header('Cache-Control', 'public, max-age=604800, immutable');
+        reply.header('Access-Control-Allow-Origin', '*');
+        reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
         return reply.send(buffer);
       }
     } catch {
@@ -95,6 +101,8 @@ export async function imageRoutes(fastify: FastifyInstance) {
 
       reply.header('Content-Type', contentType);
       reply.header('Cache-Control', 'public, max-age=604800, immutable');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
       return reply.send(buffer);
     } catch (err) {
       clearTimeout(timeoutId);
@@ -102,4 +110,3 @@ export async function imageRoutes(fastify: FastifyInstance) {
     }
   });
 }
-
