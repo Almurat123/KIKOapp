@@ -74,6 +74,8 @@ fastify.register(fastifyRawBody, {
 
 // Register security headers
 fastify.register(helmet, {
+    // Allow cross-origin resources (needed for image proxy usage in COEP environments)
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
