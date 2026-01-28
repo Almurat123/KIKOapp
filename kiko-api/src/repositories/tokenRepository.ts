@@ -93,7 +93,7 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
       imageUrl: row.imageUrl || undefined,
       poolCreatedAt: (row as any).poolCreatedAt
         ? (row as any).poolCreatedAt.toISOString()
-        : (row.updatedAt ? row.updatedAt.toISOString() : undefined),
+        : undefined,
       price: row.price ? Number(row.price) : undefined,
       priceChange5m: row.priceChange5m ? Number(row.priceChange5m) : undefined,
       priceChange1h: row.priceChange1h ? Number(row.priceChange1h) : undefined,
