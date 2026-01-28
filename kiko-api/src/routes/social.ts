@@ -130,6 +130,44 @@ export async function socialRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // GET /api/social/tweet-oembed - Fetch Twitter oEmbed data for a tweet URL
+  // Used for X post embed cards in chat citations
+  fastify.get('/tweet-oembed', async (request, reply) => {
+    try {
+      const { url } = request.query as { url: string };
+      if (!url) {
+        return reply.status(400).send({ error: 'Tweet URL is required' });
+      }
+
+      // Validate it's a Twitter/X URL
+      if (!url.includes('twitter.com') && !url.includes('x.com')) {
+        return reply.status(400).send({ error: 'Invalid Twitter/X URL' });
+      }
+
+      // Use Twitter's official oEmbed API
+      const oEmbedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&omit_script=true`;
+
+      const response = await fetch(oEmbedUrl, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Twitter oEmbed API returned ${response.status}`);
+      }
+
+      const data = await response.json();
+      return reply.send(data);
+    } catch (error) {
+      console.error('[social] tweet-oembed error:', error);
+      return reply.status(500).send({
+        error: 'Failed to fetch tweet data',
+        message: (error as Error).message
+      });
+    }
+  });
+
   // Helper to decode just in case specific chars are issues, but standard handling should suffice.
   // Actually fastify decode params automatically? Yes.
   // But let's verify.

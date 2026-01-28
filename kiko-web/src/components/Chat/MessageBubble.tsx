@@ -14,6 +14,7 @@ import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { LaunchpadCard } from '../Launchpad/LaunchpadCard';
 import { TransactionStatusCard } from './TransactionStatusCard';
 import { CitationRenderer } from './CitationRenderer';
+import { XPostCard } from './XPostCard';
 import { getSourceLogoProps, getSourceTitle } from '../../utils/sourceUtils';
 import { logger } from '../../utils/logger';
 import { chatApi } from '../../services/api';
@@ -454,37 +455,37 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                     title={`View all ${message.citations.length} sources`}
                                 >
                                     <div className={styles.sourcesButtonIcons}>
-                                    {message.citations.slice(0, 3).map((citation, index) => {
-                                        const logoProps = getSourceLogoProps(citation);
-                                        return (
-                                            <div
-                                                key={index}
-                                                className={clsx(styles.sourceIconCircle, styles.sourceIconZIndex)}
-                                                style={{ zIndex: 3 - index }}
-                                            >
-                                                {logoProps.avatarUrl ? (
-                                                    <img
-                                                        src={logoProps.avatarUrl}
-                                                        alt={logoProps.domain}
-                                                        className={styles.sourceLogoCircle}
-                                                        onError={(e) => {
-                                                            const target = e.target as HTMLImageElement;
-                                                            target.style.display = 'none';
-                                                        }}
-                                                    />
-                                                ) : logoProps.isX ? (
-                                                    <XIcon size={14} />
-                                                ) : (
-                                                    <ExternalLink size={14} />
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                <span className={styles.sourcesButtonText}>{message.citations.length} sources</span>
-                            </button>
-                        )
-                    }
+                                        {message.citations.slice(0, 3).map((citation, index) => {
+                                            const logoProps = getSourceLogoProps(citation);
+                                            return (
+                                                <div
+                                                    key={index}
+                                                    className={clsx(styles.sourceIconCircle, styles.sourceIconZIndex)}
+                                                    style={{ zIndex: 3 - index }}
+                                                >
+                                                    {logoProps.avatarUrl ? (
+                                                        <img
+                                                            src={logoProps.avatarUrl}
+                                                            alt={logoProps.domain}
+                                                            className={styles.sourceLogoCircle}
+                                                            onError={(e) => {
+                                                                const target = e.target as HTMLImageElement;
+                                                                target.style.display = 'none';
+                                                            }}
+                                                        />
+                                                    ) : logoProps.isX ? (
+                                                        <XIcon size={14} />
+                                                    ) : (
+                                                        <ExternalLink size={14} />
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <span className={styles.sourcesButtonText}>{message.citations.length} sources</span>
+                                </button>
+                            )
+                        }
                     </div>
                 )}
 
@@ -546,6 +547,18 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                         // Try to find a description/snippet
                                         const description = parsedCitation.snippet || parsedCitation.content || parsedCitation.description;
 
+                                        // Use XPostCard for X/Twitter posts
+                                        if (logoProps.isX) {
+                                            return (
+                                                <XPostCard
+                                                    key={index}
+                                                    url={validUrl}
+                                                    avatarUrl={logoProps.avatarUrl}
+                                                />
+                                            );
+                                        }
+
+                                        // Regular source card for non-X posts
                                         return (
                                             <a
                                                 key={index}
@@ -589,8 +602,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                                                 }
                                                             }}
                                                         />
-                                                    ) : logoProps.isX ? (
-                                                        <XIcon size={18} />
                                                     ) : (
                                                         <ExternalLink size={18} />
                                                     )}

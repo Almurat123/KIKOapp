@@ -30,6 +30,13 @@ const isProduction = process.env.NODE_ENV === 'production' || process.env.NODE_E
  * [Risk]: Mobile apps may not send Origin header
  */
 export async function requireAllowedOrigin(request: FastifyRequest, _reply: FastifyReply) {
+    // [Logic]: Skip origin check for server-to-server webhooks
+    // [Risk]: Webhooks have their own signature verification (HMAC)
+    const webhookPaths = ['/api/webhook/', '/webhook/'];
+    if (webhookPaths.some(p => request.url.startsWith(p))) {
+        return;
+    }
+
     const origin = request.headers.origin as string || '';
     const referer = request.headers.referer as string || '';
     const userAgent = request.headers['user-agent'] as string || '';
