@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { getAuthToken } from '../utils/authToken';
 
 // Types matching the Prisma model and API response
@@ -43,7 +42,8 @@ const getHeaders = async () => {
         throw new Error('No authentication token available');
     }
     return {
-        Authorization: `Bearer ${token}`,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
     };
 };
 
@@ -58,12 +58,18 @@ export const getConfigs = async (): Promise<CopyTradeConfig[]> => {
             return [];
         }
 
-        const response = await axios.get(`${API_BASE_URL}/configs`, {
+        const response = await fetch(`${API_BASE_URL}/configs`, {
             headers: {
-                Authorization: `Bearer ${token}`,
+                'Authorization': `Bearer ${token}`,
             }
         });
-        return response.data.configs;
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data.configs;
     } catch (error: any) {
         if (error.message === 'No authentication token available') {
             return [];
@@ -79,10 +85,18 @@ export const getConfigs = async (): Promise<CopyTradeConfig[]> => {
 export const createConfig = async (params: CreateConfigParams): Promise<CopyTradeConfig> => {
     try {
         const headers = await getHeaders();
-        const response = await axios.post(`${API_BASE_URL}/config`, params, {
-            headers: { ...headers, 'Content-Type': 'application/json' }
+        const response = await fetch(`${API_BASE_URL}/config`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(params)
         });
-        return response.data.config;
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data.config;
     } catch (error) {
         console.error('[CopyTradeApi] Error creating config:', error);
         throw error;
@@ -95,7 +109,14 @@ export const createConfig = async (params: CreateConfigParams): Promise<CopyTrad
 export const deleteConfig = async (id: string): Promise<void> => {
     try {
         const headers = await getHeaders();
-        await axios.delete(`${API_BASE_URL}/config/${id}`, { headers });
+        const response = await fetch(`${API_BASE_URL}/config/${id}`, {
+            method: 'DELETE',
+            headers
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
     } catch (error) {
         console.error('[CopyTradeApi] Error deleting config:', error);
         throw error;
@@ -108,9 +129,15 @@ export const deleteConfig = async (id: string): Promise<void> => {
 export const updateConfigStatus = async (id: string, status: 'active' | 'paused'): Promise<void> => {
     try {
         const headers = await getHeaders();
-        await axios.patch(`${API_BASE_URL}/config/${id}/status`, { status }, {
-            headers: { ...headers, 'Content-Type': 'application/json' }
+        const response = await fetch(`${API_BASE_URL}/config/${id}/status`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status })
         });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
     } catch (error) {
         console.error('[CopyTradeApi] Error updating status:', error);
         throw error;
@@ -123,12 +150,18 @@ export const updateConfigStatus = async (id: string, status: 'active' | 'paused'
 export const updateConfig = async (id: string, updates: Partial<CopyTradeConfig>): Promise<CopyTradeConfig> => {
     try {
         const headers = await getHeaders();
-        const response = await axios.patch<{ success: boolean; config: CopyTradeConfig }>(
-            `${API_BASE_URL}/config/${id}`,
-            updates,
-            { headers: { ...headers, 'Content-Type': 'application/json' } }
-        );
-        return response.data.config;
+        const response = await fetch(`${API_BASE_URL}/config/${id}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify(updates)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data.config;
     } catch (error) {
         console.error('[CopyTradeApi] Error updating config:', error);
         throw error;
@@ -141,8 +174,14 @@ export const updateConfig = async (id: string, updates: Partial<CopyTradeConfig>
 export const getPositions = async (): Promise<any[]> => {
     try {
         const headers = await getHeaders();
-        const response = await axios.get(`${API_BASE_URL}/positions`, { headers });
-        return response.data.positions;
+        const response = await fetch(`${API_BASE_URL}/positions`, { headers });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data.positions;
     } catch (error) {
         console.error('[CopyTradeApi] Error fetching positions:', error);
         throw error;
