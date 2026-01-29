@@ -249,38 +249,30 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
     logger.error(LogCode.SYS_ERROR, 'Error checking local profile cache', { fid, error: e.message });
   }
 
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 2;
   let lastError: any;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const url = `${HUB_URL}/v1/userDataByFid?fid=${fid}`;
-      const response = await fetchWithTimeout(url, {}, 5000);
+      // [Logic]: Use the parallel Hub racing function for user data too
+      const endpoint = `/v1/userDataByFid?fid=${fid}`;
+      const data = await fetchFromHubWithFallback(endpoint, 5000);
 
-      if (response.status === 429) {
-        // Rate limited, wait and retry
-        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-        continue;
+      // [Logic]: fetchFromHubWithFallback returns null on failure, or JSON data directly
+      if (!data || !data.messages) {
+        continue; // Retry
       }
 
-      if (!response.ok) return null;
-
-      const data = await response.json();
-      const messages = (data as any).messages || [];
-
+      const messages = data.messages || [];
       const userData: HubUserData = { fid };
 
-      // Also fetch verifications (ETH addresses)
+      // Also fetch verifications (ETH addresses) with fallback
       try {
-        const verificationsUrl = `${HUB_URL}/v1/verificationsByFid?fid=${fid}`;
-        const verResponse = await fetchWithTimeout(verificationsUrl, {}, 3000);
-        if (verResponse.ok) {
-          const verData = await verResponse.json();
-          if ((verData as any).messages) {
-            userData.verifications = (verData as any).messages
-              .filter((m: any) => m.data.type === 'MESSAGE_TYPE_VERIFICATION_ADD_ETH_ADDRESS')
-              .map((m: any) => m.data.verificationAddAddressBody.address);
-          }
+        const verData = await fetchFromHubWithFallback(`/v1/verificationsByFid?fid=${fid}`, 3000);
+        if (verData && verData.messages) {
+          userData.verifications = verData.messages
+            .filter((m: any) => m.data.type === 'MESSAGE_TYPE_VERIFICATION_ADD_ETH_ADDRESS')
+            .map((m: any) => m.data.verificationAddAddressBody.address);
         }
       } catch (e) { }
 
@@ -321,11 +313,9 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
     } catch (error: any) {
       lastError = error;
       if (error?.code === 'ECONNRESET' || error?.message?.includes('fetch failed') || error?.name === 'AbortError') {
-        // Network error or timeout, retry
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 500));
         continue;
       }
-      // Other errors, break
       break;
     }
   }
