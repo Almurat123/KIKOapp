@@ -6,10 +6,12 @@ import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { getTokenDetails } from './geckoTerminal.js';
 import { getTokenMetadata } from './rpcService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
 
 /**
  * Token Service
  * Centralized source of truth for token information (decimals, price, liquidity)
+ * 🔗 连接到 DataCacheHub 统一缓存链
  */
 
 // Cache with LRU eviction to prevent memory leaks
@@ -29,30 +31,30 @@ const NATIVE_TOKENS = new Set([
 ]);
 
 export async function getTokenInfo(tokenAddress: string, chainId: number, options: { verbose?: boolean; forceRefresh?: boolean } = { verbose: true, forceRefresh: false }): Promise<any> {
-    const { verbose, forceRefresh } = options;
-    const cacheKey = `${chainId}:${tokenAddress.toLowerCase()}`;
-
-    const isNative = NATIVE_TOKENS.has(tokenAddress.toLowerCase());
-    const ttl = isNative ? NATIVE_CACHE_TTL : CACHE_TTL;
-
-    // 1. Check Cache
-    if (!forceRefresh) {
-        const cached = tokenInfoCache.get(cacheKey);
-        if (cached && (Date.now() - cached.timestamp < ttl)) {
-            if (!isNative && verbose) {
-                logger.debug(LogCode.CACHE_HIT, `Cache hit for token info`, { symbol: cached.data.symbol, token: tokenAddress });
-            }
-            return cached.data;
-        }
+    const { verbose = true, forceRefresh = false } = options;
+    
+    // 如果强制刷新，直接从 API 获取
+    if (forceRefresh) {
+        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose);
     }
+    
+    // 🔗 通过缓存中心获取（统一缓存链）
+    return cacheHub.getTokenInfo(tokenAddress, chainId, async () => {
+        // 缓存未命中时的获取逻辑
+        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose);
+    });
+}
 
+/**
+ * 从 API 获取 Token 信息（内部函数）
+ */
+async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, verbose: boolean): Promise<any> {
     const chainSlug = getChainSlug(chainId);
     const dsSlug = chainSlug.dexScreener;
     const gtSlug = chainSlug.geckoTerminal;
 
     // --- STEP 0: Request Jitter ---
     // Add a random delay to prevent synchronized burst blocks
-    // Reduced jitter if cached data was stale but close
     const jitter = Math.floor(Math.random() * 200) + 100; // 100-300ms
     await new Promise(resolve => setTimeout(resolve, jitter));
 
@@ -116,7 +118,6 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
                 });
 
                 // Cache Result
-                tokenInfoCache.set(cacheKey, { data: successResult, timestamp: Date.now() });
                 return successResult;
             }
 
@@ -192,11 +193,52 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
         }
     }
 
-    // --- STEP 4: Force RPC Fallback (The "Must Proceed" Layer) ---
-    // If all APIs fail (rate limits/downtime), we MUST fetch on-chain metadata
-    // so that trading execution (which depends on decimals) doesn't fail.
+    // --- STEP 4: Try On-Chain RPC (Price + Liquidity Fallback) ---
+    // If all APIs fail, try to fetch price and liquidity directly from chain
     try {
-        logger.warn(LogCode.API_FETCH_FAILED, 'All APIs failed, attempting on-chain RPC fallback', { token: tokenAddress });
+        logger.warn(LogCode.API_FETCH_FAILED, 'All APIs failed, attempting on-chain price fetch via RPC', { token: tokenAddress });
+
+        const { getOnChainPrice } = await import('./onChainPriceService.js');
+        const onChainData = await getOnChainPrice(tokenAddress, chainId);
+
+        if (onChainData && onChainData.price > 0) {
+            // Also fetch metadata for symbol/name/decimals
+            const rpcMetadata = await getTokenMetadata(chainId, tokenAddress);
+
+            const result = {
+                price: onChainData.price,
+                symbol: rpcMetadata.symbol,
+                name: rpcMetadata.name,
+                decimals: rpcMetadata.decimals,
+                liquidity: 0, // Liquidity not available via RPC, must use API
+                volume24h: 0, // Not available on-chain
+                fdv: onChainData.marketCap,
+                marketCap: onChainData.marketCap,
+                pairCreatedAt: Date.now(),
+                socials: [],
+                websites: [],
+                provider: `rpc-${onChainData.dexName}`
+            };
+
+            logger.info(LogCode.API_FETCH_SUCCESS, 'Successfully fetched price via on-chain RPC', {
+                symbol: result.symbol,
+                price: result.price,
+                marketCap: result.marketCap,
+                dex: onChainData.dexName,
+                note: 'Liquidity unavailable - use API for liquidity data'
+            });
+
+            // Cache this data with short TTL (30s) since it's RPC-based
+            return result;
+        }
+    } catch (onChainErr: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'On-chain price fetch failed', { token: tokenAddress, error: onChainErr.message });
+    }
+
+    // --- STEP 5: Last Resort - Metadata Only ---
+    // If even on-chain price fetch fails, return metadata only (for execution to proceed with price=0)
+    try {
+        logger.warn(LogCode.API_FETCH_FAILED, 'Price unavailable, fetching metadata only', { token: tokenAddress });
 
         // This uses viem/ethers to call calling decimals() symbol() name()
         const rpcData = await getTokenMetadata(chainId, tokenAddress);
@@ -216,7 +258,6 @@ export async function getTokenInfo(tokenAddress: string, chainId: number, option
         logger.info(LogCode.API_FETCH_SUCCESS, 'Recovered token metadata via RPC', { symbol: result.symbol, decimals: result.decimals });
 
         // Cache this fallback data but with short TTL so we retry APIs soon
-        tokenInfoCache.set(cacheKey, { data: result, timestamp: Date.now() });
         return result;
 
     } catch (rpcErr: any) {

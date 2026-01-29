@@ -33,6 +33,7 @@ import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
 import { notificationService } from './notificationService.js';
 import { getTokenInfo } from './tokenService.js';
+import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
@@ -43,21 +44,33 @@ const positionsBeingExited = new Set<string>();
 
 // Per-user trade locks to prevent concurrent trade execution for same user
 const userTradeLocks = new Map<string, Promise<any>>();
+const TRADE_LOCK_TIMEOUT_MS = 90000; // 90 seconds max wait for lock
 
 /**
  * Execute a function with per-user locking to prevent concurrent trades
  * This ensures a user can only have ONE trade executing at a time
+ * Includes timeout to prevent deadlocks
  */
 async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
-    // Wait for any existing trade to complete
+    // Wait for any existing trade to complete (with timeout)
     const existingLock = userTradeLocks.get(userId);
     if (existingLock) {
         logger.debug(LogCode.WTC_TX_SKIPPED, `Waiting for existing trade lock for user ${userId.slice(0, 10)}...`, { userId });
-        let judgeDecisionId: string | undefined;
         try {
-            await existingLock;
-        } catch {
-            // Ignore errors from previous trade, we just need to wait for it
+            // Race between existing lock and timeout
+            await Promise.race([
+                existingLock,
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Lock timeout')), TRADE_LOCK_TIMEOUT_MS)
+                )
+            ]);
+        } catch (err: any) {
+            // If timeout, force clear the stale lock and proceed
+            if (err.message === 'Lock timeout') {
+                logger.warn(LogCode.SYS_ERROR, 'Trade lock timeout, forcing lock release', { userId: userId.slice(0, 10) });
+                userTradeLocks.delete(userId);
+            }
+            // Ignore other errors from previous trade
         }
     }
 
@@ -431,14 +444,277 @@ async function processBuyWithInfo(
     // We record it once for the leader, regardless of how many users copy it
     recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
 
-    // Process each config
-    for (const config of configs) {
-        try {
-            const userSettings = config.user?.id
-                ? await prisma.userSettings.findUnique({ where: { userId: config.user.id } })
-                : null;
+    // =================================================================
+    // 🚀 SMART BATCH EXECUTION ENGINE
+    // Handles 200+ users with liquidity awareness and adaptive batching
+    // =================================================================
+    
+    // ⚡ PERFORMANCE OPTIMIZATION: Fetch shared data ONCE for all users via Cache Hub
+    const [userSettingsMap, sharedNativePrice] = await Promise.all([
+        // 1. 批量预热用户设置缓存
+        cacheHub.warmupUserSettings(
+            configs.map(c => c.user?.id).filter(Boolean),
+            async (userId) => prisma.userSettings.findUnique({ where: { userId } })
+        ),
+        // 2. 获取 Native 价格（通过缓存中心）
+        cacheHub.getNativePrice(chainId, async () => {
+            if (chainId === 900) {
+                const solInfo = await getTokenInfo(SOLANA_CONFIG.TOKENS.SOL, 900, { verbose: false });
+                return solInfo?.price || 0;
+            } else {
+                const { wrappedNativeAddress } = getChainConfig(chainId);
+                const ethInfo = await getTokenInfo(wrappedNativeAddress, chainId, { verbose: false });
+                return ethInfo?.price || 0;
+            }
+        })
+    ]);
 
-            // Universal Global Slippage
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, '⚡ Shared data fetched via Cache Hub', {
+        userCount: configs.length,
+        nativePrice: sharedNativePrice,
+        settingsFetched: userSettingsMap.size
+    });
+
+    // ⚡ BATCH FILTER: Pre-filter users to avoid processing ineligible configs
+    const eligibleConfigs: any[] = [];
+    const skippedUsers: any[] = [];
+
+    for (const config of configs) {
+        const userSettings = userSettingsMap.get(config.user?.id);
+        const universalSlippageBps = getSlippageBps(userSettings);
+        const effectiveConfig = {
+            ...config,
+            minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
+            minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
+            minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
+            maxSlippageBps: universalSlippageBps
+        };
+
+        const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
+        if (filterResult.passed) {
+            eligibleConfigs.push(config);
+        } else {
+            skippedUsers.push({ config, reason: filterResult.reason });
+        }
+    }
+
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '🔍 Batch filter complete', {
+        total: configs.length,
+        eligible: eligibleConfigs.length,
+        skipped: skippedUsers.length
+    });
+
+    // Send notifications to skipped users (async, non-blocking)
+    setImmediate(() => {
+        skippedUsers.forEach(({ config, reason }) => {
+            notificationService.sendNotification({
+                userId: config.userId,
+                farcasterFid: config.user?.farcasterFid,
+                type: 'COPY_TRADE_SKIPPED',
+                data: {
+                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                    tokenAddress: tokenToBuy,
+                    targetWallet: targetWallet,
+                    chainId: chainId,
+                    skipReason: reason,
+                    targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                }
+            }).catch(() => {}); // Ignore notification errors
+        });
+    });
+
+    // If no eligible users, exit early
+    if (eligibleConfigs.length === 0) {
+        logger.info(LogCode.WTC_TX_SKIPPED, 'No eligible users after batch filter', { targetWallet, token: tokenToBuy });
+        return;
+    }
+
+    // Calculate total volume for ELIGIBLE users only
+    const totalVolumeUsd = eligibleConfigs.reduce((sum, c) => sum + (c.buyAmountUsd || 0), 0);
+    const liquidity = tokenInfo.liquidity || 0;
+    
+    // 🛡️ LIQUIDITY PROTECTION: Limit total buy to 30% of liquidity
+    const MAX_LIQUIDITY_IMPACT_PERCENT = 30;
+    const maxAllowedVolumeUsd = liquidity * (MAX_LIQUIDITY_IMPACT_PERCENT / 100);
+    
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '📊 Mass Copy Trade Analysis', {
+        userCount: configs.length,
+        totalVolumeUsd: totalVolumeUsd.toFixed(2),
+        liquidity: liquidity.toFixed(2),
+        maxAllowedVolumeUsd: maxAllowedVolumeUsd.toFixed(2),
+        willScale: totalVolumeUsd > maxAllowedVolumeUsd
+    });
+
+    // Calculate scaling factor if we need to reduce individual amounts
+    let scalingFactor = 1.0;
+    if (liquidity > 0 && totalVolumeUsd > maxAllowedVolumeUsd) {
+        scalingFactor = maxAllowedVolumeUsd / totalVolumeUsd;
+        logger.warn(LogCode.WTC_TX_SKIPPED, `⚠️ Scaling down trades to protect liquidity`, {
+            originalTotal: totalVolumeUsd.toFixed(2),
+            scaledTotal: maxAllowedVolumeUsd.toFixed(2),
+            scalingFactor: scalingFactor.toFixed(3)
+        });
+    }
+
+    // 🎯 SMART BATCHING: Adjust batch size based on liquidity
+    // More liquidity = larger batches (faster), Less liquidity = smaller batches (safer)
+    const BASE_BATCH_SIZE = 10;
+    const liquidityRatio = liquidity > 0 ? totalVolumeUsd / liquidity : 1;
+    let dynamicBatchSize: number;
+    
+    if (liquidityRatio < 0.05) {
+        // Very high liquidity relative to volume - go fast
+        dynamicBatchSize = 30;
+    } else if (liquidityRatio < 0.15) {
+        // Good liquidity - moderate speed
+        dynamicBatchSize = 20;
+    } else if (liquidityRatio < 0.30) {
+        // Tight liquidity - be careful
+        dynamicBatchSize = 10;
+    } else {
+        // Very tight liquidity - go slow to minimize price impact
+        dynamicBatchSize = 5;
+    }
+
+    // 📈 PRIORITY SORTING: Process by buy amount (largest first gets best price)
+    const sortedConfigs = [...eligibleConfigs].sort((a, b) => (b.buyAmountUsd || 0) - (a.buyAmountUsd || 0));
+
+    // Track execution stats
+    let successCount = 0;
+    let failCount = 0;
+    let currentPriceMultiplier = 1.0; // Track price drift during execution
+    
+    // 🚀 EXECUTE IN SMART BATCHES
+    for (let i = 0; i < sortedConfigs.length; i += dynamicBatchSize) {
+        const batch = sortedConfigs.slice(i, i + dynamicBatchSize);
+        const batchNum = Math.floor(i / dynamicBatchSize) + 1;
+        const totalBatches = Math.ceil(sortedConfigs.length / dynamicBatchSize);
+        
+        logger.info(LogCode.EXE_TX_BROADCAST, `📦 Processing batch ${batchNum}/${totalBatches}`, {
+            batchSize: batch.length,
+            priceMultiplier: currentPriceMultiplier.toFixed(3)
+        });
+
+        // Execute batch in parallel
+        const results = await Promise.allSettled(
+            batch.map(config => 
+                processSingleUserBuy(
+                    config,
+                    userSettingsMap.get(config.user?.id),
+                    targetWallet,
+                    tokenToBuy,
+                    swap,
+                    chainId,
+                    tokenInfo,
+                    targetSwapValueUsd,
+                    isFallbackMode,
+                    scalingFactor, // Pass scaling factor to reduce individual amounts
+                    sharedNativePrice // ⚡ Pass shared native price to avoid repeated queries
+                ).catch(error => {
+                    logger.error(LogCode.SYS_ERROR, `Error in batch execution`, {
+                        configId: config.id,
+                        userId: config.userId,
+                        error: error.message
+                    });
+                    throw error;
+                })
+            )
+        );
+
+        // Count results
+        for (const result of results) {
+            if (result.status === 'fulfilled') successCount++;
+            else failCount++;
+        }
+
+        // 🔄 ADAPTIVE DELAY: Wait between batches, longer if we're impacting price
+        if (i + dynamicBatchSize < sortedConfigs.length) {
+            // Base delay + extra delay based on batch impact
+            const batchVolumeUsd = batch.reduce((sum, c) => sum + ((c.buyAmountUsd || 0) * scalingFactor), 0);
+            const impactRatio = liquidity > 0 ? batchVolumeUsd / liquidity : 0;
+            
+            // 100ms base + up to 400ms for high impact batches
+            const adaptiveDelay = 100 + Math.min(400, Math.floor(impactRatio * 2000));
+            
+            await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
+            
+            // 📊 Optional: Re-check price after high-impact batches
+            if (impactRatio > 0.05 && i + dynamicBatchSize * 2 < sortedConfigs.length) {
+                try {
+                    const freshInfo = await getTokenInfo(tokenToBuy, chainId, { forceRefresh: true });
+                    if (freshInfo && freshInfo.price > 0 && tokenInfo.price > 0) {
+                        currentPriceMultiplier = freshInfo.price / tokenInfo.price;
+                        
+                        // 🛑 CIRCUIT BREAKER: Stop if price pumped too much (>50%)
+                        if (currentPriceMultiplier > 1.5) {
+                            logger.warn(LogCode.WTC_TX_SKIPPED, `🛑 Circuit breaker triggered: Price pumped ${((currentPriceMultiplier - 1) * 100).toFixed(1)}%`, {
+                                originalPrice: tokenInfo.price,
+                                currentPrice: freshInfo.price,
+                                remainingUsers: sortedConfigs.length - i - dynamicBatchSize
+                            });
+                            
+                            // Notify remaining users that their trade was skipped
+                            const remainingConfigs = sortedConfigs.slice(i + dynamicBatchSize);
+                            for (const config of remainingConfigs) {
+                                await notificationService.sendNotification({
+                                    userId: config.userId,
+                                    farcasterFid: config.user?.farcasterFid,
+                                    type: 'COPY_TRADE_SKIPPED',
+                                    data: {
+                                        tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                                        tokenAddress: tokenToBuy,
+                                        targetWallet: targetWallet,
+                                        chainId: chainId,
+                                        skipReason: `Price pumped ${((currentPriceMultiplier - 1) * 100).toFixed(0)}% - trade skipped for safety`,
+                                    }
+                                }).catch(() => {}); // Ignore notification errors
+                            }
+                            break; // Exit the batch loop
+                        }
+                    }
+                } catch (err) {
+                    // Ignore price check errors, continue with execution
+                }
+            }
+        }
+    }
+
+    logger.info(LogCode.EXE_TX_CONFIRMED, `✅ Smart batch execution complete`, {
+        targetWallet,
+        token: tokenToBuy,
+        totalUsers: configs.length,
+        success: successCount,
+        failed: failCount,
+        scalingFactor: scalingFactor.toFixed(3),
+        batchSize: dynamicBatchSize,
+        finalPriceMultiplier: currentPriceMultiplier.toFixed(3)
+    });
+}
+
+/**
+ * Process a single user's buy trade (extracted for parallel execution)
+ * @param scalingFactor - Optional factor to reduce buy amount (for liquidity protection)
+ * @param sharedNativePrice - Pre-fetched native token price (performance optimization)
+ */
+async function processSingleUserBuy(
+    config: any,
+    userSettings: any,
+    targetWallet: string,
+    tokenToBuy: string,
+    swap: DecodedSwap,
+    chainId: number,
+    tokenInfo: any,
+    targetSwapValueUsd: number,
+    isFallbackMode: boolean,
+    scalingFactor: number = 1.0,
+    sharedNativePrice: number = 0
+): Promise<void> {
+    let judgeDecisionId: string | null = null;
+    
+    try {
+            // Universal Global Slippage (userSettings already passed in)
             const universalSlippageBps = getSlippageBps(userSettings);
 
             const effectiveConfig = {
@@ -455,51 +731,30 @@ async function processBuyWithInfo(
             const isFastMode = config.fastExecutionEnabled !== false;
             if ((!tokenInfo || !tokenInfo.price) && !isFastMode) {
                 logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Token info invalid and Fast Mode disabled', { userId: config.userId, token: tokenToBuy });
-                continue;
+                return;
             }
 
-            const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
-
-            if (!filterResult.passed) {
-                logger.info(LogCode.WTC_TX_SKIPPED, `⏭️ Skipping ${tokenInfo.symbol || tokenToBuy.slice(0, 10)}: ${filterResult.reason}`, {
-                    userId: config.userId,
-                    token: tokenToBuy
-                });
-
-                // Send skip notification to user via Farcaster DC
-                await notificationService.sendNotification({
-                    userId: config.userId,
-                    farcasterFid: config.user.farcasterFid,
-                    type: 'COPY_TRADE_SKIPPED',
-                    data: {
-                        tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
-                        tokenAddress: tokenToBuy,
-                        targetWallet: targetWallet,
-                        chainId: chainId,
-                        skipReason: filterResult.reason,
-                        targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
-                        marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                        liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
-                    }
-                });
-
-                continue;
-            }
+            // ⚡ OPTIMIZATION: Filter already checked in batch, skip here
+            // const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
 
 
             // Calculate how much to buy in token units
-            const usdAmount = config.buyAmountUsd;
-            let nativePrice = 0; // Will be fetched dynamically
-
-            // Ensure we have native price for gas calculation and later trade logic
-            if (chainId === 900) {
-                const solInfo = await getTokenInfo(SOLANA_CONFIG.TOKENS.SOL, 900);
-                if (solInfo) nativePrice = solInfo.price;
-            } else {
-                const { wrappedNativeAddress } = getChainConfig(chainId);
-                const ethInfo = await getTokenInfo(wrappedNativeAddress, chainId);
-                if (ethInfo) nativePrice = ethInfo.price;
+            // Apply scaling factor for liquidity protection (reduces amount when many users buy simultaneously)
+            const rawUsdAmount = config.buyAmountUsd;
+            const usdAmount = rawUsdAmount * scalingFactor;
+            
+            // Log if scaling was applied
+            if (scalingFactor < 1.0) {
+                logger.info(LogCode.EXE_QUOTE_FETCHED, `📉 Trade scaled for liquidity protection`, {
+                    userId: config.userId,
+                    originalAmount: rawUsdAmount.toFixed(2),
+                    scaledAmount: usdAmount.toFixed(2),
+                    scalingFactor: scalingFactor.toFixed(3)
+                });
             }
+            
+            // ⚡ OPTIMIZATION: Use shared native price instead of querying again
+            let nativePrice = sharedNativePrice;
 
             const cooldownMinutes = userSettings?.copyTradeTokenCooldownMinutes ?? 60;
             if (cooldownMinutes > 0) {
@@ -542,7 +797,7 @@ async function processBuyWithInfo(
                                     }
                                 });
 
-                                continue; // SKIP TRADE
+                                return; // SKIP TRADE
                             }
                         }
                     } catch (e) { }
@@ -592,7 +847,7 @@ async function processBuyWithInfo(
                             }
                         });
 
-                        continue;
+                        return;
                     }
                 }
 
@@ -641,7 +896,7 @@ async function processBuyWithInfo(
                 } else {
                     logger.error(LogCode.SYS_ERROR, 'Failed to create pending position', { error: err.message });
                 }
-                continue;
+                return;
             }
 
             // === CONCURRENCY CONTROL (Simple Check) ===
@@ -649,7 +904,7 @@ async function processBuyWithInfo(
             const userLockKey = `trade:${config.userId}`;
             if (userTradeLocks.has(userLockKey)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping: User already has a pending trade', { userId: config.userId });
-                continue;
+                return;
             }
 
             logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Executing trade', {
@@ -670,13 +925,13 @@ async function processBuyWithInfo(
 
                 if (!solAddress) {
                     logger.warn(LogCode.API_AUTH_FAILED, 'Skipping Solana trade: No Solana wallet found in Privy', { userId: config.userId });
-                    continue;
+                    return;
                 }
 
                 // Get SOL Price dynamically (already fetched at top of loop)
                 if (nativePrice <= 0) {
                     logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch SOL price for trade calculation', { userId: config.userId });
-                    continue; // Better to skip than use a stale hardcoded price
+                    return; // Better to skip than use a stale hardcoded price
                 }
 
                 const amountInLamports = Math.floor((usdAmount / nativePrice) * 1e9).toString();
@@ -699,7 +954,7 @@ async function processBuyWithInfo(
                         amountUsd: usdAmount,
                         minUsd: MIN_TRADE_USD
                     });
-                    continue;
+                    return;
                 }
 
                 txHash = await executeSolanaSwap({
@@ -814,14 +1069,14 @@ async function processBuyWithInfo(
                                             oldPrice: tokenInfo.price,
                                             newPrice: freshInfo.price
                                         });
-                                        continue; // ABORT RETRY
+                                        return; // ABORT RETRY
                                     }
                                     // Update token info for record accuracy
                                     tokenInfo.price = freshInfo.price;
                                 }
                             } catch (err) {
                                 logger.warn(LogCode.API_FETCH_FAILED, 'Conservative Mode: Failed to re-check price, aborting for safety', { userId: config.userId });
-                                continue;
+                                return;
                             }
                         }
 
@@ -873,7 +1128,7 @@ async function processBuyWithInfo(
                                 txHash = result3.txHash!;
                             } catch (buyErr3: any) {
                                 logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', { userId: config.userId, token: tokenToBuy, error: buyErr3.message });
-                                continue; // Skip to next config
+                                return; // Skip to next config
                             }
                         }
                     }
@@ -885,7 +1140,7 @@ async function processBuyWithInfo(
                 if (pendingPositionId) {
                     await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
                 }
-                continue;
+                return;
             }
 
             // CRITICAL: Ensure price is valid before creating position to avoid infinite PNL
@@ -894,7 +1149,7 @@ async function processBuyWithInfo(
                 if (pendingPositionId) {
                     await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
                 }
-                continue;
+                return;
             }
 
             // Update PENDING position to OPEN with real details
@@ -1053,7 +1308,6 @@ ${analysis.rawAnalysis}
                 }
             });
         }
-    }
 }
 
 /**

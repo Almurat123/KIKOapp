@@ -505,8 +505,8 @@ export class MainSwapService {
       feeContext,
       isSell: false,
       accessToken: request.accessToken,
-      // CRITICAL: For copytrade mode, wait for on-chain confirmation
-      waitForConfirmation: request.mode === 'copytrade'
+      // OPTIMIZATION: Copytrade fires immediately for speed (confirmation tracked separately)
+      waitForConfirmation: false
     };
 
     const result = await SwapExecutor.execute(swapParams);
