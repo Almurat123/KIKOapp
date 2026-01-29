@@ -280,8 +280,8 @@ export async function getTrendingCasts(
 
         const rows = await prisma.trendingCast.findMany({
             where,
-            // Order by timestamp first to support 'newest' sort, then by engagement
-            orderBy: [{ timestamp: 'desc' }, { likes: 'desc' }, { heatScore: 'desc' }],
+            // Order by heatScore (trending velocity) and likes for SMART TRENDING
+            orderBy: [{ heatScore: 'desc' }, { likes: 'desc' }, { timestamp: 'desc' }],
             take: queryLimit,
             // No offset/skip here! We fetch from 0 to FULL_LIMIT or limit
         });
