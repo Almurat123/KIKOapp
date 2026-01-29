@@ -12,6 +12,7 @@ import { SuperDefiPage } from './pages/SuperDefiPage';
 import { TradePage } from './pages/TradePage';
 import WalletPage from './pages/WalletPage';
 import NewsPage from './pages/NewsPage';
+import BillingConsentPromptModal from './components/Wallet/BillingConsentPromptModal';
 import { useConversations } from './hooks/useConversations';
 import type { Message } from './hooks/useConversations';
 import { chatWSClient, type ChatEvent } from './utils/chatWebSocket';
@@ -355,24 +356,39 @@ function App() {
           updateConversation(targetSessionId, { messages: updatedMessages });
         }
       } else if (event.type === 'citations') {
+        console.log('[App] Citations event received:', {
+          messageId: event.data.message_id,
+          count: event.data.citations?.length || 0,
+          sample: event.data.citations?.[0]
+        });
+
         const targetConv = conversationsRef.current.find(c => c.id === targetSessionId);
         if (targetConv) {
-          const updatedMessages = targetConv.messages.map(m =>
-            m.id === event.data.message_id ? { ...m, citations: event.data.citations } : m
-          );
-          updateConversation(targetSessionId, { messages: updatedMessages });
-        }
-        if (event.data.message_id) {
-          const pendingMsg: Message = sessionPending.get(event.data.message_id) || {
-            id: event.data.message_id,
-            role: 'assistant',
-            content: '',
-            reasoning_content: '',
-            status: 'streaming',
-            citations: [],
-          };
-          pendingMsg.citations = event.data.citations;
-          sessionPending.set(event.data.message_id, pendingMsg);
+          const targetMessage = targetConv.messages.find(m => m.id === event.data.message_id);
+
+          if (targetMessage) {
+            // Message exists, update it directly
+            console.log('[App] Updating existing message with citations');
+            const updatedMessages = targetConv.messages.map(m =>
+              m.id === event.data.message_id ? { ...m, citations: event.data.citations } : m
+            );
+            updateConversation(targetSessionId, { messages: updatedMessages });
+          } else {
+            // Message not yet created, store in pending
+            console.warn('[App] Message not found, storing citations in pending');
+            const pendingMsg: Message = sessionPending.get(event.data.message_id) || {
+              id: event.data.message_id,
+              role: 'assistant',
+              content: '',
+              reasoning_content: '',
+              status: 'streaming',
+              citations: [],
+            };
+            pendingMsg.citations = event.data.citations;
+            sessionPending.set(event.data.message_id, pendingMsg);
+          }
+        } else {
+          console.error('[App] Target conversation not found for citations:', targetSessionId);
         }
       }
     };
@@ -459,6 +475,7 @@ function App() {
 
   return (
     <>
+      <BillingConsentPromptModal />
       <Layout
         activeTab={activeTab}
         onTabChange={setActiveTab}

@@ -630,6 +630,7 @@ export async function* streamChatCompletion(
                 citations = flattened;
 
                 console.log('[xai] Citations received in chunk', chunkCount, ':', citations.length, 'sources');
+                console.log('[xai] NORMALIZED citations:', JSON.stringify(citations, null, 2));
                 if (citations.length > 0) {
                   console.log('[xai] Citations sample:', JSON.stringify(citations[0], null, 2));
                   console.log('[xai] All citations:', JSON.stringify(citations, null, 2));

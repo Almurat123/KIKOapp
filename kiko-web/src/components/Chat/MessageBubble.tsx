@@ -448,14 +448,24 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
 
                         {/* Sources Button - Single button with icon and count */}
                         {
-                            !isUser && message.citations && message.citations.length > 0 && (
+                            (() => {
+                                const hasCitations = !isUser && message.citations && message.citations.length > 0;
+                                console.log('[MessageBubble] Citations check:', {
+                                    messageId: message.id,
+                                    role: message.role,
+                                    hasCitations,
+                                    citationsLength: message.citations?.length || 0,
+                                    citationsSample: message.citations?.[0]
+                                });
+                                return hasCitations;
+                            })() && (
                                 <button
                                     className={styles.sourcesButton}
                                     onClick={() => setShowCitations(true)}
-                                    title={`View all ${message.citations.length} sources`}
+                                    title={`View all ${message.citations!.length} sources`}
                                 >
                                     <div className={styles.sourcesButtonIcons}>
-                                        {message.citations.slice(0, 3).map((citation, index) => {
+                                        {message.citations!.slice(0, 3).map((citation, index) => {
                                             const logoProps = getSourceLogoProps(citation);
                                             return (
                                                 <div
@@ -482,7 +492,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                             );
                                         })}
                                     </div>
-                                    <span className={styles.sourcesButtonText}>{message.citations.length} sources</span>
+                                    <span className={styles.sourcesButtonText}>{message.citations!.length} sources</span>
                                 </button>
                             )
                         }

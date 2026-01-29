@@ -334,7 +334,10 @@ export async function runDiscoveryJob(force = false): Promise<void> {
 
 /**
  * Fetch casts from a list of user FIDs via Snapchain Hub
- * OPTIMIZED: High parallelism, smart early stop, minimal API calls
+ * OPTIMIZED: Respects Neynar rate limits (300 RPM for Starter)
+ * [Logic]: batchSize=2 + 500ms delay = ~240 RPM max
+ * [Ref]: Neynar Starter plan = 300 RPM
+ * [Risk]: Too aggressive fetching will trigger 429
  * 
  * @param fids - List of user FIDs to fetch from
  * @param maxAgeDays - Maximum age of casts in days (default: 30 for 1 month coverage)
@@ -354,8 +357,10 @@ async function fetchCastsFromUsers(
   const now = Date.now();
   const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
 
-  // ADJUSTMENT: Reduced batch size to prevent timeouts and API rate limiting
-  const batchSize = 5;
+  // [Logic]: Optimized for Neynar Growth plan (600 RPM)
+  // Each user triggers ~5 API calls: getCastsByFid + getUserDataByFid + getReactionsByCast x N
+  // batchSize=3 * 5 calls = 15 calls/batch, 500ms delay = 30 batches/min = 450 RPM (safe for 600 RPM)
+  const batchSize = 3;
   let usersProcessed = 0;
 
   // OPTIMIZATION 2: Shuffle FIDs for better distribution (avoid all low-activity users first)
@@ -436,8 +441,9 @@ async function fetchCastsFromUsers(
     results.push(...batchResults.flat());
     usersProcessed += batch.length;
 
+    // [Logic]: 500ms delay for Growth 600 RPM (30 batches/min * 15 calls = 450 RPM)
     if (results.length < targetCasts * 0.8) {
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
 

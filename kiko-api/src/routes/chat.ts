@@ -10,6 +10,7 @@ import { trackChatMessage } from '../services/userActivityService.js';
 import prisma from '../db/prisma.js';
 import { redact } from '../utils/sanitizer.js';
 import { sanitizedErrorResponse } from '../utils/securityUtils.js';
+import { evaluateBillingAccess } from '../services/billing/billingAccess.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -239,6 +240,37 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     });
                 }
 
+                const taskModel = model || session.model || 'deepseek-chat';
+                let billingContext: { isFree: boolean; modelCategory: string } | undefined;
+
+                try {
+                    const billingDecision = await evaluateBillingAccess({
+                        userId,
+                        model: taskModel
+                    });
+
+                    if (!billingDecision.allowed) {
+                        return reply.code(402).send({
+                            error: 'Payment required',
+                            reason: billingDecision.reason,
+                            requiredTokens: billingDecision.requiredTokens,
+                            currentBalance: billingDecision.currentBalance,
+                            priceUsd: billingDecision.priceUsd
+                        });
+                    }
+
+                    billingContext = {
+                        isFree: billingDecision.isFree,
+                        modelCategory: billingDecision.modelCategory
+                    };
+                } catch (billingError: any) {
+                    fastify.log.error('Billing check failed:', billingError);
+                    return reply.code(402).send({
+                        error: 'Payment required',
+                        reason: 'BILLING_CHECK_FAILED'
+                    });
+                }
+
                 // Create user message
                 const userMessage = await chatRepo.createMessage(sessionId, 'user', content.trim());
 
@@ -255,7 +287,6 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 });
 
                 // Create AI task
-                const taskModel = model || session.model || 'deepseek-chat';
                 // Extract allowanceMode from toolConfig if not provided explicitly
                 // toolConfig is already destructured above
                 let allowanceMode = request.body.allowanceMode;
@@ -293,6 +324,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         accessToken,
                         currentPage,
                         pageContext: normalizedPageContext,
+                        billing: billingContext,
                     }
                 );
 

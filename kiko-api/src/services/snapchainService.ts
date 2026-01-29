@@ -3,6 +3,9 @@
  *
  * Uses the Snapchain Hub API to fetch casts and reactions directly
  * Primary service for fetching Farcaster data via Hub API
+ * [Logic]: Neynar Snapchain Hub requires x-api-key header
+ * [Ref]: https://docs.neynar.com - Snapchain HTTPS API
+ * [Risk]: Hub may timeout; API key required for Neynar endpoint
  */
 
 import prisma from '../db/prisma.js';
@@ -12,22 +15,34 @@ import * as neynarService from './neynarService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import * as qualityUsersRepo from '../repositories/qualityUsersRepository.js';
 
-const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
+// [Logic]: Default to Neynar Snapchain Hub (stable, requires API key)
+const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://snapchain-api.neynar.com';
+const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
 
 /**
  * Fetch with timeout wrapper - now using unified service
  * Hub calls use suppressError to avoid log spam from expected timeouts
+ * [Logic]: Adds x-api-key header for Neynar Snapchain Hub auth
  */
 async function fetchWithTimeout(url: string, options: any = {}, timeout = 15000) {
+  // Build headers with optional API key for Neynar Hub
+  const headers: Record<string, string> = {
+    'User-Agent': 'KiKo/1.0',
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  };
+
+  // [Logic]: Add API key if using Neynar Hub (required for auth)
+  if (NEYNAR_API_KEY && HUB_URL.includes('neynar.com')) {
+    headers['x-api-key'] = NEYNAR_API_KEY;
+  }
+
   return await fetchJson({
     url,
     timeout,
     suppressError: true, // Suppress error logs for Hub calls (expected to fail sometimes)
     endpointName: 'snapchain-hub',
-    headers: {
-      'User-Agent': 'KiKo/1.0',
-      ...(options.headers || {})
-    },
+    headers,
     ...options
   });
 }
@@ -130,12 +145,16 @@ export async function getHubInfo(): Promise<any> {
 
 /**
  * Fetch casts by FID (newest first)
+ * [Logic]: Uses fetchWithTimeout to include x-api-key for Neynar Hub
+ * [Ref]: Neynar Snapchain requires x-api-key header
+ * [Risk]: Returns empty array on failure
  */
 export async function getCastsByFid(fid: number, pageSize: number = 100): Promise<HubCast[]> {
   try {
     // Use reverse=true to get newest casts first
     const url = `${HUB_URL}/v1/castsByFid?fid=${fid}&pageSize=${pageSize}&reverse=true`;
-    const data = await fetchJson({ url });
+    // [Logic]: Use fetchWithTimeout to include API key header
+    const data = await fetchWithTimeout(url);
 
     if (!(data as any).messages || (data as any).messages.length === 0) {
       return [];

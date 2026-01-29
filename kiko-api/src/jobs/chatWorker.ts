@@ -14,6 +14,8 @@ import { getTrendingCasts } from '../repositories/socialRepository.js';
 import * as alchemy from '../services/alchemy.js';
 import * as privyWallet from '../services/privyWallet.js';
 import { scrub } from '../utils/scrubber.js';
+import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
+import { insertUsageRecord } from '../repositories/billingRepository.js';
 
 // Constants
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
@@ -950,6 +952,9 @@ export class ChatWorker {
         } else {
             console.log(`[ChatWorker] ⏭️ RAG: Skipped (Query doesn't match informational patterns).`);
         }
+
+        // Declare toolCalls outside main loop so it can be accessed in finally/cleanup
+        let toolCalls: any[] = [];
 
         while (iteration < maxIterations) {
             iteration++;
@@ -2174,7 +2179,8 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             const reader = response.body!.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
-            let toolCalls: any[] = [];
+            // toolCalls now declared above, before while loop
+            toolCalls = []; // Reset for this iteration
             let hasToolCalls = false;
             let iterContent = '';   // Reset per iteration
             let iterReasoning = ''; // Reset per iteration
@@ -2566,6 +2572,14 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     status: 'complete'
                 });
                 logger.debug(LogCode.AI_API_CALL, 'ChatWorker: DeepSeek final message persisted', { assistantMessageId });
+                await this.persistBillingUsage({
+                    assistantMessageId,
+                    userId,
+                    model: task.model,
+                    usage: lastUsage,
+                    toolContext: task.toolContext,
+                    toolCallsCount: toolCalls.length
+                });
             } catch (dbErr) {
                 console.error(`[ChatWorker] Failed to save final message ${assistantMessageId} to DB:`, dbErr);
             }
@@ -2597,6 +2611,14 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     usage: lastUsage || undefined,
                     citations: allCitations.length > 0 ? allCitations : undefined,
                     status: 'complete'
+                });
+                await this.persistBillingUsage({
+                    assistantMessageId,
+                    userId,
+                    model: task.model,
+                    usage: lastUsage,
+                    toolContext: task.toolContext,
+                    toolCallsCount: toolCalls.length
                 });
             } catch (dbErr) {
                 console.error(`[ChatWorker] Failed to save final message ${assistantMessageId} to DB (MaxIter):`, dbErr);
@@ -2828,6 +2850,45 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     logger.debug(LogCode.AI_API_CALL, 'ChatWorker: proactive social pre-fetch stored');
                 }).catch(err => console.warn('[ChatWorker] Proactive social pre-fetch failed:', err));
             }
+        }
+    }
+
+    private async persistBillingUsage(params: {
+        assistantMessageId: string;
+        userId?: string | null;
+        model: string;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+        toolContext?: any;
+        toolCallsCount?: number;
+    }): Promise<void> {
+        if (!params.userId || !params.usage) return;
+
+        const billingContext = params.toolContext?.billing || {};
+        const modelCategory = billingContext.modelCategory || getBillingCategory(params.model);
+        const isFree = typeof billingContext.isFree === 'boolean' ? billingContext.isFree : false;
+        const usdCost = computeUsdCost(params.usage, params.model, params.toolCallsCount || 0);
+        const promptTokens = Number(params.usage.prompt_tokens || 0);
+        const completionTokens = Number(params.usage.completion_tokens || 0);
+        const totalTokens = Number(params.usage.total_tokens || promptTokens + completionTokens);
+
+        try {
+            await insertUsageRecord({
+                assistantMessageId: params.assistantMessageId,
+                userId: params.userId,
+                model: params.model,
+                modelCategory,
+                promptTokens,
+                completionTokens,
+                totalTokens,
+                toolCallsCount: params.toolCallsCount || 0,
+                usdCost,
+                dateUtc: getUtcDateString(),
+                isFree
+            });
+        } catch (error: any) {
+            logger.warn(LogCode.DB_TRANSACTION_FAILED, 'Billing usage insert failed', {
+                error: error?.message || error
+            });
         }
     }
 
@@ -3766,6 +3827,7 @@ Status: unavailable (balance data not available from cache).`;
                         }
                         // Broadcast new citations immediately to frontend (like DeepSeek)
                         if (newCitations.length > 0) {
+                            logger.info(LogCode.SYS_INFO, `[chatWorker] Broadcasting citations: msgId=${assistantMessageId}, count=${newCitations.length}, sample=${JSON.stringify(newCitations[0])}`);
                             this.ws.broadcastToUser(userId!, {
                                 type: 'citations',
                                 sessionId: task.sessionId,

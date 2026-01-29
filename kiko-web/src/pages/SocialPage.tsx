@@ -31,6 +31,7 @@ const getThemeColors = (isDark: boolean) => ({
   border: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
   bgButton: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
   bgButtonHover: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+  link: isDark ? '#6366f1' : '#5b5fc7',
 });
 
 // --- Types ---
@@ -130,6 +131,7 @@ const TrendingCastItem: React.FC<{
 }> = React.memo(({ data, isDark, onClick, onAvatarClick, onImageClick, isMobile }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [quotedCastExpanded, setQuotedCastExpanded] = useState<{ [key: string]: boolean }>({});
   const colors = getThemeColors(isDark);
 
   if (!data.author || !data.stats) return null;
@@ -201,6 +203,8 @@ const TrendingCastItem: React.FC<{
                   <img
                     src={data.author.avatar}
                     alt={data.author?.handle || 'author'}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
                     style={{
                       width: '100%',
                       height: '100%',
@@ -208,9 +212,13 @@ const TrendingCastItem: React.FC<{
                       display: 'block',
                     }}
                     onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                      (e.target as HTMLImageElement).parentElement!.style.background = getAestheticGradient(data.id);
-                      (e.target as HTMLImageElement).parentElement!.innerText = (data.author?.name || 'U').charAt(0).toUpperCase();
+                      const img = e.target as HTMLImageElement;
+                      img.style.display = 'none';
+                      const parent = img.parentElement;
+                      if (parent) {
+                        parent.style.background = getAestheticGradient(data.id);
+                        parent.innerText = (data.author?.name || 'U').charAt(0).toUpperCase();
+                      }
                     }}
                   />
                 ) : (
@@ -317,6 +325,15 @@ const TrendingCastItem: React.FC<{
               if (embed.castId || (embed.cast && embed.cast.hash)) {
                 // Handle cast embed
                 const quotedCast = embed.cast || embed; // Normalize
+                const quoteKey = `${data.id}-${idx}`;
+                const isQuoteExpanded = quotedCastExpanded[quoteKey] || false;
+                const quotedText = quotedCast.text || '';
+                const QUOTE_CHAR_LIMIT = 280;
+                const shouldTruncateQuote = quotedText.length > QUOTE_CHAR_LIMIT;
+                const displayedQuoteText = shouldTruncateQuote && !isQuoteExpanded
+                  ? quotedText.slice(0, QUOTE_CHAR_LIMIT) + '...'
+                  : quotedText;
+
                 return (
                   <div key={idx} style={{
                     border: `1px solid ${colors.border}`,
@@ -329,18 +346,42 @@ const TrendingCastItem: React.FC<{
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
                       <img
                         src={quotedCast.author?.avatar || quotedCast.author?.pfp || quotedCast.author?.pfp_url || `https://placehold.co/100/6366f1/ffffff?text=U`}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
                         style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover' }}
                         alt=""
                         onError={(e) => {
-                          (e.target as HTMLImageElement).src = `https://placehold.co/100/6366f1/ffffff?text=${(quotedCast.author?.displayName || quotedCast.author?.username || 'U').charAt(0).toUpperCase()}`;
+                          const img = e.target as HTMLImageElement;
+                          const fallbackText = (quotedCast.author?.displayName || quotedCast.author?.username || 'U').charAt(0).toUpperCase();
+                          img.src = `https://placehold.co/100/6366f1/ffffff?text=${fallbackText}`;
+                          // Prevent infinite loop
+                          img.onerror = null;
                         }}
                       />
                       <span style={{ fontWeight: 600, fontSize: '13px', color: colors.textPrimary }}>{quotedCast.author?.displayName || quotedCast.author?.username}</span>
                       <span style={{ color: colors.textSecondary, fontSize: '13px' }}>@{quotedCast.author?.username}</span>
                     </div>
                     <div style={{ fontSize: '14px', lineHeight: '1.4', color: colors.textPrimary }}>
-                      {quotedCast.text}
+                      {displayedQuoteText}
                     </div>
+                    {shouldTruncateQuote && (
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setQuotedCastExpanded(prev => ({ ...prev, [quoteKey]: !isQuoteExpanded }));
+                        }}
+                        style={{
+                          marginTop: '4px',
+                          color: colors.link,
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          fontWeight: 500,
+                          padding: '2px 0',
+                        }}
+                      >
+                        {isQuoteExpanded ? 'Show less' : 'Show more'}
+                      </div>
+                    )}
                   </div>
                 );
               }

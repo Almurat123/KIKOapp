@@ -189,6 +189,79 @@ model WalletTransaction {
   @@map("wallet_transactions")
 }
 
+model BillingUsageLedger {
+  id                 String   @id @default(uuid())
+  assistantMessageId String   @unique @map("assistant_message_id")
+  userId             String   @map("user_id")
+  model              String
+  modelCategory      String   @map("model_category")
+  promptTokens       Int      @default(0) @map("prompt_tokens")
+  completionTokens   Int      @default(0) @map("completion_tokens")
+  totalTokens        Int      @default(0) @map("total_tokens")
+  toolCallsCount     Int      @default(0) @map("tool_calls_count")
+  usdCost            Decimal  @default(0) @db.Decimal @map("usd_cost")
+  dateUtc            DateTime @db.Date @map("date_utc")
+  isFree             Boolean  @default(false) @map("is_free")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([userId, dateUtc])
+  @@index([modelCategory])
+  @@map("billing_usage_ledger")
+}
+
+model DailyBilling {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  dateUtc       DateTime @db.Date @map("date_utc")
+  totalUsd      Decimal  @default(0) @db.Decimal @map("total_usd")
+  tokenPriceUsd Decimal  @default(0) @db.Decimal @map("token_price_usd")
+  tokensDue     Decimal  @default(0) @db.Decimal @map("tokens_due")
+  tokenAddress  String   @map("token_address")
+  chainId       Int      @map("chain_id")
+  status        String   @default("pending")
+  attempts      Int      @default(0)
+  txHash        String?  @map("tx_hash")
+  failureReason String?  @map("failure_reason")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, dateUtc])
+  @@index([userId, dateUtc])
+  @@map("daily_billing")
+}
+
+model BillingBlock {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  dateUtc   DateTime @db.Date @map("date_utc")
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, dateUtc])
+  @@index([userId, dateUtc])
+  @@map("billing_blocks")
+}
+
+model BillingConsent {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  walletAddress String   @map("wallet_address")
+  chainId       Int      @map("chain_id")
+  authKeyId     String?  @map("auth_key_id")
+  termsVersion  String   @map("terms_version")
+  status        String   @default("active")
+  consentedAt   DateTime @default(now()) @map("consented_at")
+  revokedAt     DateTime? @map("revoked_at")
+  source        String?  @map("source")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, chainId])
+  @@index([userId])
+  @@map("billing_consents")
+}
+
 model PolymarketPosition {
   id            String               @id @default(cuid())
   userId        String

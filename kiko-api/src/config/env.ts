@@ -91,6 +91,23 @@ export interface EnvConfig {
         evmRecipient?: string; // 0x... address for 0x affiliate fees
         solanaRecipient?: string; // base58 address for SOL transfers
     };
+    billing: {
+        enabled: boolean;
+        chainId: number;
+        tokenAddress?: string;
+        tokenDecimals: number;
+        feeRecipient?: string;
+        priceCacheTtlSec: number;
+        minLiquidityUsd: number;
+        dailyFreeDeepseek: number;
+        dailyFreeGrok: number;
+        usdMultiplier: number;
+        toolPricePerCall: number;
+        termsVersion: string;
+        deepseekModels: string[];
+        grokModels: string[];
+        modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number }>;
+    };
     security: {
         alchemyWebhookSecret?: string; // Secret for verifying Alchemy webhooks
         internalWebhookSecret?: string; // Secret for verifying internal Go service requests
@@ -118,6 +135,43 @@ function validateEnv(): EnvConfig {
     const copyTradeBps = platformFeesEnabled
         ? parseInt(process.env.PLATFORM_FEE_COPY_TRADE_BPS || '100', 10)
         : 0;
+    const billingEnabled =
+        (process.env.BILLING_ENABLED || '').toLowerCase() === 'true' ||
+        (process.env.BILLING_ENABLED || '') === '1';
+    const billingChainId = parseInt(process.env.BILLING_CHAIN_ID || '8453', 10);
+    const billingTokenDecimals = parseInt(process.env.BILLING_TOKEN_DECIMALS || '18', 10);
+    const billingPriceCacheTtlSec = parseInt(process.env.BILLING_PRICE_CACHE_TTL_SEC || '600', 10);
+    const billingMinLiquidityUsd = parseFloat(process.env.BILLING_DEXSCREENER_MIN_LIQUIDITY_USD || '5000');
+    const billingDailyFreeDeepseek = parseInt(process.env.BILLING_DAILY_FREE_DEEPSEEK || '10', 10);
+    const billingDailyFreeGrok = parseInt(process.env.BILLING_DAILY_FREE_GROK || '3', 10);
+    const billingUsdMultiplier = parseFloat(process.env.BILLING_USD_MULTIPLIER || '3');
+    const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
+    const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
+    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner,deepseek-v3-fast,deepseek-v3-thinking')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+    const grokModels = (process.env.BILLING_GROK_MODELS || 'grok-beta,grok-2,grok-2-1212,grok-4-reasoning')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+    let modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number }> = {
+        'grok-4-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
+        'grok-4-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
+        'grok-4-1-fast-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
+        'grok-4-1-fast-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
+        'deepseek-v3-fast': { promptUsdPer1M: 0.28, completionUsdPer1M: 0.42 },
+        'deepseek-v3-thinking': { promptUsdPer1M: 0.28, completionUsdPer1M: 0.42 },
+        'deepseek-chat': { promptUsdPer1M: 0.28, completionUsdPer1M: 0.42 },
+        'deepseek-reasoner': { promptUsdPer1M: 0.28, completionUsdPer1M: 0.42 },
+    };
+    if (process.env.BILLING_MODEL_PRICING_JSON) {
+        try {
+            modelPricing = JSON.parse(process.env.BILLING_MODEL_PRICING_JSON);
+        } catch (error) {
+            console.warn('[Env] Failed to parse BILLING_MODEL_PRICING_JSON, falling back to empty pricing map.');
+        }
+    }
 
     return {
         port,
@@ -205,6 +259,23 @@ function validateEnv(): EnvConfig {
             copyTradeBps: Number.isFinite(copyTradeBps) ? copyTradeBps : 0,
             evmRecipient: process.env.PLATFORM_FEE_EVM_RECIPIENT,
             solanaRecipient: process.env.PLATFORM_FEE_SOLANA_RECIPIENT,
+        },
+        billing: {
+            enabled: billingEnabled,
+            chainId: Number.isFinite(billingChainId) ? billingChainId : 8453,
+            tokenAddress: process.env.BILLING_TOKEN_ADDRESS,
+            tokenDecimals: Number.isFinite(billingTokenDecimals) ? billingTokenDecimals : 18,
+            feeRecipient: process.env.BILLING_FEE_RECIPIENT,
+            priceCacheTtlSec: Number.isFinite(billingPriceCacheTtlSec) ? billingPriceCacheTtlSec : 600,
+            minLiquidityUsd: Number.isFinite(billingMinLiquidityUsd) ? billingMinLiquidityUsd : 5000,
+            dailyFreeDeepseek: Number.isFinite(billingDailyFreeDeepseek) ? billingDailyFreeDeepseek : 10,
+            dailyFreeGrok: Number.isFinite(billingDailyFreeGrok) ? billingDailyFreeGrok : 3,
+            usdMultiplier: Number.isFinite(billingUsdMultiplier) ? billingUsdMultiplier : 3,
+            toolPricePerCall: Number.isFinite(billingToolPricePerCall) ? billingToolPricePerCall : 0.005,
+            termsVersion: billingTermsVersion,
+            deepseekModels,
+            grokModels,
+            modelPricing,
         },
         security: {
             alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,

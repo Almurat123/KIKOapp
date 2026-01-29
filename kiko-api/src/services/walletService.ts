@@ -123,7 +123,14 @@ export const walletService = {
                 return true;
             }
 
-            console.log('[verifyAccess] ❌ Access denied (address mismatch)');
+            // DEBUG: Log the actual mismatch details
+            console.log('[verifyAccess] ❌ Access denied (address mismatch)', {
+                requestedAddress: normalizedAddress,
+                dbWalletAddress: user.walletAddress?.toLowerCase(),
+                dbSolanaWalletAddress: user.solanaWalletAddress?.toLowerCase(),
+                privyDid: user.privyDid?.substring(0, 30) + '...',
+                userId: user.id
+            });
             accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
             return false;
         } else {

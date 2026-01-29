@@ -55,11 +55,15 @@ interface NeynarUserResponse {
 /**
  * Search Farcaster casts using Neynar API
  * Supports literal, semantic, and hybrid search modes
+ * [Logic]: Wraps Neynar /v2/farcaster/cast/search API
+ * [Ref]: Neynar API docs - sort_type: 'algorithmic' | 'desc_chron' | 'chron'
+ * [Risk]: API returns 402 if API key is on free tier
  */
 export async function searchCastsNeynar(
     query: string,
     limit: number = 15,
-    mode: 'literal' | 'semantic' | 'hybrid' = 'literal'
+    mode: 'literal' | 'semantic' | 'hybrid' = 'literal',
+    sortBy: 'algorithmic' | 'recent' = 'algorithmic'
 ): Promise<any[]> {
     const apiKey = process.env.NEYNAR_API_KEY;
 
@@ -69,13 +73,14 @@ export async function searchCastsNeynar(
     }
 
     try {
-        logger.debug(LogCode.SYS_INFO, 'Neynar: Searching casts', { query, mode, limit });
+        logger.debug(LogCode.SYS_INFO, 'Neynar: Searching casts', { query, mode, limit, sortBy });
 
         const url = new URL(`${NEYNAR_API_BASE}/farcaster/cast/search`);
         url.searchParams.set('q', query);
         url.searchParams.set('limit', String(Math.min(limit, 100)));
         url.searchParams.set('mode', mode);
-        url.searchParams.set('sort_type', 'algorithmic'); // Sort by engagement
+        // [Logic]: Map 'recent' to Neynar's 'desc_chron' (descending chronological)
+        url.searchParams.set('sort_type', sortBy === 'recent' ? 'desc_chron' : 'algorithmic');
 
         const data = await unifiedApiService.fetchJson<NeynarSearchResponse>({
             url: url.toString(),
@@ -120,8 +125,11 @@ export async function searchCastsNeynar(
 
 /**
  * Fetch trending casts from Neynar Feed
+ * [Logic]: Neynar /feed/trending endpoint
+ * [Ref]: Neynar API docs - limit must be between 1 and 10
+ * [Risk]: Returns empty if API key not configured
  */
-export async function getTrendingFeed(limit: number = 25): Promise<any[]> {
+export async function getTrendingFeed(limit: number = 10): Promise<any[]> {
     const apiKey = process.env.NEYNAR_API_KEY;
 
     if (!apiKey) {
@@ -133,7 +141,8 @@ export async function getTrendingFeed(limit: number = 25): Promise<any[]> {
         logger.debug(LogCode.SYS_INFO, 'Neynar: Fetching trending feed', { limit });
 
         const url = new URL(`${NEYNAR_API_BASE}/farcaster/feed/trending`);
-        url.searchParams.set('limit', String(Math.min(limit, 100)));
+        // [Logic]: Neynar trending feed limit must be 1-10
+        url.searchParams.set('limit', String(Math.min(Math.max(limit, 1), 10)));
         url.searchParams.set('time_window', '24h');
         url.searchParams.set('provider', 'neynar'); // or 'farcaster_network'
 

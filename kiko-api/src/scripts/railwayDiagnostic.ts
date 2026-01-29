@@ -59,20 +59,31 @@ async function diagnose() {
     // 5. Check Environment Variables
     console.log('\n5. Checking environment variables...');
     console.log(`   NODE_ENV: ${process.env.NODE_ENV}`);
-    console.log(`   SNAPCHAIN_HUB_URL: ${process.env.SNAPCHAIN_HUB_URL || 'default (hub.merv.fun)'}`);
+    console.log(`   SNAPCHAIN_HUB_URL: ${process.env.SNAPCHAIN_HUB_URL || 'default (snapchain-api.neynar.com)'}`);
     console.log(`   NEYNAR_API_KEY: ${process.env.NEYNAR_API_KEY ? 'present' : 'MISSING!'}`);
     console.log(`   DATABASE_URL: ${process.env.DATABASE_URL ? 'present' : 'MISSING!'}`);
 
-    // 6. Test Hub connectivity
+    // 6. Test Hub connectivity (with API key for Neynar Hub)
     console.log('\n6. Testing Snapchain Hub connectivity...');
-    const hubUrl = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
+    const hubUrl = process.env.SNAPCHAIN_HUB_URL || 'https://snapchain-api.neynar.com';
+    const apiKey = process.env.NEYNAR_API_KEY;
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
-        const response = await fetch(`${hubUrl}/v1/info`, { signal: controller.signal });
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        // Add API key for Neynar Hub
+        if (apiKey && hubUrl.includes('neynar.com')) {
+            headers['x-api-key'] = apiKey;
+        }
+        const response = await fetch(`${hubUrl}/v1/info`, {
+            signal: controller.signal,
+            headers
+        });
         clearTimeout(timeout);
         if (response.ok) {
+            const data = await response.json();
             console.log(`   ✅ Hub reachable: ${hubUrl}`);
+            console.log(`   Hub version: ${data.version}, Messages: ${data.dbStats?.numMessages?.toLocaleString()}`);
         } else {
             console.log(`   ⚠️  Hub returned status ${response.status}`);
         }

@@ -17,6 +17,7 @@ import { startMarketDataJobs } from './jobs/marketDataJob.js';
 import { startTokenDataJobs } from './jobs/tokenDataJob.js';
 
 import { startSocialDataJobs } from './jobs/socialDataJob.js';
+import { startBillingJobs } from './jobs/billingJob.js';
 import { marketRoutes } from './routes/market.js';
 import { tokenRoutes } from './routes/tokens.js';
 
@@ -34,6 +35,7 @@ import { rpcRoutes } from './routes/rpc.js';
 import { zoraProxyRoutes } from './routes/zora-proxy.js';
 import { aiRoutes } from './routes/ai.js';
 import { imageRoutes } from './routes/images.js';
+import { billingRoutes } from './routes/billing.js';
 import { initAutoTradeService, stopAutoTradeService } from './services/autoTradeService.js';
 import { tokenAlertService } from './services/tokenAlertService.js';
 import { startPositionMonitor } from './jobs/positionMonitorJob.js';
@@ -207,6 +209,7 @@ fastify.register(async (fastify) => {
     fastify.register(rpcRoutes, { prefix: '/api/rpc' });
     fastify.register(zoraProxyRoutes, { prefix: '/api/zora-proxy' });
     fastify.register(imageRoutes, { prefix: '/api/images' });
+    fastify.register(billingRoutes, { prefix: '/api/billing' });
     fastify.register(aiRoutes, { prefix: '/api/ai' });
     registerUserRoutes(fastify); // User settings routes
 });
@@ -259,6 +262,7 @@ async function start() {
             startMarketDataJobs();
             startTokenDataJobs();
             startSocialDataJobs();
+            startBillingJobs();
             logger.info(LogCode.SYS_STARTUP, 'Background jobs started');
         } catch (jobError: any) {
             logger.error(LogCode.SYS_ERROR, 'Some background jobs failed to start', { error: jobError.message });

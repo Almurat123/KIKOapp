@@ -135,11 +135,14 @@ export const GetFarcasterUserTool: Tool = {
 /**
  * Search Farcaster casts by keyword
  * Uses PostgreSQL full-text search on locally cached trending casts
+ * [Logic]: Hybrid search with Neynar API fallback
+ * [Ref]: Neynar sort_type: algorithmic | desc_chron
+ * [Risk]: Neynar 402 if free tier
  */
 export const SearchFarcasterCastsTool: Tool = {
     definition: {
         name: 'search_farcaster_casts',
-        description: 'Search Farcaster casts by keyword. Use this when user asks to find, search, or look for specific posts/casts on Farcaster. Searches in cast text and author names.',
+        description: 'Search Farcaster casts by keyword. Use this when user asks to find, search, or look for specific posts/casts on Farcaster. Searches in cast text and author names. Supports sorting by engagement (algorithmic) or most recent.',
         parameters: {
             type: 'object',
             properties: {
@@ -150,12 +153,17 @@ export const SearchFarcasterCastsTool: Tool = {
                 limit: {
                     type: 'integer',
                     description: 'Number of results to return (1-30). Default is 15.'
+                },
+                sort_by: {
+                    type: 'string',
+                    enum: ['algorithmic', 'recent'],
+                    description: 'Sort order: "algorithmic" (by engagement, default) or "recent" (newest first)'
                 }
             },
             required: ['query']
         }
     },
-    handler: async ({ query, limit = 15 }) => {
+    handler: async ({ query, limit = 15, sort_by = 'algorithmic' }) => {
         if (!query || query.trim().length === 0) {
             return {
                 success: false,
@@ -168,8 +176,8 @@ export const SearchFarcasterCastsTool: Tool = {
         const cappedLimit = Math.min(limit, 30);
 
         try {
-            // Use hybrid search (local DB + Neynar API)
-            const casts = await hybridSearchCasts(query, cappedLimit, true);
+            // Use hybrid search (local DB + Neynar API) with sortBy
+            const casts = await hybridSearchCasts(query, cappedLimit, true, sort_by);
 
             // Simplify data to save tokens
             const simplifiedCasts = casts.map(cast => ({

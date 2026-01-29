@@ -466,15 +466,20 @@ export async function searchCasts(
 /**
  * Hybrid search: Local DB first, Neynar API as supplement
  * Combines results from both sources, deduplicates by hash
+ * [Logic]: DB-first for speed, Neynar supplement for coverage
+ * [Ref]: searchCastsNeynar sort_type: algorithmic | desc_chron
+ * [Risk]: Neynar 402 if API key is free tier
  * @param query - Search query string
  * @param limit - Maximum number of results (default: 20)
  * @param useNeynar - Whether to use Neynar API as supplement (default: true)
+ * @param sortBy - Sort order: 'algorithmic' (engagement) or 'recent' (desc_chron)
  * @returns Combined array of casts from both sources
  */
 export async function hybridSearchCasts(
     query: string,
     limit: number = 20,
-    useNeynar: boolean = true
+    useNeynar: boolean = true,
+    sortBy: 'algorithmic' | 'recent' = 'algorithmic'
 ): Promise<TrendingCast[]> {
     try {
         if (!query || query.trim().length === 0) {
@@ -482,7 +487,7 @@ export async function hybridSearchCasts(
         }
 
         const trimmedQuery = query.trim();
-        console.log(`[SocialRepo] Hybrid search for: "${trimmedQuery}" (limit: ${limit}, neynar: ${useNeynar})`);
+        console.log(`[SocialRepo] Hybrid search for: "${trimmedQuery}" (limit: ${limit}, neynar: ${useNeynar}, sort: ${sortBy})`);
 
         // 1. Search local database first (fast, free)
         const localResults = await searchCasts(trimmedQuery, limit);
@@ -497,7 +502,7 @@ export async function hybridSearchCasts(
         try {
             const { searchCastsNeynar } = await import('../services/neynarService.js');
             const remainingNeeded = limit - localResults.length;
-            const neynarResults = await searchCastsNeynar(trimmedQuery, remainingNeeded, 'literal');
+            const neynarResults = await searchCastsNeynar(trimmedQuery, remainingNeeded, 'literal', sortBy);
 
             console.log(`[SocialRepo] Neynar search found: ${neynarResults.length} casts`);
 
