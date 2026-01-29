@@ -63,9 +63,14 @@ export async function imageRoutes(fastify: FastifyInstance) {
   await ensureCacheDir();
 
   fastify.get('/token', async (request, reply) => {
-    // Allow image usage across origins (prevents ERR_BLOCKED_BY_RESPONSE.NotSameOrigin)
-    reply.header('Access-Control-Allow-Origin', '*');
-    reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    const setImageHeaders = (source: 'cache' | 'upstream' | 'fallback') => {
+      reply.removeHeader('Cross-Origin-Resource-Policy');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+      reply.header('Cross-Origin-Embedder-Policy', 'unsafe-none');
+      reply.header('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+      reply.header('X-Image-Proxy', source);
+    };
 
     const { url } = request.query as { url?: string };
     if (!url) return reply.status(400).send({ error: 'Missing url' });
@@ -86,6 +91,8 @@ export async function imageRoutes(fastify: FastifyInstance) {
     //   return reply.status(403).send({ error: 'Host not allowed' });
     // }
 
+    reply.header('X-Image-Proxy-Host', parsed.hostname);
+
     const hash = crypto.createHash('sha256').update(parsed.toString()).digest('hex');
     const binPath = path.join(CACHE_DIR, `${hash}.bin`);
     const metaPath = path.join(CACHE_DIR, `${hash}.json`);
@@ -98,8 +105,7 @@ export async function imageRoutes(fastify: FastifyInstance) {
         const buffer = await fs.readFile(binPath);
         reply.header('Content-Type', meta.contentType || 'image/png');
         reply.header('Cache-Control', 'public, max-age=604800, immutable');
-        reply.header('Access-Control-Allow-Origin', '*');
-        reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+        setImageHeaders('cache');
         return reply.send(buffer);
       }
     } catch {
@@ -130,8 +136,8 @@ export async function imageRoutes(fastify: FastifyInstance) {
         const fallback = buildPlaceholderSvg(label);
         reply.header('Content-Type', 'image/svg+xml');
         reply.header('Cache-Control', 'public, max-age=600');
-        reply.header('Access-Control-Allow-Origin', '*');
-        reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+        reply.header('X-Image-Proxy-Upstream-Status', String(response.status));
+        setImageHeaders('fallback');
         return reply.send(fallback);
       }
 
@@ -144,8 +150,8 @@ export async function imageRoutes(fastify: FastifyInstance) {
 
       reply.header('Content-Type', contentType);
       reply.header('Cache-Control', 'public, max-age=604800, immutable');
-      reply.header('Access-Control-Allow-Origin', '*');
-      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+      reply.header('X-Image-Proxy-Upstream-Status', String(response.status));
+      setImageHeaders('upstream');
       return reply.send(buffer);
     } catch (err) {
       clearTimeout(timeoutId);
@@ -153,8 +159,8 @@ export async function imageRoutes(fastify: FastifyInstance) {
       const fallback = buildPlaceholderSvg(label);
       reply.header('Content-Type', 'image/svg+xml');
       reply.header('Cache-Control', 'public, max-age=600');
-      reply.header('Access-Control-Allow-Origin', '*');
-      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+      reply.header('X-Image-Proxy-Upstream-Status', 'timeout');
+      setImageHeaders('fallback');
       return reply.send(fallback);
     }
   });

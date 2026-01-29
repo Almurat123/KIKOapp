@@ -74,8 +74,8 @@ fastify.register(fastifyRawBody, {
 
 // Register security headers
 fastify.register(helmet, {
-    // Allow cross-origin resources (needed for image proxy usage in COEP environments)
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    // Disable default CORP header to avoid overriding per-route image proxy headers
+    crossOriginResourcePolicy: false,
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
@@ -129,7 +129,7 @@ fastify.addHook('preHandler', async (request, reply) => {
     // - /health: health check
     // - /api/chat/ws: WebSocket (uses JWT token in URL)
     // - /api/webhook/: server-to-server webhooks (have HMAC verification)
-    const skipPaths = ['/health', '/api/chat/ws', '/api/webhook/', '/webhook/'];
+    const skipPaths = ['/health', '/api/chat/ws', '/api/webhook/', '/webhook/', '/api/images'];
     if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }
