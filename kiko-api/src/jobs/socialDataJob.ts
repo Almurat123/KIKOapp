@@ -173,9 +173,9 @@ export async function runDiscoveryJob(force = false): Promise<void> {
     }
 
     // ===== STEP 2: Fetch casts from Snapchain Hub =====
-    // Target: 500 casts total for better coverage
-    const TARGET_CASTS = 500;
-    const CASTS_PER_USER = 6;
+    // Target: 1000 casts total for better coverage
+    const TARGET_CASTS = 1000;
+    const CASTS_PER_USER = 8; // Increased from 6 to get more casts per user
 
     try {
       // Use the quality users list (from Dune or hardcoded fallback)

@@ -219,7 +219,7 @@ export async function getTrendingCasts(
     logger.startTimer(timerLabel);
     try {
         const cacheKey = 'social:trending:casts:24h';
-        const FULL_LIST_LIMIT = 500;
+        const FULL_LIST_LIMIT = 1500; // Increased from 500 to support more casts
 
         // 1. Try Cache
         if (timeRange === 'trending') {
@@ -260,7 +260,8 @@ export async function getTrendingCasts(
 
         const rows = await prisma.trendingCast.findMany({
             where,
-            orderBy: [{ likes: 'desc' }, { heatScore: 'desc' }, { updatedAt: 'desc' }],
+            // Order by timestamp first to support 'newest' sort, then by engagement
+            orderBy: [{ timestamp: 'desc' }, { likes: 'desc' }, { heatScore: 'desc' }],
             take: queryLimit,
             // No offset/skip here! We fetch from 0 to FULL_LIMIT or limit
         });
