@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { walletService } from '../services/walletService.js';
-import { requireAuth as authMiddleware } from '../middleware/auth.js';
+import { requireAuth as authMiddleware, getUserId } from '../middleware/auth.js';
 
 export default async function walletRoutes(fastify: FastifyInstance, options: FastifyPluginOptions) {
     // Add authentication to all wallet routes
@@ -11,7 +11,10 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/:address/balance', async (request: any, reply) => {
         try {
-            const userId = request.user.sub || request.user.id;
+            const userId = getUserId(request);
+            if (!userId) {
+                return reply.status(401).send({ success: false, message: 'Unauthorized' });
+            }
             const { address } = request.params as any;
             const { chain = 'eth' } = request.query as any;
 
@@ -44,7 +47,10 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/:address/all-balances', async (request: any, reply) => {
         try {
-            const userId = request.user.sub || request.user.id;
+            const userId = getUserId(request);
+            if (!userId) {
+                return reply.status(401).send({ success: false, message: 'Unauthorized' });
+            }
             const { address } = request.params as any;
             const { solanaAddress } = request.query as any;
 
@@ -77,7 +83,10 @@ export default async function walletRoutes(fastify: FastifyInstance, options: Fa
      */
     fastify.get('/:address/transactions', async (request: any, reply) => {
         try {
-            const userId = request.user.sub || request.user.id;
+            const userId = getUserId(request);
+            if (!userId) {
+                return reply.status(401).send({ success: false, message: 'Unauthorized' });
+            }
             const { address } = request.params as any;
             const { chain = 'eth', limit = 50 } = request.query as any;
 

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
-import { requireAuth } from '../middleware/auth.js';
+import { verifyPrivyToken } from '../middleware/auth.js';
 import { decodeJwt } from 'jose';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
@@ -248,7 +248,7 @@ export const chatWS = ChatWebSocketService.getInstance();
  */
 export async function chatWSRoutes(fastify: FastifyInstance) {
     // New endpoint for user-level WebSocket
-    fastify.get('/api/chat/ws', { websocket: true }, (connection: any, req: any) => {
+    fastify.get('/api/chat/ws', { websocket: true }, async (connection: any, req: any) => {
         // Extract token from query params (e.g. /api/chat/ws?token=xxx)
         const token = req.query.token;
 
@@ -259,23 +259,38 @@ export async function chatWSRoutes(fastify: FastifyInstance) {
         }
 
         try {
-            // Verify token to get userId
-            // In a real app we'd use requireAuth but that's a preHandler for HTTP
-            // For WebSocket handshake we manually decode/verify
-            // Note: In development we might skip full signature check if configured
-            const payload = decodeJwt(token);
+            // Verify token with full signature + expiration check
+            const payload = await verifyPrivyToken(token);
             const userId = payload.sub;
 
             if (!userId) {
+                logger.error(LogCode.API_AUTH_FAILED, 'ChatWS: Token missing sub claim');
                 connection.socket.close(1008, 'Invalid token');
                 return;
             }
 
             chatWS.registerClient(userId, connection.socket);
 
+            // Log successful connection
+            logger.info(LogCode.WS_CONNECTION_OPENED, 'ChatWS: User connected', {
+                userId: userId.substring(0, 25) + '...',
+                tokenExp: payload.exp
+            });
+
         } catch (err: any) {
-            logger.error(LogCode.API_AUTH_FAILED, 'ChatWS auth error', { error: err.message });
-            connection.socket.close(1008, 'Auth failed');
+            const errorCode = err?.code || 'AUTH_FAILED';
+            const errorMsg = err?.message || 'Auth failed';
+            logger.error(LogCode.API_AUTH_FAILED, 'ChatWS auth error', {
+                error: errorMsg,
+                code: errorCode
+            });
+
+            // Send specific error code for expired tokens
+            if (errorCode === 'TOKEN_EXPIRED') {
+                connection.socket.close(4001, 'Token expired - please refresh');
+            } else {
+                connection.socket.close(1008, 'Auth failed');
+            }
             return;
         }
 

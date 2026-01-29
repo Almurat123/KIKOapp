@@ -65,7 +65,12 @@ export const walletService = {
             return cached.allowed;
         }
 
-        console.log('[verifyAccess] Checking access:', { userId, requestedAddress: address });
+        console.log('[verifyAccess] Checking access:', {
+            userId,
+            userIdLength: userId?.length,
+            userIdPrefix: userId?.substring(0, 20),
+            requestedAddress: address
+        });
 
         // Check if it's the user's primary wallet or solana wallet
         const user = await prisma.user.findFirst({
@@ -76,6 +81,21 @@ export const walletService = {
                 ]
             }
         });
+
+        if (!user) {
+            // Additional debug: Try to find any user by wallet address
+            const userByWallet = await prisma.user.findFirst({
+                where: { walletAddress: normalizedAddress }
+            });
+            console.log('[verifyAccess] Debug - User lookup failed:', {
+                searchedPrivyDid: userId,
+                foundUserByWallet: userByWallet ? {
+                    id: userByWallet.id,
+                    privyDid: userByWallet.privyDid?.substring(0, 25) + '...',
+                    walletAddress: userByWallet.walletAddress
+                } : null
+            });
+        }
 
         if (user) {
             const isAddressMatch =

@@ -124,6 +124,7 @@ fastify.addHook('onRequest', rateLimiter);
 // Register App Key validation for all API routes
 import { requireAppKey } from './middleware/apiKey.js';
 import { requireAllowedOrigin } from './middleware/originRestriction.js';
+import { verifyRequestSignature } from './middleware/requestSigning.js';
 fastify.addHook('preHandler', async (request, reply) => {
     // Skip security checks for these paths:
     // - /health: health check
@@ -137,6 +138,12 @@ fastify.addHook('preHandler', async (request, reply) => {
     await requireAllowedOrigin(request, reply);
     // Then validate app key
     await requireAppKey(request, reply);
+    // Optional: Verify request signature (if configured)
+    // Only for sensitive endpoints like swap/trade operations
+    const sensitiveEndpoints = ['/api/swap/', '/api/trade/', '/api/wallet/'];
+    if (sensitiveEndpoints.some(p => request.url.startsWith(p))) {
+        await verifyRequestSignature(request, reply);
+    }
 });
 
 import fastifyStatic from '@fastify/static';

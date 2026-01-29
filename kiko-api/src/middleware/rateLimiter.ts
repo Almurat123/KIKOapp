@@ -7,7 +7,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { redis } from '../cache/redis.js';
 
 const WINDOW_SIZE_IN_SECONDS = 60;
-const MAX_REQUESTS_PER_WINDOW = 50; // Default: 50 requests per minute
+const MAX_REQUESTS_PER_WINDOW = 200; // Default: 200 requests per minute (generous)
 const REDIS_ENABLED = process.env.REDIS_URL && process.env.REDIS_ENABLED !== 'false';
 
 export async function rateLimiterMiddleware(
@@ -25,8 +25,8 @@ export async function rateLimiterMiddleware(
         return;
     }
 
-    // Skip rate limiting for health checks
-    if (request.url === '/health' || request.url === '/api/health') {
+    // Skip rate limiting for health checks and static assets
+    if (request.url === '/health' || request.url === '/api/health' || request.url.startsWith('/assets/')) {
         return;
     }
 
@@ -41,16 +41,22 @@ export async function rateLimiterMiddleware(
     const authUser = (request as any).user;
     const userId = authUser?.sub;
 
-    // Determine limit based on endpoint
+    // Determine limit based on endpoint - more generous limits
     let maxRequests = MAX_REQUESTS_PER_WINDOW;
     let category = 'default';
 
     if (url.includes('/sessions/') && url.includes('/messages')) {
-        maxRequests = 10; // Stricter limit for AI chat (10/min)
+        maxRequests = 30; // AI chat: 30/min (reasonable for active conversations)
         category = 'ai_chat';
-    } else if (url.includes('/api/webhook/process-tx')) {
-        maxRequests = 20; // Internal webhook limit
-        category = 'webhook_internal';
+    } else if (url.includes('/api/ai/') || url.includes('/api/chat/')) {
+        maxRequests = 60; // Other AI endpoints: 60/min
+        category = 'ai_general';
+    } else if (url.includes('/api/webhook/')) {
+        maxRequests = 100; // Webhooks: 100/min
+        category = 'webhook';
+    } else if (url.includes('/api/swap/') || url.includes('/api/tokens/')) {
+        maxRequests = 120; // Trading endpoints: 120/min
+        category = 'trading';
     }
 
     // Key prioritization: userId > ip
