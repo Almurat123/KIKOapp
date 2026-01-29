@@ -345,21 +345,20 @@ const TrendingCastItem: React.FC<{
                   }}>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
                       <img
-                        src={quotedCast.author?.avatar || quotedCast.author?.pfp || quotedCast.author?.pfp_url || `https://placehold.co/100/6366f1/ffffff?text=U`}
+                        src={quotedCast.author?.avatar || quotedCast.author?.pfp || quotedCast.author?.pfp_url || `https://avatar.vercel.sh/${quotedCast.castId?.fid || quotedCast.fid || 'user'}`}
                         loading="lazy"
                         referrerPolicy="no-referrer"
                         style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover' }}
                         alt=""
                         onError={(e) => {
                           const img = e.target as HTMLImageElement;
-                          const fallbackText = (quotedCast.author?.displayName || quotedCast.author?.username || 'U').charAt(0).toUpperCase();
-                          img.src = `https://placehold.co/100/6366f1/ffffff?text=${fallbackText}`;
-                          // Prevent infinite loop
+                          const fid = quotedCast.castId?.fid || quotedCast.fid || '';
+                          img.src = `https://avatar.vercel.sh/${fid || 'user'}`;
                           img.onerror = null;
                         }}
                       />
-                      <span style={{ fontWeight: 600, fontSize: '13px', color: colors.textPrimary }}>{quotedCast.author?.displayName || quotedCast.author?.username}</span>
-                      <span style={{ color: colors.textSecondary, fontSize: '13px' }}>@{quotedCast.author?.username}</span>
+                      <span style={{ fontWeight: 600, fontSize: '13px', color: colors.textPrimary }}>{quotedCast.author?.displayName || quotedCast.author?.username || `User`}</span>
+                      <span style={{ color: colors.textSecondary, fontSize: '13px' }}>{quotedCast.author?.username ? `@${quotedCast.author.username}` : ''}</span>
                     </div>
                     <div style={{ fontSize: '14px', lineHeight: '1.4', color: colors.textPrimary }}>
                       {displayedQuoteText}
