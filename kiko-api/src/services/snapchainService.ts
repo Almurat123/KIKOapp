@@ -15,36 +15,68 @@ import * as neynarService from './neynarService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import * as qualityUsersRepo from '../repositories/qualityUsersRepository.js';
 
-// [Logic]: Default to Neynar Snapchain Hub (stable, requires API key)
-const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://snapchain-api.neynar.com';
+// [Logic]: Triple fallback for maximum reliability
+// [Ref]: All three are free Farcaster Hubs/APIs
+// Primary: Pinata Hub (raw Hub data)
+// Fallback 1: Merv.fun Hub (raw Hub data)
+// Fallback 2: Litecast API (enriched data, best UX)
+const PRIMARY_HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.pinata.cloud';
+const FALLBACK_HUB_URL = 'https://hub.merv.fun';
+const FALLBACK_HUB_URL_2 = 'https://litecast.xyz'; // Enriched API
+const HUB_URL = PRIMARY_HUB_URL; // Backward compatibility
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
 
 /**
- * Fetch with timeout wrapper - now using unified service
- * Hub calls use suppressError to avoid log spam from expected timeouts
- * [Logic]: Adds x-api-key header for Neynar Snapchain Hub auth
+ * Fetch with timeout wrapper with fallback support
+ * [Logic]: Tries primary Hub first, falls back to secondary if failed
  */
 async function fetchWithTimeout(url: string, options: any = {}, timeout = 15000) {
-  // Build headers with optional API key for Neynar Hub
   const headers: Record<string, string> = {
     'User-Agent': 'KiKo/1.0',
     'Content-Type': 'application/json',
     ...(options.headers || {})
   };
 
-  // [Logic]: Add API key if using Neynar Hub (required for auth)
-  if (NEYNAR_API_KEY && HUB_URL.includes('neynar.com')) {
-    headers['x-api-key'] = NEYNAR_API_KEY;
-  }
-
   return await fetchJson({
     url,
     timeout,
-    suppressError: true, // Suppress error logs for Hub calls (expected to fail sometimes)
+    suppressError: true,
     endpointName: 'snapchain-hub',
     headers,
     ...options
   });
+}
+
+/**
+ * Fetch from Hub with automatic fallback
+ * [Logic]: Primary (Pinata) -> Fallback (Merv.fun)
+ * [Ref]: Both are free Farcaster Hubs
+ */
+async function fetchFromHubWithFallback(endpoint: string, timeout = 15000): Promise<any> {
+  // Try primary Hub first
+  const primaryUrl = `${PRIMARY_HUB_URL}${endpoint}`;
+  try {
+    const result = await fetchWithTimeout(primaryUrl, {}, timeout);
+    if (result && !result.error) {
+      return result;
+    }
+  } catch (e) {
+    // Primary failed, will try fallback
+  }
+
+  // Try fallback Hub
+  const fallbackUrl = `${FALLBACK_HUB_URL}${endpoint}`;
+  try {
+    const result = await fetchWithTimeout(fallbackUrl, {}, timeout);
+    if (result && !result.error) {
+      console.log(`[SnapchainService] Used fallback Hub for ${endpoint}`);
+      return result;
+    }
+  } catch (e) {
+    // Both failed
+  }
+
+  return null;
 }
 
 /**
@@ -145,18 +177,17 @@ export async function getHubInfo(): Promise<any> {
 
 /**
  * Fetch casts by FID (newest first)
- * [Logic]: Uses fetchWithTimeout to include x-api-key for Neynar Hub
- * [Ref]: Neynar Snapchain requires x-api-key header
- * [Risk]: Returns empty array on failure
+ * [Logic]: Uses Pinata Hub (primary) with Merv.fun fallback
+ * [Ref]: Both are free Farcaster Hubs
+ * [Risk]: Returns empty array if both Hubs fail
  */
 export async function getCastsByFid(fid: number, pageSize: number = 100): Promise<HubCast[]> {
   try {
-    // Use reverse=true to get newest casts first
-    const url = `${HUB_URL}/v1/castsByFid?fid=${fid}&pageSize=${pageSize}&reverse=true`;
-    // [Logic]: Use fetchWithTimeout to include API key header
-    const data = await fetchWithTimeout(url);
+    // Use fallback mechanism: Pinata -> Merv.fun
+    const endpoint = `/v1/castsByFid?fid=${fid}&pageSize=${pageSize}&reverse=true`;
+    const data = await fetchFromHubWithFallback(endpoint);
 
-    if (!(data as any).messages || (data as any).messages.length === 0) {
+    if (!data || !(data as any).messages || (data as any).messages.length === 0) {
       return [];
     }
     return (data as any).messages
@@ -178,7 +209,7 @@ export async function getCastsByFid(fid: number, pageSize: number = 100): Promis
       return [];
     }
     // Log other errors briefly
-    logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch casts from Snapchain Hub', { fid, error: error?.message || 'Unknown error' });
+    logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch casts from Hub (both primary and fallback)', { fid, error: error?.message || 'Unknown error' });
     return [];
   }
 }

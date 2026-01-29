@@ -5,7 +5,11 @@
  * Data Sources (in priority order):
  * 1. Real Hot Users (from analysis) - Primary source from real_hot_users.json
  * 2. Dune Analytics - Discover quality users (maintenance only, not every refresh)
- * 3. Snapchain Hub (Primary) - Fetch casts from quality users
+ * 3. Pinata Hub (Primary) - Free Farcaster Hub, no API credits consumed
+ * 
+ * [Logic]: Uses Pinata Hub (hub.pinata.cloud) - completely FREE
+ * [Ref]: https://pinata.cloud/blog/pinatas-free-farcaster-hub
+ * [Risk]: May have slightly higher latency than paid services
  */
 
 import cron from 'node-cron';
@@ -16,6 +20,7 @@ import { TrendingCast } from '../types/social.js';
 import { saveTrendingCasts, getLastUpdateTime, getPostsForRefresh, updateCastStats, recalculateHeatScores } from '../repositories/socialRepository.js';
 import { env } from '../config/env.js';
 import snapchainService, { QUALITY_FIDS } from '../services/snapchainService.js';
+import * as neynarService from '../services/neynarService.js';
 import { baseAppService } from '../services/baseAppService.js';
 import { zoraService } from '../services/zoraService.js';
 import qualityUsersRepo from '../repositories/qualityUsersRepository.js';
@@ -371,7 +376,8 @@ async function fetchCastsFromUsers(
 
     const batch = shuffledFids.slice(i, i + batchSize);
 
-    // OPTIMIZATION 3: Fetch user data and casts in parallel
+    // OPTIMIZATION 3: Fetch user data and casts in parallel via Pinata Hub (FREE)
+    // [Logic]: Pinata Hub does not consume ANY API credits
     const batchPromises = batch.map(async (fid) => {
       try {
         const casts = await snapchainService.getCastsByFid(fid, 10);
