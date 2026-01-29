@@ -110,10 +110,17 @@ export async function imageRoutes(fastify: FastifyInstance) {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
+      const acceptHeader = parsed.hostname === 'ui-avatars.com'
+        ? 'image/svg+xml,image/png,image/webp,image/apng,image/*,*/*;q=0.8'
+        : 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
       const response = await fetch(parsed.toString(), {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (image-proxy)',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': acceptHeader,
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
         },
       });
       clearTimeout(timeoutId);

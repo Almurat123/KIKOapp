@@ -125,8 +125,12 @@ fastify.addHook('onRequest', rateLimiter);
 import { requireAppKey } from './middleware/apiKey.js';
 import { requireAllowedOrigin } from './middleware/originRestriction.js';
 fastify.addHook('preHandler', async (request, reply) => {
-    // Only skip auth for health check endpoint
-    if (request.url === '/health') {
+    // Skip security checks for these paths:
+    // - /health: health check
+    // - /api/chat/ws: WebSocket (uses JWT token in URL)
+    // - /api/webhook/: server-to-server webhooks (have HMAC verification)
+    const skipPaths = ['/health', '/api/chat/ws', '/api/webhook/', '/webhook/'];
+    if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }
     // Validate origin/referer first
