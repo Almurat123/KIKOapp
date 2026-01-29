@@ -527,14 +527,14 @@ export async function runScoreRecalculationJob(): Promise<void> {
  * Initialize and start cron jobs
  */
 export function startSocialDataJobs(): void {
-  // 1. Discovery Job: Every 10 minutes (Find NEW content)
-  cron.schedule('*/10 * * * *', () => runDiscoveryJob(), {
+  // 1. Discovery Job: Every 30 minutes (Find NEW content)
+  cron.schedule('*/30 * * * *', () => runDiscoveryJob(), {
     timezone: 'UTC',
   });
 
-  // 2. Engagement Refresh: Every 30 minutes (Update OLD content)
-  // Offset by 5 mins to avoid clashing with Discovery
-  cron.schedule('5,35 * * * *', () => runEngagementRefreshJob(), {
+  // 2. Engagement Refresh: Every 4 hours (Update OLD content)
+  // Runs at 0, 4, 8, 12, 16, 20 hours UTC
+  cron.schedule('0 */4 * * *', () => runEngagementRefreshJob(), {
     timezone: 'UTC',
   });
 
@@ -543,7 +543,7 @@ export function startSocialDataJobs(): void {
     timezone: 'UTC',
   });
 
-  console.log('[SocialJob] Scheduled: Discovery (10m), Refresh (30m), Scoring (5m)');
+  console.log('[SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)');
 
   // Run initial setup on startup
   setTimeout(async () => {
