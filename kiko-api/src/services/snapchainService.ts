@@ -49,33 +49,36 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout = 15000)
 
 /**
  * Fetch from Hub with automatic fallback
- * [Logic]: Primary (Pinata) -> Fallback (Merv.fun)
- * [Ref]: Both are free Farcaster Hubs
+ * [Logic]: Primary (Pinata) → Fallback 1 (Merv.fun) → Fallback 2 (Litecast)
+ * [Ref]: All three are free Farcaster Hubs/APIs
  */
-async function fetchFromHubWithFallback(endpoint: string, timeout = 15000): Promise<any> {
-  // Try primary Hub first
+async function fetchFromHubWithFallback(endpoint: string, timeout = 10000): Promise<any> {
+  // Try primary Hub first (Pinata)
   const primaryUrl = `${PRIMARY_HUB_URL}${endpoint}`;
   try {
     const result = await fetchWithTimeout(primaryUrl, {}, timeout);
-    if (result && !result.error) {
+    if (result && !result.error && result.messages && result.messages.length > 0) {
       return result;
     }
   } catch (e) {
-    // Primary failed, will try fallback
+    console.log(`[SnapchainService] Primary Hub (Pinata) failed for ${endpoint}`);
   }
 
-  // Try fallback Hub
+  // Try fallback Hub 1 (Merv.fun)
   const fallbackUrl = `${FALLBACK_HUB_URL}${endpoint}`;
   try {
     const result = await fetchWithTimeout(fallbackUrl, {}, timeout);
-    if (result && !result.error) {
-      console.log(`[SnapchainService] Used fallback Hub for ${endpoint}`);
+    if (result && !result.error && result.messages && result.messages.length > 0) {
+      console.log(`[SnapchainService] Used fallback Hub 1 (Merv.fun) for ${endpoint}`);
       return result;
     }
   } catch (e) {
-    // Both failed
+    console.log(`[SnapchainService] Fallback Hub 1 (Merv.fun) failed for ${endpoint}`);
   }
 
+  // Try fallback Hub 2 (Litecast) - Note: Litecast has different API structure
+  // For now, skip Litecast for Hub endpoints (it's for enriched feed API)
+  console.log(`[SnapchainService] All Hubs failed for ${endpoint}, returning null`);
   return null;
 }
 
