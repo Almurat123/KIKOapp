@@ -229,6 +229,39 @@ export const ogpService = {
 
         } catch (pupError) {
             console.error(`[OGPService] Puppeteer failed for ${url}:`, pupError);
+
+            // 3. EXTERNAL API FALLBACK: Try microlink.io (free, no API key)
+            try {
+                console.log(`[OGPService] Trying microlink.io for ${url}`);
+                const microlinkUrl = `https://api.microlink.io/?url=${encodeURIComponent(url)}`;
+                const response = await fetch(microlinkUrl, {
+                    headers: { 'Accept': 'application/json' },
+                    signal: AbortSignal.timeout(8000)
+                });
+
+                if (response.ok) {
+                    const json = await response.json();
+                    if (json.status === 'success' && json.data) {
+                        const metadata: OGPMetadata = {
+                            title: json.data.title,
+                            description: json.data.description,
+                            image: json.data.image?.url,
+                            siteName: json.data.publisher,
+                            url: json.data.url || url
+                        };
+
+                        if (metadata.title) {
+                            if (metadata.image) metadata.image = proxifyImage(metadata.image);
+                            await redis.set(`ogp:${url}`, JSON.stringify(metadata), 7 * 24 * 60 * 60);
+                            console.log(`[OGPService] ✅ microlink.io success for ${url}`);
+                            return metadata;
+                        }
+                    }
+                }
+            } catch (extError) {
+                console.error(`[OGPService] microlink.io failed for ${url}:`, extError);
+            }
+
             return null;
         }
     }
