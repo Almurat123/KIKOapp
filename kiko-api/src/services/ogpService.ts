@@ -146,9 +146,12 @@ export const ogpService = {
                 metadata.twitterCard = getMeta('twitter:card');
                 metadata.video = getMeta('og:video');
 
-                // If we got good data, return it
-                if (metadata.title && metadata.image) {
-                    metadata.image = proxifyImage(metadata.image);
+                // If we got good data (at least title), return it
+                // [FIX]: Many sites don't have og:image, so only require title
+                if (metadata.title) {
+                    if (metadata.image) {
+                        metadata.image = proxifyImage(metadata.image);
+                    }
                     await redis.set(`ogp:${url}`, JSON.stringify(metadata), 7 * 24 * 60 * 60); // 7 days
                     return metadata;
                 }
