@@ -6,9 +6,20 @@
 
 const originalFetch = window.fetch;
 const API_HOST = import.meta.env.VITE_API_URL || '';
-// Fallback to hardcoded key if env var not injected (Cloudflare build issue)
-const APP_KEY = import.meta.env.VITE_APP_KEY || 'kiko_web_2c47434dc87b5b38d4d6f4122569515e';
+const APP_KEY = import.meta.env.VITE_APP_KEY || '';
 const SIGNING_SECRET = import.meta.env.VITE_SIGNING_SECRET || '';
+
+// DEBUG: Log all VITE_ environment variables at startup
+console.log('[FetchInterceptor DEBUG] Environment check:', {
+    VITE_APP_KEY: import.meta.env.VITE_APP_KEY ? 'SET' : 'MISSING',
+    VITE_APP_KEY_value: APP_KEY ? APP_KEY.substring(0, 10) + '...' : 'empty',
+    VITE_API_URL: import.meta.env.VITE_API_URL || 'NOT_SET',
+    VITE_SIGNING_SECRET: import.meta.env.VITE_SIGNING_SECRET ? 'SET' : 'MISSING',
+    MODE: import.meta.env.MODE,
+    DEV: import.meta.env.DEV,
+    PROD: import.meta.env.PROD,
+    allEnvKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_'))
+});
 
 // Sensitive endpoints that require HMAC signature
 const SENSITIVE_ENDPOINTS = ['/api/swap/', '/api/trade/', '/api/wallet/'];
@@ -74,10 +85,13 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
         }
 
         return originalFetch(input, { ...init, headers });
+    } else if (isOurApi && !APP_KEY) {
+        // DEBUG: Log when APP_KEY is missing for our API
+        console.error('[FetchInterceptor] ❌ APP_KEY missing! API request will fail:', url);
     }
 
     return originalFetch(input, init);
 };
 
-console.log('[FetchInterceptor] Initialized with App Key:', APP_KEY ? 'present' : 'missing',
+console.log('[FetchInterceptor] Initialized with App Key:', APP_KEY ? 'present' : 'MISSING ❌',
     '| Signing:', SIGNING_SECRET ? 'enabled' : 'disabled');
