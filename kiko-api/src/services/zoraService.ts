@@ -93,6 +93,7 @@ export interface UserProfile {
     displayName?: string;
     bio?: string;
     avatar?: string;
+    platformBlocked?: boolean; // Zora platform block flag for banned/suspicious accounts
     socialAccounts?: {
         twitter?: { username: string; displayName: string; followerCount?: number };
         farcaster?: { username: string; displayName: string; followerCount?: number; id?: string };

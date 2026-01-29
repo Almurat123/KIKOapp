@@ -73,8 +73,9 @@ export class ZoraAlertService {
      * Fetch new coins from API and check for high-value creators
      */
     private async checkNewCoins() {
-        // Fetch combined list: New Creators + Existing Creators with New Coins
-        const coins = await zoraService.getCombinedNewCoins(20);
+        // Fetch ONLY new creator coins (identity coins from new creators)
+        // NOT getNewCoins (which includes post coins) - we only want creator identity coins
+        const coins = await zoraService.getNewCreatorCoins(20);
 
         if (!coins || coins.length === 0) return;
 
@@ -128,6 +129,16 @@ export class ZoraAlertService {
             // Note: SDK getNewCoins might returning shallow profile, so we fetch full profile
             const profile = await zoraService.getUserProfile(coin.creatorAddress);
 
+            // Security Check 1: Platform Blocked Filter
+            // Zora API provides platformBlocked flag to filter banned/suspicious accounts
+            if (profile?.platformBlocked) {
+                logger.debug(LogCode.SYS_INFO, 'Alpha Detector: Skipping blocked profile', {
+                    symbol: coin.symbol,
+                    creator: coin.creatorAddress
+                });
+                return;
+            }
+
             // Step B: Identity Anchor & Symbol-Handle Match Filter
             // 1. A Creator Coin is only the 'Official' one if it matches the profile.creatorCoin address
             // 2. Official Identity Coins use the creator's handle as their ticker ($username)
@@ -154,6 +165,19 @@ export class ZoraAlertService {
                 instagram: profile?.socialAccounts?.instagram?.followerCount || 0,
                 tiktok: profile?.socialAccounts?.tiktok?.followerCount || 0
             };
+
+            // Security Check 2: Follower Sanity Validation
+            // Detect suspiciously high follower counts that might indicate data corruption or fraud
+            const MAX_REASONABLE_FOLLOWERS = 1_000_000_000; // 1 billion (more than any real account)
+            const hasAnomalousFollowers = Object.values(followers).some(count => count > MAX_REASONABLE_FOLLOWERS);
+
+            if (hasAnomalousFollowers) {
+                logger.warn(LogCode.SYS_INFO, 'Alpha Detector: Detected anomalous follower count', {
+                    symbol: coin.symbol,
+                    stats: followers
+                });
+                return;
+            }
 
             // 2. Multi-Platform Threshold Check
             const maxFollowers = Math.max(...Object.values(followers));
