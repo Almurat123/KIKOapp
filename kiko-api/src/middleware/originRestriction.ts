@@ -37,6 +37,16 @@ export async function requireAllowedOrigin(request: FastifyRequest, _reply: Fast
         return;
     }
 
+    // [Logic]: Allow internal service-to-service calls with valid key
+    // [Ref]: Used by Python Grok service calling Node.js API
+    // [Risk]: Key must be kept secret, only for server-to-server calls
+    const internalServiceKey = process.env.INTERNAL_SERVICE_KEY;
+    const requestKey = request.headers['x-internal-service-key'] as string;
+    if (internalServiceKey && requestKey === internalServiceKey) {
+        console.log('[originRestriction] Internal service call authenticated');
+        return;
+    }
+
     const origin = request.headers.origin as string || '';
     const referer = request.headers.referer as string || '';
     const userAgent = request.headers['user-agent'] as string || '';

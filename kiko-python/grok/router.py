@@ -657,6 +657,11 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
     
+    # Add internal service key for server-to-server calls
+    internal_key = os.getenv("INTERNAL_SERVICE_KEY", "")
+    if internal_key:
+        headers["X-Internal-Service-Key"] = internal_key
+    
     try:
         # IMPORTANT: Many KiKo backend endpoints require user auth (Privy JWT).
         # If we don't forward Authorization, tool calls will silently fail (401) and look "broken" to the LLM.
@@ -673,11 +678,9 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
                 print(f"[Tool Execution] 🔍 KIKO_API_BASE = {KIKO_API_BASE}")
                 print(f"[Tool Execution] 🔍 Calling unified executor at: {target_url}")
                 
-                internal_key = os.getenv("INTERNAL_SERVICE_KEY", "")
                 unified_response = await http_client.post(
                     target_url,
-                    json=unified_payload,
-                    headers={"X-Service-Key": internal_key} if internal_key else {}
+                    json=unified_payload
                 )
                 if unified_response.status_code == 200:
                     unified_data = unified_response.json()
