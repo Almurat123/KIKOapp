@@ -186,6 +186,26 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                         isBaseAppCoin: false
                     }
                 });
+
+                // HARD CAP: Keep only 1000 casts maximum
+                const MAX_CASTS = 1000;
+                const totalCasts = await tx.trendingCast.count();
+                if (totalCasts > MAX_CASTS) {
+                    // Find the oldest casts beyond the limit and delete them
+                    const castsToKeep = await tx.trendingCast.findMany({
+                        orderBy: [{ timestamp: 'desc' }, { likes: 'desc' }],
+                        take: MAX_CASTS,
+                        select: { hash: true }
+                    });
+                    const hashesToKeep = castsToKeep.map(c => c.hash);
+
+                    await tx.trendingCast.deleteMany({
+                        where: {
+                            hash: { notIn: hashesToKeep }
+                        }
+                    });
+                    console.log(`[SocialRepo] Cleaned up ${totalCasts - MAX_CASTS} old casts (cap: ${MAX_CASTS})`);
+                }
             }, {
                 timeout: 60000, // 60 seconds (default is 5s)
                 maxWait: 5000
