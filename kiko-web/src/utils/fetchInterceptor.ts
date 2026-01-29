@@ -6,7 +6,8 @@
 
 const originalFetch = window.fetch;
 const API_HOST = import.meta.env.VITE_API_URL || '';
-const APP_KEY = import.meta.env.VITE_APP_KEY || '';
+// Fallback to hardcoded key if env var not injected (Cloudflare build issue)
+const APP_KEY = import.meta.env.VITE_APP_KEY || 'kiko_web_2c47434dc87b5b38d4d6f4122569515e';
 const SIGNING_SECRET = import.meta.env.VITE_SIGNING_SECRET || '';
 
 // Sensitive endpoints that require HMAC signature
