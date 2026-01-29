@@ -499,7 +499,18 @@ export async function getTrendingCasts(
         const castsWithReactions = await Promise.all(
           rootCasts.slice(0, castsPerUser).map(async (cast) => {
             const reactions = await getReactionsByCast(fid, cast.hash);
-            const score = reactions.likes + reactions.recasts;
+
+            // Improved trending score algorithm (Reddit Hot-style)
+            // 1. Weighted engagement: recasts are 2x, replies are 1.5x
+            const weightedEngagement = reactions.likes + (reactions.recasts * 2) + (reactions.replies * 1.5);
+
+            // 2. Time decay: newer posts get higher scores
+            const castTimestamp = farcasterToUnixTimestamp(cast.timestamp);
+            const hoursOld = (Date.now() - castTimestamp) / (1000 * 60 * 60);
+            const decayFactor = Math.pow(0.97, Math.min(hoursOld, 168)); // 3% decay per hour, max 7 days
+
+            // 3. Logarithmic scaling + time decay
+            const score = Math.log10(Math.max(1, weightedEngagement) + 1) * 100 * decayFactor;
 
             if (score >= minEngagement) {
               // --- POPULATE EMBEDS ---
@@ -700,7 +711,14 @@ export async function getTrendingFromQualityUsers(
         const castsWithReactions = await Promise.all(
           recentCasts.slice(0, 5).map(async (cast) => {
             const reactions = await getReactionsByCast(fid, cast.hash);
-            const score = reactions.likes + reactions.recasts;
+
+            // Same improved algorithm as fetchCastsFromQualityUsers
+            const weightedEngagement = reactions.likes + (reactions.recasts * 2) + (reactions.replies * 1.5);
+            const castTimestamp = farcasterToUnixTimestamp(cast.timestamp);
+            const hoursOld = (now - castTimestamp) / (1000 * 60 * 60);
+            const decayFactor = Math.pow(0.97, Math.min(hoursOld, 168));
+            const score = Math.log10(Math.max(1, weightedEngagement) + 1) * 100 * decayFactor;
+
             if (score >= minEngagement) {
               return { cast, user: userData, reactions, score };
             }
