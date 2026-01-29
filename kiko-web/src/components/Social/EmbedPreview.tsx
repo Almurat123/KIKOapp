@@ -48,7 +48,8 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                     return;
                 }
 
-                const res = await fetch(`/api/social/ogp?url=${encodeURIComponent(url)}`);
+                const API_URL = import.meta.env.VITE_API_URL || '';
+                const res = await fetch(`${API_URL}/api/social/ogp?url=${encodeURIComponent(url)}`);
                 if (res.ok) {
                     const json = await res.json();
                     if (json.success && json.data) {
