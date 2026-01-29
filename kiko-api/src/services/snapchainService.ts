@@ -48,37 +48,47 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout = 15000)
 }
 
 /**
- * Fetch from Hub with automatic fallback
- * [Logic]: Primary (Pinata) → Fallback 1 (Merv.fun) → Fallback 2 (Litecast)
- * [Ref]: All three are free Farcaster Hubs/APIs
+ * Fetch from Hub with parallel racing strategy
+ * [Logic]: Race all three Hubs simultaneously, return fastest valid response
+ * [Ref]: Maximizes speed and distributes load across free Hubs
+ * [Risk]: May consume more bandwidth, but ensures fastest response
  */
 async function fetchFromHubWithFallback(endpoint: string, timeout = 10000): Promise<any> {
-  // Try primary Hub first (Pinata)
-  const primaryUrl = `${PRIMARY_HUB_URL}${endpoint}`;
-  try {
-    const result = await fetchWithTimeout(primaryUrl, {}, timeout);
-    if (result && !result.error && result.messages && result.messages.length > 0) {
-      return result;
+  const hubs = [
+    { name: 'Pinata', url: `${PRIMARY_HUB_URL}${endpoint}` },
+    { name: 'Merv.fun', url: `${FALLBACK_HUB_URL}${endpoint}` },
+    // Litecast has different API structure, skip for now
+  ];
+
+  // Race all Hubs in parallel
+  const promises = hubs.map(async (hub) => {
+    try {
+      const result = await fetchWithTimeout(hub.url, {}, timeout);
+      if (result && !result.error && result.messages && result.messages.length > 0) {
+        console.log(`[SnapchainService] ✅ ${hub.name} won the race for ${endpoint} (${result.messages.length} messages)`);
+        return { success: true, data: result, hub: hub.name };
+      }
+      return { success: false, hub: hub.name, reason: 'empty or error' };
+    } catch (e: any) {
+      return { success: false, hub: hub.name, reason: e.message || 'timeout' };
     }
-  } catch (e) {
-    console.log(`[SnapchainService] Primary Hub (Pinata) failed for ${endpoint}`);
+  });
+
+  // Wait for first successful response, or all to fail
+  const results = await Promise.allSettled(promises);
+
+  // Find first successful result
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value.success) {
+      return result.value.data;
+    }
   }
 
-  // Try fallback Hub 1 (Merv.fun)
-  const fallbackUrl = `${FALLBACK_HUB_URL}${endpoint}`;
-  try {
-    const result = await fetchWithTimeout(fallbackUrl, {}, timeout);
-    if (result && !result.error && result.messages && result.messages.length > 0) {
-      console.log(`[SnapchainService] Used fallback Hub 1 (Merv.fun) for ${endpoint}`);
-      return result;
-    }
-  } catch (e) {
-    console.log(`[SnapchainService] Fallback Hub 1 (Merv.fun) failed for ${endpoint}`);
-  }
-
-  // Try fallback Hub 2 (Litecast) - Note: Litecast has different API structure
-  // For now, skip Litecast for Hub endpoints (it's for enriched feed API)
-  console.log(`[SnapchainService] All Hubs failed for ${endpoint}, returning null`);
+  // All failed, log details
+  const failures = results.map((r) =>
+    r.status === 'fulfilled' ? `${r.value.hub}: ${r.value.reason}` : 'rejected'
+  );
+  console.log(`[SnapchainService] ❌ All Hubs failed for ${endpoint}: ${failures.join(', ')}`);
   return null;
 }
 
