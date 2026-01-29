@@ -667,11 +667,13 @@ function trendingCastToFeedItem(cast: TrendingCast, index: number): FeedItem {
     heatScore: cast.heatScore.toFixed(1),
     type,
     author: {
-      name: cast.author.displayName || cast.author.username || 'Unknown',
-      handle: `@${cast.author.username}`,
-      avatar: cast.author.avatar || '',
+      // [FIX]: Backend returns empty string '' instead of null/undefined
+      // Use trim() and explicit check to handle empty strings properly
+      name: (cast.author.displayName?.trim() || cast.author.username?.trim() || `User ${cast.fid}`),
+      handle: cast.author.username?.trim() ? `@${cast.author.username.trim()}` : `@fid${cast.fid}`,
+      avatar: cast.author.avatar?.trim() || `https://avatar.vercel.sh/${cast.fid}`,
       isVerified: cast.author.verified || false,
-      bio: cast.author.bio,
+      bio: cast.author.bio?.trim() || undefined,
       creatorCoin: cast.author.creatorCoin // Pass creator coin data
     },
     time: timeStr,
