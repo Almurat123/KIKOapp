@@ -1,3 +1,6 @@
+// CRITICAL: Import fetch interceptor FIRST to ensure all API calls have App Key
+import './utils/fetchInterceptor';
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { PrivyProvider } from '@privy-io/react-auth';

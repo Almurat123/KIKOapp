@@ -203,15 +203,40 @@ export async function runDiscoveryJob(force = false): Promise<void> {
       }
     } catch (snapchainError) {
       console.error('[SocialJob] Snapchain fetch error:', snapchainError);
-      // Continue to backup/fallback
+      // Continue to Neynar fallback
     }
 
-    // Note: Neynar API backup removed - using Snapchain Hub only
+    // ===== STEP 2.5: Neynar API Fallback (when Hub fails) =====
+    if (newCasts.length === 0) {
+      console.log('[SocialJob] Hub returned 0 casts, trying Neynar fallback...');
+      try {
+        const neynarService = (await import('../services/neynarService.js')).default;
+        const neynarCasts = await neynarService.getTrendingFeed(100);
+
+        if (neynarCasts.length > 0) {
+          console.log(`[SocialJob] ✅ Neynar fallback success: ${neynarCasts.length} casts`);
+          newCasts = neynarCasts.map((cast: any) => ({
+            hash: cast.hash,
+            fid: cast.fid,
+            author: cast.author,
+            text: cast.text,
+            timestamp: cast.timestamp,
+            embeds: cast.embeds || [],
+            parentCastId: undefined,
+            stats: cast.stats,
+            heatScore: cast.heatScore || 0,
+            mentions: cast.mentions || [],
+          } as TrendingCast));
+        }
+      } catch (neynarError) {
+        console.error('[SocialJob] Neynar fallback also failed:', neynarError);
+      }
+    }
 
     // ===== ERROR HANDLING: Only save if we got new data =====
     if (newCasts.length === 0) {
       // No new casts fetched - keep existing database data as-is
-      console.log('[SocialJob] No new casts fetched, preserving existing database data');
+      console.log('[SocialJob] No new casts from Hub or Neynar, preserving existing database data');
       return;
     }
 

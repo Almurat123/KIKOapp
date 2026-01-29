@@ -16,11 +16,14 @@ const HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.merv.fun';
 
 /**
  * Fetch with timeout wrapper - now using unified service
+ * Hub calls use suppressError to avoid log spam from expected timeouts
  */
 async function fetchWithTimeout(url: string, options: any = {}, timeout = 15000) {
   return await fetchJson({
     url,
     timeout,
+    suppressError: true, // Suppress error logs for Hub calls (expected to fail sometimes)
+    endpointName: 'snapchain-hub',
     headers: {
       'User-Agent': 'KiKo/1.0',
       ...(options.headers || {})

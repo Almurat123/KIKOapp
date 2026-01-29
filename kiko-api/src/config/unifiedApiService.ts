@@ -112,6 +112,7 @@ export interface FetchJsonOptions extends RequestInit {
   requestTimeout?: number; // ms, default 10000
   /** @deprecated Use requestTimeout instead */
   timeout?: number;
+  suppressError?: boolean; // If true, don't log errors (for expected failures)
   retry?: {
     retries: number;
     factor?: number; // default 2
@@ -131,6 +132,7 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
     endpointName = 'api',
     requestTimeout: configuredTimeout = 10000,
     timeout: legacyTimeout,
+    suppressError = false,
     retry = { retries: 0 },
     ...fetchOptions
   } = options;
@@ -207,10 +209,12 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
   }
 
   // Final failure
-  logger.error(LogCode.API_FETCH_FAILED, `${endpointName} failed after ${maxRetries + 1} attempts`, {
-    error: lastError?.message,
-    url: url.substring(0, 60)
-  });
+  if (!suppressError) {
+    logger.error(LogCode.API_FETCH_FAILED, `${endpointName} failed after ${maxRetries + 1} attempts`, {
+      error: lastError?.message,
+      url: url.substring(0, 60)
+    });
+  }
 
   throw lastError;
 }
