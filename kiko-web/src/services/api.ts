@@ -556,6 +556,32 @@ export const socialApi = {
     },
 
     /**
+     * Get trending casts with cursor-based pagination (Twitter-style)
+     * Returns nextCursor for stable pagination without duplicates
+     */
+    async getTrendingWithCursor(
+        limit: number = 30,
+        timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending',
+        cursor?: string
+    ): Promise<{ casts: TrendingCast[]; nextCursor: string | null; hasMore: boolean }> {
+        const params = new URLSearchParams();
+        params.append('limit', limit.toString());
+        params.append('timeRange', timeRange);
+        if (cursor) params.append('cursor', cursor);
+
+        const response = await fetch(`${API_BASE_URL}/api/social/trending/cursor?${params.toString()}`, {
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+
+        return {
+            casts: data.data || [],
+            nextCursor: data.nextCursor || null,
+            hasMore: data.hasMore ?? false,
+        };
+    },
+
+    /**
      * Manually trigger refresh of trending casts (Neynar)
      */
     async refresh(): Promise<TrendingCast[]> {

@@ -756,8 +756,8 @@ export const SocialPage: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Infinite Scroll State
-  const [page, setPage] = useState(1);
+  // Infinite Scroll State - Cursor-based (Twitter-style)
+  const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const observerTarget = useRef<HTMLDivElement>(null);
   const inFlightRef = useRef(false);
@@ -782,8 +782,8 @@ export const SocialPage: React.FC = () => {
     const root = document.querySelector('[data-scroll-container="app"]') as Element | null;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && !loading && hasMore) {
-          loadTrendingCasts(false, page + 1);
+        if (entries[0].isIntersecting && !loading && hasMore && cursor) {
+          loadTrendingCasts(false, cursor);
         }
       },
       { threshold: 0.1, rootMargin: '200px', root }
@@ -798,7 +798,7 @@ export const SocialPage: React.FC = () => {
         observer.unobserve(observerTarget.current);
       }
     };
-  }, [loading, hasMore, page]);
+  }, [loading, hasMore, cursor]);
 
   // Scroll fallback: some fast-scroll cases skip IntersectionObserver events.
   useEffect(() => {
@@ -807,14 +807,14 @@ export const SocialPage: React.FC = () => {
 
     const onScroll = () => {
       const remaining = root.scrollHeight - root.scrollTop - root.clientHeight;
-      if (remaining < 400 && !loading && hasMore && !inFlightRef.current) {
-        loadTrendingCasts(false, page + 1);
+      if (remaining < 400 && !loading && hasMore && !inFlightRef.current && cursor) {
+        loadTrendingCasts(false, cursor);
       }
     };
 
     root.addEventListener('scroll', onScroll, { passive: true });
     return () => root.removeEventListener('scroll', onScroll);
-  }, [loading, hasMore, page]);
+  }, [loading, hasMore, cursor]);
 
   // Safety: release stuck state if request hangs too long
   useEffect(() => {
@@ -838,56 +838,54 @@ export const SocialPage: React.FC = () => {
     mountedRef.current = true;
 
     // Reset pagination when filters change
-    setPage(1);
+    setCursor(null);
     setHasMore(true);
     setFeedItems([]);
-    loadTrendingCasts(true, 1);
+    loadTrendingCasts(true, null);
 
     return () => {
       mountedRef.current = false;
     };
   }, [timeRange]);
 
-  const loadTrendingCasts = async (showLoading: boolean = true, pageNum: number = 1) => {
+  const loadTrendingCasts = async (showLoading: boolean = true, cursorParam: string | null = null) => {
     if (!mountedRef.current) return;
     if (inFlightRef.current) return;
+
+    const isInitialLoad = cursorParam === null;
 
     try {
       inFlightRef.current = true;
       lastLoadRef.current = Date.now();
-      if (showLoading && pageNum === 1) {
+      if (showLoading && isInitialLoad) {
         setLoading(true);
       }
-      if (pageNum === 1) setError(null);
+      if (isInitialLoad) setError(null);
 
-      console.log(`[SocialPage] Loading casts page ${pageNum}...`);
+      console.log(`[SocialPage] Loading casts with cursor: ${cursorParam || 'INITIAL'}...`);
 
-      const casts = await socialApi.getTrending(PAGE_SIZE, timeRange, pageNum).catch((err) => {
-        console.warn('[SocialPage] getTrending failed:', err);
-        return [];
+      // Use cursor-based API
+      const result = await socialApi.getTrendingWithCursor(PAGE_SIZE, timeRange, cursorParam || undefined).catch((err) => {
+        console.warn('[SocialPage] getTrendingWithCursor failed:', err);
+        return { casts: [], nextCursor: null, hasMore: false };
       });
 
-      console.log('[SocialPage] Fetched casts:', casts.length);
+      console.log('[SocialPage] Fetched casts:', result.casts.length, 'hasMore:', result.hasMore);
 
       if (mountedRef.current) {
-        if (casts.length === 0) {
+        if (result.casts.length === 0) {
           emptyPageRef.current += 1;
         } else {
           emptyPageRef.current = 0;
         }
 
-        // If we got fewer items than requested, we've reached the end
-        if (casts.length < PAGE_SIZE) {
-          setHasMore(false);
-        } else {
-          setHasMore(true);
-        }
+        // Use hasMore from API response
+        setHasMore(result.hasMore);
 
-        if (casts.length > 0) {
+        if (result.casts.length > 0) {
           const MIN_VALID_TIMESTAMP = 1577836800000;
-          const items = casts
+          const items = result.casts
             .filter((cast) => {
-              // Filters...
               if (cast.stats.likes < 5) return false;
 
               let ts: number;
@@ -902,21 +900,27 @@ export const SocialPage: React.FC = () => {
 
               return true;
             })
-
-            .map((cast, index) => trendingCastToFeedItem(cast, (pageNum - 1) * PAGE_SIZE + index))
+            .map((cast, index) => trendingCastToFeedItem(cast, feedItems.length + index))
             .filter((item) => {
               if (!item.time || item.time.trim() === '') return false;
               return true;
             });
 
-          if (pageNum === 1) {
+          if (isInitialLoad) {
             setFeedItems(items);
           } else {
-            setFeedItems(prev => [...prev, ...items]);
+            // Deduplicate by id to prevent duplicate posts
+            setFeedItems(prev => {
+              const existingIds = new Set(prev.map(item => item.id));
+              const uniqueNewItems = items.filter(item => !existingIds.has(item.id));
+              return [...prev, ...uniqueNewItems];
+            });
           }
-          setPage(pageNum);
+
+          // Store next cursor for subsequent loads
+          setCursor(result.nextCursor);
           setError(null);
-        } else if (pageNum === 1) {
+        } else if (isInitialLoad) {
           setError('No trending casts available.');
           setFeedItems([]);
         }
@@ -926,8 +930,7 @@ export const SocialPage: React.FC = () => {
     } catch (err: any) {
       console.error('[SocialPage] Error loading trending casts:', err);
       if (mountedRef.current) {
-        // Only set error on first page load
-        if (pageNum === 1) {
+        if (isInitialLoad) {
           setError(err.message || 'Failed to load trending casts');
           setFeedItems([]);
         }
@@ -1225,7 +1228,7 @@ export const SocialPage: React.FC = () => {
             }}>
               <div style={{ marginBottom: '12px' }}>No trending casts found</div>
               <button
-                onClick={() => loadTrendingCasts(true, 1)}
+                onClick={() => loadTrendingCasts(true, null)}
                 style={{
                   padding: '8px 24px',
                   background: colors.bgButton,
