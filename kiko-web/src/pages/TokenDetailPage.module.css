@@ -1,13 +1,89 @@
 .container {
+    padding: 16px;
+    padding-bottom: 80px;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    background: #000000;
+    min-height: 100vh;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
-    background-color: var(--bg-secondary);
-    /* Global light bg (Gray 100 / Gray 800) */
-    color: var(--text-primary);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    padding-bottom: 40px;
+    gap: 24px;
 }
+
+/* === TRADE GRID === */
+.tradeGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.tradeBtn {
+    height: 48px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #27272a;
+    text-transform: uppercase;
+}
+
+.buyBtn {
+    background: #10b981;
+    color: #ffffff;
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.sellBtn {
+    background: #ef4444;
+    color: #ffffff;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.buyBtn:hover {
+    background: #059669;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(16, 185, 129, 0.25);
+}
+
+.sellBtn:hover {
+    background: #dc2626;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(239, 68, 68, 0.25);
+}
+
+/* Light Mode Adaptation */
+.light .tradeBtn {
+    border-color: #f1f1f4;
+}
+
+.light .buyBtn {
+    background: #10b981;
+}
+
+.light .sellBtn {
+    background: #ef4444;
+}
+
+.light .buyBtn:hover {
+    box-shadow: 0 8px 20px rgba(16, 185, 129, 0.15);
+}
+
+.light .sellBtn:hover {
+    box-shadow: 0 8px 20px rgba(239, 68, 68, 0.15);
+}
+
+.container.light {
+    background: #ffffff;
+}
+
 
 /* Mobile: add top padding for floating header buttons */
 @media (max-width: 768px) {
@@ -16,28 +92,9 @@
     }
 }
 
-:global(.dark) .container {
-    background-color: var(--bg-primary);
-    /* Use darker black for page bg in dark mode to contrast with gray cards */
-    /* Global dark bg */
-    color: var(--text-primary);
-}
 
-@media (min-width: 769px) {
-    .container {
-        width: 100%;
-        max-width: 1200px;
-        margin: 0 auto;
-        border-left: 1px solid var(--border-color);
-        border-right: 1px solid var(--border-color);
-        padding-top: 24px;
-    }
 
-    :global(.dark) .container {
-        border-left: 1px solid var(--border-color);
-        border-right: 1px solid var(--border-color);
-    }
-}
+
 
 /* Back Button - Visible on desktop, hidden on mobile (global header handles it) */
 .backButton {
@@ -78,19 +135,12 @@
 
 /* Header Section */
 .headerSection {
-    padding: 16px 24px;
-    background-color: var(--bg-secondary);
+    padding: 0;
+    background: transparent;
 }
 
-@media (max-width: 768px) {
-    .headerSection {
-        padding: 16px 0;
-    }
-}
 
-:global(.dark) .headerSection {
-    background-color: var(--bg-primary);
-}
+
 
 .tokenTitleRow {
     display: flex;
@@ -99,11 +149,7 @@
     margin-bottom: 24px;
 }
 
-@media (max-width: 768px) {
-    .tokenTitleRow {
-        padding: 0 16px;
-    }
-}
+
 
 .tokenIdentity {
     display: flex;
@@ -297,11 +343,7 @@
     width: 100%;
 }
 
-@media (max-width: 768px) {
-    .tokenInfoSection {
-        padding: 0 16px;
-    }
-}
+
 
 .tokenInfoRow {
     display: flex;
@@ -388,12 +430,12 @@
 .marketGrid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 1px;
-    background-color: var(--border-color);
-    border-top: 1px solid var(--border-color);
-    border-bottom: 1px solid var(--border-color);
-    margin: 24px 0;
+    border: 1px solid #27272a;
+    border-radius: 24px;
+    overflow: hidden;
+    background: #000000;
 }
+
 
 :global(.dark) .marketGrid {
     background-color: var(--border-color);
@@ -408,16 +450,36 @@
 }
 
 .marketCard {
-    background-color: var(--bg-secondary);
-    padding: 20px 24px;
+    background: #000000;
+    padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    border-right: 1px solid #27272a;
+    border-bottom: 1px solid #27272a;
 }
 
-:global(.dark) .marketCard {
-    background-color: var(--bg-primary);
+@media (min-width: 769px) {
+    .marketCard {
+        border-bottom: none;
+    }
+
+    .marketCard:nth-child(4n) {
+        border-right: none;
+    }
 }
+
+@media (max-width: 768px) {
+    .marketCard:nth-child(2n) {
+        border-right: none;
+    }
+
+    .marketCard:nth-child(3),
+    .marketCard:nth-child(4) {
+        border-bottom: none;
+    }
+}
+
 
 .statLabel {
     font-size: 11px;
@@ -439,26 +501,22 @@
 
 /* Section Headers */
 .sectionHeader {
-    padding: 0 24px 12px 24px;
+    padding: 0;
+    margin-bottom: -8px;
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
 
-@media (max-width: 768px) {
-    .sectionHeader {
-        padding: 0 0 12px 0;
-    }
+.sectionHeader h3 {
+    color: #52525b;
+    font-weight: 900;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.25em;
+    margin: 0;
 }
 
-.sectionHeader h3 {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--text-secondary);
-    margin: 0;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
 
 .askAiButton {
     display: flex;
@@ -488,23 +546,12 @@
 
 /* Security Card */
 .securityCard {
-    margin: 0 24px 32px 24px;
-    background-color: var(--bg-primary);
-    border-radius: 12px;
-    border: 1px solid var(--border-color);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-    /* Soft shadow */
+    background: #000000;
+    border-radius: 28px;
+    border: 1px solid #27272a;
     overflow: hidden;
 }
 
-@media (max-width: 768px) {
-    .securityCard {
-        margin: 0 0 32px 0;
-        border-radius: 0;
-        border-left: none;
-        border-right: none;
-    }
-}
 
 :global(.dark) .securityCard {
     background-color: var(--bg-card);
@@ -516,13 +563,10 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border-color);
+    padding: 18px 20px;
+    border-bottom: 1px solid #27272a;
 }
 
-:global(.dark) .securityRow {
-    border-bottom: 1px solid var(--border-color);
-}
 
 .securityRow:last-child {
     border-bottom: none;
@@ -580,22 +624,12 @@
 }
 
 .holdersCard {
-    margin: 0 24px 32px 24px;
-    background-color: var(--bg-primary);
-    border-radius: 12px;
-    padding: 20px;
-    border: 1px solid var(--border-color);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    background: #000000;
+    border-radius: 28px;
+    padding: 24px;
+    border: 1px solid #27272a;
 }
 
-@media (max-width: 768px) {
-    .holdersCard {
-        margin: 0 0 32px 0;
-        border-radius: 0;
-        border-left: none;
-        border-right: none;
-    }
-}
 
 :global(.dark) .holdersCard {
     background-color: var(--bg-card);
@@ -645,22 +679,16 @@
 
 /* Main Content (Chart) */
 .mainContent {
-    padding: 0 24px 40px 24px;
-}
-
-@media (max-width: 768px) {
-    .mainContent {
-        padding: 0 16px 40px 16px;
-    }
+    padding: 0;
 }
 
 .chartCard {
-    border-radius: 12px;
+    border-radius: 28px;
     overflow: hidden;
-    background-color: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    background: #000000;
+    border: 1px solid #27272a;
 }
+
 
 :global(.dark) .chartCard {
     background-color: var(--bg-card);
@@ -735,22 +763,105 @@
     color: var(--text-primary);
 }
 
-/* Hover effects */
-.socialBtn:hover {
-    border-color: var(--text-secondary);
-    background-color: var(--bg-hover);
+/* === LIGHT MODE OVERRIDES === */
+
+.light .tokenSymbol {
+    color: #000000;
 }
 
-:global(.dark) .socialBtn:hover {
-    background-color: var(--bg-hover);
-    border-color: var(--text-secondary);
+.light .addressBar {
+    background: #f8f8fa;
+    border-color: #f1f1f4;
 }
 
-/* Brand colors on hover - REMOVED for monochrome */
-.socialBtn:hover .socialText {
-    color: var(--text-primary);
+.light .addressText {
+    color: #1a1a1b;
 }
 
-:global(.dark) .socialBtn:hover .socialText {
-    color: var(--text-primary);
+.light .marketGrid {
+    background: #ffffff;
+    border-color: #f1f1f4;
+}
+
+.light .marketCard {
+    background: #ffffff;
+    border-right-color: #f1f1f4;
+    border-bottom-color: #f1f1f4;
+}
+
+.light .statLabel {
+    color: #71717a;
+}
+
+.light .statValue {
+    color: #000000;
+}
+
+.light .sectionHeader h3 {
+    color: #71717a;
+}
+
+.light .askAiButton {
+    background: #f8f8fa;
+    border-color: #f1f1f4;
+    color: #000000;
+}
+
+.light .securityCard {
+    background: #ffffff;
+    border-color: #f1f1f4;
+}
+
+.light .securityRow {
+    border-bottom-color: #f1f1f4;
+}
+
+.light .securityLabel {
+    color: #71717a;
+}
+
+.light .securityValue {
+    color: #000000;
+}
+
+.light .holdersCard {
+    background: #ffffff;
+    border-color: #f1f1f4;
+}
+
+.light .holderCountLabel {
+    color: #71717a;
+}
+
+.light .holderCountValue {
+    color: #000000;
+}
+
+.light .holdersDetailRow {
+    border-top-color: #f1f1f4;
+    color: #71717a;
+}
+
+.light .chartCard {
+    background: #ffffff;
+    border-color: #f1f1f4;
+}
+
+.light .socialBtn {
+    background: #f8f8fa;
+    border-color: #f1f1f4;
+}
+
+.light .socialText {
+    color: #000000;
+}
+
+/* Hover effects (light) */
+.light .socialBtn:hover {
+    background-color: #f1f1f4;
+    border-color: #a1a1aa;
+}
+
+.light .askAiButton:hover {
+    background-color: #f1f1f4;
 }

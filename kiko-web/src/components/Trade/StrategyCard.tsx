@@ -20,6 +20,7 @@ const getChainInfo = (chainId: number | undefined) => {
     case 8453: return { name: 'Base', icon: '/assets/tokens/base.png', color: '#0052FF' };
     case 1: return { name: 'Ethereum', icon: '/assets/tokens/eth.png', color: '#627EEA' };
     case 900: return { name: 'Solana', icon: '/assets/tokens/sol.png', color: '#14F195' }; // Using generic ID for Sol
+    case 137: return { name: 'Polygon', icon: '/assets/tokens/polygon.png', color: '#8247E5' };
     default: return { name: 'Unknown', icon: '/assets/tokens/eth.png', color: '#627EEA' };
   }
 };
@@ -34,24 +35,33 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const { resolvedTheme } = useThemeContext();
   const [isWalletCopied, setIsWalletCopied] = React.useState(false);
 
-  // CRITICAL: Only render copy_trade strategies
-  // This component is specifically designed for CopyTradeConfig
-  // Other strategy types (auto_buy, auto_sell, custom, dca) should use different components
-  if (strategy.type !== 'copy_trade') {
-    console.warn('[StrategyCard] Attempted to render non-copy-trade strategy:', strategy.type, strategy.id);
+  const isCopyTrade = strategy.type === 'copy_trade';
+  const isPolymarketCopy = strategy.type === 'polymarket_copy';
+
+  // Only render copy_trade and polymarket_copy strategies
+  if (!isCopyTrade && !isPolymarketCopy) {
+    console.warn('[StrategyCard] Attempted to render unsupported strategy:', strategy.type, strategy.id);
     return null;
   }
 
-  // Validate that copyTradeConfig exists and is valid
-  if (!strategy.copyTradeConfig || !strategy.copyTradeConfig.targetWallet ||
-    strategy.copyTradeConfig.targetWallet === '0x0000000000000000000000000000000000000000') {
-    console.warn('[StrategyCard] Invalid or missing copyTradeConfig:', strategy.id);
-    return null;
+  if (isCopyTrade) {
+    if (!strategy.copyTradeConfig || !strategy.copyTradeConfig.targetWallet ||
+      strategy.copyTradeConfig.targetWallet === '0x0000000000000000000000000000000000000000') {
+      console.warn('[StrategyCard] Invalid or missing copyTradeConfig:', strategy.id);
+      return null;
+    }
+  } else if (isPolymarketCopy) {
+    if (!strategy.polymarketCopyConfig || !strategy.polymarketCopyConfig.targetWallet ||
+      strategy.polymarketCopyConfig.targetWallet === '0x0000000000000000000000000000000000000000') {
+      console.warn('[StrategyCard] Invalid or missing polymarketCopyConfig:', strategy.id);
+      return null;
+    }
   }
 
-  const config = strategy.copyTradeConfig;
-
-  const chainInfo = getChainInfo(config.chainId || strategy.chainId);
+  const copyConfig = isCopyTrade ? strategy.copyTradeConfig : null;
+  const polyConfig = isPolymarketCopy ? strategy.polymarketCopyConfig : null;
+  const targetWallet = isCopyTrade ? copyConfig!.targetWallet : polyConfig!.targetWallet;
+  const chainInfo = getChainInfo(strategy.chainId);
 
   const isActive = strategy.status === 'active';
   const status = (strategy.status || 'paused').toUpperCase() === 'PAUSED' ? 'PAUSED' :
@@ -68,7 +78,10 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             <img src={chainInfo.icon} alt={chainInfo.name} style={{ width: '20px', height: '20px', borderRadius: '50%' }} />
           </div>
           <div>
-            <div className={styles.rowName}>Copy Trading <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>on {chainInfo.name}</span></div>
+            <div className={styles.rowName}>
+              {isCopyTrade ? 'Copy Trading' : 'Polymarket Copy'}
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>on {chainInfo.name}</span>
+            </div>
             <div style={{ marginTop: '4px', display: 'inline-block' }}>
               {status === 'DELETED' ? (
                 <span className={styles.statusBadgeDeleted}>DELETED</span>
@@ -90,7 +103,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
               className={styles.walletAddress}
               onClick={(e) => {
                 e.stopPropagation();
-                navigator.clipboard.writeText(config.targetWallet);
+                navigator.clipboard.writeText(targetWallet);
                 setIsWalletCopied(true);
                 setTimeout(() => setIsWalletCopied(false), 2000);
               }}
@@ -101,64 +114,79 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
                   <Check size={16} color="#4ade80" />
                 </div>
               ) : null}
-              {config.targetWallet.slice(0, 6)}...{config.targetWallet.slice(-4)}
+              {targetWallet.slice(0, 6)}...{targetWallet.slice(-4)}
             </div>
           </div>
 
-          {/* Trigger Value */}
-          <div className={styles.rowItem}>
-            <span className={styles.rowItemLabel}>Trigger</span>
-            <span className={styles.rowItemValue}>${config.minTargetValueUsd || '0'}</span>
-          </div>
-
-          {/* TP/SL Compact */}
-          <div className={styles.rowItem}>
-            <span style={{ color: '#4ade80', fontWeight: 600, fontSize: '12px' }}>TP +{config.takeProfitPct}%</span>
-            <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '12px', marginLeft: '8px' }}>SL -{config.stopLossPct}%</span>
-          </div>
-
-          {/* Buy Amount */}
-          <div className={styles.rowItem}>
-            <span className={styles.rowItemLabel}>Buy</span>
-            <span className={styles.rowItemValue}>${config.buyAmountUsd}</span>
-          </div>
+          {isCopyTrade ? (
+            <>
+              <div className={styles.rowItem}>
+                <span className={styles.rowItemLabel}>Trigger</span>
+                <span className={styles.rowItemValue}>${copyConfig?.minTargetValueUsd || '0'}</span>
+              </div>
+              <div className={styles.rowItem}>
+                <span style={{ color: '#4ade80', fontWeight: 600, fontSize: '12px' }}>TP +{copyConfig?.takeProfitPct}%</span>
+                <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '12px', marginLeft: '8px' }}>SL -{copyConfig?.stopLossPct}%</span>
+              </div>
+              <div className={styles.rowItem}>
+                <span className={styles.rowItemLabel}>Buy</span>
+                <span className={styles.rowItemValue}>${copyConfig?.buyAmountUsd}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={styles.rowItem}>
+                <span className={styles.rowItemLabel}>Max Open</span>
+                <span className={styles.rowItemValue}>{polyConfig?.maxOpenBets || 0}</span>
+              </div>
+              <div className={styles.rowItem}>
+                <span className={styles.rowItemLabel}>Mirror Sell</span>
+                <span className={styles.rowItemValue}>{polyConfig?.mirrorSell ? 'Yes' : 'No'}</span>
+              </div>
+              <div className={styles.rowItem}>
+                <span className={styles.rowItemLabel}>Bet</span>
+                <span className={styles.rowItemValue}>${polyConfig?.betSizeUsd}</span>
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Actions */}
-        <div className={styles.rowActions}>
-          <button
-            onClick={() => onEdit(strategy)}
-            className={styles.rowBtn}
-            title="Edit"
-            disabled={status === 'DELETED'}
-          >
-            <div className={styles.iconWrapper}>
-              <Edit size={16} />
-            </div>
-          </button>
+        {isCopyTrade ? (
+          <div className={styles.rowActions}>
+            <button
+              onClick={() => onEdit(strategy)}
+              className={styles.rowBtn}
+              title="Edit"
+              disabled={status === 'DELETED'}
+            >
+              <div className={styles.iconWrapper}>
+                <Edit size={16} />
+              </div>
+            </button>
 
-          <button
-            onClick={() => onToggleStatus(strategy.id)}
-            className={styles.rowBtn}
-            title={isActive ? 'Pause' : 'Resume'}
-            disabled={status === 'DELETED'}
-          >
-            <div className={styles.iconWrapper}>
-              {isActive ? <Pause size={16} /> : <Play size={16} />}
-            </div>
-          </button>
+            <button
+              onClick={() => onToggleStatus(strategy.id)}
+              className={styles.rowBtn}
+              title={isActive ? 'Pause' : 'Resume'}
+              disabled={status === 'DELETED'}
+            >
+              <div className={styles.iconWrapper}>
+                {isActive ? <Pause size={16} /> : <Play size={16} />}
+              </div>
+            </button>
 
-          <button
-            onClick={() => onDelete(strategy.id)}
-            className={clsx(styles.rowBtn, styles.rowBtnDelete)}
-            title="Delete"
-            disabled={status === 'DELETED'}
-          >
-            <div className={styles.iconWrapper}>
-              <Trash2 size={16} />
-            </div>
-          </button>
-        </div>
+            <button
+              onClick={() => onDelete(strategy.id)}
+              className={clsx(styles.rowBtn, styles.rowBtnDelete)}
+              title="Delete"
+              disabled={status === 'DELETED'}
+            >
+              <div className={styles.iconWrapper}>
+                <Trash2 size={16} />
+              </div>
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -173,7 +201,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             <img src={chainInfo.icon} alt={chainInfo.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <div>
-            <div className={styles.strategyName}>Copy Trading</div>
+            <div className={styles.strategyName}>{isCopyTrade ? 'Copy Trading' : 'Polymarket Copy'}</div>
             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500, marginTop: '2px' }}>on {chainInfo.name}</div>
           </div>
         </div>
@@ -204,7 +232,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
                 className={styles.walletAddress}
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigator.clipboard.writeText(config.targetWallet);
+                  navigator.clipboard.writeText(targetWallet);
                   setIsWalletCopied(true);
                   setTimeout(() => setIsWalletCopied(false), 2000);
                 }}
@@ -215,7 +243,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
                     <Check size={16} color="var(--success-color)" />
                   </div>
                 ) : null}
-                <span className={styles.walletAddressText}>{config.targetWallet}</span>
+                <span className={styles.walletAddressText}>{targetWallet}</span>
               </div>
             </div>
           </div>
@@ -232,7 +260,11 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             </div>
             <div className={styles.strategyItemValue}>
               <div className={styles.triggerValue}>
-                Tx Value {'>'} ${config.minTargetValueUsd?.toLocaleString() || '0'}
+                {isCopyTrade ? (
+                  <>Tx Value {'>'} ${copyConfig?.minTargetValueUsd?.toLocaleString() || '0'}</>
+                ) : (
+                  <>Target opens a position</>
+                )}
               </div>
             </div>
           </div>
@@ -240,28 +272,44 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 
         {/* THEN Block: Execution Logic */}
         <div className={styles.strategyBlockThen}>
-
-          <div className={styles.strategyItem}>
-            <div className={styles.slTpCapsule}>
-              <div className={styles.capsuleItem}>
-                <span className={styles.capsuleLabel}>TP</span>
-                <span className={styles.capsuleValueGreen}>+{config.takeProfitPct}%</span>
+          {isCopyTrade ? (
+            <>
+              <div className={styles.strategyItem}>
+                <div className={styles.slTpCapsule}>
+                  <div className={styles.capsuleItem}>
+                    <span className={styles.capsuleLabel}>TP</span>
+                    <span className={styles.capsuleValueGreen}>+{copyConfig?.takeProfitPct}%</span>
+                  </div>
+                  <div className={styles.capsuleDivider}></div>
+                  <div className={styles.capsuleItem}>
+                    <span className={styles.capsuleLabel}>SL</span>
+                    <span className={styles.capsuleValueRed}>-{copyConfig?.stopLossPct}%</span>
+                  </div>
+                </div>
               </div>
-              <div className={styles.capsuleDivider}></div>
-              <div className={styles.capsuleItem}>
-                <span className={styles.capsuleLabel}>SL</span>
-                <span className={styles.capsuleValueRed}>-{config.stopLossPct}%</span>
+
+              <div className={styles.strategyDivider}></div>
+
+              <div className={styles.strategyItem}>
+                <span className={styles.buyAmountLabel}>Buy Amount</span>
+                <span className={styles.buyAmountValue}>${copyConfig?.buyAmountUsd?.toLocaleString() || strategy.executionAmount}</span>
               </div>
-            </div>
-          </div>
+            </>
+          ) : (
+            <>
+              <div className={styles.strategyItem}>
+                <span className={styles.buyAmountLabel}>Mirror Sell</span>
+                <span className={styles.buyAmountValue}>{polyConfig?.mirrorSell ? 'Yes' : 'No'}</span>
+              </div>
 
-          <div className={styles.strategyDivider}></div>
+              <div className={styles.strategyDivider}></div>
 
-          <div className={styles.strategyItem}>
-            <span className={styles.buyAmountLabel}>Buy Amount</span>
-            <span className={styles.buyAmountValue}>${config.buyAmountUsd?.toLocaleString() || strategy.executionAmount}</span>
-          </div>
-
+              <div className={styles.strategyItem}>
+                <span className={styles.buyAmountLabel}>Bet Size</span>
+                <span className={styles.buyAmountValue}>${polyConfig?.betSizeUsd?.toLocaleString() || strategy.executionAmount}</span>
+              </div>
+            </>
+          )}
         </div>
 
       </div>
@@ -272,44 +320,45 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
           <div className={styles.strategyItemValue}>
             Executed {executionCount} trades
           </div>
-          <div className={styles.strategyActions}>
-            <button
-              className={styles.strategyEditBtn}
-              onClick={() => onEdit(strategy)}
-              disabled={status === 'DELETED'}
-              title="Edit"
-            >
-              <div className={styles.iconWrapper}>
-                <Edit size={16} />
-              </div>
-              <span>Edit</span>
-            </button>
-            <button
-              className={styles.strategyPauseBtn}
-              onClick={() => onToggleStatus(strategy.id)}
-              disabled={status === 'DELETED'}
-              title={status === 'PAUSED' ? 'Resume' : 'Pause'}
-            >
-              <div className={styles.iconWrapper}>
-                {status === 'PAUSED' ? <Play size={16} /> : <Pause size={16} />}
-              </div>
-              <span>{status === 'PAUSED' ? 'Resume' : 'Pause'}</span>
-            </button>
-            <button
-              className={styles.strategyDeleteBtn}
-              onClick={() => onDelete(strategy.id)}
-              disabled={status === 'DELETED'}
-              title="Delete"
-            >
-              <div className={styles.iconWrapper}>
-                <Trash2 size={16} />
-              </div>
-              <span>Delete</span>
-            </button>
-          </div>
+          {isCopyTrade ? (
+            <div className={styles.strategyActions}>
+              <button
+                className={styles.strategyEditBtn}
+                onClick={() => onEdit(strategy)}
+                disabled={status === 'DELETED'}
+                title="Edit"
+              >
+                <div className={styles.iconWrapper}>
+                  <Edit size={16} />
+                </div>
+                <span>Edit</span>
+              </button>
+              <button
+                className={styles.strategyPauseBtn}
+                onClick={() => onToggleStatus(strategy.id)}
+                disabled={status === 'DELETED'}
+                title={status === 'PAUSED' ? 'Resume' : 'Pause'}
+              >
+                <div className={styles.iconWrapper}>
+                  {status === 'PAUSED' ? <Play size={16} /> : <Pause size={16} />}
+                </div>
+                <span>{status === 'PAUSED' ? 'Resume' : 'Pause'}</span>
+              </button>
+              <button
+                className={styles.strategyDeleteBtn}
+                onClick={() => onDelete(strategy.id)}
+                disabled={status === 'DELETED'}
+                title="Delete"
+              >
+                <div className={styles.iconWrapper}>
+                  <Trash2 size={16} />
+                </div>
+                <span>Delete</span>
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   );
 };
-

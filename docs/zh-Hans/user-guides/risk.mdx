@@ -1,0 +1,52 @@
+---
+title: '智能风控：深度合约分析'
+description: '解释 KiKo 如何利用 AI 审计合约并计算 Security Score。'
+---
+
+在 Web3 的黑暗森林里，安全是交易的前提。KiKo 集成了多维度风控模型，帮你识别潜在的合约陷阱。
+
+### 🔍 核心工具：`check_token_risk`
+
+当你将代币地址发送给 AI 时，后台会自动触发深度扫描，对接 `GoPlus Security` 与 `DexScreener` 的多源数据。
+
+#### 常用指令
+- `“这个币安全吗？0x...”`
+- `“扫描一下 Base 链上的这个新币合约”`
+- `“看看这个代币的持仓分布”`
+
+---
+
+### 📊 风险指标深度解读
+
+<AccordionGroup>
+  <Accordion title="Honeypot (蜜罐检测)" icon="pot-food">
+    通过合约分析检测蜜罐风险。系统通过第三方安全服务（GoPlus）分析代币合约，检测是否存在蜜罐风险。
+  </Accordion>
+  <Accordion title="Buy/Sell Tax (交易税)" icon="percent">
+    检测买入和卖出的实时扣税比例。通常税率超过 **10%** 会被 AI 标记为 `High Tax` 警告。
+  </Accordion>
+  <Accordion title="Ownership (所有权/权限)" icon="key">
+    检查合约是否已弃权 (Renounced)。如果未弃权，开发者可以随时修改税率或暂停交易。
+  </Accordion>
+  <Accordion title="Liquidity (流动性深度)" icon="water">
+    分析 LP 池子的锁定状态与价值。如果流动性极低，交易会产生极高的 **Price Impact**。
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### 🎨 可视化评级：Security Score
+
+AI 会根据扫描结果给出一个 **0-100** 的直观评分：
+
+- **0-30 (Safe)**: 🟢 权限已弃、无特殊税、流动性充足。
+- **30-70 (Medium)**: 🟡 存在潜在风险（如中等税率），适合短期博弈。
+- **70-100 (High Risk)**: 🔴 明确检测到蜜罐逻辑，极度建议远离。
+
+<Tip>
+  AI 扫描能过滤大部常见骗局，但无法预测未来的恶意合约修改（如延迟放弃权限）。请始终保持警惕。
+</Tip>
+
+---
+
+[学习如何发起交易](/zh-Hans/user-guides/trading)

@@ -1,16 +1,13 @@
 import { ethers } from 'ethers';
-import * as zoraSdk from "@zoralabs/coins-sdk";
-const { createTradeCall } = zoraSdk as any;
-import { zoraService, BASE_PLATFORM_REFERRER, ZORA_CREATOR_COIN_HOOKS } from './zoraService.js';
+import { zoraService, ZORA_CREATOR_COIN_HOOKS } from './zoraService.js';
 import { notificationService } from './notificationService.js';
 import { prisma } from '../db/prisma.js';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
-import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
-import { getEthersProvider } from './rpcManager.js';
+import { type FeeContext } from './platformFeeService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { getEthersProvider } from './rpcManager.js';
 
 const CHAIN_ID = 8453; // Base Mainnet
 const ZORA_TOKEN_ADDRESS = '0x1111111111166b7fe7bd91427724b487980afc69' as `0x${string}`; // ZORA token on Base
@@ -39,7 +36,6 @@ export class ZoraSniperService {
     private isListening: boolean = false;
 
     constructor() {
-        const chainConfig = getChainConfig(CHAIN_ID);
         this.provider = getEthersProvider(CHAIN_ID);
         this.factoryContract = new ethers.Contract(ZORA_FACTORY_ADDRESS, ZORA_FACTORY_ABI, this.provider);
     }
@@ -219,7 +215,6 @@ export class ZoraSniperService {
                 amountIn: ethers.parseEther(buyAmountEth),
                 sender: walletAddress as `0x${string} `,
                 slippage: maxSlippage,
-                platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
             };
 
             const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'snipe');
@@ -244,7 +239,7 @@ export class ZoraSniperService {
         }
     }
 
-    private async createTradeCallWithRetry(tradeParams: any, maxAttempts = 2, context = 'swap') {
+    private async createTradeCallWithRetry(tradeParams: any, maxAttempts = 2, context = 'swap', feeContext?: FeeContext) {
         let lastError: any;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
@@ -253,7 +248,7 @@ export class ZoraSniperService {
                     logger.warn(LogCode.API_FETCH_FAILED, 'Zora Sniper: Quote retry', { attempt, maxAttempts, context, backoffMs });
                     await new Promise(resolve => setTimeout(resolve, backoffMs));
                 }
-                return await createTradeCall(tradeParams);
+                return await zoraService.createTradeCallWithReferrer({ ...tradeParams, feeContext });
             } catch (error: any) {
                 lastError = error;
                 logger.warn(LogCode.API_FETCH_FAILED, 'Zora Sniper: Quote attempt failed', { attempt, maxAttempts, context, error: error.message });
@@ -339,13 +334,7 @@ export class ZoraSniperService {
                 }
             }
 
-            // 3. Platform fee (charged on input asset)
-            const fee = getPlatformFee(params.feeContext || 'swap');
-            const canChargeFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient);
-            if (canChargeFee) {
-                // Fee must be in native; disable ZORA-input path when fee is enabled
-                useZoraToken = false;
-            }
+            // 3. Platform fee handled by upstream API only (no native transfers here)
 
             // 4. Build trade params (ZORA direct or ETH multi-hop)
             let tradeParams: any = undefined;
@@ -356,22 +345,6 @@ export class ZoraSniperService {
                 let zoraAmountIn = zoraBalance > ethers.parseUnits('1000', 18)
                     ? ethers.parseUnits('100', 18) // Use fixed 100 ZORA if large balance
                     : zoraBalance / BigInt(10);   // Use 10% of balance
-
-                if (canChargeFee && zoraAmountIn > 0n) {
-                    const feeAmount = (zoraAmountIn * BigInt(fee.bps)) / 10000n;
-                    if (feeAmount > 0n && zoraAmountIn > feeAmount) {
-                        const iface = new ethers.Interface(['function transfer(address to, uint256 amount) returns (bool)']);
-                        const data = iface.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]);
-                        await sendTransaction(params.userId, params.accessToken, {
-                            to: ZORA_TOKEN_ADDRESS,
-                            data,
-                            value: '0',
-                            chainId: CHAIN_ID
-                        });
-                        zoraAmountIn = zoraAmountIn - feeAmount;
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Collected platform fee (ZORA)', { bps: fee.bps, amount: feeAmount.toString() });
-                    }
-                }
 
                 // Zora Universal Router address (from tx logs)
                 const ZORA_ROUTER = '0x6ff5693b99212da76ad316178a184ab56d299b43';
@@ -427,7 +400,6 @@ export class ZoraSniperService {
                         amountIn: zoraAmountIn,
                         sender: params.walletAddress as `0x${string}`,
                         slippage: slippageDecimal,
-                        platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
                     };
                     inputLabel = `${ethers.formatUnits(zoraAmountIn, 18)} ZORA`;
                 }
@@ -435,33 +407,17 @@ export class ZoraSniperService {
 
             if (!useZoraToken) {
                 // Fallback: ETH -> Creator Coin (multi-hop through Uniswap)
-                let ethAmountIn = ethers.parseEther(params.amountIn);
-                if (canChargeFee && ethAmountIn > 0n) {
-                    const feeWei = (ethAmountIn * BigInt(fee.bps)) / 10000n;
-                    if (feeWei > 0n && ethAmountIn > feeWei) {
-                        await sendTransaction(params.userId, params.accessToken, {
-                            to: fee.evmRecipient!,
-                            data: '0x',
-                            value: feeWei.toString(),
-                            chainId: CHAIN_ID,
-                        });
-                        ethAmountIn = ethAmountIn - feeWei;
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Collected platform fee (ETH)', { bps: fee.bps, wei: feeWei.toString() });
-                    }
-                }
-
                 tradeParams = {
                     sell: { type: "eth" as const },
                     buy: { type: "erc20" as const, address: params.tokenOut as `0x${string}` },
-                    amountIn: ethAmountIn,
+                    amountIn: ethers.parseEther(params.amountIn),
                     sender: params.walletAddress as `0x${string}`,
                     slippage: slippageDecimal,
-                    platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
                 };
-                inputLabel = `${ethers.formatEther(ethAmountIn)} ETH`;
+                inputLabel = `${params.amountIn} ETH`;
             }
 
-            const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'fastSwap');
+            const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'fastSwap', params.feeContext);
 
             // 4. Logging Quote Details (with null safety)
             const quoteData = (quote as any).quote;
@@ -558,8 +514,6 @@ export class ZoraSniperService {
 
             const slippageDecimal = Math.min((params.slippage || 5) / 100, 0.99);
 
-            const fee = getPlatformFee(params.feeContext || 'swap');
-            const canChargeFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient);
             const amountInNet = BigInt(params.amountIn);
 
             const tradeParams = {
@@ -568,10 +522,9 @@ export class ZoraSniperService {
                 amountIn: amountInNet,
                 sender: params.walletAddress as `0x${string} `,
                 slippage: slippageDecimal,
-                platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
             };
 
-            const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'fastSell');
+            const quote = await this.createTradeCallWithRetry(tradeParams, 2, 'fastSell', params.feeContext);
 
             // 2. Logging Quote Details (with null safety)
             const quoteData = (quote as any).quote;
@@ -621,28 +574,6 @@ export class ZoraSniperService {
                 chainId: CHAIN_ID,
             };
             const txHash = await sendTransaction(params.userId, params.accessToken, tx);
-
-            // Wait for confirmation, then charge fee in native ETH
-            if (canChargeFee) {
-                const provider = getEthersProvider(CHAIN_ID);
-                const receipt = await provider.waitForTransaction(txHash, 1);
-                if (!receipt || receipt.status === 0) {
-                    throw new Error(`Zora Sniper sell reverted on-chain: ${txHash}`);
-                }
-
-                const quoteOut = (quote as any)?.quote?.amountOut || (quote as any)?.quote?.minAmountOut || '0';
-                const outBI = BigInt(quoteOut);
-                const feeWei = (outBI * BigInt(fee.bps)) / 10000n;
-                if (feeWei > 0n) {
-                    await sendTransaction(params.userId, params.accessToken, {
-                        to: fee.evmRecipient!,
-                        data: '0x',
-                        value: feeWei.toString(),
-                        chainId: CHAIN_ID,
-                    });
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Zora Sniper: Collected platform fee (native sell)', { bps: fee.bps, wei: feeWei.toString() });
-                }
-            }
 
             return txHash;
         } catch (error: any) {

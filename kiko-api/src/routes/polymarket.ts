@@ -9,6 +9,7 @@ import {
     searchEvents
 } from '../services/polymarket.js';
 import { requireAuth } from '../middleware/auth.js';
+import prisma from '../db/prisma.js';
 
 export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
     /**
@@ -82,6 +83,37 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     // ============ TRADING SETUP ENDPOINTS ============
+    /**
+     * GET /api/polymarket/copy/configs
+     * List Polymarket copy trade configs for the authenticated user
+     */
+    fastify.get('/copy/configs', { preHandler: requireAuth }, async (request, reply) => {
+        try {
+            const user = (request as any).user;
+            const privyDid = user?.sub || user?.privyDid;
+            if (!privyDid) {
+                return reply.status(401).send({ success: false, error: 'Authentication required' });
+            }
+
+            const dbUser = await prisma.user.findUnique({
+                where: { privyDid }
+            });
+
+            if (!dbUser) {
+                return { success: true, configs: [] };
+            }
+
+            const configs = await prisma.polymarketCopyConfig.findMany({
+                where: { userId: dbUser.id },
+                orderBy: { createdAt: 'desc' }
+            });
+
+            return { success: true, configs };
+        } catch (error) {
+            console.error('[Polymarket] Error fetching copy configs:', error);
+            return reply.status(500).send({ success: false, error: 'Failed to fetch copy configs' });
+        }
+    });
 
     /**
      * GET /api/polymarket/trading/readiness

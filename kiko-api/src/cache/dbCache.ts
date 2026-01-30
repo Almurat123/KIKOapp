@@ -79,10 +79,8 @@ export async function set(key: string, value: string, ttl?: number): Promise<voi
  */
 export async function del(key: string): Promise<void> {
     try {
-        await prisma.cache.delete({
+        await prisma.cache.deleteMany({
             where: { key }
-        }).catch(() => {
-            // Ignore if not found
         });
     } catch (error) {
         console.error(`[DBCache] Del error for ${key}:`, error);

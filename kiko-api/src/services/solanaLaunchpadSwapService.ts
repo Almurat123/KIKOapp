@@ -14,7 +14,6 @@ import {
 } from '../utils/solanaToken.js';
 import { getSolanaConnection } from '../config/solanaConfig.js';
 import { sendSolanaTransaction, getDelegatedSolanaWallet, getServerSolanaWalletAddress } from './privyWallet.js';
-import { getPlatformFee, type FeeContext } from './platformFeeService.js';
 
 // Pump.fun Constants
 const PUMP_FUN_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
@@ -69,7 +68,7 @@ export interface SolanaLaunchpadSwapParams {
     isBuy: boolean;
     slippageBps?: number;
     provider: 'pumpfun' | 'bonkfun';
-    feeContext?: FeeContext;
+    feeContext?: 'swap' | 'copyTrade';
 }
 
 export class SolanaLaunchpadSwapService {
@@ -168,42 +167,9 @@ export class SolanaLaunchpadSwapService {
         }
         const userPubkey = new PublicKey(walletAddress);
 
-        // Platform fee: only supported for SOL-in buys on launchpads (charge lamports transfer before swap).
-        // For sells, amount semantics differ per program; skip to avoid breaking sell flows.
         let effectiveAmount = params.amount;
-        const fee = getPlatformFee(params.feeContext || 'swap');
-        if (fee.bps > 0 && fee.solanaRecipient && isBuy) {
-            const solAmount = parseFloat(effectiveAmount);
-            if (Number.isFinite(solAmount) && solAmount > 0) {
-                const lamports = BigInt(Math.floor(solAmount * 1e9));
-                const feeLamports = (lamports * BigInt(fee.bps)) / BigInt(10000);
-                if (feeLamports > BigInt(0) && lamports > feeLamports) {
-                    const recipient = new PublicKey(fee.solanaRecipient);
-                    const recentBlockhash = await connection.getLatestBlockhash();
-                    if (feeLamports > BigInt(Number.MAX_SAFE_INTEGER)) {
-                        throw new Error('Solana fee amount too large');
-                    }
-                    const messageV0 = new TransactionMessage({
-                        payerKey: userPubkey,
-                        recentBlockhash: recentBlockhash.blockhash,
-                        instructions: [
-                            SystemProgram.transfer({
-                                fromPubkey: userPubkey,
-                                toPubkey: recipient,
-                                lamports: Number(feeLamports),
-                            }),
-                        ],
-                    }).compileToV0Message();
-                    const tx = new VersionedTransaction(messageV0);
-                    const txB64 = Buffer.from(tx.serialize()).toString('base64');
-                    await sendSolanaTransaction(userId, txB64);
-                    effectiveAmount = (Number(lamports - feeLamports) / 1e9).toString();
-                }
-            }
-        }
-
-        const shouldPostFee = !isBuy && fee.bps > 0 && !!fee.solanaRecipient;
-        const preBalance = shouldPostFee ? await connection.getBalance(userPubkey, 'confirmed') : null;
+        const shouldPostFee = false;
+        const preBalance = null;
 
         let txHash: string;
         if (provider === 'pumpfun') {
@@ -217,39 +183,7 @@ export class SolanaLaunchpadSwapService {
         }
 
         if (shouldPostFee && preBalance !== null) {
-            try {
-                // Wait briefly for confirmation
-                for (let i = 0; i < 20; i++) {
-                    const status = await connection.getSignatureStatus(txHash);
-                    if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') break;
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-
-                const postBalance = await connection.getBalance(userPubkey, 'confirmed');
-                const received = BigInt(postBalance - preBalance);
-                if (received > 0n) {
-                    const feeLamports = (received * BigInt(fee.bps)) / 10000n;
-                    if (feeLamports > 0n) {
-                        const recentBlockhash = await connection.getLatestBlockhash();
-                        const messageV0 = new TransactionMessage({
-                            payerKey: userPubkey,
-                            recentBlockhash: recentBlockhash.blockhash,
-                            instructions: [
-                                SystemProgram.transfer({
-                                    fromPubkey: userPubkey,
-                                    toPubkey: new PublicKey(fee.solanaRecipient!),
-                                    lamports: Number(feeLamports),
-                                }),
-                            ],
-                        }).compileToV0Message();
-                        const feeTx = new VersionedTransaction(messageV0);
-                        const feeTxB64 = Buffer.from(feeTx.serialize()).toString('base64');
-                        await sendSolanaTransaction(userId, feeTxB64);
-                    }
-                }
-            } catch (feeErr: any) {
-                console.warn('[SolanaLaunchpadSwap] Fee collection failed:', feeErr.message);
-            }
+            void preBalance;
         }
 
         return txHash;

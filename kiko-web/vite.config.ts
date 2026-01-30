@@ -48,7 +48,7 @@ export default defineConfig({
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://auth.privy.io https://challenges.cloudflare.com https://accounts.google.com https://apis.google.com https://www.gstatic.com https://relay.walletconnect.com https://verify.walletconnect.com blob:",
         "style-src 'self' 'unsafe-inline' https:",
         "font-src 'self' https://fonts.gstatic.com data: blob:",
-        "img-src 'self' data: https: blob:",
+        "img-src 'self' data: https: blob: http://localhost:*",
         "media-src 'self' blob: https: data:", // Added for HLS video playback
         "connect-src 'self' https: wss: http://localhost:* ws://localhost:*",
         "frame-src 'self' https://auth.privy.io https://accounts.google.com https://challenges.cloudflare.com https://www.google.com https://verify.walletconnect.com https://www.geckoterminal.com",

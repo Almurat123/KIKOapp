@@ -8,6 +8,7 @@ import kikoLogo from '../../assets/images/kiko-logo.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { getUserInfo } from '../../utils/privyUtils';
+import { getUsageSummary } from '../../services/billingApi';
 import styles from './Sidebar.module.css';
 import type { Conversation } from '../../hooks/useConversations';
 
@@ -53,12 +54,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
   generatingConversationId,
 }) => {
   const { resolvedTheme } = useThemeContext();
-  const { user } = usePrivy();
+  const { user, authenticated } = usePrivy();
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['chat']));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [usageSummary, setUsageSummary] = useState<{
+    dateUtc: string;
+    normal: { used: number; limit: number };
+    advanced: { used: number; limit: number };
+    dailyUsd: number;
+    tokenBalance: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!authenticated) {
+      setUsageSummary(null);
+      return;
+    }
+    let cancelled = false;
+    getUsageSummary()
+      .then(summary => {
+        if (!cancelled) setUsageSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setUsageSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -327,6 +353,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
 
         <div className={styles.footer}>
+          <div className={styles.usageSummary}>
+            <div className={styles.usageRow}>
+              <span className={styles.usageLabel}>Normal</span>
+              <span className={styles.usageValue}>
+                {usageSummary ? `${usageSummary.normal.used}/${usageSummary.normal.limit}` : '--'}
+              </span>
+            </div>
+            <div className={styles.usageRow}>
+              <span className={styles.usageLabel}>Advanced</span>
+              <span className={styles.usageValue}>
+                {usageSummary ? `${usageSummary.advanced.used}/${usageSummary.advanced.limit}` : '--'}
+              </span>
+            </div>
+            <div className={styles.usageRow}>
+              <span className={styles.usageLabel}>Today USD</span>
+              <span className={styles.usageValue}>
+                {usageSummary ? `$${usageSummary.dailyUsd.toFixed(4)}` : '--'}
+              </span>
+            </div>
+            <div className={styles.usageRow}>
+              <span className={styles.usageLabel}>Token</span>
+              <span className={styles.usageValue}>
+                {usageSummary ? usageSummary.tokenBalance.toFixed(4) : '--'}
+              </span>
+            </div>
+          </div>
           <button
             className={styles.userProfile}
             onClick={() => {

@@ -22,6 +22,9 @@ export interface MarketOverview {
   evix?: number;
   liquidityStressIndex?: number;
   liquidityStressStatus?: string;
+  stablecoinsMcap?: number;
+  btcDomChange24h?: number;
+  mcapChange24h?: number;
 }
 
 export interface TrendingTokenData {
@@ -65,6 +68,9 @@ export async function saveMarketOverview(data: MarketOverview): Promise<void> {
         evix: data.evix ? new Decimal(data.evix) : null,
         liquidityStressIndex: data.liquidityStressIndex ? new Decimal(data.liquidityStressIndex) : null,
         liquidityStressStatus: data.liquidityStressStatus,
+        stablecoinsMcap: data.stablecoinsMcap ? new Decimal(data.stablecoinsMcap) : null,
+        btcDomChange24h: data.btcDomChange24h ? new Decimal(data.btcDomChange24h) : null,
+        mcapChange24h: data.mcapChange24h ? new Decimal(data.mcapChange24h) : null,
         updatedAt: new Date(),
       }
     }));
@@ -116,6 +122,9 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
       evix: row.evix ? Number(row.evix) : undefined,
       liquidityStressIndex: row.liquidityStressIndex ? Number(row.liquidityStressIndex) : undefined,
       liquidityStressStatus: row.liquidityStressStatus ?? undefined,
+      stablecoinsMcap: row.stablecoinsMcap ? Number(row.stablecoinsMcap) : undefined,
+      btcDomChange24h: row.btcDomChange24h ? Number(row.btcDomChange24h) : undefined,
+      mcapChange24h: row.mcapChange24h ? Number(row.mcapChange24h) : undefined,
     };
 
     // Update memory cache for future requests

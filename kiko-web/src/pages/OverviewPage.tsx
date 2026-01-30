@@ -17,6 +17,7 @@ import { Skeleton } from '../components/Skeleton';
 import styles from './OverviewPage.module.css';
 import type { MarketOverview } from '../services/api';
 import { proxyImageUrl } from '../utils/imageProxy';
+import { useThemeContext } from '../contexts/ThemeContext';
 
 // --- Formatting Helpers ---
 
@@ -543,10 +544,12 @@ export const OverviewPage: React.FC = () => {
 
   const macroIndicators = macroIndicatorsWithData;
 
+  const { resolvedTheme } = useThemeContext();
+
   if (loading) {
     return (
-      <PageContainer>
-        <div className={styles.container}>
+      <PageContainer fullWidth>
+        <div className={`${styles.container} ${styles[resolvedTheme]}`}>
           {/* Global Metrics Cards Skeleton */}
           <div className={styles.grid}>
             {Array.from({ length: 6 }).map((_, i) => (
@@ -636,9 +639,10 @@ export const OverviewPage: React.FC = () => {
     );
   }
 
+
   return (
-    <PageContainer>
-      <div className={styles.container}>
+    <PageContainer fullWidth>
+      <div className={`${styles.container} ${styles[resolvedTheme]}`}>
         {/* Global Metrics Cards */}
         <div className={styles.grid}>
           {globalMetrics.map((m, i) => (
@@ -664,50 +668,61 @@ export const OverviewPage: React.FC = () => {
         {/* Market Highlights Row */}
         <div className={styles.sectionGrid}>
           {/* Top Gainers (Mini) */}
-          <div className={styles.card}>
+          <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <h3 className={styles.sectionTitle}>
                 <TrendingUp size={16} color="#10b981" /> Top Gainers
               </h3>
             </div>
             <div className={styles.listContainer}>
-              {gainers.length > 0 ? gainers.slice(0, 3).map((token: any, i: number) => (
-                <div
-                  key={token.id || i}
-                  className={styles.listItem}
-                >
-                  <div className={styles.tokenInfo}>
-                    <span className={styles.rank}>
-                      {i + 1}
-                    </span>
-                    {token.image ? (
-                      <img
-                        src={proxyImageUrl(token.image) || token.image}
-                        alt={token.name}
-                        className={styles.tokenIcon}
-                        onError={(e) => {
-                          // Fallback to gradient if image fails to load
-                          e.currentTarget.style.display = 'none';
-                          const fallback = document.createElement('div');
-                          fallback.className = styles.fallbackIcon;
-                          fallback.style.background = 'linear-gradient(135deg, #10b981, #3ba55d)';
-                          e.currentTarget.parentElement?.insertBefore(fallback, e.currentTarget);
-                        }}
-                      />
-                    ) : (
-                      <div className={styles.fallbackIcon} style={{ background: 'linear-gradient(135deg, #10b981, #3ba55d)' }}></div>
-                    )}
-                    <span className={styles.tokenName}>
-                      {token.name || `Token ${i + 1}`}
-                    </span>
+              {gainers.length > 0 ? gainers.slice(0, 3).map((token: any, i: number) => {
+                const isUp = (token.price_change_percentage_24h || 0) > 0;
+                const sparkData = token.sparkline_in_7d?.price?.slice(-7) || generateTrend(token.price_change_percentage_24h || 0);
+                return (
+                  <div
+                    key={token.id || i}
+                    className={styles.listItem}
+                  >
+                    <div className={styles.tokenInfo}>
+                      <span className={styles.rank}>
+                        #{i + 1}
+                      </span>
+                      {token.image ? (
+                        <img
+                          src={proxyImageUrl(token.image) || token.image}
+                          data-original={token.image}
+                          alt={token.name}
+                          className={styles.tokenIcon}
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            const originalUrl = img.getAttribute('data-original');
+                            // First try direct URL if we were using proxy
+                            if (originalUrl && img.src !== originalUrl) {
+                              img.src = originalUrl;
+                              return;
+                            }
+                            // If direct URL also fails, show fallback
+                            img.style.display = 'none';
+                            img.nextElementSibling?.classList.remove(styles.hidden);
+                          }}
+                        />
+                      ) : null}
+                      <div className={`${styles.fallbackIcon} ${token.image ? styles.hidden : ''}`} style={{ background: 'linear-gradient(135deg, #10b981, #3ba55d)' }}></div>
+                      <span className={styles.tokenName}>
+                        {token.name || `Token ${i + 1}`}
+                      </span>
+                    </div>
+                    <div className={styles.tokenRight}>
+                      <Sparkline data={sparkData} isUp={isUp} />
+                      <span className={`${styles.metricChange} ${isUp ? styles.metricChangeUp : styles.metricChangeDown}`}>
+                        {token.price_change_percentage_24h
+                          ? `${isUp ? '+' : ''}${token.price_change_percentage_24h.toFixed(1)}%`
+                          : `+0.0%`}
+                      </span>
+                    </div>
                   </div>
-                  <span className={`${styles.metricChange} ${token.price_change_percentage_24h > 0 ? styles.metricChangeUp : styles.metricChangeDown}`}>
-                    {token.price_change_percentage_24h
-                      ? `${token.price_change_percentage_24h > 0 ? '+' : ''}${token.price_change_percentage_24h.toFixed(1)}%`
-                      : `+12.${i}%`}
-                  </span>
-                </div>
-              )) : (
+                );
+              }) : (
                 <div style={{
                   padding: '24px',
                   textAlign: 'center',
@@ -721,7 +736,7 @@ export const OverviewPage: React.FC = () => {
           </div>
 
           {/* Trending (Mini) */}
-          <div className={styles.card}>
+          <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <h3 className={styles.sectionTitle}>
                 <Activity size={16} color="#f59e0b" /> Trending
@@ -743,35 +758,38 @@ export const OverviewPage: React.FC = () => {
                       {token.image || token.thumb || token.small ? (
                         <img
                           src={proxyImageUrl(token.image || token.thumb || token.small) || (token.image || token.thumb || token.small)}
+                          data-original={token.image || token.thumb || token.small}
                           alt={token.name}
                           className={styles.tokenIcon}
                           onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            const fallback = document.createElement('div');
-                            fallback.className = styles.fallbackIcon;
-                            fallback.style.background = 'linear-gradient(135deg, #f59e0b, #f97316)';
-                            e.currentTarget.parentElement?.insertBefore(fallback, e.currentTarget);
+                            const img = e.currentTarget;
+                            const originalUrl = img.getAttribute('data-original');
+                            // First try direct URL if we were using proxy
+                            if (originalUrl && img.src !== originalUrl) {
+                              img.src = originalUrl;
+                              return;
+                            }
+                            // If direct URL also fails, show fallback
+                            img.style.display = 'none';
+                            img.nextElementSibling?.classList.remove(styles.hidden);
                           }}
                         />
-                      ) : (
-                        <div className={styles.fallbackIcon} style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)' }}></div>
-                      )}
+                      ) : null}
+                      <div className={`${styles.fallbackIcon} ${(token.image || token.thumb || token.small) ? styles.hidden : ''}`} style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)' }}></div>
 
                       <span className={styles.tokenName}>
                         {token.name || `Token ${i + 1}`}
                       </span>
                     </div>
-                    <div className={styles.tokenInfo}>
+                    <div className={styles.tokenRight}>
                       {/* Generate sparkline data based on price (simplified trend) */}
                       {(() => {
-                        // Generate a simple trend based on price
-                        // For now, use a mock trend - in production, you'd fetch historical data
                         const basePrice = price || 1;
                         const trendData = generateTrend(basePrice);
                         const isUp = trendData[trendData.length - 1] > trendData[0];
                         return <Sparkline data={trendData} isUp={isUp} />;
                       })()}
-                      <span className={styles.tokenName}>
+                      <span className={styles.tokenPrice}>
                         ${price > 0 ? price.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 }) : `1.2${i}`}
                       </span>
                     </div>
@@ -789,9 +807,8 @@ export const OverviewPage: React.FC = () => {
                     <div className={styles.fallbackIcon} style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)' }}></div>
                     <span className={styles.tokenName}>Meme {i}</span>
                   </div>
-                  <div className={styles.tokenInfo}>
-                    <Sparkline data={[10, 20, 15, 40, 30, 50]} isUp={true} />
-                    <span className={styles.tokenName}>${1.2}{i}</span>
+                  <div className={styles.tokenRight}>
+                    <span className={styles.tokenPrice}>$0.00</span>
                   </div>
                 </div>
               ))}
@@ -929,83 +946,57 @@ export const OverviewPage: React.FC = () => {
             /* Mobile Card View */
             <div className={styles.mobileCardContainer}>
               {macroIndicators.map((item) => {
-                const Icon = item.icon;
-                const getRangeGradient = () => {
-                  if (item.rangeValue > 75) {
-                    return 'linear-gradient(to right, #f59e0b, #10b981)';
-                  } else if (item.rangeValue < 25) {
-                    return 'linear-gradient(to right, #e74c3c, #f59e0b)';
-                  } else {
-                    return '#5B8DEF';
-                  }
-                };
-
                 return (
                   <div
                     key={item.id}
                     className={styles.mobileCard}
                   >
-                    {/* Header: Icon + Name + Value */}
                     <div className={styles.mobileCardHeader}>
-                      <div className={styles.iconWrapper40} style={{ color: item.color }}>
-                        <Icon size={20} />
-                      </div>
                       <div className={styles.mobileCardContent}>
                         <div className={styles.mobileCardTitleRow}>
                           <div className={styles.indicatorName}>
                             {item.name}
                           </div>
-                          <div className={styles.valueWrapper} style={{ flexShrink: 0 }}>
+                          <div className={styles.valueWrapper}>
                             <span className={styles.value}>
                               {item.value}
                             </span>
                             {item.unit && (
                               <span className={styles.unit}>
-                                {item.unit}
+                                / {item.unit}
                               </span>
                             )}
                           </div>
                         </div>
-                        <div className={styles.indicatorDesc} style={{ marginBottom: '8px' }}>
+                        <div className={styles.indicatorDesc}>
                           {item.description}
                         </div>
                       </div>
                     </div>
 
-                    {/* Status & Position */}
-                    {/* Status & Position */}
                     <div className={styles.flexColumnGap}>
-                      {/* Status */}
-                      <div>
-                        <span className={styles.statusBadge} style={{
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          fontSize: '9px',
-                          border: `1px solid ${item.statusBorder}`,
-                          color: item.statusColor,
-                          background: item.statusBg,
-                        }}>
+                      <div className={styles.statusRow}>
+                        <span className={styles.statusBadge}>
                           {item.status}
                         </span>
                       </div>
 
-                      {/* Position Progress Bar */}
                       <div className={styles.flexColumnGap4}>
-                        <div className={styles.rangeLabels}>
-                          <span>{item.rangeLabels[0]}</span>
-                          <span>{item.rangeLabels[2]}</span>
-                        </div>
                         <div className={styles.progressBarContainer}>
                           <div
                             className={styles.progressBar}
                             style={{
-                              width: `${item.rangeValue}%`,
-                              background: getRangeGradient(),
+                              left: `${item.rangeValue}%`,
+                              backgroundColor: '#f59e0b',
+                              boxShadow: '0 0 10px rgba(245, 158, 11, 0.5)'
                             }}
                           ></div>
                         </div>
+                        <div className={styles.rangeLabels}>
+                          <span>{item.rangeLabels[0]}</span>
+                          <span>{item.rangeLabels[2]}</span>
+                        </div>
                       </div>
-
                     </div>
                   </div>
                 );

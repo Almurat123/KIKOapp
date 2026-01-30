@@ -2,13 +2,11 @@
 import * as cheerio from 'cheerio';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import { fetchJson } from '../config/unifiedApiService.js';
 import redis from '../cache/redis.js';
 
 let browserInstance: any = null;
 let requestCount = 0;
 const MAX_REQUESTS_PER_BROWSER = 100;
-const PROXY_BASE_URL = process.env.API_URL || 'http://localhost:3001';
 
 async function getBrowser() {
     if (browserInstance && requestCount >= MAX_REQUESTS_PER_BROWSER) {
@@ -25,7 +23,7 @@ async function getBrowser() {
                 '--disable-setuid-sandbox',
                 '--disable-blink-features=AutomationControlled',
                 '--disable-features=IsolateOrigins,site-per-process',
-                '--memory-pressure-off' // Helpful for long running processes
+                '--memory-pressure-off'
             ]
         });
 
@@ -58,14 +56,6 @@ async function closeBrowser() {
 process.on('SIGTERM', closeBrowser);
 process.on('SIGINT', closeBrowser);
 
-function proxifyImage(url?: string): string | undefined {
-    if (!url) return undefined;
-    if (url.startsWith('data:')) return url; // Don't proxy data URIs
-
-    // Simple encoding
-    return `${PROXY_BASE_URL}/api/images/token?url=${encodeURIComponent(url)}`;
-}
-
 // Add stealth plugin
 (puppeteer as any).use(StealthPlugin());
 
@@ -80,188 +70,169 @@ export interface OGPMetadata {
     video?: string;
 }
 
+/**
+ * Sanitizes and prepares metadata for the frontend
+ */
+function sanitizeMetadata(metadata: OGPMetadata, origin?: string): OGPMetadata {
+    const PROXY_BASE_URL = origin || process.env.API_URL || '';
+
+    // 1. Skip generic X/Twitter placeholders
+    if (metadata.image && (
+        metadata.image.includes('og/image.png') ||
+        metadata.image.includes('twitter_logo') ||
+        metadata.image.includes('abs.twimg.com/rweb/ssr/default/v2/og/image.png') ||
+        metadata.image.includes('twitter-card')
+    )) {
+        metadata.image = undefined;
+    }
+
+    // 2. Proxify image if it exists
+    if (metadata.image && !metadata.image.startsWith('data:')) {
+        const encodedUrl = encodeURIComponent(metadata.image);
+        metadata.image = PROXY_BASE_URL
+            ? `${PROXY_BASE_URL}/api/images/token?url=${encodedUrl}`
+            : `/api/images/token?url=${encodedUrl}`;
+    }
+
+    return metadata;
+}
+
 export const ogpService = {
     /**
      * Fetch OGP metadata for a given URL
-     * Tries simple fetch first, then falls back to Puppeteer
+     * Tries simple fetch first, then fallback services
      */
-    async fetchOGP(url: string): Promise<OGPMetadata | null> {
-        // 0. Check Cache First (Instant)
-        // 0. Check Cache First (Persistent)
+    async fetchOGP(url: string, origin?: string): Promise<OGPMetadata | null> {
+        // [FIX]: Optimize X/Twitter fetching via vxtwitter
+        let fetchUrl = url;
+        if (url.includes('twitter.com') || url.includes('x.com')) {
+            fetchUrl = url.replace(/(twitter\.com|x\.com)/, 'vxtwitter.com');
+        }
+
         const cached = await redis.get(`ogp:${url}`);
         if (cached) {
-            try {
-                return JSON.parse(cached);
-            } catch (e) {
-                // Invalid JSON, ignore
-            }
+            try { return JSON.parse(cached); } catch (e) { }
         }
 
-        // 1. Try simple fetch first (fast)
-        try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 8000);
+        // [FIX]: Handle direct media links (m3u8, mp4, images)
+        // Ensure strictly image extensions are NOT treated as video
+        const isMedia = url.match(/\.(m3u8|mp4|mov|webm|jpg|jpeg|png|gif|webp|avif)(\?|$)/i);
+        if (isMedia) {
+            const ext = isMedia[1].toLowerCase();
+            const isVideoExt = ['m3u8', 'mp4', 'mov', 'webm'].includes(ext);
+            const type = isVideoExt ? 'video' : 'image';
 
-            try {
-                const response = await fetch(url, {
-                    headers: {
-                        // Use a real browser User-Agent to avoid bot blocking
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
-                    },
-                    signal: controller.signal
-                });
-
-                clearTimeout(timeout);
-
-                if (response.status === 403 || response.status === 429) {
-                    console.warn(`[OGPService] Blocked by target (${response.status}): ${url}`);
-                    // Fallthrough to Puppeteer might help if it's a JS challenge
-                }
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-
-                const html = await response.text();
-                const $ = cheerio.load(html);
-
-                const getMeta = (property: string) => {
-                    return $(`meta[property="${property}"]`).attr('content') ||
-                        $(`meta[name="${property}"]`).attr('content');
-                };
-
-                const metadata: OGPMetadata = {
-                    url: url
-                };
-
-                metadata.title = getMeta('og:title') || $('title').text();
-                metadata.description = getMeta('og:description') || getMeta('description');
-                metadata.image = getMeta('og:image');
-                metadata.siteName = getMeta('og:site_name');
-                metadata.type = getMeta('og:type');
-                metadata.twitterCard = getMeta('twitter:card');
-                metadata.video = getMeta('og:video');
-
-                // If we got good data (at least title), return it
-                // [FIX]: Many sites don't have og:image, so only require title
-                if (metadata.title) {
-                    if (metadata.image) {
-                        metadata.image = proxifyImage(metadata.image);
-                    }
-                    await redis.set(`ogp:${url}`, JSON.stringify(metadata), 7 * 24 * 60 * 60); // 7 days
-                    return metadata;
-                }
-            } finally {
-                clearTimeout(timeout);
-            }
-        } catch (error: any) {
-            console.warn(`[OGPService] Simple fetch failed for ${url}: ${error.message}, trying microlink.io...`);
+            const metadata: OGPMetadata = {
+                url,
+                title: isVideoExt ? 'Video Content' : 'Image Content',
+                type: type,
+                image: !isVideoExt ? url : undefined,
+                video: isVideoExt ? url : undefined,
+                siteName: isVideoExt ? 'Media Stream' : 'Direct Image'
+            };
+            const sanitized = sanitizeMetadata(metadata, origin);
+            await redis.set(`ogp:${url}`, JSON.stringify(sanitized), 7 * 24 * 60 * 60);
+            return sanitized;
         }
 
-        // 2. SECOND FALLBACK: microlink.io API (fast, reliable)
+        // 1. Try simple fetch with cheerio (fast)
         try {
-            console.log(`[OGPService] Trying microlink.io for ${url}`);
-            const microlinkUrl = `https://api.microlink.io/?url=${encodeURIComponent(url)}`;
-            const response = await fetch(microlinkUrl, {
-                headers: { 'Accept': 'application/json' },
+            const res = await fetch(fetchUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                },
                 signal: AbortSignal.timeout(8000)
             });
 
-            if (response.ok) {
-                const json = await response.json();
+            if (res.ok) {
+                const html = await res.text();
+                const $ = cheerio.load(html);
+
+                const getMeta = (prop: string) =>
+                    $(`meta[property="${prop}"]`).attr('content') ||
+                    $(`meta[name="${prop}"]`).attr('content') ||
+                    $(`meta[property="twitter:${prop.replace('og:', '')}"]`).attr('content') ||
+                    $(`meta[name="twitter:${prop.replace('og:', '')}"]`).attr('content');
+
+                const metadata: OGPMetadata = {
+                    url,
+                    title: getMeta('og:title') || $(`meta[name="twitter:title"]`).attr('content') || $('title').text(),
+                    description: getMeta('og:description') || $(`meta[name="twitter:description"]`).attr('content') || getMeta('description'),
+                    image: getMeta('og:image') || $(`meta[name="twitter:image"]`).attr('content'),
+                    siteName: getMeta('og:site_name') || $(`meta[name="twitter:site"]`).attr('content') || (url.includes('x.com') || url.includes('twitter.com') ? 'X' : undefined)
+                };
+
+                if (metadata.title) {
+                    const sanitized = sanitizeMetadata(metadata, origin);
+                    await redis.set(`ogp:${url}`, JSON.stringify(sanitized), 7 * 24 * 60 * 60);
+                    return sanitized;
+                }
+            }
+        } catch (e) {
+            console.warn(`[OGPService] Simple fetch failed for ${url}`);
+        }
+
+        // 2. Fallback: microlink.io
+        try {
+            const mlRes = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`, {
+                signal: AbortSignal.timeout(8000)
+            });
+
+            if (mlRes.ok) {
+                const json = await mlRes.json();
                 if (json.status === 'success' && json.data) {
                     const metadata: OGPMetadata = {
+                        url,
                         title: json.data.title,
                         description: json.data.description,
                         image: json.data.image?.url,
-                        siteName: json.data.publisher,
-                        url: json.data.url || url
+                        siteName: json.data.publisher
                     };
 
                     if (metadata.title) {
-                        if (metadata.image) metadata.image = proxifyImage(metadata.image);
-                        await redis.set(`ogp:${url}`, JSON.stringify(metadata), 7 * 24 * 60 * 60);
-                        console.log(`[OGPService] ✅ microlink.io success for ${url}`);
-                        return metadata;
+                        const sanitized = sanitizeMetadata(metadata, origin);
+                        await redis.set(`ogp:${url}`, JSON.stringify(sanitized), 7 * 24 * 60 * 60);
+                        return sanitized;
                     }
                 }
             }
-        } catch (extError) {
-            console.warn(`[OGPService] microlink.io failed for ${url}, trying Puppeteer...`);
+        } catch (e) {
+            console.warn(`[OGPService] Microlink fallback failed for ${url}`);
         }
 
-        // 3. LAST RESORT: Puppeteer (slow, may not work on Railway)
+        // 3. Last resort: Puppeteer
         try {
-            // console.log(`[OGPService] Using Puppeteer for ${url}`);
             const browser = await getBrowser();
-
+            const page = await browser.newPage();
             try {
-                const page = await browser.newPage();
-                await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-                // Block resources to speed up
-                await page.setRequestInterception(true);
-                page.on('request', (req: any) => {
-                    if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
-                        req.abort();
-                    } else {
-                        req.continue();
-                    }
-                });
-
-                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-                // Wait a tiny bit for JS to populate meta tags
+                await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
                 await new Promise(r => setTimeout(r, 1000));
 
-                /* 
-                   Use completely unrolled logic to avoid esbuild injecting helpers for internal functions.
-                   This is verbose but robust against transpilation artifacts in page.evaluate context.
-                */
                 const metadata = await page.evaluate((targetUrl: string) => {
+                    const getTag = (sel: string) => document.querySelector(sel)?.getAttribute('content');
                     return {
                         url: targetUrl,
-                        title: document.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
-                            document.querySelector('meta[name="og:title"]')?.getAttribute('content') ||
-                            document.title,
-                        description: document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
-                            document.querySelector('meta[name="og:description"]')?.getAttribute('content') ||
-                            document.querySelector('meta[name="description"]')?.getAttribute('content'),
-                        image: document.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
-                            document.querySelector('meta[name="og:image"]')?.getAttribute('content'),
-                        siteName: document.querySelector('meta[property="og:site_name"]')?.getAttribute('content') ||
-                            document.querySelector('meta[name="og:site_name"]')?.getAttribute('content'),
-                        type: document.querySelector('meta[property="og:type"]')?.getAttribute('content') ||
-                            document.querySelector('meta[name="og:type"]')?.getAttribute('content'),
-                        twitterCard: document.querySelector('meta[property="twitter:card"]')?.getAttribute('content') ||
-                            document.querySelector('meta[name="twitter:card"]')?.getAttribute('content'),
-                        video: document.querySelector('meta[property="og:video"]')?.getAttribute('content') ||
-                            document.querySelector('meta[name="og:video"]')?.getAttribute('content')
+                        title: getTag('meta[property="og:title"]') || getTag('meta[name="twitter:title"]') || document.title,
+                        description: getTag('meta[property="og:description"]') || getTag('meta[name="twitter:description"]') || getTag('meta[name="description"]'),
+                        image: getTag('meta[property="og:image"]') || getTag('meta[name="twitter:image"]'),
+                        siteName: getTag('meta[property="og:site_name"]') || getTag('meta[name="twitter:site"]')
                     };
                 }, url);
 
-                // Cache result
-                if (metadata && (metadata.title || metadata.image)) {
-                    metadata.image = proxifyImage(metadata.image);
-                    await redis.set(`ogp:${url}`, JSON.stringify(metadata), 7 * 24 * 60 * 60); // 7 days
+                if (metadata.title || metadata.image) {
+                    const sanitized = sanitizeMetadata(metadata, origin);
+                    await redis.set(`ogp:${url}`, JSON.stringify(sanitized), 7 * 24 * 60 * 60);
+                    return sanitized;
                 }
-
-                return metadata as OGPMetadata;
-
-            } catch (pageError) {
-                // If page crashes, we might want to close the page but keep browser
-                throw pageError;
+            } finally {
+                await page.close();
             }
-            // Do NOT close browser here, reusing it.
-            // finally { await browser.close(); } logic removed.
-
-        } catch (pupError) {
-            console.error(`[OGPService] Puppeteer failed for ${url}:`, pupError);
-            return null;
+        } catch (e) {
+            console.error(`[OGPService] Puppeteer failed for ${url}`, e);
         }
+
+        return null;
     }
-}
+};

@@ -47,3 +47,17 @@ export async function revokeBillingConsent() {
   }
   return response.json() as Promise<{ success: boolean }>;
 }
+
+export async function getUsageSummary() {
+  const response = await authFetch('/api/billing/usage-summary');
+  if (!response.ok) {
+    throw new Error('Failed to fetch usage summary');
+  }
+  return response.json() as Promise<{
+    dateUtc: string;
+    normal: { used: number; limit: number };
+    advanced: { used: number; limit: number };
+    dailyUsd: number;
+    tokenBalance: number;
+  }>;
+}

@@ -35,8 +35,9 @@ export const HlsVideoPlayer: React.FC<HlsVideoPlayerProps> = ({
         }
 
         // Check if URL is HLS stream
-        const isHlsStream = src.includes('.m3u8') ||
-            (src.includes('imagedelivery.net') && !src.match(/\.(mp4|webm|mov)(\?|$)/i));
+        const isImage = src.match(/\.(jpg|jpeg|png|gif|webp|svg|avif)(\?|$)/i);
+        const isHlsStream = (src.includes('.m3u8') ||
+            (src.includes('imagedelivery.net') && !src.match(/\.(mp4|webm|mov)(\?|$)/i))) && !isImage;
 
         if (isHlsStream && Hls.isSupported()) {
             // Use HLS.js for HLS streams

@@ -1,0 +1,150 @@
+/* Base docs style - copied from docs.base.org */
+
+/* Hide circular icon in language selector - trigger button */
+#localization-select-trigger .size-4,
+#localization-select-trigger .shrink-0.rounded-full,
+#localization-select-trigger div.absolute.rounded-full,
+#localization-select-trigger > div:first-child {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Hide circular icon in dropdown list items (menuitem) - localization-select-item-* */
+[id^="localization-select-item-"] .size-4,
+[id^="localization-select-item-"] .shrink-0.rounded-full,
+[id^="localization-select-item-"] div.absolute.rounded-full,
+[id^="localization-select-item-"] > div:first-child,
+[role="menuitem"][id*="localization-select"] .size-4,
+[role="menuitem"][id*="localization-select"] > div:first-child {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Hide all icons in language switcher - no flags, no avatars, no dots, text only */
+/* Mintlify uses: 1) cloudfront flags, 2) mintcdn circular language icons, 3) icon container div/span */
+img[src*="cloudfront.net/flags"],
+img[src*="/flags/"],
+img[src*="flags"],
+img[src*="flag"],
+img[src*="mintcdn"][src*="languages"],
+img[src*="mintcdn.com"][src*="navigation/languages"],
+nav img[src*="flag"],
+header img[src*="flag"],
+/* Hide icons in nav dropdown (language selector) */
+[class*="nav-dropdown-trigger"] img,
+[class*="nav-dropdown-trigger"] svg,
+[class*="nav-dropdown-content"] img,
+[class*="nav-dropdown-content"] svg,
+[class*="nav-dropdown-item"] img,
+[class*="nav-dropdown-item"] svg,
+[class*="dropdown-item-icon"],
+[class*="DropdownItemIcon"],
+[class*="DropdownItemIcon"] img,
+[class*="DropdownItemIcon"] svg,
+[class*="DropdownItemIcon"] *,
+/* Icon container - first child of dropdown item (circular dot before text) - language switcher only */
+[class*="nav-dropdown-content"] [class*="nav-dropdown-item"] > *:first-child:not([class*="text"]):not([class*="title"]),
+[class*="option-dropdown-item"] > *:first-child:not([class*="text"]),
+/* Topbar language selector icons */
+[class*="topbar-right"] img[src*="flag"],
+[class*="topbar-right"] img[src*="flags"],
+[class*="topbar-right"] svg[class*="flag"] {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  position: absolute !important;
+  left: -9999px !important;
+  overflow: hidden !important;
+}
+
+/* Danger admonition */
+.danger-admonition {
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background-color: rgba(254, 242, 242, 0.5);
+}
+
+.dark\:danger-admonition:is(.dark *) {
+  border-color: rgba(239, 68, 68, 0.3);
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+/* Assistant entry (Ask AI button) */
+.assistant-entry {
+  background-color: #0000ff !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.15) !important;
+  box-shadow: none !important;
+  font-weight: 600 !important;
+}
+
+.assistant-entry:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: none !important;
+}
+
+.assistant-entry:focus-visible {
+  outline: 2px solid rgba(0, 0, 0, 0.25) !important;
+  outline-offset: 2px !important;
+}
+
+.dark .assistant-entry {
+  background-color: #0000ff !important;
+  border-color: rgba(0, 0, 0, 0.55) !important;
+}
+
+.dark .assistant-entry:focus-visible {
+  outline: 2px solid rgba(0, 0, 0, 0.65) !important;
+}
+
+/* Logo - KIKO text typography */
+.nav-logo {
+  height: 1.5rem;
+  object-fit: contain;
+}
+
+/* Homepage / content links - Base blue */
+.use-cases-links a,
+.resource-link a {
+  font-weight: normal;
+  color: #0000ff;
+  text-decoration: none;
+  border-bottom: none;
+}
+
+.use-cases-links a:hover,
+.resource-link a:hover {
+  color: #000000;
+}
+
+.dark .use-cases-links a,
+.dark .resource-link a {
+  color: #578BFA;
+}
+
+.dark .use-cases-links a:hover,
+.dark .resource-link a:hover {
+  color: #ffffff;
+}
+
+/* Callout heading contrast in dark mode */
+.dark .callout :is(h1, h2, h3, h4, h5, h6) {
+  color: inherit;
+}

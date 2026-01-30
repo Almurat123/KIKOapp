@@ -2,6 +2,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
 
 // Per latest docs: https://docs.kyberswap.com/kyberswap-solutions/kyberswap-aggregator/aggregator-api-specification/evm-swaps
 // Latest endpoints:
@@ -35,7 +36,9 @@ export async function getKyberQuote(
     amountIn: string, // base units
     chainId: number,
     slippageBps: number,
-    recipient: string
+    recipient: string,
+    feeContext?: FeeContext | 'copy_trade' | 'launchpad',
+    isSell?: boolean
 ) {
     const chainName = CHAIN_NAME_MAP[chainId];
     if (!chainName) {
@@ -59,6 +62,16 @@ export async function getKyberQuote(
         gasInclude: 'true',
         clientId: CLIENT_ID,
     });
+
+    const normalizedFeeContext: FeeContext =
+        feeContext === 'copy_trade' || feeContext === 'copyTrade' ? 'copyTrade' : 'swap';
+    const fee = getPlatformFee(normalizedFeeContext);
+    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
+        params.set('feeReceiver', fee.evmRecipient!);
+        params.set('feeAmount', String(fee.bps));
+        params.set('isInBps', 'true');
+        params.set('chargeFeeBy', isSell ? 'currency_out' : 'currency_in');
+    }
 
     const routesUrl = `${KYBER_BASE}/${chainName}/api/v1/routes?${params.toString()}`;
     console.log('[Kyber] GET routes', { routesUrl });
@@ -105,6 +118,7 @@ export async function getKyberQuote(
         routeDetail?.paths ||
         routeDetail?.routePath ||
         routeDetail;
+    const buildRoute = routeDetail?.route || routeDetail?.routes || routePath;
 
     if (!routeSummary) {
         console.warn('[Kyber] no usable route found (missing summary)', {
@@ -129,11 +143,20 @@ export async function getKyberQuote(
         recipient: recipient,        // REQUIRED: Must be string (wallet address)
         slippageTolerance: slippageToleranceBps, // REQUIRED: Must be number (not string)
     };
+    if (buildRoute) {
+        buildBody.route = buildRoute;
+    }
 
     // Add optional fields - Kyber API may require these even though docs say optional
     buildBody.deadline = Math.floor(Date.now() / 1000) + 600; // Unix timestamp
     buildBody.clientId = CLIENT_ID; // Match x-client-id header
     buildBody.source = CLIENT_ID; // Should match client ID
+    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
+        buildBody.feeReceiver = fee.evmRecipient;
+        buildBody.feeAmount = fee.bps;
+        buildBody.isInBps = true;
+        buildBody.chargeFeeBy = isSell ? 'currency_out' : 'currency_in';
+    }
 
     // CRITICAL: Disable gas estimation per official Kyber documentation
     // Gas estimation calls eth_gasEstimate which simulates the full transaction
@@ -146,6 +169,7 @@ export async function getKyberQuote(
     console.log('[Kyber] Building route/build request body:', {
         hasRouteSummary: !!buildBody.routeSummary,
         routeSummaryKeys: buildBody.routeSummary ? Object.keys(buildBody.routeSummary).slice(0, 8) : [],
+        hasRoute: !!buildBody.route,
         sender: buildBody.sender?.slice(0, 10),
         recipient: buildBody.recipient?.slice(0, 10),
         slippageTolerance: buildBody.slippageTolerance,
@@ -167,16 +191,50 @@ export async function getKyberQuote(
     });
 
     // Add timeout for Kyber build API (10 seconds)
-    const buildJson = await fetchJson<any>({
-        url: buildUrl,
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-client-id': CLIENT_ID,
-        },
-        body: buildBody,
-        timeout: 10000
-    });
+    let buildJson: any = null;
+    try {
+        buildJson = await fetchJson<any>({
+            url: buildUrl,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-client-id': CLIENT_ID,
+            },
+            body: buildBody,
+            timeout: 10000
+        });
+    } catch (buildErr: any) {
+        const errMsg = String(buildErr?.message || '');
+        const isBindError = errMsg.includes('unable to bind request body') || errMsg.includes('4002');
+        if (isBindError) {
+            // Retry with minimal body to satisfy strict Kyber binding rules
+            const minimalBody: any = {
+                routeSummary,
+                sender: recipient,
+                recipient,
+                slippageTolerance: slippageToleranceBps
+            };
+            if (buildRoute) {
+                minimalBody.route = buildRoute;
+            }
+            try {
+                buildJson = await fetchJson<any>({
+                    url: buildUrl,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-client-id': CLIENT_ID,
+                    },
+                    body: minimalBody,
+                    timeout: 10000
+                });
+            } catch (retryErr: any) {
+                throw retryErr;
+            }
+        } else {
+            throw buildErr;
+        }
+    }
 
     if (!buildJson) {
         console.error('[Kyber] build error (null response)');

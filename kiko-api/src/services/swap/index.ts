@@ -11,9 +11,6 @@ import { EvmExecutor } from './executor/EvmExecutor.js';
 import { SolanaExecutor } from './executor/SolanaExecutor.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { getPlatformFee, isValidEvmAddress } from '../platformFeeService.js';
-import { isNativeTokenAddress, toBaseUnits, fromBaseUnits } from './utils.js';
-import { sendTransaction } from '../privyWallet.js';
 
 export class SwapRouter {
     private providers: SwapProvider[];
@@ -45,30 +42,7 @@ export class SwapRouter {
         });
 
         try {
-            // 1. Apply platform fee for native-input EVM swaps (pre-fee, adjust amount)
-            const fee = getPlatformFee((request.feeContext as any) || 'swap');
-            const isEvm = this.evmExecutor.supportsChain(request.chainId);
-            if (isEvm && isNativeTokenAddress(request.tokenIn) && fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
-                const amountBase = BigInt(toBaseUnits(request.amountIn, 18));
-                const feeWei = (amountBase * BigInt(fee.bps)) / 10000n;
-                if (feeWei > 0n && amountBase > feeWei) {
-                    await sendTransaction(request.userId, '', {
-                        to: fee.evmRecipient!,
-                        data: '0x',
-                        value: feeWei.toString(),
-                        chainId: request.chainId,
-                    });
-                    const netBase = amountBase - feeWei;
-                    request.amountIn = fromBaseUnits(netBase.toString(), 18);
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'SwapRouter: Collected platform fee (native buy)', {
-                        bps: fee.bps,
-                        wei: feeWei.toString(),
-                        chainId: request.chainId
-                    });
-                }
-            }
-
-            // 2. Get quotes from all relevant providers
+            // 1. Get quotes from all relevant providers
             const quotes = await this.getQuotes(request);
 
             if (quotes.length === 0) {

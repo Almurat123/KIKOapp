@@ -9,8 +9,8 @@ import { getMarketOverview, getTrendingTokens as getTrendingFromDb, getLastUpdat
 import { getChainsData, getLastUpdateTime as getChainsUpdateTime } from '../repositories/chainRepository.js';
 import { getProtocolsData, getLastUpdateTime as getProtocolsUpdateTime, saveProtocolsData } from '../repositories/protocolRepository.js';
 import { getTrendingTokens, getTopGainers } from '../services/coingecko.js';
-import { getProtocolsData as fetchProtocolsData, getProtocolHistoricalTvl, getProtocolDetails } from '../services/defillama.js';
-import { refreshChainsData } from '../jobs/marketDataJob.js';
+import { getProtocolsData as fetchProtocolsData } from '../services/defillama.js';
+import { refreshChainsData, refreshMarketOverview } from '../jobs/marketDataJob.js';
 import { env } from '../config/env.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 
@@ -32,6 +32,22 @@ export async function marketRoutes(fastify: FastifyInstance) {
         success: true,
         data,
         updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  // POST /api/market/refresh - Force refresh market overview data
+  fastify.post('/refresh', async (request, reply) => {
+    try {
+      console.log('[MarketAPI] Force refresh triggered');
+      await refreshMarketOverview(true); // force = true
+      const data = await getMarketOverview();
+      return reply.send({
+        success: true,
+        message: 'Market data refreshed successfully',
+        data,
       });
     } catch (error) {
       throw error;
@@ -168,55 +184,7 @@ export async function marketRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // GET /api/market/protocol/:name
-  fastify.get('/protocol/:name', async (request, reply) => {
-    try {
-      const { name } = request.params as { name: string };
 
-      if (!name) {
-        throw new AppError(400, 'Protocol name is required', 'VALIDATION_ERROR');
-      }
-
-      // Fetch protocol details from DeFiLlama
-      const details = await getProtocolDetails(name);
-
-      if (!details) {
-        return reply.status(404).send({
-          success: false,
-          error: 'Protocol not found',
-        });
-      }
-
-      return reply.send({
-        success: true,
-        data: details,
-      });
-    } catch (error) {
-      throw handleExternalApiError(error as Error, 'DeFiLlama');
-    }
-  });
-
-  // GET /api/market/protocol/:name/history
-  fastify.get('/protocol/:name/history', async (request, reply) => {
-    try {
-      const { name } = request.params as { name: string };
-
-      if (!name) {
-        throw new AppError(400, 'Protocol name is required', 'VALIDATION_ERROR');
-      }
-
-      // Fetch historical TVL data from DeFiLlama
-      const history = await getProtocolHistoricalTvl(name);
-
-      return reply.send({
-        success: true,
-        data: history,
-        count: history.length,
-      });
-    } catch (error) {
-      throw handleExternalApiError(error as Error, 'DeFiLlama');
-    }
-  });
 
   // GET /api/market/indicators
   // Returns VIX, DXY, Gold, Oil, EUR/USD

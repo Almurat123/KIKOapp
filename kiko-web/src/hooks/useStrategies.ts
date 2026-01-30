@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { getConfigs, updateConfigStatus, deleteConfig, updateConfig, getPositions, type CopyTradeConfig } from '../services/copyTradeApi';
+import { getPolymarketCopyConfigs, type PolymarketCopyConfig } from '../services/polymarketCopyApi';
 import { toast } from 'sonner';
 
 export interface ExecutionRecord {
@@ -15,7 +16,7 @@ export interface ExecutionRecord {
 export interface TradingStrategy {
   id: string;
   name: string;
-  type: 'auto_buy' | 'auto_sell' | 'dca' | 'custom' | 'copy_trade';
+  type: 'auto_buy' | 'auto_sell' | 'dca' | 'custom' | 'copy_trade' | 'polymarket_copy';
   tokenIn: string;
   tokenOut: string;
   chain: string;
@@ -45,6 +46,8 @@ export interface TradingStrategy {
   allowance_mode?: 'one_shot' | 'unlimited';
   // Copy Trade specific fields
   copyTradeConfig?: CopyTradeConfig;
+  // Polymarket Copy specific fields
+  polymarketCopyConfig?: PolymarketCopyConfig;
 }
 
 const STORAGE_KEY = 'kiko-strategies-v2';
@@ -88,9 +91,10 @@ export const useStrategies = () => {
     // 2. Load Real Copy Trade Configs AND Positions (ONLY if authenticated)
     if (authenticated) {
       try {
-        const [configs, positions] = await Promise.all([
+        const [configs, positions, polyConfigs] = await Promise.all([
           getConfigs(),
-          getPositions().catch(() => []) // Fail gracefully for positions
+          getPositions().catch(() => []), // Fail gracefully for positions
+          getPolymarketCopyConfigs().catch(() => [])
         ]);
 
         // Calculate Stats
@@ -126,6 +130,31 @@ export const useStrategies = () => {
 
         allStrategies.push(...mappedConfigs);
 
+        const mappedPolyConfigs: TradingStrategy[] = polyConfigs.map(config => ({
+          id: config.id,
+          name: `Polymarket Copy ${config.targetWallet.slice(0, 6)}...${config.targetWallet.slice(-4)}`,
+          type: 'polymarket_copy',
+          tokenIn: 'USDC',
+          tokenOut: 'POLY',
+          chain: 'polygon',
+          chainId: 137,
+          triggerCondition: 'Target opens position',
+          executionAmount: config.betSizeUsd.toString(),
+          amountAsset: 'USD',
+          limits: {
+            maxUsdPerDay: 'Unlimited',
+            maxTradesPerDay: config.maxOpenBets || 999,
+            cooldown: '0s'
+          },
+          status: config.status,
+          createdAt: new Date(config.createdAt).getTime(),
+          updatedAt: new Date(config.updatedAt).getTime(),
+          executionHistory: [],
+          polymarketCopyConfig: config
+        }));
+
+        allStrategies.push(...mappedPolyConfigs);
+
       } catch (error) {
         console.warn('[useStrategies] Failed to fetch copy trade data:', error);
       }
@@ -134,12 +163,18 @@ export const useStrategies = () => {
     // Sort by createdAt desc
     allStrategies.sort((a, b) => b.createdAt - a.createdAt);
 
-    // SAFETY: Filter out any copy_trade strategies that don't have valid copyTradeConfig
+    // SAFETY: Filter out any copy_trade/polymarket_copy strategies that don't have valid configs
     const validStrategies = allStrategies.filter(s => {
       if (s.type === 'copy_trade') {
         const hasValidConfig = s.copyTradeConfig &&
           s.copyTradeConfig.targetWallet &&
           s.copyTradeConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
+        if (!hasValidConfig) return false;
+      }
+      if (s.type === 'polymarket_copy') {
+        const hasValidConfig = s.polymarketCopyConfig &&
+          s.polymarketCopyConfig.targetWallet &&
+          s.polymarketCopyConfig.targetWallet !== '0x0000000000000000000000000000000000000000';
         if (!hasValidConfig) return false;
       }
       return true;
@@ -153,9 +188,9 @@ export const useStrategies = () => {
     fetchAllStrategies();
   }, [fetchAllStrategies]);
 
-  // Persist local strategies (filter out copy_trade types)
+  // Persist local strategies (filter out copy_trade/polymarket_copy types)
   useEffect(() => {
-    const localOnly = strategies.filter(s => s.type !== 'copy_trade');
+    const localOnly = strategies.filter(s => s.type !== 'copy_trade' && s.type !== 'polymarket_copy');
     if (localOnly.length > 0) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(localOnly));
     }

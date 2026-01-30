@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { getZeroExQuote } from './zeroEx.js';
 import { getKyberQuote } from './kyberAggregator.js';
 import { AppError } from '../middleware/errorHandler.js';
+import type { ZeroExAffiliateFee } from './zeroEx.js';
 
 export interface QuoteResult {
     dex: string;
@@ -35,7 +36,10 @@ export interface BestQuoteParams {
     slippageBps: number;
     userAddress?: string;
     refPrice?: number | null; // USD price ratio for price impact calc
+    affiliateFee?: ZeroExAffiliateFee;
     excludeDex?: string; // Exclude this DEX from selection (for retry)
+    feeContext?: 'swap' | 'copyTrade' | 'copy_trade' | 'launchpad';
+    isSell?: boolean;
 }
 
 /**
@@ -46,7 +50,7 @@ export async function getBestQuote(params: BestQuoteParams): Promise<{ best: Quo
         tokenIn, tokenOut, actualTokenIn, actualTokenOut,
         amountInBase, amountInHuman,
         tokenInDecimals, tokenOutDecimals,
-        chainId, slippageBps, userAddress, refPrice
+        chainId, slippageBps, userAddress, refPrice, affiliateFee
     } = params;
 
     return getBestQuoteInternal(params);
@@ -57,7 +61,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
         tokenIn, tokenOut, actualTokenIn, actualTokenOut,
         amountInBase, amountInHuman,
         tokenInDecimals, tokenOutDecimals,
-        chainId, slippageBps, userAddress, refPrice
+        chainId, slippageBps, userAddress, refPrice, affiliateFee
     } = params;
 
     const quotes: QuoteResult[] = [];
@@ -110,7 +114,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 chainId,
                 slippageBps,
                 userAddress,
-                undefined,
+                affiliateFee,
                 isQuoteOnly // Price quote only if no user address
             );
 
@@ -166,7 +170,9 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                 amountInBase,
                 chainId,
                 slippageBps,
-                userAddress
+                userAddress,
+                params.feeContext,
+                params.isSell
             );
 
             if (kyberQuote) {

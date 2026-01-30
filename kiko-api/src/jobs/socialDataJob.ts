@@ -24,6 +24,7 @@ import * as neynarService from '../services/neynarService.js';
 import { baseAppService } from '../services/baseAppService.js';
 import { zoraService } from '../services/zoraService.js';
 import qualityUsersRepo from '../repositories/qualityUsersRepository.js';
+import { ogpService } from '../services/ogpService.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -332,6 +333,34 @@ export async function runDiscoveryJob(force = false): Promise<void> {
 
     await saveTrendingCasts(newCasts);
     console.log(`[SocialJob] Casts refreshed: ${newCasts.length} saved`);
+
+    // ===== STEP 3: OGP Prefetching (Background) =====
+    // Trigger OGP fetch for new casts to populate cache before users see them
+    const prefetchLimit = 50; // Prefetch top 50 only to save resources
+    const castsToPrefetch = newCasts.slice(0, prefetchLimit);
+
+    console.log(`[SocialJob] 🚀 Triggering OGP Prefetch for top ${castsToPrefetch.length} casts...`);
+
+    // Process OGP prefetch in background batches
+    const ogpBatchSize = 5;
+    for (let i = 0; i < castsToPrefetch.length; i += ogpBatchSize) {
+      const batch = castsToPrefetch.slice(i, i + ogpBatchSize);
+      // Don't await the results, let it run in background
+      Promise.all(batch.map(async (cast) => {
+        const urls = cast.text.match(/https?:\/\/[^\s]+/g);
+        if (urls && urls.length > 0) {
+          try {
+            // First URL only per cast
+            await ogpService.fetchOGP(urls[0]);
+          } catch (e) {
+            // Background errors ignore
+          }
+        }
+      })).catch(() => { });
+
+      // Small pause between batches to prevent CPU spikes
+      await new Promise(r => setTimeout(r, 200));
+    }
   } catch (error) {
     console.error('[SocialJob] Error:', error instanceof Error ? error.message : error);
   }

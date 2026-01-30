@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { ExternalLink, Video } from 'lucide-react';
+import { ExternalLink, Video as VideoIcon } from 'lucide-react';
+import { HlsVideoPlayer } from './HlsVideoPlayer';
 
 interface EmbedPreviewProps {
     url: string;
@@ -14,6 +15,7 @@ interface OGPData {
     siteName?: string;
     url?: string;
     type?: string;
+    video?: string;
 }
 
 export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
@@ -29,7 +31,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                 setIsVisible(true);
                 observer.disconnect();
             }
-        }, { rootMargin: '200px' }); // Load when item is 200px from viewport
+        }, { rootMargin: '800px' }); // Aggressive preloading
 
         if (containerRef.current) {
             observer.observe(containerRef.current);
@@ -39,10 +41,9 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
     }, []);
 
     useEffect(() => {
-        if (!isVisible) return; // Don't fetch until visible
+        if (!isVisible) return;
         const fetchOGP = async () => {
             try {
-                // Check if it's a zoraCoin or obscure protocol, skip
                 if (url.startsWith('zoraCoin:') || url.startsWith('ethereum:')) {
                     setLoading(false);
                     return;
@@ -69,7 +70,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
     }, [url, isVisible]);
 
     if (!isVisible) {
-        return <div ref={containerRef} style={{ height: '200px', marginTop: '12px' }} />;
+        return <div ref={containerRef} style={{ height: '60px', marginTop: '12px' }} />;
     }
 
     if (!data && !loading) {
@@ -80,23 +81,17 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                     window.open(url, '_blank', 'noopener,noreferrer');
                 }}
                 style={{
-                    marginTop: '12px',
+                    marginTop: '8px',
                     borderRadius: '12px',
-                    overflow: 'hidden',
-                    border: `1px solid ${isDark ? '#27272a' : '#e4e4e7'}`,
-                    background: isDark ? 'rgba(24, 24, 27, 0.5)' : '#ffffff',
+                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                    background: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0,0,0,0.01)',
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    minHeight: '120px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '12px',
+                    padding: '10px 14px',
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontSize: '13px' }}>
                     <ExternalLink size={14} />
-                    <span style={{ textDecoration: 'underline' }}>{url}</span>
+                    <span style={{ textDecoration: 'underline', opacity: 0.8 }}>{url}</span>
                 </div>
             </div>
         );
@@ -106,20 +101,50 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
         return (
             <div style={{
                 borderRadius: '12px',
-                border: `1px solid ${isDark ? '#27272a' : '#e4e4e7'}`,
-                height: '200px',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
+                height: '80px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginTop: '8px',
-                background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)'
+                background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)'
             }}>
-                <div className="animate-pulse" style={{ width: '20px', height: '20px', borderRadius: '50%', background: isDark ? '#3f3f46' : '#d4d4d8' }} />
+                <div className="animate-pulse" style={{ width: '16px', height: '16px', borderRadius: '50%', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }} />
             </div>
         );
     }
 
     if (!data) return null;
+
+    // Determine if it's an X/Twitter link for specific branding
+    const isX = url.includes('twitter.com') || url.includes('x.com');
+    const accentColor = isX ? (isDark ? '#ffffff' : '#000000') : '#3b82f6';
+
+    // Efficiency Protocol: Triple check media type to prevent black screen video players
+    const isExplicitImage = url.match(/\.(jpg|jpeg|png|gif|webp|avif|svg)(\?|$)/i);
+    const isVideo = data.type === 'video' && data.video && !isExplicitImage;
+
+    // Direct Video Rendering
+    if (isVideo) {
+        return (
+            <div style={{ marginTop: '12px' }}>
+                <HlsVideoPlayer src={data.video!} maxWidth="100%" maxHeight="450px" />
+                <div style={{
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                }}>
+                    <VideoIcon size={12} />
+                    <span>{data.siteName || 'Video Stream'}</span>
+                    <span style={{ opacity: 0.5 }}>•</span>
+                    <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>Source</a>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div
@@ -131,102 +156,118 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                 marginTop: '12px',
                 borderRadius: '12px',
                 overflow: 'hidden',
-                border: `1px solid ${isDark ? '#27272a' : '#e4e4e7'}`,
-                background: isDark ? 'rgba(24, 24, 27, 0.5)' : '#ffffff',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
+                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff',
                 cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                minHeight: data.image ? '220px' : '120px',
+                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                display: 'flex',
+                position: 'relative',
+                minHeight: '60px',
+                boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.02)'
             }}
             onMouseOver={(e) => {
-                e.currentTarget.style.borderColor = isDark ? '#3f3f46' : '#d4d4d8';
-                e.currentTarget.style.background = isDark ? 'rgba(39, 39, 42, 0.5)' : '#f4f4f5';
+                e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.06)' : '#f9f9f9';
+                e.currentTarget.style.transform = 'translateY(-1px)';
             }}
             onMouseOut={(e) => {
-                e.currentTarget.style.borderColor = isDark ? '#27272a' : '#e4e4e7';
-                e.currentTarget.style.background = isDark ? 'rgba(24, 24, 27, 0.5)' : '#ffffff';
+                e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff';
+                e.currentTarget.style.transform = 'translateY(0)';
             }}
         >
-            {data.image && (
+            {/* Left accent bar - Only for X (Twitter) */}
+            {isX && (
                 <div style={{
-                    width: '100%',
-                    height: '160px',
-                    position: 'relative',
-                    background: '#000'
-                }}>
-                    <img
-                        src={data.image}
-                        alt={data.title}
-                        loading="lazy"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        onError={(e) => e.currentTarget.style.display = 'none'}
-                    />
-                    {data.type?.includes('video') && (
+                    width: '4px',
+                    background: accentColor,
+                    flexShrink: 0,
+                    opacity: 0.8
+                }} />
+            )}
+
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                {data.image && (
+                    <div style={{
+                        width: '100%',
+                        height: '180px', // 固定高度配合 object-fit
+                        overflow: 'hidden',
+                        background: isDark ? '#18181b' : '#f4f4f5',
+                        borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        position: 'relative'
+                    }}>
+                        <img
+                            src={data.image}
+                            alt={data.title}
+                            loading="lazy"
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                                display: 'block'
+                            }}
+                            onError={(e) => {
+                                // 只有在真正加载失败时才隐藏容器
+                                const parent = e.currentTarget.parentElement;
+                                if (parent) parent.style.display = 'none';
+                            }}
+                        />
+                    </div>
+                )}
+
+                <div style={{ padding: '12px 16px' }}>
+                    {data.siteName && (
                         <div style={{
-                            position: 'absolute',
-                            top: '50%', left: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            width: '40px', height: '40px',
-                            background: 'rgba(0,0,0,0.6)',
-                            borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            backdropFilter: 'blur(4px)'
+                            fontSize: '11px',
+                            color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
+                            marginBottom: '4px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            fontWeight: '700'
                         }}>
-                            <Video size={20} color="white" />
+                            {data.siteName}
+                        </div>
+                    )}
+
+                    {data.title && (
+                        <div style={{
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            color: isDark ? '#ffffff' : '#111827',
+                            marginBottom: '6px',
+                            lineHeight: '1.4',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            fontFamily: "'Fredoka', sans-serif"
+                        }}>
+                            {data.title}
+                        </div>
+                    )}
+
+                    {data.description && (
+                        <div style={{
+                            fontSize: '14px',
+                            color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
+                            lineHeight: '1.5',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 3,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden'
+                        }}>
+                            {data.description}
+                        </div>
+                    )}
+
+                    {!data.image && !data.title && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontSize: '13px' }}>
+                            <ExternalLink size={14} />
+                            <span style={{ textDecoration: 'underline' }}>{url}</span>
                         </div>
                     )}
                 </div>
-            )}
-
-            <div style={{ padding: '12px' }}>
-                {data.siteName && (
-                    <div style={{
-                        fontSize: '11px',
-                        color: isDark ? '#a1a1aa' : '#71717a',
-                        marginBottom: '4px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.02em',
-                        fontWeight: '600'
-                    }}>
-                        {data.siteName}
-                    </div>
-                )}
-
-                {data.title && (
-                    <div style={{
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        color: isDark ? '#f4f4f5' : '#18181b',
-                        marginBottom: '4px',
-                        lineHeight: '1.4',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden'
-                    }}>
-                        {data.title}
-                    </div>
-                )}
-
-                {data.description && (
-                    <div style={{
-                        fontSize: '13px',
-                        color: isDark ? '#a1a1aa' : '#71717a',
-                        lineHeight: '1.4',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden'
-                    }}>
-                        {data.description}
-                    </div>
-                )}
-
-                {!data.image && !data.title && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontSize: '13px' }}>
-                        <ExternalLink size={14} />
-                        <span style={{ textDecoration: 'underline' }}>{url}</span>
-                    </div>
-                )}
             </div>
         </div>
     );

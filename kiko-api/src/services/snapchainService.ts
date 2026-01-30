@@ -57,15 +57,13 @@ async function fetchFromHubWithFallback(endpoint: string, timeout = 10000): Prom
   const hubs = [
     { name: 'Pinata', url: `${PRIMARY_HUB_URL}${endpoint}` },
     { name: 'Merv.fun', url: `${FALLBACK_HUB_URL}${endpoint}` },
-    // Litecast has different API structure, skip for now
   ];
 
-  // Race all Hubs in parallel
+  // Race all Hubs in parallel - silent mode to reduce log spam
   const promises = hubs.map(async (hub) => {
     try {
       const result = await fetchWithTimeout(hub.url, {}, timeout);
       if (result && !result.error && result.messages && result.messages.length > 0) {
-        console.log(`[SnapchainService] ✅ ${hub.name} won the race for ${endpoint} (${result.messages.length} messages)`);
         return { success: true, data: result, hub: hub.name };
       }
       return { success: false, hub: hub.name, reason: 'empty or error' };
@@ -84,11 +82,7 @@ async function fetchFromHubWithFallback(endpoint: string, timeout = 10000): Prom
     }
   }
 
-  // All failed, log details
-  const failures = results.map((r) =>
-    r.status === 'fulfilled' ? `${r.value.hub}: ${r.value.reason}` : 'rejected'
-  );
-  console.log(`[SnapchainService] ❌ All Hubs failed for ${endpoint}: ${failures.join(', ')}`);
+  // All failed - silent (don't log every failure, too noisy)
   return null;
 }
 
@@ -377,9 +371,9 @@ export async function getUserDataByFid(fid: number): Promise<HubUserData | null>
  */
 export async function getRepliesCount(targetFid: number, targetHash: string): Promise<number> {
   try {
-    const url = `${HUB_URL}/v1/castsByParent?fid=${targetFid}&hash=${targetHash}&pageSize=1000`;
-    const data = await fetchJson({ url });
-    return (data as any).messages?.length || 0;
+    // Use multi-hub fallback for better reliability
+    const data = await fetchFromHubWithFallback(`/v1/castsByParent?fid=${targetFid}&hash=${targetHash}&pageSize=1000`);
+    return (data as any)?.messages?.length || 0;
   } catch (error: any) {
     // Silent fail for network errors in background jobs
     if (error?.code === 'ECONNRESET' || error?.message?.includes('fetch failed')) {
@@ -394,16 +388,16 @@ export async function getRepliesCount(targetFid: number, targetHash: string): Pr
  */
 export async function getReactionsByCast(targetFid: number, targetHash: string): Promise<SnapchainReactions> {
   try {
-    // Get likes, recasts, and replies in parallel
+    // Get likes, recasts, and replies in parallel using multi-hub fallback
     const [likesData, recastsData, repliesCount] = await Promise.all([
-      fetchJson({ url: `${HUB_URL}/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Like&pageSize=1000` }),
-      fetchJson({ url: `${HUB_URL}/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Recast&pageSize=1000` }),
+      fetchFromHubWithFallback(`/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Like&pageSize=1000`),
+      fetchFromHubWithFallback(`/v1/reactionsByCast?target_fid=${targetFid}&target_hash=${targetHash}&reaction_type=Recast&pageSize=1000`),
       getRepliesCount(targetFid, targetHash),
     ]);
 
     return {
-      likes: (likesData as any).messages?.length || 0,
-      recasts: (recastsData as any).messages?.length || 0,
+      likes: (likesData as any)?.messages?.length || 0,
+      recasts: (recastsData as any)?.messages?.length || 0,
       replies: repliesCount,
     };
   } catch (error: any) {
@@ -437,10 +431,22 @@ export async function getCastByHash(hash: string): Promise<HubCast | null> {
 // to avoid resolving the API endpoint issue right now if it's complex.
 // The Hub endpoint `v1/castById?fid=X&hash=Y` exists.
 
+/**
+ * Get a cast by FID and hash
+ * [Logic]: Uses multi-hub racing for reliability
+ * [Ref]: Hub API endpoint v1/castById
+ * [Risk]: If all hubs fail, returns null silently
+ */
 export async function getCastById(fid: number, hash: string): Promise<HubCast | null> {
   try {
-    const url = `${HUB_URL}/v1/castById?fid=${fid}&hash=${hash}`;
-    const responseData = await fetchJson({ url });
+    // [Logic]: Use multi-hub fallback for better reliability (was using single HUB_URL)
+    // [Ref]: Same pattern as getReactionsByCast and getRepliesCount
+    // [Risk]: May take slightly longer if first hub is slow
+    const endpoint = `/v1/castById?fid=${fid}&hash=${hash}`;
+    const responseData = await fetchFromHubWithFallback(endpoint, 5000);
+
+    if (!responseData) return null;
+
     const messageData = responseData.data; // The message data
 
     if (!messageData || !messageData.castAddBody) return null;

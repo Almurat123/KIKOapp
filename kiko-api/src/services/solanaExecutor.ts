@@ -5,7 +5,6 @@ import { getServerSolanaWalletAddress, sendSolanaTransaction, getDelegatedSolana
 import { getSolanaQuote } from './solanaSwap.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getPlatformFee, type FeeContext } from './platformFeeService.js';
 import { PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 
 export interface SolanaSwapParams {
@@ -14,7 +13,7 @@ export interface SolanaSwapParams {
     tokenOutMint: string;
     amountIn: string; // Atomic units (lamports/etc)
     slippageBps?: number;
-    feeContext?: FeeContext;
+    feeContext?: 'swap' | 'copyTrade';
     accessToken?: string;
 }
 
@@ -41,52 +40,7 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Executing Swap', { tokenInMint, tokenOutMint, amountIn });
 
-    // Optional platform fee:
-    // - If input is SOL, charge fee in lamports via a separate transfer tx, then swap the remainder.
-    // - If input is an SPL token, charge fee via token transfer from user's ATA to fee recipient's ATA.
-    const fee = getPlatformFee(params.feeContext || 'swap');
     let effectiveAmountIn = amountIn;
-    if (fee.bps > 0 && fee.solanaRecipient && tokenInMint === SOLANA_CONFIG.TOKENS.SOL) {
-        const amountBI = BigInt(amountIn || '0');
-        const feeLamports = (amountBI * BigInt(fee.bps)) / BigInt(10000);
-
-        if (feeLamports > BigInt(0) && amountBI > feeLamports) {
-            const payer = new PublicKey(walletAddress);
-            const recipient = new PublicKey(fee.solanaRecipient);
-            const blockhashConnection = getSolanaConnection();
-            const { blockhash } = await blockhashConnection.getLatestBlockhash('finalized');
-
-            if (feeLamports > BigInt(Number.MAX_SAFE_INTEGER)) {
-                throw new AppError(400, 'Solana fee amount too large', 'FEE_TRANSFER_FAILED');
-            }
-            const ix = SystemProgram.transfer({
-                fromPubkey: payer,
-                toPubkey: recipient,
-                lamports: Number(feeLamports),
-            });
-
-            const messageV0 = new TransactionMessage({
-                payerKey: payer,
-                recentBlockhash: blockhash,
-                instructions: [ix],
-            }).compileToV0Message();
-
-            const feeTx = new VersionedTransaction(messageV0);
-            const feeTxB64 = Buffer.from(feeTx.serialize()).toString('base64');
-
-            logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Charging platform fee (SOL)', {
-                bps: fee.bps,
-                lamports: feeLamports.toString(),
-                recipient: fee.solanaRecipient,
-            });
-
-            await sendSolanaTransaction(userId, feeTxB64);
-
-            effectiveAmountIn = (amountBI - feeLamports).toString();
-        }
-    }
-
-    // NOTE: For token->SOL sells, fee is charged in SOL after the swap (see below).
 
     // 1. Get Quote & Transaction (Unified)
     // using 'auto' aggregator to try Jupiter first, then Raydium
@@ -96,7 +50,9 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
         effectiveAmountIn,
         slippageBps,
         'auto', // Try all aggregators
-        walletAddress // Build transaction for the SAME wallet that will sign
+        walletAddress, // Build transaction for the SAME wallet that will sign
+        undefined,
+        params.feeContext
     );
 
     // [Expert Logic]: Add explicit priority fee context for copytrading
@@ -178,40 +134,6 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
         // If confirmation times out or fails, still return signature but log warning
         if (confirmErr?.code === 'TRANSACTION_FAILED') throw confirmErr;
         logger.warn(LogCode.SYS_ERROR, 'SolanaExecutor: Could not confirm tx', { signature, error: confirmErr.message });
-    }
-
-    // Platform fee: charge in SOL after sell (token -> SOL)
-    if (fee.bps > 0 && fee.solanaRecipient && tokenOutMint === SOLANA_CONFIG.TOKENS.SOL && tokenInMint !== SOLANA_CONFIG.TOKENS.SOL) {
-        try {
-            const outLamports = BigInt(quote.outAmount || '0');
-            const feeLamports = (outLamports * BigInt(fee.bps)) / BigInt(10000);
-            if (feeLamports > BigInt(0)) {
-                const payer = new PublicKey(walletAddress);
-                const recipient = new PublicKey(fee.solanaRecipient);
-                const { blockhash } = await getSolanaConnection().getLatestBlockhash('finalized');
-                const messageV0 = new TransactionMessage({
-                    payerKey: payer,
-                    recentBlockhash: blockhash,
-                    instructions: [
-                        SystemProgram.transfer({
-                            fromPubkey: payer,
-                            toPubkey: recipient,
-                            lamports: Number(feeLamports),
-                        }),
-                    ],
-                }).compileToV0Message();
-                const feeTx = new VersionedTransaction(messageV0);
-                const feeTxB64 = Buffer.from(feeTx.serialize()).toString('base64');
-                await sendSolanaTransaction(userId, feeTxB64);
-                logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Collected platform fee (SOL sell)', {
-                    bps: fee.bps,
-                    lamports: feeLamports.toString(),
-                    recipient: fee.solanaRecipient,
-                });
-            }
-        } catch (feeErr: any) {
-            logger.warn(LogCode.EXE_TX_REVERTED, 'SolanaExecutor: Fee collection failed', { error: feeErr.message });
-        }
     }
 
     return signature;

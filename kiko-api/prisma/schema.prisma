@@ -549,6 +549,9 @@ model MarketOverview {
   evix                    Decimal?
   liquidityStressIndex    Decimal?
   liquidityStressStatus   String?  @db.VarChar(20)
+  stablecoinsMcap         Decimal?
+  btcDomChange24h         Decimal?
+  mcapChange24h           Decimal?
   updatedAt               DateTime @default(now())
   createdAt               DateTime @default(now())
 

@@ -9,7 +9,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import { getTrendingCasts, searchCasts, hybridSearchCasts, getFarcasterProfile, checkUserFollowsKiko } from '../repositories/socialRepository.js';
+import { getTrendingCasts, getTrendingCastsWithCursor, searchCasts, hybridSearchCasts, getFarcasterProfile, checkUserFollowsKiko } from '../repositories/socialRepository.js';
 import { getQualityUsersStats } from '../repositories/qualityUsersRepository.js';
 import { env } from '../config/env.js';
 import snapchainService from '../services/snapchainService.js';
@@ -35,6 +35,30 @@ export async function socialRoutes(fastify: FastifyInstance) {
         success: true,
         data: trendingCasts,
         count: trendingCasts.length,
+      });
+    } catch (error) {
+      throw handleDatabaseError(error as Error);
+    }
+  });
+
+  // GET /api/social/trending/cursor - Twitter-style cursor-based pagination
+  // Uses composite cursor (heatScore, timestamp, hash) for stable ordering
+  fastify.get('/trending/cursor', async (request, reply) => {
+    try {
+      const query = request.query as { limit?: string, cursor?: string, timeRange?: 'trending' | '24h' | '7d' | '30d', sortBy?: 'trending' | 'newest' };
+      const limit = query.limit ? parseInt(query.limit, 10) : 30;
+      const cursor = query.cursor || undefined;
+      const timeRange = query.timeRange || 'trending';
+      const sortBy = query.sortBy || 'trending';
+
+      const result = await getTrendingCastsWithCursor(limit, timeRange, cursor, sortBy);
+
+      return reply.send({
+        success: true,
+        data: result.casts,
+        count: result.casts.length,
+        nextCursor: result.nextCursor,
+        hasMore: result.hasMore,
       });
     } catch (error) {
       throw handleDatabaseError(error as Error);
@@ -122,7 +146,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'URL is required' });
       }
 
-      const metadata = await ogpService.fetchOGP(decodedUrl(url));
+      const metadata = await ogpService.fetchOGP(decodedUrl(url), request.headers.origin);
       return reply.send({ success: true, data: metadata });
     } catch (error) {
       // Silent fail or minimal error

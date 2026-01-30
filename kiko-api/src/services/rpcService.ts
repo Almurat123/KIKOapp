@@ -1,4 +1,5 @@
 import { callRpc } from './rpcManager.js';
+import { getChainConfig } from '../config/chainConfig.js';
 import { encodeFunctionData, decodeFunctionResult, parseAbi } from 'viem';
 
 // Minimal ABI for ERC20 metadata
@@ -18,6 +19,16 @@ export interface OnChainMetadata {
  * Fetch token metadata directly from chain via RPC (Failover safe)
  */
 export async function getTokenMetadata(chainId: number, address: string): Promise<OnChainMetadata> {
+    const normalized = address.toLowerCase();
+    if (normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+        normalized === '0x0000000000000000000000000000000000000000') {
+        const chain = getChainConfig(chainId);
+        return {
+            name: chain.nativeCurrency.name,
+            symbol: chain.nativeCurrency.symbol,
+            decimals: chain.nativeCurrency.decimals
+        };
+    }
     // 1. Solana Handling
     if (chainId === 900) {
         try {

@@ -90,25 +90,13 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
     const decimals = tokenInfo?.decimals || 18;
 
     // Convert amount to smallest unit
-    let sellAmountBase = toWei(amountIn, decimals);
+    const sellAmountBase = toWei(amountIn, decimals);
 
-    // Platform fee: only charge in native token for buys
     const fee = getPlatformFee(params.feeContext || 'swap');
-    const isNativeIn = tokenIn.toLowerCase() === 'eth' || tokenIn.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    if (isNativeIn && fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
-        const amountBI = BigInt(sellAmountBase || '0');
-        const feeWei = (amountBI * BigInt(fee.bps)) / 10000n;
-        if (feeWei > 0n && amountBI > feeWei) {
-            await sendTransaction(userId, '', {
-                to: fee.evmRecipient!,
-                data: '0x',
-                value: feeWei.toString(),
-                chainId,
-            });
-            sellAmountBase = (amountBI - feeWei).toString();
-            logger.info(LogCode.EXE_TX_BROADCAST, 'Platform fee collected (native buy)', { bps: fee.bps, wei: feeWei.toString() });
-        }
-    }
+    const affiliateFee =
+        fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)
+            ? { affiliateAddress: fee.evmRecipient!, buyTokenPercentageFeeBps: fee.bps }
+            : undefined;
 
     const quote = await getZeroExQuote(
         tokenIn === 'ETH' ? '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' : tokenIn,
@@ -116,7 +104,8 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         sellAmountBase,
         chainId,
         slippageBps,
-        walletAddress // taker address
+        walletAddress, // taker address
+        affiliateFee
     );
 
     if (!quote) {
@@ -249,6 +238,12 @@ export async function executeSellInstant({
     // Get best quote via QuoteService
     const { getBestQuote } = await import('./quoteService.js');
 
+    const fee = getPlatformFee(feeContext || 'swap');
+    const affiliateFee =
+        fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)
+            ? { affiliateAddress: fee.evmRecipient!, buyTokenPercentageFeeBps: fee.bps }
+            : undefined;
+
     // Construct params for getBestQuote
     const { best } = await getBestQuote({
         tokenIn: tokenToSell,
@@ -261,7 +256,10 @@ export async function executeSellInstant({
         tokenOutDecimals: 18,
         chainId,
         slippageBps: slippageBps || 50,
-        userAddress: walletAddress
+        userAddress: walletAddress,
+        affiliateFee,
+        feeContext,
+        isSell: true
     });
 
     if (!best) {
@@ -308,22 +306,6 @@ export async function executeSellInstant({
         throw new AppError(500, `Sell transaction reverted on-chain: ${txHash}`, 'TRANSACTION_REVERTED');
     }
 
-    // Platform fee: charge in native token after sell (based on quoted output)
-    const fee = getPlatformFee(feeContext || 'swap');
-    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
-        const outBase = best?.amountOutBase || '0';
-        const outBI = BigInt(outBase);
-        const feeWei = (outBI * BigInt(fee.bps)) / 10000n;
-        if (feeWei > 0n) {
-            await sendTransaction(userId, '', {
-                to: fee.evmRecipient!,
-                data: '0x',
-                value: feeWei.toString(),
-                chainId,
-            });
-            logger.info(LogCode.EXE_TX_BROADCAST, 'Platform fee collected (native sell)', { bps: fee.bps, wei: feeWei.toString() });
-        }
-    }
 
     logger.endTimer(timerLabel, LogCode.EXE_TX_CONFIRMED, { txHash, tokenToSell, amountToSell, chainId });
     return txHash;

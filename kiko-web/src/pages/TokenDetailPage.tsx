@@ -17,6 +17,8 @@ import { useSidebar } from '../components/Layout/Layout';
 import { proxyImageUrl } from '../utils/imageProxy';
 
 import { GeckoTerminalChart } from '../components/Chart/GeckoTerminalChart';
+import { useThemeContext } from '../contexts/ThemeContext';
+import { Skeleton } from '../components/Skeleton';
 import styles from './TokenDetailPage.module.css';
 
 // --- Types ---
@@ -124,9 +126,17 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   const { authenticated } = usePrivy();
   const sidebar = useSidebar();
 
+  const loadingSecurity = false;
+  const securityData = null;
   const [copied, setCopied] = useState(false);
-  const [securityData] = useState<any>(null);
-  const [loadingSecurity] = useState(false);
+
+  // Quick Trade Handler
+  const handleTradeAction = (action: 'buy' | 'sell') => {
+    const query = `${action === 'buy' ? 'Buy' : 'Sell'} ${token.symbol} on ${token.chain}`;
+    window.dispatchEvent(new CustomEvent('kiko-prefill-chat', {
+      detail: { query: query }
+    }));
+  };
 
   // Favorites State
   const [isFavorite, setIsFavorite] = useState(false);
@@ -134,13 +144,21 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to top on mount
+  const { resolvedTheme } = useThemeContext();
+  const [loading, setLoading] = useState(true);
+
+  // Scroll to top and handle mock loading on mount
   useEffect(() => {
+    // Force mock loading for 800ms to show the beautiful skeleton transition
+    const timer = setTimeout(() => setLoading(false), 800);
+
     if (containerRef.current) {
       containerRef.current.scrollIntoView({ block: 'start' });
     } else {
       window.scrollTo(0, 0);
     }
+
+    return () => clearTimeout(timer);
   }, []);
 
   // Register back handler with global mobile header
@@ -292,8 +310,45 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
     }
   };
 
+  if (loading) {
+    return (
+      <div className={`${styles.container} ${styles[resolvedTheme]}`}>
+        <div className={styles.headerSection}>
+          <div className={styles.tokenTitleRow}>
+            <div className={styles.tokenIdentity}>
+              <Skeleton variant="circular" width={48} height={48} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <Skeleton variant="text" width={100} height={28} />
+                <Skeleton variant="text" width={60} height={14} />
+              </div>
+              <div style={{ marginLeft: 'auto' }}>
+                <Skeleton variant="text" width={80} height={24} />
+              </div>
+            </div>
+          </div>
+          <div className={styles.tokenInfoSection}>
+            <Skeleton variant="text" width={150} height={36} />
+          </div>
+        </div>
+
+        <div className={styles.marketGrid}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className={styles.marketCard}>
+              <Skeleton variant="text" width={60} height={12} />
+              <Skeleton variant="text" width={100} height={24} />
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.mainContent}>
+          <Skeleton variant="rectangular" width="100%" height={500} style={{ borderRadius: 12 }} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={styles.container} ref={containerRef}>
+    <div className={`${styles.container} ${styles[resolvedTheme]}`} ref={containerRef}>
       {/* Header Section */}
       <div className={styles.headerSection}>
         <div className={styles.tokenTitleRow}>
@@ -425,6 +480,16 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
           <span className={styles.statLabel}>24H VOL</span>
           <span className={styles.statValue}>{formatNumber(token.volume24h)}</span>
         </div>
+      </div>
+
+      {/* Quick Trade Actions */}
+      <div className={styles.tradeGrid}>
+        <button className={`${styles.tradeBtn} ${styles.buyBtn}`} onClick={() => handleTradeAction('buy')}>
+          BUY {token.symbol}
+        </button>
+        <button className={`${styles.tradeBtn} ${styles.sellBtn}`} onClick={() => handleTradeAction('sell')}>
+          SELL {token.symbol}
+        </button>
       </div>
 
       {/* Security Section */}

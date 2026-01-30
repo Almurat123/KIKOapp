@@ -28,9 +28,12 @@ export interface SwapParams {
     isSell?: boolean; // Explicit flag for SELL operations
     messageId?: string; // For WebSocket transaction progress updates
     excludeDex?: string; // Exclude this DEX from quote selection (for retry after failure)
-    affiliateFee?: string; // Optional affiliate fee BPS or amount
     accessToken?: string; // User JWT for Privy user signer
     waitForConfirmation?: boolean; // Wait for on-chain confirmation before returning (for copytrade)
+    confirmationTimeoutMs?: number; // Override confirmation wait timeout
+    returnOnConfirmTimeout?: boolean; // If true, return success on timeout and monitor in background
+    speedUpAfterMs?: number; // Attempt replacement if tx is still pending
+    speedUpBumpBps?: number; // Gas bump in bps for replacement
 }
 
 export interface SwapResult {
@@ -101,7 +104,7 @@ export class SwapExecutor {
         // FIXED: Increase default slippage for SELL operations (0.5% → 2%)
         // Selling often has higher slippage due to price impact and approval delays
         const defaultSlippage = params.isSell ? 200 : 50;
-        let { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = defaultSlippage, feeContext } = params;
+        const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = defaultSlippage, feeContext } = params;
 
         // 1. Resolve Token Addresses & Metadata
         const resolveToken = async (token: string) => {
@@ -124,6 +127,8 @@ export class SwapExecutor {
         const isNativeIn = isNativeToken(actualTokenIn, chainId);
         const actualTokenInFixed = isNativeIn && chainId !== SOLANA_CONFIG.CHAIN_ID ? NATIVE_TOKEN_ADDRESS : actualTokenIn;
         const actualTokenOutFixed = actualTokenOut;
+        const isNativeOut = isNativeToken(actualTokenOutFixed, chainId);
+        const isSellForFee = params.isSell ?? (isNativeOut && !isNativeIn);
 
         const tokenInInfo = await getTokenInfo(actualTokenInFixed, chainId);
         const tokenOutInfo = await getTokenInfo(actualTokenOutFixed, chainId);
@@ -195,25 +200,11 @@ export class SwapExecutor {
             }
         }
 
-        // 2. Platform fee (native-input buy)
+        // 2. Get Best Quote
         const fee = getPlatformFee(feeContext || 'swap');
-        if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient) && isNativeToken(actualTokenInFixed, chainId)) {
-            const amountBI = BigInt(amountInBase);
-            const feeWei = (amountBI * BigInt(fee.bps)) / 10000n;
-            if (feeWei > 0n && amountBI > feeWei) {
-                await sendTransaction(userId, params.accessToken || '', {
-                    to: fee.evmRecipient!,
-                    data: '0x',
-                    value: feeWei.toString(),
-                    chainId
-                });
-                amountInBase = (amountBI - feeWei).toString();
-                amountIn = ethers.formatUnits(amountInBase, decimalsIn);
-                logger.info(LogCode.EXE_TX_BROADCAST, 'SwapExecutor: Collected platform fee (native buy)', { bps: fee.bps, wei: feeWei.toString() });
-            }
-        }
-
-        // 3. Get Best Quote
+        const affiliateFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)
+            ? { affiliateAddress: fee.evmRecipient!, buyTokenPercentageFeeBps: fee.bps }
+            : undefined;
 
         // 2.5 Fetch token prices for price impact calculation
         let refPrice: number | null = null;
@@ -249,8 +240,11 @@ export class SwapExecutor {
             chainId,
             slippageBps,
             userAddress: walletAddress,
+            affiliateFee,
             refPrice,
-            excludeDex: params.excludeDex // Pass through excludeDex for retry logic
+            excludeDex: params.excludeDex, // Pass through excludeDex for retry logic
+            feeContext,
+            isSell: isSellForFee
         });
 
         if (!best) {
@@ -332,7 +326,10 @@ export class SwapExecutor {
                         chainId,
                         slippageBps,
                         userAddress: walletAddress,
-                        refPrice
+                        affiliateFee,
+                        refPrice,
+                        feeContext,
+                        isSell: isSellForFee
                     });
 
                     if (freshQuote && freshQuote.to && freshQuote.data) {
@@ -436,59 +433,64 @@ export class SwapExecutor {
         let maxPriorityFeeCap = feeData?.maxPriorityFeePerGas;
 
         if (isCopyTrade) {
-            // REAL DATA ANALYSIS (2026-01-28 Base transaction):
-            // - RPC returned: 1 gwei priority fee (0.001 gwei)
-            // - Transaction REVERTED (likely due to low priority, slow inclusion)
-            // - Base mempool competition requires 0.1-0.5 gwei for fast inclusion
-            
-            if (chainId === 8453) {
-                // BASE L2 AGGRESSIVE STRATEGY
-                // Target: Top 5% mempool = 0.15 gwei minimum priority
-                const TARGET_PRIORITY_GWEI = 0.15;
-                const TARGET_PRIORITY_WEI = BigInt(Math.floor(TARGET_PRIORITY_GWEI * 1e9));
-                
-                if (maxPriorityFeeCap && maxPriorityFeeCap > BigInt(0)) {
-                    // 3x boost from RPC value
-                    maxPriorityFeeCap = maxPriorityFeeCap * 300n / 100n;
-                    // Enforce minimum target
-                    if (maxPriorityFeeCap < TARGET_PRIORITY_WEI) {
-                        maxPriorityFeeCap = TARGET_PRIORITY_WEI;
-                    }
-                } else {
-                    // No RPC data: use 2x target
-                    maxPriorityFeeCap = TARGET_PRIORITY_WEI * 2n;
+            // Smart aggressive gas: use eth_maxPriorityFeePerGas + baseFee, clamp to avoid excessive fees
+            let baseFeePerGas: bigint | null = null;
+            try {
+                const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false]);
+                if (block?.baseFeePerGas) {
+                    baseFeePerGas = BigInt(block.baseFeePerGas);
                 }
+            } catch {
+                // ignore base fee fetch errors
+            }
 
-                // Base fee ~0.05-0.1 gwei, set maxFee with buffer
-                const BASE_FEE_EST = BigInt(Math.floor(0.1 * 1e9));
-                maxFeePerGasCap = BASE_FEE_EST + maxPriorityFeeCap * 2n;
+            let suggestedPriority: bigint | null = null;
+            try {
+                const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', []);
+                if (priorityHex) {
+                    suggestedPriority = BigInt(priorityHex);
+                }
+            } catch {
+                // ignore priority fetch errors
+            }
+
+            const isBase = chainId === 8453;
+            const isL2 = isBase || chainId === 10 || chainId === 42161;
+
+            const minPriority = isBase
+                ? 10_000_000n   // 0.01 gwei
+                : isL2
+                    ? 50_000_000n  // 0.05 gwei
+                    : 1_000_000_000n; // 1 gwei for L1
+            const maxPriorityCap = isBase
+                ? 500_000_000n  // 0.5 gwei cap
+                : isL2
+                    ? 1_000_000_000n // 1 gwei cap
+                    : 5_000_000_000n; // 5 gwei cap
+
+            let priority = suggestedPriority ?? maxPriorityFeeCap ?? 0n;
+            if (priority > 0n) {
+                priority = priority * 200n / 100n; // 2x boost for copytrade
+            }
+            if (priority < minPriority) priority = minPriority;
+            if (priority > maxPriorityCap) priority = maxPriorityCap;
+
+            maxPriorityFeeCap = priority;
+
+            if (baseFeePerGas) {
+                maxFeePerGasCap = baseFeePerGas * 2n + maxPriorityFeeCap;
+            } else if (maxFeePerGasCap) {
+                maxFeePerGasCap = maxFeePerGasCap + maxPriorityFeeCap;
             } else {
-                // MAINNET/OTHER L1 STRATEGY
-                const MIN_PRIORITY_GWEI = 2;
-                const MIN_PRIORITY_WEI = BigInt(Math.floor(MIN_PRIORITY_GWEI * 1e9));
-                
-                if (maxPriorityFeeCap) {
-                    maxPriorityFeeCap = maxPriorityFeeCap * 200n / 100n;
-                    if (maxPriorityFeeCap < MIN_PRIORITY_WEI) {
-                        maxPriorityFeeCap = MIN_PRIORITY_WEI;
-                    }
-                } else {
-                    maxPriorityFeeCap = MIN_PRIORITY_WEI * 2n;
-                }
-
-                if (maxFeePerGasCap) {
-                    maxFeePerGasCap = maxFeePerGasCap + maxPriorityFeeCap;
-                } else {
-                    const BASE_FEE_EST = BigInt(Math.floor(20 * 1e9));
-                    maxFeePerGasCap = BASE_FEE_EST + maxPriorityFeeCap;
-                }
+                maxFeePerGasCap = maxPriorityFeeCap * 2n;
             }
 
             logger.info(LogCode.EXE_TX_BROADCAST, '🚀 CopyTrade Aggressive Gas', {
                 chainId,
-                maxFeeGwei: (Number(maxFeePerGasCap) / 1e9).toFixed(4),
-                priorityGwei: (Number(maxPriorityFeeCap) / 1e9).toFixed(4),
-                mode: chainId === 8453 ? 'Base(3x,min0.15)' : 'L1(2x,min2)'
+                baseFeeGwei: baseFeePerGas ? (Number(baseFeePerGas) / 1e9).toFixed(6) : 'unknown',
+                maxFeeGwei: (Number(maxFeePerGasCap) / 1e9).toFixed(6),
+                priorityGwei: (Number(maxPriorityFeeCap) / 1e9).toFixed(6),
+                mode: isBase ? 'Base(eth_maxPriorityFeePerGas)' : isL2 ? 'L2(eth_maxPriorityFeePerGas)' : 'L1(eth_maxPriorityFeePerGas)'
             });
         }
 
@@ -505,13 +507,51 @@ export class SwapExecutor {
 
             logger.info(LogCode.EXE_TX_BROADCAST, 'Swap Broadcast', { txHash, method: best.dexName });
 
+            if (params.speedUpAfterMs && params.speedUpAfterMs > 0) {
+                this.scheduleSpeedUp({
+                    txHash,
+                    chainId,
+                    userId,
+                    accessToken: params.accessToken || '',
+                    speedUpAfterMs: params.speedUpAfterMs,
+                    speedUpBumpBps: params.speedUpBumpBps,
+                    tx: {
+                        to: best.to,
+                        data: best.data,
+                        value: best.value,
+                        chainId,
+                        gas: gasLimit,
+                        maxFeePerGas: maxFeePerGasCap?.toString(),
+                        maxPriorityFeePerGas: maxPriorityFeeCap?.toString()
+                    }
+                });
+            }
+
             // 5. Handle confirmation based on mode
             // For copy trade and critical operations, wait for confirmation
             // For normal swaps, return immediately and monitor in background
             if (params.waitForConfirmation) {
                 // SYNCHRONOUS CONFIRMATION: Wait for tx confirmation before returning
-                const confirmed = await this.waitForTransactionConfirmation(txHash, chainId, best.dexName, 60000);
+                const timeoutMs = params.confirmationTimeoutMs ?? 60000;
+                const confirmed = await this.waitForTransactionConfirmation(txHash, chainId, best.dexName, timeoutMs);
                 if (!confirmed.success) {
+                    if (confirmed.reason === 'Transaction confirmation timeout' && params.returnOnConfirmTimeout) {
+                        // Fast-path: return success and keep monitoring in background
+                        this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId).catch(err => {
+                            logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed after confirm-timeout', { txHash, error: err.message });
+                        });
+                        return {
+                            success: true,
+                            status: 'ACTION_REQUIRED',
+                            txHash,
+                            amountOut: best.amountOut,
+                            method: best.dexName,
+                            metadata: {
+                                allowanceTarget: best.allowanceTarget
+                            }
+                        };
+                    }
+
                     logger.error(LogCode.EXE_TX_REVERTED, 'Transaction REVERTED on-chain', { txHash, reason: confirmed.reason });
 
                     // ⚡ RETRY LOGIC FOR REVERTED TRANSACTIONS
@@ -523,6 +563,17 @@ export class SwapExecutor {
 
                     // Only do internal retry if we're below internal max AND this is first internal retry
                     const isFirstInternalRetry = !params.excludeDex; // excludeDex is set on retry
+                    if (isFirstInternalRetry && best?.dex) {
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Fast failover: switching DEX after on-chain revert', {
+                            failedDex: best.dexName,
+                            failedDexId: best.dex,
+                            slippageBps
+                        });
+                        return this.executeEvm({
+                            ...params,
+                            excludeDex: best.dex
+                        });
+                    }
                     if (isFirstInternalRetry && nextSlippage <= MAX_INTERNAL_RETRY_SLIPPAGE) {
                         logger.warn(LogCode.EXE_TX_REVERTED, `On-chain revert. Quick retry with slippage: ${nextSlippage / 100}%`, {
                             original: slippageBps,
@@ -552,20 +603,6 @@ export class SwapExecutor {
                 }
                 logger.info(LogCode.EXE_TX_CONFIRMED, 'Transaction confirmed on-chain', { txHash });
 
-                // Post-sell platform fee in native token
-                if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient) && (params.isSell || isNativeToken(actualTokenOutFixed, chainId))) {
-                    const outBI = BigInt(best.amountOutBase || '0');
-                    const feeWei = (outBI * BigInt(fee.bps)) / 10000n;
-                    if (feeWei > 0n) {
-                        await sendTransaction(userId, params.accessToken || '', {
-                            to: fee.evmRecipient!,
-                            data: '0x',
-                            value: feeWei.toString(),
-                            chainId
-                        });
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'SwapExecutor: Collected platform fee (native sell)', { bps: fee.bps, wei: feeWei.toString() });
-                    }
-                }
             } else {
                 // ASYNC MONITORING: Fire-and-forget for normal swaps
                 this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId).catch(err => {
@@ -640,6 +677,19 @@ export class SwapExecutor {
                     `Possible reasons: 1) Maximum sell amount limit 2) High sell tax 3) Anti-bot protection. ` +
                     `Try selling a smaller amount (10-20% of balance) or check token contract rules.`
                 );
+            }
+
+            // Fast failover: if first attempt fails, immediately switch DEX with same slippage
+            if (!params.excludeDex && best?.dex) {
+                logger.warn(LogCode.EXE_TX_REVERTED, 'Fast failover: switching DEX after execution error', {
+                    failedDex: best.dexName,
+                    failedDexId: best.dex,
+                    slippageBps
+                });
+                return this.executeEvm({
+                    ...params,
+                    excludeDex: best.dex
+                });
             }
 
             // Check if we should retry with higher slippage
@@ -814,6 +864,83 @@ export class SwapExecutor {
 
         logger.error(LogCode.EXE_TX_REVERTED, `[ConfirmWait] Transaction REVERTED: ${txHash}`, { reason: revertReason });
         return { success: false, reason: revertReason };
+    }
+
+    private static scheduleSpeedUp(params: {
+        txHash: string;
+        chainId: number;
+        userId: string;
+        accessToken: string;
+        speedUpAfterMs: number;
+        speedUpBumpBps?: number;
+        tx: {
+            to: string;
+            data: string;
+            value: string;
+            chainId: number;
+            gas?: string;
+            maxFeePerGas?: string;
+            maxPriorityFeePerGas?: string;
+            gasPrice?: string;
+        };
+    }) {
+        const {
+            txHash,
+            chainId,
+            userId,
+            accessToken,
+            speedUpAfterMs,
+            speedUpBumpBps,
+            tx
+        } = params;
+
+        setTimeout(async () => {
+            try {
+                const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
+                if (receipt) return;
+
+                const pendingTx = await getTransactionByHash(chainId, txHash).catch(() => null);
+                const nonceHex = pendingTx?.nonce;
+                if (!nonceHex) {
+                    logger.warn(LogCode.SYS_INFO, 'SpeedUp skipped: pending tx nonce not found', { txHash, chainId });
+                    return;
+                }
+
+                const bumpBps = BigInt(speedUpBumpBps ?? 12000); // 20% bump default
+                const bump = (value: bigint) => (value * bumpBps) / 10000n;
+
+                let maxFeePerGas = tx.maxFeePerGas ? BigInt(tx.maxFeePerGas) : undefined;
+                let maxPriorityFeePerGas = tx.maxPriorityFeePerGas ? BigInt(tx.maxPriorityFeePerGas) : undefined;
+                let gasPrice = tx.gasPrice ? BigInt(tx.gasPrice) : undefined;
+
+                if (!maxFeePerGas && !maxPriorityFeePerGas && !gasPrice) {
+                    const provider = getEthersProvider(chainId);
+                    const feeData = await provider.getFeeData();
+                    if (feeData.maxFeePerGas) maxFeePerGas = feeData.maxFeePerGas;
+                    if (feeData.maxPriorityFeePerGas) maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
+                }
+
+                if (maxFeePerGas) maxFeePerGas = bump(maxFeePerGas);
+                if (maxPriorityFeePerGas) maxPriorityFeePerGas = bump(maxPriorityFeePerGas);
+                if (gasPrice) gasPrice = bump(gasPrice);
+
+                await sendTransaction(userId, accessToken, {
+                    to: tx.to,
+                    data: tx.data,
+                    value: tx.value,
+                    chainId: tx.chainId,
+                    gas: tx.gas,
+                    gasPrice: gasPrice?.toString(),
+                    maxFeePerGas: maxFeePerGas?.toString(),
+                    maxPriorityFeePerGas: maxPriorityFeePerGas?.toString(),
+                    nonce: typeof nonceHex === 'string' ? nonceHex : String(nonceHex)
+                });
+
+                logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx sent', { txHash, chainId });
+            } catch (err: any) {
+                logger.warn(LogCode.SYS_ERROR, 'SpeedUp replacement failed', { txHash, chainId, error: err.message });
+            }
+        }, speedUpAfterMs);
     }
 
     /**

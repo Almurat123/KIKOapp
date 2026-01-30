@@ -52,13 +52,20 @@ export const CHAIN_ICONS: Record<string, string> = {
   "BSC": "/chains/bnb.png",
   "Binance": "/chains/bnb.png",
   "Avalanche C": "/chains/avalanche_c.png",
+  "Avalanche": "/chains/avalanche_c.png",
   "Hyperevm": "/chains/hyperevm.png",
+  "Hyperliquid L1": "/chains/hyperevm.png",
   "Optimism": "/chains/optimism.png",
+  "OP Mainnet": "/chains/optimism.png",
   "Plume": "/chains/plume.png",
   "Zksync": "/chains/zksync.png",
+  "ZKsync Era": "/chains/zksync.png",
   "Worldchain": "/chains/worldchain.png",
+  "World Chain": "/chains/worldchain.png",
   "Zkevm": "/chains/zkevm.png",
-  "Nova": "/chains/nova.png"
+  "Polygon zkEVM": "/chains/zkevm.png",
+  "Nova": "/chains/nova.png",
+  "Arbitrum Nova": "/chains/nova.png"
 };
 
 export function getLocalChainIcon(chainName: string): string {

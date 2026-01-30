@@ -405,7 +405,11 @@ export class MainSwapService {
       // - swap-card: API/UI swaps need real confirmation before reporting success
       // - copytrade: Copy trading requires verified confirmation before notifications
       // Only 'allowance' mode skips confirmation (handles separately via allowance trade flow)
-      waitForConfirmation: request.mode !== 'allowance'
+      waitForConfirmation: true,
+      confirmationTimeoutMs: request.mode === 'allowance' || request.mode === 'copytrade' ? 12000 : 60000,
+      returnOnConfirmTimeout: request.mode === 'allowance' || request.mode === 'copytrade',
+      speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? 6000 : undefined,
+      speedUpBumpBps: request.mode === 'copytrade' ? 15000 : request.mode === 'allowance' ? 13000 : undefined
     };
 
     const executionResult = await SwapExecutor.execute(swapParams);
@@ -440,7 +444,7 @@ export class MainSwapService {
     const isNativeOut = request.tokenOut.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
     if (result.success && isBuy && targetSpender && !isNativeOut &&
-      (request.mode === 'fast-swap' || request.mode === 'swap-card')) {
+      (request.mode === 'fast-swap' || request.mode === 'copytrade' || request.mode === 'allowance')) {
 
       logger.info(LogCode.EXE_TX_BROADCAST, trace('Initiating Post-Buy Pre-Approval'), {
         token: request.tokenOut,

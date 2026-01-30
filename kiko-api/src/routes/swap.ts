@@ -1573,7 +1573,9 @@ async function handleSolanaQuote(
             slippageBps,
             aggregator as 'jupiter' | 'raydium' | 'auto' | undefined,
             // Only pass userAddress if it's a valid non-empty string
-            userAddress && typeof userAddress === 'string' && userAddress.length > 0 ? userAddress : undefined
+            userAddress && typeof userAddress === 'string' && userAddress.length > 0 ? userAddress : undefined,
+            undefined,
+            undefined
         );
 
         if (!quote) {

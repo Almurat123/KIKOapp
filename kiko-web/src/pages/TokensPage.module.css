@@ -53,57 +53,21 @@
     width: 100%;
 }
 
-/* Control Bar - Filters + Search */
+/* Control Bar - Filters + Search (Outside mainSection) */
 .controlBar {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 16px;
-    background: var(--bg-primary);
+    gap: 16px;
+    padding: 24px 8px 24px 8px;
+    /* Small inner padding to maintain some breathing room */
+    background: transparent;
+    border: none;
+    width: 100%;
 }
 
-/* Desktop: adjust controlBar margins to match centered container */
-@media (min-width: 769px) {
-    .controlBar {
-        margin: 0 auto;
-        /* Center in parent */
-        max-width: 1200px;
-        width: 100%;
-        padding: 24px 16px;
-        /* Aligned 16px horizontal padding */
-        border-radius: 0;
-        /* Flush top (Square) */
-        border: none;
-        /* No visible border */
-        box-shadow: none;
-        /* No shadow */
-    }
-
-    :global(.dark) .controlBar {
-        border: none;
-    }
-}
-
-:global(.dark) .controlBar {
-    background: var(--bg-primary);
-}
-
-/* Desktop: sticky at top - kept but with new styling */
-@media (min-width: 769px) {
-    .controlBar {
-        position: sticky;
-        top: 0;
-        z-index: 50;
-    }
-}
-
-/* Mobile: normal flow (scrolls with content) */
 @media (max-width: 768px) {
     .controlBar {
-        margin: 0;
-        /* Full width */
-        padding: 0 0 12px 0;
-        /* Top padding handled by PageContainer (60px), just bottom spacing here */
+        padding: 16px 4px 12px 4px;
     }
 }
 
@@ -232,19 +196,17 @@
 .searchInput {
     width: 100%;
     padding: 12px 40px 12px 42px;
-    border-radius: 10px;
+    border-radius: 12px;
     font-size: 14px;
     transition: all 0.2s ease;
-    /* Light mode */
-    background: var(--bg-hover);
-    /* Keep input slightly distinct from bg */
+    background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
 }
 
 :global(.dark) .searchInput {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: #09090b;
+    border: 1px solid #27272a;
     color: var(--text-primary);
 }
 
@@ -434,53 +396,41 @@
     }
 }
 
-.tableCard {
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-radius: 16px;
-    /* Fully rounded corners */
-    overflow: hidden;
+/* === MAIN SECTION (The Unified Card) === */
+.mainSection {
     width: 100%;
-    margin: 0;
     margin-top: 0;
-    /* Light mode default */
-    background: var(--bg-primary);
+    border-radius: 28px;
     border: 1px solid var(--border-color);
-    box-shadow: var(--card-shadow);
+    background: var(--bg-primary);
+    overflow: hidden;
 }
 
-/* Desktop Styles */
+:global(.dark) .mainSection {
+    background: #000000;
+    border: 1px solid #27272a;
+}
+
 @media (min-width: 769px) {
-    .tableCard {
-        border-radius: 0 0 16px 16px;
-        /* Fused: Bottom rounded only */
-        border: none;
-        /* No visible border */
-        box-shadow: none;
-        width: 100%;
-        margin-left: 0;
-        margin-right: 0;
+    .mainSection {
+        margin-bottom: 40px;
+    }
+}
+
+@media (max-width: 768px) {
+    .mainSection {
         margin-top: 0;
-    }
-
-    :global(.dark) .tableCard {
-        border: none;
+        border-radius: 24px;
+        width: 100%;
+        /* Parent has padding */
     }
 }
 
-/* Dark mode table card */
-:global(.dark) .tableCard {
-    background: var(--bg-card);
-    /* Dark gray card */
+.tableCard {
+    width: 100%;
+    background: transparent;
     border: none;
-    box-shadow: none;
-}
-
-/* Desktop: no border for dark mode */
-@media (min-width: 769px) {
-    :global(.dark) .tableCard {
-        border: none;
-    }
+    margin: 0;
 }
 
 /* Mobile: edge-to-edge table */
@@ -527,14 +477,15 @@
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    padding: 6px 10px;
-    border-radius: 8px;
+    padding: 0 12px;
+    height: 36px;
+    border-radius: 10px;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
     width: auto;
-    min-width: 75px;
+    min-width: 80px;
     flex-shrink: 0;
     /* Fixed width for better alignment */
     /* Light mode */
@@ -566,7 +517,9 @@
 .timeframeSelector {
     display: inline-flex;
     gap: 4px;
-    padding: 4px;
+    padding: 2px;
+    height: 36px;
+    align-items: stretch;
     border-radius: 10px;
     background: #f4f4f5;
     border: 1px solid #e4e4e7;
@@ -578,7 +531,10 @@
 }
 
 .timeframeBtn {
-    padding: 6px 8px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 8px;
     font-size: 12px;
     font-weight: 700;
@@ -722,21 +678,22 @@
 
 .thead {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.05em;
     position: sticky;
     top: 0;
     z-index: 10;
-    /* Light mode default */
-    background: var(--bg-secondary);
+    background: #ffffff;
     color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
 }
 
 /* Dark mode thead */
 :global(.dark) .thead {
-    background: var(--bg-secondary);
+    background: #000000;
     color: var(--text-secondary);
+    border-bottom: 1px solid #27272a;
 }
 
 .th {
@@ -1211,10 +1168,14 @@
     width: 80px;
 }
 
-.skeletonTextName {
-    width: 100px;
-    height: 12px;
-    margin-top: 4px;
+.content {
+    width: 100%;
+    margin: 0 auto;
+    max-width: 1200px;
+    padding: 0 8px;
+    /* Reduced from 16px */
+    display: flex;
+    flex-direction: column;
 }
 
 .skeletonBar {

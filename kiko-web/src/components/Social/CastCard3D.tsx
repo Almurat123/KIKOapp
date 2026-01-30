@@ -6,7 +6,6 @@ import { X, Heart, MessageCircle, Repeat2, BadgeCheck } from 'lucide-react';
 import { ContentFrame } from './ContentFrame';
 import type { FeedItem } from '../../services/api';
 import ZorbIcon from '../../assets/images/Zorb.svg';
-import { EmbedPreview } from './EmbedPreview';
 
 interface CastCard3DProps {
     cast: FeedItem | null;
@@ -413,19 +412,7 @@ export const CastCard3D: React.FC<CastCard3DProps> = ({ cast, isOpen, onClose, i
                                         </div>
                                     )}
 
-                                    {/* Link Previews */}
-                                    {cast.embeds?.map((embed: any, idx: number) => {
-                                        if (!embed.url) return null;
-                                        // Skip if it's an image we already showed or internal protocol
-                                        if (cast.images?.includes(embed.url)) return null;
-                                        if (embed.url.startsWith('zoraCoin:') || embed.url.startsWith('ethereum:')) return null;
-
-                                        return (
-                                            <div key={idx} style={{ marginBottom: '16px' }}>
-                                                <EmbedPreview url={embed.url} isDark={isDark} />
-                                            </div>
-                                        );
-                                    })}
+                                    {/* Link Previews removed - OGP should not display in 3D card */}
 
                                     {/* Stats Grid - Compact */}
                                     <div style={{

@@ -8,10 +8,9 @@
 
 import { ethers } from 'ethers';
 import { sendTransaction } from './privyWallet.js';
-import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
+import { type FeeContext } from './platformFeeService.js';
 import { getEthersProvider } from './rpcManager.js';
 
 // TokenManager2 contract address on BSC
@@ -131,21 +130,6 @@ export async function buyTokenAMAP(params: BuyTokenParams): Promise<string> {
     // Convert BNB amount to Wei
     let bnbInWei = ethers.parseEther(bnbAmount);
 
-    // Platform fee (charged in native BNB before buy)
-    const fee = getPlatformFee(params.feeContext || 'swap');
-    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient) && bnbInWei > 0n) {
-        const feeWei = (bnbInWei * BigInt(fee.bps)) / 10000n;
-        if (feeWei > 0n && bnbInWei > feeWei) {
-            await sendTransaction(userId, '', {
-                to: fee.evmRecipient!,
-                data: '0x',
-                value: feeWei.toString(),
-                chainId,
-            });
-            bnbInWei = bnbInWei - feeWei;
-            logger.info(LogCode.EXE_TX_BROADCAST, 'Four.meme: Collected platform fee (BNB)', { bps: fee.bps, wei: feeWei.toString() });
-        }
-    }
 
     // Encode buyTokenAMAP(token, funds, minAmount) call
     const iface = new ethers.Interface(TOKEN_MANAGER_V2_ABI);
@@ -196,7 +180,6 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
     logger.info(LogCode.EXE_TX_BROADCAST, 'Selling token on Four.meme', { token: tokenAddress, amount });
 
     const chainId = 56; // BSC
-    const chainConfig = getChainConfig(chainId);
 
     const amountNet = BigInt(amount);
 
@@ -216,9 +199,7 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
         amount
     });
 
-    // Track native balance for post-sell fee
     const provider = getEthersProvider(chainId);
-    const preBalance = await provider.getBalance(walletAddress);
 
     // Send transaction via Privy
     const txHash = await sendTransaction(userId, '', {
@@ -238,25 +219,6 @@ export async function sellToken(params: SellTokenParams): Promise<string> {
         throw new Error(`FourMeme sell reverted on-chain: ${txHash}`);
     }
 
-    // Platform fee: charge in native after sell (based on net proceeds)
-    const fee = getPlatformFee(params.feeContext || 'swap');
-    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
-        const postBalance = await provider.getBalance(walletAddress);
-        const gasCost = receipt.gasUsed * (receipt.gasPrice || 0n);
-        const received = postBalance + gasCost - preBalance;
-        if (received > 0n) {
-            const feeWei = (received * BigInt(fee.bps)) / 10000n;
-            if (feeWei > 0n) {
-                await sendTransaction(userId, '', {
-                    to: fee.evmRecipient!,
-                    data: '0x',
-                    value: feeWei.toString(),
-                    chainId,
-                });
-                logger.info(LogCode.EXE_TX_BROADCAST, 'Four.meme: Collected platform fee (native sell)', { bps: fee.bps, wei: feeWei.toString() });
-            }
-        }
-    }
 
     logger.info(LogCode.EXE_TX_CONFIRMED, 'Four.meme sell confirmed', { txHash });
     return txHash;
@@ -272,7 +234,6 @@ async function checkAndApproveForFourMeme(
     amount: string,
     chainId: number
 ): Promise<void> {
-    const chainConfig = getChainConfig(chainId);
     const provider = getEthersProvider(chainId);
 
     const ERC20_ABI = [

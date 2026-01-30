@@ -4,7 +4,6 @@ interface ZoraSDK {
     getCoin: (params: { address: string; chain: number }) => Promise<any>;
     getProfile: (params: { identifier: string }) => Promise<any>;
     getProfileSocial: (params: { query: { identifier: string } }) => Promise<any>;
-    createTradeCall: (params: any) => Promise<any>; // Complex types, keeping any for now for TradeCall
     setApiKey: (key: string) => void;
     getCoinsTopGainers: (params: { count: number }) => Promise<any>;
     getCoinsTopVolume24h: (params: { count: number }) => Promise<any>;
@@ -17,7 +16,6 @@ interface ZoraSDK {
 const {
     getCoin,
     getProfile,
-    createTradeCall,
     setApiKey,
     getCoinsTopGainers,
     getCoinsTopVolume24h,
@@ -29,8 +27,11 @@ const {
 import { ethers } from "ethers";
 import { logger } from "../utils/logger.js";
 import { LogCode } from "../config/logRegistry.js";
+import { fetchJson } from "../config/unifiedApiService.js";
+import { getPlatformFee, isValidEvmAddress, type FeeContext } from "./platformFeeService.js";
 
 const CHAIN_ID = 8453; // Base Mainnet
+const ZORA_SDK_BASE_URL = "https://api-sdk.zora.engineering";
 
 // Hook Addresses for Coin Classification
 // Note: These are known hook addresses, but new ones may be added
@@ -119,6 +120,61 @@ export class ZoraService {
             setApiKey(apiKey);
             logger.info(LogCode.SYS_STARTUP, 'Zora SDK initialized with API Key');
         }
+    }
+
+    private getTradeReferrer(feeContext?: FeeContext): string | undefined {
+        const fee = getPlatformFee(feeContext || 'swap');
+        if (fee.bps <= 0) return undefined;
+        return isValidEvmAddress(fee.evmRecipient) ? fee.evmRecipient : undefined;
+    }
+
+    public async createTradeCallWithReferrer(params: {
+        sell: { type: "eth" | "erc20"; address?: string };
+        buy: { type: "eth" | "erc20"; address?: string };
+        amountIn: bigint;
+        sender: string;
+        recipient?: string;
+        slippage?: number;
+        signatures?: any[];
+        permitActiveSeconds?: number;
+        feeContext?: FeeContext;
+    }) {
+        if (params.slippage && params.slippage > 1) {
+            throw new Error("Slippage must be less than 1, max 0.99");
+        }
+        if (params.amountIn === BigInt(0)) {
+            throw new Error("Amount in must be greater than 0");
+        }
+
+        const referrer = this.getTradeReferrer(params.feeContext);
+        const apiKey = process.env.ZORA_API_KEY;
+
+        const response = await fetchJson({
+            url: `${ZORA_SDK_BASE_URL}/quote`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(apiKey ? { 'api-key': apiKey } : {})
+            },
+            body: JSON.stringify({
+                tokenIn: params.sell,
+                tokenOut: params.buy,
+                amountIn: params.amountIn.toString(),
+                slippage: params.slippage,
+                chainId: CHAIN_ID,
+                sender: params.sender,
+                recipient: params.recipient || params.sender,
+                signatures: params.signatures,
+                permitActiveSeconds: params.permitActiveSeconds,
+                referrer
+            })
+        });
+
+        if (!response) {
+            throw new Error('Quote failed');
+        }
+
+        return response;
     }
 
     /**
@@ -472,14 +528,15 @@ export class ZoraService {
         amountInEth: string;
         sender: string;
         slippage?: number;
+        feeContext?: FeeContext;
     }) {
-        return await createTradeCall({
+        return await this.createTradeCallWithReferrer({
             sell: { type: "eth" },
             buy: { type: "erc20", address: params.tokenAddress as `0x${string}` },
             amountIn: ethers.parseEther(params.amountInEth),
             sender: params.sender as `0x${string}`,
             slippage: params.slippage || 0.05,
-            platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
+            feeContext: params.feeContext,
         } as any);
     }
 
@@ -491,14 +548,15 @@ export class ZoraService {
         amountInToken: string;
         sender: string;
         slippage?: number;
+        feeContext?: FeeContext;
     }) {
-        return await createTradeCall({
+        return await this.createTradeCallWithReferrer({
             sell: { type: "erc20", address: params.tokenAddress as `0x${string}` },
             buy: { type: "eth" },
             amountIn: BigInt(params.amountInToken), // Smallest unit
             sender: params.sender as `0x${string}`,
             slippage: params.slippage || 0.05,
-            platformReferrer: BASE_PLATFORM_REFERRER as `0x${string}`,
+            feeContext: params.feeContext,
         } as any);
     }
 

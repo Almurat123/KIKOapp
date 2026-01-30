@@ -14,6 +14,7 @@ import { createLimitOrderData, buildSignedOrder, SignedOrder, getUserWalletAddre
 import { getEmbeddedWalletInfo } from './privyWallet.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import crypto from 'crypto';
+import { notificationService } from './notificationService.js';
 
 // CLOB API endpoints
 const CLOB_API = 'https://clob.polymarket.com';
@@ -463,8 +464,31 @@ export async function handlePositionChange(
 
                 if (result.success) {
                     console.log(`[PolymarketExecutor] ✅ Position copied for user ${userId.slice(0, 15)}...`);
+                    await notificationService.sendNotification({
+                        userId,
+                        farcasterFid: config.user?.farcasterFid,
+                        type: 'TRADE_SUCCESS_BUY',
+                        data: {
+                            tokenSymbol: position.outcome || 'POLY',
+                            usdValue: config.betSizeUsd.toFixed(2),
+                            chainId: 137,
+                            targetWallet: targetWallet
+                        }
+                    });
                 } else {
                     console.log(`[PolymarketExecutor] ❌ Copy failed: ${result.error}`);
+                    await notificationService.sendNotification({
+                        userId,
+                        farcasterFid: config.user?.farcasterFid,
+                        type: 'TRADE_FAILURE',
+                        data: {
+                            tokenSymbol: position.outcome || 'POLY',
+                            usdValue: config.betSizeUsd.toFixed(2),
+                            chainId: 137,
+                            targetWallet: targetWallet,
+                            error: result.error
+                        }
+                    });
                 }
             } else if (type === 'CLOSED' && config.mirrorSell) {
                 // Mirror the sell - find user's position for this market
@@ -488,8 +512,35 @@ export async function handlePositionChange(
 
                     if (result.success) {
                         console.log(`[PolymarketExecutor] ✅ Sell executed for user ${userId.slice(0, 15)}...`);
+                        const sellValue = userPosition.costBasis || (userPosition.shares * userPosition.entryPrice);
+                        const sellValueStr = (sellValue ?? 0).toFixed(2);
+                        await notificationService.sendNotification({
+                            userId,
+                            farcasterFid: config.user?.farcasterFid,
+                            type: 'TRADE_SUCCESS_SELL',
+                            data: {
+                                tokenSymbol: userPosition.outcome || 'POLY',
+                                usdValue: sellValueStr,
+                                chainId: 137,
+                                targetWallet: targetWallet
+                            }
+                        });
                     } else {
                         console.log(`[PolymarketExecutor] ❌ Sell failed: ${result.error}`);
+                        const sellValue = userPosition.costBasis || (userPosition.shares * userPosition.entryPrice);
+                        const sellValueStr = (sellValue ?? 0).toFixed(2);
+                        await notificationService.sendNotification({
+                            userId,
+                            farcasterFid: config.user?.farcasterFid,
+                            type: 'TRADE_FAILURE',
+                            data: {
+                                tokenSymbol: userPosition.outcome || 'POLY',
+                                usdValue: sellValueStr,
+                                chainId: 137,
+                                targetWallet: targetWallet,
+                                error: result.error
+                            }
+                        });
                     }
                 }
             }

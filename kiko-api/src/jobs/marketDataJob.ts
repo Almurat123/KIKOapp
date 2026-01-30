@@ -13,7 +13,8 @@
 
 import cron from 'node-cron';
 import { getMarketOverview as fetchMarketOverview, getTrendingTokens as fetchTrendingTokens } from '../services/coingecko.js';
-import { getChainsData as fetchChainsData, getProtocolsData as fetchProtocolsData, getDerivativesOpenInterest } from '../services/defillama.js';
+import { getChainsData as fetchChainsData, getProtocolsData as fetchProtocolsData, getDerivativesOpenInterest, getStablecoinsCirculating } from '../services/defillama.js';
+import { getVolatilityIndices } from '../services/deribit.js';
 
 import { getGasLevel } from '../services/gasLevel.js';
 import { getEthGasPriceFormatted } from '../services/etherscan.js';
@@ -53,16 +54,20 @@ export async function refreshMarketOverview(force = false): Promise<void> {
     const etherscanGas = await getEthGasPriceFormatted(env.apiKeys.etherscan).catch(() => undefined);
 
     // 2. Fetch other market data, passing etherscanGas to getGasLevel
-    const [marketData, fearGreed, openInterest, gasLevel] = await Promise.all([
+    const [marketData, fearGreed, stablecoinsMcap, previousOverview, openInterest, gasLevel, volatility] = await Promise.all([
       fetchMarketOverview(env.apiKeys.coingecko).catch(() => {
         return { globalMarketCap: 0, volume24h: 0, bitcoinDominance: 0, activeUsers: undefined, ethGasPrice: undefined };
       }),
       Promise.resolve({ value: 50, classification: 'Neutral' }),
-      getDerivativesOpenInterest().catch(() => {
-        return 0;
-      }),
+      getStablecoinsCirculating().catch(() => 0),
+      getMarketOverview().catch(() => null), // Get previous for change calculation
+      getDerivativesOpenInterest().catch(() => 0),
       getGasLevel(etherscanGas).catch(() => {
         return { averageGasLevel: undefined, status: undefined, chains: [] };
+      }),
+      getVolatilityIndices().catch(() => {
+        console.log('[MarketJob] Deribit volatility fetch failed, using defaults');
+        return null;
       }),
     ]);
 
@@ -82,6 +87,36 @@ export async function refreshMarketOverview(force = false): Promise<void> {
 
     const altcoinSeasonIndex = calculateAltcoinSeasonIndex(marketData.bitcoinDominance);
 
+    // Calculate Liquidity Stress Index based on volatility and open interest
+    // Higher volatility + lower open interest = higher stress
+    let liquidityStressIndex: number | undefined;
+    let liquidityStressStatus: string | undefined;
+    if (volatility?.bvix && volatility?.evix) {
+      const avgVolatility = (volatility.bvix + volatility.evix) / 2;
+      // Normalize to 0-100 scale (DVOL typically ranges from 20-100)
+      liquidityStressIndex = Math.min(100, Math.max(0, (avgVolatility - 20) * 1.25));
+      if (liquidityStressIndex < 30) {
+        liquidityStressStatus = 'Low';
+      } else if (liquidityStressIndex < 60) {
+        liquidityStressStatus = 'Moderate';
+      } else {
+        liquidityStressStatus = 'High';
+      }
+    }
+
+    // 3. Calculate 24h changes
+    let btcDomChange24h: number | undefined;
+    let mcapChange24h: number | undefined;
+
+    if (previousOverview) {
+      if (previousOverview.bitcoinDominance > 0) {
+        btcDomChange24h = marketData.bitcoinDominance - previousOverview.bitcoinDominance;
+      }
+      if (previousOverview.globalMarketCap > 0) {
+        mcapChange24h = ((marketData.globalMarketCap - previousOverview.globalMarketCap) / previousOverview.globalMarketCap) * 100;
+      }
+    }
+
     await saveMarketOverview({
       globalMarketCap: marketData.globalMarketCap,
       volume24h: marketData.volume24h,
@@ -94,6 +129,12 @@ export async function refreshMarketOverview(force = false): Promise<void> {
       globalOpenInterest: openInterest,
       gasLevel: gasLevel.averageGasLevel,
       gasLevelStatus: gasLevel.status,
+      evix: volatility?.evix,
+      liquidityStressIndex,
+      liquidityStressStatus,
+      stablecoinsMcap: stablecoinsMcap,
+      btcDomChange24h,
+      mcapChange24h,
     });
 
     console.log('[MarketJob] ✅ Overview refreshed successfully');

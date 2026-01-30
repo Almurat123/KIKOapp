@@ -5,11 +5,11 @@ import { addAddressToWebhook, removeAddressFromWebhook } from '../services/alche
 import { PrivyClient } from '@privy-io/server-auth';
 import { normalizeAddress, isSolanaAddress } from '../utils/address.js';
 import { validateAddress } from '../utils/validation.js';
-import { callRpc } from '../services/rpcManager.js';
 import { getSolanaConnection } from '../config/solanaConfig.js';
 import { TOKEN_PROGRAM_ID } from '../utils/solanaToken.js';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { notificationService } from '../services/notificationService.js';
+import { isErc20ContractAddress } from '../utils/evmTokenCheck.js';
 
 interface CreateConfigBody {
     targetWallet: string;
@@ -29,10 +29,8 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
         if (!address || !address.startsWith('0x')) return;
         // Solana uses non-0x addresses; skip
         if (chainId === 900) return;
-
-        const code = await callRpc<string>(chainId, 'eth_getCode', [address, 'latest']);
-        if (code && code !== '0x' && code !== '0x0') {
-            throw new Error('Target address is a contract. Please use a wallet (EOA) address.');
+        if (await isErc20ContractAddress(chainId, address)) {
+            throw new Error('Target address appears to be an ERC-20 token contract. Please use a wallet address.');
         }
     }
 

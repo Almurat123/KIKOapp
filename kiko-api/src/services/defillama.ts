@@ -1,4 +1,4 @@
-/**
+/*
  * DeFiLlama API Service
  * Documentation: https://defillama.com/docs/api
  */
@@ -29,9 +29,13 @@ export interface ProtocolData {
   tvlChange1d: number;
   tvlChange7d: number;
   volume24h?: number;
-  chains: string[];
   mcapTvlRatio?: number;
   logoUrl?: string;
+  description?: string;
+  audits?: any[];
+  chains: string[];
+  mcap?: number;
+  fdv?: number;
 }
 
 interface DeFiLlamaChain {
@@ -193,70 +197,62 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
     const chains: ChainData[] = [];
     const addedChains = new Set<string>();
 
-    // First, add all chains from Dune that have metrics (if available)
-    if (duneMetrics && duneMetrics.size > 0) {
-      for (const [chainKey, duneData] of duneMetrics.entries()) {
-        // Get the proper chain name from Dune data
-        const chainName = duneData.gasPrice !== undefined || duneData.txns24h !== undefined
-          ? getProperChainName(chainKey, defiLlamaChainMap)
-          : null;
+    // # [Logic]: Start with Dune chains (52 chains with metrics) and enrich with DeFiLlama TVL
+    // User requirement: Only show chains that have Dune data, not all DeFiLlama chains
+    console.log(`[DeFiLlama] Starting with ${duneMetrics?.size || 0} Dune chains`);
 
-        if (!chainName) continue;
+    if (duneMetrics) {
+      for (const [duneKey, dMetrics] of duneMetrics.entries()) {
+        // Get the proper DeFiLlama chain name using alias mapping
+        const properName = getProperChainName(duneKey, defiLlamaChainMap);
 
-        const chainKeyLower = chainName.toLowerCase();
-        if (addedChains.has(chainKeyLower)) continue;
+        const capitalizedDuneName = duneKey.charAt(0).toUpperCase() + duneKey.slice(1);
+        const displayChainName = properName || capitalizedDuneName;
+        const lowerDisplayChainName = displayChainName.toLowerCase();
 
-        // Get TVL from DeFiLlama if available
-        const defiLlamaData = defiLlamaChainMap.get(chainKeyLower);
-        const tvl = defiLlamaData?.tvl || 0;
+        // Skip if already added (avoid duplicates)
+        if (addedChains.has(lowerDisplayChainName)) {
+          continue;
+        }
+
+        // Try to get TVL from DeFiLlama using the proper name
+        let tvl = 0;
+
+        if (properName) {
+          const defiLlamaData = defiLlamaChainMap.get(properName.toLowerCase());
+          if (defiLlamaData) {
+            tvl = defiLlamaData.tvl;
+            console.log(`[DeFiLlama] Enriched Dune chain "${duneKey}" (Display: "${displayChainName}") -> "${properName}" with TVL: $${(tvl / 1e9).toFixed(2)}B`);
+          } else {
+            console.log(`[DeFiLlama] Warning: "${duneKey}" mapped to "${properName}" but no TVL data found`);
+          }
+        } else {
+          console.log(`[DeFiLlama] No DeFiLlama mapping for "${duneKey}", TVL will be 0`);
+        }
 
         const chainData: ChainData = {
-          name: chainName,
+          name: displayChainName,
           tvl,
-          tvlChange24h: 0, // Will be populated below
-          volume24h: duneData.volume24h,
-          txns24h: duneData.txns24h,
-          activeWallets: duneData.activeWallets,
-          gasPrice: duneData.gasPrice,
-          contracts24h: duneData.contracts24h,
-          contracts7d: duneData.contracts7d,
+          tvlChange24h: 0,
+          volume24h: dMetrics.volume24h,
+          txns24h: dMetrics.txns24h,
+          activeWallets: dMetrics.activeWallets,
+          gasPrice: dMetrics.gasPrice,
+          contracts24h: dMetrics.contracts24h,
+          contracts7d: dMetrics.contracts7d,
           poolsCount: undefined,
           tokensCount: undefined,
-          logoUrl: getChainLogoUrl(chainName),
+          logoUrl: getChainLogoUrl(displayChainName),
         };
 
         chains.push(chainData);
-        addedChains.add(chainKeyLower);
+        addedChains.add(lowerDisplayChainName);
       }
     }
 
-    // If no Dune data available, add top DeFiLlama chains (TVL only)
-    if (chains.length === 0) {
-      const sortedDefiLlamaChains = data
-        .filter((chain) => (chain.tvl || 0) > 0)
-        .sort((a, b) => (b.tvl || 0) - (a.tvl || 0))
-        .slice(0, 50); // Top 50 chains by TVL
+    console.log(`[DeFiLlama] Created ${chains.length} chains with Dune metrics`);
 
-      for (const chain of sortedDefiLlamaChains) {
-        chains.push({
-          name: chain.name,
-          tvl: chain.tvl || 0,
-          tvlChange24h: 0, // Will be populated below
-          volume24h: undefined,
-          txns24h: undefined,
-          activeWallets: undefined,
-          gasPrice: undefined,
-          contracts24h: undefined,
-          contracts7d: undefined,
-          poolsCount: undefined,
-          tokensCount: undefined,
-          logoUrl: `https://icons.llamao.fi/icons/chains/rsz_${chain.name.toLowerCase()}?w=48&h=48`,
-        });
-      }
-    }
-
-    // Populate TVL changes in parallel with a concurrency limit to avoid rate limiting
-    // Simple batching
+    // Populate TVL changes in parallel with a concurrency limit
     const BATCH_SIZE = 10;
     for (let i = 0; i < chains.length; i += BATCH_SIZE) {
       const batch = chains.slice(i, i + BATCH_SIZE);
@@ -267,8 +263,11 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
       }));
     }
 
-    // Sort by TVL descending
-    chains.sort((a, b) => b.tvl - a.tvl);
+    // # [Logic]: Final sort by TVL descending as requested by user
+    // # [Ref]: Implementation Plan - Goal 1
+    chains.sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
+
+    return chains;
 
     return chains;
   } catch (error) {
@@ -279,39 +278,103 @@ export async function getChainsData(duneMetrics?: Map<string, { volume24h?: numb
 
 /**
  * Get the proper display name for a chain
- * Tries to match with DeFiLlama name first, otherwise uses capitalized version
+ * Tries to match with DeFiLlama name first, otherwise returns null if no match found
+ * @returns The proper chain name from DeFiLlama, or null if not found
  */
 function getProperChainName(
   chainKey: string,
   defiLlamaChainMap: Map<string, { name: string; tvl: number }>
-): string {
+): string | null {
   // Alias mapping for common mismatches (lowercase input -> lowercase key in map)
   const CHAIN_NAME_ALIASES: Record<string, string> = {
+    // BNB Chain variants
     'bnb': 'bsc',
     'binance': 'bsc',
     'bnb smart chain': 'bsc',
     'binance smart chain': 'bsc',
     'op_bnb': 'opbnb',
+
+    // Common underscored variants
+    'arbitrum_one': 'arbitrum',
+    'polygon_pos': 'polygon',
+
+    // Avalanche variants
+    'avalanche_c': 'avalanche',
+    'avalanche c': 'avalanche',
+
+    // Optimism variants
+    'optimism': 'op mainnet',
+
+    // zkSync variants
+    'zksync': 'zksync era',
+    'zksync_era': 'zksync era',
+
+    // Arbitrum Nova
+    'nova': 'arbitrum nova',
+
+    // Polygon zkEVM
+    'zkevm': 'polygon zkevm',
+    'polygon_zkevm': 'polygon zkevm',
+
+    // World Chain
+    'worldchain': 'world chain',
+
+    // Hyperliquid
+    'hyperevm': 'hyperliquid l1',
+
+    // Plume
+    'plume': 'plume mainnet',
+
+    // Other chains
+    'gnosis_chain': 'gnosis',
+    'base_mainnet': 'base'
   };
 
   const chainKeyLower = chainKey.toLowerCase();
 
-  // Check direct match
+  // Check direct match in DeFiLlama map
   let defiLlamaData = defiLlamaChainMap.get(chainKeyLower);
   if (defiLlamaData) {
     return defiLlamaData.name;
   }
 
-  // Check alias
+  // Check alias mapping
   const aliasKey = CHAIN_NAME_ALIASES[chainKeyLower];
   if (aliasKey) {
-    defiLlamaData = defiLlamaChainMap.get(aliasKey);
+    // Try the alias as-is (already lowercase)
+    defiLlamaData = defiLlamaChainMap.get(aliasKey.toLowerCase());
     if (defiLlamaData) {
       return defiLlamaData.name;
     }
+
+    // Some aliases point to proper names like "OP Mainnet" which need special handling
+    // Try to find by iterating through all chains (slow but thorough)
+    for (const [key, value] of defiLlamaChainMap.entries()) {
+      if (key === aliasKey.toLowerCase() || value.name.toLowerCase() === aliasKey.toLowerCase()) {
+        return value.name;
+      }
+    }
   }
 
-  // Otherwise capitalize the chain name properly
+  // If still not found, return null to indicate this chain doesn't exist in DeFiLlama
+  // This prevents creating chains with TVL=0 that should actually be filtered out
+  return null;
+}
+
+/**
+ * Get the proper display name for a chain (with fallback)
+ */
+function getProperChainNameWithFallback(
+  chainKey: string,
+  defiLlamaChainMap: Map<string, { name: string; tvl: number }>
+): string {
+  const matched = getProperChainName(chainKey, defiLlamaChainMap);
+
+  if (matched) {
+    return matched;
+  }
+
+  // Otherwise capitalize the chain name properly as fallback
   return chainKey.split(/[\s_-]+/).map(word =>
     word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
   ).join(' ');
@@ -373,105 +436,7 @@ export async function getTotalTVL(): Promise<number> {
   }
 }
 
-/**
- * Get historical TVL data for a protocol
- * DeFiLlama API: /protocol/{protocol}
- * Returns array of [timestamp, tvl] pairs
- */
-export async function getProtocolHistoricalTvl(protocolName: string): Promise<Array<[number, number]>> {
-  try {
-    // DeFiLlama uses protocol slug (lowercase, hyphenated, special characters removed)
-    // Common transformations:
-    // - "AAVE V3" -> "aave-v3"
-    // - "Uniswap V3" -> "uniswap-v3"
-    // - "JustLend" -> "justlend"
-    let protocolSlug = protocolName
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9-]/g, '')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
 
-    // Try the protocol endpoint first
-    let url = `${DEFILLAMA_BASE_URL}/protocol/${protocolSlug}`;
-    // # [Logic]: Fetch protocol specific TVL via Unified Transport with retries/fallbacks
-    let protocolData: any = null;
-
-    try {
-      protocolData = await unifiedApiService.fetchJson<any>({
-        url,
-        method: 'GET',
-        requestTimeout: 10000,
-        endpointName: 'defillama-protocol-detail'
-      });
-    } catch {
-      // Try alternative: /tvl/{protocol}
-      url = `${DEFILLAMA_BASE_URL}/tvl/${protocolSlug}`;
-      try {
-        protocolData = await unifiedApiService.fetchJson<any>({
-          url,
-          method: 'GET',
-          requestTimeout: 10000,
-          endpointName: 'defillama-protocol-tvl'
-        });
-      } catch {
-        // Try without version suffix (e.g., "aave-v3" -> "aave")
-        const baseSlug = protocolSlug.split('-').slice(0, -1).join('-');
-        if (baseSlug && baseSlug !== protocolSlug) {
-          url = `${DEFILLAMA_BASE_URL}/protocol/${baseSlug}`;
-          try {
-            protocolData = await unifiedApiService.fetchJson<any>({
-              url,
-              method: 'GET',
-              requestTimeout: 10000,
-              endpointName: 'defillama-protocol-detail-fallback'
-            });
-          } catch (e) {
-            // Final fallback failed
-            console.warn(`Protocol ${protocolName} (slug: ${protocolSlug}) not found in DeFiLlama`);
-            return [];
-          }
-        } else {
-          console.warn(`Protocol ${protocolName} (slug: ${protocolSlug}) not found in DeFiLlama`);
-          return [];
-        }
-      }
-    }
-
-    // Assign data for downstream processing
-    const data = protocolData;
-
-    // Handle different response formats
-    if (Array.isArray(data)) {
-      // Direct array format: [[timestamp, tvl], ...]
-      return data as Array<[number, number]>;
-    } else if (data.tvl && Array.isArray(data.tvl)) {
-      // Object with tvl property: { tvl: [[timestamp, tvl], ...] }
-      return data.tvl as Array<[number, number]>;
-    } else if (data.chainTvls) {
-      // Aggregate TVL from all chains
-      const chainTvls = data.chainTvls as Record<string, number[][]>;
-      const allTvls: Record<number, number> = {};
-
-      for (const chainData of Object.values(chainTvls)) {
-        if (Array.isArray(chainData)) {
-          for (const [timestamp, tvl] of chainData) {
-            allTvls[timestamp] = (allTvls[timestamp] || 0) + tvl;
-          }
-        }
-      }
-
-      return Object.entries(allTvls)
-        .map(([ts, tvl]) => [Number(ts), tvl] as [number, number])
-        .sort((a, b) => a[0] - b[0]);
-    }
-
-    return [];
-  } catch (error) {
-    console.error(`Error fetching historical TVL for ${protocolName}:`, error);
-    return [];
-  }
-}
 
 /**
  * Get total Open Interest from DeFiLlama derivatives API
@@ -509,27 +474,27 @@ export async function getDerivativesOpenInterest(): Promise<number | undefined> 
   }
 }
 
-/**
- * Get protocol details by name
- */
-export async function getProtocolDetails(protocolName: string): Promise<any | null> {
-  try {
-    const protocolSlug = protocolName
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9-]/g, '');
 
-    const url = `${DEFILLAMA_BASE_URL}/protocol/${protocolSlug}`;
-    const data = await unifiedApiService.fetchJson<any>({
+
+/**
+ * Get total circulating market cap for all stablecoins
+ * Reference: https://defillama.com/docs/api
+ */
+export async function getStablecoinsCirculating(): Promise<number> {
+  try {
+    const url = `${DEFILLAMA_BASE_URL}/stablecoins/circulating`;
+    // # [Logic]: Fetch stablecoins market cap via Unified Transport
+    // # [Ref]: Official DeFiLlama Stablecoins API
+    const data = await unifiedApiService.fetchJson<number>({
       url,
       method: 'GET',
       requestTimeout: 10000,
-      endpointName: 'defillama-protocol-details'
+      endpointName: 'defillama-stablecoins-circulating'
     });
 
-    return data;
+    return data || 0;
   } catch (error) {
-    console.error(`Error fetching protocol details for ${protocolName}:`, error);
-    return null;
+    console.error('Error fetching stablecoins circulating cap:', error);
+    return 0;
   }
 }

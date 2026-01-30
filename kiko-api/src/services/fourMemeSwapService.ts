@@ -15,7 +15,7 @@ import { base, bsc } from 'viem/chains';
 import { sendTransaction, isPrivyConfigured } from './privyWallet.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { getPlatformFee, isValidEvmAddress, type FeeContext } from './platformFeeService.js';
+import { type FeeContext } from './platformFeeService.js';
 
 // Four.Meme Helper V3 Addresses
 const FOURMEME_HELPER = {
@@ -87,9 +87,6 @@ export class FourMemeSwapService {
         const targetToken = (isBuy ? params.tokenOut : params.tokenIn) as Address;
         let amountInWei = parseEther(params.amountIn);
 
-        const fee = getPlatformFee(params.feeContext || 'swap');
-        const canChargeFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient);
-
         // 1. Get Token Info to see version and liquidity status
         const info = await client.readContract({
             address: helper,
@@ -123,20 +120,6 @@ export class FourMemeSwapService {
             });
             const [, , estimatedAmount] = estimate;
             const minAmount = (estimatedAmount * BigInt(100 - slippagePct)) / BigInt(100);
-
-            if (canChargeFee && amountInWei > 0n) {
-                const feeWei = (amountInWei * BigInt(fee.bps)) / 10000n;
-                if (feeWei > 0n && amountInWei > feeWei) {
-                    await sendTransaction(params.userId, params.accessToken, {
-                        to: fee.evmRecipient!,
-                        data: '0x',
-                        value: feeWei.toString(),
-                        chainId: params.chainId,
-                    });
-                    amountInWei = amountInWei - feeWei;
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Collected platform fee (native)', { bps: fee.bps, wei: feeWei.toString() });
-                }
-            }
 
             if (quote === '0x0000000000000000000000000000000000000000') {
                 // Native ETH/BNB pair
@@ -211,39 +194,12 @@ export class FourMemeSwapService {
         }
 
         // Execute Transaction
-        const preBalance = (!isBuy && canChargeFee)
-            ? await client.getBalance({ address: params.walletAddress as Address })
-            : null;
-
         const txHash = await sendTransaction(params.userId, params.accessToken, {
             to: txTo,
             data: txData!,
             value: txValue,
             chainId: params.chainId,
         });
-
-        if (!isBuy && canChargeFee) {
-            try {
-                const receipt = await client.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
-                const postBalance = await client.getBalance({ address: params.walletAddress as Address });
-                const gasCost = receipt.gasUsed * (receipt.effectiveGasPrice || 0n);
-                const received = preBalance !== null ? postBalance + gasCost - preBalance : 0n;
-                if (received > 0n) {
-                    const feeWei = (received * BigInt(fee.bps)) / 10000n;
-                    if (feeWei > 0n) {
-                        await sendTransaction(params.userId, params.accessToken, {
-                            to: fee.evmRecipient!,
-                            data: '0x',
-                            value: feeWei.toString(),
-                            chainId: params.chainId,
-                        });
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme: Collected platform fee (native sell)', { bps: fee.bps, wei: feeWei.toString() });
-                    }
-                }
-            } catch (feeErr: any) {
-                logger.warn(LogCode.EXE_TX_REVERTED, 'Four.Meme: Fee collection failed', { error: feeErr.message });
-            }
-        }
 
         logger.info(LogCode.EXE_TX_BROADCAST, 'Four.Meme Swap Success', { txHash, chainId: params.chainId });
         return txHash;

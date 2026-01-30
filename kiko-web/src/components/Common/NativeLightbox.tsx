@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getOptimizedImageUrl } from '../../services/api';
 
 interface NativeLightboxProps {
     isOpen: boolean;
@@ -59,6 +60,21 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, page, images.length, onClose]);
+
+    // Efficiency Protocol: Pre-load next and previous images
+    useEffect(() => {
+        if (!isOpen || images.length <= 1) return;
+
+        const indicesToPreload = [
+            page + 1 < images.length ? page + 1 : null,
+            page - 1 >= 0 ? page - 1 : null
+        ].filter(idx => idx !== null) as number[];
+
+        indicesToPreload.forEach(idx => {
+            const img = new Image();
+            img.src = getOptimizedImageUrl(images[idx], 1200, 85);
+        });
+    }, [isOpen, page, images]);
 
     const paginate = (newDirection: number) => {
         const newPage = page + newDirection;
@@ -152,7 +168,7 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
                     <AnimatePresence initial={false} custom={direction} mode="popLayout">
                         <motion.img
                             key={page}
-                            src={images[page]}
+                            src={getOptimizedImageUrl(images[page], 1200, 85)}
                             custom={direction}
                             variants={variants}
                             initial="enter"

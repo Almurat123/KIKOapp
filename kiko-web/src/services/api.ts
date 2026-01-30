@@ -7,6 +7,27 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || (
         ? 'https://api.kiko.app' // Production: must use HTTPS
         : 'http://localhost:3001'
 );
+
+/**
+ * Get optimized image URL via backend proxy (Efficiency Protocol)
+ * @param url Original image URL
+ * @param width Target width (pixels)
+ * @param quality Quality (0-100)
+ */
+export function getOptimizedImageUrl(url: string, width?: number, quality?: number): string {
+    if (!url) return '';
+
+    // Skip proxy for already optimized CDNs or trusted low-latency sources
+    if (url.includes('wrpcd.net') || url.includes('imagedelivery.net') || url.includes('vxtwitter.com')) {
+        return url;
+    }
+
+    const params = new URLSearchParams({ url });
+    if (width) params.append('w', width.toString());
+    if (quality) params.append('q', quality.toString());
+    return `${API_BASE_URL}/api/images/token?${params.toString()}`;
+}
+
 import { logger } from '../utils/logger';
 
 export type MarketOverview = {
@@ -25,6 +46,9 @@ export type MarketOverview = {
     evix?: number;
     liquidityStressIndex?: number;
     liquidityStressStatus?: string;
+    stablecoinsMcap?: number;
+    btcDomChange24h?: number;
+    mcapChange24h?: number;
 };
 
 export type ChainData = {
@@ -54,6 +78,9 @@ export type ProtocolData = {
     mcapTvlRatio?: number;
     description?: string;
     logoUrl?: string;
+    mcap?: number;
+    fdv?: number;
+    audits?: any[];
 };
 
 export interface TokenSearchResult {
@@ -291,24 +318,7 @@ export const marketApi = {
         return fetchApi<any[]>('/api/market/gainers');
     },
 
-    /**
-     * Get protocol details including website URL
-     */
-    async getProtocolDetails(protocolName: string): Promise<{ website?: string; url?: string } | null> {
-        try {
-            return await fetchApi<{ website?: string; url?: string }>(`/api/market/protocol/${encodeURIComponent(protocolName)}`);
-        } catch (error) {
-            logger.error('[MarketAPI] Error fetching protocol details:', error);
-            return null;
-        }
-    },
 
-    /**
-     * Get protocol historical TVL data
-     */
-    async getProtocolHistory(protocolName: string): Promise<Array<[number, number]>> {
-        return fetchApi<Array<[number, number]>>(`/api/market/protocol/${encodeURIComponent(protocolName)}/history`);
-    },
 };
 
 /**
@@ -558,15 +568,18 @@ export const socialApi = {
     /**
      * Get trending casts with cursor-based pagination (Twitter-style)
      * Returns nextCursor for stable pagination without duplicates
+     * sortBy: 'trending' (by engagement) or 'newest' (by time)
      */
     async getTrendingWithCursor(
         limit: number = 30,
         timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending',
-        cursor?: string
+        cursor?: string,
+        sortBy: 'trending' | 'newest' = 'trending'
     ): Promise<{ casts: TrendingCast[]; nextCursor: string | null; hasMore: boolean }> {
         const params = new URLSearchParams();
         params.append('limit', limit.toString());
         params.append('timeRange', timeRange);
+        params.append('sortBy', sortBy);
         if (cursor) params.append('cursor', cursor);
 
         const response = await fetch(`${API_BASE_URL}/api/social/trending/cursor?${params.toString()}`, {

@@ -33,7 +33,9 @@ export class KyberProvider extends BaseSwapProvider {
                 sellAmount,
                 request.chainId,
                 request.slippageBps || 50,
-                request.walletAddress
+                request.walletAddress,
+                request.feeContext,
+                request.isSell
             );
 
             if (!kyberQuote) {

@@ -3,10 +3,10 @@ import prisma from '../../../db/prisma.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../../../services/alchemyWebhookService.js';
 import { normalizeAddress, isSolanaAddress } from '../../../utils/address.js';
 import { validateAddress } from '../../../utils/validation.js';
-import { callRpc } from '../../../services/rpcManager.js';
 import { getSolanaConnection } from '../../../config/solanaConfig.js';
 import { TOKEN_PROGRAM_ID } from '../../../utils/solanaToken.js';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { isErc20ContractAddress } from '../../../utils/evmTokenCheck.js';
 
 // --- Tool Definitions ---
 
@@ -126,9 +126,8 @@ export const CreateCopyTradeConfigTool: Tool = {
                     throw new Error('Solana address is a program address. Please provide a wallet address.');
                 }
             } else if (normalizedWallet.startsWith('0x')) {
-                const code = await callRpc<string>(chainId, 'eth_getCode', [normalizedWallet, 'latest']);
-                if (code && code !== '0x' && code !== '0x0') {
-                    throw new Error('Target address is a contract. Please provide a wallet (EOA) address.');
+                if (await isErc20ContractAddress(chainId, normalizedWallet)) {
+                    throw new Error('Target address appears to be an ERC-20 token contract. Please provide a wallet address.');
                 }
             }
 

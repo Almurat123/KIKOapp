@@ -44,15 +44,49 @@ export async function getTrendingTokens(apiKey?: string) {
     }
 }
 
+// List of stablecoin symbols to filter out
+const STABLECOIN_SYMBOLS = new Set([
+    'usdt', 'usdc', 'dai', 'busd', 'tusd', 'frax', 'lusd', 'usdp', 'gusd',
+    'usdd', 'fdusd', 'pyusd', 'eurc', 'eurs', 'susd', 'mim', 'alusd', 'crvusd',
+    'gho', 'usdj', 'tribe', 'fei', 'ust', 'ustc', 'husd', 'cusd', 'dola',
+    'ousd', 'flexusd', 'usdn', 'xsgd', 'bidr', 'idrt', 'jpy', 'eur', 'gbp',
+    'usdx', 'musd', 'vai', 'eurt', 'usdk', 'xusd', 'esd', 'bac', 'dusd'
+]);
+
 export async function getTopGainers(apiKey?: string, limit: number = 10): Promise<any[]> {
     try {
-        const url = `${COINGECKO_BASE_URL}/coins/markets?vs_currency=usd&order=price_change_percentage_24h_desc&per_page=${limit}&page=1${apiKey ? `&x_cg_demo_api_key=${apiKey}` : ''}`;
-        return await unifiedApiService.fetchJson<any[]>({
+        // Fetch more coins to filter stablecoins and still have enough gainers
+        const fetchLimit = Math.max(limit * 5, 50);
+        const url = `${COINGECKO_BASE_URL}/coins/markets?vs_currency=usd&order=price_change_percentage_24h_desc&per_page=${fetchLimit}&page=1&sparkline=true${apiKey ? `&x_cg_demo_api_key=${apiKey}` : ''}`;
+        const coins = await unifiedApiService.fetchJson<any[]>({
             url,
             method: 'GET',
             timeout: 10000,
             endpointName: 'api.coingecko.com'
         });
+
+        // Filter out stablecoins
+        const filteredCoins = coins.filter((coin: any) => {
+            const symbol = (coin.symbol || '').toLowerCase();
+            const name = (coin.name || '').toLowerCase();
+
+            // Skip if symbol is a known stablecoin
+            if (STABLECOIN_SYMBOLS.has(symbol)) return false;
+
+            // Skip if name contains "USD" or common stablecoin patterns
+            if (name.includes('tether') || name.includes('usd coin') ||
+                name.includes('stablecoin') || name.includes('dollar')) return false;
+
+            // Skip coins with very low price change (likely stablecoins)
+            const priceChange = Math.abs(coin.price_change_percentage_24h || 0);
+            if (priceChange < 0.5) return false;
+
+            return true;
+        });
+
+        logger.info(LogCode.API_RATE_LIMIT, `Top gainers: fetched ${coins.length}, filtered to ${filteredCoins.length} (removed stablecoins)`);
+
+        return filteredCoins.slice(0, limit);
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching CoinGecko top gainers', { error: error.message });
         return [];

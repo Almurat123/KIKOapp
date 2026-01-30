@@ -7,9 +7,10 @@ import {
   Calendar,
   ChevronDown,
   Check,
+  ArrowUp,
 } from 'lucide-react';
 
-import { socialApi } from '../services/api';
+import { socialApi, getOptimizedImageUrl } from '../services/api';
 import { PageContainer } from '../components/Layout/PageContainer';
 import { CastCard3D } from '../components/Social/CastCard3D';
 import { ContentFrame } from '../components/Social/ContentFrame';
@@ -17,6 +18,7 @@ import { HlsVideoPlayer } from '../components/Social/HlsVideoPlayer';
 import { LoadingSpinner } from '../components/Common/LoadingSpinner';
 import { useThemeContext } from '../contexts/ThemeContext';
 import { EmbedPreview } from '../components/Social/EmbedPreview';
+import { SocialPost } from '../components/Social/SocialPost';
 import { NativeLightbox } from '../components/Common/NativeLightbox';
 import { useIsMobile } from '../hooks/useIsMobile';
 import type { TrendingCast, FeedItem } from '../services/api';
@@ -46,20 +48,7 @@ const getThemeColors = (isDark: boolean) => ({
 
 
 // --- Helpers ---
-const isImageUrl = (url: string): boolean => {
-  if (!url) return false;
-  if (url.includes('imagedelivery.net')) return true;
-  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/i.test(url)) return true;
-  if (/\.(imgur|imgbb|cloudinary|unsplash|pexels)\./i.test(url)) return true;
-  return false;
-};
 
-const isVideoUrl = (url: string): boolean => {
-  if (!url) return false;
-  if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(url)) return true;
-  if (url.includes('imagedelivery.net') && !isImageUrl(url)) return true;
-  return false;
-};
 
 const formatText = (text: string) => {
   if (!text) return null;
@@ -121,6 +110,7 @@ const getAestheticGradient = (id: number | string) => {
   return `linear-gradient(135deg, hsl(${h1}, 75%, 65%) 0%, hsl(${h2}, 85%, 55%) 100%)`;
 };
 
+// @ts-ignore - Component kept for potential future use in advanced layout
 const TrendingCastItem: React.FC<{
   data: FeedItem;
   isDark: boolean;
@@ -429,8 +419,8 @@ const TrendingCastItem: React.FC<{
                     }}
                   >
                     <img
-                      src={img}
-                      alt="Content"
+                      src={getOptimizedImageUrl(img, 500, 75)}
+                      alt=""
                       loading="lazy"
                       style={{
                         width: '100%',
@@ -441,8 +431,9 @@ const TrendingCastItem: React.FC<{
                         display: 'block',
                       }}
                       onError={(e) => {
-                        // Hide broken images
-                        (e.target as HTMLImageElement).style.display = 'none';
+                        // Efficiency Protocol: Hide the entire wrapper if image fails
+                        const parent = (e.target as HTMLElement).parentElement;
+                        if (parent) parent.style.display = 'none';
                       }}
                     />
                   </div>
@@ -450,18 +441,26 @@ const TrendingCastItem: React.FC<{
               </div>
             )}
 
-            {data.embeds && data.embeds.length > 0 && (
-              <div style={{ marginTop: '8px', width: '100%', maxWidth: '100%' }}>
-                {data.embeds.filter((e: any) => e.url && !isImageUrl(e.url) && !isVideoUrl(e.url) && !e.castId).map((e: any, i: number) => {
-                  if (e.url.startsWith('zoraCoin:') || e.url.startsWith('ethereum:')) return null;
-                  return (
-                    <div key={i} onClick={evt => evt.stopPropagation()}>
+            {/* External Embeds Section (Deduplicated) */}
+            {(() => {
+              const imageUrls = new Set(data.images || []);
+              const filteredEmbeds = (data.embeds || [])
+                .filter((e: any) => e.url && !e.castId && !imageUrls.has(e.url))
+                // Filter out zoraCoin:// and ethereum:// protocol links
+                .filter((e: any) => !e.url.startsWith('zoraCoin:') && !e.url.startsWith('ethereum:'));
+
+              if (filteredEmbeds.length === 0) return null;
+
+              return (
+                <div style={{ marginTop: '12px', width: '100%' }}>
+                  {filteredEmbeds.slice(0, 1).map((e: any, i: number) => (
+                    <div key={i} onClick={(evt) => evt.stopPropagation()}>
                       <EmbedPreview url={e.url} isDark={isDark} />
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* Stats Bar */}
             <div style={{
@@ -745,6 +744,10 @@ export const SocialPage: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Back to Top State
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+
   // Close menu on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -816,6 +819,26 @@ export const SocialPage: React.FC = () => {
     return () => root.removeEventListener('scroll', onScroll);
   }, [loading, hasMore, cursor]);
 
+  // Back to Top Scroll Listener
+  useEffect(() => {
+    const root = document.querySelector('[data-scroll-container="app"]') as HTMLElement | null;
+    if (!root) return;
+
+    const handleScroll = () => {
+      setShowBackToTop(root.scrollTop > 500);
+    };
+
+    root.addEventListener('scroll', handleScroll, { passive: true });
+    return () => root.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    const root = document.querySelector('[data-scroll-container="app"]') as HTMLElement | null;
+    if (root) {
+      root.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   // Safety: release stuck state if request hangs too long
   useEffect(() => {
     if (!loading) return;
@@ -846,7 +869,7 @@ export const SocialPage: React.FC = () => {
     return () => {
       mountedRef.current = false;
     };
-  }, [timeRange]);
+  }, [timeRange, sortBy]);
 
   const loadTrendingCasts = async (showLoading: boolean = true, cursorParam: string | null = null) => {
     if (!mountedRef.current) return;
@@ -864,8 +887,10 @@ export const SocialPage: React.FC = () => {
 
       console.log(`[SocialPage] Loading casts with cursor: ${cursorParam || 'INITIAL'}...`);
 
-      // Use cursor-based API
-      const result = await socialApi.getTrendingWithCursor(PAGE_SIZE, timeRange, cursorParam || undefined).catch((err) => {
+      // Use cursor-based API with sortBy parameter
+      // Map frontend sortBy to API sortBy: 'newest' -> 'newest', 'rank'/'oldest' -> 'trending'
+      const apiSortBy = sortBy === 'newest' ? 'newest' : 'trending';
+      const result = await socialApi.getTrendingWithCursor(PAGE_SIZE, timeRange, cursorParam || undefined, apiSortBy).catch((err) => {
         console.warn('[SocialPage] getTrendingWithCursor failed:', err);
         return { casts: [], nextCursor: null, hasMore: false };
       });
@@ -886,7 +911,8 @@ export const SocialPage: React.FC = () => {
           const MIN_VALID_TIMESTAMP = 1577836800000;
           const items = result.casts
             .filter((cast) => {
-              if (cast.stats.likes < 5) return false;
+              // Only filter by likes when sorting by trending/hot (not newest)
+              // This allows new posts to appear even with 0 likes
 
               let ts: number;
               if (typeof cast.timestamp === 'number') ts = cast.timestamp;
@@ -1002,7 +1028,8 @@ export const SocialPage: React.FC = () => {
             borderBottom: `1px solid ${colors.border}`,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between'
+            justifyContent: 'flex-end', // Moved to right
+            gap: '12px'
           }}>
             {/* Filter Menu & Base Coin Toggle */}
             <div style={{
@@ -1050,7 +1077,7 @@ export const SocialPage: React.FC = () => {
                   <div style={{
                     position: 'absolute',
                     top: '100%',
-                    left: 0,
+                    right: 0,
                     marginTop: '8px',
                     width: '220px',
                     background: isDark ? '#1F1F22' : '#FFFFFF',
@@ -1200,14 +1227,13 @@ export const SocialPage: React.FC = () => {
                   </span>
                 </div>
               ) : (
-                <TrendingCastItem
+                <SocialPost
                   key={item.id}
                   data={item}
                   isDark={isDark}
                   onClick={handleCastClick}
                   onAvatarClick={handleAvatarClick}
                   onImageClick={handleImageClick}
-                  isMobile={isMobile}
                 />
               )
             ))}
@@ -1254,6 +1280,35 @@ export const SocialPage: React.FC = () => {
             </div>
           )}
         </main>
+
+        {/* Back to Top Button */}
+        <div
+          onClick={scrollToTop}
+          style={{
+            position: 'fixed',
+            bottom: isMobile ? '80px' : '40px',
+            right: isMobile ? '20px' : '40px',
+            width: '40px',
+            height: '40px',
+            borderRadius: '50%',
+            background: isDark ? 'rgba(39, 39, 42, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+            border: `1px solid ${colors.border}`,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            opacity: showBackToTop ? 1 : 0,
+            transform: showBackToTop ? 'translateY(0)' : 'translateY(20px)',
+            pointerEvents: showBackToTop ? 'auto' : 'none',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            zIndex: 100,
+            color: colors.textPrimary,
+          }}
+          title="Back to Top"
+        >
+          <ArrowUp size={20} />
+        </div>
 
         <style>{`
         @keyframes spin {

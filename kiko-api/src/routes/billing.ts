@@ -9,7 +9,9 @@ import {
     revokeBillingConsent,
     upsertBillingConsent
 } from '../repositories/billingRepository.js';
-import { getUtcDateString } from '../services/billing/billingService.js';
+import { getDailyFreeQuota, getUtcDateString } from '../services/billing/billingService.js';
+import { getDailyUsageCount, getDailyPaidUsdTotal } from '../repositories/billingRepository.js';
+import { getTokenBalance } from '../services/UnifiedDataLayer.js';
 
 interface ConsentBody {
     source?: string;
@@ -74,6 +76,47 @@ export async function billingRoutes(fastify: FastifyInstance) {
             await revokeBillingConsent(userId, env.billing.chainId);
             await createBillingBlock(userId, getUtcDateString(), 'BILLING_CONSENT_REVOKED');
             return reply.send({ success: true });
+        }
+    );
+
+    fastify.get(
+        '/usage-summary',
+        { preHandler: requireAuth },
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            const userId = (request as any).user?.sub;
+            if (!userId) {
+                return reply.code(401).send({ error: 'Unauthorized' });
+            }
+
+            const dateUtc = getUtcDateString();
+            const normalUsed = await getDailyUsageCount(userId, dateUtc, 'deepseek');
+            const advancedUsed = await getDailyUsageCount(userId, dateUtc, 'grok');
+            const normalLimit = getDailyFreeQuota('deepseek');
+            const advancedLimit = getDailyFreeQuota('grok');
+            const dailyUsd = await getDailyPaidUsdTotal(userId, dateUtc);
+
+            let tokenBalance = 0;
+            if (env.billing.tokenAddress) {
+                const walletAddress = await getEmbeddedWalletAddress(userId);
+                if (walletAddress) {
+                    const balance = await getTokenBalance(walletAddress, env.billing.tokenAddress, env.billing.chainId);
+                    tokenBalance = balance ? Number(balance.balanceFormatted || 0) : 0;
+                }
+            }
+
+            return reply.send({
+                dateUtc,
+                normal: {
+                    used: normalUsed,
+                    limit: normalLimit
+                },
+                advanced: {
+                    used: advancedUsed,
+                    limit: advancedLimit
+                },
+                dailyUsd,
+                tokenBalance
+            });
         }
     );
 }

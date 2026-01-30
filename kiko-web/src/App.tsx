@@ -120,6 +120,17 @@ function App() {
       // Ignored
     }
 
+    // Listener for programmatic pre-fills (from Buy/Sell buttons)
+    const handlePrefill = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail && customEvent.detail.query) {
+        setPendingAIPrompt(customEvent.detail.query);
+        setActiveTab('chat');
+      }
+    };
+
+    window.addEventListener('kiko-prefill-chat', handlePrefill);
+    return () => window.removeEventListener('kiko-prefill-chat', handlePrefill);
   }, []);
 
   // Wallet disconnection detection removed - not needed

@@ -25,6 +25,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { TOKEN_REGISTRY, SOLANA_NATIVE_MINT } from '../config/tokenRegistry.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { getPlatformFee, type FeeContext } from './platformFeeService.js';
 
 export interface SolanaQuote {
   inputMint: string;
@@ -72,6 +73,23 @@ const getJupiterApiKey = (): string | undefined => {
 const RAYDIUM_SWAP_HOST = 'https://transaction-v1.raydium.io';
 const RAYDIUM_BASE_HOST = 'https://api-v3.raydium.io';
 
+const normalizeFeeContext = (context?: string): FeeContext => {
+  return context === 'copy_trade' || context === 'copyTrade' ? 'copyTrade' : 'swap';
+};
+
+const getJupiterReferralParams = (feeContext?: string) => {
+  const fee = getPlatformFee(normalizeFeeContext(feeContext));
+  if (!fee.solanaRecipient || fee.bps <= 0) {
+    return null;
+  }
+  try {
+    new PublicKey(fee.solanaRecipient);
+    return { referralAccount: fee.solanaRecipient, referralFee: fee.bps };
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Get swap quote from Jupiter Ultra API
  * Documentation: https://dev.jup.ag/api-reference/ultra/order
@@ -86,7 +104,8 @@ async function getJupiterQuote(
   amount: string,
   slippageBps: number = 50,
   userAddress?: string,
-  computeUnitPriceMicroLamports?: number
+  computeUnitPriceMicroLamports?: number,
+  feeContext?: string
 ): Promise<SolanaQuote | null> {
   try {
     // Build headers with API key if available
@@ -110,7 +129,11 @@ async function getJupiterQuote(
       // ULTRA API: /order
       isUltra = true;
       const takerParam = userAddress ? `&taker=${userAddress}` : '';
-      quoteUrl = `${JUPITER_ULTRA_API}/order?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${takerParam}`;
+      const referral = getJupiterReferralParams(feeContext);
+      const referralParam = referral
+        ? `&referralAccount=${referral.referralAccount}&referralFee=${referral.referralFee}`
+        : '';
+      quoteUrl = `${JUPITER_ULTRA_API}/order?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${takerParam}${referralParam}`;
       logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Ultra quote', { inputMint, outputMint, amount });
     } else {
       // PUBLIC API: /quote
@@ -225,7 +248,8 @@ async function getJupiterQuote(
 export async function getJupiterSwapTransaction(
   quote: SolanaQuote,
   userPublicKey: string,
-  wrapUnwrapSOL: boolean = true
+  wrapUnwrapSOL: boolean = true,
+  feeContext?: string
 ): Promise<string | null> {
   try {
     // Build headers with API key if available
@@ -471,11 +495,12 @@ export async function getSolanaQuoteFromAggregator(
   amount: string,
   slippageBps: number = 50,
   userAddress?: string,
-  computeUnitPriceMicroLamports?: number
+  computeUnitPriceMicroLamports?: number,
+  feeContext?: string
 ): Promise<SolanaQuote | null> {
   switch (aggregator) {
     case 'jupiter':
-      return getJupiterQuote(inputMint, outputMint, amount, slippageBps, userAddress, computeUnitPriceMicroLamports);
+      return getJupiterQuote(inputMint, outputMint, amount, slippageBps, userAddress, computeUnitPriceMicroLamports, feeContext);
     case 'raydium':
       return getRaydiumQuote(inputMint, outputMint, amount, slippageBps, userAddress);
     default:
@@ -501,12 +526,13 @@ export async function getSolanaQuote(
   slippageBps: number = 50,
   aggregator?: 'jupiter' | 'raydium' | 'auto',
   userAddress?: string,
-  computeUnitPriceMicroLamports?: number
+  computeUnitPriceMicroLamports?: number,
+  feeContext?: string
 ): Promise<SolanaQuote | null> {
   try {
     // If specific aggregator is requested, use only that one
     if (aggregator && aggregator !== 'auto') {
-      const quote = await getSolanaQuoteFromAggregator(aggregator, inputMint, outputMint, amount, slippageBps, userAddress);
+      const quote = await getSolanaQuoteFromAggregator(aggregator, inputMint, outputMint, amount, slippageBps, userAddress, computeUnitPriceMicroLamports, feeContext);
       if (quote) {
         logger.info(LogCode.EXE_QUOTE_FETCHED, `Solana Swap: Quote from ${aggregator}`, { outAmount: quote.outAmount });
       }
@@ -519,7 +545,7 @@ export async function getSolanaQuote(
 
     const startTime = Date.now();
     const quotes = await Promise.allSettled([
-      getJupiterQuote(inputMint, outputMint, amount, slippageBps, undefined, computeUnitPriceMicroLamports),
+      getJupiterQuote(inputMint, outputMint, amount, slippageBps, undefined, computeUnitPriceMicroLamports, feeContext),
       getRaydiumQuote(inputMint, outputMint, amount, slippageBps, undefined),
     ]);
 
@@ -549,7 +575,7 @@ export async function getSolanaQuote(
       logger.debug(LogCode.EXE_TX_BROADCAST, `Solana Swap: Building transaction for best quote (${bestQuote.aggregator})`);
 
       if (bestQuote.aggregator === 'jupiter') {
-        const tx = await getJupiterSwapTransaction(bestQuote, userAddress);
+        const tx = await getJupiterSwapTransaction(bestQuote, userAddress, true, feeContext);
         if (tx) {
           bestQuote.swapTransaction = tx;
         } else {
@@ -583,7 +609,7 @@ export async function getSolanaQuote(
           logger.warn(LogCode.EXE_TX_BROADCAST, 'Solana Swap: Raydium transaction build failed, trying Jupiter fallback');
           const jupiterQuote = validQuotes.find(q => q.aggregator === 'jupiter');
           if (jupiterQuote) {
-            const jupiterTx = await getJupiterSwapTransaction(jupiterQuote, userAddress);
+            const jupiterTx = await getJupiterSwapTransaction(jupiterQuote, userAddress, true, feeContext);
             if (jupiterTx) {
               jupiterQuote.swapTransaction = jupiterTx;
               bestQuote = jupiterQuote; // Switch to Jupiter
@@ -655,4 +681,3 @@ export function normalizeSolanaTokenAddress(address: string): string {
 
   return address;
 }
-

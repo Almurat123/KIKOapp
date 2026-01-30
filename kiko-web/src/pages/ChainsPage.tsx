@@ -5,7 +5,7 @@ import { marketApi } from '../services/api';
 import type { ChainData } from '../services/api';
 import { Skeleton } from '../components/Skeleton';
 import styles from './ChainsPage.module.css';
-
+import { useThemeContext } from '../contexts/ThemeContext';
 import { getLocalChainIcon } from '../utils/chainIcons';
 
 // Get chain icon URL (using local assets)
@@ -37,7 +37,7 @@ function formatChange(value: number): string {
 }
 
 export const ChainsPage: React.FC = () => {
-  const [isMobile, setIsMobile] = useState(false);
+
   const [chainsData, setChainsData] = useState<ChainData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,13 +47,7 @@ export const ChainsPage: React.FC = () => {
   const [avgTvlChange, setAvgTvlChange] = useState(0);
 
   useEffect(() => {
-    const checkScreenSize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
 
-    checkScreenSize();
-    window.addEventListener('resize', checkScreenSize);
-    return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
 
   useEffect(() => {
@@ -66,10 +60,11 @@ export const ChainsPage: React.FC = () => {
       setError(null);
       const allChains = await marketApi.getChains();
 
-      // Backend already filters for chains with Dune data
-      // Sort by txns24h (descending)
+      // Backend should handle proper name mapping
+      // Frontend filter ensures clean display (keeps only chains with valid TVL)
       const chains = allChains
-        .sort((a, b) => (b.txns24h || 0) - (a.txns24h || 0));
+        .filter(chain => chain.tvl > 0)
+        .sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
       setChainsData(chains);
 
       // Calculate totals from real data
@@ -97,18 +92,19 @@ export const ChainsPage: React.FC = () => {
     }
   };
 
+  const { resolvedTheme } = useThemeContext();
+
   if (loading) {
     return (
-      <PageContainer>
-        <div className={isMobile ? styles.containerMobile : styles.container}>
+      <PageContainer fullWidth>
+        <div className={`${styles.container} ${styles[resolvedTheme]}`}>
           {/* Chain Highlights Skeleton */}
           <div className={styles.highlightsGrid}>
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className={styles.highlightCard}>
-                <Skeleton variant="circular" width={48} height={48} />
-                <div className={styles.skeletonFlex}>
-                  <Skeleton variant="text" width={100} height={16} />
-                  <Skeleton variant="text" width={120} height={24} />
+                <Skeleton variant="text" width={80} height={12} />
+                <div style={{ marginTop: '12px' }}>
+                  <Skeleton variant="text" width={100} height={28} />
                 </div>
               </div>
             ))}
@@ -117,8 +113,7 @@ export const ChainsPage: React.FC = () => {
           {/* Chain List Skeleton */}
           <div className={styles.tableCard}>
             <div className={styles.tableHeader}>
-              <Skeleton variant="text" width={200} height={24} />
-              <Skeleton variant="rectangular" width={120} height={36} />
+              <Skeleton variant="text" width={180} height={24} />
             </div>
             <div className={styles.listContainer}>
               <div className={styles.listHeader}>
@@ -126,30 +121,25 @@ export const ChainsPage: React.FC = () => {
                 <div className={styles.headerCell}>TVL</div>
                 <div className={styles.headerCell}>Vol / Txns</div>
                 <div className={styles.headerCell}>Contracts</div>
-                <div className={styles.headerCell}>Users / Gas</div>
+                <div className={styles.headerCell}>Users</div>
               </div>
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className={styles.listRow}>
-                  <div className={`${styles.cell} ${styles.cellFirst}`}>
-                    <Skeleton variant="circular" width={20} height={20} />
+                <div key={i} className={styles.listItem}>
+                  <div className={styles.tokenInfo}>
                     <Skeleton variant="circular" width={32} height={32} />
-                    <Skeleton variant="text" width={120} height={18} />
-                  </div>
-                  <div className={styles.cell}>
-                    <Skeleton variant="text" width={80} height={16} />
-                    <Skeleton variant="text" width={60} height={14} />
-                  </div>
-                  <div className={styles.cell}>
-                    <Skeleton variant="text" width={80} height={16} />
-                    <Skeleton variant="text" width={70} height={14} />
-                  </div>
-                  <div className={styles.cell}>
-                    <Skeleton variant="text" width={70} height={16} />
-                    <Skeleton variant="text" width={70} height={14} />
+                    <Skeleton variant="text" width={80} height={18} />
                   </div>
                   <div className={styles.cell}>
                     <Skeleton variant="text" width={60} height={16} />
-                    <Skeleton variant="text" width={50} height={14} />
+                  </div>
+                  <div className={styles.cell}>
+                    <Skeleton variant="text" width={60} height={16} />
+                  </div>
+                  <div className={styles.cell}>
+                    <Skeleton variant="text" width={60} height={16} />
+                  </div>
+                  <div className={styles.cell}>
+                    <Skeleton variant="text" width={40} height={16} />
                   </div>
                 </div>
               ))}
@@ -210,49 +200,40 @@ export const ChainsPage: React.FC = () => {
     );
   }
 
+
   return (
-    <PageContainer>
-      <div className={isMobile ? styles.containerMobile : styles.container}>
+    <PageContainer fullWidth>
+      <div className={`${styles.container} ${styles[resolvedTheme]}`}>
         {/* Chain Highlights */}
         <div className={styles.highlightsGrid}>
           <div className={styles.highlightCard}>
-            <div className={styles.iconWrapper} style={{ background: 'rgba(91, 141, 239, 0.15)', color: '#5B8DEF' }}>
-              <Layers size={24} />
+            <div className={styles.highlightRow}>
+              <div className={styles.highlightIcon} style={{ color: '#5B8DEF' }}>
+                <Layers size={16} />
+              </div>
+              <div className={styles.label}>Total TVL</div>
             </div>
-            <div>
-              <div className={styles.label}>
-                Total TVL
-              </div>
-              <div className={styles.value}>
-                {formatCurrency(totalTVL)} <span className={avgTvlChange >= 0 ? styles.changePositive : styles.changeNegative}>{formatChange(avgTvlChange)}</span>
-              </div>
+            <div className={styles.value}>
+              {formatCurrency(totalTVL)} <span className={avgTvlChange >= 0 ? styles.changePositive : styles.changeNegative}>{formatChange(avgTvlChange)}</span>
             </div>
           </div>
           <div className={styles.highlightCard}>
-            <div className={styles.iconWrapper} style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>
-              <Zap size={24} />
-            </div>
-            <div>
-              <div className={styles.label}>
-                Total 24h Txns
+            <div className={styles.highlightRow}>
+              <div className={styles.highlightIcon} style={{ color: '#f59e0b' }}>
+                <Zap size={16} />
               </div>
-              <div className={styles.value}>
-                {formatNumber(total24hTxns)}
-              </div>
+              <div className={styles.label}>Total 24h Txns</div>
             </div>
+            <div className={styles.value}>{formatNumber(total24hTxns)}</div>
           </div>
           <div className={styles.highlightCard}>
-            <div className={styles.iconWrapper} style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
-              <Globe size={24} />
-            </div>
-            <div>
-              <div className={styles.label}>
-                Active Wallets
+            <div className={styles.highlightRow}>
+              <div className={styles.highlightIcon} style={{ color: '#10b981' }}>
+                <Globe size={16} />
               </div>
-              <div className={styles.value}>
-                {formatNumber(totalActiveWallets)}
-              </div>
+              <div className={styles.label}>Active Wallets</div>
             </div>
+            <div className={styles.value}>{formatNumber(totalActiveWallets)}</div>
           </div>
         </div>
 
@@ -262,68 +243,68 @@ export const ChainsPage: React.FC = () => {
             <h3 className={styles.tableTitle}>
               Top Chains by 24h Transactions
             </h3>
-            <button
-              className={styles.compareBtn}
-            >
-              Compare Chains
-            </button>
           </div>
+
           <div className={styles.listContainer}>
             <div className={styles.listHeader}>
               <div className={styles.headerCell}>Chain</div>
               <div className={styles.headerCell}>TVL</div>
               <div className={styles.headerCell}>Vol / Txns</div>
               <div className={styles.headerCell}>Contracts</div>
-              <div className={styles.headerCell}>Users / Gas</div>
+              <div className={styles.headerCell}>Users</div>
             </div>
 
-            {chainsData.map((c, idx) => {
+            {chainsData.map((c) => {
               const iconUrl = getChainIcon(c.name);
               return (
-                <div key={c.name} className={styles.listRow}>
-                  <div className={`${styles.cell} ${styles.cellFirst}`}>
-                    <span className={styles.rank}>{idx + 1}</span>
-                    <img
-                      src={iconUrl}
-                      alt={c.name}
-                      className={styles.chainIconImg}
-                      onError={(e) => {
-                        // Fallback to letter icon if image fails
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const fallback = target.nextElementSibling as HTMLElement;
-                        if (fallback) fallback.style.display = 'flex';
-                      }}
-                    />
-                    <div className={styles.chainIcon} style={{ display: 'none' }}>
-                      {c.name[0]}
+                <div key={c.name} className={styles.listItem}>
+                  <div className={styles.tokenInfo}>
+                    <div className={styles.iconWrapper}>
+                      <img
+                        src={iconUrl}
+                        alt={c.name}
+                        className={styles.tokenIcon}
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const fallback = target.nextElementSibling as HTMLElement;
+                          if (fallback) fallback.classList.remove(styles.hidden);
+                        }}
+                      />
+                      <div className={`${styles.fallbackIcon} ${styles.hidden}`} style={{ background: 'linear-gradient(135deg, #5B8DEF, #3861fb)' }}>
+                        {c.name[0]}
+                      </div>
+                      <span className={styles.rankBadge}>{chainsData.indexOf(c) + 1}</span>
                     </div>
-                    <span className={styles.chainName}>{c.name}</span>
+                    <div className={styles.flexColumn}>
+                      <span className={styles.tokenName}>{c.name}</span>
+                      <span className={styles.indicatorDesc}>{c.gasPrice || '-'}</span>
+                    </div>
                   </div>
 
+                  {/* TVL */}
                   <div className={styles.cell}>
-                    <div className={styles.primaryValue}>{formatCurrency(c.tvl)}</div>
-                    <div className={c.tvlChange24h >= 0 ? styles.changePositive : styles.changeNegative}>
+                    <span className={styles.metricValueSmall}>{formatCurrency(c.tvl)}</span>
+                    <span className={`${styles.metricChange} ${c.tvlChange24h >= 0 ? styles.metricChangeUp : styles.metricChangeDown}`}>
                       {formatChange(c.tvlChange24h)}
-                    </div>
+                    </span>
                   </div>
 
                   {/* Vol / Txns */}
                   <div className={styles.cell}>
-                    <div className={styles.primaryValue}>{c.volume24h ? formatCurrency(c.volume24h) : '-'}</div>
-                    <div className={styles.subValue}>{c.txns24h ? formatNumber(c.txns24h) + ' txns' : '-'}</div>
+                    <span className={styles.metricValueSmall}>{c.volume24h ? formatCurrency(c.volume24h) : '-'}</span>
+                    <span className={styles.indicatorDesc}>{c.txns24h ? formatNumber(c.txns24h) + ' txns' : '-'}</span>
                   </div>
 
-                  {/* Contracts (24H / 7D) */}
+                  {/* Contracts */}
                   <div className={styles.cell}>
-                    <div className={styles.primaryValue}>{c.contracts24h ? formatNumber(c.contracts24h) : (c.poolsCount ? formatNumber(c.poolsCount) : '-')} <span className={styles.subLabel}>24H</span></div>
-                    <div className={styles.subValue}>{c.contracts7d ? formatNumber(c.contracts7d) : (c.tokensCount ? formatNumber(c.tokensCount) : '-')} <span className={styles.subLabel}>7D</span></div>
+                    <span className={styles.metricValueSmall}>{formatNumber(c.contracts24h || c.poolsCount || 0)} <span className={styles.indicatorDesc} style={{ fontSize: '8px' }}>24H</span></span>
+                    <span className={styles.indicatorDesc}>{formatNumber(c.contracts7d || c.tokensCount || 0)} <span className={styles.indicatorDesc} style={{ fontSize: '8px' }}>7D</span></span>
                   </div>
 
                   {/* Users / Gas */}
                   <div className={styles.cell}>
-                    <div className={styles.primaryValue}>{c.activeWallets ? formatNumber(c.activeWallets) : '-'}</div>
-                    <div className={styles.subValue}>{c.gasPrice || '-'}</div>
+                    <span className={styles.metricValueSmall}>{formatNumber(c.activeWallets || 0)}</span>
                   </div>
                 </div>
               );

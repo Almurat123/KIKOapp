@@ -672,8 +672,15 @@ export async function updateCastStats(hash: string, stats: { likes: number, reca
 }
 
 /**
- * Recalculate heat scores for all relevant posts using the decay formula
- * Formula: (likes + 2*recasts + 0.5*replies) / (ageHours + 2)^1.5
+ * Recalculate heat scores for all relevant posts using improved decay formula
+ * [Logic]: Uses GREATEST(decay_score, floor_score) to ensure high-engagement posts stay visible
+ * [Ref]: HackerNews uses G=1.8, Reddit uses log scaling. We use G=1.0 + floor for balance.
+ * [Risk]: Too low decay may cause stale content to dominate; floor prevents complete decay
+ * 
+ * New Formula: GREATEST(
+ *   (engagement) / (ageHours + 2)^1.0,  -- Decay score (reduced from 1.5 to 1.0)
+ *   likes * 0.1                          -- Floor score (10% of likes as minimum)
+ * )
  */
 export async function recalculateHeatScores(): Promise<void> {
     const timerLabel = 'recalc_heat_scores';
@@ -683,12 +690,19 @@ export async function recalculateHeatScores(): Promise<void> {
         // Update posts from the last 30 days
         const thirtyDaysAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
 
-        // Use raw SQL for efficiency and access to date functions
+        // [Logic]: Use GREATEST to pick max between decay_score and floor_score
+        // [Ref]: Inspired by Reddit's approach - high quality content never fully disappears
+        // [Risk]: If floor is too high, old viral posts may dominate; 0.1 is conservative
         const updated = await prisma.$executeRaw`
             UPDATE trending_casts
             SET heat_score = LEAST(
-                CAST((stats_likes + (2 * stats_recasts) + (0.5 * stats_replies)) AS DECIMAL) / 
-                POWER(GREATEST((EXTRACT(EPOCH FROM (NOW() - timestamp)) / 3600) + 2, 0.01), 1.5),
+                GREATEST(
+                    -- Decay score: engagement / (ageHours + 2)^1.0 (reduced gravity from 1.5)
+                    CAST((stats_likes + (2 * stats_recasts) + (0.5 * stats_replies)) AS DECIMAL) / 
+                    POWER(GREATEST((EXTRACT(EPOCH FROM (NOW() - timestamp)) / 3600) + 2, 0.01), 1.0),
+                    -- Floor score: 10% of likes as minimum heat score
+                    CAST(stats_likes AS DECIMAL) * 0.1
+                ),
                 99999999.99
             )
             WHERE timestamp > ${thirtyDaysAgo}
@@ -699,5 +713,232 @@ export async function recalculateHeatScores(): Promise<void> {
         logger.endTimer(timerLabel, LogCode.SYS_INFO, { count: Number(updated) });
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, 'SocialRepo: Error recalculating heat scores', { error: error.message });
+    }
+}
+
+/**
+ * Cursor-based pagination for trending casts (Twitter/X style)
+ * Uses composite key (heatScore, timestamp, hash) for stable ordering
+ * Prevents duplicates during pagination and handles real-time data changes
+ */
+export interface CursorPaginationResult {
+    casts: TrendingCast[];
+    nextCursor: string | null;
+    hasMore: boolean;
+}
+
+export function encodeCursor(heatScore: number, timestamp: Date, hash: string): string {
+    return Buffer.from(JSON.stringify({ h: heatScore, t: timestamp.getTime(), id: hash })).toString('base64');
+}
+
+export function decodeCursor(cursor: string): { heatScore: number; timestamp: number; hash: string } | null {
+    try {
+        const decoded = JSON.parse(Buffer.from(cursor, 'base64').toString('utf-8'));
+        return { heatScore: decoded.h, timestamp: decoded.t, hash: decoded.id };
+    } catch {
+        return null;
+    }
+}
+
+export async function getTrendingCastsWithCursor(
+    limit: number = 30,
+    timeRange: 'trending' | '24h' | '7d' | '30d' = 'trending',
+    cursor?: string,
+    sortBy: 'trending' | 'newest' = 'trending'
+): Promise<CursorPaginationResult> {
+    try {
+        const Jan1_2021 = new Date(1609459200000);
+        let baseWhere: any = { timestamp: { gt: Jan1_2021 } };
+
+        // Time range filter
+        if (timeRange === 'trending') {
+            const cutoff = new Date(Date.now() - (24 * 60 * 60 * 1000));
+            baseWhere = {
+                OR: [
+                    { timestamp: { gte: cutoff } },
+                    { likes: { gt: 5 } }
+                ],
+                timestamp: { gt: Jan1_2021, lte: new Date() }
+            };
+        } else {
+            let days = 1;
+            if (timeRange === '7d') days = 7;
+            if (timeRange === '30d') days = 30;
+            const cutoff = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
+            baseWhere = { timestamp: { gte: cutoff } };
+        }
+
+        let where = baseWhere;
+
+        // Cursor-based filtering: get items AFTER the cursor position
+        if (cursor) {
+            const cursorData = decodeCursor(cursor);
+            if (cursorData) {
+                if (sortBy === 'newest') {
+                    // For newest sort: filter by timestamp only
+                    where = {
+                        AND: [
+                            baseWhere,
+                            {
+                                OR: [
+                                    { timestamp: { lt: new Date(cursorData.timestamp) } },
+                                    {
+                                        AND: [
+                                            { timestamp: new Date(cursorData.timestamp) },
+                                            { hash: { lt: cursorData.hash } }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    };
+                } else {
+                    // For trending sort: filter by heatScore first
+                    where = {
+                        AND: [
+                            baseWhere,
+                            {
+                                OR: [
+                                    { heatScore: { lt: cursorData.heatScore } },
+                                    {
+                                        AND: [
+                                            { heatScore: cursorData.heatScore },
+                                            { timestamp: { lt: new Date(cursorData.timestamp) } }
+                                        ]
+                                    },
+                                    {
+                                        AND: [
+                                            { heatScore: cursorData.heatScore },
+                                            { timestamp: new Date(cursorData.timestamp) },
+                                            { hash: { lt: cursorData.hash } }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    };
+                }
+            }
+        }
+
+        // Fetch one extra to determine hasMore
+        // Sort by timestamp for newest, by heatScore for trending
+        const orderBy = sortBy === 'newest'
+            ? [{ timestamp: 'desc' as const }, { hash: 'desc' as const }]
+            : [{ heatScore: 'desc' as const }, { timestamp: 'desc' as const }, { hash: 'desc' as const }];
+
+        const rows = await prisma.trendingCast.findMany({
+            where,
+            orderBy,
+            take: limit + 1,
+        });
+
+        const hasMore = rows.length > limit;
+        const resultRows = hasMore ? rows.slice(0, limit) : rows;
+
+        const casts: TrendingCast[] = resultRows.map((row, index) => ({
+            rank: index + 1,
+            hash: row.hash,
+            fid: row.fid,
+            author: {
+                fid: row.fid,
+                username: row.authorUsername || '',
+                displayName: row.authorDisplayName || '',
+                avatar: row.authorAvatar || '',
+                verified: row.authorVerified,
+                bio: row.authorBio || undefined,
+                twitter: row.authorTwitter || undefined,
+                creatorCoin: row.authorCreatorCoin ? JSON.parse(row.authorCreatorCoin) : undefined,
+            },
+            text: row.text,
+            timestamp: row.timestamp,
+            embeds: row.embeds as any,
+            mentions: row.mentions as any,
+            parentCastId: row.parentCastFid ? { fid: row.parentCastFid, hash: row.parentCastHash || '' } : undefined,
+            stats: {
+                likes: row.likes,
+                recasts: row.recasts,
+                replies: row.replies,
+            },
+            heatScore: Number(row.heatScore),
+            isBaseAppCoin: row.isBaseAppCoin,
+            baseAppCoinMetadata: row.baseAppCoinMetadata as any,
+            coinValue: row.coinValue ? String(row.coinValue) : undefined,
+        }));
+
+        // [Logic]: 动态填充缺失的 embed author 信息
+        // [Ref]: 当 Hub 无法获取引用 cast 时，至少使用 getUserDataByFid 获取作者信息
+        // [Risk]: 增加 API 响应时间，但只对缺失 author 的 embed 进行填充
+        const { getUserDataByFid } = await import('../services/snapchainService.js');
+
+        // 收集所有需要填充的 fid
+        const fidsToFetch = new Set<number>();
+        for (const cast of casts) {
+            if (!cast.embeds) continue;
+            for (const embed of cast.embeds as any[]) {
+                if (embed.castId && (!embed.cast || !embed.cast.author)) {
+                    fidsToFetch.add(embed.castId.fid);
+                }
+            }
+        }
+
+        // 批量获取用户信息（最多同时 5 个）
+        if (fidsToFetch.size > 0) {
+            const fidsArray = Array.from(fidsToFetch);
+            const userDataMap = new Map<number, any>();
+
+            // 分批获取（每批 5 个）
+            for (let i = 0; i < fidsArray.length; i += 5) {
+                const batch = fidsArray.slice(i, i + 5);
+                const results = await Promise.all(
+                    batch.map(async (fid) => {
+                        try {
+                            const user = await getUserDataByFid(fid);
+                            return { fid, user };
+                        } catch {
+                            return { fid, user: null };
+                        }
+                    })
+                );
+                results.forEach(({ fid, user }) => {
+                    if (user) userDataMap.set(fid, user);
+                });
+            }
+
+            // 填充缺失的 author
+            for (const cast of casts) {
+                if (!cast.embeds) continue;
+                for (const embed of cast.embeds as any[]) {
+                    if (embed.castId && (!embed.cast || !embed.cast.author)) {
+                        const userData = userDataMap.get(embed.castId.fid);
+                        if (userData) {
+                            if (!embed.cast) {
+                                embed.cast = { text: '', embeds: [], mentions: [] };
+                            }
+                            embed.cast.author = {
+                                fid: userData.fid,
+                                username: userData.username,
+                                displayName: userData.displayName,
+                                avatar: userData.pfp,
+                                verified: false
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        // Generate next cursor from last item
+        let nextCursor: string | null = null;
+        if (hasMore && resultRows.length > 0) {
+            const lastRow = resultRows[resultRows.length - 1];
+            nextCursor = encodeCursor(Number(lastRow.heatScore), lastRow.timestamp, lastRow.hash);
+        }
+
+        return { casts, nextCursor, hasMore };
+
+    } catch (error: any) {
+        logger.error(LogCode.SOC_CAST_FETCHED, 'SocialRepo: Error in cursor pagination', { error: error.message });
+        return { casts: [], nextCursor: null, hasMore: false };
     }
 }

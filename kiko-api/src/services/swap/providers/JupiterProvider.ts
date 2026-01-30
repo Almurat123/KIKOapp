@@ -31,7 +31,9 @@ export class JupiterProvider extends BaseSwapProvider {
                 amountInLamports,
                 request.slippageBps || 100,
                 'auto',
-                request.walletAddress
+                request.walletAddress,
+                undefined,
+                request.feeContext
             );
 
             if (!jupiterQuote) {
