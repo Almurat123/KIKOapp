@@ -394,7 +394,7 @@ async function fetchCastsFromUsers(
         const userData = await snapchainService.getUserDataByFid(fid);
         if (!userData) return [];
 
-        const castsToProcess = recentCasts.slice(0, Math.min(castsPerUser, 2));
+        const castsToProcess = recentCasts.slice(0, castsPerUser);
 
         const castsWithReactions = await Promise.all(
           castsToProcess.map(async (cast: any) => {
