@@ -399,7 +399,14 @@ async function fetchCastsFromUsers(
         const castsWithReactions = await Promise.all(
           castsToProcess.map(async (cast: any) => {
             const reactions = await snapchainService.getReactionsByCast(fid, cast.hash);
-            const score = reactions.likes + reactions.recasts;
+
+            // Improved trending score (consistent with snapchainService.ts)
+            const weightedEngagement = reactions.likes + (reactions.recasts * 2) + (reactions.replies * 1.5);
+            const castTimestamp = snapchainService.farcasterToUnixTimestamp(cast.timestamp);
+            const hoursOld = (now - castTimestamp) / (1000 * 60 * 60);
+            const decayFactor = Math.pow(0.97, Math.min(hoursOld, 168));
+            const score = Math.log10(Math.max(1, weightedEngagement) + 1) * 100 * decayFactor;
+
             if (score >= minEngagement) {
               if (cast.embeds && cast.embeds.length > 0) {
                 // Populate embeds best-effort

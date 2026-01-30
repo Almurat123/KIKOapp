@@ -182,7 +182,14 @@ export async function getTrendingFeed(limit: number = 10): Promise<any[]> {
             embeds: (cast as any).embeds, // Pass through embeds
             mentions: (cast as any).mentioned_profiles?.map((p: any) => p.fid) || [],
             source: 'neynar',
-            heatScore: (cast.reactions?.likes_count || 0) + (cast.reactions?.recasts_count || 0)
+            // Improved heatScore with time decay (consistent with snapchainService)
+            heatScore: (() => {
+                const weightedEng = (cast.reactions?.likes_count || 0) + ((cast.reactions?.recasts_count || 0) * 2) + ((cast.replies?.count || 0) * 1.5);
+                const castTime = new Date(cast.timestamp).getTime();
+                const hoursOld = (Date.now() - castTime) / (1000 * 60 * 60);
+                const decay = Math.pow(0.97, Math.min(hoursOld, 168));
+                return Math.log10(Math.max(1, weightedEng) + 1) * 100 * decay;
+            })()
         }));
 
     } catch (error: any) {
