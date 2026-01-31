@@ -60,6 +60,9 @@ export interface MainSwapRequest {
   // Execution Mode (determines fee structure and behavior)
   mode: SwapMode; // 'fast-swap' | 'swap-card' | 'allowance' | 'copytrade' | 'launchpad'
 
+  // Optional fee override (bps). Used for per-order copytrade fee tiering.
+  feeBpsOverride?: number;
+
   // Transaction tracking (for WebSocket updates)
   messageId?: string; // Chat message ID for real-time progress updates
 
@@ -397,6 +400,7 @@ export class MainSwapService {
       chainId: request.chainId,
       slippageBps: request.slippageBps || 50,
       feeContext,
+      feeBpsOverride: request.feeBpsOverride,
       isSell: false, // Determined automatically by SwapExecutor
       messageId: request.messageId, // For WebSocket progress updates
       accessToken: request.accessToken,

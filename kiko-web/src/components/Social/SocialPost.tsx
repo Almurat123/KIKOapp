@@ -5,6 +5,7 @@ import type { FeedItem } from '../../services/api';
 import { ContentFrame } from './ContentFrame';
 import { HlsVideoPlayer } from './HlsVideoPlayer';
 import { EmbedPreview } from './EmbedPreview';
+import { QuoteCast } from './QuoteCast';
 import { getOptimizedImageUrl } from '../../services/api';
 
 interface SocialPostProps {
@@ -107,29 +108,66 @@ const NativeMedia = ({ data, onImageClick }: any) => {
 };
 
 const ExtEmbeds = ({ data, isDark }: any) => {
-    // Dedup: Filter out embeds that are already rendered as images
+    // Dedup: Filter out embeds that are already rendered as images or videos
     const imageUrls = new Set(data.images || []);
-    const filteredEmbeds = (data.embeds || []).filter((e: any) =>
-        e.url && !e.castId && !imageUrls.has(e.url)
-    ).filter((e: any) =>
-        // Filter out zoraCoin:// and ethereum:// protocol links
+    const videoUrls = new Set(data.videos || []);
+
+    // Separate URL embeds and quote cast embeds
+    // 过滤掉已作为原生媒体渲染的图片和视频URL
+    const urlEmbeds = (data.embeds || []).filter((e: any) =>
+        e.url && !e.castId &&
+        !imageUrls.has(e.url) &&
+        !videoUrls.has(e.url) &&
         !e.url.startsWith('zoraCoin:') && !e.url.startsWith('ethereum:')
     );
 
-    const hasEmbeds = (data.type === 'frame' || data.type === 'poll') || (filteredEmbeds.length > 0);
+    // 如果帖子类型是 video，不显示 OGP 预览（防止视频叠视频）
+    if (data.type === 'video') {
+        const quoteCastEmbeds = (data.embeds || []).filter((e: any) => e.castId);
+        if (quoteCastEmbeds.length === 0) return null;
+        return (
+            <div className={styles.embedsRegion}>
+                {quoteCastEmbeds.slice(0, 1).map((e: any, i: number) => (
+                    <QuoteCast key={`quote-${i}`} embed={e} isDark={isDark} />
+                ))}
+            </div>
+        );
+    }
+
+    // Quote cast embeds (castId type)
+    const quoteCastEmbeds = (data.embeds || []).filter((e: any) => e.castId);
+
+    const hasEmbeds = (data.type === 'frame' || data.type === 'poll') || urlEmbeds.length > 0 || quoteCastEmbeds.length > 0;
     if (!hasEmbeds) return null;
+
     return (
         <div className={styles.embedsRegion}>
             {(data.type === 'frame' || data.type === 'poll') && data.frame && <ContentFrame frame={data.frame} isDark={isDark} />}
-            {filteredEmbeds.slice(0, 1).map((e: any, i: number) => (
-                <div key={i} onClick={evt => evt.stopPropagation()} className={styles.ogpWrapper}><EmbedPreview url={e.url} isDark={isDark} /></div>
+
+            {/* Quote Cast Embeds - 引用转发 */}
+            {quoteCastEmbeds.slice(0, 1).map((e: any, i: number) => (
+                <QuoteCast key={`quote-${i}`} embed={e} isDark={isDark} />
+            ))}
+
+            {/* URL Embeds - OGP预览 */}
+            {urlEmbeds.slice(0, 1).map((e: any, i: number) => (
+                <div key={`url-${i}`} onClick={evt => evt.stopPropagation()} className={styles.ogpWrapper}>
+                    <EmbedPreview url={e.url} isDark={isDark} />
+                </div>
             ))}
         </div>
     );
 };
 
 const ActionButton = ({ icon, count, className }: any) => (
-    <div className={`${styles.actionGroup} ${className}`}>
+    <div
+        className={`${styles.actionGroup} ${className}`}
+        onClick={(e) => {
+            e.stopPropagation();
+            // TODO: 暂不支持点赞/转发/评论功能
+        }}
+        style={{ cursor: 'default' }}
+    >
         <div className={styles.iconSmall}>{React.cloneElement(icon, { size: 18, strokeWidth: 1.5 })}</div>
         <span className={styles.countText}>{count || '0'}</span>
     </div>

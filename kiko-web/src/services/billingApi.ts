@@ -55,9 +55,9 @@ export async function getUsageSummary() {
   }
   return response.json() as Promise<{
     dateUtc: string;
-    normal: { used: number; limit: number };
-    advanced: { used: number; limit: number };
-    dailyUsd: number;
+    total: { used: number; limit: number };
+    normal: { used: number };
+    advanced: { used: number };
     tokenBalance: number;
   }>;
 }

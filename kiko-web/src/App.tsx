@@ -12,7 +12,6 @@ import { SuperDefiPage } from './pages/SuperDefiPage';
 import { TradePage } from './pages/TradePage';
 import WalletPage from './pages/WalletPage';
 import NewsPage from './pages/NewsPage';
-import BillingConsentPromptModal from './components/Wallet/BillingConsentPromptModal';
 import { useConversations } from './hooks/useConversations';
 import type { Message } from './hooks/useConversations';
 import { chatWSClient, type ChatEvent } from './utils/chatWebSocket';
@@ -486,7 +485,6 @@ function App() {
 
   return (
     <>
-      <BillingConsentPromptModal />
       <Layout
         activeTab={activeTab}
         onTabChange={setActiveTab}

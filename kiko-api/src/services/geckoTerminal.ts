@@ -9,7 +9,7 @@ import { getAddress } from 'ethers';
 
 const GECKO_TERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 
-import { callGeckoTerminal, fetchJson } from '../config/unifiedApiService.js';
+import { callGeckoTerminal, fetchJson, ApiPriority } from '../config/unifiedApiService.js';
 
 class GeckoTerminalError extends Error {
   constructor(
@@ -199,7 +199,8 @@ const CACHE_TTL_MS = 60 * 1000;
  */
 export async function getTokenDetails(
   network: string,
-  address: string
+  address: string,
+  priority: ApiPriority = 'normal'
 ): Promise<TokenSearchResult | null> {
   const startTime = Date.now();
   const cacheKey = `${network}:${address.toLowerCase()}`;
@@ -247,7 +248,7 @@ export async function getTokenDetails(
 
     const poolsData = await callGeckoTerminal(poolsEndpoint, {
       headers: { 'Accept': 'application/json' },
-    });
+    }, undefined, priority);
 
     if (!(poolsData as any).data || !Array.isArray((poolsData as any).data) || (poolsData as any).data.length === 0) {
       return null;

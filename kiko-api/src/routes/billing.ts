@@ -9,9 +9,9 @@ import {
     revokeBillingConsent,
     upsertBillingConsent
 } from '../repositories/billingRepository.js';
-import { getDailyFreeQuota, getUtcDateString } from '../services/billing/billingService.js';
-import { getDailyUsageCount, getDailyPaidUsdTotal } from '../repositories/billingRepository.js';
-import { getTokenBalance } from '../services/UnifiedDataLayer.js';
+import { getUtcDateString } from '../services/billing/billingService.js';
+import { getDailyTotalUsageCount, getDailyUsageCount } from '../repositories/billingRepository.js';
+import { getUserDailyLimit } from '../services/usageLimitsService.js';
 
 interface ConsentBody {
     source?: string;
@@ -89,33 +89,17 @@ export async function billingRoutes(fastify: FastifyInstance) {
             }
 
             const dateUtc = getUtcDateString();
+            const totalUsed = await getDailyTotalUsageCount(userId, dateUtc);
             const normalUsed = await getDailyUsageCount(userId, dateUtc, 'deepseek');
             const advancedUsed = await getDailyUsageCount(userId, dateUtc, 'grok');
-            const normalLimit = getDailyFreeQuota('deepseek');
-            const advancedLimit = getDailyFreeQuota('grok');
-            const dailyUsd = await getDailyPaidUsdTotal(userId, dateUtc);
-
-            let tokenBalance = 0;
-            if (env.billing.tokenAddress) {
-                const walletAddress = await getEmbeddedWalletAddress(userId);
-                if (walletAddress) {
-                    const balance = await getTokenBalance(walletAddress, env.billing.tokenAddress, env.billing.chainId);
-                    tokenBalance = balance ? Number(balance.balanceFormatted || 0) : 0;
-                }
-            }
+            const { limit: totalLimit, tokenBalance } = await getUserDailyLimit({ userId });
 
             return reply.send({
                 dateUtc,
-                normal: {
-                    used: normalUsed,
-                    limit: normalLimit
-                },
-                advanced: {
-                    used: advancedUsed,
-                    limit: advancedLimit
-                },
-                dailyUsd,
-                tokenBalance
+                total: { used: totalUsed, limit: totalLimit },
+                normal: { used: normalUsed },
+                advanced: { used: advancedUsed },
+                tokenBalance,
             });
         }
     );

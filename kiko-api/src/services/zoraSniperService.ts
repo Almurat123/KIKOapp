@@ -269,6 +269,7 @@ export class ZoraSniperService {
         amountIn: string;
         slippage?: number;
         feeContext?: FeeContext;
+        feeBpsOverride?: number;
     }) {
         // === SIMULATION MODE ===
         if (process.env.SIMULATION_MODE === 'true') {

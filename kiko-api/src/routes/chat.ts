@@ -10,7 +10,7 @@ import { trackChatMessage } from '../services/userActivityService.js';
 import prisma from '../db/prisma.js';
 import { redact } from '../utils/sanitizer.js';
 import { sanitizedErrorResponse } from '../utils/securityUtils.js';
-import { evaluateBillingAccess } from '../services/billing/billingAccess.js';
+import { evaluateUsageAccess } from '../services/usageAccess.js';
 
 // Request body types
 interface CreateSessionBody {
@@ -244,30 +244,31 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 let billingContext: { isFree: boolean; modelCategory: string } | undefined;
 
                 try {
-                    const billingDecision = await evaluateBillingAccess({
+                    const usageDecision = await evaluateUsageAccess({
                         userId,
                         model: taskModel
                     });
 
-                    if (!billingDecision.allowed) {
-                        return reply.code(402).send({
-                            error: 'Payment required',
-                            reason: billingDecision.reason,
-                            requiredTokens: billingDecision.requiredTokens,
-                            currentBalance: billingDecision.currentBalance,
-                            priceUsd: billingDecision.priceUsd
+                    if (!usageDecision.allowed) {
+                        return reply.code(429).send({
+                            error: 'Daily limit reached',
+                            reason: usageDecision.reason,
+                            dateUtc: usageDecision.dateUtc,
+                            totalUsed: usageDecision.totalUsed,
+                            totalLimit: usageDecision.totalLimit,
+                            tokenBalance: usageDecision.tokenBalance
                         });
                     }
 
                     billingContext = {
-                        isFree: billingDecision.isFree,
-                        modelCategory: billingDecision.modelCategory
+                        isFree: true,
+                        modelCategory: usageDecision.modelCategory
                     };
-                } catch (billingError: any) {
-                    fastify.log.error('Billing check failed:', billingError);
-                    return reply.code(402).send({
-                        error: 'Payment required',
-                        reason: 'BILLING_CHECK_FAILED'
+                } catch (usageError: any) {
+                    fastify.log.error('Usage limit check failed:', usageError);
+                    return reply.code(500).send({
+                        error: 'Usage limit check failed',
+                        reason: 'USAGE_CHECK_FAILED'
                     });
                 }
 

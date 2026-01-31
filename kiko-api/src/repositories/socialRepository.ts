@@ -321,6 +321,9 @@ export async function getTrendingCasts(
             await set(cacheKey, JSON.stringify(casts), 180);
         }
 
+        // [OPTIMIZED]: Embed 数据已在 socialDataJob 后台任务中预处理并保存到数据库
+        // 不再进行实时 API 调用获取 embed 内容，直接使用缓存数据
+
         // 4. Return Requested Slice
         const result = casts.slice(offset, offset + limit);
         logger.endTimer(timerLabel, LogCode.SOC_CAST_FETCHED, { timeRange, limit, offset, count: result.length, fromCache: false });
@@ -866,67 +869,8 @@ export async function getTrendingCastsWithCursor(
             coinValue: row.coinValue ? String(row.coinValue) : undefined,
         }));
 
-        // [Logic]: 动态填充缺失的 embed author 信息
-        // [Ref]: 当 Hub 无法获取引用 cast 时，至少使用 getUserDataByFid 获取作者信息
-        // [Risk]: 增加 API 响应时间，但只对缺失 author 的 embed 进行填充
-        const { getUserDataByFid } = await import('../services/snapchainService.js');
-
-        // 收集所有需要填充的 fid
-        const fidsToFetch = new Set<number>();
-        for (const cast of casts) {
-            if (!cast.embeds) continue;
-            for (const embed of cast.embeds as any[]) {
-                if (embed.castId && (!embed.cast || !embed.cast.author)) {
-                    fidsToFetch.add(embed.castId.fid);
-                }
-            }
-        }
-
-        // 批量获取用户信息（最多同时 5 个）
-        if (fidsToFetch.size > 0) {
-            const fidsArray = Array.from(fidsToFetch);
-            const userDataMap = new Map<number, any>();
-
-            // 分批获取（每批 5 个）
-            for (let i = 0; i < fidsArray.length; i += 5) {
-                const batch = fidsArray.slice(i, i + 5);
-                const results = await Promise.all(
-                    batch.map(async (fid) => {
-                        try {
-                            const user = await getUserDataByFid(fid);
-                            return { fid, user };
-                        } catch {
-                            return { fid, user: null };
-                        }
-                    })
-                );
-                results.forEach(({ fid, user }) => {
-                    if (user) userDataMap.set(fid, user);
-                });
-            }
-
-            // 填充缺失的 author
-            for (const cast of casts) {
-                if (!cast.embeds) continue;
-                for (const embed of cast.embeds as any[]) {
-                    if (embed.castId && (!embed.cast || !embed.cast.author)) {
-                        const userData = userDataMap.get(embed.castId.fid);
-                        if (userData) {
-                            if (!embed.cast) {
-                                embed.cast = { text: '', embeds: [], mentions: [] };
-                            }
-                            embed.cast.author = {
-                                fid: userData.fid,
-                                username: userData.username,
-                                displayName: userData.displayName,
-                                avatar: userData.pfp,
-                                verified: false
-                            };
-                        }
-                    }
-                }
-            }
-        }
+        // [OPTIMIZED]: Embed 数据已在 socialDataJob 后台任务中预处理并保存到数据库
+        // 不再进行实时 API 调用获取 embed 内容，直接使用缓存数据
 
         // Generate next cursor from last item
         let nextCursor: string | null = null;

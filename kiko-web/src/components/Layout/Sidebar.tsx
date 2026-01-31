@@ -62,9 +62,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [usageSummary, setUsageSummary] = useState<{
     dateUtc: string;
-    normal: { used: number; limit: number };
-    advanced: { used: number; limit: number };
-    dailyUsd: number;
+    total: { used: number; limit: number };
+    normal: { used: number };
+    advanced: { used: number };
     tokenBalance: number;
   } | null>(null);
 
@@ -355,21 +355,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className={styles.footer}>
           <div className={styles.usageSummary}>
             <div className={styles.usageRow}>
+              <span className={styles.usageLabel}>Daily</span>
+              <span className={styles.usageValue}>
+                {usageSummary ? `${usageSummary.total.used}/${usageSummary.total.limit}` : '--'}
+              </span>
+            </div>
+            <div className={styles.usageRow}>
               <span className={styles.usageLabel}>Normal</span>
               <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.normal.used}/${usageSummary.normal.limit}` : '--'}
+                {usageSummary ? `${usageSummary.normal.used}` : '--'}
               </span>
             </div>
             <div className={styles.usageRow}>
               <span className={styles.usageLabel}>Advanced</span>
               <span className={styles.usageValue}>
-                {usageSummary ? `${usageSummary.advanced.used}/${usageSummary.advanced.limit}` : '--'}
-              </span>
-            </div>
-            <div className={styles.usageRow}>
-              <span className={styles.usageLabel}>Today USD</span>
-              <span className={styles.usageValue}>
-                {usageSummary ? `$${usageSummary.dailyUsd.toFixed(4)}` : '--'}
+                {usageSummary ? `${usageSummary.advanced.used}` : '--'}
               </span>
             </div>
             <div className={styles.usageRow}>

@@ -248,7 +248,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
   });
 
   // GET /api/social/snapchain/user/:fid
-  // Fetch user data and casts by FID
+  // Fetch user data and casts by FID (with DB cache layer)
   fastify.get('/snapchain/user/:fid', async (request, reply) => {
     try {
       const { fid } = request.params as { fid: string };
@@ -262,7 +262,23 @@ export async function socialRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // === CACHE LAYER: Check DB cache first ===
+      const { get, set } = await import('../cache/dbCache.js');
+      const cacheKey = `user:fid:${fidNum}`;
+      const cached = await get(cacheKey);
 
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return reply.send({
+          success: true,
+          source: 'cache',
+          user: parsed.user,
+          casts: parsed.casts,
+          totalCasts: parsed.totalCasts,
+        });
+      }
+
+      // === CACHE MISS: Fetch from Hub API ===
       const [userData, casts] = await Promise.all([
         snapchainService.getUserDataByFid(fidNum),
         snapchainService.getCastsByFid(fidNum, 20),
@@ -280,12 +296,19 @@ export async function socialRoutes(fastify: FastifyInstance) {
         })
       );
 
-      return reply.send({
-        success: true,
-        source: 'snapchain',
+      const responseData = {
         user: userData,
         casts: castsWithReactions,
         totalCasts: casts.length,
+      };
+
+      // === SAVE TO CACHE (30 minutes TTL) ===
+      await set(cacheKey, JSON.stringify(responseData), 1800);
+
+      return reply.send({
+        success: true,
+        source: 'hub',
+        ...responseData,
       });
     } catch (error) {
       throw handleExternalApiError(error as Error, 'Snapchain');

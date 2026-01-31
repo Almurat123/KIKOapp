@@ -31,7 +31,7 @@ const SUPPORTED_CHAINS = [
 // Refresh interval in minutes (staggered to avoid hitting rate limits)
 const REFRESH_INTERVAL_MINUTES = 5;
 // Delay between chains in milliseconds (spread load)
-const CHAIN_DELAY_MS = 15000; // 15 seconds between each chain (reduce 429 risk)
+const CHAIN_DELAY_MS = 20000; // 20 seconds between each chain (better rate limit margin)
 // Number of tokens to fetch per chain
 const TOKENS_PER_CHAIN = 100;
 
@@ -89,8 +89,9 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     // This matches the DexScreener website's trending order
     let tokens = await getTrendingTokensPremium(chain.id, 100);
 
-    // Fallback to GeckoTerminal if DexScreener fails
-    if (tokens.length < 10) {
+    // Fallback to GeckoTerminal only if DexScreener returns very few tokens
+    // Threshold raised from 10 to 20 to reduce GeckoTerminal API load
+    if (tokens.length < 20) {
       console.log(`[TokenJob] DexScreener returned ${tokens.length} tokens, trying GeckoTerminal fallback...`);
       const geckoTokens = await getTrendingTokens(chain.geckoNetwork, 100, '5m');
       if (geckoTokens.length > tokens.length) {

@@ -44,6 +44,7 @@ const DEX_SIGNATURES = {
 const TRANSFER_EVENT = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 export interface DecodedSwap {
+    txHash?: string;
     tokenIn: string;
     tokenOut: string;
     amountIn: string;
@@ -275,6 +276,7 @@ export async function parseSwapTransaction(
     // Add router info
     swap.router = tx.to;
     swap.dexName = getDexName(tx.to, chainId);
+    swap.txHash = tx.hash;
 
     // Handle native ETH
     const NATIVE_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';

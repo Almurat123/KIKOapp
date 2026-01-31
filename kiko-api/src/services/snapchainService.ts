@@ -57,14 +57,21 @@ async function fetchFromHubWithFallback(endpoint: string, timeout = 10000): Prom
   const hubs = [
     { name: 'Pinata', url: `${PRIMARY_HUB_URL}${endpoint}` },
     { name: 'Merv.fun', url: `${FALLBACK_HUB_URL}${endpoint}` },
+    { name: 'Litecast', url: `${FALLBACK_HUB_URL_2}${endpoint}` },
   ];
 
   // Race all Hubs in parallel - silent mode to reduce log spam
   const promises = hubs.map(async (hub) => {
     try {
       const result = await fetchWithTimeout(hub.url, {}, timeout);
-      if (result && !result.error && result.messages && result.messages.length > 0) {
-        return { success: true, data: result, hub: hub.name };
+      // [Logic]: Accept both messages array (for list endpoints) and data object (for castById)
+      // [Ref]: castById returns {hash, data: {...}}, others return {messages: [...]}
+      if (result && !result.error) {
+        const hasMessages = result.messages && result.messages.length > 0;
+        const hasData = result.data && result.data.castAddBody;
+        if (hasMessages || hasData) {
+          return { success: true, data: result, hub: hub.name };
+        }
       }
       return { success: false, hub: hub.name, reason: 'empty or error' };
     } catch (e: any) {

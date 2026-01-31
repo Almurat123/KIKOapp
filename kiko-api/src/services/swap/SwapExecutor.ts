@@ -25,6 +25,7 @@ export interface SwapParams {
     chainId: number;
     slippageBps?: number;
     feeContext?: FeeContext;
+    feeBpsOverride?: number;
     isSell?: boolean; // Explicit flag for SELL operations
     messageId?: string; // For WebSocket transaction progress updates
     excludeDex?: string; // Exclude this DEX from quote selection (for retry after failure)
@@ -201,7 +202,7 @@ export class SwapExecutor {
         }
 
         // 2. Get Best Quote
-        const fee = getPlatformFee(feeContext || 'swap');
+        const fee = getPlatformFee(feeContext || 'swap', params.feeBpsOverride);
         const affiliateFee = fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)
             ? { affiliateAddress: fee.evmRecipient!, buyTokenPercentageFeeBps: fee.bps }
             : undefined;

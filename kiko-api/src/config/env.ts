@@ -88,6 +88,7 @@ export interface EnvConfig {
         enabled: boolean;
         swapBps: number; // e.g. 50 = 0.5%
         copyTradeBps: number; // e.g. 100 = 1%
+        copyTradeAiBps: number; // e.g. 150 = 1.5% when AI analysis is enabled
         evmRecipient?: string; // 0x... address for 0x affiliate fees
         solanaRecipient?: string; // base58 address for SOL transfers
     };
@@ -107,6 +108,14 @@ export interface EnvConfig {
         deepseekModels: string[];
         grokModels: string[];
         modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number }>;
+    };
+    usageLimits: {
+        enabled: boolean;
+        chainId: number;
+        tokenAddress?: string;
+        tokenDecimals: number;
+        baseDailyLimit: number;
+        tiers: Array<{ minBalance: number; dailyLimit: number }>;
     };
     security: {
         alchemyWebhookSecret?: string; // Secret for verifying Alchemy webhooks
@@ -135,6 +144,9 @@ function validateEnv(): EnvConfig {
     const copyTradeBps = platformFeesEnabled
         ? parseInt(process.env.PLATFORM_FEE_COPY_TRADE_BPS || '100', 10)
         : 0;
+    const copyTradeAiBps = platformFeesEnabled
+        ? parseInt(process.env.PLATFORM_FEE_COPY_TRADE_AI_BPS || '150', 10)
+        : 0;
     const billingEnabled =
         (process.env.BILLING_ENABLED || '').toLowerCase() === 'true' ||
         (process.env.BILLING_ENABLED || '') === '1';
@@ -147,6 +159,35 @@ function validateEnv(): EnvConfig {
     const billingUsdMultiplier = parseFloat(process.env.BILLING_USD_MULTIPLIER || '3');
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
+
+    const usageLimitsEnabled =
+        (process.env.USAGE_LIMITS_ENABLED || '').toLowerCase() === 'true' ||
+        (process.env.USAGE_LIMITS_ENABLED || '') === '1';
+    const usageChainId = parseInt(process.env.USAGE_LIMITS_CHAIN_ID || '8453', 10);
+    const usageTokenDecimals = parseInt(process.env.USAGE_LIMITS_TOKEN_DECIMALS || '18', 10);
+    const usageBaseDailyLimit = parseInt(process.env.USAGE_LIMITS_BASE_DAILY_LIMIT || '15', 10);
+    const usageTokenAddress = process.env.USAGE_LIMITS_TOKEN_ADDRESS;
+    let usageTiers: Array<{ minBalance: number; dailyLimit: number }> = [
+        { minBalance: 0, dailyLimit: usageBaseDailyLimit },
+        { minBalance: 10_000_000, dailyLimit: 20 },
+        { minBalance: 50_000_000, dailyLimit: 25 },
+    ];
+    if (process.env.USAGE_LIMITS_TIERS_JSON) {
+        try {
+            const parsed = JSON.parse(process.env.USAGE_LIMITS_TIERS_JSON);
+            if (Array.isArray(parsed)) {
+                usageTiers = parsed
+                    .map((t: any) => ({
+                        minBalance: Number(t.minBalance ?? t.min ?? 0),
+                        dailyLimit: Number(t.dailyLimit ?? t.limit ?? usageBaseDailyLimit),
+                    }))
+                    .filter(t => Number.isFinite(t.minBalance) && Number.isFinite(t.dailyLimit))
+                    .sort((a, b) => a.minBalance - b.minBalance);
+            }
+        } catch (error) {
+            console.warn('[Env] Failed to parse USAGE_LIMITS_TIERS_JSON, using default tiers.');
+        }
+    }
     const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner,deepseek-v3-fast,deepseek-v3-thinking')
         .split(',')
         .map(v => v.trim())
@@ -257,6 +298,7 @@ function validateEnv(): EnvConfig {
             enabled: platformFeesEnabled,
             swapBps: Number.isFinite(swapBps) ? swapBps : 0,
             copyTradeBps: Number.isFinite(copyTradeBps) ? copyTradeBps : 0,
+            copyTradeAiBps: Number.isFinite(copyTradeAiBps) ? copyTradeAiBps : 0,
             evmRecipient: process.env.PLATFORM_FEE_EVM_RECIPIENT,
             solanaRecipient: process.env.PLATFORM_FEE_SOLANA_RECIPIENT,
         },
@@ -276,6 +318,14 @@ function validateEnv(): EnvConfig {
             deepseekModels,
             grokModels,
             modelPricing,
+        },
+        usageLimits: {
+            enabled: usageLimitsEnabled,
+            chainId: Number.isFinite(usageChainId) ? usageChainId : 8453,
+            tokenAddress: usageTokenAddress,
+            tokenDecimals: Number.isFinite(usageTokenDecimals) ? usageTokenDecimals : 18,
+            baseDailyLimit: Number.isFinite(usageBaseDailyLimit) ? usageBaseDailyLimit : 15,
+            tiers: usageTiers,
         },
         security: {
             alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,

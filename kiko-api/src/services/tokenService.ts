@@ -5,7 +5,7 @@ import { getChainSlug, CHAINS } from '../config/chainConfig.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { getTokenDetails } from './geckoTerminal.js';
 import { getTokenMetadata } from './rpcService.js';
-import { fetchJson } from '../config/unifiedApiService.js';
+import { fetchJson, ApiPriority } from '../config/unifiedApiService.js';
 import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
 
 /**
@@ -30,25 +30,30 @@ const NATIVE_TOKENS = new Set([
     ...EVM_NATIVE_WRAPPED
 ]);
 
-export async function getTokenInfo(tokenAddress: string, chainId: number, options: { verbose?: boolean; forceRefresh?: boolean } = { verbose: true, forceRefresh: false }): Promise<any> {
-    const { verbose = true, forceRefresh = false } = options;
-    
+export async function getTokenInfo(
+    tokenAddress: string,
+    chainId: number,
+    options: { verbose?: boolean; forceRefresh?: boolean; priority?: ApiPriority } = { verbose: true, forceRefresh: false, priority: 'normal' }
+): Promise<any> {
+    const { verbose = true, forceRefresh = false, priority = 'normal' } = options;
+
     // 如果强制刷新，直接从 API 获取
     if (forceRefresh) {
-        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose);
+        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority);
     }
-    
+
     // 🔗 通过缓存中心获取（统一缓存链）
     return cacheHub.getTokenInfo(tokenAddress, chainId, async () => {
         // 缓存未命中时的获取逻辑
-        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose);
+        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority);
     });
 }
 
 /**
  * 从 API 获取 Token 信息（内部函数）
+ * @param priority - 'high' for Copy Trade (skips rate limits)
  */
-async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, verbose: boolean): Promise<any> {
+async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, verbose: boolean, priority: ApiPriority = 'normal'): Promise<any> {
     const chainSlug = getChainSlug(chainId);
     const dsSlug = chainSlug.dexScreener;
     const gtSlug = chainSlug.geckoTerminal;
@@ -140,7 +145,7 @@ async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, ver
     // --- STEP 2: Try GeckoTerminal (Fallback) ---
     logger.debug(LogCode.API_FETCH_SUCCESS, 'DexScreener insufficient, attempting GeckoTerminal fallback', { token: tokenAddress });
     try {
-        const gtData = await getTokenDetails(gtSlug, tokenAddress);
+        const gtData = await getTokenDetails(gtSlug, tokenAddress, priority);
         if (gtData) {
             const result = {
                 price: gtData.price || 0,

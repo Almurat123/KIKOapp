@@ -129,7 +129,8 @@ export async function refreshMarketOverview(force = false): Promise<void> {
       globalOpenInterest: openInterest,
       gasLevel: gasLevel.averageGasLevel,
       gasLevelStatus: gasLevel.status,
-      evix: volatility?.evix,
+      bvix: volatility?.bvix,  // Bitcoin Volatility Index
+      evix: volatility?.evix,  // Ethereum Volatility Index
       liquidityStressIndex,
       liquidityStressStatus,
       stablecoinsMcap: stablecoinsMcap,

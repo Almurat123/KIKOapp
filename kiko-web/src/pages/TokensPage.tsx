@@ -882,25 +882,17 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       setError(null);
 
       try {
-        console.log('[TokensPage Search] Starting search for:', searchQuery);
         const results = await requestManager.execute(
           requestId,
           () => tokenApi.search(searchQuery),
           { priority: 2, timeout: 30000 } // Higher priority for user-initiated search
         );
-        console.log('[TokensPage Search] API returned results:', results?.length, results);
 
         if (mountedRef.current && searchRequestIdRef.current === requestId) {
           const convertedTokens = results.map((token, index) =>
             convertApiTokenToToken(token, index + 1)
           );
-          console.log('[TokensPage Search] Converted tokens:', convertedTokens.length, convertedTokens);
           setTokens(convertedTokens);
-        } else {
-          console.log('[TokensPage Search] Skipped setTokens - conditions not met', {
-            mounted: mountedRef.current,
-            requestMatch: searchRequestIdRef.current === requestId
-          });
         }
       } catch (err) {
         if (mountedRef.current && searchRequestIdRef.current === requestId) {
@@ -976,17 +968,14 @@ export const TokensPage: React.FC<TokensPageProps> = ({
   useEffect(() => {
     const loadFavorites = async () => {
       if (!authenticated) {
-        console.log('[TokensPage] Skipping favorites load - not authenticated');
         setFavoriteAddresses(new Set());
         return;
       }
 
       try {
         const favs = await favoriteApi.getFavorites();
-        console.log('[TokensPage] Loaded favorites:', favs);
         // Store addresses in lowercase for consistent comparison
         const addresses = new Set(favs.map(f => f.address.toLowerCase()));
-        console.log('[TokensPage] Favorite addresses set:', addresses);
         setFavoriteAddresses(addresses);
       } catch (err) {
         console.error('Failed to load favorites', err);
@@ -1022,9 +1011,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
     // Tab Filter: Favorites - use lowercase comparison
     if (activeTab === 'favorites') {
-      console.log('[TokensPage] Filtering for favorites, addresses:', favoriteAddresses.size);
       filtered = filtered.filter(t => t.address && favoriteAddresses.has(t.address.toLowerCase()));
-      console.log('[TokensPage] Filtered to', filtered.length, 'favorite tokens');
     }
 
     // Sort
@@ -1113,7 +1100,6 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
     try {
       const favs = await favoriteApi.getFavorites();
-      console.log('[TokensPage] Refreshed favorites on return:', favs.length);
       const addresses = new Set(favs.map(f => f.address.toLowerCase()));
       setFavoriteAddresses(addresses);
     } catch (err) {
@@ -1129,7 +1115,6 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          console.log('[TokensPage] Infinite scroll triggered');
           setVisibleCount((prev) => prev + 30);
         }
       },
@@ -1256,8 +1241,6 @@ export const TokensPage: React.FC<TokensPageProps> = ({
 
 
   const handleTokenClick = (token: Token) => {
-    console.log('[TokensPage] Immediate redirect for:', token.symbol, token.address);
-
     // 1. Set fallback data immediately to trigger navigation
     const fallback = getFallbackDetail(token);
     selectedTokenRef.current = token;
@@ -1270,7 +1253,6 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         const detail = await convertTokenToDetail(token);
         // Only update if the user hasn't switched to another token or closed details
         if (detail && selectedTokenRef.current?.address === token.address) {
-          console.log('[TokensPage] Full details loaded, updating state');
           setDetailToken(detail);
         }
       } catch (err) {

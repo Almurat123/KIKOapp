@@ -162,7 +162,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                 transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                 display: 'flex',
                 position: 'relative',
-                minHeight: '60px',
+                minHeight: '48px',
                 boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.02)'
             }}
             onMouseOver={(e) => {
@@ -185,10 +185,11 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
             )}
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                {data.image && (
+                {/* X/Twitter 无法获取图片，不显示图片占位 */}
+                {data.image && !isX && (
                     <div style={{
                         width: '100%',
-                        height: '180px', // 固定高度配合 object-fit
+                        height: '100px',
                         overflow: 'hidden',
                         background: isDark ? '#18181b' : '#f4f4f5',
                         borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
@@ -208,7 +209,6 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                                 display: 'block'
                             }}
                             onError={(e) => {
-                                // 只有在真正加载失败时才隐藏容器
                                 const parent = e.currentTarget.parentElement;
                                 if (parent) parent.style.display = 'none';
                             }}
@@ -216,7 +216,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                     </div>
                 )}
 
-                <div style={{ padding: '12px 16px' }}>
+                <div style={{ padding: '8px 12px' }}>
                     {data.siteName && (
                         <div style={{
                             fontSize: '11px',
@@ -232,7 +232,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
 
                     {data.title && (
                         <div style={{
-                            fontSize: '15px',
+                            fontSize: '13px',
                             fontWeight: '600',
                             color: isDark ? '#ffffff' : '#111827',
                             marginBottom: '6px',
@@ -249,7 +249,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
 
                     {data.description && (
                         <div style={{
-                            fontSize: '14px',
+                            fontSize: '12px',
                             color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
                             lineHeight: '1.5',
                             display: '-webkit-box',

@@ -343,12 +343,15 @@ export async function callRpc<T = any>(
 
 let dexscreenerBackoffUntil = 0;
 
+export type ApiPriority = 'normal' | 'high'; // high = Copy Trade, skip rate limits
+
 export async function callDexScreener(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  priority: ApiPriority = 'normal'
 ): Promise<any> {
-  // Check rate limit backoff
-  if (Date.now() < dexscreenerBackoffUntil) {
+  // Check rate limit backoff (high priority skips this check for Copy Trade)
+  if (priority !== 'high' && Date.now() < dexscreenerBackoffUntil) {
     const waitTime = Math.ceil((dexscreenerBackoffUntil - Date.now()) / 1000);
     throw new Error(`DexScreener rate limit active (${waitTime}s remaining)`);
   }
@@ -373,7 +376,7 @@ export async function callDexScreener(
     if (response.status === 429) {
       const backoffMs = 60000; // 1 minute backoff
       dexscreenerBackoffUntil = Date.now() + backoffMs;
-      logger.warn(LogCode.API_RATE_LIMIT, 'DexScreener rate limit hit', { backoffMs });
+      logger.warn(LogCode.API_RATE_LIMIT, 'DexScreener rate limit hit', { backoffMs, priority });
       throw new Error('Rate limit hit, backing off for 60s');
     }
 
@@ -386,7 +389,8 @@ export async function callDexScreener(
   } catch (error: any) {
     logger.error(LogCode.API_FETCH_FAILED, 'DexScreener API error', {
       endpoint,
-      error: error.message
+      error: error.message,
+      priority
     });
     throw error;
   } finally {
@@ -400,15 +404,65 @@ export async function callDexScreener(
 
 let geckoTerminalBackoffUntil = 0;
 
+/**
+ * Token Bucket Rate Limiter for GeckoTerminal
+ * Controls request rate to stay within 30 req/min limit
+ */
+class GeckoTokenBucket {
+  private tokens: number;
+  private lastRefill: number;
+  private readonly maxTokens: number;
+  private readonly refillRate: number; // tokens per second
+
+  constructor(maxTokens: number, refillRatePerMinute: number) {
+    this.maxTokens = maxTokens;
+    this.tokens = maxTokens;
+    this.refillRate = refillRatePerMinute / 60;
+    this.lastRefill = Date.now();
+  }
+
+  async acquire(): Promise<void> {
+    this.refill();
+    if (this.tokens < 1) {
+      const waitTime = Math.ceil((1 - this.tokens) / this.refillRate * 1000);
+      logger.debug(LogCode.API_RATE_LIMIT, `GeckoTerminal rate limit: waiting ${waitTime}ms`);
+      await new Promise(r => setTimeout(r, waitTime));
+      this.refill();
+    }
+    this.tokens -= 1;
+  }
+
+  private refill() {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefill) / 1000;
+    this.tokens = Math.min(this.maxTokens, this.tokens + elapsed * this.refillRate);
+    this.lastRefill = now;
+  }
+
+  getAvailableTokens(): number {
+    this.refill();
+    return Math.floor(this.tokens);
+  }
+}
+
+// Token bucket: 10 burst capacity, 25 req/min refill (留有余量 vs 30 req/min limit)
+const geckoTerminalBucket = new GeckoTokenBucket(10, 25);
+
 export async function callGeckoTerminal(
   endpoint: string,
   options: RequestInit = {},
-  retries: number = GECKOTERMINAL_CONFIG.retry.maxRetries
+  retries: number = GECKOTERMINAL_CONFIG.retry.maxRetries,
+  priority: ApiPriority = 'normal'
 ): Promise<any> {
-  // Check global backoff
-  if (Date.now() < geckoTerminalBackoffUntil) {
+  // Check global backoff first (high priority skips this for Copy Trade)
+  if (priority !== 'high' && Date.now() < geckoTerminalBackoffUntil) {
     const waitTime = Math.ceil((geckoTerminalBackoffUntil - Date.now()) / 1000);
     throw new Error(`GeckoTerminal backoff active (${waitTime}s remaining)`);
+  }
+
+  // Acquire token from bucket (high priority skips wait for Copy Trade critical path)
+  if (priority !== 'high') {
+    await geckoTerminalBucket.acquire();
   }
 
   const url = `${GECKOTERMINAL_CONFIG.baseUrl}${endpoint}`;
@@ -430,9 +484,9 @@ export async function callGeckoTerminal(
 
       clearTimeout(timeout);
 
-      // Handle rate limiting with backoff
+      // Handle rate limiting with backoff (60 seconds to respect 30 req/min limit)
       if (response.status === 429) {
-        const backoffMs = 30000; // 30 seconds
+        const backoffMs = 60000; // 60 seconds (doubled from 30s for better recovery)
         geckoTerminalBackoffUntil = Date.now() + backoffMs;
         logger.warn(LogCode.API_RATE_LIMIT, 'GeckoTerminal 429 triggered backoff', { backoffMs });
         throw new Error(`Rate limit hit, backing off for ${backoffMs}ms`);

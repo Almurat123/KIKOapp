@@ -4,7 +4,6 @@ import { Dialog } from '../Dialog/Dialog';
 import { ExportWalletButton } from './ExportWalletButton';
 import { SessionSignerButton } from './SessionSignerButton';
 import { PolymarketAuthButton } from './PolymarketAuthButton';
-import { BillingConsentButton } from './BillingConsentButton';
 import styles from './WalletSettingsModal.module.css';
 
 interface WalletSettingsModalProps {
@@ -224,10 +223,6 @@ export const WalletSettingsModal: React.FC<WalletSettingsModalProps> = ({
             </div>
             <div className={styles.groupItem}>
               <SessionSignerButton chainType="solana" />
-            </div>
-
-            <div className={styles.groupItem}>
-              <BillingConsentButton />
             </div>
 
             {/* Polymarket Trading */}

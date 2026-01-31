@@ -122,8 +122,8 @@ export class ZoraService {
         }
     }
 
-    private getTradeReferrer(feeContext?: FeeContext): string | undefined {
-        const fee = getPlatformFee(feeContext || 'swap');
+    private getTradeReferrer(feeContext?: FeeContext, bpsOverride?: number): string | undefined {
+        const fee = getPlatformFee(feeContext || 'swap', bpsOverride);
         if (fee.bps <= 0) return undefined;
         return isValidEvmAddress(fee.evmRecipient) ? fee.evmRecipient : undefined;
     }
@@ -138,6 +138,7 @@ export class ZoraService {
         signatures?: any[];
         permitActiveSeconds?: number;
         feeContext?: FeeContext;
+        feeBpsOverride?: number;
     }) {
         if (params.slippage && params.slippage > 1) {
             throw new Error("Slippage must be less than 1, max 0.99");
@@ -146,7 +147,7 @@ export class ZoraService {
             throw new Error("Amount in must be greater than 0");
         }
 
-        const referrer = this.getTradeReferrer(params.feeContext);
+        const referrer = this.getTradeReferrer(params.feeContext, params.feeBpsOverride);
         const apiKey = process.env.ZORA_API_KEY;
 
         const response = await fetchJson({
