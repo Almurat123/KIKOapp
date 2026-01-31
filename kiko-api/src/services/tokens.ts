@@ -14,6 +14,7 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
     // Base (chainId: 8453)
     8453: {
         'ETH': '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        'BASE': '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         'WETH': '0x4200000000000000000000000000000000000006',
         'USDC': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
         'USDbC': '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA', // Bridged USDC
@@ -49,7 +50,9 @@ export function isNativeToken(address?: string | null): boolean {
         normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
         normalized === 'eth' ||
         normalized === 'bnb' ||
-        normalized === 'matic';
+        normalized === 'matic' ||
+        normalized === 'base' ||
+        normalized === 'sol';
 }
 
 /**

@@ -18,6 +18,13 @@
     box-shadow: 0 32px 64px -16px rgba(0, 0, 0, 0.2);
     transition: all 0.5s ease;
 }
+@media (prefers-color-scheme: light) {
+    .card {
+        box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.18);
+        border-color: rgba(0, 0, 0, 0.06);
+        background: rgba(255, 255, 255, 0.75);
+    }
+}
 
 /* Background Ambient Glows */
 .glow {

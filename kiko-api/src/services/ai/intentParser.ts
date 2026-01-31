@@ -407,6 +407,14 @@ function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: strin
         };
     }
 
+    // If only one token found and it's NOT a native token, treat it as tokenOut (buy target)
+    if (foundOrdered.length === 1) {
+        return {
+            tokenIn: undefined,
+            tokenOut: foundOrdered[0],
+        };
+    }
+
     return {};
 }
 
@@ -997,6 +1005,29 @@ async function parseDetailedIntentAI(
                 intent.token_out = tokenSymbols.tokenOut;
             }
 
+            // If user says "buy X TOKEN" and token_out is missing but token_in is set, treat token_in as target
+            if (!intent.token_out && intent.token_in) {
+                const hasBuyVerb = /\b(buy|purchase|ape|买|购买)\b/i.test(userMessage);
+                const isNativeIn = ['ETH', 'BNB', 'SOL', 'MATIC', 'AVAX', 'BASE'].includes(intent.token_in.toUpperCase());
+                if (hasBuyVerb && !isNativeIn) {
+                    intent.token_out = intent.token_in;
+                    intent.token_in = undefined;
+                }
+            }
+
+            // If token_out exists but token_in missing, default to native token based on chain/context
+            if (intent.token_out && !intent.token_in) {
+                const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56 || intent.chain_id === 56;
+                const isSolana = intent.chain_id === 900;
+                intent.token_in = isSolana ? 'SOL' : (isBsc ? 'BNB' : 'ETH');
+            }
+
+            // Normalize "BASE" to native token when on Base chain
+            if (intent.chain_id === 8453) {
+                if (intent.token_in?.toUpperCase() === 'BASE') intent.token_in = 'ETH';
+                if (intent.token_out?.toUpperCase() === 'BASE') intent.token_out = 'ETH';
+            }
+
             // FINAL VALIDATION: Ensure tokenIn and tokenOut are different
             if (intent.token_in && intent.token_out && intent.token_in.toLowerCase() === intent.token_out.toLowerCase()) {
                 logger.info(LogCode.SYS_INFO, 'IntentParser: AI set tokenIn === tokenOut, fixing...');
@@ -1095,6 +1126,28 @@ function parseDetailedIntentHeuristic(
             // Buying: native token is tokenIn, contract address is tokenOut
             tokenIn = tokenSymbols.tokenIn || nativeToken;
             tokenOut = contractAddress || tokenSymbols.tokenOut;
+        }
+
+        // If user says "buy X TOKEN" and token_out is missing but token_in is set, treat token_in as target
+        if (!tokenOut && tokenIn) {
+            const hasBuyVerb = /\b(buy|purchase|ape|买|购买)\b/i.test(userMessage);
+            const isNativeIn = ['ETH', 'BNB', 'SOL', 'MATIC', 'AVAX', 'BASE'].includes(tokenIn.toUpperCase());
+            if (hasBuyVerb && !isNativeIn) {
+                tokenOut = tokenIn;
+                tokenIn = undefined;
+            }
+        }
+
+        // If token_out exists but token_in missing, default to native token based on chain/context
+        if (tokenOut && !tokenIn) {
+            const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56;
+            tokenIn = isSolana ? 'SOL' : (isBsc ? 'BNB' : 'ETH');
+        }
+
+        // Normalize "BASE" to native token when on Base chain
+        if ((userContext?.chainId || 0) === 8453) {
+            if (tokenIn?.toUpperCase() === 'BASE') tokenIn = 'ETH';
+            if (tokenOut?.toUpperCase() === 'BASE') tokenOut = 'ETH';
         }
 
         // CRITICAL FIX: Ensure tokenIn and tokenOut are different

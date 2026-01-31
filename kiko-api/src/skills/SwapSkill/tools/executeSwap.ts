@@ -10,6 +10,7 @@ import { getTradeContext } from '../../../services/TradeContext.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
 import { fetchJson } from '../../../config/unifiedApiService.js';
+import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
 
 export const executeSwapTool: Tool = {
     definition: {
@@ -84,6 +85,7 @@ The result will be either:
             // Step 1: Call backend API to execute the ENTIRE swap
             const API_BASE = process.env.API_BASE_URL ||
                 (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
+            const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
 
             console.log('[ExecuteSwap] Calling unified swap API...');
             SwapStateManager.updateState(taskId, 'QUOTE_PENDING');
@@ -95,7 +97,15 @@ The result will be either:
                 endpointName: 'swap-api',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${context?.accessToken}`
+                    'Authorization': `Bearer ${context?.accessToken}`,
+                    ...(appKey ? { 'X-App-Key': appKey } : {}),
+                    ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify({
+                        tokenIn: args.token_in,
+                        tokenOut: args.token_out,
+                        amountIn: args.amount_in,
+                        chainId: args.chain_id,
+                        slippageBps: Math.round((args.slippage || 0.5) * 100)
+                    }))
                 },
                 body: JSON.stringify({
                     tokenIn: args.token_in,

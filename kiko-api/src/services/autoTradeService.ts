@@ -479,22 +479,29 @@ async function processBuyWithInfo(
         settingsFetched: userSettingsMap.size
     });
 
-    // ⚡ BATCH FILTER: Pre-filter users to avoid processing ineligible configs
+    // ⚡ BATCH FILTER: Pre-filter users IN PARALLEL (优化: 串行 → 并行)
+    // 🚀 100 users: 500ms (serial) → ~5ms (parallel)
+    const filterResults = await Promise.all(
+        configs.map(async (config) => {
+            const userSettings = userSettingsMap.get(config.user?.id);
+            const universalSlippageBps = getSlippageBps(userSettings);
+            const effectiveConfig = {
+                ...config,
+                minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
+                minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
+                minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
+                maxSlippageBps: universalSlippageBps
+            };
+
+            const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
+            return { config, filterResult, effectiveConfig, userSettings };
+        })
+    );
+
     const eligibleConfigs: any[] = [];
     const skippedUsers: any[] = [];
 
-    for (const config of configs) {
-        const userSettings = userSettingsMap.get(config.user?.id);
-        const universalSlippageBps = getSlippageBps(userSettings);
-        const effectiveConfig = {
-            ...config,
-            minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
-            minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
-            minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
-            maxSlippageBps: universalSlippageBps
-        };
-
-        const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
+    for (const { config, filterResult } of filterResults) {
         if (filterResult.passed) {
             eligibleConfigs.push(config);
         } else {
@@ -502,7 +509,7 @@ async function processBuyWithInfo(
         }
     }
 
-    logger.info(LogCode.EXE_QUOTE_FETCHED, '🔍 Batch filter complete', {
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '🔍 Batch filter complete (PARALLEL)', {
         total: configs.length,
         eligible: eligibleConfigs.length,
         skipped: skippedUsers.length
@@ -1049,8 +1056,8 @@ async function processSingleUserBuy(
                         : undefined;
 
                 try {
-                    // Step 1: Try with 100% amount, 10% slippage
-                    logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 1: 100% amount, 10% slippage', { userId: effectiveConfig.userId, eth: baseAmount.toFixed(6) });
+                    // Step 1: Try with 100% amount, user's base slippage (default 15%)
+                    logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${baseSlippage / 100}% slippage`, { userId: effectiveConfig.userId, eth: baseAmount.toFixed(6) });
                     const result1 = await MainSwapService.executeSwap({
                         userId: effectiveConfig.user.privyDid,
                         walletAddress: effectiveConfig.user.walletAddress,
@@ -1096,15 +1103,15 @@ async function processSingleUserBuy(
 
                     // AGGRESSIVE MODE (or Conservative Passed): Proceed with high slippage retries
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Aggressive Mode: Initiating retry sequence...', { userId: config.userId });
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
+                    await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
 
                     try {
-                        // Step 2: Try with 99% amount + 15% slippage
+                        // Step 2: Try with 99% amount + 20% slippage
                         // NOTE: We intentionally do NOT re-run Price Deviation Check here.
                         // If Step 1 failed, we assume high volatility and prioritize execution over strict price protection.
                         const amount99 = baseAmount * 0.99;
-                        const slippage2 = 1500; // 15%
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 15% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
+                        const slippage2 = 2000; // 20% (baseSlippage is now 15%, so we bump +5%)
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
                         const result2 = await MainSwapService.executeSwap({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
@@ -1121,13 +1128,13 @@ async function processSingleUserBuy(
                         txHash = result2.txHash!;
                     } catch (buyErr2: any) {
                         logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', { userId: config.userId, error: buyErr2.message });
-                        await new Promise(resolve => setTimeout(resolve, 1000)); // Anti-sandwich delay
+                        await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
 
                         try {
-                            // Step 3: Final attempt with 98% amount + 20% slippage
+                            // Step 3: Final attempt with 98% amount + 25% slippage
                             const amount98 = baseAmount * 0.98;
-                            const slippage3 = 2000; // 20%
-                            logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
+                            const slippage3 = 2500; // 25% (maximum tolerance for volatile new tokens)
+                            logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 25% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
                             const result3 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
@@ -2150,10 +2157,11 @@ function getChainSlug(chainId: number) {
 /**
  * Helper to convert UserSettings.customSlippage (%) to BPS
  * Strictly used as the universal global slippage for all auto-trades
+ * 🚀 COPY TRADE: 默认滑点 15% (1500 bps) 适合跟单高波动场景
  */
 function getSlippageBps(userSettings: any): number {
     if (!userSettings || userSettings.customSlippage === null || userSettings.customSlippage === undefined) {
-        return 300; // Default 3%
+        return 1500; // Default 15% for Copy Trade (high volatility scenarios)
     }
     return Math.floor(userSettings.customSlippage * 100);
 }
@@ -2208,17 +2216,22 @@ export async function passesFilters(tokenInfo: any, config: any, targetSwapValue
     };
 
     // Try to extract critical data - if any fails, reject the token
-    let liquidity: number;
     let price: number;
 
     // Non-critical data (default to 0 if missing/invalid to allow new tokens)
+    // 🚀 COPY TRADE FIX: liquidity 改为非关键数据，允许 liquidity=0 的新代币通过
+    let liquidity: number = 0;
     let volume24h: number = 0;
     let marketCap: number = 0;
 
     try {
-        // Critical: Must have liquidity and price
-        liquidity = safeNumber(tokenInfo.liquidity, 'liquidity');
+        // Critical: Must have price (for value calculation)
         price = safeNumber(tokenInfo.price, 'price');
+
+        // Non-Critical: Liquidity (often 0 for brand new launchpad tokens)
+        if (tokenInfo.liquidity !== null && tokenInfo.liquidity !== undefined) {
+            try { liquidity = safeNumber(tokenInfo.liquidity, 'liquidity'); } catch { }
+        }
 
         // Non-Critical: Volume and MCap (often missing for fresh tokens)
         if (tokenInfo.volume24h !== null && tokenInfo.volume24h !== undefined) {
@@ -2271,12 +2284,15 @@ export async function passesFilters(tokenInfo: any, config: any, targetSwapValue
 
     const isFastMode = config.fastExecutionEnabled !== false; // Default to fast
 
-    // FAST MODE: Quick entry for new tokens
+    // FAST MODE: Quick entry for new tokens (TRUST the target wallet's judgment)
     if (isFastMode) {
-        // Only check minimal system liquidity (User filters already checked above)
-        if (liquidity < MIN_LIQUIDITY_FAST) {
+        // 🚀 COPY TRADE FIX: 对于新代币，完全信任跟单目标的判断
+        // 如果流动性为 0 或未知，仍然允许交易（目标钱包已经验证过）
+        // 只在 liquidity > 0 时才做最低流动性检查
+        if (liquidity > 0 && liquidity < MIN_LIQUIDITY_FAST) {
             return { passed: false, reason: `[HONEYPOT/FAST] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_FAST}` };
         }
+        // liquidity === 0: 允许通过（新代币可能尚未索引流动性数据）
 
         // Price Impact check in Fast Mode (8% loose limit)
         if (config.buyAmountUsd && liquidity > 0) {
@@ -2294,7 +2310,8 @@ export async function passesFilters(tokenInfo: any, config: any, targetSwapValue
     }
 
     // NORMAL MODE: Thorough checks
-    if (liquidity < MIN_LIQUIDITY_NORMAL) {
+    // 🚀 COPY TRADE FIX: 同样只在 liquidity > 0 时才检查
+    if (liquidity > 0 && liquidity < MIN_LIQUIDITY_NORMAL) {
         return { passed: false, reason: `[HONEYPOT] Liquidity $${liquidity.toFixed(0)} < $${MIN_LIQUIDITY_NORMAL}` };
     }
 

@@ -1,6 +1,7 @@
 import { Tool, ToolContext } from './registry.js';
 import { normalizeTokenAddress, resolveTokenAddress } from '../services/tokens.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { buildSignedHeaders } from '../utils/requestSigningClient.js';
 import { getTradeContext } from '../services/TradeContext.js';
 // Note: swapAggregator import removed - using internal API call instead
 
@@ -157,6 +158,7 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
                     // 2. SIMULATION CHECK (Price Impact)
                     const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
                     const accessToken = context?.accessToken;
+                    const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
 
                     const quoteData = await fetchJson({
                         url: `${API_BASE}/api/swap/quote`,
@@ -164,7 +166,15 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
                         endpointName: 'swap-api',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${accessToken}`
+                            'Authorization': `Bearer ${accessToken}`,
+                            ...(appKey ? { 'X-App-Key': appKey } : {}),
+                            ...buildSignedHeaders('POST', '/api/swap/quote', JSON.stringify({
+                                tokenIn: normalizedArgs.token_in,
+                                tokenOut: normalizedArgs.token_out,
+                                amountIn: args.amount_in,
+                                chainId: args.chain_id,
+                                slippageBps: 100
+                            }))
                         },
                         body: JSON.stringify({
                             tokenIn: normalizedArgs.token_in,   // ✅ Normalized
@@ -240,6 +250,7 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
 
                 try {
                     const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
+                    const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
 
                     // Check if this is a Zora token on Base chain - use Zora SDK for optimal execution
                     // Zora tokens are best swapped via Zora SDK's createTradeCall which uses the bonding curve directly
@@ -254,7 +265,13 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${accessToken}`
+                                    'Authorization': `Bearer ${accessToken}`,
+                                    ...(appKey ? { 'X-App-Key': appKey } : {}),
+                                    ...buildSignedHeaders('POST', '/api/zora/swap', JSON.stringify({
+                                        tokenAddress: normalizedArgs.token_out,
+                                        buyAmountEth: args.amount_in.toString(),
+                                        maxSlippage: args.slippage || 1.5
+                                    }))
                                 },
                                 body: JSON.stringify({
                                     tokenAddress: normalizedArgs.token_out, // ✅ Normalized
@@ -288,7 +305,15 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${accessToken}`
+                            'Authorization': `Bearer ${accessToken}`,
+                            ...(appKey ? { 'X-App-Key': appKey } : {}),
+                            ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify({
+                                tokenIn: normalizedArgs.token_in,
+                                tokenOut: normalizedArgs.token_out,
+                                amountIn: args.amount_in,
+                                chainId: args.chain_id,
+                                slippageBps: Math.round((args.slippage || 0.5) * 100)
+                            }))
                         },
                         body: JSON.stringify({
                             tokenIn: normalizedArgs.token_in,   // ✅ Normalized

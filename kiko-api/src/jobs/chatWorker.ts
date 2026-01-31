@@ -852,6 +852,13 @@ export class ChatWorker {
                     sessionId: task.sessionId,
                     data: { taskId: task.id, status: 'error', error: error.message }
                 });
+                if (task.assistantMessageId) {
+                    this.ws.broadcastToUser(userId!, {
+                        type: 'message_complete',
+                        sessionId: task.sessionId,
+                        data: { messageId: task.assistantMessageId }
+                    });
+                }
             } catch (wsErr) {
                 console.warn('[ChatWorker] Failed to broadcast error status', wsErr);
             }
@@ -1428,7 +1435,19 @@ export class ChatWorker {
 
                     // ⚡ Update transaction message with final result
                     const finalStatus = swapResult.success ? 'success' : 'failed';
-                    const messageData = transactionMessage.data ? JSON.parse(transactionMessage.data) : {};
+                    let messageData: any = {};
+                    if (transactionMessage.data) {
+                        if (typeof transactionMessage.data === 'string') {
+                            try {
+                                messageData = JSON.parse(transactionMessage.data);
+                            } catch (err) {
+                                console.warn('[ChatWorker] Failed to parse transactionMessage.data JSON, using empty object');
+                                messageData = {};
+                            }
+                        } else {
+                            messageData = transactionMessage.data;
+                        }
+                    }
                     const formattedAmountOut = swapResult.amountOut
                         ? parseFloat(swapResult.amountOut).toLocaleString('en-US', { maximumFractionDigits: 6 })
                         : undefined;

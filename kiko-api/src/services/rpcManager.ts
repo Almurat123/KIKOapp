@@ -170,6 +170,19 @@ export async function callRpc<T = any>(
             return data.result;
         } catch (error: any) {
             lastError = error;
+
+            // ⚡ FAST FAIL: Contract errors should NOT be retried on other endpoints
+            // These are logic errors, not network errors
+            const isContractError = error.message?.includes('execution reverted') ||
+                error.message?.includes('revert') ||
+                error.message?.includes('invalid opcode') ||
+                error.message?.includes('out of gas');
+
+            if (isContractError) {
+                // Don't retry - throw immediately to save time
+                throw error;
+            }
+
             recordFailure(endpoint);
 
             // Only log first 2 failures to reduce noise
@@ -183,12 +196,10 @@ export async function callRpc<T = any>(
                 });
             }
 
-            // Continue to next endpoint
+            // Continue to next endpoint only for network errors
             if (i < sortedEndpoints.length - 1) {
-                // ✅ Add delay before trying next endpoint (Alchemy best practice)
-                // Exponential backoff: 100ms, 200ms, 400ms...
-                const delayMs = Math.min(100 * Math.pow(2, i), 1000); // Max 1s
-                await new Promise(resolve => setTimeout(resolve, delayMs));
+                // Minimal delay for network errors
+                await new Promise(resolve => setTimeout(resolve, 50));
                 continue;
             }
         }

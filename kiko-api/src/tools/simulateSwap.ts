@@ -1,6 +1,7 @@
 
 import { Tool } from './registry.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { buildSignedHeaders } from '../utils/requestSigningClient.js';
 
 export const SimulateSwapTool: Tool = {
     definition: {
@@ -22,6 +23,7 @@ export const SimulateSwapTool: Tool = {
         try {
             const API_BASE = process.env.API_BASE_URL || 'http://localhost:3001';
             const accessToken = context?.accessToken;
+            const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
 
             const result = await fetchJson({
                 url: `${API_BASE}/api/swap/quote`,
@@ -29,7 +31,15 @@ export const SimulateSwapTool: Tool = {
                 endpointName: 'swap-api',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`
+                    'Authorization': `Bearer ${accessToken}`,
+                    ...(appKey ? { 'X-App-Key': appKey } : {}),
+                    ...buildSignedHeaders('POST', '/api/swap/quote', JSON.stringify({
+                        tokenIn: args.token_in,
+                        tokenOut: args.token_out,
+                        amountIn: args.amount_in,
+                        chainId: args.chain_id,
+                        slippageBps: Math.round((args.slippage || 1.0) * 100)
+                    }))
                 },
                 body: JSON.stringify({
                     tokenIn: args.token_in,

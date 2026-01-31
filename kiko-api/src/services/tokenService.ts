@@ -50,225 +50,190 @@ export async function getTokenInfo(
 }
 
 /**
- * 从 API 获取 Token 信息（内部函数）
- * @param priority - 'high' for Copy Trade (skips rate limits)
+ * 仅从 API 获取 Liquidity 和 Volume 数据（RPC 无法获取）
+ * 用于混合策略：RPC 获取 price，API 补充 liquidity
  */
-async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, verbose: boolean, priority: ApiPriority = 'normal'): Promise<any> {
+async function getLiquidityData(
+    tokenAddress: string,
+    chainId: number,
+    priority: ApiPriority = 'normal'
+): Promise<{ liquidity: number; volume24h: number; fdv?: number } | null> {
     const chainSlug = getChainSlug(chainId);
     const dsSlug = chainSlug.dexScreener;
     const gtSlug = chainSlug.geckoTerminal;
 
-    // --- STEP 0: Request Jitter ---
-    // Add a random delay to prevent synchronized burst blocks
-    const jitter = Math.floor(Math.random() * 200) + 100; // 100-300ms
-    await new Promise(resolve => setTimeout(resolve, jitter));
-
-    if (verbose) {
-        logger.debug(LogCode.API_FETCH_SUCCESS, 'Fetching token information', { token: tokenAddress, chainId, jitterMs: jitter });
-    }
-
     // --- STEP 1: Try DexScreener (Primary) ---
-    const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
-    const MAX_RETRIES = 3;
-    let dsError: any = null;
+    try {
+        const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+        const data = await fetchJson({
+            url: dsUrl,
+            headers: { 'Connection': 'close', 'Accept': 'application/json' },
+            timeout: 5000
+        }) as any;
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            const data = await fetchJson({
-                url: dsUrl,
-                headers: { 'Connection': 'close', 'Accept': 'application/json' },
-                timeout: 8000,
-                retry: { retries: 0 } // Handle retries manually
-            }) as any;
-
-            if (data.pairs && data.pairs.length > 0) {
-                // Step 1: Filter by correct chain only
-                const chainPairs = data.pairs.filter((p: any) => p.chainId === dsSlug);
-
-                if (chainPairs.length === 0) {
-                    logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener: No pairs found on target chain', {
-                        token: tokenAddress,
-                        chainId,
-                        dsSlug,
-                        availableChains: data.pairs.map((p: any) => p.chainId).slice(0, 5)
-                    });
-                    break; // Move to fallback APIs
-                }
-
-                // Step 2: Select pair with highest liquidity
+        if (data.pairs && data.pairs.length > 0) {
+            const chainPairs = data.pairs.filter((p: any) => p.chainId === dsSlug);
+            if (chainPairs.length > 0) {
+                // Select pair with highest liquidity
                 const pair = chainPairs.reduce((best: any, current: any) => {
                     const bestLiq = best.liquidity?.usd || 0;
                     const currentLiq = current.liquidity?.usd || 0;
                     return currentLiq > bestLiq ? current : best;
                 });
 
-                const successResult = {
-                    price: parseFloat(pair.priceUsd),
-                    symbol: pair.baseToken.symbol,
-                    name: pair.baseToken.name,
-                    decimals: 18, // DexScreener defaults to 18, consider improving later if API adds it
+                return {
                     liquidity: pair.liquidity?.usd || 0,
                     volume24h: pair.volume?.h24 || 0,
-                    fdv: pair.fdv || 0,
-                    marketCap: pair.fdv || 0,
-                    pairCreatedAt: pair.pairCreatedAt,
-                    socials: pair.info?.socials || [],
-                    websites: pair.info?.websites || [],
-                    provider: 'dexscreener'
+                    fdv: pair.fdv || 0
                 };
-                logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from DexScreener', {
-                    symbol: successResult.symbol,
-                    price: successResult.price,
-                    liquidity: successResult.liquidity
-                });
-
-                // Cache Result
-                return successResult;
             }
-
-            // If no pairs found, don't retry dexscreener
-            logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener: No liquid pairs found for token', { token: tokenAddress });
-            break;
-
-        } catch (e: any) {
-            dsError = e;
-            if (attempt < MAX_RETRIES && (e.message?.includes('429') || e.name === 'AbortError')) {
-                const wait = 1000 * Math.pow(2, attempt - 1);
-                logger.debug(LogCode.API_TIMEOUT, 'Retrying DexScreener fetch', { waitMs: wait, attempt });
-                await new Promise(resolve => setTimeout(resolve, wait));
-                continue;
-            }
-            break;
         }
+    } catch (dsErr: any) {
+        logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener liquidity fetch failed', {
+            token: tokenAddress,
+            error: dsErr.message
+        });
     }
 
     // --- STEP 2: Try GeckoTerminal (Fallback) ---
-    logger.debug(LogCode.API_FETCH_SUCCESS, 'DexScreener insufficient, attempting GeckoTerminal fallback', { token: tokenAddress });
     try {
         const gtData = await getTokenDetails(gtSlug, tokenAddress, priority);
         if (gtData) {
-            const result = {
-                price: gtData.price || 0,
-                symbol: gtData.symbol || 'UNKNOWN',
-                name: gtData.name || 'Unknown Token',
-                decimals: gtData.decimals || 18,
+            return {
                 liquidity: gtData.liquidity || 0,
                 volume24h: gtData.volume24h || 0,
-                fdv: gtData.fdv || 0,
-                marketCap: gtData.marketCap || gtData.fdv || 0,
-                pairCreatedAt: gtData.poolCreatedAt ? new Date(gtData.poolCreatedAt).getTime() : Date.now(),
-                socials: gtData.socials || [],
-                websites: gtData.websites || [],
-                provider: 'geckoterminal'
+                fdv: gtData.fdv || gtData.marketCap || 0
             };
-            logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from GeckoTerminal', { symbol: result.symbol, price: result.price });
-            return result;
         }
     } catch (gtErr: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'GeckoTerminal fallback failed', { token: tokenAddress, error: gtErr.message });
+        logger.debug(LogCode.API_FETCH_FAILED, 'GeckoTerminal liquidity fetch failed', {
+            token: tokenAddress,
+            error: gtErr.message
+        });
     }
 
-    // --- STEP 3: Try ZORA API (For Base chain launchpad tokens) ---
-    if (chainId === 8453) {
-        logger.debug(LogCode.API_FETCH_SUCCESS, 'Attempting Zora API fallback for Base token', { token: tokenAddress });
-        try {
-            const zoraUrl = `https://api-sdk.zora.engineering/coin?address=${tokenAddress}&chain=8453`;
-            const zoraData = await fetchJson({
-                url: zoraUrl,
-                headers: { 'Accept': 'application/json' }
-            }) as any;
-
-            if (zoraData && zoraData.tokenPrice) {
-                const result = {
-                    price: parseFloat(zoraData.tokenPrice.priceInUsdc),
-                    symbol: zoraData.symbol,
-                    name: zoraData.name,
-                    decimals: 18,
-                    liquidity: parseFloat(zoraData.marketCap) * 0.1, // Proxy
-                    volume24h: parseFloat(zoraData.volume24h),
-                    fdv: parseFloat(zoraData.marketCap),
-                    marketCap: parseFloat(zoraData.marketCap),
-                    provider: 'zora'
-                };
-                logger.debug(LogCode.API_FETCH_SUCCESS, 'Successfully fetched token info from Zora', { symbol: result.symbol, price: result.price });
-                return result;
-            }
-        } catch (e: any) {
-            logger.debug(LogCode.API_FETCH_FAILED, 'Zora API fallback failed', { token: tokenAddress, error: e.message });
-        }
-    }
-
-    // --- STEP 4: Try On-Chain RPC (Price + Liquidity Fallback) ---
-    // If all APIs fail, try to fetch price and liquidity directly from chain
-    try {
-        logger.warn(LogCode.API_FETCH_FAILED, 'All APIs failed, attempting on-chain price fetch via RPC', { token: tokenAddress });
-
-        const { getOnChainPrice } = await import('./onChainPriceService.js');
-        const onChainData = await getOnChainPrice(tokenAddress, chainId);
-
-        if (onChainData && onChainData.price > 0) {
-            // Also fetch metadata for symbol/name/decimals
-            const rpcMetadata = await getTokenMetadata(chainId, tokenAddress);
-
-            const result = {
-                price: onChainData.price,
-                symbol: rpcMetadata.symbol,
-                name: rpcMetadata.name,
-                decimals: rpcMetadata.decimals,
-                liquidity: 0, // Liquidity not available via RPC, must use API
-                volume24h: 0, // Not available on-chain
-                fdv: onChainData.marketCap,
-                marketCap: onChainData.marketCap,
-                pairCreatedAt: Date.now(),
-                socials: [],
-                websites: [],
-                provider: `rpc-${onChainData.dexName}`
-            };
-
-            logger.info(LogCode.API_FETCH_SUCCESS, 'Successfully fetched price via on-chain RPC', {
-                symbol: result.symbol,
-                price: result.price,
-                marketCap: result.marketCap,
-                dex: onChainData.dexName,
-                note: 'Liquidity unavailable - use API for liquidity data'
-            });
-
-            // Cache this data with short TTL (30s) since it's RPC-based
-            return result;
-        }
-    } catch (onChainErr: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'On-chain price fetch failed', { token: tokenAddress, error: onChainErr.message });
-    }
-
-    // --- STEP 5: Last Resort - Metadata Only ---
-    // If even on-chain price fetch fails, return metadata only (for execution to proceed with price=0)
-    try {
-        logger.warn(LogCode.API_FETCH_FAILED, 'Price unavailable, fetching metadata only', { token: tokenAddress });
-
-        // This uses viem/ethers to call calling decimals() symbol() name()
-        const rpcData = await getTokenMetadata(chainId, tokenAddress);
-
-        const result = {
-            price: 0, // Price unknown, but trading can proceed
-            symbol: rpcData.symbol,
-            name: rpcData.name,
-            decimals: rpcData.decimals,
-            liquidity: 0,
-            volume24h: 0,
-            fdv: 0,
-            marketCap: 0,
-            provider: 'rpc'
-        };
-
-        logger.info(LogCode.API_FETCH_SUCCESS, 'Recovered token metadata via RPC', { symbol: result.symbol, decimals: result.decimals });
-
-        // Cache this fallback data but with short TTL so we retry APIs soon
-        return result;
-
-    } catch (rpcErr: any) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Critical: RPC fallback also failed', { token: tokenAddress, error: rpcErr.message });
-    }
-
-    logger.error(LogCode.API_FETCH_FAILED, 'All token info data sources failed', { token: tokenAddress, lastError: dsError?.message });
-    return null;
+    logger.warn(LogCode.API_FETCH_FAILED, 'All API liquidity sources failed', { token: tokenAddress });
+    return null; // 无 liquidity 数据
 }
+
+/**
+ * 从 API 获取 Token 信息（内部函数）
+ * 🚀 HYBRID STRATEGY: RPC (price) + API (liquidity) 并行获取
+ * @param priority - 'high' for Copy Trade (skips rate limits)
+ */
+async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, verbose: boolean, priority: ApiPriority = 'normal'): Promise<any> {
+    const chainSlug = getChainSlug(chainId);
+    const gtSlug = chainSlug.geckoTerminal;
+
+    // 🚀 HYBRID STRATEGY: RPC/Jupiter (price) + API (liquidity)
+    // ⚠️ Solana (chainId 900): Uses Jupiter API instead of RPC
+    const isSolana = chainId === 900;
+
+    if (verbose) {
+        logger.debug(LogCode.API_FETCH_SUCCESS, isSolana ? '📡 Jupiter API Strategy (Solana)' : '🚀 Hybrid Strategy (EVM): RPC + API', {
+            token: tokenAddress,
+            chainId
+        });
+    }
+
+    // 🚀 PARALLEL EXECUTION: RPC/Jupiter (price) + API (liquidity) + Metadata
+    const [rpcData, liquidityData, metadata] = await Promise.allSettled([
+        // 1. Price: RPC (EVM) or Jupiter API (Solana)
+        isSolana ? (async () => {
+            const { getSolanaTokenInfo } = await import('./solanaOnChainPriceService.js');
+            return getSolanaTokenInfo(tokenAddress);
+        })() : (async () => {
+            const { getOnChainPrice } = await import('./onChainPriceService.js');
+            return getOnChainPrice(tokenAddress, chainId);
+        })(),
+
+        // 2. API: Get liquidity data (~200ms, may hit rate limit)
+        getLiquidityData(tokenAddress, chainId, priority),
+
+        // 3. RPC/API: Get token metadata (~50ms, Solana uses API fallback)
+        isSolana ? Promise.resolve({ symbol: 'UNKNOWN', name: 'Unknown Token', decimals: 9 }) : getTokenMetadata(chainId, tokenAddress)
+    ]);
+
+    // Extract results
+    const rpc = rpcData.status === 'fulfilled' ? rpcData.value : null;
+    const liq = liquidityData.status === 'fulfilled' ? liquidityData.value : null;
+    const meta = metadata.status === 'fulfilled' ? metadata.value : null;
+
+    // 🛡️ MERGE STRATEGY: Use best data from each source
+    let price = rpc?.price || 0;
+    let marketCap = rpc?.marketCap || liq?.fdv || 0;
+    let liquidity = liq?.liquidity || 0;
+    let volume24h = liq?.volume24h || 0;
+    let symbol = meta?.symbol || 'UNKNOWN';
+    let name = meta?.name || 'Unknown Token';
+    let decimals = meta?.decimals || 18;
+    let provider = 'rpc+api';
+
+    // 🛡️ FALLBACK: If RPC price failed, try full API fetch as last resort
+    if (price <= 0 || isNaN(price)) {
+        logger.warn(LogCode.API_FETCH_FAILED, 'RPC price failed, falling back to full API fetch', {
+            token: tokenAddress,
+            rpcPrice: rpc?.price
+        });
+
+        try {
+            // Try GeckoTerminal for complete data
+            const gtData = await getTokenDetails(gtSlug, tokenAddress, priority);
+            if (gtData && gtData.price && gtData.price > 0) {
+                price = gtData.price;
+                symbol = gtData.symbol || symbol;
+                name = gtData.name || name;
+                decimals = gtData.decimals || decimals;
+                liquidity = liquidity || gtData.liquidity || 0;  // Keep API liquidity if we have it
+                volume24h = volume24h || gtData.volume24h || 0;
+                marketCap = (gtData.marketCap || gtData.fdv || marketCap) as number;
+                provider = 'geckoterminal';
+
+                logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from GeckoTerminal', {
+                    symbol,
+                    price
+                });
+            }
+        } catch (gtErr: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'All price sources failed', {
+                token: tokenAddress,
+                error: gtErr.message
+            });
+        }
+    }
+
+    // Final validation
+    if (price <= 0 || isNaN(price)) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Critical: No valid price data available', {
+            token: tokenAddress,
+            rpcResult: rpc,
+            liquidityResult: liq
+        });
+        return null;
+    }
+
+    const result = {
+        price,
+        symbol,
+        name,
+        decimals,
+        liquidity,
+        volume24h,
+        fdv: marketCap,
+        marketCap,
+        pairCreatedAt: Date.now(),
+        socials: [],
+        websites: [],
+        provider
+    };
+
+    logger.info(LogCode.API_FETCH_SUCCESS, '✅ Hybrid fetch complete', {
+        symbol: result.symbol,
+        price: result.price,
+        liquidity: result.liquidity,
+        provider: result.provider
+    });
+
+    return result;
+}
+

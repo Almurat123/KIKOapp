@@ -72,7 +72,7 @@ export async function insertUsageRecord(params: {
             ${params.totalTokens},
             ${params.toolCallsCount},
             ${params.usdCost},
-            ${params.dateUtc},
+            ${params.dateUtc}::date,
             ${params.isFree}
         )
         ON CONFLICT (assistant_message_id) DO NOTHING

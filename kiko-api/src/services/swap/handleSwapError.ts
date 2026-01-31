@@ -8,6 +8,7 @@ import { LogCode } from '../../config/logRegistry.js';
  */
 export function handleSwapError(error: any): string {
     const msg = error.message || 'Unknown error';
+    const msgLower = msg.toLowerCase();
     const errorData = error.response?.data || error.data || {};
 
     // Log the raw technical error for debugging purposes
@@ -15,47 +16,63 @@ export function handleSwapError(error: any): string {
 
     // 1. Slippage & Price Movement Errors
     if (
-        msg.includes('Slippage tolerance exceeded') ||
-        msg.includes('0x1771') || // Jupiter slippage error code
-        msg.includes('PRICE_OR_SLIPPAGE_TOO_LOW') || // 0x slippage
-        msg.includes('Slippage')
+        msgLower.includes('slippage') ||
+        msgLower.includes('price_or_slippage_too_low') ||
+        msgLower.includes('insufficient_output_amount') ||
+        msgLower.includes('too little received') ||
+        msgLower.includes('minamountout') ||
+        msgLower.includes('min output') ||
+        msgLower.includes('err_limit_out') ||
+        msgLower.includes('0x1771') // Jupiter slippage error code
     ) {
         return 'Swap failed: Price moved beyond slippage tolerance. Please try increasing your slippage percentage.';
     }
 
     // 2. Liquidity & Market Depth Errors
     if (
-        msg.includes('INSUFFICIENT_ASSET_LIQUIDITY') ||
-        msg.includes('No route found') ||
-        msg.includes('COULD_NOT_FILL')
+        msgLower.includes('insufficient_asset_liquidity') ||
+        msgLower.includes('insufficient_liquidity') ||
+        msgLower.includes('no route found') ||
+        msgLower.includes('route_not_found') ||
+        msgLower.includes('pool_not_found') ||
+        msgLower.includes('pair_not_found') ||
+        msgLower.includes('could_not_fill')
     ) {
         return 'Swap failed: Insufficient market liquidity or depth for this trade scale. Try reducing the amount.';
     }
 
     // 3. Balance & Gas Fee Errors
     if (
-        msg.includes('insufficient funds') ||
-        msg.includes('0x1') || // Solana insufficient lamports
-        msg.includes('balance')
+        msgLower.includes('insufficient funds') ||
+        msgLower.includes('insufficient balance') ||
+        msgLower.includes('insufficient funds for gas') ||
+        msgLower.includes('insufficient funds for intrinsic transaction cost') ||
+        msgLower.includes('erc20: transfer amount exceeds balance') ||
+        msgLower.includes('erc20insufficientbalance') ||
+        msgLower.includes('insufficient lamports') ||
+        msgLower.includes('balance')
     ) {
         return 'Swap failed: Insufficient balance for the transaction or required gas fees. Ensure you have enough native tokens.';
     }
 
     // 4. Permission / Allowance Errors (EVM)
     if (
-        msg.includes('ALLOWANCE_TOO_LOW') ||
-        msg.includes('execution reverted') && msg.includes('allowance')
+        msgLower.includes('allowance_too_low') ||
+        msgLower.includes('insufficient allowance') ||
+        (msgLower.includes('execution reverted') && msgLower.includes('allowance')) ||
+        msgLower.includes('transfer_from_failed') ||
+        msgLower.includes('transferhelper')
     ) {
-        return 'Swap failed: Insufficient token allowance. An approval transaction has been initiated, please confirm it.';
+        return 'Swap failed: Token approval or allowance is insufficient. Please approve the token and retry.';
     }
 
     // 5. User-Initiated Cancellation
-    if (msg.includes('user rejected') || msg.includes('User rejected')) {
+    if (msgLower.includes('user rejected') || msgLower.includes('user denied') || msgLower.includes('rejected')) {
         return 'Swap failed: Transaction was rejected by the user.';
     }
 
     // 6. Network Connectivity & Timeouts
-    if (msg.includes('timeout') || msg.includes('ETIMEDOUT')) {
+    if (msgLower.includes('timeout') || msgLower.includes('etimedout')) {
         return 'Swap failed: Network request timed out. Please check your connection and try again later.';
     }
 

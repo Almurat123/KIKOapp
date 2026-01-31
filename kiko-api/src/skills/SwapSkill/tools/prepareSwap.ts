@@ -1,6 +1,7 @@
 import { Tool, ToolContext } from '../../../tools/registry.js';
 import { TradeContext, getTradeContext } from '../../../services/TradeContext.js';
 import { getTokenData } from '../../../services/UnifiedDataLayer.js';
+import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -89,6 +90,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
             const API_BASE = process.env.API_BASE_URL ||
                 (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
             const accessToken = context?.accessToken;
+            const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
 
             // Get user's wallet address for quote (required by 0x API)
             let userWalletAddress: string | undefined;
@@ -113,7 +115,16 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${accessToken}`
+                            'Authorization': `Bearer ${accessToken}`,
+                            ...(appKey ? { 'X-App-Key': appKey } : {}),
+                            ...buildSignedHeaders('POST', '/api/swap/quote', JSON.stringify({
+                                tokenIn: args.token_in,
+                                tokenOut: args.token_out,
+                                amountIn: args.amount_in,
+                                chainId: args.chain_id,
+                                slippageBps: Math.round((args.slippage || 0.5) * 100),
+                                userAddress: userWalletAddress
+                            }))
                         },
                         body: JSON.stringify({
                             tokenIn: args.token_in,
@@ -129,8 +140,8 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         const data = await response.json();
                         const duration = Date.now() - startTime;
                         console.log(`[PrepareSwapTransaction] ⚡ PRE-WARMED quote ready (${duration}ms):`, {
-                            dex: data.quote?.dexName,
-                            priceImpact: data.quote?.priceImpact
+                            dex: data.data?.dexName,
+                            priceImpact: data.data?.priceImpact
                         });
                         return data;
                     }
@@ -184,9 +195,9 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     // OPTIMIZATION: Use pre-warmed quote if available
                     const preWarmedQuote = await preWarmQuotePromise;
 
-                    if (preWarmedQuote && preWarmedQuote.quote) {
+                    if (preWarmedQuote && preWarmedQuote.data) {
                         console.log('[PrepareSwapTransaction] ✅ Using pre-warmed quote for safety check');
-                        const impact = parseFloat(preWarmedQuote.quote.priceImpact || '0');
+                        const impact = parseFloat(preWarmedQuote.data.priceImpact || '0');
 
                         if (impact > 20) {
                             return {
@@ -201,7 +212,15 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${accessToken}`
+                                'Authorization': `Bearer ${accessToken}`,
+                                ...(appKey ? { 'X-App-Key': appKey } : {}),
+                                ...buildSignedHeaders('POST', '/api/swap/quote', JSON.stringify({
+                                    tokenIn: args.token_in,
+                                    tokenOut: args.token_out,
+                                    amountIn: args.amount_in,
+                                    chainId: args.chain_id,
+                                    slippageBps: 100
+                                }))
                             },
                             body: JSON.stringify({
                                 tokenIn: args.token_in,
@@ -289,34 +308,111 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                 const transactionMessage = await createMessage(
                     sessionId,
                     'assistant',
-                    JSON.stringify({
-                        type: 'transaction_card',
-                        status: 'pending',
-                        swapType: 'buy',
-                        tokenIn: args.token_in,
-                        tokenOut: args.token_out,
-                        amountIn: args.amount_in,
-                        chainId: args.chain_id,
-                        slippage: args.slippage || 0.5,
-                        startedAt: Date.now(),
-                        message: '⏳ Initiating swap transaction...'
-                    }),
-                    { type: 'transaction_card' }
+                    '',
+                    {
+                        type: 'transaction-status-card',
+                        data: {
+                            status: 'sending',
+                            swapType: 'buy',
+                            tokenIn: args.token_in,
+                            tokenOut: args.token_out,
+                            tokenInSymbol: args.token_in,
+                            tokenOutSymbol: args.token_out,
+                            amountIn: args.amount_in,
+                            chainId: args.chain_id,
+                            slippage: args.slippage || 0.5,
+                            startedAt: Date.now(),
+                            message: '⏳ Sending transaction...',
+                            isLoading: true
+                        },
+                        status: 'streaming'
+                    }
                 );
 
                 console.log(`[PrepareSwapTransaction] Created transaction message: ${transactionMessage.id}`);
 
                 // Push pending card to frontend via WebSocket
                 chatWS.broadcast(userId, {
-                    type: 'transaction_update',
-                    messageId: transactionMessage.id,
-                    status: 'pending',
+                    type: 'client_action',
+                    sessionId,
                     data: {
-                        tokenIn: args.token_in,
-                        tokenOut: args.token_out,
-                        amountIn: args.amount_in
+                        targetMessageId: transactionMessage.id,
+                        action: {
+                            type: 'show_transaction_status_card',
+                            data: {
+                                status: 'sending',
+                                tokenIn: args.token_in,
+                                tokenOut: args.token_out,
+                                tokenInSymbol: args.token_in,
+                                tokenOutSymbol: args.token_out,
+                                amountIn: args.amount_in,
+                                chainId: args.chain_id,
+                                slippage: args.slippage || 0.5,
+                                isLoading: true
+                            }
+                        }
                     }
                 });
+
+                let isFinalized = false;
+                let pendingTimer: NodeJS.Timeout | null = setTimeout(async () => {
+                    if (isFinalized) return;
+                    const currentData = transactionMessage.data || {};
+                    const updatedData = {
+                        ...currentData,
+                        status: 'pending',
+                        message: '⏳ Waiting for confirmation...',
+                        isLoading: currentData.isLoading ?? true
+                    };
+                    try {
+                        await updateMessage(transactionMessage.id, {
+                            data: updatedData
+                        });
+                        chatWS.broadcast(userId, {
+                            type: 'client_action',
+                            sessionId,
+                            data: {
+                                targetMessageId: transactionMessage.id,
+                                action: {
+                                    type: 'show_transaction_status_card',
+                                    data: updatedData
+                                }
+                            }
+                        });
+                    } catch (err) {
+                        console.warn('[PrepareSwapTransaction] Failed to update pending status:', (err as Error).message);
+                    }
+                }, 1200);
+
+                // Update card with pre-warmed estimate (if available) without blocking execution
+                preWarmQuotePromise.then(async preWarmedQuote => {
+                    const estimatedOut = preWarmedQuote?.data?.amountOut || preWarmedQuote?.data?.amountOutHuman;
+                    if (!estimatedOut) return;
+                    const currentData = transactionMessage.data || {};
+                    const updatedData = {
+                        ...currentData,
+                        amountOut: estimatedOut,
+                        isLoading: false
+                    };
+                    try {
+                        await updateMessage(transactionMessage.id, {
+                            data: updatedData
+                        });
+                        chatWS.broadcast(userId, {
+                            type: 'client_action',
+                            sessionId,
+                            data: {
+                                targetMessageId: transactionMessage.id,
+                                action: {
+                                    type: 'show_transaction_status_card',
+                                    data: updatedData
+                                }
+                            }
+                        });
+                    } catch (err) {
+                        console.warn('[PrepareSwapTransaction] Failed to update estimated receive:', (err as Error).message);
+                    }
+                }).catch(() => {});
 
                 // ⚡ STEP 2: Execute swap (blocking - wait for result)
                 const API_BASE = process.env.API_BASE_URL ||
@@ -331,6 +427,15 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${accessToken}`,
+                            ...(appKey ? { 'X-App-Key': appKey } : {}),
+                            ...buildSignedHeaders('POST', '/api/swap/execute-instant', JSON.stringify({
+                                tokenIn: args.token_in,
+                                tokenOut: args.token_out,
+                                amountIn: args.amount_in,
+                                chainId: args.chain_id,
+                                slippageBps: Math.round((args.slippage || 0.5) * 100),
+                                messageId: transactionMessage.id
+                            })),
                             'X-Transaction-Message-Id': transactionMessage.id // Pass message ID for updates
                         },
                         body: JSON.stringify({
@@ -345,34 +450,51 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     });
 
                     clearTimeout(timeoutId);
-                    const result = await response.json() as { success?: boolean; error?: string; message?: string; data?: { txHash?: string } };
+                    const result = await response.json() as {
+                        success?: boolean;
+                        error?: string;
+                        message?: string;
+                        data?: { txHash?: string; amountOut?: string };
+                    };
 
                     // ⚡ STEP 3: Update transaction message with final result
                     const finalStatus = response.ok && result.success ? 'success' : 'failed';
-                    const messageContent = JSON.parse(transactionMessage.content as string);
-
+                    const messageData = transactionMessage.data || {};
+                    const completionData = {
+                        ...messageData,
+                        status: finalStatus,
+                        txHash: result.data?.txHash,
+                        amountOut: result.data?.amountOut || messageData.amountOut,
+                        error: result.error,
+                        errorMessage: result.error,
+                        completedAt: Date.now(),
+                        duration: messageData.startedAt ? Date.now() - messageData.startedAt : undefined,
+                        message: finalStatus === 'success'
+                            ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
+                            : `❌ Swap failed: ${result.error || 'Unknown error'}`,
+                        isLoading: false
+                    };
+                    isFinalized = true;
+                    if (pendingTimer) {
+                        clearTimeout(pendingTimer);
+                        pendingTimer = null;
+                    }
                     await updateMessage(transactionMessage.id, {
-                        content: JSON.stringify({
-                            ...messageContent,
-                            status: finalStatus,
-                            txHash: result.data?.txHash,
-                            error: result.error,
-                            completedAt: Date.now(),
-                            duration: Date.now() - messageContent.startedAt,
-                            message: finalStatus === 'success'
-                                ? `✅ Swap completed! Transaction: ${result.data?.txHash?.slice(0, 10)}...`
-                                : `❌ Swap failed: ${result.error || 'Unknown error'}`
-                        })
+                        data: completionData,
+                        status: 'complete'
                     });
 
                     // Push final status to frontend
                     chatWS.broadcast(userId, {
-                        type: 'transaction_complete',
-                        messageId: transactionMessage.id,
-                        status: finalStatus,
-                        txHash: result.data?.txHash,
-                        error: result.error,
-                        data: {}
+                        type: 'client_action',
+                        sessionId,
+                        data: {
+                            targetMessageId: transactionMessage.id,
+                            action: {
+                                type: 'show_transaction_status_card',
+                                data: completionData
+                            }
+                        }
                     });
 
                     if (!response.ok || !result.success) {
@@ -410,14 +532,41 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                         console.error('[PrepareSwapTransaction] Request timeout after 150s');
 
                         // Update message to timeout status
-                        const messageContent = JSON.parse(transactionMessage.content as string);
+                        const messageContent = transactionMessage.data || {};
+                        isFinalized = true;
+                        if (pendingTimer) {
+                            clearTimeout(pendingTimer);
+                            pendingTimer = null;
+                        }
                         await updateMessage(transactionMessage.id, {
-                            content: JSON.stringify({
+                            data: {
                                 ...messageContent,
                                 status: 'failed',
                                 error: 'Transaction timeout',
-                                completedAt: Date.now()
-                            })
+                                errorMessage: 'Transaction timeout',
+                                completedAt: Date.now(),
+                                isLoading: false
+                            },
+                            status: 'complete'
+                        });
+
+                        chatWS.broadcast(userId, {
+                            type: 'client_action',
+                            sessionId,
+                            data: {
+                                targetMessageId: transactionMessage.id,
+                                action: {
+                                    type: 'show_transaction_status_card',
+                                    data: {
+                                        ...messageContent,
+                                        status: 'failed',
+                                        error: 'Transaction timeout',
+                                        errorMessage: 'Transaction timeout',
+                                        completedAt: Date.now(),
+                                        isLoading: false
+                                    }
+                                }
+                            }
                         });
 
                         return {
@@ -508,12 +657,39 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
 
                         // If no transaction found in DB, ask user to verify manually
                         await updateMessage(transactionMessage.id, {
-                            content: JSON.stringify({
-                                ...JSON.parse(transactionMessage.content as string),
+                            data: {
+                                ...transactionMessage.data,
                                 status: 'pending_verification',
                                 error: 'Connection lost during transaction',
-                                completedAt: Date.now()
-                            })
+                                errorMessage: 'Connection lost during transaction',
+                                completedAt: Date.now(),
+                                isLoading: false
+                            },
+                            status: 'complete'
+                        });
+                        isFinalized = true;
+                        if (pendingTimer) {
+                            clearTimeout(pendingTimer);
+                            pendingTimer = null;
+                        }
+
+                        chatWS.broadcast(userId, {
+                            type: 'client_action',
+                            sessionId,
+                            data: {
+                                targetMessageId: transactionMessage.id,
+                                action: {
+                                    type: 'show_transaction_status_card',
+                                    data: {
+                                        ...transactionMessage.data,
+                                        status: 'pending_verification',
+                                        error: 'Connection lost during transaction',
+                                        errorMessage: 'Connection lost during transaction',
+                                        completedAt: Date.now(),
+                                        isLoading: false
+                                    }
+                                }
+                            }
                         });
 
                         return {
@@ -528,13 +704,40 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     // Other network error
                     console.error('[PrepareSwapTransaction] Network error:', innerError.message);
 
+                    isFinalized = true;
+                    if (pendingTimer) {
+                        clearTimeout(pendingTimer);
+                        pendingTimer = null;
+                    }
                     await updateMessage(transactionMessage.id, {
-                        content: JSON.stringify({
-                            ...JSON.parse(transactionMessage.content as string),
+                        data: {
+                            ...transactionMessage.data,
                             status: 'failed',
                             error: innerError.message,
-                            completedAt: Date.now()
-                        })
+                            errorMessage: innerError.message,
+                            completedAt: Date.now(),
+                            isLoading: false
+                        },
+                        status: 'complete'
+                    });
+
+                    chatWS.broadcast(userId, {
+                        type: 'client_action',
+                        sessionId,
+                        data: {
+                            targetMessageId: transactionMessage.id,
+                            action: {
+                                type: 'show_transaction_status_card',
+                                data: {
+                                    ...transactionMessage.data,
+                                    status: 'failed',
+                                    error: innerError.message,
+                                    errorMessage: innerError.message,
+                                    completedAt: Date.now(),
+                                    isLoading: false
+                                }
+                            }
+                        }
                     });
 
                     return {
