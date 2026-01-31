@@ -9,7 +9,7 @@ export async function getDailyUsageCount(
         SELECT COUNT(*)::bigint AS count
         FROM billing_usage_ledger
         WHERE user_id = ${userId}
-          AND date_utc = ${dateUtc}
+          AND date_utc = ${dateUtc}::date
           AND model_category = ${modelCategory}
     `;
     return Number(rows[0]?.count || 0);
@@ -20,7 +20,7 @@ export async function getDailyTotalUsageCount(userId: string, dateUtc: string): 
         SELECT COUNT(*)::bigint AS count
         FROM billing_usage_ledger
         WHERE user_id = ${userId}
-          AND date_utc = ${dateUtc}
+          AND date_utc = ${dateUtc}::date
     `;
     return Number(rows[0]?.count || 0);
 }
@@ -30,7 +30,7 @@ export async function getDailyPaidUsdTotal(userId: string, dateUtc: string): Pro
         SELECT COALESCE(SUM(usd_cost), 0) AS total
         FROM billing_usage_ledger
         WHERE user_id = ${userId}
-          AND date_utc = ${dateUtc}
+          AND date_utc = ${dateUtc}::date
           AND is_free = FALSE
     `;
     return Number(rows[0]?.total || 0);
@@ -84,7 +84,7 @@ export async function hasBillingBlock(userId: string, dateUtc: string): Promise<
         SELECT COUNT(*)::bigint AS count
         FROM billing_blocks
         WHERE user_id = ${userId}
-          AND date_utc = ${dateUtc}
+          AND date_utc = ${dateUtc}::date
     `;
     return Number(rows[0]?.count || 0) > 0;
 }
@@ -101,7 +101,7 @@ export async function clearBillingBlock(userId: string, dateUtc: string): Promis
     await prisma.$executeRaw`
         DELETE FROM billing_blocks
         WHERE user_id = ${userId}
-          AND date_utc = ${dateUtc}
+          AND date_utc = ${dateUtc}::date
     `;
 }
 
@@ -109,7 +109,7 @@ export async function getDailyAggregates(dateUtc: string): Promise<Array<{ user_
     const rows = await prisma.$queryRaw<{ user_id: string; total_usd: number | string }[]>`
         SELECT user_id, COALESCE(SUM(usd_cost), 0) AS total_usd
         FROM billing_usage_ledger
-        WHERE date_utc = ${dateUtc}
+        WHERE date_utc = ${dateUtc}::date
           AND is_free = FALSE
         GROUP BY user_id
     `;
@@ -175,7 +175,7 @@ export async function updateDailyBillingStatus(params: {
             last_attempt_at = NOW(),
             updated_at = NOW()
         WHERE user_id = ${params.userId}
-          AND date_utc = ${params.dateUtc}
+          AND date_utc = ${params.dateUtc}::date
     `;
 }
 
