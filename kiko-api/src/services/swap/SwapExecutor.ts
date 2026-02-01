@@ -722,16 +722,18 @@ export class SwapExecutor {
                             // Update database message
                             const currentMessage = await import('../../repositories/chatRepository.js').then(m => m.getMessage(messageId));
                             if (currentMessage) {
-                                const content = JSON.parse(currentMessage.content);
+                                const currentData = typeof currentMessage.data === 'object' && currentMessage.data
+                                    ? currentMessage.data
+                                    : {};
                                 await updateMessage(messageId, {
-                                    content: JSON.stringify({
-                                        ...content,
+                                    data: {
+                                        ...currentData,
                                         status: 'retrying',
-                                        retryCount: (content.retryCount || 0) + 1,
+                                        retryCount: (currentData.retryCount || 0) + 1,
                                         retryReason: 'Increasing slippage tolerance',
                                         currentSlippage: nextSlippage / 100,
                                         message: `⏳ First attempt failed, retrying with ${nextSlippage / 100}% slippage...`
-                                    })
+                                    }
                                 });
 
                                 // Push WebSocket update
@@ -741,7 +743,7 @@ export class SwapExecutor {
                                     data: {
                                         messageId,
                                         status: 'retrying',
-                                        retryCount: (content.retryCount || 0) + 1,
+                                        retryCount: (currentData.retryCount || 0) + 1,
                                         message: `Retrying with ${nextSlippage / 100}% slippage...`
                                     }
                                 });

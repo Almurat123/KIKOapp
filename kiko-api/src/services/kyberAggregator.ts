@@ -61,6 +61,7 @@ export async function getKyberQuote(
         saveGas: 'true',
         gasInclude: 'true',
         clientId: CLIENT_ID,
+        origin: recipient,
     });
 
     const normalizedFeeContext: FeeContext =
@@ -105,26 +106,14 @@ export async function getKyberQuote(
         routesJson?.data?.[0]?.routeSummary ||
         routesJson?.data?.summary ||
         routesJson?.data?.[0];
-
-    const routeDetail =
-        routesJson?.data?.routes?.[0] ||
-        routesJson?.data?.route ||
-        routesJson?.data?.[0]?.routes?.[0] ||
-        routesJson?.data?.[0]?.route;
-
-    // Some responses may nest path under 'route' or 'paths'. If missing, we rely on routeSummary only (per V1 spec).
-    const routePath =
-        routeDetail?.route ||
-        routeDetail?.paths ||
-        routeDetail?.routePath ||
-        routeDetail;
-    const buildRoute = routeDetail?.route || routeDetail?.routes || routePath;
+    const routerAddress =
+        routesJson?.data?.routerAddress ||
+        routesJson?.data?.[0]?.routerAddress;
 
     if (!routeSummary) {
         console.warn('[Kyber] no usable route found (missing summary)', {
             hasSummary: !!routeSummary,
-            hasRouteDetail: !!routeDetail,
-            routeDetailKeys: routeDetail ? Object.keys(routeDetail) : [],
+            hasRouterAddress: !!routerAddress,
         });
         return null;
     }
@@ -139,47 +128,23 @@ export async function getKyberQuote(
     // Missing fields or wrong types cause "unable to bind request body" error
     const buildBody: any = {
         routeSummary: routeSummary, // REQUIRED: Must be exact object from GET /routes
-        sender: recipient,           // REQUIRED: Must be string (wallet address)
-        recipient: recipient,        // REQUIRED: Must be string (wallet address)
-        slippageTolerance: slippageToleranceBps, // REQUIRED: Must be number (not string)
+        sender: recipient,          // REQUIRED
+        recipient: recipient,       // REQUIRED
+        origin: recipient,          // Optional but recommended to avoid rate limits
+        slippageTolerance: slippageToleranceBps, // bps number
+        deadline: Math.floor(Date.now() / 1000) + 600, // Unix timestamp
     };
-    if (buildRoute) {
-        buildBody.route = buildRoute;
-    }
-
-    // Add optional fields - Kyber API may require these even though docs say optional
-    buildBody.deadline = Math.floor(Date.now() / 1000) + 600; // Unix timestamp
-    buildBody.clientId = CLIENT_ID; // Match x-client-id header
-    buildBody.source = CLIENT_ID; // Should match client ID
-    if (fee.bps > 0 && isValidEvmAddress(fee.evmRecipient)) {
-        buildBody.feeReceiver = fee.evmRecipient;
-        buildBody.feeAmount = fee.bps;
-        buildBody.isInBps = true;
-        buildBody.chargeFeeBy = isSell ? 'currency_out' : 'currency_in';
-    }
-
-    // CRITICAL: Disable gas estimation per official Kyber documentation
-    // Gas estimation calls eth_gasEstimate which simulates the full transaction
-    // This fails if the user hasn't approved Kyber's router yet
-    // Since we handle approvals separately in SwapExecutor, we disable this
-    // to avoid false negatives.
-    buildBody.enableGasEstimation = false;
 
     // Debug: Log the exact structure being sent to help diagnose binding issues
     console.log('[Kyber] Building route/build request body:', {
         hasRouteSummary: !!buildBody.routeSummary,
         routeSummaryKeys: buildBody.routeSummary ? Object.keys(buildBody.routeSummary).slice(0, 8) : [],
-        hasRoute: !!buildBody.route,
         sender: buildBody.sender?.slice(0, 10),
         recipient: buildBody.recipient?.slice(0, 10),
         slippageTolerance: buildBody.slippageTolerance,
         slippageToleranceType: typeof buildBody.slippageTolerance,
         deadline: buildBody.deadline,
         deadlineType: typeof buildBody.deadline,
-        clientId: buildBody.clientId,
-        source: buildBody.source,
-        enableGasEstimation: buildBody.enableGasEstimation,
-        enableGasEstimationType: typeof buildBody.enableGasEstimation,
         allBodyKeys: Object.keys(buildBody),
     });
 
@@ -214,9 +179,6 @@ export async function getKyberQuote(
                 recipient,
                 slippageTolerance: slippageToleranceBps
             };
-            if (buildRoute) {
-                minimalBody.route = buildRoute;
-            }
             try {
                 buildJson = await fetchJson<any>({
                     url: buildUrl,
@@ -256,6 +218,7 @@ export async function getKyberQuote(
     const routerAddr =
         buildData?.routerAddress ||
         buildData?.to ||
+        routerAddress ||
         routeSummary?.routerAddress;
 
     const txValue = buildData?.transactionValue || buildData?.value || '0';
@@ -289,8 +252,6 @@ export async function getKyberQuote(
 
     const amountOut =
         routeSummary?.amountOut ||
-        routeDetail?.amountOut ||
-        routeDetail?.outputAmount ||
         '0';
 
     // Quote ready (logged at debug level)

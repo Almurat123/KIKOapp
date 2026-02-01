@@ -15,6 +15,7 @@ import * as alchemy from '../services/alchemy.js';
 import * as privyWallet from '../services/privyWallet.js';
 import { scrub } from '../utils/scrubber.js';
 import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
+import { buildSignedHeaders } from '../utils/requestSigningClient.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
 
 // Constants
@@ -1416,22 +1417,157 @@ export class ChatWorker {
                         });
                     }
 
-                    const swapResult = await MainSwapService.executeSwap({
-                        userId: task.toolContext?.userId || '',
-                        walletAddress: task.toolContext?.walletAddress || '',
-                        tokenIn,
-                        tokenOut,
-                        amountIn,
-                        chainId,
-                        slippageBps: 300, // 3% for chat fast swaps
-                        mode: 'fast-swap', // Indicates AI-driven instant swap with bypass logic
-                        messageId: transactionMessage.id, // Pass messageId for retry updates
-                        userSettings: {
-                            swapMethod: 'allowance_trade', // CRITICAL: Fast swap = allowance trade mode
-                            fastSwapMode: true,
-                            mevProtection: false
+                    let fastSwapFinalized = false;
+
+                    // ⚡ Pre-warm quote for better UX (estimated receive)
+                    (async () => {
+                        try {
+                            const API_BASE = process.env.API_BASE_URL ||
+                                (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
+                            const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
+                            const body = JSON.stringify({
+                                tokenIn,
+                                tokenOut,
+                                amountIn,
+                                chainId,
+                                slippageBps: 50,
+                                userAddress: task.toolContext?.walletAddress
+                            });
+
+                            const response = await fetch(`${API_BASE}/api/swap/quote`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    ...(appKey ? { 'X-App-Key': appKey } : {}),
+                                    ...buildSignedHeaders('POST', '/api/swap/quote', body)
+                                },
+                                body
+                            });
+
+                            if (!response.ok) return;
+                            const quote = await response.json() as any;
+                            const estimatedOut = quote?.data?.amountOut;
+                            if (!estimatedOut || fastSwapFinalized) return;
+
+                            let messageData: any = {};
+                            if (transactionMessage.data) {
+                                if (typeof transactionMessage.data === 'string') {
+                                    try {
+                                        messageData = JSON.parse(transactionMessage.data);
+                                    } catch {
+                                        messageData = {};
+                                    }
+                                } else {
+                                    messageData = transactionMessage.data;
+                                }
+                            }
+
+                            const updatedData = {
+                                ...messageData,
+                                amountOut: estimatedOut,
+                                isLoading: false
+                            };
+
+                            await updateMessage(transactionMessage.id, {
+                                data: updatedData
+                            });
+
+                            if (taskUserId) {
+                                chatWS.broadcast(taskUserId, {
+                                    type: 'client_action',
+                                    sessionId: task.sessionId,
+                                    data: {
+                                        targetMessageId: transactionMessage.id,
+                                        action: {
+                                            type: 'show_transaction_status_card',
+                                            data: updatedData
+                                        }
+                                    }
+                                });
+                            }
+                        } catch (err) {
+                            console.warn('[ChatWorker] Fast swap pre-quote failed:', (err as Error).message);
                         }
-                    });
+                    })().catch(() => {});
+
+                    let swapResult: any;
+                    try {
+                        swapResult = await MainSwapService.executeSwap({
+                            userId: task.toolContext?.userId || '',
+                            walletAddress: task.toolContext?.walletAddress || '',
+                            tokenIn,
+                            tokenOut,
+                            amountIn,
+                            chainId,
+                            slippageBps: 300, // 3% for chat fast swaps
+                            mode: 'fast-swap', // Indicates AI-driven instant swap with bypass logic
+                            messageId: transactionMessage.id, // Pass messageId for retry updates
+                            userSettings: {
+                                swapMethod: 'allowance_trade', // CRITICAL: Fast swap = allowance trade mode
+                                fastSwapMode: true,
+                                mevProtection: false
+                            }
+                        });
+                    } catch (err: any) {
+                        const errMessage = err?.message || 'Swap failed';
+                        fastSwapFinalized = true;
+
+                        let messageData: any = {};
+                        if (transactionMessage.data) {
+                            if (typeof transactionMessage.data === 'string') {
+                                try {
+                                    messageData = JSON.parse(transactionMessage.data);
+                                } catch {
+                                    messageData = {};
+                                }
+                            } else {
+                                messageData = transactionMessage.data;
+                            }
+                        }
+
+                        const failureData = {
+                            ...messageData,
+                            status: 'failed',
+                            error: errMessage,
+                            errorMessage: errMessage,
+                            completedAt: Date.now(),
+                            duration: Date.now() - (messageData.startedAt || Date.now()),
+                            message: `❌ Swap failed: ${errMessage}`,
+                            isLoading: false
+                        };
+
+                        await updateMessage(transactionMessage.id, {
+                            data: failureData,
+                            status: 'complete'
+                        });
+
+                        if (taskUserId) {
+                            chatWS.broadcast(taskUserId, {
+                                type: 'client_action',
+                                sessionId: task.sessionId,
+                                data: {
+                                    targetMessageId: transactionMessage.id,
+                                    action: {
+                                        type: 'show_transaction_status_card',
+                                        data: failureData
+                                    }
+                                }
+                            });
+                        }
+
+                        if (taskUserId) {
+                            this.ws.broadcastToUser(taskUserId, {
+                                type: 'message_complete',
+                                sessionId: task.sessionId,
+                                data: {
+                                    message_id: assistantMessageId,
+                                },
+                            });
+                        }
+
+                        await this.repo.updateTaskStatus(task.id, 'done');
+                        return;
+                    }
 
                     // ⚡ Update transaction message with final result
                     const finalStatus = swapResult.success ? 'success' : 'failed';
@@ -1448,9 +1584,10 @@ export class ChatWorker {
                             messageData = transactionMessage.data;
                         }
                     }
-                    const formattedAmountOut = swapResult.amountOut
-                        ? parseFloat(swapResult.amountOut).toLocaleString('en-US', { maximumFractionDigits: 6 })
-                        : undefined;
+                    const rawAmountOut = swapResult.amountOut ?? messageData.amountOut;
+                    const formattedAmountOut = rawAmountOut
+                        ? parseFloat(String(rawAmountOut)).toLocaleString('en-US', { maximumFractionDigits: 6 })
+                        : messageData.amountOut;
 
                     await updateMessage(transactionMessage.id, {
                         data: {
@@ -1469,6 +1606,7 @@ export class ChatWorker {
                         },
                         status: 'complete'
                     });
+                    fastSwapFinalized = true;
 
                     // Broadcast final status via WebSocket
                     if (taskUserId) {
@@ -1498,141 +1636,15 @@ export class ChatWorker {
                         });
                     }
 
-                    // Broadcast result to frontend (legacy)
-                    if (swapResult.success) {
-                        const txHash = swapResult.txHash;
-                        if (!txHash) {
-                            logger.warn(LogCode.SYS_INFO, 'ChatWorker: swap succeeded without txHash', { taskId: task.id, chainId });
-                        }
-
-                        // Resolve symbols and format amount for display
-                        const tokenInSymbol = await this.resolveTokenSymbol(tokenIn, chainId);
-                        const tokenOutSymbol = await this.resolveTokenSymbol(tokenOut, chainId);
-                        const formattedAmount = parseFloat(amountIn).toLocaleString('en-US', { maximumFractionDigits: 6 });
-                        const formattedAmountOut = swapResult.amountOut
-                            ? parseFloat(swapResult.amountOut).toLocaleString('en-US', { maximumFractionDigits: 6 })
-                            : '0.00';
-
-                        // CRITICAL FIX: Create a SEPARATE message for transaction status card
-                        // Never reuse assistantMessageId as it may be a launchpad card
-                        // Generate unique ID for transaction card
-                        const txCardMessageId = `tx-${task.id}-${Date.now()}`;
-
-                        const txCardMsg = await this.repo.createMessage(
-                            task.sessionId,
-                            'assistant',
-                            '',
-                            {
-                                type: 'transaction-status-card',
-                                data: {
-                                    status: 'success',
-                                    txHash: txHash || '',
-                                    tokenInSymbol,
-                                    tokenOutSymbol,
-                                    amountIn: formattedAmount,
-                                    amountOut: formattedAmountOut,
-                                    chainId: chainId,
-                                },
-                                status: 'complete'
-                            }
-                        );
-
-                        console.log(`[ChatWorker] ✅ Created transaction card message: ${txCardMsg.id}`);
-
-                        // Send client_action to show transaction status card
-                        this.ws.broadcastToUser(userId!, {
-                            type: 'client_action',
-                            sessionId: task.sessionId,
-                            data: {
-                                message_id: txCardMsg.id,
-                                targetMessageId: txCardMsg.id, // CRITICAL: Use NEW message ID, not assistantMessageId
-                                action: {
-                                    type: 'show_transaction_status_card',
-                                    data: {
-                                        status: 'success',
-                                        txHash: txHash || '',
-                                        tokenInSymbol,
-                                        tokenOutSymbol,
-                                        amountIn: formattedAmount,
-                                        amountOut: formattedAmountOut,
-                                        chainId: chainId,
-                                    }
-                                }
-                            },
-                        });
-
-                        // Send message_complete to stop the streaming indicator
-                        this.ws.broadcastToUser(userId!, {
+                    // Stop streaming indicator for the assistant message
+                    if (taskUserId) {
+                        this.ws.broadcastToUser(taskUserId, {
                             type: 'message_complete',
                             sessionId: task.sessionId,
                             data: {
                                 message_id: assistantMessageId,
                             },
                         });
-                    } else {
-                        // Resolve symbols and format amount for display even on failure
-                        const tokenInSymbol = await this.resolveTokenSymbol(tokenIn, chainId);
-                        const tokenOutSymbol = await this.resolveTokenSymbol(tokenOut, chainId);
-                        const formattedAmount = parseFloat(amountIn).toLocaleString('en-US', { maximumFractionDigits: 6 });
-
-                        console.log('[ChatWorker] Fast swap failed, showing failure card');
-
-                        // CRITICAL FIX: Create SEPARATE message for failed transaction card
-                        const txCardMessageId = `tx-fail-${task.id}-${Date.now()}`;
-
-                        const txCardMsg = await this.repo.createMessage(
-                            task.sessionId,
-                            'assistant',
-                            '',
-                            {
-                                type: 'transaction-status-card',
-                                data: {
-                                    status: 'failed',
-                                    error: swapResult.error || 'Swap failed',
-                                    tokenInSymbol,
-                                    tokenOutSymbol,
-                                    amountIn: formattedAmount,
-                                    chainId: chainId,
-                                },
-                                status: 'complete'
-                            }
-                        );
-
-                        console.log(`[ChatWorker] ✅ Created failed transaction card message: ${txCardMsg.id}`);
-
-                        // Send client_action to show transaction status card with failure
-                        this.ws.broadcastToUser(userId!, {
-                            type: 'client_action',
-                            sessionId: task.sessionId,
-                            data: {
-                                message_id: txCardMsg.id,
-                                targetMessageId: txCardMsg.id,
-                                action: {
-                                    type: 'show_transaction_status_card',
-                                    data: {
-                                        status: 'failed',
-                                        error: swapResult.error || 'Swap failed',
-                                        tokenInSymbol,
-                                        tokenOutSymbol,
-                                        amountIn: formattedAmount,
-                                        chainId: chainId,
-                                    }
-                                }
-                            },
-                        });
-
-                        // Send message_complete to stop the streaming indicator
-                        this.ws.broadcastToUser(userId!, {
-                            type: 'message_complete',
-                            sessionId: task.sessionId,
-                            data: {
-                                message_id: txCardMsg.id,
-                            },
-                        });
-
-                        // Mark task as done since we've shown the failure card
-                        await this.repo.updateTaskStatus(task.id, 'done');
-                        return;
                     }
 
                     // If swap was successful, complete the task and return

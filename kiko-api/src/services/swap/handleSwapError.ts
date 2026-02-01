@@ -9,16 +9,47 @@ import { LogCode } from '../../config/logRegistry.js';
 export function handleSwapError(error: any): string {
     const msg = error.message || 'Unknown error';
     const msgLower = msg.toLowerCase();
-    const errorData = error.response?.data || error.data || {};
+    let errorData: any = error.response?.data || error.data || {};
+
+    // Extract JSON payload from fetchJson errors (format: "HTTP 400: {...}")
+    if (!errorData || Object.keys(errorData).length === 0) {
+        const httpJsonMatch = msg.match(/HTTP\s+\d+:\s*(\{.*\})/);
+        if (httpJsonMatch) {
+            try {
+                errorData = JSON.parse(httpJsonMatch[1]);
+            } catch {
+                errorData = {};
+            }
+        }
+    }
 
     // Log the raw technical error for debugging purposes
     logger.error(LogCode.EXE_TX_REVERTED, 'Raw Swap Error Captured', { msg, errorData });
+
+    const kyberCode = errorData?.code;
+    const kyberMessage = String(errorData?.message || '').toLowerCase();
+    if (kyberCode === 4002 || kyberMessage.includes('unable to bind request body')) {
+        return 'Swap failed: Kyber request payload invalid. Retrying may help, but this is likely a routing/build error.';
+    }
+    if (kyberCode === 4008 || kyberMessage.includes('route not found')) {
+        return 'Swap failed: No Kyber route found for this pair. Try a smaller amount or different pair.';
+    }
+    if (kyberCode === 4009) {
+        return 'Swap failed: Amount exceeds Kyber maximum for this route. Try a smaller amount.';
+    }
+    if (kyberCode === 4010) {
+        return 'Swap failed: No eligible pool found for this route. Try a different pair or smaller amount.';
+    }
+    if (kyberCode === 4011) {
+        return 'Swap failed: tokenIn or tokenOut not supported by Kyber.';
+    }
 
     // 1. Slippage & Price Movement Errors
     if (
         msgLower.includes('slippage') ||
         msgLower.includes('price_or_slippage_too_low') ||
         msgLower.includes('insufficient_output_amount') ||
+        msgLower.includes('uniswapv2: k') ||
         msgLower.includes('too little received') ||
         msgLower.includes('minamountout') ||
         msgLower.includes('min output') ||
@@ -33,6 +64,7 @@ export function handleSwapError(error: any): string {
         msgLower.includes('insufficient_asset_liquidity') ||
         msgLower.includes('insufficient_liquidity') ||
         msgLower.includes('no route found') ||
+        msgLower.includes('no route matched') ||
         msgLower.includes('route_not_found') ||
         msgLower.includes('pool_not_found') ||
         msgLower.includes('pair_not_found') ||
@@ -64,6 +96,18 @@ export function handleSwapError(error: any): string {
         msgLower.includes('transferhelper')
     ) {
         return 'Swap failed: Token approval or allowance is insufficient. Please approve the token and retry.';
+    }
+
+    // 4.5 Amount too small / invalid
+    if (
+        msgLower.includes('amount too low') ||
+        msgLower.includes('amount is too low') ||
+        msgLower.includes('invalid amount') ||
+        msgLower.includes('sellamount too low') ||
+        msgLower.includes('min buy amount') ||
+        msgLower.includes('min buy amount not met')
+    ) {
+        return 'Swap failed: Amount too small for this pair or below minimum. Try a larger amount.';
     }
 
     // 5. User-Initiated Cancellation

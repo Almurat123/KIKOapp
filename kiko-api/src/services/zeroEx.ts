@@ -663,6 +663,7 @@ export async function getZeroExQuote(
           value: rawData.value || '0',
           gas: rawData.gas,
           gasPrice: rawData.gasPrice,
+          allowanceTarget: rawData.allowanceTarget || rawData.issues?.allowance?.spender,
         };
         return data;
 
@@ -729,6 +730,8 @@ export async function getZeroExQuote(
       quoteValue = sellAmount; // Force value to match sellAmount for native token
     }
 
+    const allowanceTarget = rawData.allowanceTarget || rawData.issues?.allowance?.spender;
+
     const data: ZeroExQuote = {
       ...rawData,
       to: rawData.transaction?.to || rawData.to,
@@ -736,6 +739,7 @@ export async function getZeroExQuote(
       value: quoteValue,
       gas: rawData.transaction?.gas || rawData.gas,
       gasPrice: rawData.transaction?.gasPrice || rawData.gasPrice,
+      allowanceTarget,
       transaction: rawData.transaction || {
         to: rawData.to,
         data: rawData.data,

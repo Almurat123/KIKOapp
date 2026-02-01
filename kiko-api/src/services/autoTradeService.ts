@@ -28,6 +28,7 @@ import { PrivyClient } from '@privy-io/server-auth';
 import { recordNewTrade } from './leaderWalletStatsService.js';
 import { trackCopyTrade, trackSwap } from './userActivityService.js';
 import { getTokenDetails } from './geckoTerminal.js';
+import { getNativeTokenPriceUsd } from './onChainPriceService.js';
 import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
@@ -401,15 +402,15 @@ async function processBuyWithInfo(
                 targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraInfo.price;
             }
         } else {
-            // ETH / WETH - fetch dynamically
-            const nativeInfo = await getTokenInfo(chainConfig.wrappedNativeAddress, chainId);
-            if (!nativeInfo || nativeInfo.price <= 0) {
+            // ETH / WETH - use preheated native price cache (fast & reliable)
+            const nativePrice = await getNativeTokenPriceUsd(chainId);
+            if (!nativePrice || nativePrice <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch native token price, cannot calculate trade value', {
-                    token: chainConfig.wrappedNativeAddress
+                    chainId
                 });
                 targetSwapValueUsd = 0; // Cannot proceed without price
             } else {
-                targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativeInfo.price;
+                targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * nativePrice;
             }
         }
         logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token input', { valueUsd: targetSwapValueUsd, token: swap.tokenIn });
@@ -2071,7 +2072,13 @@ export async function checkPositionsForExits(): Promise<void> {
                 const tokenInfo = tokenPriceMap.get(tokenKey); // Now this is the COMPLETE object
 
                 if (!tokenInfo) {
-                    // Price not available in batch, skip
+                    // Price not available in batch - LOG THIS! Critical for debugging TP failures
+                    logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
+                        positionId: position.id,
+                        token: position.tokenSymbol || position.tokenAddress,
+                        chainId: position.chainId,
+                        configId: position.configId
+                    });
                     return;
                 }
 
@@ -2083,6 +2090,19 @@ export async function checkPositionsForExits(): Promise<void> {
                 if (!config) {
                     logger.warn(LogCode.WTC_TX_SKIPPED, 'Orphaned position: Config not found', { positionId: position.id, configId: position.configId });
                     return;
+                }
+
+                // Log position status periodically (every ~5 min based on position createdAt)
+                const positionAgeMinutes = Math.floor((Date.now() - new Date(position.createdAt).getTime()) / 60000);
+                if (positionAgeMinutes % 5 === 0 && positionAgeMinutes > 0) {
+                    logger.info(LogCode.EXE_TX_BROADCAST, '📊 Position P/L check', {
+                        token: position.tokenSymbol || 'Unknown',
+                        entryPrice: position.entryPrice,
+                        currentPrice: currentPrice,
+                        profitLossPct: profitLossPct.toFixed(2) + '%',
+                        takeProfitPct: config.takeProfitPct ? config.takeProfitPct + '%' : 'not set',
+                        stopLossPct: config.stopLossPct ? config.stopLossPct + '%' : 'not set'
+                    });
                 }
 
                 // Check take profit

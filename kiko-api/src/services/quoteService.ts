@@ -147,7 +147,7 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
                     data: q.data || '',
                     to: q.to || '',
                     value: q.value || '0',
-                    allowanceTarget: q.allowanceTarget || '',
+                    allowanceTarget: q.allowanceTarget || q.issues?.allowance?.spender || '',
                     deadline: Math.floor(Date.now() / 1000) + 600,
                     tokenInDecimals,
                     tokenOutDecimals,
