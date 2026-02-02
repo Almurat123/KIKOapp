@@ -269,14 +269,15 @@ async function executeV4Swap(
 ): Promise<DirectSwapResult> {
     const { userId, accessToken, tokenIn, tokenOut, amountIn, chainId, slippageBps } = params;
 
-    // [Logic]: ETH 地址转换为 WETH，因为 V4 池子只认识 WETH
+    // [Logic]: 此时 tokenIn/tokenOut 已经是规范化后的 ETH 地址（0xeeee...）
+    // 需要判断是否是 ETH 并转换为 WETH 用于池子查询
     const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase()
-        ? WETH_ADDRESSES[chainId]
-        : tokenIn;
-    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase()
-        ? WETH_ADDRESSES[chainId]
-        : tokenOut;
+    const isNativeIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase();
+    const isNativeOut = tokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase();
+
+    // V4 池子使用 WETH 地址
+    const normalizedIn = isNativeIn ? WETH_ADDRESSES[chainId] : tokenIn;
+    const normalizedOut = isNativeOut ? WETH_ADDRESSES[chainId] : tokenOut;
 
     // 获取 V4 池子详细信息
     const v4Pools = await findV4Pools(normalizedIn!, normalizedOut!, chainId);
@@ -287,8 +288,8 @@ async function executeV4Swap(
     const v4Pool = v4Pools[0];
     const poolKey = v4Pool.poolKey;
 
-    // 确定方向
-    const zeroForOne = poolKey.currency0.toLowerCase() === tokenIn.toLowerCase();
+    // 确定方向 - 使用规范化后的 WETH 地址比较
+    const zeroForOne = poolKey.currency0.toLowerCase() === normalizedIn!.toLowerCase();
 
     // 计算金额 (wei)
     const amountInWei = ethers.parseEther(amountIn);
@@ -307,10 +308,11 @@ async function executeV4Swap(
     );
 
     // 发送交易
+    // [Logic]: 如果输入是 ETH，需要发送 ETH value；否则 value=0
     const txHash = await sendTransaction(userId, accessToken, {
         to: tx.to,
         data: tx.data,
-        value: zeroForOne ? amountInWei.toString() : '0',
+        value: isNativeIn ? amountInWei.toString() : '0',
         chainId
     });
 
@@ -392,8 +394,8 @@ async function executeV3Swap(
     const data = routerInterface.encodeFunctionData('exactInputSingle', [swapParams]);
 
     // 发送交易
-    const isNativeIn = tokenIn.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
-        tokenIn.toLowerCase() === WETH_ADDRESSES[chainId]?.toLowerCase();
+    // [Logic]: 只有原始输入是 ETH（0xeeee...）时才发送 value，WETH 不需要发送 value
+    const isNativeIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase();
 
     const txHash = await sendTransaction(userId, accessToken, {
         to: routerAddress,
