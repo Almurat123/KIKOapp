@@ -1069,7 +1069,8 @@ async function processSingleUserBuy(
                         chainId,
                         slippageBps: baseSlippage,
                         mode: 'copytrade',
-                        feeBpsOverride: copyTradeFeeBpsOverride
+                        feeBpsOverride: copyTradeFeeBpsOverride,
+                        userSettings: { fastSwapMode: userSettings?.fastSwapMode }
                     });
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
@@ -1123,7 +1124,8 @@ async function processSingleUserBuy(
                             chainId,
                             slippageBps: slippage2,
                             mode: 'copytrade',
-                            feeBpsOverride: copyTradeFeeBpsOverride
+                            feeBpsOverride: copyTradeFeeBpsOverride,
+                            userSettings: { fastSwapMode: userSettings?.fastSwapMode }
                         });
                         if (!result2.success) throw new Error(result2.error);
                         txHash = result2.txHash!;
@@ -1146,7 +1148,8 @@ async function processSingleUserBuy(
                                 chainId,
                                 slippageBps: slippage3,
                                 mode: 'copytrade',
-                                feeBpsOverride: copyTradeFeeBpsOverride
+                                feeBpsOverride: copyTradeFeeBpsOverride,
+                                userSettings: { fastSwapMode: userSettings?.fastSwapMode }
                             });
                             if (!result3.success) throw new Error(result3.error);
                             txHash = result3.txHash!;
