@@ -251,8 +251,17 @@ async function executeV4Swap(
 ): Promise<DirectSwapResult> {
     const { userId, accessToken, tokenIn, tokenOut, amountIn, chainId, slippageBps } = params;
 
+    // [Logic]: ETH 地址转换为 WETH，因为 V4 池子只认识 WETH
+    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase()
+        ? WETH_ADDRESSES[chainId]
+        : tokenIn;
+    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase()
+        ? WETH_ADDRESSES[chainId]
+        : tokenOut;
+
     // 获取 V4 池子详细信息
-    const v4Pools = await findV4Pools(tokenIn, tokenOut, chainId);
+    const v4Pools = await findV4Pools(normalizedIn!, normalizedOut!, chainId);
     if (v4Pools.length === 0) {
         return { success: false, error: 'V4 pool not found', provider: 'failed' };
     }
@@ -337,6 +346,15 @@ async function executeV3Swap(
     const amountInWei = ethers.parseEther(amountIn);
     const minAmountOut = BigInt(0); // TODO: 根据价格和滑点计算
 
+    // [Logic]: ETH 地址转换为 WETH，因为 V3 Router 需要 WETH 地址
+    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase()
+        ? WETH_ADDRESSES[chainId]
+        : tokenIn;
+    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase()
+        ? WETH_ADDRESSES[chainId]
+        : tokenOut;
+
     // 构建 exactInputSingle 调用
     const deadline = Math.floor(Date.now() / 1000) + 300;
     const routerInterface = new ethers.Interface([
@@ -344,8 +362,8 @@ async function executeV3Swap(
     ]);
 
     const swapParams = {
-        tokenIn,
-        tokenOut,
+        tokenIn: normalizedIn,
+        tokenOut: normalizedOut,
         fee: pool.fee || 3000,
         recipient: walletAddress,
         amountIn: amountInWei,
