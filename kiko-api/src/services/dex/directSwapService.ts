@@ -179,16 +179,27 @@ export async function executeDirectSwap(params: {
 }): Promise<DirectSwapResult> {
     const { userId, accessToken, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps } = params;
 
+    // [Logic]: 规范化 token 地址 - 处理 "ETH" / "WETH" 字符串
+    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    function normalizeToken(token: string, chainId: number): string {
+        const upper = token.toUpperCase();
+        if (upper === 'ETH') return ETH_ADDRESS;
+        if (upper === 'WETH') return WETH_ADDRESSES[chainId] || token;
+        return token;
+    }
+    const normalizedTokenIn = normalizeToken(tokenIn, chainId);
+    const normalizedTokenOut = normalizeToken(tokenOut, chainId);
+
     logger.info(LogCode.EXE_TX_BROADCAST, '[DirectSwap] Starting direct swap', {
-        tokenIn: tokenIn.slice(0, 12),
-        tokenOut: tokenOut.slice(0, 12),
+        tokenIn: normalizedTokenIn.slice(0, 12),
+        tokenOut: normalizedTokenOut.slice(0, 12),
         amount: amountIn,
         chainId
     });
 
     try {
         // 1. 查找最佳池子
-        const bestPool = await findBestPool(tokenIn, tokenOut, chainId);
+        const bestPool = await findBestPool(normalizedTokenIn, normalizedTokenOut, chainId);
 
         if (!bestPool) {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] No pool found for token pair', {
@@ -210,12 +221,19 @@ export async function executeDirectSwap(params: {
         });
 
         // 2. 根据池子版本执行交易
+        // [Logic]: 使用规范化后的地址
+        const normalizedParams = {
+            ...params,
+            tokenIn: normalizedTokenIn,
+            tokenOut: normalizedTokenOut
+        };
+
         if (bestPool.version === 'v4' && isV4SwapSupported(chainId)) {
             // V4 交易
-            return await executeV4Swap(params, bestPool);
+            return await executeV4Swap(normalizedParams, bestPool);
         } else {
             // V3 交易 (通过 SwapRouter)
-            return await executeV3Swap(params, bestPool);
+            return await executeV3Swap(normalizedParams, bestPool);
         }
 
     } catch (error: any) {
