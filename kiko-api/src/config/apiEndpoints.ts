@@ -28,66 +28,79 @@ export interface RpcEndpointConfig {
  * @param chainSlug - Chain identifier (e.g., 'eth', 'base', 'bsc')
  * @param primaryUrl - Primary RPC URL from environment
  * @returns Ordered list of RPC endpoints with priority
+ * 
+ * 优先级策略 (成本优化):
+ *   1-2: 免费公共节点 (DRPC, PublicNode) - 首选
+ *   3-4: 付费节点 (Alchemy, Ankr) - 备用 (高可靠性)
  */
 export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndpointConfig[] {
   const endpoints: RpcEndpointConfig[] = [];
 
-  // 1. Primary Provider (Alchemy/Infura from ENV) - Highest Priority
+  // ============================================
+  // 1. 免费公共节点优先 (减少付费 API 调用)
+  // ============================================
+
+  // 1. DRPC Community - 首选免费节点
+  endpoints.push({
+    name: 'DRPC',
+    url: `https://${chainSlug}.drpc.org`,
+    priority: 1,
+    requiresAuth: false,
+    type: 'public'
+  });
+
+  // 2. PublicNode - 备用免费节点
+  endpoints.push({
+    name: 'PublicNode',
+    url: `https://${chainSlug}-rpc.publicnode.com`,
+    priority: 2,
+    requiresAuth: false,
+    type: 'public'
+  });
+
+  // ============================================
+  // 2. 付费节点作为备用 (高可靠性保证)
+  // ============================================
+
+  // 3. Primary Provider (Alchemy/Infura from ENV) - 备用
   if (primaryUrl) {
     endpoints.push({
       name: 'Primary',
       url: primaryUrl,
-      priority: 1,
-      requiresAuth: true,
-      type: 'premium'
-    });
-  }
-
-  // 2. Alchemy (if API key available and no primary)
-  if (env.apiKeys.alchemy && !primaryUrl) {
-    const alchemyUrl = getAlchemyUrl(chainSlug);
-    if (alchemyUrl) {
-      endpoints.push({
-        name: 'Alchemy',
-        url: alchemyUrl,
-        priority: 2,
-        requiresAuth: true,
-        type: 'premium'
-      });
-    }
-  }
-
-  // 3. Ankr (High performance backup)
-  if (env.apiKeys.ankr) {
-    endpoints.push({
-      name: 'Ankr',
-      url: `https://rpc.ankr.com/${chainSlug}/${env.apiKeys.ankr}`,
       priority: 3,
       requiresAuth: true,
       type: 'premium'
     });
   }
 
-  // 4. DRPC Community (Public fallback)
-  endpoints.push({
-    name: 'DRPC',
-    url: `https://${chainSlug}.drpc.org`,
-    priority: 4,
-    requiresAuth: false,
-    type: 'public'
-  });
+  // 4. Alchemy (if API key available and no primary)
+  if (env.apiKeys.alchemy && !primaryUrl) {
+    const alchemyUrl = getAlchemyUrl(chainSlug);
+    if (alchemyUrl) {
+      endpoints.push({
+        name: 'Alchemy',
+        url: alchemyUrl,
+        priority: 4,
+        requiresAuth: true,
+        type: 'premium'
+      });
+    }
+  }
 
-  // 5. PublicNode (Final fallback)
-  endpoints.push({
-    name: 'PublicNode',
-    url: `https://${chainSlug}-rpc.publicnode.com`,
-    priority: 5,
-    requiresAuth: false,
-    type: 'fallback'
-  });
+  // 5. Ankr (Final premium backup)
+  if (env.apiKeys.ankr) {
+    endpoints.push({
+      name: 'Ankr',
+      url: `https://rpc.ankr.com/${chainSlug}/${env.apiKeys.ankr}`,
+      priority: 5,
+      requiresAuth: true,
+      type: 'premium'
+    });
+  }
 
   return endpoints.sort((a, b) => a.priority - b.priority);
 }
+
 
 /**
  * Get Alchemy URL for a specific chain
@@ -115,7 +128,7 @@ export const DEXSCREENER_CONFIG = {
   tokenProfilesUrl: 'https://api.dexscreener.com/token-profiles/latest/v1',
   tokenBoostsUrl: 'https://api.dexscreener.com/token-boosts/top/v1',
   websocketUrl: 'wss://io.dexscreener.com/dex/screener/v5/pairs',
-  
+
   // Rate limiting
   rateLimit: {
     requestsPerMinute: 300, // Free tier limit
@@ -160,7 +173,7 @@ export const DEXSCREENER_CONFIG = {
 
 export const GECKOTERMINAL_CONFIG = {
   baseUrl: 'https://api.geckoterminal.com/api/v2',
-  
+
   // Rate limiting
   rateLimit: {
     requestsPerMinute: 30, // Conservative limit for free tier
@@ -208,9 +221,9 @@ export const GECKOTERMINAL_CONFIG = {
 export const KYBERSWAP_CONFIG = {
   baseUrl: 'https://aggregator-api.kyberswap.com',
   clientId: 'kiko-app',
-  
+
   timeout: 10000, // 10 seconds
-  
+
   // Chain naming for KyberSwap
   chainMap: {
     1: 'ethereum',
@@ -258,13 +271,13 @@ export const INFURA_GAS_CONFIG = {
 export const ETHERSCAN_CONFIG = {
   baseUrl: 'https://api.etherscan.io/v2/api',
   apiKey: env.apiKeys.etherscan || '',
-  
+
   timeout: 10000, // 10 seconds
   rateLimit: {
     requestsPerSecond: 5, // Free tier: 5 req/sec
     backoffMs: 200,
   },
-  
+
   // V2 API: Single URL works for all chains via chainId parameter
   // Example: https://api.etherscan.io/v2/api?chainid=1&...
   // Legacy V1 endpoints for chains without V2 support:
@@ -285,9 +298,9 @@ export const ETHERSCAN_CONFIG = {
 export const ROUTESCAN_CONFIG = {
   baseUrl: 'https://api.routescan.io/v2/network',
   apiKey: env.apiKeys.routescan || '',
-  
+
   timeout: 10000, // 10 seconds
-  
+
   chainMap: {
     'ethereum': 'mainnet/evm/1/etherscan',
     'eth': 'mainnet/evm/1/etherscan',
@@ -308,9 +321,9 @@ export const ROUTESCAN_CONFIG = {
 export const BLOCKSCOUT_CONFIG = {
   baseUrl: 'https://blockscout.com/api',
   apiKey: env.apiKeys.blockscout || '',
-  
+
   timeout: 10000, // 10 seconds
-  
+
   chainUrls: {
     'ethereum': 'https://eth.blockscout.com/api',
     'base': 'https://base.blockscout.com/api',
@@ -330,13 +343,13 @@ export const BLOCKSCOUT_CONFIG = {
 export const SOLSCAN_CONFIG = {
   baseUrl: 'https://pro-api.solscan.io/v2.0',
   apiKey: env.apiKeys.solscan || '',
-  
+
   timeout: 15000, // 15 seconds for Solana
   rateLimit: {
     requestsPerSecond: 2,
     backoffMs: 500,
   },
-  
+
   endpoints: {
     transactions: '/transaction/list',
     tokenTransfers: '/token/transfer',
@@ -351,11 +364,11 @@ export const SOLSCAN_CONFIG = {
 export const MORALIS_CONFIG = {
   baseUrl: 'https://deep-index.moralis.io/api/v2.2',
   apiKey: env.apiKeys.moralis || '',
-  
+
   timeout: 30000, // 30 seconds for PNL queries
-  
+
   supportedChains: [1, 137, 8453], // Eth, Polygon, Base
-  
+
   endpoints: {
     profitability: '/wallets/{address}/profitability',
     tokenBalances: '/wallets/{address}/tokens',
@@ -379,7 +392,7 @@ export function getRpcUrlsArray(chainSlug: string, primaryUrl?: string): string[
  */
 export function normalizeChainSlug(chain: string): string {
   const normalized = chain.toLowerCase().trim();
-  
+
   // Handle common aliases
   const aliases: Record<string, string> = {
     'ethereum': 'eth',
@@ -400,10 +413,10 @@ export function normalizeChainSlug(chain: string): string {
  */
 export function requiresAuthentication(url: string): boolean {
   return url.includes('alchemy.com') ||
-         url.includes('infura.io') ||
-         url.includes('ankr.com') ||
-         url.includes('helius') ||
-         url.includes('quicknode');
+    url.includes('infura.io') ||
+    url.includes('ankr.com') ||
+    url.includes('helius') ||
+    url.includes('quicknode');
 }
 
 /**

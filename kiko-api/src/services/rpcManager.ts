@@ -11,6 +11,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { callRpc as unifiedCallRpc, getEndpointHealthStats, fetchJson } from '../config/unifiedApiService.js';
+import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 
 const RPC_TIMEOUT_MS = 10000; // 10s timeout for reliable RPC calls (Alchemy can be slow)
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
@@ -75,6 +76,15 @@ export async function callRpc<T = any>(
     let endpoints: string[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
     let chainId: number;
+
+    // ✅ 缓存检查 - 在任何 RPC 调用前先检查缓存
+    if (isCacheable(method)) {
+        const cacheKey = buildCacheKey(chainIdOrName, method, params);
+        const cached = getCachedRpc(cacheKey);
+        if (cached !== null) {
+            return cached as T;
+        }
+    }
 
     // Resolve Chain ID
     if (typeof chainIdOrName === 'number') {
@@ -156,6 +166,13 @@ export async function callRpc<T = any>(
             // Success! Record health metrics
             const responseTime = Date.now() - startTime;
             recordSuccess(endpoint, responseTime);
+
+            // ✅ 缓存写入 - 成功后写入缓存
+            if (isCacheable(method)) {
+                const cacheKey = buildCacheKey(chainIdOrName, method, params);
+                const ttl = getTtlForMethod(method);
+                setCachedRpc(cacheKey, data.result, ttl);
+            }
 
             // Only log failover, not primary success
             if (i > 0) {

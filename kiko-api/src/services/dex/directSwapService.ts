@@ -131,7 +131,18 @@ async function findBestPool(
     tokenOut: string,
     chainId: number
 ): Promise<PoolInfo | null> {
-    const pools = await findTokenPools(tokenIn, tokenOut, chainId);
+    // [Logic]: ETH 地址转换为 WETH，因为池子只认识 WETH
+    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const weth = WETH_ADDRESSES[chainId];
+
+    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase() ? weth : tokenIn;
+    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase() ? weth : tokenOut;
+
+    if (!normalizedIn || !normalizedOut) {
+        return null;
+    }
+
+    const pools = await findTokenPools(normalizedIn, normalizedOut, chainId);
 
     if (pools.length === 0) {
         return null;
@@ -180,6 +191,11 @@ export async function executeDirectSwap(params: {
         const bestPool = await findBestPool(tokenIn, tokenOut, chainId);
 
         if (!bestPool) {
+            logger.warn(LogCode.SYS_INFO, '[DirectSwap] No pool found for token pair', {
+                tokenIn: tokenIn.slice(0, 12),
+                tokenOut: tokenOut.slice(0, 12),
+                chainId
+            });
             return {
                 success: false,
                 error: 'No pool found for token pair',
@@ -204,7 +220,10 @@ export async function executeDirectSwap(params: {
 
     } catch (error: any) {
         logger.error(LogCode.EXE_TX_REVERTED, '[DirectSwap] Swap failed', {
-            error: error.message
+            error: error.message,
+            stack: error.stack?.slice(0, 200),
+            tokenIn: tokenIn.slice(0, 12),
+            tokenOut: tokenOut.slice(0, 12)
         });
         return {
             success: false,
