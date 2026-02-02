@@ -98,7 +98,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
                     try {
                         const result = await tokenApi.detectParagraphToken(tokenAddress!);
                         if (result && result.provider === 'paragraph' && result.data) {
-                            setParagraphToken(result.data);
+                            setParagraphToken(result.data as ParagraphToken);
                         } else {
                             setError('Paragraph token not found');
                         }
@@ -214,7 +214,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
                 if (details && details.imageUrl) {
                     setSecondaryAvatar(details.imageUrl);
                 }
-            } catch (e) {
+            } catch (_e) {
                 // Ignore errors
             }
         }
@@ -289,7 +289,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeAddress = token.address;
 
         if (token.createdAt) {
-            try { displayDate = new Date(token.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
+            try { displayDate = new Date(token.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { /* ignore */ }
         }
     } else if (provider === 'clanker' && clankerToken) {
         safeSymbol = clankerToken.symbol;
@@ -297,7 +297,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeAddress = clankerToken.contract_address;
 
         if (clankerToken.deployed_at) {
-            try { displayDate = new Date(clankerToken.deployed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
+            try { displayDate = new Date(clankerToken.deployed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { /* ignore */ }
         }
     } else if (provider === 'paragraph' && paragraphToken) {
         safeSymbol = paragraphToken.symbol;
@@ -305,7 +305,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeAddress = paragraphToken.contractAddress;
 
         if (paragraphToken.createdAt) {
-            try { displayDate = new Date(paragraphToken.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
+            try { displayDate = new Date(paragraphToken.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { /* ignore */ }
         } else {
             displayDate = 'Recently';
         }
@@ -317,7 +317,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         // The API returns createDate, but our backend maps it to createdAt as well for consistency
         const mTime = fourMemeToken.createdAt || (fourMemeToken as any).createDate;
         if (mTime) {
-            try { displayDate = new Date(Number(mTime)).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
+            try { displayDate = new Date(Number(mTime)).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { /* ignore */ }
         }
     } else if (provider === 'pumpfun' && pumpFunToken) {
         safeSymbol = pumpFunToken.symbol;
@@ -325,7 +325,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeAddress = pumpFunToken.mint;
 
         if (pumpFunToken.created_timestamp) {
-            try { displayDate = new Date(pumpFunToken.created_timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
+            try { displayDate = new Date(pumpFunToken.created_timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { /* ignore */ }
         }
     } else if ((provider === 'raydium' || provider === 'bonkfun') && raydiumToken) {
         safeSymbol = raydiumToken.symbol;
@@ -333,7 +333,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
         safeAddress = raydiumToken.mint;
 
         if (raydiumToken.created_at) {
-            try { displayDate = new Date(raydiumToken.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { }
+            try { displayDate = new Date(raydiumToken.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); } catch { /* ignore */ }
         }
     }
 

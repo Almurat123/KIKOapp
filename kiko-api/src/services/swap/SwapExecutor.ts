@@ -35,6 +35,7 @@ export interface SwapParams {
     returnOnConfirmTimeout?: boolean; // If true, return success on timeout and monitor in background
     speedUpAfterMs?: number; // Attempt replacement if tx is still pending
     speedUpBumpBps?: number; // Gas bump in bps for replacement
+    transferRetry?: boolean; // Internal: prevent repeat retry after transfer failure
 }
 
 export interface SwapResult {
@@ -102,10 +103,7 @@ export class SwapExecutor {
      * Handle EVM Swaps (Ethereum, Base, BSC, etc.)
      */
     private static async executeEvm(params: SwapParams): Promise<SwapResult> {
-        // FIXED: Increase default slippage for SELL operations (0.5% → 2%)
-        // Selling often has higher slippage due to price impact and approval delays
-        const defaultSlippage = params.isSell ? 200 : 50;
-        const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = defaultSlippage, feeContext } = params;
+        const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps: requestedSlippage, feeContext } = params;
 
         // 1. Resolve Token Addresses & Metadata
         const resolveToken = async (token: string) => {
@@ -129,7 +127,11 @@ export class SwapExecutor {
         const actualTokenInFixed = isNativeIn && chainId !== SOLANA_CONFIG.CHAIN_ID ? NATIVE_TOKEN_ADDRESS : actualTokenIn;
         const actualTokenOutFixed = actualTokenOut;
         const isNativeOut = isNativeToken(actualTokenOutFixed, chainId);
-        const isSellForFee = params.isSell ?? (isNativeOut && !isNativeIn);
+        const isSellTx = params.isSell ?? (isNativeOut && !isNativeIn);
+        // FIXED: Increase default slippage for SELL operations (0.5% → 2%)
+        // Selling often has higher slippage due to price impact and approval delays
+        const slippageBps = requestedSlippage ?? (isSellTx ? 200 : 50);
+        const isSellForFee = isSellTx;
 
         const tokenInInfo = await getTokenInfo(actualTokenInFixed, chainId);
         const tokenOutInfo = await getTokenInfo(actualTokenOutFixed, chainId);
@@ -177,7 +179,8 @@ export class SwapExecutor {
         }
 
         // 1.5 Gas Reservation for Native Token
-        let amountInBase = toWei(amountIn, decimalsIn);
+        let amountInHuman = amountIn;
+        let amountInBase = toWei(amountInHuman, decimalsIn);
         if (isNativeIn) {
             try {
                 const chainName = getChainConfig(chainId).name.toLowerCase();
@@ -193,11 +196,44 @@ export class SwapExecutor {
                     const newAmountIn = balanceBigInt - reserve;
                     if (newAmountIn <= BigInt(0)) throw new Error(`Insufficient ${chainName.toUpperCase()} for gas reserve (${reserveStr})`);
                     amountInBase = newAmountIn.toString();
+                    amountInHuman = ethers.formatEther(newAmountIn);
                     logger.info(LogCode.SYS_INFO, 'Gas Reserve Applied', { chain: chainName, reserve: reserveStr, newAmount: ethers.formatEther(newAmountIn) });
                 }
             } catch (err: any) {
                 logger.warn(LogCode.SYS_ERROR, 'Gas reserve check failed', { error: err.message });
                 // Continue with original amount if balance check fails
+            }
+        } else {
+            // For ERC20 sells, ensure amountInBase does not exceed on-chain balance.
+            try {
+                const provider = getEthersProvider(chainId);
+                const contract = new ethers.Contract(actualTokenInFixed, ['function balanceOf(address) view returns (uint256)'], provider);
+                const balance = await contract.balanceOf(walletAddress);
+                const balanceBigInt = BigInt(balance);
+                const amountInBigInt = BigInt(amountInBase);
+                if (amountInBigInt > balanceBigInt) {
+                    amountInBase = balanceBigInt.toString();
+                    amountInHuman = ethers.formatUnits(balanceBigInt, decimalsIn);
+                    logger.warn(LogCode.SYS_INFO, 'Adjusted amountIn to on-chain balance', {
+                        token: actualTokenInFixed,
+                        amountIn: amountInHuman
+                    });
+                }
+                // Always reduce by 1 base unit on ERC20 sells to avoid edge-case transfer failures.
+                if (isSellTx) {
+                    const adjusted = BigInt(amountInBase);
+                    if (adjusted > 1n) {
+                        const reduced = adjusted - 1n;
+                        amountInBase = reduced.toString();
+                        amountInHuman = ethers.formatUnits(reduced, decimalsIn);
+                        logger.info(LogCode.SYS_INFO, 'Applied last-digit reduction for sell', {
+                            token: actualTokenInFixed,
+                            amountIn: amountInHuman
+                        });
+                    }
+                }
+            } catch (err: any) {
+                logger.warn(LogCode.SYS_ERROR, 'ERC20 balance check failed', { error: err.message });
             }
         }
 
@@ -235,7 +271,7 @@ export class SwapExecutor {
             actualTokenIn: actualTokenInFixed,
             actualTokenOut: actualTokenOutFixed,
             amountInBase,
-            amountInHuman: parseFloat(amountIn),
+            amountInHuman: parseFloat(amountInHuman),
             tokenInDecimals: decimalsIn,
             tokenOutDecimals: decimalsOut,
             chainId,
@@ -315,13 +351,15 @@ export class SwapExecutor {
                         originalDex: best.dexName
                     });
 
+                    const originalDex = best.dex;
+                    const originalAllowanceTarget = best.allowanceTarget;
                     const { best: freshQuote } = await getBestQuote({
                         tokenIn: actualTokenInFixed,
                         tokenOut: actualTokenOutFixed,
                         actualTokenIn: actualTokenInFixed,
                         actualTokenOut: actualTokenOutFixed,
                         amountInBase,
-                        amountInHuman: parseFloat(amountIn),
+            amountInHuman: parseFloat(amountInHuman),
                         tokenInDecimals: decimalsIn,
                         tokenOutDecimals: decimalsOut,
                         chainId,
@@ -334,14 +372,29 @@ export class SwapExecutor {
                     });
 
                     if (freshQuote && freshQuote.to && freshQuote.data) {
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'Using fresh quote after approval', {
-                            oldDex: best.dexName,
-                            newDex: freshQuote.dexName,
-                            oldAmountOut: best.amountOut,
-                            newAmountOut: freshQuote.amountOut
-                        });
-                        // Replace stale quote with fresh one
-                        Object.assign(best, freshQuote);
+                        const allowanceChanged =
+                            !!freshQuote.allowanceTarget &&
+                            !!originalAllowanceTarget &&
+                            freshQuote.allowanceTarget.toLowerCase() !== originalAllowanceTarget.toLowerCase();
+
+                        if (allowanceChanged) {
+                            // Avoid swapping DEX/allowance target after approval to prevent revert
+                            logger.warn(LogCode.EXE_TX_BROADCAST, 'Fresh quote uses different allowance target; keeping approved quote', {
+                                oldDex: best.dexName,
+                                newDex: freshQuote.dexName,
+                                oldAllowanceTarget: originalAllowanceTarget,
+                                newAllowanceTarget: freshQuote.allowanceTarget
+                            });
+                        } else {
+                            logger.info(LogCode.EXE_TX_BROADCAST, 'Using fresh quote after approval', {
+                                oldDex: best.dexName,
+                                newDex: freshQuote.dexName,
+                                oldAmountOut: best.amountOut,
+                                newAmountOut: freshQuote.amountOut
+                            });
+                            // Replace stale quote with fresh one
+                            Object.assign(best, freshQuote);
+                        }
                     } else {
                         // CRITICAL: Don't use stale quote - it will likely revert
                         // Instead, throw error and let retry logic handle it with higher slippage
@@ -555,6 +608,35 @@ export class SwapExecutor {
 
                     logger.error(LogCode.EXE_TX_REVERTED, 'Transaction REVERTED on-chain', { txHash, reason: confirmed.reason });
 
+                    const revertReason = String(confirmed.reason || '');
+                    const isTransferFailedOnConfirm =
+                        revertReason.includes('TRANSFER_FROM_FAILED') ||
+                        revertReason.includes('TransferHelper') ||
+                        revertReason.toLowerCase().includes('transfer_from_failed');
+
+                    if (isTransferFailedOnConfirm && isSellTx && !params.transferRetry) {
+                        try {
+                            const baseAmount = BigInt(amountInBase);
+                            if (baseAmount > 1n) {
+                                const reducedBase = baseAmount - 1n;
+                                const reducedHuman = ethers.formatUnits(reducedBase, decimalsIn);
+                                logger.warn(LogCode.EXE_TX_REVERTED, 'On-chain transfer failed. Retrying with last-digit reduction', {
+                                    originalAmount: amountInHuman,
+                                    reducedAmount: reducedHuman
+                                });
+                                return this.executeEvm({
+                                    ...params,
+                                    amountIn: reducedHuman,
+                                    transferRetry: true
+                                });
+                            }
+                        } catch (retryErr: any) {
+                            logger.warn(LogCode.EXE_TX_REVERTED, 'Last-digit retry after on-chain transfer fail could not start', {
+                                error: retryErr.message
+                            });
+                        }
+                    }
+
                     // ⚡ RETRY LOGIC FOR REVERTED TRANSACTIONS
                     // When waitForConfirmation is enabled and tx reverts, we should retry with higher slippage
                     // NOTE: autoTradeService has its own multi-step retry, so we only do 1 internal retry here
@@ -665,8 +747,34 @@ export class SwapExecutor {
                 errorMsg.includes('transferhelper');
             const isRevert = errorMsg.includes('reverted') || errorMsg.includes('execution failed');
 
-            // If transfer failed on a SELL order, token likely has restrictions
-            if (isTransferFailed && params.isSell) {
+            // If transfer failed on a SELL order, token likely has restrictions.
+            // Retry once by reducing amount by 1 base unit (last digit) to avoid balance/fee edge cases.
+            if (isTransferFailed && isSellTx) {
+                const canRetry = !params.transferRetry && typeof amountInBase === 'string';
+                if (canRetry) {
+                    try {
+                        const baseAmount = BigInt(amountInBase);
+                        if (baseAmount > 1n) {
+                            const reducedBase = baseAmount - 1n;
+                            const reducedHuman = ethers.formatUnits(reducedBase, decimalsIn);
+                            logger.warn(LogCode.EXE_TX_REVERTED, 'Transfer failed on sell. Retrying with last-digit reduction', {
+                                token: params.tokenIn,
+                                originalAmount: params.amountIn,
+                                reducedAmount: reducedHuman
+                            });
+                            return this.executeEvm({
+                                ...params,
+                                amountIn: reducedHuman,
+                                transferRetry: true
+                            });
+                        }
+                    } catch (retryErr: any) {
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Transfer retry with last-digit reduction failed to prepare', {
+                            error: retryErr.message
+                        });
+                    }
+                }
+
                 logger.error(LogCode.EXE_TX_REVERTED, 'Token transfer restriction detected on SELL', {
                     token: params.tokenIn,
                     amount: params.amountIn,
@@ -675,8 +783,7 @@ export class SwapExecutor {
 
                 throw new Error(
                     `This token has transfer restrictions that prevent selling. ` +
-                    `Possible reasons: 1) Maximum sell amount limit 2) High sell tax 3) Anti-bot protection. ` +
-                    `Try selling a smaller amount (10-20% of balance) or check token contract rules.`
+                    `Possible reasons: 1) Maximum sell amount limit 2) High sell tax 3) Anti-bot protection.`
                 );
             }
 

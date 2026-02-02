@@ -1622,24 +1622,51 @@ async function executePositionExit(params: {
             }
         }
 
-        // Update DB
+        // Update DB with PNL calculation
         if (txHash) {
-            await prisma.position.updateMany({
-                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
-                data: {
-                    status: 'closed',
-                    exitTxHash: txHash,
-                    exitReason: exitReason,
-                    closedAt: new Date(),
-                },
+            // [Logic]: Calculate sell value FIRST (needed for PNL)
+            // [Ref]: formatTokenAmount helper + tokenInfo.price from API
+            // [Risk]: tokenInfo.price may be stale or 0 if API fails
+            const sellVolUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
+            const exitPrice = tokenInfo?.price || 0;
+
+            // [Logic]: Fetch open positions to get entry data for PNL calculation
+            // [Ref]: Prisma Position model has entryPrice, entryUsdValue fields
+            // [Risk]: Position may have been closed by another process (race condition)
+            const openPositions = await prisma.position.findMany({
+                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
             });
+
+            // [Logic]: Update each position with calculated PNL
+            // [Ref]: Prisma schema fields: realizedPnlUsd, realizedPnlPct, exitPrice, exitUsdValue
+            // [Risk]: Division by zero if entryPrice is 0 (shouldn't happen, but guard against it)
+            for (const pos of openPositions) {
+                const realizedPnlUsd = sellVolUsd - (pos.entryUsdValue || 0);
+                const realizedPnlPct = pos.entryPrice && pos.entryPrice > 0
+                    ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100
+                    : 0;
+
+                await prisma.position.update({
+                    where: { id: pos.id },
+                    data: {
+                        status: 'closed',
+                        exitTxHash: txHash,
+                        exitReason: exitReason,
+                        closedAt: new Date(),
+                        exitPrice: exitPrice,
+                        exitUsdValue: sellVolUsd,
+                        realizedPnlUsd: realizedPnlUsd,
+                        realizedPnlPct: realizedPnlPct,
+                    },
+                });
+            }
 
             logger.info(LogCode.EXE_TX_CONFIRMED, 'Position exit executed successfully', { userId, token: tokenAddress, reason: exitReason, txHash });
 
             // Tracking
             trackCopyTrade(userId);
-            const sellVolUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
             trackSwap(userId, sellVolUsd);
+
 
             // =================================================================
             // 🟣 Send Farcaster Direct Cast (Sell Success)

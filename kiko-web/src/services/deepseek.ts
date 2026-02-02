@@ -1,4 +1,5 @@
 import { getAuthToken } from '../utils/authToken';
+import { type AIStreamChunk } from './aiTypes';
 
 /**
  * DeepSeek API Service
@@ -227,7 +228,7 @@ export async function* streamChatCompletion(
     };
     walletAddress?: string;
   } = {}
-): AsyncGenerator<{ content: string; citations?: string[]; reasoning_content?: string; client_actions?: any[]; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }, void, unknown> {
+): AsyncGenerator<AIStreamChunk, void, unknown> {
   // Use backend proxy instead of calling DeepSeek API directly
   const BACKEND_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const model = options.model || DEFAULT_MODEL;
@@ -295,7 +296,7 @@ export async function* streamChatCompletion(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let citations: string[] | undefined;
+  let citations: Array<{ url: string; avatar_url?: string }> | undefined;
   let usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined;
 
   try {
@@ -322,8 +323,9 @@ export async function* streamChatCompletion(
             const chunk: DeepSeekStreamChunk = JSON.parse(data);
 
             // Check for error in chunk
-            if ((chunk as any).error) {
-              const errorMsg = (chunk as any).error;
+            const chunkWithError = chunk as unknown as { error?: string };
+            if (chunkWithError.error) {
+              const errorMsg = chunkWithError.error;
               console.error('[deepseek] Error in stream:', errorMsg);
 
               // Special handling for iteration limit
@@ -335,8 +337,9 @@ export async function* streamChatCompletion(
             }
 
             // Check for tool_status messages (informational)
-            if ((chunk as any).tool_status) {
-              console.log('[deepseek] Tool status:', (chunk as any).tool_status);
+            const chunkWithStatus = chunk as unknown as { tool_status?: string };
+            if (chunkWithStatus.tool_status) {
+              console.log('[deepseek] Tool status:', chunkWithStatus.tool_status);
               // Don't throw, just log - this is informational
             }
 
@@ -351,24 +354,27 @@ export async function* streamChatCompletion(
 
             // Extract citations from message (sent in final chunk by backend)
             if (choice?.message?.citations) {
-              citations = choice.message.citations;
+              const rawCitations = choice.message.citations as (string | { url: string; avatar_url?: string })[];
+              citations = rawCitations.map(c => typeof c === 'string' ? { url: c } : c);
               console.log('[deepseek] Citations received:', citations.length, 'sources');
             }
 
             // Extract client actions from message (sent in final chunk by backend)
-            let clientActions: any[] | undefined;
+            let clientActions: Array<{ type: string; payload: Record<string, unknown> }> | undefined;
             // Debug: log when message object is present
             if (choice?.message) {
               console.log('[deepseek] Message object received:', JSON.stringify(choice.message).slice(0, 200));
             }
-            if ((choice?.message as any)?.client_actions) {
-              clientActions = (choice.message as any).client_actions;
+            const messageWithActions = choice?.message as unknown as { client_actions?: Array<{ type: string; payload: Record<string, unknown> }> };
+            if (messageWithActions?.client_actions) {
+              clientActions = messageWithActions.client_actions;
               console.log('[deepseek] Client actions received:', clientActions?.length, JSON.stringify(clientActions));
             }
 
             // Extract usage from chunk (sent by backend in extras chunk)
-            if ((chunk as any).usage) {
-              usage = (chunk as any).usage;
+            const chunkWithUsage = chunk as unknown as { usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
+            if (chunkWithUsage.usage) {
+              usage = chunkWithUsage.usage;
               console.log('[deepseek] Usage received:', usage);
             }
 
@@ -382,29 +388,31 @@ export async function* streamChatCompletion(
                 usage: usage // Always include current usage
               };
             }
-          } catch (e: any) {
+          } catch (e: unknown) {
+            const err = e as Error;
             // If it's a JSON parse error, ignore (incomplete chunk)
-            if (e.name === 'SyntaxError') {
+            if (err.name === 'SyntaxError') {
               console.warn('[deepseek] Failed to parse chunk (incomplete):', data.substring(0, 100));
               continue;
             }
             // For other errors, rethrow
-            throw e;
+            throw err;
           }
         }
       }
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as Error;
     // If error is due to network/stream interruption, provide helpful message
-    if (error.name === 'TypeError' && error.message.includes('network')) {
+    if (err.name === 'TypeError' && err.message.includes('network')) {
       console.error('[deepseek] Network error - stream interrupted');
       throw new Error('Stream connection interrupted. Please try again.');
     }
-    throw error;
+    throw err;
   } finally {
     try {
       reader.releaseLock();
-    } catch (e) {
+    } catch {
       // Reader already released
     }
   }

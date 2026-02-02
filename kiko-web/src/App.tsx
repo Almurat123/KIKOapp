@@ -76,15 +76,15 @@ function App() {
                   tool_call_id: m.tool_call_id,
                   status: m.status,
                   message_index: m.message_index,
-                  timestamp: m.created_at,
-                  type: m.data?.type || 'text',
+                  timestamp: m.created_at ?? m.timestamp ?? Date.now(),
+                  type: (m.data?.type || 'text') as Message['type'],
                   data: m.data,
                 }));
                 updateConversation(currentConvId, { messages: dbMessages });
                 console.log(`[App] Synced ${dbMessages.length} messages from DB`);
 
                 // 3. Check if there's an active task and restore UI state
-                if (resp.activeTask && (resp.activeTask.status === 'running' || resp.activeTask.status === 'queued')) {
+                if (resp.activeTask && (resp.activeTask.status === 'running' || resp.activeTask.status === 'pending')) {
                   setActiveTask(resp.activeTask);
                   console.log(`[App] Restored active task: ${resp.activeTask.id}`);
                 } else {
@@ -282,8 +282,18 @@ function App() {
         }
 
       } else if (event.type === 'message_complete' || (event.type === 'task_status' && event.data.status === 'done')) {
-        const completionId = event.data.messageId || event.data.task_id || (Array.from(sessionPending.keys())[0]);
-        if (!completionId) return;
+        const completionId =
+          event.data.messageId ||
+          event.data.message_id ||
+          event.data.task_id ||
+          event.data.taskId ||
+          (Array.from(sessionPending.keys())[0]);
+        if (!completionId) {
+          if (event.type === 'task_status' && event.data.status === 'done') {
+            updateConversation(targetSessionId, { activeTask: null });
+          }
+          return;
+        }
 
         // Prevent duplicate processing for the same completion
         const dedupKey = `${targetSessionId}:${completionId}`;
@@ -340,8 +350,8 @@ function App() {
                 tool_call_id: m.tool_call_id,
                 status: m.status,
                 message_index: m.message_index,
-                timestamp: m.created_at,
-                type: 'text',
+                timestamp: m.created_at ?? m.timestamp ?? Date.now(),
+                type: (m.data?.type || 'text') as Message['type'],
               }));
               updateConversation(targetSessionId, { messages: dbMessages, activeTask: null });
             }

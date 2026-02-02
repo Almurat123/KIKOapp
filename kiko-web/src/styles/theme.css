@@ -1,6 +1,7 @@
 /* Global Theme Variables */
 :root {
   /* Light theme (default) */
+  --bg-app: #ffffff;
   --theme-bg-card: rgba(255, 255, 255, 0.9);
   --theme-bg-card-hover: rgba(255, 255, 255, 0.95);
   --theme-bg-header: rgba(0, 0, 0, 0.02);
@@ -52,6 +53,7 @@
 
 /* Dark theme */
 .dark {
+  --bg-app: #09090b;
   --theme-bg-card: rgba(255, 255, 255, 0.8);
   --theme-bg-card-hover: rgba(255, 255, 255, 0.9);
   --theme-bg-header: rgba(255, 255, 255, 0.05);

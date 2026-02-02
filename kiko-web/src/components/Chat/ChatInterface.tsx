@@ -882,6 +882,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                             return prev;
                         });
+
+                        // If a transaction card reports completion, force-stop thinking/streaming.
+                        if (actionType === 'show_transaction_status_card') {
+                            const status = event.data.action?.data?.status;
+                            if (status === 'success' || status === 'failed') {
+                                setIsThinking(false);
+                                setIsStreaming(false);
+                                setActiveTaskId(null);
+                                if (sidebar?.setGeneratingConversationId) {
+                                    sidebar.setGeneratingConversationId(null);
+                                }
+                            }
+                        }
                     }
                     break;
                 case 'content_block':
@@ -1727,13 +1740,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 }
 
                 // Add assistant message placeholder (WebSocket will stream content to this ID)
+                const createdAt = (assistantMessage as any).created_at ?? assistantMessage.timestamp ?? Date.now();
                 const aiMsg: Message = {
                     id: assistantMessage.id,
                     role: 'assistant',
                     content: '',
                     reasoning_content: '',
-                    timestamp: new Date(assistantMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    date: new Date(assistantMessage.created_at).toISOString().split('T')[0],
+                    timestamp: new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    date: new Date(createdAt).toISOString().split('T')[0],
                     type: 'text',
                     status: 'streaming',
                 };
@@ -1749,7 +1763,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                 // WebSocket will handle the chunks and status updates
             } else {
-                throw new Error(resp.error || 'Failed to send message');
+                const errorMessage = (resp as any).error || (resp as any).message || 'Failed to send message';
+                throw new Error(errorMessage);
             }
         } catch (error: any) {
             logger.error('Error sending message:', error);

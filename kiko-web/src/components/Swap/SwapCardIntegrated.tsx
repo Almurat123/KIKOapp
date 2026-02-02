@@ -75,7 +75,6 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   autoExecute = false,
   useServerExecution = true,
   userHoldings = [],
-  initialQuote: _initialQuote,
 }) => {
   // State for settings
   const [maxPriceImpact, setMaxPriceImpact] = useState(initialMaxPriceImpact);
@@ -91,7 +90,7 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
         const parsed = JSON.parse(saved);
         setFastSwapMode(!!parsed.fastSwapMode);
       }
-    } catch { /* ignore */ }
+    } catch (_e) { /* ignore */ }
 
     // Listen for changes
     const handleSettingsChange = (e: any) => {
@@ -270,9 +269,9 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
             console.warn('[FastSwap] Failed, falling back to standard execution:', data.error);
           }
         }
-      } catch (e) {
+      } catch (_e) {
         if (import.meta.env.DEV) {
-          console.error('[FastSwap] Error:', e);
+          console.error('[FastSwap] Error:', _e);
         }
       }
     }

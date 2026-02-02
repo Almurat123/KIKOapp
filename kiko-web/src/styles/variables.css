@@ -1,6 +1,6 @@
 :root {
-  /* Colors - Beige Theme */
   --bg-primary: #FAF7F2;
+  --bg-app: var(--bg-primary);
   /* Warm Beige */
   --bg-secondary: #FFFFFF;
   /* White cards */
@@ -55,7 +55,8 @@
 }
 
 body {
-  background-color: var(--bg-primary);
+  /* [Logic]: Fix mobile background mismatch by using theme-aware variable. [Ref]: implementation_plan.md. [Risk]: May flash beige if CSS variables load slowly. */
+  background-color: var(--bg-app);
   color: var(--text-primary);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;

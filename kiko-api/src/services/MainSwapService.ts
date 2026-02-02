@@ -33,6 +33,7 @@ import { toWei } from './zeroEx.js';
 import { ethers } from 'ethers';
 import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
+import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -385,11 +386,53 @@ export class MainSwapService {
     trace: (msg: string) => string,
     ctx: TradeContext
   ): Promise<MainSwapResult> {
-    logger.info(LogCode.EXE_TX_BROADCAST, trace('Executing EVM swap via SwapExecutor'), {
+    logger.info(LogCode.EXE_TX_BROADCAST, trace('Executing EVM swap'), {
       chainId: request.chainId,
       tokenIn: request.tokenIn.slice(0, 12),
-      tokenOut: request.tokenOut.slice(0, 12)
+      tokenOut: request.tokenOut.slice(0, 12),
+      fastSwapMode: request.userSettings?.fastSwapMode
     });
+
+    // [Logic]: FastSwapMode 使用直接交易 (V3/V4)，跳过 0x/Kyber
+    if (request.userSettings?.fastSwapMode && isDirectSwapSupported(request.chainId)) {
+      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap'));
+      try {
+        const directResult = await executeDirectSwap({
+          userId: request.userId,
+          accessToken: request.accessToken || '',
+          walletAddress: request.walletAddress,
+          tokenIn: request.tokenIn,
+          tokenOut: request.tokenOut,
+          amountIn: request.amountIn,
+          chainId: request.chainId,
+          slippageBps: request.slippageBps || 50
+        });
+
+        if (directResult.success) {
+          logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap successful'), {
+            txHash: directResult.txHash,
+            provider: directResult.provider
+          });
+          return {
+            success: true,
+            txHash: directResult.txHash,
+            amountOut: directResult.amountOut,
+            metadata: {
+              provider: directResult.provider,
+              mode: request.mode
+            }
+          };
+        }
+        // 直接交易失败，fallback 到 0x/Kyber
+        logger.warn(LogCode.SYS_INFO, trace('Direct swap failed, falling back to 0x/Kyber'), {
+          error: directResult.error
+        });
+      } catch (directErr: any) {
+        logger.warn(LogCode.SYS_ERROR, trace('Direct swap error, falling back to 0x/Kyber'), {
+          error: directErr.message
+        });
+      }
+    }
 
     const swapParams: SwapParams = {
       userId: request.userId,
@@ -445,7 +488,16 @@ export class MainSwapService {
     */
     const isBuy = !swapParams.isSell; // SwapExecutor determines isSell=false for buys
     const targetSpender = executionResult.metadata?.allowanceTarget;
-    const isNativeOut = request.tokenOut.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const outTokenLower = request.tokenOut.toLowerCase();
+    const isNativeOut =
+      outTokenLower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+      outTokenLower === '0x0000000000000000000000000000000000000000' ||
+      outTokenLower === 'eth' ||
+      outTokenLower === 'bnb' ||
+      outTokenLower === 'sol' ||
+      outTokenLower === 'matic' ||
+      outTokenLower === 'avax' ||
+      outTokenLower === 'base';
 
     if (result.success && isBuy && targetSpender && !isNativeOut &&
       (request.mode === 'fast-swap' || request.mode === 'copytrade' || request.mode === 'allowance')) {

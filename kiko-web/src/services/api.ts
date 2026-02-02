@@ -29,6 +29,75 @@ export function getOptimizedImageUrl(url: string, width?: number, quality?: numb
 }
 
 import { logger } from '../utils/logger';
+import { type ZoraToken } from './zoraApi';
+import { type ClankerToken } from './clankerApi';
+import { type FourMemeToken } from './fourMemeApi';
+import { type PumpFunToken } from './pumpFunApi';
+import { type RaydiumToken } from './raydiumApi';
+
+/**
+ * Combined Launchpad Data type
+ */
+export type LaunchpadData =
+    | { provider: 'zora'; data: ZoraToken; chainId: number }
+    | { provider: 'clanker'; data: ClankerToken; chainId: number }
+    | { provider: 'fourmeme'; data: FourMemeToken; chainId: number }
+    | { provider: 'pumpfun'; data: PumpFunToken; chainId: number }
+    | { provider: 'raydium'; data: RaydiumToken; chainId: number }
+    | { provider: 'paragraph'; data: unknown; chainId: number }; // paragraph data is still loose
+
+/**
+ * Chart point: [timestamp, open, high, low, close, volume]
+ */
+export type ChartPoint = [number, number, number, number, number, number];
+
+/**
+ * Token Transaction
+ */
+export interface TokenTransaction {
+    type: 'buy' | 'sell';
+    address: string;
+    symbol: string;
+    amount: string;
+    amountUsd: number;
+    timestamp: number;
+    txHash: string;
+    maker: string;
+}
+
+/**
+ * Chat Session
+ */
+export interface ChatSession {
+    id: string;
+    title: string;
+    model?: string;
+    createdAt: string;
+    updatedAt: string;
+    status: 'active' | 'archived' | 'deleted';
+}
+
+/**
+ * Chat Message
+ */
+export interface ChatMessage {
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: number;
+    feedback?: 'like' | 'dislike' | null;
+}
+
+/**
+ * AI Task
+ */
+export interface ChatTask {
+    id: string;
+    sessionId: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
+    progress?: number;
+    message?: string;
+}
 
 export type MarketOverview = {
     globalMarketCap: number;
@@ -80,7 +149,7 @@ export type ProtocolData = {
     logoUrl?: string;
     mcap?: number;
     fdv?: number;
-    audits?: any[];
+    audits?: string[];
 };
 
 export interface TokenSearchResult {
@@ -128,7 +197,7 @@ import { getAuthToken } from '../utils/authToken';
 /**
  * Request deduplication map
  */
-const pendingRequests = new Map<string, Promise<any>>();
+const pendingRequests = new Map<string, Promise<unknown>>();
 
 /**
  * Get cache TTL based on endpoint
@@ -249,24 +318,26 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
             }
 
             return result;
-        } catch (error: any) {
+        } catch (error: unknown) {
             clearTimeout(timeoutId);
 
+            const err = error as Error;
+
             // Handle specific error types
-            if (error.name === 'AbortError') {
+            if (err.name === 'AbortError') {
                 logger.error(`API Timeout [${endpoint}]: Request took longer than 30 seconds`);
                 throw new Error('Request timeout. The server may be slow or unavailable.');
             }
 
-            if (error.message?.includes('Failed to fetch') ||
-                error.message?.includes('NetworkError') ||
-                error.message?.includes('ERR_CONNECTION_REFUSED')) {
+            if (err.message?.includes('Failed to fetch') ||
+                err.message?.includes('NetworkError') ||
+                err.message?.includes('ERR_CONNECTION_REFUSED')) {
                 logger.error(`API Connection Error [${endpoint}]: Backend server not available`);
                 throw new Error('Cannot connect to backend server. Please ensure the backend is running on port 3001.');
             }
 
-            logger.error(`API Error [${endpoint}]:`, error);
-            throw error;
+            logger.error(`API Error [${endpoint}]:`, err);
+            throw err;
         } finally {
             // 4. Remove from pending requests when done
             pendingRequests.delete(cacheKey);
@@ -307,15 +378,15 @@ export const marketApi = {
     /**
      * Get trending tokens
      */
-    async getTrending(): Promise<any[]> {
-        return fetchApi<any[]>('/api/market/trending');
+    async getTrending(): Promise<TokenSearchResult[]> {
+        return fetchApi<TokenSearchResult[]>('/api/market/trending');
     },
 
     /**
      * Get top gainers
      */
-    async getGainers(): Promise<any[]> {
-        return fetchApi<any[]>('/api/market/gainers');
+    async getGainers(): Promise<TokenSearchResult[]> {
+        return fetchApi<TokenSearchResult[]>('/api/market/gainers');
     },
 
 
@@ -375,24 +446,24 @@ export const tokenApi = {
     /**
      * Detect launchpad token by address
      */
-    async detectLaunchpad(address: string, chainId?: number): Promise<{ provider: string; data: any; chainId: number } | null> {
+    async detectLaunchpad(address: string, chainId?: number): Promise<LaunchpadData | null> {
         const params = new URLSearchParams({ address });
         if (chainId) params.append('chainId', chainId.toString());
-        return fetchApi<{ provider: string; data: any; chainId: number } | null>(`/api/tokens/launchpad/detect?${params.toString()}`);
+        return fetchApi<LaunchpadData | null>(`/api/tokens/launchpad/detect?${params.toString()}`);
     },
 
     /**
      * Detect Paragraph token specifically
      */
-    async detectParagraphToken(address: string): Promise<{ provider: string; data: any; chainId: number } | null> {
+    async detectParagraphToken(address: string): Promise<LaunchpadData | null> {
         const params = new URLSearchParams({ address });
-        return fetchApi<{ provider: string; data: any; chainId: number } | null>(`/api/tokens/launchpad/paragraph?${params.toString()}`);
+        return fetchApi<LaunchpadData | null>(`/api/tokens/launchpad/paragraph?${params.toString()}`);
     },
 
     /**
      * Get chart data
      */
-    async getChart(network: string, address: string, timeframe: string = 'h1', limit: number = 100, signal?: AbortSignal): Promise<any[]> {
+    async getChart(network: string, address: string, timeframe: string = 'h1', limit: number = 100, signal?: AbortSignal): Promise<ChartPoint[]> {
         try {
             const url = `${API_BASE_URL}/api/tokens/${network}/${address}/chart?timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
 
@@ -423,13 +494,14 @@ export const tokenApi = {
                     },
                 });
                 clearTimeout(timeoutId);
-            } catch (fetchError: any) {
+            } catch (fetchError: unknown) {
                 clearTimeout(timeoutId);
+                const err = fetchError as Error;
                 // Re-throw AbortError as-is (will be handled by caller)
-                if (fetchError.name === 'AbortError') {
-                    throw fetchError;
+                if (err.name === 'AbortError') {
+                    throw err;
                 }
-                throw fetchError;
+                throw err;
             }
 
             if (!response.ok) {
@@ -469,10 +541,11 @@ export const tokenApi = {
             }
             logger.warn(`[API] No valid data found in response, returning empty array`);
             return [];
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const err = error as Error;
             // Don't log AbortError as it's expected when requests are cancelled
-            if (error.name !== 'AbortError') {
-                logger.error('[API] Error fetching chart data:', error);
+            if (err.name !== 'AbortError') {
+                logger.error('[API] Error fetching chart data:', err);
             }
             // Return empty array for all errors (including AbortError)
             return [];
@@ -486,12 +559,12 @@ export const tokenApi = {
         network: string,
         address: string,
         options: { limit?: number; type?: 'all' | 'buy' | 'sell' } = {}
-    ): Promise<any[]> {
+    ): Promise<TokenTransaction[]> {
         const params = new URLSearchParams();
         if (options.limit) params.append('limit', options.limit.toString());
         if (options.type) params.append('type', options.type);
 
-        const response = await fetchApi<{ success: boolean; data: any[]; count: number }>(
+        const response = await fetchApi<{ success: boolean; data: TokenTransaction[]; count: number }>(
             `/api/tokens/${network}/${address}/transactions?${params.toString()}`
         );
 
@@ -501,11 +574,11 @@ export const tokenApi = {
     /**
      * Get token security scan
      */
-    async getSecurityScan(network: string, address: string): Promise<any> {
-        const response = await fetchApi<{ success: boolean; data: any; cached: boolean }>(
+    async getSecurityScan(network: string, address: string): Promise<{ success: boolean; data: unknown; cached: boolean }> {
+        const response = await fetchApi<{ success: boolean; data: unknown; cached: boolean }>(
             `/api/security/scan?chain=${network}&address=${address}`
         );
-        return response || {};
+        return response || { success: false, data: null, cached: false };
     },
 };
 
@@ -522,7 +595,7 @@ export interface TrendingCast {
         avatar?: string;
         verified?: boolean;
         bio?: string;
-        creatorCoin?: any; // Zora Creator Coin data
+        creatorCoin?: ZoraToken; // Zora Creator Coin data
     };
     mentions?: number[]; // FIDs of mentioned users
 
@@ -606,15 +679,15 @@ export const socialApi = {
     /**
      * Get health status of social data sources
      */
-    async getHealth(): Promise<any> {
-        return fetchApi('/api/social/health');
+    async getHealth(): Promise<{ status: string; services: Record<string, unknown> }> {
+        return fetchApi<{ status: string; services: Record<string, unknown> }>('/api/social/health');
     },
 
     /**
      * Get user data by FID from Snapchain
      */
-    async getUserByFid(fid: number): Promise<any> {
-        return fetchApi(`/api/social/snapchain/user/${fid}`);
+    async getUserByFid(fid: number): Promise<unknown> {
+        return fetchApi<unknown>(`/api/social/snapchain/user/${fid}`);
     },
 };
 
@@ -625,7 +698,7 @@ export interface Author {
     isVerified: boolean;
     bio?: string;
     twitter?: string;
-    creatorCoin?: any; // Zora Creator Coin data
+    creatorCoin?: ZoraToken; // Zora Creator Coin data
 }
 
 export interface Frame {
@@ -643,7 +716,7 @@ export interface FeedItem {
     author?: Author;
     time?: string;
     content?: string;
-    embeds?: any[]; // Raw embeds from cast (for quote casts, links, etc.)
+    embeds?: Array<{ url?: string; castId?: { fid: number; hash: string }; metadata?: unknown }>; // Raw embeds from cast
     mentions?: number[]; // FIDs of mentioned users
     frame?: Frame;
     images?: string[];
@@ -664,7 +737,7 @@ export interface FeedItem {
  */
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
+async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
     try {
         const token = await getAuthToken();
         const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -692,116 +765,106 @@ export const chatApi = {
     /**
      * Create a new chat session
      */
-    async createSession(title?: string, model?: string): Promise<any> {
-        const resp = await chatFetch<any>('/api/chat/sessions', {
+    async createSession(title?: string, model?: string): Promise<{ success: boolean; session: ChatSession }> {
+        return chatFetch<{ success: boolean; session: ChatSession }>('/api/chat/sessions', {
             method: 'POST',
             body: JSON.stringify({ title, model }),
         });
-        return resp; // Returns { success, session }
     },
 
     /**
      * List user sessions
      */
-    async getSessions(limit = 50, offset = 0): Promise<any[]> {
-        const resp = await chatFetch<any>(`/api/chat/sessions?limit=${limit}&offset=${offset}`);
+    async getSessions(limit = 50, offset = 0): Promise<ChatSession[]> {
+        const resp = await chatFetch<{ success: boolean; sessions: ChatSession[] }>(`/api/chat/sessions?limit=${limit}&offset=${offset}`);
         return resp?.sessions || [];
     },
 
     /**
      * Get a specific session with messages
      */
-    async getSession(sessionId: string): Promise<any> {
-        const resp = await chatFetch<any>(`/api/chat/sessions/${sessionId}`);
-        return resp; // Returns { success, session, messages, activeTask }
+    async getSession(sessionId: string): Promise<{ success: boolean; session: ChatSession; messages: ChatMessage[]; activeTask?: ChatTask }> {
+        return chatFetch<{ success: boolean; session: ChatSession; messages: ChatMessage[]; activeTask?: ChatTask }>(`/api/chat/sessions/${sessionId}`);
     },
 
     /**
      * Update session (title, model, status)
      */
-    async updateSession(sessionId: string, updates: any): Promise<any> {
-        const resp = await chatFetch<any>(`/api/chat/sessions/${sessionId}`, {
+    async updateSession(sessionId: string, updates: Partial<ChatSession>): Promise<{ success: boolean; session: ChatSession }> {
+        return chatFetch<{ success: boolean; session: ChatSession }>(`/api/chat/sessions/${sessionId}`, {
             method: 'PATCH',
             body: JSON.stringify(updates),
         });
-        return resp;
     },
 
     /**
      * Delete session
      */
-    async deleteSession(sessionId: string): Promise<any> {
-        const resp = await chatFetch<any>(`/api/chat/sessions/${sessionId}`, {
+    async deleteSession(sessionId: string): Promise<{ success: boolean }> {
+        return chatFetch<{ success: boolean }>(`/api/chat/sessions/${sessionId}`, {
             method: 'DELETE',
         });
-        return resp;
     },
 
     /**
      * Rate a message (Like/Dislike)
      */
-    async rateMessage(sessionId: string, messageId: string, feedback: 'like' | 'dislike' | null): Promise<any> {
-        const resp = await chatFetch<any>(`/api/chat/sessions/${sessionId}/messages/${messageId}/feedback`, {
+    async rateMessage(sessionId: string, messageId: string, feedback: 'like' | 'dislike' | null): Promise<{ success: boolean }> {
+        return chatFetch<{ success: boolean }>(`/api/chat/sessions/${sessionId}/messages/${messageId}/feedback`, {
             method: 'PUT',
             body: JSON.stringify({ feedback }),
         });
-        return resp;
     },
 
     /**
      * Send a message to a session (starts AI task)
      */
-    async sendMessage(sessionId: string, content: string, options: any = {}): Promise<any> {
-        const resp = await chatFetch<any>(`/api/chat/sessions/${sessionId}/messages`, {
+    async sendMessage(sessionId: string, content: string, options: Record<string, unknown> = {}): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
+        return chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/api/chat/sessions/${sessionId}/messages`, {
             method: 'POST',
             body: JSON.stringify({ content, ...options }),
         });
-        return resp; // Returns { success, userMessage, assistantMessage, task }
     },
 
     /**
      * Get messages for a session
      */
-    async getMessages(sessionId: string, after?: number): Promise<any[]> {
+    async getMessages(sessionId: string, after?: number): Promise<ChatMessage[]> {
         const url = `/api/chat/sessions/${sessionId}/messages${after !== undefined ? `?after=${after}` : ''}`;
-        const resp = await chatFetch<any>(url);
+        const resp = await chatFetch<{ success: boolean; messages: ChatMessage[] }>(url);
         return resp?.messages || [];
     },
 
     /**
      * Get task status
      */
-    async getTaskStatus(taskId: string): Promise<any> {
-        const resp = await chatFetch<any>(`/api/chat/tasks/${taskId}`);
-        return resp;
+    async getTaskStatus(taskId: string): Promise<ChatTask> {
+        return chatFetch<ChatTask>(`/api/chat/tasks/${taskId}`);
     },
 
     /**
      * Stop/cancel a task
      */
-    async stopTask(taskId: string): Promise<any> {
-        const resp = await chatFetch<any>(`/api/chat/tasks/${taskId}/stop`, {
+    async stopTask(taskId: string): Promise<{ success: boolean }> {
+        return chatFetch<{ success: boolean }>(`/api/chat/tasks/${taskId}/stop`, {
             method: 'POST',
             body: JSON.stringify({}), // Fastify requires body when Content-Type is JSON
         });
-        return resp;
     },
 
     /**
      * Poll for message chunks
      */
-    async getMessageChunks(messageId: string, after?: number): Promise<any> {
+    async getMessageChunks(messageId: string, after?: number): Promise<{ success: boolean; chunks: unknown[] }> {
         const url = `/api/chat/messages/${messageId}/chunks${after !== undefined ? `?after=${after}` : ''}`;
-        const resp = await chatFetch<any>(url);
-        return resp;
+        return chatFetch<{ success: boolean; chunks: unknown[] }>(url);
     },
 
     /**
      * Get personalized suggestions
      */
-    async getSuggestions(): Promise<any> {
-        const resp = await chatFetch<any>('/api/chat/suggestions');
-        return resp;
+    async getSuggestions(): Promise<{ success: boolean; suggestions: string[] }> {
+        return chatFetch<{ success: boolean; suggestions: string[] }>('/api/chat/suggestions');
     },
 
     /**
@@ -810,11 +873,11 @@ export const chatApi = {
     async logModeration(data: {
         channel?: string;
         content: string;
-        result: any;
+        result: unknown;
         sessionId?: string | null;
         model?: string | null;
-    }): Promise<any> {
-        return chatFetch<any>('/api/chat/moderation/log', {
+    }): Promise<unknown> {
+        return chatFetch<unknown>('/api/chat/moderation/log', {
             method: 'POST',
             body: JSON.stringify(data),
         });

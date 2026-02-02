@@ -11,6 +11,8 @@ import prisma from '../db/prisma.js';
 import { redact } from '../utils/sanitizer.js';
 import { sanitizedErrorResponse } from '../utils/securityUtils.js';
 import { evaluateUsageAccess } from '../services/usageAccess.js';
+import { getWalletBalance } from '../services/alchemy.js';
+import { ethers } from 'ethers';
 
 // Request body types
 interface CreateSessionBody {
@@ -308,6 +310,89 @@ export async function chatRoutes(fastify: FastifyInstance) {
                             ? JSON.stringify(context)
                             : undefined;
 
+                let resolvedWalletAddress: string | undefined = walletAddress || undefined;
+                if (!resolvedWalletAddress && userId) {
+                    try {
+                        if (chainId === 900) {
+                            const { getSolanaEmbeddedWalletAddress } = await import('../services/privyWallet.js');
+                            resolvedWalletAddress = (await getSolanaEmbeddedWalletAddress(userId)) || undefined;
+                        } else {
+                            const { getEmbeddedWalletAddress } = await import('../services/privyWallet.js');
+                            resolvedWalletAddress = (await getEmbeddedWalletAddress(userId)) || undefined;
+                        }
+                    } catch (e) {
+                        fastify.log.warn({ err: e }, 'Failed to resolve embedded wallet address for chat task');
+                    }
+                }
+
+                const chainIdToName: Record<number, string> = {
+                    1: 'eth',
+                    8453: 'base',
+                    56: 'bsc',
+                    42161: 'arbitrum',
+                    10: 'optimism',
+                    137: 'polygon',
+                    900: 'solana',
+                };
+                const nativeSymbolMap: Record<number, string> = {
+                    1: 'ETH',
+                    8453: 'ETH',
+                    56: 'BNB',
+                    42161: 'ETH',
+                    10: 'ETH',
+                    137: 'MATIC',
+                };
+
+                let resolvedBalance = balance;
+                let resolvedNativeBalance = nativeBalance;
+                const needsNativeBalance =
+                    resolvedNativeBalance === undefined ||
+                    resolvedNativeBalance === null ||
+                    resolvedNativeBalance === '';
+                const needsTokenBalances = !resolvedBalance || Object.keys(resolvedBalance).length === 0;
+                const shouldHydrateWalletSnapshot =
+                    resolvedWalletAddress &&
+                    chainId &&
+                    chainId !== 900 &&
+                    (needsTokenBalances || needsNativeBalance);
+
+                if (shouldHydrateWalletSnapshot && resolvedWalletAddress) {
+                    try {
+                        const chainName = chainIdToName[chainId] || 'eth';
+                        const walletSnapshot = await getWalletBalance(resolvedWalletAddress, chainName);
+                        const tokenBalances = walletSnapshot?.tokens || [];
+                        const hydrated: Record<string, string> = needsTokenBalances ? {} : { ...(resolvedBalance || {}) };
+
+                        if (walletSnapshot?.ethBalanceFormatted !== undefined) {
+                            const nativeSymbol = nativeSymbolMap[chainId] || 'ETH';
+                            hydrated[nativeSymbol] = String(walletSnapshot.ethBalanceFormatted);
+                            resolvedNativeBalance = String(walletSnapshot.ethBalanceFormatted);
+                        }
+
+                        if (needsTokenBalances) {
+                            for (const token of tokenBalances || []) {
+                                const decimals = typeof token.decimals === 'number' ? token.decimals : 18;
+                                let formatted = '0';
+                                try {
+                                    formatted = ethers.formatUnits(token.tokenBalance || '0', decimals);
+                                } catch {
+                                    formatted = '0';
+                                }
+                                if (token.symbol) {
+                                    hydrated[token.symbol] = formatted;
+                                }
+                                if (token.contractAddress) {
+                                    hydrated[token.contractAddress.toLowerCase()] = formatted;
+                                }
+                            }
+                        }
+
+                        resolvedBalance = hydrated;
+                    } catch (e) {
+                        fastify.log.warn({ err: e }, 'Failed to hydrate wallet balance for chat task');
+                    }
+                }
+
                 const task = await chatRepo.createTask(
                     sessionId,
                     taskModel,
@@ -316,12 +401,12 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     {
                         userId,
                         sessionId, // Add sessionId to toolContext for backend execution
-                        walletAddress,
+                        walletAddress: resolvedWalletAddress,
                         chainId,
                         toolConfig,
                         allowanceMode,
-                        balance,
-                        nativeBalance,
+                        balance: resolvedBalance,
+                        nativeBalance: resolvedNativeBalance,
                         accessToken,
                         currentPage,
                         pageContext: normalizedPageContext,

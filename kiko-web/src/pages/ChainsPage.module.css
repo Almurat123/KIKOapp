@@ -43,7 +43,8 @@
     width: 100%;
     max-width: 100%;
     margin: 0;
-    background: #000000;
+    width: 100%;
+    background: transparent;
     min-height: 100vh;
     box-sizing: border-box;
 }
@@ -426,7 +427,7 @@
 
 /* === LIGHT MODE OVERRIDES === */
 .light {
-    background: #ffffff !important;
+    background: transparent !important;
 }
 
 .light.container {

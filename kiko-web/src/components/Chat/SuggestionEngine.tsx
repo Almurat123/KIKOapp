@@ -389,7 +389,7 @@ export class SuggestionEngine {
                     const fullActionText = cmd.actionText + option.actionSuffix;
 
                     // Calculate option score (use command's full score for better ranking)
-                    let optionScore = finalScore;
+                    const optionScore = finalScore;
 
                     results.push({
                         id: option.id,
@@ -432,7 +432,7 @@ export class SuggestionEngine {
             if (cmd.options && cmd.options.length > 0) {
                 for (const option of cmd.options) {
                     const fullActionText = cmd.actionText + option.actionSuffix;
-                    let optionScore = finalScore;
+                    const optionScore = finalScore;
 
                     results.push({
                         id: option.id,
@@ -614,7 +614,7 @@ export class SuggestionEngine {
 
     // --- Copy Trade Generators ---
 
-    private static getCopyTargetSuggestions(_text: string): MatchResult[] {
+    private static getCopyTargetSuggestions(_text?: string): MatchResult[] {
         // text: "Copy Trade "
         const results: MatchResult[] = [];
 
@@ -695,7 +695,7 @@ export class SuggestionEngine {
 
     // --- What Command Generators ---
 
-    private static getWhatSuggestions(_text: string): MatchResult[] {
+    private static getWhatSuggestions(_text?: string): MatchResult[] {
         // text could be "What's " or "What's trend"
         const results: MatchResult[] = [];
 
@@ -757,7 +757,7 @@ export class SuggestionEngine {
 
     // --- Check Command Generators ---
 
-    private static getCheckTargetSuggestions(_text: string): MatchResult[] {
+    private static getCheckTargetSuggestions(_text?: string): MatchResult[] {
         // text: "Check "
         const results: MatchResult[] = [];
 
@@ -804,7 +804,7 @@ export class SuggestionEngine {
 
     // --- Cancel Command Generators ---
 
-    private static getCancelTargetSuggestions(_text: string): MatchResult[] {
+    private static getCancelTargetSuggestions(_text?: string): MatchResult[] {
         const results: MatchResult[] = [];
 
         results.push({
@@ -821,7 +821,7 @@ export class SuggestionEngine {
 
     // --- Tell Command Generators ---
 
-    private static getTellSuggestions(_text: string): MatchResult[] {
+    private static getTellSuggestions(_text?: string): MatchResult[] {
         const results: MatchResult[] = [];
 
         const options = [
@@ -847,7 +847,7 @@ export class SuggestionEngine {
 
     // --- Bet Command Generators ---
 
-    private static getBetLinkSuggestions(_text: string): MatchResult[] {
+    private static getBetLinkSuggestions(_text?: string): MatchResult[] {
         const results: MatchResult[] = [];
 
         results.push({
@@ -928,7 +928,7 @@ export class SuggestionEngine {
                     token = parsed.defaultSwapUnit.toUpperCase();
                 }
             }
-        } catch (e) { /* ignore */ }
+        } catch (_e) { /* ignore */ }
 
         // 2. Fallback to Memory (if settings didn't explicitly override, or maybe we want memory to take precedence?)
         // Actually user explicit settings should take precedence over automatic memory.
@@ -1028,11 +1028,12 @@ export class SuggestionEngine {
                 // Matches "with 0.1 eth"
                 return lower.includes('with ') && /\d+(\.\d+)?/.test(lower);
 
-            case 'ARGS_COPY_CONFIG':
+            case 'ARGS_COPY_CONFIG': {
                 // Persistence: Only satisfied if it has BOTH Auto Sell and some form of TP/SL
                 const hasAutoSell = lower.includes('auto sell');
                 const hasTPSL = lower.includes('tp:') || lower.includes('sl:');
                 return hasAutoSell && hasTPSL;
+            }
 
             case 'ARGS_CHAIN':
                 // Matches "at base", "on solana", etc.
@@ -1047,20 +1048,23 @@ export class SuggestionEngine {
             case 'ARGS_BET_AMOUNT':
                 return lower.includes('with ') && lower.includes('usdc');
 
-            case 'ARGS_CHECK_OPTION':
+            case 'ARGS_CHECK_OPTION': {
                 // Check if any Check option is present
                 const checkOptions = ['pnl', 'risk', 'balance', 'launchpad', 'information', 'early'];
                 return checkOptions.some(opt => lower.includes(opt));
+            }
 
-            case 'ARGS_WHAT_OPTION':
+            case 'ARGS_WHAT_OPTION': {
                 // Check if any What option is present
                 const whatOptions = ['trending', 'bet', 'token', 'farcaster', 'news', 'zora', 'calendar', 'market', 'pnl', 'early', 'risk', 'balance', 'gas'];
                 return whatOptions.some(opt => lower.includes(opt));
+            }
 
-            case 'ARGS_TELL_OPTION':
+            case 'ARGS_TELL_OPTION': {
                 // Check if any Tell option is present
                 const tellOptions = ['farcaster', 'trending', 'news', 'crypto'];
                 return tellOptions.some(opt => lower.includes(opt));
+            }
 
             case 'ARGS_CANCEL_TARGET':
                 // Check if cancel target is specified

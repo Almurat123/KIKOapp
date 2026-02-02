@@ -275,6 +275,14 @@ async function getBestQuoteInternal(params: BestQuoteParams): Promise<{ best: Qu
     }
 
     if (!availableQuotes.length) {
+        // If an excluded DEX caused empty results, fall back to any quote we have.
+        if (params.excludeDex && quotes.length) {
+            console.warn('[QuoteService] Excluded DEX left no quotes; falling back to any available quote', {
+                excluded: params.excludeDex,
+                available: quotes.map(q => q.dex).join(', ')
+            });
+            return { best: quotes[0], quotes };
+        }
         return { best: null as any, quotes };
     }
 

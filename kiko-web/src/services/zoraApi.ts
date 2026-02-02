@@ -38,6 +38,9 @@ export interface ZoraToken {
             small?: string;
         };
     };
+    tokenPrice?: {
+        priceInUsdc?: string;
+    };
 }
 
 /**

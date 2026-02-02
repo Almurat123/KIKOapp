@@ -14,7 +14,7 @@
     width: 100%;
     max-width: 100%;
     margin: 0;
-    background: #000000;
+    background: transparent;
     min-height: 100vh;
     box-sizing: border-box;
 }
@@ -528,11 +528,11 @@
 }
 
 .light.container {
-    background: #ffffff;
+    background: transparent;
 }
 
 .light .grid {
-    background: #ffffff;
+    background: transparent;
     border-color: #f1f1f4;
 }
 

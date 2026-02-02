@@ -5,6 +5,7 @@ import { TokenDetailPage } from './TokenDetailPage';
 import { tokenApi, type TokenSearchResult } from '../services/api';
 import { favoriteApi } from '../services/favoriteService';
 import { PageContainer } from '../components/Layout/PageContainer';
+import { Skeleton } from '../components/Skeleton';
 import styles from './TokensPage.module.css';
 import { usePageVisibility, useTabVisibility } from '../hooks/usePageVisibility';
 import { requestManager } from '../utils/requestManager';
@@ -1372,33 +1373,37 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                       <tr key={i} className={styles.tr}>
                         <td className={styles.td} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
                           <div className={styles.skeletonCell}>
-                            {!isMobile && <div className={styles.skeletonText} style={{ width: '18px', marginRight: '4px' }} />}
+                            {/* [Logic]: Use variant="text" for rank placeholder. [Ref]: Skeleton API. [Risk]: Slight alignment offset on mobile. */}
+                            {!isMobile && <Skeleton variant="text" width={18} height={14} style={{ marginRight: '4px' }} />}
                             <div className={`${styles.skeletonIconWrapper} ${isMobile ? styles.skeletonIconWrapperMobile : ''}`}>
-                              {isMobile && <div className={styles.skeletonBadge} />}
-                              <div className={styles.skeletonAvatar} />
-                              <div className={styles.skeletonChainLogo} />
+                              {isMobile && <Skeleton variant="rectangular" width={24} height={10} borderRadius={3} style={{ position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', zIndex: 2 }} />}
+                              <Skeleton variant="circular" width={32} height={32} />
+                              <Skeleton variant="circular" width={14} height={14} style={{ position: 'absolute', bottom: -2, right: -2, border: '2px solid var(--bg-primary)', zIndex: 1 }} />
                             </div>
                             <div>
-                              <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} />
-                              <div className={`${styles.skeletonText} ${styles.skeletonTextName}`} style={{ marginTop: 4 }} />
+                              <Skeleton variant="text" width={40} height={14} />
+                              <Skeleton variant="text" width={60} height={12} style={{ marginTop: 4 }} />
                             </div>
                           </div>
                         </td>
                         <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                          <div className={`${styles.skeletonText} ${styles.skeletonTextMedium}`} style={{ marginLeft: 'auto' }} />
+                          <Skeleton variant="text" width={60} height={14} style={{ marginLeft: 'auto' }} />
                         </td>
                         <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                          <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
+                          <Skeleton variant="text" width={40} height={14} style={{ marginLeft: 'auto' }} />
                         </td>
                         <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                          <div className={`${styles.skeletonText} ${styles.skeletonTextShort}`} style={{ marginLeft: 'auto' }} />
+                          <Skeleton variant="text" width={40} height={14} style={{ marginLeft: 'auto' }} />
                         </td>
                         <td className={`${styles.td} ${styles.tdRight}`} style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}>
-                          <div className={styles.skeletonText} style={{ width: '80%', marginLeft: 'auto' }} />
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                            <Skeleton variant="text" width={60} height={12} />
+                            <Skeleton variant="text" width={50} height={12} />
+                          </div>
                         </td>
                         {!isMobile && (
                           <td className={`${styles.td} ${styles.tdCenter}`} style={{ padding: '12px 16px' }}>
-                            <div className={styles.skeletonBar} style={{ width: '80%', margin: '0 auto' }} />
+                            <Skeleton variant="rectangular" width="80%" height={6} borderRadius={3} style={{ margin: '0 auto' }} />
                           </td>
                         )}
                       </tr>

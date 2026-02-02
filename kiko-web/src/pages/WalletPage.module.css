@@ -2,7 +2,7 @@
 .container {
   width: 100%;
   min-height: 100vh;
-  background: #18181b;
+  background: transparent;
   color: #f4f4f5;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   display: flex;
@@ -12,7 +12,7 @@
 
 /* Light theme - use white background */
 :global(.light) .container {
-  background: #ffffff;
+  background: transparent;
   color: #18181b;
 }
 
@@ -683,7 +683,8 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1.5px solid #18181b; /* Match theme background */
+  border: 1.5px solid #18181b;
+  /* Match theme background */
   background: #18181b;
   z-index: 2;
   object-fit: contain;

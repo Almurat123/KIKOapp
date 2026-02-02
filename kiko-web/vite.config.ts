@@ -78,11 +78,11 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/fourmeme-api/, ''),
         timeout: 10000, // 10 second timeout
         secure: true,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
             console.warn('[Vite Proxy] Four.meme API error:', err.message);
           });
-          proxy.on('proxyReq', (proxyReq, _req, _res) => {
+          proxy.on('proxyReq', (proxyReq) => {
             // Set timeout on the proxy request
             proxyReq.setTimeout(10000, () => {
               proxyReq.destroy();

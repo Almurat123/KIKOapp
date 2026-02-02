@@ -207,8 +207,8 @@ export async function getUniswapV3Quote(
       router,
       version: 'V3',
     };
-  } catch (error) {
-    console.error('Error fetching from Uniswap V3:', error);
+  } catch (_error) {
+    console.error('Error fetching from Uniswap V3:', _error);
     return null;
   }
 }
@@ -228,8 +228,8 @@ export async function getCurveQuote(
     // Curve 的报价需要通过其 API 或智能合约调用
     // 这是一个占位符实现
     return null;
-  } catch (error) {
-    console.error('Error fetching from Curve:', error);
+  } catch (_error) {
+    console.error('Error fetching from Curve:', _error);
     return null;
   }
 }

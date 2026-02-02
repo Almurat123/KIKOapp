@@ -6,6 +6,7 @@
  */
 
 import { getAuthToken } from '../utils/authToken';
+import { type AIStreamChunk, type AIClientAction } from './aiTypes';
 
 export interface XaiMessage {
   role: 'system' | 'user' | 'assistant';
@@ -22,8 +23,12 @@ export interface XaiTool {
   function?: {
     name: string;
     description?: string;
-    parameters?: any;
+    parameters?: Record<string, unknown>;
   };
+}
+
+interface GlobalWithToolCalls {
+  __processedToolCalls?: Set<string>;
 }
 
 export interface WebSearchConfig {
@@ -172,7 +177,7 @@ export function getXaiModelName(modelId?: string, mode?: string): string {
  * - Both models support up to 2M token context window
  * - Default max_tokens: 8192 for both models
  */
-export function getRecommendedMaxTokens(_modelName: string): number {
+export function getRecommendedMaxTokens(_modelName?: string): number {
   // Both models support large context, default to 8192
   return 8192;
 }
@@ -269,7 +274,7 @@ export async function chatCompletion(
     // Temperature: 0.8-0.9 is better for conversational chat
     temperature: options.temperature ?? 0.8,
     // Use recommended max_tokens based on model if not specified
-    max_tokens: options.max_tokens ?? getRecommendedMaxTokens(model),
+    max_tokens: options.max_tokens ?? getRecommendedMaxTokens(),
     stream: false,
     enable_search: options.enable_search !== false, // Enable by default
   };
@@ -291,7 +296,7 @@ export async function* streamChatCompletion(
     enable_search?: boolean; // Enable search via Python service
     tool_config?: ToolConfig; // Dynamic tool configuration
   } = {}
-): AsyncGenerator<{ content: string; citations?: Array<{ url: string; avatar_url?: string }>; tool_call?: string; tool_status?: string; client_actions?: any[]; reasoning_content?: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } }, void, unknown> {
+): AsyncGenerator<AIStreamChunk, void, unknown> {
   // [xai] Starting streamChatCompletion via Python service
   const model = options.model || DEFAULT_MODEL;
 
@@ -421,8 +426,9 @@ export async function* streamChatCompletion(
           const data = line.slice(6);
           if (data === '[DONE]') {
             // Clear processed tool calls when stream ends
-            if ((globalThis as any).__processedToolCalls) {
-              (globalThis as any).__processedToolCalls.clear();
+            const g = globalThis as unknown as GlobalWithToolCalls;
+            if (g.__processedToolCalls) {
+              g.__processedToolCalls.clear();
             }
             console.log('[xai] Stream completed. Total chunks:', chunkCount);
             // Yield any remaining citations before finishing
@@ -446,7 +452,7 @@ export async function* streamChatCompletion(
               chunkCount,
               hasChoice: !!choice,
               deltaContent: choice?.delta?.content?.substring(0, 30),
-              hasToolCalls: !!(choice?.delta?.tool_calls || choice?.tool_calls || (chunk as any).tool_call),
+              hasToolCalls: !!(choice?.delta?.tool_calls || choice?.tool_calls || (chunk as unknown as { tool_call?: string }).tool_call),
               finishReason: choice?.finish_reason
             });
 
@@ -455,25 +461,26 @@ export async function* streamChatCompletion(
             const toolCalls = choice?.delta?.tool_calls || choice?.tool_calls;
 
             // Handle client actions (custom extension for swaps)
-            const clientActions = (choice?.delta as any)?.client_actions || (chunk as any).client_actions;
+            const clientActions = (choice?.delta as unknown as { client_actions?: unknown[] })?.client_actions || (chunk as unknown as { client_actions?: unknown[] }).client_actions;
             if (clientActions && clientActions.length > 0) {
               console.log('[xai] Client actions detected:', clientActions.length);
               yield {
                 content: '',
-                client_actions: clientActions
+                client_actions: clientActions as AIClientAction[]
               };
             }
 
             // UNIFIED TOOL CALL DETECTION: Check both delta.tool_calls and top-level tool_call
             // DEDUPLICATION: Track processed tool calls to avoid duplicates
             const toolCallFromDelta = toolCalls && toolCalls.length > 0;
-            const toolCallFromTopLevel = (chunk as any).tool_call;
+            const toolCallFromTopLevel = (chunk as unknown as { tool_call?: string }).tool_call;
 
             // Use a static Set to track processed tool calls across chunks
-            if (!(globalThis as any).__processedToolCalls) {
-              (globalThis as any).__processedToolCalls = new Set<string>();
+            const g = globalThis as unknown as GlobalWithToolCalls;
+            if (!g.__processedToolCalls) {
+              g.__processedToolCalls = new Set<string>();
             }
-            const processedToolCalls = (globalThis as any).__processedToolCalls;
+            const processedToolCalls = g.__processedToolCalls;
 
             if (toolCallFromDelta || toolCallFromTopLevel) {
               // Prioritize delta.tool_calls over top-level tool_call to avoid duplicates
@@ -525,7 +532,7 @@ export async function* streamChatCompletion(
               } else if (toolCallFromTopLevel) {
                 // Fallback: use top-level tool_call if delta doesn't have it
                 const toolName = toolCallFromTopLevel;
-                const toolCallId = (chunk as any).tool_call_id || `call_${Date.now()}_${toolName}`;
+                const toolCallId = (chunk as unknown as { tool_call_id?: string }).tool_call_id || `call_${Date.now()}_${toolName}`;
 
                 // Skip if already processed
                 if (processedToolCalls.has(toolCallId)) {
@@ -593,7 +600,8 @@ export async function* streamChatCompletion(
                     normalized.push({ url: cite });
                   } else if (typeof cite === 'object' && cite !== null) {
                     // Already an object, ensure it has url field
-                    const urlValue = cite.url || String(cite);
+                    const citationObj = cite as { url?: string; avatar_url?: string; avatarUrl?: string };
+                    const urlValue = citationObj.url || String(cite);
                     if (typeof urlValue === 'string' && urlValue.startsWith('[') && urlValue.endsWith(']')) {
                       try {
                         const parsed = JSON.parse(urlValue.replace(/'/g, '"'));
@@ -601,7 +609,7 @@ export async function* streamChatCompletion(
                           // Return array of objects - will be flattened later
                           normalized.push(parsed.map((url: string) => ({
                             url,
-                            avatar_url: (cite as any).avatar_url || (cite as any).avatarUrl
+                            avatar_url: citationObj.avatar_url || citationObj.avatarUrl
                           })));
                           continue;
                         }
@@ -611,7 +619,7 @@ export async function* streamChatCompletion(
                     }
                     normalized.push({
                       url: urlValue,
-                      avatar_url: (cite as any).avatar_url || (cite as any).avatarUrl || undefined
+                      avatar_url: citationObj.avatar_url || citationObj.avatarUrl || undefined
                     });
                   } else {
                     normalized.push({ url: String(cite) });
@@ -661,7 +669,7 @@ export async function* streamChatCompletion(
             }
 
             // Yield tool_status from delta (sent by backend for custom tools)
-            const toolStatus = (choice?.delta as any)?.tool_status;
+            const toolStatus = (choice?.delta as unknown as { tool_status?: string })?.tool_status;
             if (toolStatus) {
               console.log('[xai] Tool status received:', toolStatus);
               yield {

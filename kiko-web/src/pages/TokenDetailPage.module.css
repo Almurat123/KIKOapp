@@ -4,7 +4,7 @@
     width: 100%;
     max-width: 100%;
     margin: 0;
-    background: #000000;
+    background: transparent;
     min-height: 100vh;
     box-sizing: border-box;
     display: flex;
@@ -80,8 +80,9 @@
     box-shadow: 0 8px 20px rgba(239, 68, 68, 0.15);
 }
 
-.container.light {
-    background: #ffffff;
+/* Light mode overrides */
+.light {
+    background: transparent !important;
 }
 
 

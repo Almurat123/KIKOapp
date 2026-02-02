@@ -84,7 +84,8 @@ export async function getKyberQuote(
             'Content-Type': 'application/json',
             'x-client-id': CLIENT_ID,
         },
-        timeout: 10000 // 10s timeout
+        requestTimeout: 20000,
+        retry: { retries: 1 }
     });
 
     if (!routesJson) {
@@ -158,16 +159,17 @@ export async function getKyberQuote(
     // Add timeout for Kyber build API (10 seconds)
     let buildJson: any = null;
     try {
-        buildJson = await fetchJson<any>({
-            url: buildUrl,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-client-id': CLIENT_ID,
-            },
-            body: buildBody,
-            timeout: 10000
-        });
+            buildJson = await fetchJson<any>({
+                url: buildUrl,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-client-id': CLIENT_ID,
+                },
+                body: JSON.stringify(buildBody),
+                requestTimeout: 20000,
+                retry: { retries: 1 }
+            });
     } catch (buildErr: any) {
         const errMsg = String(buildErr?.message || '');
         const isBindError = errMsg.includes('unable to bind request body') || errMsg.includes('4002');
@@ -187,8 +189,9 @@ export async function getKyberQuote(
                         'Content-Type': 'application/json',
                         'x-client-id': CLIENT_ID,
                     },
-                    body: minimalBody,
-                    timeout: 10000
+                    body: JSON.stringify(minimalBody),
+                    requestTimeout: 20000,
+                    retry: { retries: 1 }
                 });
             } catch (retryErr: any) {
                 throw retryErr;

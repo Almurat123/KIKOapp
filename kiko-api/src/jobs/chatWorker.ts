@@ -780,18 +780,7 @@ export class ChatWorker {
             const session = await this.repo.getSession(task.sessionId);
             userId = session?.userId || null;
 
-            this.ws.broadcastToUser(userId!, {
-                type: 'task_status',
-                sessionId: task.sessionId,
-                data: { taskId: task.id, status: 'running', message: 'Analyzing query', taskType: 'text' }
-            });
-
             // 2. Load context
-            this.ws.broadcastToUser(userId!, {
-                type: 'task_status',
-                sessionId: task.sessionId,
-                data: { taskId: task.id, status: 'running', message: 'Loading history', taskType: 'text' }
-            });
             const messages = await this.repo.getSessionMessages(task.sessionId);
             let conversationHistory = messages.map(msg => ({
                 role: msg.role,
@@ -807,14 +796,20 @@ export class ChatWorker {
             // we must strip the tool_calls to avoid API errors
             conversationHistory = this.sanitizeToolCallHistory(conversationHistory);
 
-            // 2.5 Backend Moderation Check
             const lastUserMsg = conversationHistory.filter(m => m.role === 'user').pop();
+            const lastUserContent = lastUserMsg?.content || '';
+            const fastSwapCandidate =
+                (task.toolContext?.allowanceMode === 'instant' || task.toolContext?.toolConfig?.fastSwapMode) &&
+                /\b(swap|buy|sell|trade|exchange|convert|purchase|ape|买|卖|兑换|换)\b/i.test(lastUserContent);
+            (task as any).fastSwapCandidate = fastSwapCandidate;
+            const taskType = fastSwapCandidate ? 'card' : 'text';
+
+            this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Analyzing query', taskType });
+            this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Loading history', taskType });
+
+            // 2.5 Backend Moderation Check
             if (lastUserMsg && lastUserMsg.content) {
-                this.ws.broadcastToUser(userId!, {
-                    type: 'task_status',
-                    sessionId: task.sessionId,
-                    data: { taskId: task.id, status: 'running', message: 'Verifying safety', taskType: 'text' }
-                });
+                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Verifying safety', taskType });
                 const modResult = await moderationClient.moderateInput(lastUserMsg.content, {}, userId, task.sessionId, task.model);
                 if (!modResult.safe) {
                     throw new Error(modResult.checks?.intent?.reason || 'Message blocked by security policy');
@@ -839,7 +834,7 @@ export class ChatWorker {
             }
 
             // Always broadcast success/completion to UI even if DB was flaky
-            this.ws.broadcastToUser(userId!, { type: 'task_status', sessionId: task.sessionId, data: { taskId: task.id, status: 'done' } });
+            this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'done' });
             this.ws.broadcastToUser(userId!, { type: 'message_complete', sessionId: task.sessionId, data: { messageId: task.assistantMessageId } });
             logger.debug(LogCode.AI_API_CALL, 'ChatWorker: task completed successfully', { taskId: task.id });
 
@@ -848,11 +843,7 @@ export class ChatWorker {
 
             // 1. Always notify frontend of error so it can stop spinners
             try {
-                this.ws.broadcastToUser(userId!, {
-                    type: 'task_status',
-                    sessionId: task.sessionId,
-                    data: { taskId: task.id, status: 'error', error: error.message }
-                });
+                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'error', error: error.message });
                 if (task.assistantMessageId) {
                     this.ws.broadcastToUser(userId!, {
                         type: 'message_complete',
@@ -874,6 +865,20 @@ export class ChatWorker {
                 console.error(`[ChatWorker] Failed to record task error in DB for ${task.id}:`, dbErr);
             }
         }
+    }
+
+    private broadcastTaskStatus(userId: string | null, task: AITask, data: Record<string, any>) {
+        if (!userId || !task.sessionId) return;
+        const taskType = (task as any).fastSwapCandidate ? 'card' : 'text';
+        const payload = { ...data };
+        if (payload.taskType === undefined) {
+            payload.taskType = taskType;
+        }
+        this.ws.broadcastToUser(userId, {
+            type: 'task_status',
+            sessionId: task.sessionId,
+            data: payload,
+        });
     }
 
     /**
@@ -942,11 +947,7 @@ export class ChatWorker {
         if (informationalRegex.test(lastUserMessage)) {
             console.log(`[ChatWorker] 🎯 RAG: Match found! Query looks informational.`);
             try {
-                this.ws.broadcastToUser(userId!, {
-                    type: 'task_status',
-                    sessionId: task.sessionId,
-                    data: { taskId: task.id, status: 'running', message: 'Searching knowledge base' }
-                });
+                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Searching knowledge base' });
 
                 ragContext = await ragClient.query(lastUserMessage);
                 if (ragContext) {
@@ -969,15 +970,11 @@ export class ChatWorker {
             console.log(`[ChatWorker] DeepSeek iteration ${iteration}/${maxIterations} for task ${task.id}`);
 
             // Broadcast iteration status to frontend
-            this.ws.broadcastToUser(userId!, {
-                type: 'task_status',
-                sessionId: task.sessionId,
-                data: {
-                    status: 'running',
-                    iteration,
-                    maxIterations,
-                    message: iteration > 1 ? `Processing tool results (${iteration}/${maxIterations})` : 'Thinking'
-                }
+            this.broadcastTaskStatus(userId, task, {
+                status: 'running',
+                iteration,
+                maxIterations,
+                message: iteration > 1 ? `Processing tool results (${iteration}/${maxIterations})` : 'Thinking'
             });
 
             // Check if task was cancelled
@@ -1017,12 +1014,9 @@ export class ChatWorker {
             });
 
             // Parse intent from user message
+            const taskType = (task as any).fastSwapCandidate ? 'card' : 'text';
             if (task.sessionId) {
-                this.ws.broadcastToUser(userId!, {
-                    type: 'task_status',
-                    sessionId: task.sessionId,
-                    data: { status: 'running', message: 'Checking wallet' }
-                });
+                this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Checking wallet', taskType });
             }
             const parsedIntent = await parseIntent(lastUserMessage, {
                 userAddress: task.toolContext?.walletAddress,
@@ -1034,11 +1028,7 @@ export class ChatWorker {
             }
 
             if (task.sessionId) {
-                this.ws.broadcastToUser(userId!, {
-                    type: 'task_status',
-                    sessionId: task.sessionId,
-                    data: { status: 'running', message: 'Identifying intent' }
-                });
+                this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Identifying intent', taskType });
             }
 
             // Use high-level intent for system prompt selection
@@ -1252,13 +1242,40 @@ export class ChatWorker {
 
                 console.log(`[ChatWorker] Chain detection: tokenIn=${tokenIn.slice(0, 10)}..., actualChain=${actualChainName}`);
 
+                // Ensure wallet address is available for fast swap execution
+                let resolvedWalletAddress = task.toolContext?.walletAddress;
+                const resolvedUserId = task.toolContext?.userId;
+                if (!resolvedWalletAddress && resolvedUserId) {
+                    try {
+                        if (actualChainName === 'solana') {
+                            const solAddress = await privyWallet.getSolanaEmbeddedWalletAddress(resolvedUserId);
+                            if (solAddress) {
+                                resolvedWalletAddress = solAddress;
+                            }
+                        } else {
+                            const evmAddress = await privyWallet.getEmbeddedWalletAddress(resolvedUserId);
+                            if (evmAddress) {
+                                resolvedWalletAddress = evmAddress;
+                            }
+                        }
+                        if (resolvedWalletAddress) {
+                            task.toolContext = {
+                                ...task.toolContext,
+                                walletAddress: resolvedWalletAddress
+                            };
+                        }
+                    } catch (err) {
+                        console.warn('[ChatWorker] Failed to resolve wallet address for fast swap:', (err as Error).message);
+                    }
+                }
+
                 // Handle percentage/all amounts
                 const amountInStr = String(amountIn);
                 if (amountInStr === 'all' || amountInStr.endsWith('%')) {
                     console.log(`[ChatWorker] 🧮 Calculating ${amountIn} amount for ${tokenIn}`);
                     // ⚡ SKIP status broadcast - directly fetch balance
                     try {
-                        let walletAddress = task.toolContext?.walletAddress;
+                        let walletAddress = task.toolContext?.walletAddress || resolvedWalletAddress;
                         const userId = task.toolContext?.userId;
 
                         // Use appropriate wallet for the detected chain
@@ -1494,7 +1511,7 @@ export class ChatWorker {
                     try {
                         swapResult = await MainSwapService.executeSwap({
                             userId: task.toolContext?.userId || '',
-                            walletAddress: task.toolContext?.walletAddress || '',
+                            walletAddress: task.toolContext?.walletAddress || resolvedWalletAddress || '',
                             tokenIn,
                             tokenOut,
                             amountIn,
@@ -1560,12 +1577,13 @@ export class ChatWorker {
                                 type: 'message_complete',
                                 sessionId: task.sessionId,
                                 data: {
-                                    message_id: assistantMessageId,
+                                    messageId: assistantMessageId,
                                 },
                             });
                         }
 
                         await this.repo.updateTaskStatus(task.id, 'done');
+                        this.broadcastTaskStatus(taskUserId || userId, task, { taskId: task.id, status: 'done' });
                         return;
                     }
 
@@ -1642,17 +1660,15 @@ export class ChatWorker {
                             type: 'message_complete',
                             sessionId: task.sessionId,
                             data: {
-                                message_id: assistantMessageId,
+                                messageId: assistantMessageId,
                             },
                         });
                     }
 
                     // If swap was successful, complete the task and return
-                    if (swapResult.success) {
-                        await this.repo.updateTaskStatus(task.id, 'done');
-                        return;
-                    }
-                    // Otherwise, continue to normal LLM processing as fallback
+                    await this.repo.updateTaskStatus(task.id, 'done');
+                    this.broadcastTaskStatus(taskUserId || userId, task, { taskId: task.id, status: 'done' });
+                    return;
 
                 } // end else (amountIn is valid)
 
@@ -1701,11 +1717,7 @@ export class ChatWorker {
                 if (!tokenInfo) {
                     // Try to find token on any chain
                     if (task.sessionId) {
-                        this.ws.broadcastToUser(userId!, {
-                            type: 'task_status',
-                            sessionId: task.sessionId,
-                            data: { status: 'running', message: 'Scanning tokens' }
-                        });
+                        this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Scanning tokens' });
 
                     }
                     const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
@@ -2053,11 +2065,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
 
                 // Use Orchestrator to build the full prompt with context and anti-override
                 if (task.sessionId) {
-                    this.ws.broadcastToUser(userId!, {
-                        type: 'task_status',
-                        sessionId: task.sessionId,
-                        data: { status: 'running', message: 'Building context' }
-                    });
+                    this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Building context' });
                 }
                 const extraBlocks: string[] = [];
                 if (tokenContextBlock) extraBlocks.push(tokenContextBlock);
@@ -2154,11 +2162,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             // 4. content chunks (sent during streaming)
             console.log(`[ChatWorker] Broadcasting Thinking status for ${assistantMessageId}. Message order: message_start → launchpad_card → Thinking → content_chunks`);
 
-            this.ws.broadcastToUser(userId!, {
-                type: 'task_status',
-                sessionId: task.sessionId,
-                data: { status: 'running', message: 'Thinking' }
-            });
+            this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Thinking' });
 
             let response: Response | undefined;
             let retryCount = 0;
@@ -3081,14 +3085,10 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 }
 
                 // Broadcast tool execution status
-                if (sessionId) {
-                    this.ws.broadcastToUser(userId!, {
-                        type: 'task_status',
-                        sessionId: sessionId,
-                        data: {
-                            status: 'running',
-                            message: this.getToolStatusMessage(tc.function.name)
-                        }
+                if (sessionId && execState?.task) {
+                    this.broadcastTaskStatus(userId, execState.task, {
+                        status: 'running',
+                        message: this.getToolStatusMessage(tc.function.name)
                     });
                 }
 
@@ -3351,11 +3351,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         logger.info(LogCode.AI_API_CALL, 'Grok: message_start sent', { assistantMessageId, taskId: task.id });
 
         // Parse intent from user message
-        this.ws.broadcastToUser(userId!, {
-            type: 'task_status',
-            sessionId: task.sessionId,
-            data: { status: 'running', message: 'Checking wallet' }
-        });
+        this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Checking wallet' });
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
         const baseToolDefs = getFilteredTools(lastUserMessage);
         let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
@@ -3367,11 +3363,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         });
         await this.recordIntentTrace(task, sessionMessages, parsedIntent, lastUserMessage);
 
-        this.ws.broadcastToUser(userId!, {
-            type: 'task_status',
-            sessionId: task.sessionId,
-            data: { status: 'running', message: 'Identifying intent' }
-        });
+        this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Identifying intent' });
 
         // Use high-level intent for system prompt selection
         const intent: IntentType = parsedIntent.highLevel.type;
@@ -3476,11 +3468,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         let officialSites: string[] = [];
 
         if (parsedIntent.contractAddress) {
-            this.ws.broadcastToUser(userId!, {
-                type: 'task_status',
-                sessionId: task.sessionId,
-                data: { status: 'running', message: 'Scanning tokens' }
-            });
+            this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Scanning tokens' });
 
             logger.info(LogCode.AI_TOKEN_DETECTED, 'Grok: contract address detected', { contractAddress: parsedIntent.contractAddress });
             const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
@@ -3580,11 +3568,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         }
 
         // Build enriched user message with context (similar to DeepSeek)
-        this.ws.broadcastToUser(userId!, {
-            type: 'task_status',
-            sessionId: task.sessionId,
-            data: { status: 'running', message: 'Building context' }
-        });
+        this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Building context' });
         let enrichedHistory = [...history];
         const lastUserIndex = enrichedHistory.map(m => m.role).lastIndexOf('user');
         let tokenContextAvailable = false;
@@ -3749,11 +3733,7 @@ Status: unavailable (balance data not available from cache).`;
         const last7dIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
 
         // Broadcast Thinking state before API call
-        this.ws.broadcastToUser(userId!, {
-            type: 'task_status',
-            sessionId: task.sessionId,
-            data: { status: 'running', message: 'Thinking' }
-        });
+        this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Thinking' });
 
         // Call grok-service
         const accessToken = task.toolContext?.accessToken;

@@ -11,28 +11,23 @@ import { AIApiService } from './aiApiService';
 import { AIExtendedIntentParser } from './aiExtendedIntentParser';
 import { logger } from '../utils/logger';
 
+import { type AIStreamChunk, type AIClientAction, type AICitation } from './aiTypes';
+
+// Export these for backward compatibility if needed by other files
+export type { AIClientAction, AICitation };
+
 // Types that have their own API handlers in AIApiService
 const typesWithOwnHandlersInApi = ['TOKEN_SECURITY', 'RISK_ASSESSMENT'];
-export interface StreamResponse {
-  content: string;
+
+export interface StreamResponse extends AIStreamChunk {
   intent?: Intent;
-  citations?: Array<{ url: string; avatar_url?: string }>;
-  tool_call?: string;
-  tool_status?: string;
-  reasoning_content?: string;
-  client_actions?: any[];
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
 }
 export interface AIResponse {
   content: string;
   intent?: Intent;
   intentType?: IntentType;
   shouldShowCard?: boolean;
-  cardData?: any;
+  cardData?: Record<string, unknown>;
 }
 
 export interface UserContext {
@@ -116,7 +111,7 @@ export async function generateAIResponse(
       shouldShowCard,
       cardData,
     };
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error('AI', 'AI service error', error);
     return {
       content: 'I apologize, but I encountered an error. Please try again.',
@@ -419,7 +414,7 @@ export async function* streamAIResponse(
         intent.action.startsWith('wallet_') ||
         intent.action === 'swap'); // Include swap to get quote
 
-    let apiData: any = null;
+    let apiData: unknown = null;
     if (shouldCallApi) {
       try {
         // Parse extended intent for API calls
@@ -480,7 +475,7 @@ export async function* streamAIResponse(
               const balance = await getUserBalance(userContext.userAddress, tokenInAddress, chainId);
 
               if (priceData || balance) {
-                const swapInfo: any = {};
+                const swapInfo: Record<string, unknown> = {};
                 if (priceData) {
                   swapInfo.prices = priceData;
                   swapInfo.estimatedAmountOut = intent.amount && priceData.tokenInPrice && priceData.tokenOutPrice
@@ -568,10 +563,10 @@ export async function* streamAIResponse(
           }
 
           // Extract usage from Grok chunk if available
-          const grokUsage = (chunk as any).usage ? {
-            prompt_tokens: (chunk as any).usage.prompt_tokens || 0,
-            completion_tokens: (chunk as any).usage.completion_tokens || 0,
-            total_tokens: (chunk as any).usage.total_tokens || 0
+          const grokUsage = chunk.usage ? {
+            prompt_tokens: chunk.usage.prompt_tokens || 0,
+            completion_tokens: chunk.usage.completion_tokens || 0,
+            total_tokens: chunk.usage.total_tokens || 0
           } : undefined;
 
           if (grokUsage) {
@@ -582,17 +577,18 @@ export async function* streamAIResponse(
             content: chunk.content,
             intent: fullContent.length < 50 ? intent : undefined,
             citations: xaiCitations,
-            reasoning_content: (chunk as any).reasoning_content,
-            tool_call: (chunk as any).tool_call,
-            tool_status: (chunk as any).tool_status,
-            client_actions: (chunk as any).client_actions,
+            reasoning_content: chunk.reasoning_content,
+            tool_call: chunk.tool_call,
+            tool_status: chunk.tool_status,
+            client_actions: chunk.client_actions as AIClientAction[] | undefined,
             usage: grokUsage
           };
         }
-      } catch (xaiError: any) {
+      } catch (xaiError: unknown) {
+        const err = xaiError as Error;
         // If X.ai API fails (e.g., API key not set), throw error instead of falling back
-        console.error('[aiService] X.ai API error:', xaiError);
-        throw new Error(`X.ai API error: ${xaiError.message || 'Failed to call X.ai API. Please check your VITE_XAI_API_KEY environment variable.'} `);
+        console.error('[aiService] X.ai API error:', err);
+        throw new Error(`X.ai API error: ${err.message || 'Failed to call X.ai API. Please check your VITE_XAI_API_KEY environment variable.'} `);
       }
     } else {
       // Use DeepSeek API (default)
@@ -617,11 +613,11 @@ export async function* streamAIResponse(
       // Configure allowed tools based on mode
       // Remove tool restrictions - allow all tools in both fast and thinking modes
       // Thinking mode only affects reasoning_content display, not tool availability
-      let allowedTools: string[] | undefined = undefined; // undefined = no filter, allow all tools
+      const allowedTools: string[] | undefined = undefined; // undefined = no filter, allow all tools
 
       console.log('[aiService] Allowing ALL tools for mode:', mode);
 
-      let deepseekCitations: string[] | undefined;
+      let deepseekCitations: Array<{ url: string; avatar_url?: string }> | undefined;
 
       for await (const chunk of streamChatCompletion(messages, {
         temperature: 0.8, // Better for conversational chat (0.8-0.9 range)
@@ -645,14 +641,14 @@ export async function* streamAIResponse(
 
         fullContent += chunk.content;
 
-        // Convert citations to Grok-compatible format (array of objects with url)
-        const formattedCitations = deepseekCitations?.map(url => ({ url }));
+        // Citations are now pre-formatted by deepseek service
+        const formattedCitations = deepseekCitations;
 
         // Extract usage from DeepSeek chunk if available
-        const deepseekUsage = (chunk as any).usage ? {
-          prompt_tokens: (chunk as any).usage.prompt_tokens || 0,
-          completion_tokens: (chunk as any).usage.completion_tokens || 0,
-          total_tokens: (chunk as any).usage.total_tokens || 0
+        const deepseekUsage = chunk.usage ? {
+          prompt_tokens: chunk.usage.prompt_tokens || 0,
+          completion_tokens: chunk.usage.completion_tokens || 0,
+          total_tokens: chunk.usage.total_tokens || 0
         } : undefined;
 
         if (deepseekUsage) {
@@ -664,7 +660,7 @@ export async function* streamAIResponse(
           intent: fullContent.length < 50 ? intent : undefined,
           citations: formattedCitations,
           reasoning_content: chunk.reasoning_content, // Pass thinking process to frontend
-          client_actions: chunk.client_actions, // Pass client actions to frontend
+          client_actions: chunk.client_actions as AIClientAction[] | undefined, // Pass client actions to frontend
           usage: deepseekUsage
         };
       }
@@ -672,24 +668,25 @@ export async function* streamAIResponse(
 
     // Yield final intent after streaming completes
     yield { content: '', intent };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as Error;
     // If aborted, don't yield error message - just stop
-    if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+    if (err.name === 'AbortError' || err.message?.includes('aborted')) {
       return;
     }
 
     // Log other errors with more details
-    console.error('[aiService] AI streaming error:', error);
+    console.error('[aiService] AI streaming error:', err);
     console.error('[aiService] Error details:', {
-      message: error.message,
-      name: error.name,
-      stack: error.stack,
+      message: err.message,
+      name: err.name,
+      stack: err.stack,
     });
 
     // Check if it's an X.ai API key error
-    if (error.message?.includes('VITE_XAI_API_KEY')) {
+    if (err.message?.includes('VITE_XAI_API_KEY')) {
       yield {
-        content: `❌ X.ai API error: please check VITE_XAI_API_KEY is set.\n\nDetails: ${error.message} `,
+        content: `❌ X.ai API error: please check VITE_XAI_API_KEY is set.\n\nDetails: ${err.message} `,
         intent: {
           version: '1.0',
           intent_id: `error - ${Date.now()} `,
@@ -700,7 +697,7 @@ export async function* streamAIResponse(
       };
     } else {
       yield {
-        content: `❌ Error: ${error.message || 'Something went wrong, please try again later.'} `,
+        content: `❌ Error: ${err.message || 'Something went wrong, please try again later.'} `,
         intent: {
           version: '1.0',
           intent_id: `error - ${Date.now()} `,

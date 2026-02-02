@@ -71,8 +71,8 @@ export const useConversations = () => {
             id: s.id,
             title: s.title,
             messages: [],
-            createdAt: new Date(s.created_at).getTime(),
-            updatedAt: new Date(s.updated_at).getTime(),
+            createdAt: new Date(s.createdAt || s.created_at).getTime(),
+            updatedAt: new Date(s.updatedAt || s.updated_at).getTime(),
             model: s.model,
           }));
           setConversations(newConversations);
@@ -100,8 +100,8 @@ export const useConversations = () => {
           id: s.id,
           title: s.title,
           messages: [],
-          createdAt: new Date(s.created_at).getTime(),
-          updatedAt: new Date(s.updated_at).getTime(),
+          createdAt: new Date((s as any).createdAt || (s as any).created_at).getTime(),
+          updatedAt: new Date((s as any).updatedAt || (s as any).updated_at).getTime(),
           model: s.model,
         };
         setConversations(prev => {
@@ -254,7 +254,7 @@ export const useConversations = () => {
           }
 
           console.log('[useConversations] Preserving local message not in DB:', localMsg.id, localMsg.role);
-          mergedMessages.push(localMsg);
+          mergedMessages.push(localMsg as typeof dbMessages[number]);
         }
 
         updateConversation(id, mergedMessages);
