@@ -239,6 +239,7 @@ export class ZoraAlertService {
                 },
                 select: {
                     id: true,
+                    privyDid: true,
                     farcasterFid: true
                 }
             });
@@ -257,7 +258,7 @@ export class ZoraAlertService {
                 if (!user.farcasterFid) continue;
 
                 notificationService.sendNotification({
-                    userId: user.id,
+                    userId: user.privyDid,
                     farcasterFid: user.farcasterFid,
                     type: 'ALPHA_CANDIDATE',
                     data: {
@@ -268,7 +269,7 @@ export class ZoraAlertService {
                         zoraUrl: data.zoraUrl
                     }
                 }).catch(err => {
-                    logger.warn(LogCode.API_NOTIFY_FAILED, 'Failed to send broadcast', { userId: user.id, error: err.message });
+                    logger.warn(LogCode.API_NOTIFY_FAILED, 'Failed to send broadcast', { userId: user.privyDid, error: err.message });
                 });
             }
 

@@ -104,7 +104,7 @@ export const CreateCopyTradeConfigTool: Tool = {
             // --- Check for existing configuration to prevent duplication ---
             const existingConfig = await prisma.copyTradeConfig.findFirst({
                 where: {
-                    userId: user.id,
+                    userId: user.privyDid,
                     targetWallet: normalizedWallet,
                     chainId: chainId,
                 }
@@ -149,7 +149,7 @@ export const CreateCopyTradeConfigTool: Tool = {
 
             const config = await prisma.copyTradeConfig.create({
                 data: {
-                    userId: user.id,
+                    userId: user.privyDid,
                     targetWallet: normalizedWallet,
                     chainId: chainId,
                     buyAmountUsd: args.buy_amount_usd,
@@ -385,7 +385,7 @@ export const PauseCopyTradeConfigTool: Tool = {
 
             const result = await prisma.copyTradeConfig.updateMany({
                 where: {
-                    userId: user.id,
+                    userId: user.privyDid,
                     targetWallet: normalizeAddress(args.target_wallet)
                 },
                 data: { status }

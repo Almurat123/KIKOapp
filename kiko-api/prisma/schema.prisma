@@ -45,15 +45,21 @@ model User {
   email               String?                @unique
   referralCode        String?                @unique
   referredBy          String?
+  billingBlocks       BillingBlock[]
+  billingConsents     BillingConsent[]
+  billingUsage        BillingUsageLedger[]
+  chatSessions        ChatSession[]
   configs             CopyTradeConfig[]
+  dailyBilling        DailyBilling[]
   favorites           FavoriteToken[]
   polymarketActions   PolymarketAction[]
+  polymarketApiCreds  PolymarketApiCreds?
   polymarketConfigs   PolymarketCopyConfig[]
   polymarketPositions PolymarketPosition[]
   positions           Position[]
+  settings            UserSettings?
   swapHistory         SwapHistory[]
   userActivities      UserActivity[]
-  settings            UserSettings?
   walletExports       WalletExport[]
 }
 
@@ -63,7 +69,7 @@ model WalletExport {
   walletAddress String
   chainType     String
   exportedAt    DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@unique([userId, walletAddress])
   @@index([userId])
@@ -91,7 +97,7 @@ model UserSettings {
   minMarketCapUsd               Float?
   minTargetValueUsd             Float?
   zoraNotificationThreshold     Int?     @default(5000)
-  user                          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                          User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 }
 
 model CopyTradeConfig {
@@ -112,7 +118,8 @@ model CopyTradeConfig {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   analyses          CopyTradeAnalysis[]
-  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions         Position[]
+  user              User                @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([targetWallet])
   @@index([userId])
@@ -144,7 +151,6 @@ model TrackedWallet {
   createdAt          DateTime  @default(now())
 
   @@id([address, chainId])
-  @@unique([address, chainId])
 }
 
 model PolymarketCopyConfig {
@@ -157,7 +163,7 @@ model PolymarketCopyConfig {
   mirrorSell   Boolean              @default(true)
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
-  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User                 @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
   positions    PolymarketPosition[]
 
   @@index([targetWallet])
@@ -203,6 +209,7 @@ model BillingUsageLedger {
   dateUtc            DateTime @db.Date @map("date_utc")
   isFree             Boolean  @default(false) @map("is_free")
   createdAt          DateTime @default(now()) @map("created_at")
+  user               User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId, dateUtc])
   @@index([modelCategory])
@@ -210,21 +217,22 @@ model BillingUsageLedger {
 }
 
 model DailyBilling {
-  id            String   @id @default(uuid())
-  userId        String   @map("user_id")
-  dateUtc       DateTime @db.Date @map("date_utc")
-  totalUsd      Decimal  @default(0) @db.Decimal @map("total_usd")
-  tokenPriceUsd Decimal  @default(0) @db.Decimal @map("token_price_usd")
-  tokensDue     Decimal  @default(0) @db.Decimal @map("tokens_due")
-  tokenAddress  String   @map("token_address")
-  chainId       Int      @map("chain_id")
-  status        String   @default("pending")
-  attempts      Int      @default(0)
-  txHash        String?  @map("tx_hash")
-  failureReason String?  @map("failure_reason")
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  dateUtc       DateTime  @db.Date @map("date_utc")
+  totalUsd      Decimal   @default(0) @db.Decimal @map("total_usd")
+  tokenPriceUsd Decimal   @default(0) @db.Decimal @map("token_price_usd")
+  tokensDue     Decimal   @default(0) @db.Decimal @map("tokens_due")
+  tokenAddress  String    @map("token_address")
+  chainId       Int       @map("chain_id")
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  txHash        String?   @map("tx_hash")
+  failureReason String?   @map("failure_reason")
   lastAttemptAt DateTime? @map("last_attempt_at")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+  user          User      @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@unique([userId, dateUtc])
   @@index([userId, dateUtc])
@@ -237,6 +245,7 @@ model BillingBlock {
   dateUtc   DateTime @db.Date @map("date_utc")
   reason    String?
   createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@unique([userId, dateUtc])
   @@index([userId, dateUtc])
@@ -244,18 +253,19 @@ model BillingBlock {
 }
 
 model BillingConsent {
-  id            String   @id @default(uuid())
-  userId        String   @map("user_id")
-  walletAddress String   @map("wallet_address")
-  chainId       Int      @map("chain_id")
-  authKeyId     String?  @map("auth_key_id")
-  termsVersion  String   @map("terms_version")
-  status        String   @default("active")
-  consentedAt   DateTime @default(now()) @map("consented_at")
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  walletAddress String    @map("wallet_address")
+  chainId       Int       @map("chain_id")
+  authKeyId     String?   @map("auth_key_id")
+  termsVersion  String    @map("terms_version")
+  status        String    @default("active")
+  consentedAt   DateTime  @default(now()) @map("consented_at")
   revokedAt     DateTime? @map("revoked_at")
-  source        String?  @map("source")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  source        String?   @map("source")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+  user          User      @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@unique([userId, chainId])
   @@index([userId])
@@ -282,7 +292,7 @@ model PolymarketPosition {
   closedAt      DateTime?
   resolvedAt    DateTime?
   config        PolymarketCopyConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User                 @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
@@ -299,6 +309,7 @@ model PolymarketApiCreds {
   nonce         Int?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([walletAddress])
 }
@@ -319,14 +330,14 @@ model PolymarketAction {
   error       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
   @@index([createdAt])
 }
 
 model Position {
-  id                String    @id @default(cuid())
+  id                String          @id @default(cuid())
   userId            String
   configId          String
   tokenAddress      String
@@ -340,8 +351,8 @@ model Position {
   profitLossPct     Float?
   exitTxHash        String?
   exitReason        String?
-  status            String    @default("open")
-  createdAt         DateTime  @default(now())
+  status            String          @default("open")
+  createdAt         DateTime        @default(now())
   closedAt          DateTime?
   executionDelayMs  Int?
   exitAmount        String?
@@ -357,11 +368,13 @@ model Position {
   ourSlippageBps    Int?
   realizedPnlPct    Float?
   realizedPnlUsd    Float?
-  exitRetryCount    Int       @default(0)
+  exitRetryCount    Int             @default(0)
   lastExitAttempt   DateTime?
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  config            CopyTradeConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  user              User            @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
+  @@index([configId])
   @@index([status])
   @@index([tokenAddress])
 }
@@ -376,6 +389,7 @@ model ChatSession {
   updatedAt DateTime      @updatedAt
   tasks     AITask[]
   messages  ChatMessage[]
+  user      User          @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -516,7 +530,7 @@ model FavoriteToken {
   chain     String
   address   String
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@unique([userId, chain, address])
   @@index([userId])
@@ -739,7 +753,7 @@ model UserActivity {
   copyTrades    Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([userId])
@@ -766,7 +780,7 @@ model SwapHistory {
   aiSessionId     String?
   createdAt       DateTime  @default(now())
   confirmedAt     DateTime?
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
   @@index([chainId])

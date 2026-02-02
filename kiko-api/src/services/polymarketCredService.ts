@@ -8,6 +8,7 @@
 import prisma from '../db/prisma.js';
 import { signTypedData, getEmbeddedWalletInfo } from './privyWallet.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { encrypt, decrypt } from '../utils/encryption.js';
 
 const CLOB_API = 'https://clob.polymarket.com';
 
@@ -54,12 +55,22 @@ export async function hasCredentials(userId: string): Promise<boolean> {
 }
 
 /**
- * Get user's stored credentials
+ * Get user's stored credentials (decrypted)
  */
 export async function getCredentials(userId: string) {
-    return prisma.polymarketApiCreds.findUnique({
+    const creds = await prisma.polymarketApiCreds.findUnique({
         where: { userId }
     });
+
+    if (!creds) return null;
+
+    // Decrypt sensitive fields
+    return {
+        ...creds,
+        apiKey: decrypt(creds.apiKey),
+        apiSecret: decrypt(creds.apiSecret),
+        passphrase: decrypt(creds.passphrase)
+    };
 }
 
 /**
@@ -145,12 +156,13 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
 
         if (existing) {
             console.log('[PolymarketCreds] User already has credentials');
+            // Decrypt stored credentials before returning
             return {
                 success: true,
                 credentials: {
-                    apiKey: existing.apiKey,
-                    apiSecret: existing.apiSecret,
-                    passphrase: existing.passphrase
+                    apiKey: decrypt(existing.apiKey),
+                    apiSecret: decrypt(existing.apiSecret),
+                    passphrase: decrypt(existing.passphrase)
                 }
             };
         }
@@ -178,14 +190,14 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
             if (deriveResult.apiKey) {
                 console.log('[PolymarketCreds] Derived existing API key successfully');
 
-                // Store credentials in database
+                // Store credentials in database (encrypted)
                 await prisma.polymarketApiCreds.create({
                     data: {
                         userId,
                         walletAddress,
-                        apiKey: deriveResult.apiKey,
-                        apiSecret: deriveResult.secret!,
-                        passphrase: deriveResult.passphrase!,
+                        apiKey: encrypt(deriveResult.apiKey),
+                        apiSecret: encrypt(deriveResult.secret!),
+                        passphrase: encrypt(deriveResult.passphrase!),
                         nonce
                     }
                 });
@@ -225,14 +237,14 @@ export async function createOrDeriveCredentials(userId: string): Promise<{
 
         console.log('[PolymarketCreds] API key created successfully');
 
-        // Store credentials in database
+        // Store credentials in database (encrypted)
         await prisma.polymarketApiCreds.create({
             data: {
                 userId,
                 walletAddress,
-                apiKey: result.apiKey,
-                apiSecret: result.secret!,
-                passphrase: result.passphrase!,
+                apiKey: encrypt(result.apiKey),
+                apiSecret: encrypt(result.secret!),
+                passphrase: encrypt(result.passphrase!),
                 nonce
             }
         });

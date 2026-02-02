@@ -76,7 +76,7 @@ export const CreatePolymarketCopyConfigTool: Tool = {
 
         // Check if config already exists
         const existingConfig = await prisma.polymarketCopyConfig.findFirst({
-            where: { userId: user.id, targetWallet }
+            where: { userId: user.privyDid, targetWallet }
         });
 
         if (existingConfig) {
@@ -103,7 +103,7 @@ export const CreatePolymarketCopyConfigTool: Tool = {
         // Create config
         const config = await prisma.polymarketCopyConfig.create({
             data: {
-                userId: user.id,
+                userId: user.privyDid,
                 targetWallet,
                 betSizeUsd,
                 mirrorSell,
@@ -171,7 +171,7 @@ export const ListPolymarketPositionsTool: Tool = {
 
         const positions = await prisma.polymarketPosition.findMany({
             where: {
-                userId: user.id, // Use internal ID
+                userId: user.privyDid, // Use internal ID
                 ...(statusFilter !== 'all' ? { status: statusFilter } : {})
             },
             orderBy: { createdAt: 'desc' },

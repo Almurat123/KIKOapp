@@ -104,7 +104,7 @@ export const polymarketRoutes: FastifyPluginAsync = async (fastify) => {
             }
 
             const configs = await prisma.polymarketCopyConfig.findMany({
-                where: { userId: dbUser.id },
+                where: { userId: dbUser.privyDid },
                 orderBy: { createdAt: 'desc' }
             });
 

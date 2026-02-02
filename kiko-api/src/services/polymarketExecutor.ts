@@ -225,7 +225,7 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
 
         // Record action in DB
         await logPolymarketAction({
-            userId: user.id,
+            userId: user.privyDid,
             type: 'BUY',
             status: result.success ? 'SUCCESS' : 'FAILED',
             marketTitle: params.question,
@@ -242,7 +242,7 @@ export async function placeBuyOrder(params: BuyOrderParams): Promise<{ success: 
         // Create position record
         await prisma.polymarketPosition.create({
             data: {
-                userId: user.id,
+                userId: user.privyDid,
                 configId: params.configId,
                 marketSlug: params.marketSlug,
                 conditionId: params.conditionId,
@@ -335,7 +335,7 @@ export async function placeSellOrder(params: SellOrderParams): Promise<{ success
                 }
 
                 await logPolymarketAction({
-                    userId: user.id,
+                    userId: user.privyDid,
                     type: 'SELL',
                     status: result.success ? 'SUCCESS' : 'FAILED',
                     marketTitle,
@@ -494,7 +494,7 @@ export async function handlePositionChange(
                 // Mirror the sell - find user's position for this market
                 const userPosition = await prisma.polymarketPosition.findFirst({
                     where: {
-                        userId: config.user.id,
+                        userId: config.user.privyDid,
                         assetId: position.assetId,
                         status: 'open'
                     }
@@ -707,7 +707,7 @@ export async function cancelOrder(params: CancelOrderParams): Promise<{
             const user = await prisma.user.findFirst({ where: { privyDid: params.userId } });
             if (user) {
                 await logPolymarketAction({
-                    userId: user.id,
+                    userId: user.privyDid,
                     type: 'CANCEL',
                     status: 'CANCELLED',
                     marketTitle: 'Order Cancellation',

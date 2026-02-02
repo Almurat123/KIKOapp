@@ -183,7 +183,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             // Create config
             const config = await prisma.copyTradeConfig.create({
                 data: {
-                    userId: user.id,
+                    userId: user.privyDid,
                     targetWallet: normalizedTarget,
                     chainId,
                     buyAmountUsd,
@@ -236,7 +236,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 await notificationService.sendNotification({
                     type: 'SYSTEM_ALERT',
                     farcasterFid: user.farcasterFid,
-                    userId: user.id,
+                    userId: user.privyDid,
                     data: {
                         alertTitle: 'Copy Trade Activated! 🚀',
                         alertMessage: `I'm now monitoring ${normalizedTarget.slice(0, 6)}... ${normalizedTarget.slice(-4)} for you. I'll notify you here whenever I execute a trade!`,
@@ -281,7 +281,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
 
             // Find config
             const config = await prisma.copyTradeConfig.findFirst({
-                where: { id, userId: user.id },
+                where: { id, userId: user.privyDid },
             });
 
             if (!config) {
@@ -386,7 +386,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
 
             // Verify ownership
             const existing = await prisma.copyTradeConfig.findFirst({
-                where: { id, userId: user.id },
+                where: { id, userId: user.privyDid },
             });
 
             if (!existing) {
@@ -477,7 +477,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 }
 
                 const config = await prisma.copyTradeConfig.updateMany({
-                    where: { id, userId: user.id },
+                    where: { id, userId: user.privyDid },
                     data: { status },
                 });
 

@@ -770,18 +770,18 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     const chainName = chainNameMap[validatedChainId] || 'eth';
 
                     // Check if tokenIn is native token
-                const isNativeTokenIn = isNativeToken(tokenIn);
+                    const isNativeTokenIn = isNativeToken(tokenIn);
 
-                if (isNativeTokenIn) {
-                    // Get native balance (Now using Infura via alchemyService.getEthBalance)
-                    const walletBalance = await getWalletBalance(walletAddress, chainName);
-                    // For native tokens, leave a small gas buffer to prevent insufficient gas
-                    const isL2 = validatedChainId === 8453 || validatedChainId === 42161 || validatedChainId === 10;
-                    const gasBuffer = isL2 ? 0.0001 : 0.001;
-                    const maxSpendable = Math.max(walletBalance.ethBalanceFormatted - gasBuffer, 0);
-                    resolvedAmountIn = maxSpendable.toString();
-                    console.log('[Swap Execute Instant] Native balance:', resolvedAmountIn);
-                } else {
+                    if (isNativeTokenIn) {
+                        // Get native balance (Now using Infura via alchemyService.getEthBalance)
+                        const walletBalance = await getWalletBalance(walletAddress, chainName);
+                        // For native tokens, leave a small gas buffer to prevent insufficient gas
+                        const isL2 = validatedChainId === 8453 || validatedChainId === 42161 || validatedChainId === 10;
+                        const gasBuffer = isL2 ? 0.0001 : 0.001;
+                        const maxSpendable = Math.max(walletBalance.ethBalanceFormatted - gasBuffer, 0);
+                        resolvedAmountIn = maxSpendable.toString();
+                        console.log('[Swap Execute Instant] Native balance:', resolvedAmountIn);
+                    } else {
                         // Get token balance
                         let tokenBalances: any[] = [];
                         const chainIdNum = parseInt(validatedChainId.toString(), 10);
@@ -1282,7 +1282,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
             if (userAddress) {
                 const user = await prisma.user.findUnique({ where: { walletAddress: userAddress as string } });
                 if (user) {
-                    whereClause = { userId: user.id };
+                    whereClause = { userId: user.privyDid };
                 } else {
                     // User not found by address, return empty
                     return reply.send({

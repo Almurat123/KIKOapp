@@ -311,13 +311,13 @@ export const PlacePolymarketOrderTool: Tool = {
 
             // Get or create config
             let config = await prisma.polymarketCopyConfig.findFirst({
-                where: { userId: user.id }
+                where: { userId: user.privyDid }
             });
 
             if (!config) {
                 config = await prisma.polymarketCopyConfig.create({
                     data: {
-                        userId: user.id,
+                        userId: user.privyDid,
                         targetWallet: '0x0000000000000000000000000000000000000000',
                         betSizeUsd: args.amount_usd,
                         maxOpenBets: 10

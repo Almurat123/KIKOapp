@@ -111,7 +111,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
 
                 // Upsert settings
                 const settings = await prisma.userSettings.upsert({
-                    where: { userId: user.id },
+                    where: { userId: user.privyDid },
                     update: {
                         userRole: body.userRole,
                         defaultSwapAmount: body.defaultSwapAmount,
@@ -131,7 +131,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         minTargetValueUsd: body.minTargetValueUsd ?? undefined,
                     },
                     create: {
-                        userId: user.id,
+                        userId: user.privyDid,
                         userRole: body.userRole || 'default',
                         defaultSwapAmount: body.defaultSwapAmount || 100,
                         defaultSwapUnit: body.defaultSwapUnit || 'native',
@@ -335,7 +335,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 const exportRecord = await prisma.walletExport.upsert({
                     where: {
                         userId_walletAddress: {
-                            userId: user.id,
+                            userId: user.privyDid,
                             walletAddress
                         }
                     },
@@ -343,7 +343,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         exportedAt: new Date()
                     },
                     create: {
-                        userId: user.id,
+                        userId: user.privyDid,
                         walletAddress,
                         chainType
                     }
@@ -403,7 +403,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 const exportRecord = await prisma.walletExport.findUnique({
                     where: {
                         userId_walletAddress: {
-                            userId: user.id,
+                            userId: user.privyDid,
                             walletAddress
                         }
                     }

@@ -72,7 +72,7 @@ export async function getWalletPositions(wallet: string): Promise<PolymarketUser
             if (user) {
                 const recentSells = await prisma.polymarketAction.findMany({
                     where: {
-                        userId: user.id,
+                        userId: user.privyDid,
                         type: 'SELL',
                         status: 'SUCCESS',
                         createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) } // Last 5 minutes
@@ -219,7 +219,7 @@ export async function getWalletTrades(wallet: string): Promise<PolymarketTrade[]
             const user = await prisma.user.findFirst({ where: { walletAddress: wallet.toLowerCase() } });
             if (user) {
                 const localActions = await prisma.polymarketAction.findMany({
-                    where: { userId: user.id },
+                    where: { userId: user.privyDid },
                     orderBy: { createdAt: 'desc' },
                     take: 50
                 });
