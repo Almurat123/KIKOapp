@@ -19,6 +19,7 @@ import { buildV4SwapTransaction, isV4SwapSupported } from './uniswapV4Swap.js';
 import { calculateV3TVL } from './v3Math.js';
 import { callRpc } from '../rpcManager.js';
 import { sendTransaction } from '../privyWallet.js';
+import { getZeroExPrice } from '../zeroEx.js';
 
 // 常用代币地址
 const WETH_ADDRESSES: Record<number, string> = {
@@ -293,10 +294,23 @@ async function executeV4Swap(
 
     // 计算金额 (wei)
     const amountInWei = ethers.parseEther(amountIn);
-    const minAmountOut = BigInt(0); // TODO: 根据价格和滑点计算
+
+    // [Logic]: 使用 0x Price API 获取预期输出，计算 minAmountOut
+    // [Ref]: slippageBps 例如 100 = 1% 滑点
+    const expectedOut = await get0xExpectedOutput(normalizedIn!, normalizedOut!, amountInWei, chainId);
+    const minAmountOut = expectedOut > 0n
+        ? expectedOut * BigInt(10000 - slippageBps) / BigInt(10000)
+        : BigInt(0); // [Risk]: 无价格时无滑点保护
+
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] V4 minAmountOut calculated', {
+        expectedOut: expectedOut.toString().slice(0, 15),
+        minAmountOut: minAmountOut.toString().slice(0, 15),
+        slippageBps
+    });
 
     // 构建交易
     const deadline = Math.floor(Date.now() / 1000) + 300;
+
     const tx = buildV4SwapTransaction(
         chainId,
         poolKey,
@@ -370,7 +384,6 @@ async function executeV3Swap(
 
     // 计算金额
     const amountInWei = ethers.parseEther(amountIn);
-    const minAmountOut = BigInt(0); // TODO: 根据价格和滑点计算
 
     // [Logic]: ETH 地址转换为 WETH，因为 V3 Router 需要 WETH 地址
     const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
@@ -380,6 +393,19 @@ async function executeV3Swap(
     const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase()
         ? WETH_ADDRESSES[chainId]
         : tokenOut;
+
+    // [Logic]: 使用 0x Price API 获取预期输出，计算 minAmountOut
+    // [Ref]: slippageBps 例如 100 = 1% 滑点
+    const expectedOut = await get0xExpectedOutput(normalizedIn!, normalizedOut!, amountInWei, chainId);
+    const minAmountOut = expectedOut > 0n
+        ? expectedOut * BigInt(10000 - slippageBps) / BigInt(10000)
+        : BigInt(0); // [Risk]: 无价格时无滑点保护
+
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] V3 minAmountOut calculated', {
+        expectedOut: expectedOut.toString().slice(0, 15),
+        minAmountOut: minAmountOut.toString().slice(0, 15),
+        slippageBps
+    });
 
     // 构建 exactInputSingle 调用
     const deadline = Math.floor(Date.now() / 1000) + 300;
@@ -439,4 +465,33 @@ async function executeV3Swap(
 export function isDirectSwapSupported(chainId: number): boolean {
     // 目前支持 Base 和 Ethereum
     return chainId === 8453 || chainId === 1;
+}
+
+/**
+ * 使用 0x Price API 获取预期输出金额
+ * [Logic]: 用于计算 minAmountOut，提供滑点保护
+ * [Ref]: 0x API docs - /swap/allowance-holder/price
+ */
+async function get0xExpectedOutput(
+    tokenIn: string,
+    tokenOut: string,
+    amountInWei: bigint,
+    chainId: number
+): Promise<bigint> {
+    try {
+        const price = await getZeroExPrice(tokenIn, tokenOut, amountInWei.toString(), chainId);
+        if (price?.buyAmount) {
+            logger.debug(LogCode.API_FETCH_SUCCESS, '[DirectSwap] 0x price fetched', {
+                expectedOut: price.buyAmount.slice(0, 15)
+            });
+            return BigInt(price.buyAmount);
+        }
+    } catch (e: any) {
+        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x price fetch failed, no slippage protection', {
+            error: e.message?.slice(0, 100)
+        });
+    }
+
+    // [Risk]: 返回 0 表示无滑点保护 - 交易仍可继续但有风险
+    return BigInt(0);
 }
