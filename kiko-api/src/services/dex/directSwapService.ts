@@ -307,13 +307,19 @@ async function executeV4Swap(
         deadline
     );
 
+    // [Logic]: V4 swap gas 估算，加 50% buffer
+    // [Ref]: 基于 EvmExecutor 实现，V4 swap 约需 300k-400k gas
+    const V4_GAS_ESTIMATE = 350000;
+    const gasLimit = Math.floor(V4_GAS_ESTIMATE * 1.5).toString();
+
     // 发送交易
     // [Logic]: 如果输入是 ETH，需要发送 ETH value；否则 value=0
     const txHash = await sendTransaction(userId, accessToken, {
         to: tx.to,
         data: tx.data,
         value: isNativeIn ? amountInWei.toString() : '0',
-        chainId
+        chainId,
+        gas: gasLimit
     });
 
     logger.info(LogCode.EXE_TX_CONFIRMED, '[DirectSwap] V4 swap executed', {
@@ -397,11 +403,17 @@ async function executeV3Swap(
     // [Logic]: 只有原始输入是 ETH（0xeeee...）时才发送 value，WETH 不需要发送 value
     const isNativeIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase();
 
+    // [Logic]: V3 swap gas 估算，加 50% buffer
+    // [Ref]: 基于 EvmExecutor 实现，V3 单池 swap 约需 150k-200k gas
+    const V3_GAS_ESTIMATE = 200000;
+    const gasLimit = Math.floor(V3_GAS_ESTIMATE * 1.5).toString();
+
     const txHash = await sendTransaction(userId, accessToken, {
         to: routerAddress,
         data,
         value: isNativeIn ? amountInWei.toString() : '0',
-        chainId
+        chainId,
+        gas: gasLimit
     });
 
     logger.info(LogCode.EXE_TX_CONFIRMED, '[DirectSwap] V3 swap executed', {
