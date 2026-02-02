@@ -39,8 +39,8 @@ export const Actions = {
     SWAP_EXACT_OUT: 0x09,         // 多池精确输出交换
     SETTLE_ALL: 0x0c,             // 结算所有输入代币
     SETTLE: 0x0d,                 // 结算指定代币
-    TAKE_ALL: 0x0e,               // 取出所有输出代币
-    TAKE: 0x0f,                   // 取出指定代币
+    TAKE_ALL: 0x0f,               // [Fix]: 官方值 0x0f，不是 0x0e
+    TAKE: 0x11,                   // [Fix]: 官方值 0x11，不是 0x0f
 };
 
 // ExactInputSingleParams struct
