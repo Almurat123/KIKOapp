@@ -7,6 +7,7 @@ import { getTokenDetails } from './geckoTerminal.js';
 import { getTokenMetadata } from './rpcService.js';
 import { fetchJson, ApiPriority } from '../config/unifiedApiService.js';
 import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
+import { getDexPrice } from './dexPriceService.js'; // 🔗 DEX 价格 fallback
 
 /**
  * Token Service
@@ -195,10 +196,32 @@ async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, ver
                 });
             }
         } catch (gtErr: any) {
-            logger.error(LogCode.API_FETCH_FAILED, 'All price sources failed', {
+            logger.warn(LogCode.API_FETCH_FAILED, 'GeckoTerminal fallback failed', {
                 token: tokenAddress,
                 error: gtErr.message
             });
+        }
+
+        // 🔗 FINAL FALLBACK: Try DEX price (0x for EVM, Jupiter for Solana)
+        if (price <= 0 || isNaN(price)) {
+            try {
+                const dexChainId = isSolana ? 'solana' : chainId;
+                const dexPrice = await getDexPrice(tokenAddress, dexChainId);
+                if (dexPrice > 0) {
+                    price = dexPrice;
+                    provider = isSolana ? 'jupiter-dex' : '0x-dex';
+                    logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from DEX aggregator', {
+                        token: tokenAddress.slice(0, 10),
+                        price,
+                        provider
+                    });
+                }
+            } catch (dexErr: any) {
+                logger.error(LogCode.API_FETCH_FAILED, 'DEX price fallback also failed', {
+                    token: tokenAddress,
+                    error: dexErr.message
+                });
+            }
         }
     }
 

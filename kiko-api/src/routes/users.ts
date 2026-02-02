@@ -120,7 +120,9 @@ export async function registerUserRoutes(app: FastifyInstance) {
                         quickSwapMode: body.quickSwapMode,
                         swapMethod: 'allowance_trade', // FORCED: Ignore frontend value, always use allowance_trade
                         slippageMode: body.slippageMode,
-                        customSlippage: body.customSlippage,
+                        customSlippage: (body.customSlippage != null && (body.customSlippage as unknown) !== '')
+                            ? parseFloat(String(body.customSlippage)) || undefined
+                            : undefined,
                         mevProtection: body.mevProtection,
                         priceDeviationCheck: body.priceDeviationCheck,
                         copyTradeAIMode: body.copyTradeAIMode,
