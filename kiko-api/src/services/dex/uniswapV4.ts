@@ -40,6 +40,13 @@ const CLANKER_HOOKS_BASE = [
     '0xDd5EeaFf7BD481AD55Db083062b13a3cdf0A68CC', // ClankerHookStaticFee v4.0.0
 ];
 
+// Zora Creator Coin Hooks (Base)
+const ZORA_HOOKS_BASE = [
+    '0xd61A675F8a0c67A73DC3B54FB7318B4D91409040', // Original Creator Coin Hook
+    '0xc8d077444625eb300a427a6dfb2b1dbf9b159040', // Newer Creator Coin Hook
+    '0x5e5d19d22c85a4aef7c1fdf25fb22a5a38f71040', // New Creator Coin Hook
+];
+
 // V4 配置
 // [Ref]: Clanker 使用 DYNAMIC_FEE_FLAG (0x800000) 作为 fee
 const DYNAMIC_FEE_FLAG = 0x800000;
@@ -52,14 +59,23 @@ interface V4PoolConfig {
 
 // 常见 V4 配置 - 精简版 (只保留最常用)
 const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
-    8453: [ // Base - Clanker 最常用 tickSpacing=200
-        { fee: DYNAMIC_FEE_FLAG, tickSpacing: 200, hooks: [CLANKER_HOOKS_BASE[0]] }, // 只用最新 hook
-        { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000'] },
+    8453: [ // Base
+        // Dynamic fee (Clanker hooks)
+        { fee: DYNAMIC_FEE_FLAG, tickSpacing: 200, hooks: CLANKER_HOOKS_BASE },
+
+        // Common static fee tiers (hookless + Zora hooks)
+        { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000', ...ZORA_HOOKS_BASE] },
+        { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...ZORA_HOOKS_BASE] },
+        { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000', ...ZORA_HOOKS_BASE] },
     ],
     1: [ // Ethereum
         { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000'] },
     ]
 };
+
+const V4_POOL_CACHE_TTL = 30000; // 30s cache
+const v4PoolCache = new Map<string, { pools: V4PoolInfo[]; timestamp: number }>();
+const v4PoolInflight = new Map<string, Promise<V4PoolInfo[]>>();
 
 export interface V4PoolKey {
     currency0: string;
@@ -167,6 +183,17 @@ export async function findV4Pools(
     const configs = V4_CONFIGS[chainId];
     if (!configs) return [];
 
+    const cacheKey = `${chainId}:${tokenA.toLowerCase()}:${tokenB.toLowerCase()}`;
+    const cached = v4PoolCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < V4_POOL_CACHE_TTL) {
+        return cached.pools;
+    }
+
+    const inflight = v4PoolInflight.get(cacheKey);
+    if (inflight) {
+        return await inflight;
+    }
+
     // 排序 tokens
     const [currency0, currency1] =
         BigInt(tokenA) < BigInt(tokenB)
@@ -187,15 +214,25 @@ export async function findV4Pools(
         }
     }
 
-    // 并行查询所有配置
-    const results = await Promise.all(
-        poolKeys.map(poolKey => getV4PoolInfo(poolKey, chainId).catch(() => null))
-    );
+    const promise = (async () => {
+        const results = await Promise.all(
+            poolKeys.map(poolKey => getV4PoolInfo(poolKey, chainId).catch(() => null))
+        );
 
-    // 过滤有效池子
-    return results.filter((pool): pool is V4PoolInfo =>
-        pool !== null && BigInt(pool.liquidity) > BigInt(0)
-    );
+        const pools = results.filter((pool): pool is V4PoolInfo =>
+            pool !== null && BigInt(pool.liquidity) > BigInt(0)
+        );
+
+        v4PoolCache.set(cacheKey, { pools, timestamp: Date.now() });
+        return pools;
+    })();
+
+    v4PoolInflight.set(cacheKey, promise);
+    try {
+        return await promise;
+    } finally {
+        v4PoolInflight.delete(cacheKey);
+    }
 }
 
 /**

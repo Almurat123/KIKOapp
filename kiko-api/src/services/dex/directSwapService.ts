@@ -236,8 +236,16 @@ export async function executeDirectSwap(params: {
             }
         }
 
-        // 1. 查找所有池子
-        const pools = await findTokenPools(normalizedTokenIn, normalizedTokenOut, chainId);
+        // 1. 查找所有池子 (V2/V3/V4) - ETH 使用 WETH 地址匹配池子
+        const weth = WETH_ADDRESSES[chainId];
+        const poolTokenIn = normalizedTokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase() && weth
+            ? weth
+            : normalizedTokenIn;
+        const poolTokenOut = normalizedTokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase() && weth
+            ? weth
+            : normalizedTokenOut;
+
+        const pools = await findTokenPools(poolTokenIn, poolTokenOut, chainId);
 
         if (pools.length === 0) {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] No pool found for token pair', {
@@ -264,8 +272,8 @@ export async function executeDirectSwap(params: {
         const v4Pool = pools.find(p => p.version === 'v4') || null;
 
         const amountInWei = ethers.parseEther(amountIn);
-        const v2Quote = v2Pool ? await getV2ExpectedOutput(normalizedTokenIn, normalizedTokenOut, amountInWei, chainId) : 0n;
-        const v3Quote = v3Pool ? await getV3BestQuoteOut(normalizedTokenIn, normalizedTokenOut, amountInWei, chainId) : 0n;
+        const v2Quote = v2Pool ? await getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId) : 0n;
+        const v3Quote = v3Pool ? await getV3BestQuoteOut(poolTokenIn, poolTokenOut, amountInWei, chainId) : 0n;
 
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Best quote comparison', {
             v2Quote: v2Quote.toString().slice(0, 15),
