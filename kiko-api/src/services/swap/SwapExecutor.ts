@@ -1042,8 +1042,7 @@ export class SwapExecutor {
                     gas: tx.gas,
                     gasPrice: gasPrice?.toString(),
                     maxFeePerGas: maxFeePerGas?.toString(),
-                    maxPriorityFeePerGas: maxPriorityFeePerGas?.toString(),
-                    nonce: typeof nonceHex === 'string' ? nonceHex : String(nonceHex)
+                    maxPriorityFeePerGas: maxPriorityFeePerGas?.toString()
                 });
 
                 logger.info(LogCode.EXE_TX_BROADCAST, 'SpeedUp replacement tx sent', { txHash, chainId });

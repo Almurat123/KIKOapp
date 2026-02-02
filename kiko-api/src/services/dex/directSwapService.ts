@@ -14,12 +14,15 @@ import { ethers } from 'ethers';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { findTokenPools, PoolInfo } from './poolInfo.js';
-import { findV4Pools, V4PoolKey } from './uniswapV4.js';
+import { calculatePriceFromSqrtX96, findV4Pools, V4PoolKey } from './uniswapV4.js';
 import { buildV4SwapTransaction, isV4SwapSupported } from './uniswapV4Swap.js';
 import { calculateV3TVL } from './v3Math.js';
 import { callRpc } from '../rpcManager.js';
 import { sendTransaction } from '../privyWallet.js';
 import { getZeroExPrice } from '../zeroEx.js';
+import { getTokenMetadata } from '../rpcService.js';
+import { V2_ROUTER_ABI, V3_FEE_TIERS } from './types.js';
+import { buildAerodromeSwapTransaction } from './aerodrome.js';
 
 // 常用代币地址
 const WETH_ADDRESSES: Record<number, string> = {
@@ -30,6 +33,26 @@ const WETH_ADDRESSES: Record<number, string> = {
 const USDC_ADDRESSES: Record<number, string> = {
     8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Base
     1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',    // Ethereum
+};
+
+// V3 QuoterV2 addresses (on-chain quote)
+const V3_QUOTER_V2: Record<number, string> = {
+    1: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+    8453: '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a',
+    42161: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+    10: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+    137: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e'
+};
+
+const v3QuoterInterface = new ethers.Interface([
+    'function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)'
+]);
+
+const v2RouterInterface = new ethers.Interface(V2_ROUTER_ABI);
+
+const V2_ROUTERS: Record<number, string> = {
+    1: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D',   // Uniswap V2
+    8453: '0x4752ba5Dbc23f44D87826276BF6Fd6b1C372aD24' // Uniswap V2 on Base
 };
 
 // ETH 价格 (临时硬编码，生产环境应从预言机获取)
@@ -43,7 +66,7 @@ export interface DirectSwapResult {
     txHash?: string;
     amountOut?: string;
     error?: string;
-    provider: 'uniswap-v3' | 'uniswap-v4' | 'failed';
+    provider: 'uniswap-v2' | 'uniswap-v3' | 'uniswap-v4' | 'aerodrome' | 'failed';
     poolInfo?: {
         version: string;
         fee: number;
@@ -199,10 +222,24 @@ export async function executeDirectSwap(params: {
     });
 
     try {
-        // 1. 查找最佳池子
-        const bestPool = await findBestPool(normalizedTokenIn, normalizedTokenOut, chainId);
+        // 0. Aerodrome (Base) - 优先处理 Virtual 等主要流动性在 Aerodrome 的代币
+        const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+        const isNativeIn = normalizedTokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase();
+        if (chainId === 8453 && isNativeIn) {
+            const aeroResult = await executeAerodromeSwap({
+                ...params,
+                tokenIn: normalizedTokenIn,
+                tokenOut: normalizedTokenOut
+            });
+            if (aeroResult.success) {
+                return aeroResult;
+            }
+        }
 
-        if (!bestPool) {
+        // 1. 查找所有池子
+        const pools = await findTokenPools(normalizedTokenIn, normalizedTokenOut, chainId);
+
+        if (pools.length === 0) {
             logger.warn(LogCode.SYS_INFO, '[DirectSwap] No pool found for token pair', {
                 tokenIn: tokenIn.slice(0, 12),
                 tokenOut: tokenOut.slice(0, 12),
@@ -215,30 +252,41 @@ export async function executeDirectSwap(params: {
             };
         }
 
-        logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Found best pool', {
-            version: bestPool.version,
-            fee: bestPool.fee,
-            liquidity: bestPool.liquidity?.toString().slice(0, 15)
-        });
-
-        // 2. 根据池子版本执行交易
-        // [Logic]: 使用规范化后的地址
         const normalizedParams = {
             ...params,
             tokenIn: normalizedTokenIn,
             tokenOut: normalizedTokenOut
         };
 
-        if (bestPool.version === 'v4' && isV4SwapSupported(chainId)) {
-            // V4 交易
-            return await executeV4Swap(normalizedParams, bestPool);
-        } else {
-            // V3 交易 (通过 SwapRouter)
-            return await executeV3Swap(normalizedParams, bestPool);
+        // 2. 计算 V2/V3 报价并选择最佳
+        const v2Pool = pools.find(p => p.version === 'v2') || null;
+        const v3Pool = pools.find(p => p.version === 'v3') || null;
+        const v4Pool = pools.find(p => p.version === 'v4') || null;
+
+        const amountInWei = ethers.parseEther(amountIn);
+        const v2Quote = v2Pool ? await getV2ExpectedOutput(normalizedTokenIn, normalizedTokenOut, amountInWei, chainId) : 0n;
+        const v3Quote = v3Pool ? await getV3BestQuoteOut(normalizedTokenIn, normalizedTokenOut, amountInWei, chainId) : 0n;
+
+        logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Best quote comparison', {
+            v2Quote: v2Quote.toString().slice(0, 15),
+            v3Quote: v3Quote.toString().slice(0, 15)
+        });
+
+        if (v2Quote > 0n && v2Quote >= v3Quote) {
+            return await executeV2Swap(normalizedParams, v2Quote);
         }
 
+        if (v3Pool) {
+            return await executeV3Swap(normalizedParams, v3Pool);
+        }
+
+        if (v4Pool) {
+            return await executeV4Swap(normalizedParams, v4Pool);
+        }
+
+        return { success: false, error: 'No suitable pool found', provider: 'failed' };
     } catch (error: any) {
-        logger.error(LogCode.EXE_TX_REVERTED, '[DirectSwap] Swap failed', {
+        logger.error(LogCode.EXE_TX_REVERTED, '[DirectSwap] Direct swap failed', {
             error: error.message,
             stack: error.stack?.slice(0, 200),
             tokenIn: tokenIn.slice(0, 12),
@@ -250,6 +298,227 @@ export async function executeDirectSwap(params: {
             provider: 'failed'
         };
     }
+}
+
+/**
+ * 执行 Aerodrome 交易 (Base)
+ */
+async function executeAerodromeSwap(
+    params: {
+        userId: string;
+        accessToken: string;
+        walletAddress: string;
+        tokenIn: string;
+        tokenOut: string;
+        amountIn: string;
+        chainId: number;
+        slippageBps: number;
+    }
+): Promise<DirectSwapResult> {
+    try {
+        const amountInWei = ethers.parseEther(params.amountIn);
+        const quoteBuild = await buildAerodromeSwapTransaction({
+            tokenIn: params.tokenIn,
+            tokenOut: params.tokenOut,
+            amountIn: amountInWei,
+            recipient: params.walletAddress,
+            slippageBps: params.slippageBps
+        }, params.chainId);
+
+        if (!quoteBuild) {
+            return { success: false, error: 'Aerodrome quote not available', provider: 'failed' };
+        }
+
+        const { swapTx } = quoteBuild;
+
+        // Gas estimate with buffer
+        let gasLimit: string;
+        try {
+            const estimate = await callRpc<string>(params.chainId, 'eth_estimateGas', [{
+                from: params.walletAddress,
+                to: swapTx.to,
+                data: swapTx.data,
+                value: swapTx.value ? ethers.toBeHex(BigInt(swapTx.value)) : '0x0'
+            }]);
+            const estimatedGas = BigInt(estimate);
+            gasLimit = (estimatedGas * 2n).toString();
+        } catch {
+            gasLimit = '400000';
+        }
+
+        const txHash = await sendTransaction(params.userId, params.accessToken, {
+            to: swapTx.to,
+            data: swapTx.data,
+            value: swapTx.value || '0',
+            chainId: params.chainId,
+            gas: gasLimit
+        });
+
+        return {
+            success: true,
+            txHash,
+            provider: 'aerodrome'
+        };
+    } catch (error: any) {
+        logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] Aerodrome swap failed', {
+            error: error.message?.slice(0, 120)
+        });
+        return { success: false, error: error.message, provider: 'failed' };
+    }
+}
+
+async function getV2ExpectedOutput(
+    tokenIn: string,
+    tokenOut: string,
+    amountInWei: bigint,
+    chainId: number
+): Promise<bigint> {
+    const router = V2_ROUTERS[chainId];
+    if (!router) return 0n;
+
+    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const weth = WETH_ADDRESSES[chainId];
+    if (!weth) return 0n;
+
+    const normalizedIn = tokenIn.toLowerCase() === ETH_ADDRESS ? weth : tokenIn;
+    const normalizedOut = tokenOut.toLowerCase() === ETH_ADDRESS ? weth : tokenOut;
+
+    try {
+        const callData = v2RouterInterface.encodeFunctionData('getAmountsOut', [amountInWei, [normalizedIn, normalizedOut]]);
+        const result = await callRpc<string>(chainId, 'eth_call', [{
+            to: router,
+            data: callData
+        }, 'latest']);
+        if (!result || result === '0x') return 0n;
+        const decoded = v2RouterInterface.decodeFunctionResult('getAmountsOut', result);
+        const amounts = decoded[0] as bigint[];
+        return amounts[amounts.length - 1] || 0n;
+    } catch {
+        return 0n;
+    }
+}
+
+async function getV3BestQuoteOut(
+    tokenIn: string,
+    tokenOut: string,
+    amountInWei: bigint,
+    chainId: number
+): Promise<bigint> {
+    const quoter = V3_QUOTER_V2[chainId];
+    if (!quoter) return 0n;
+
+    let bestOut = 0n;
+    for (const fee of V3_FEE_TIERS) {
+        try {
+            const quoteParams = {
+                tokenIn,
+                tokenOut,
+                amountIn: amountInWei,
+                fee: fee,
+                sqrtPriceLimitX96: 0
+            };
+            const callData = v3QuoterInterface.encodeFunctionData('quoteExactInputSingle', [quoteParams]);
+            const result = await callRpc<string>(chainId, 'eth_call', [{
+                to: quoter,
+                data: callData
+            }, 'latest']);
+            if (!result || result === '0x') continue;
+            const decoded = v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', result);
+            const amountOut = decoded[0] as bigint;
+            if (amountOut > bestOut) bestOut = amountOut;
+        } catch {
+            continue;
+        }
+    }
+    return bestOut;
+}
+
+async function executeV2Swap(
+    params: {
+        userId: string;
+        accessToken: string;
+        walletAddress: string;
+        tokenIn: string;
+        tokenOut: string;
+        amountIn: string;
+        chainId: number;
+        slippageBps: number;
+    },
+    expectedOut: bigint
+): Promise<DirectSwapResult> {
+    const router = V2_ROUTERS[params.chainId];
+    if (!router) return { success: false, error: 'V2 router not available', provider: 'failed' };
+
+    const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const weth = WETH_ADDRESSES[params.chainId];
+    if (!weth) return { success: false, error: 'WETH not configured', provider: 'failed' };
+
+    const amountInWei = ethers.parseEther(params.amountIn);
+    const isNativeIn = params.tokenIn.toLowerCase() === ETH_ADDRESS;
+    const isNativeOut = params.tokenOut.toLowerCase() === ETH_ADDRESS;
+
+    const normalizedIn = isNativeIn ? weth : params.tokenIn;
+    const normalizedOut = isNativeOut ? weth : params.tokenOut;
+
+    const minAmountOut = expectedOut > 0n
+        ? expectedOut * BigInt(10000 - params.slippageBps) / BigInt(10000)
+        : 0n;
+
+    const deadline = Math.floor(Date.now() / 1000) + 300;
+    const data = isNativeIn
+        ? v2RouterInterface.encodeFunctionData('swapExactETHForTokens', [
+            minAmountOut,
+            [normalizedIn, normalizedOut],
+            params.walletAddress,
+            deadline
+        ])
+        : isNativeOut
+            ? v2RouterInterface.encodeFunctionData('swapExactTokensForETH', [
+                amountInWei,
+                minAmountOut,
+                [normalizedIn, normalizedOut],
+                params.walletAddress,
+                deadline
+            ])
+            : v2RouterInterface.encodeFunctionData('swapExactTokensForTokens', [
+                amountInWei,
+                minAmountOut,
+                [normalizedIn, normalizedOut],
+                params.walletAddress,
+                deadline
+            ]);
+
+    let gasLimit: string;
+    try {
+        const estimate = await callRpc<string>(params.chainId, 'eth_estimateGas', [{
+            from: params.walletAddress,
+            to: router,
+            data: data,
+            value: isNativeIn ? ethers.toBeHex(amountInWei) : '0x0'
+        }]);
+        gasLimit = (BigInt(estimate) * 2n).toString();
+    } catch {
+        gasLimit = '350000';
+    }
+
+    const txHash = await sendTransaction(params.userId, params.accessToken, {
+        to: router,
+        data: data,
+        value: isNativeIn ? amountInWei.toString() : '0',
+        chainId: params.chainId,
+        gas: gasLimit
+    });
+
+    return {
+        success: true,
+        txHash,
+        provider: 'uniswap-v2',
+        poolInfo: {
+            version: 'v2',
+            fee: 0,
+            liquidity: '0'
+        }
+    };
 }
 
 /**
@@ -272,11 +541,12 @@ async function executeV4Swap(
 
     // [Logic]: 此时 tokenIn/tokenOut 已经是规范化后的 ETH 地址（0xeeee...）
     // 需要判断是否是 ETH 并转换为 WETH 用于池子查询
+    // [Ref]: Clanker V4 池子使用 WETH 地址，不是 address(0)
     const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const isNativeIn = tokenIn.toLowerCase() === ETH_ADDRESS.toLowerCase();
     const isNativeOut = tokenOut.toLowerCase() === ETH_ADDRESS.toLowerCase();
 
-    // V4 池子使用 WETH 地址
+    // V4 池子使用 WETH 地址查询
     const normalizedIn = isNativeIn ? WETH_ADDRESSES[chainId] : tokenIn;
     const normalizedOut = isNativeOut ? WETH_ADDRESSES[chainId] : tokenOut;
 
@@ -292,15 +562,66 @@ async function executeV4Swap(
     // 确定方向 - 使用规范化后的 WETH 地址比较
     const zeroForOne = poolKey.currency0.toLowerCase() === normalizedIn!.toLowerCase();
 
+
+
     // 计算金额 (wei)
     const amountInWei = ethers.parseEther(amountIn);
 
     // [Logic]: 使用 0x Price API 获取预期输出，计算 minAmountOut
-    // [Ref]: slippageBps 例如 100 = 1% 滑点
-    const expectedOut = await get0xExpectedOutput(normalizedIn!, normalizedOut!, amountInWei, chainId);
-    const minAmountOut = expectedOut > 0n
-        ? expectedOut * BigInt(10000 - slippageBps) / BigInt(10000)
-        : BigInt(0); // [Risk]: 无价格时无滑点保护
+    // [Ref]: 0x API 需要使用 ETH 地址格式 (0xeeee...)，不能用 address(0)
+    // [Risk]: 如果 0x 不支持这个代币对，minAmountOut 会是 0
+    const tokenInFor0x = isNativeIn ? ETH_ADDRESS : tokenIn;
+    const tokenOutFor0x = isNativeOut ? ETH_ADDRESS : tokenOut;
+    const expectedOut = await get0xExpectedOutput(tokenInFor0x, tokenOutFor0x, amountInWei, chainId);
+
+    // [Safety]: 使用 V4 Pool 的 spot price 做报价偏离校验，避免极端误报价
+    let spotOutWei = 0n;
+    try {
+        const [meta0, meta1] = await Promise.all([
+            getTokenMetadata(chainId, poolKey.currency0),
+            getTokenMetadata(chainId, poolKey.currency1)
+        ]);
+
+        const spotPrice = calculatePriceFromSqrtX96(
+            BigInt(v4Pool.sqrtPriceX96),
+            meta0.decimals,
+            meta1.decimals
+        ); // token1 per token0
+
+        if (Number.isFinite(spotPrice) && spotPrice > 0) {
+            const amountInHuman = Number(amountInWei) / Math.pow(10, zeroForOne ? meta0.decimals : meta1.decimals);
+            const spotOutHuman = zeroForOne
+                ? amountInHuman * spotPrice
+                : amountInHuman / spotPrice;
+            const outDecimals = zeroForOne ? meta1.decimals : meta0.decimals;
+            spotOutWei = BigInt(Math.max(0, Math.floor(spotOutHuman * Math.pow(10, outDecimals))));
+        }
+    } catch (err: any) {
+        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] V4 spot price check failed', {
+            error: err?.message?.slice(0, 120)
+        });
+    }
+
+    const MAX_V4_PRICE_DEVIATION_BPS = 2000; // 20%
+    if (expectedOut > 0n && spotOutWei > 0n) {
+        const minAcceptable = spotOutWei * BigInt(10000 - MAX_V4_PRICE_DEVIATION_BPS) / BigInt(10000);
+        if (expectedOut < minAcceptable) {
+            throw new Error(`V4 quote deviates too much from spot price: expectedOut < ${(10000 - MAX_V4_PRICE_DEVIATION_BPS) / 100}% spot`);
+        }
+    }
+
+    let minAmountOut = BigInt(0);
+    if (expectedOut > 0n) {
+        minAmountOut = expectedOut * BigInt(10000 - slippageBps) / BigInt(10000);
+    } else if (spotOutWei > 0n) {
+        const fallbackSlippageBps = Math.min(slippageBps + 500, 5000); // extra 5% cap
+        minAmountOut = spotOutWei * BigInt(10000 - fallbackSlippageBps) / BigInt(10000);
+        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x price unavailable, using spot fallback', {
+            spotOut: spotOutWei.toString().slice(0, 15),
+            minAmountOut: minAmountOut.toString().slice(0, 15),
+            fallbackSlippageBps
+        });
+    }
 
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] V4 minAmountOut calculated', {
         expectedOut: expectedOut.toString().slice(0, 15),
@@ -311,6 +632,7 @@ async function executeV4Swap(
     // 构建交易
     const deadline = Math.floor(Date.now() / 1000) + 300;
 
+
     const tx = buildV4SwapTransaction(
         chainId,
         poolKey,
@@ -318,13 +640,38 @@ async function executeV4Swap(
         amountInWei,
         minAmountOut,
         params.walletAddress,
-        deadline
+        deadline,
+        isNativeIn,  // 传递 isNativeIn 给 SETTLE_ALL
+        isNativeOut  // 传递 isNativeOut 给 TAKE_ALL
     );
 
-    // [Logic]: V4 swap gas 估算，加 50% buffer
-    // [Ref]: 基于 EvmExecutor 实现，V4 swap 约需 300k-400k gas
-    const V4_GAS_ESTIMATE = 350000;
-    const gasLimit = Math.floor(V4_GAS_ESTIMATE * 1.5).toString();
+    // [Logic]: 动态估算 V4 swap gas（包含复杂 ERC20 transfer），并增加 buffer
+    // [Risk]: 部分代币 transfer 更耗 gas，固定 350k 容易 OOG
+    let gasLimit: string;
+    try {
+        const estimate = await callRpc<string>(chainId, 'eth_estimateGas', [{
+            from: params.walletAddress,
+            to: tx.to,
+            data: tx.data,
+            value: isNativeIn ? ethers.toBeHex(amountInWei) : '0x0'
+        }]);
+
+        const estimatedGas = BigInt(estimate);
+        const buffered = estimatedGas * 2n; // 2x buffer for heavy transfer tokens
+        gasLimit = buffered.toString();
+
+        logger.info(LogCode.API_FETCH_SUCCESS, '[DirectSwap] V4 gas estimated', {
+            estimatedGas: estimatedGas.toString(),
+            gasLimit
+        });
+    } catch (err: any) {
+        const V4_GAS_FALLBACK = 900000; // fallback for heavy tokens
+        gasLimit = V4_GAS_FALLBACK.toString();
+        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] V4 gas estimate failed, using fallback', {
+            error: err?.message?.slice(0, 120),
+            gasLimit
+        });
+    }
 
     // 发送交易
     // [Logic]: 如果输入是 ETH，需要发送 ETH value；否则 value=0
@@ -394,15 +741,75 @@ async function executeV3Swap(
         ? WETH_ADDRESSES[chainId]
         : tokenOut;
 
-    // [Logic]: 使用 0x Price API 获取预期输出，计算 minAmountOut
-    // [Ref]: slippageBps 例如 100 = 1% 滑点
-    const expectedOut = await get0xExpectedOutput(normalizedIn!, normalizedOut!, amountInWei, chainId);
-    const minAmountOut = expectedOut > 0n
-        ? expectedOut * BigInt(10000 - slippageBps) / BigInt(10000)
+    // [Logic]: 优先使用 V3 QuoterV2 获取链上报价，0x 作为备用
+    let quoterOut = 0n;
+    let bestFee = pool.fee || 3000;
+    const quoterAddress = V3_QUOTER_V2[chainId];
+    if (quoterAddress) {
+        try {
+            for (const fee of V3_FEE_TIERS) {
+                try {
+                    const quoteParams = {
+                        tokenIn: normalizedIn,
+                        tokenOut: normalizedOut,
+                        amountIn: amountInWei,
+                        fee: fee,
+                        sqrtPriceLimitX96: 0
+                    };
+                    const callData = v3QuoterInterface.encodeFunctionData('quoteExactInputSingle', [quoteParams]);
+                    const result = await callRpc<string>(chainId, 'eth_call', [{
+                        to: quoterAddress,
+                        data: callData
+                    }, 'latest']);
+                    if (!result || result === '0x') continue;
+                    const decoded = v3QuoterInterface.decodeFunctionResult('quoteExactInputSingle', result);
+                    const amountOut = decoded[0] as bigint;
+                    if (amountOut > quoterOut) {
+                        quoterOut = amountOut;
+                        bestFee = fee;
+                    }
+                } catch {
+                    continue;
+                }
+            }
+        } catch (err: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] V3 quoter failed', {
+                error: err?.message?.slice(0, 120)
+            });
+        }
+    }
+
+    // 0x Price API 备用
+    const expectedOut0x = await get0xExpectedOutput(normalizedIn!, normalizedOut!, amountInWei, chainId);
+
+    // 偏离检测：0x 报价高于 quoter 太多则拒绝
+    const MAX_V3_QUOTE_DEVIATION_BPS = 2000; // 20%
+    if (quoterOut > 0n && expectedOut0x > 0n) {
+        const maxAllowed = quoterOut * BigInt(10000 + MAX_V3_QUOTE_DEVIATION_BPS) / BigInt(10000);
+        if (expectedOut0x > maxAllowed) {
+            logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x quote deviates from quoter; using quoter', {
+                quoterOut: quoterOut.toString().slice(0, 15),
+                expectedOut0x: expectedOut0x.toString().slice(0, 15)
+            });
+        }
+    }
+
+    // 选择更保守的报价用于 minOut
+    let baseOut = 0n;
+    if (quoterOut > 0n && expectedOut0x > 0n) {
+        baseOut = quoterOut < expectedOut0x ? quoterOut : expectedOut0x;
+    } else {
+        baseOut = quoterOut > 0n ? quoterOut : expectedOut0x;
+    }
+
+    const minAmountOut = baseOut > 0n
+        ? baseOut * BigInt(10000 - slippageBps) / BigInt(10000)
         : BigInt(0); // [Risk]: 无价格时无滑点保护
 
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] V3 minAmountOut calculated', {
-        expectedOut: expectedOut.toString().slice(0, 15),
+        expectedOut: expectedOut0x.toString().slice(0, 15),
+        quoterOut: quoterOut.toString().slice(0, 15),
+        bestFee,
         minAmountOut: minAmountOut.toString().slice(0, 15),
         slippageBps
     });
@@ -416,7 +823,7 @@ async function executeV3Swap(
     const swapParams = {
         tokenIn: normalizedIn,
         tokenOut: normalizedOut,
-        fee: pool.fee || 3000,
+        fee: bestFee,
         recipient: walletAddress,
         amountIn: amountInWei,
         amountOutMinimum: minAmountOut,

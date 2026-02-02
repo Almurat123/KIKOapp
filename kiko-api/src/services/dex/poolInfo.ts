@@ -38,6 +38,10 @@ const V3_FACTORY_ABI = [
     'function getPool(address tokenA, address tokenB, uint24 fee) view returns (address pool)'
 ];
 
+const AERODROME_FACTORY_ABI = [
+    'function getPool(address tokenA, address tokenB, bool stable) view returns (address pool)'
+];
+
 // ERC20 for decimals
 const ERC20_ABI = [
     'function decimals() view returns (uint8)',
@@ -60,13 +64,14 @@ export interface PoolInfo {
     fee?: number;  // Fee tier
     tvlUsd?: number;  // Calculated TVL in USD
     price?: number;  // token1/token0 price
-    version?: 'v2' | 'v3' | 'v4';  // Pool version
+    version?: 'v2' | 'v3' | 'v4' | 'aerodrome';  // Pool version
 }
 
 const v2PoolInterface = new ethers.Interface(V2_POOL_ABI);
 const v3PoolInterface = new ethers.Interface(V3_POOL_ABI);
 const v2FactoryInterface = new ethers.Interface(V2_FACTORY_ABI);
 const v3FactoryInterface = new ethers.Interface(V3_FACTORY_ABI);
+const aerodromeFactoryInterface = new ethers.Interface(AERODROME_FACTORY_ABI);
 const erc20Interface = new ethers.Interface(ERC20_ABI);
 
 /**
@@ -263,13 +268,15 @@ export async function findTokenPools(
     const v3Fees = [100, 500, 3000, 10000];
 
     // Factory addresses by chain
-    const factories: Record<number, { v2?: string; v3?: string }> = {
+    const factories: Record<number, { v2?: string; v3?: string; aerodrome?: string }> = {
         1: {
             v2: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f',  // Uniswap V2
             v3: '0x1F98431c8aD98523631AE4a59f267346ea31F984'   // Uniswap V3
         },
         8453: {
-            v3: '0x33128a8fC17869897dcE68Ed026d694621f6FDfD'   // Uniswap V3 on Base
+            v2: '0x8909Dc15e40173FF4699343b6eB8132c65e18eC6',  // Uniswap V2 on Base
+            v3: '0x33128a8fC17869897dcE68Ed026d694621f6FDfD',  // Uniswap V3 on Base
+            aerodrome: '0x420DD381b31aEf6683db6B902084cB0FFECe40Da' // Aerodrome
         },
         56: {
             v2: '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73',  // PancakeSwap V2
@@ -324,6 +331,38 @@ export async function findTokenPools(
             })
         );
         pools.push(...v3Results.filter((p): p is PoolInfo => p !== null));
+    }
+
+    // Check Aerodrome pools (stable/volatile)
+    if (factory.aerodrome) {
+        const aeroResults = await Promise.all(
+            [false, true].map(async (stable) => {
+                try {
+                    const poolData = aerodromeFactoryInterface.encodeFunctionData('getPool', [
+                        normalizedTokenA,
+                        normalizedTokenB,
+                        stable
+                    ]);
+                    const poolResult = await callRpc<string>(chainId, 'eth_call', [{
+                        to: factory.aerodrome,
+                        data: poolData
+                    }, 'latest']);
+
+                    if (poolResult && poolResult !== '0x' + '0'.repeat(64)) {
+                        const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
+                        const poolInfo = await getV2PoolInfo(poolAddress, chainId);
+                        if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
+                            return {
+                                ...poolInfo,
+                                version: 'aerodrome'
+                            } as PoolInfo;
+                        }
+                    }
+                } catch { }
+                return null;
+            })
+        );
+        pools.push(...aeroResults.filter((p): p is PoolInfo => p !== null));
     }
 
     // Check V4 pools (纯链上 - 计算 PoolId)

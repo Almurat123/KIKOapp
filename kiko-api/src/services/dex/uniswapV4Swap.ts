@@ -5,7 +5,7 @@
  * [Ref]: https://docs.uniswap.org/contracts/v4/quickstart/swap
  * 
  * Commands: V4_SWAP (0x10)
- * Actions: SWAP_EXACT_IN_SINGLE (0x06), SETTLE_ALL (0x0c), TAKE_ALL (0x0d)
+ * Actions: SWAP_EXACT_IN_SINGLE (0x06), SETTLE_ALL (0x0c), TAKE_ALL (0x0f)
  */
 
 import { ethers } from 'ethers';
@@ -13,7 +13,7 @@ import { V4PoolKey } from './uniswapV4.js';
 
 // Universal Router V4 addresses
 export const UNIVERSAL_ROUTER_V4: Record<number, string> = {
-    8453: '0xa51afafe0263b40edaef0df8781ea9aa03e381a3', // Base
+    8453: '0x6ff5693b99212da76ad316178a184ab56d299b43', // Base (UniversalRouterV2)
     1: '0x66a9893cc07d91d95644aedd05d03f95e1dba8af'     // Ethereum (需验证)
 };
 
@@ -38,9 +38,9 @@ export const Actions = {
     SWAP_EXACT_OUT_SINGLE: 0x08,  // 单池精确输出交换
     SWAP_EXACT_OUT: 0x09,         // 多池精确输出交换
     SETTLE_ALL: 0x0c,             // 结算所有输入代币
-    SETTLE: 0x0d,                 // 结算指定代币
+    SETTLE: 0x0b,                 // 结算指定代币
     TAKE_ALL: 0x0f,               // [Fix]: 官方值 0x0f，不是 0x0e
-    TAKE: 0x11,                   // [Fix]: 官方值 0x11，不是 0x0f
+    TAKE: 0x0e,                   // [Fix]: 官方值 0x0e，不是 0x0f
 };
 
 // ExactInputSingleParams struct
@@ -61,22 +61,25 @@ export function encodeV4SwapExactIn(
     zeroForOne: boolean,
     amountIn: bigint,
     minAmountOut: bigint,
-    recipient: string
+    recipient: string,
+    // [Fix]: 不再通过这里处理 native 转换，调用方应处理 WRAP/UNWRAP
+    settleFromRouter: boolean = false
 ): { commands: string; inputs: string[] } {
     // Command: V4_SWAP
     const commands = ethers.solidityPacked(['uint8'], [Commands.V4_SWAP]);
 
-    // Actions: SWAP_EXACT_IN_SINGLE + SETTLE_ALL + TAKE_ALL
+    // Actions: SWAP_EXACT_IN_SINGLE + SETTLE(_ALL) + TAKE_ALL
     const actions = ethers.solidityPacked(
         ['uint8', 'uint8', 'uint8'],
-        [Actions.SWAP_EXACT_IN_SINGLE, Actions.SETTLE_ALL, Actions.TAKE_ALL]
+        [
+            Actions.SWAP_EXACT_IN_SINGLE,
+            settleFromRouter ? Actions.SETTLE : Actions.SETTLE_ALL,
+            Actions.TAKE_ALL
+        ]
     );
 
-    // Encode PoolKey
-    const poolKeyEncoded = ethers.AbiCoder.defaultAbiCoder().encode(
-        ['address', 'address', 'uint24', 'int24', 'address'],
-        [poolKey.currency0, poolKey.currency1, poolKey.fee, poolKey.tickSpacing, poolKey.hooks]
-    );
+    // [Logic]: Clanker 池子是 WETH 池，PoolKey 必须使用 WETH 地址
+    // 不要将其替换为 address(0)
 
     // Param 1: ExactInputSingleParams
     const swapParams = ethers.AbiCoder.defaultAbiCoder().encode(
@@ -90,18 +93,25 @@ export function encodeV4SwapExactIn(
         ]]
     );
 
-    // Param 2: SETTLE_ALL params (currency, amount)
-    const currency0 = zeroForOne ? poolKey.currency0 : poolKey.currency1;
-    const settleParams = ethers.AbiCoder.defaultAbiCoder().encode(
-        ['address', 'uint256'],
-        [currency0, amountIn]
-    );
+    // Param 2: SETTLE/SETTLE_ALL params
+    // [Logic]: 无论是 WETH 还是其他 ERC20，都使用 PoolKey 中的 currency
+    // 如果之前执行了 WRAP_ETH，Router 现在持有 WETH，所以需要从 Router 结算
+    const currencyIn = zeroForOne ? poolKey.currency0 : poolKey.currency1;
+    const settleParams = settleFromRouter
+        ? ethers.AbiCoder.defaultAbiCoder().encode(
+            ['address', 'uint256', 'bool'],
+            [currencyIn, 0n, false] // OPEN_DELTA: settle full debt from router balance
+        )
+        : ethers.AbiCoder.defaultAbiCoder().encode(
+            ['address', 'uint256'],
+            [currencyIn, amountIn]
+        );
 
     // Param 3: TAKE_ALL params (currency, minAmount)
-    const currency1 = zeroForOne ? poolKey.currency1 : poolKey.currency0;
+    const currencyOut = zeroForOne ? poolKey.currency1 : poolKey.currency0;
     const takeParams = ethers.AbiCoder.defaultAbiCoder().encode(
         ['address', 'uint256'],
-        [currency1, minAmountOut]
+        [currencyOut, minAmountOut]
     );
 
     // Combine actions and params
@@ -117,9 +127,11 @@ export function encodeV4SwapExactIn(
     };
 }
 
+
 /**
  * 构建完整的 Universal Router 交易
  * [Logic]: 返回可以直接发送的交易数据
+ * [Ref]: https://docs.uniswap.org/contracts/v4/quickstart/swap
  */
 export function buildV4SwapTransaction(
     chainId: number,
@@ -128,20 +140,51 @@ export function buildV4SwapTransaction(
     amountIn: bigint,
     minAmountOut: bigint,
     recipient: string,
-    deadline: number
+    deadline: number,
+    isNativeIn: boolean = false,   // 输入是否是 Native ETH
+    isNativeOut: boolean = false   // 输出是否是 Native ETH
 ): { to: string; data: string } {
     const router = UNIVERSAL_ROUTER_V4[chainId];
     if (!router) {
         throw new Error(`Unsupported chain for V4 swap: ${chainId}`);
     }
 
-    const { commands, inputs } = encodeV4SwapExactIn(
+    // 1. 获取基础 V4 Swap 命令和输入
+    const { commands: v4Commands, inputs: v4Inputs } = encodeV4SwapExactIn(
         poolKey,
         zeroForOne,
         amountIn,
         minAmountOut,
-        recipient
+        recipient,
+        isNativeIn
     );
+
+    let finalCommands = v4Commands;
+    let finalInputs = v4Inputs;
+
+    // 2. 如果输入是 Native ETH (且池子是 WETH 池，这是目前所有 Clanker 池的情况)
+    // 需要先 WRAP_ETH -> Router 这里
+    if (isNativeIn) {
+        // [Ref]: Uniswap Universal Router - Payments.sol wrapETH function
+        // recipient = router 让 WETH 留在 Router 中供后续 V4_SWAP 使用
+        // amount = CONTRACT_BALANCE (1 << 255) = 使用 Router 当前持有的全部 ETH (即 msg.value)
+        const CONTRACT_BALANCE = 1n << 255n; // 特殊值：使用 router 的全部 ETH 余额
+
+        const wrapParams = ethers.AbiCoder.defaultAbiCoder().encode(
+            ['address', 'uint256'],
+            [router, CONTRACT_BALANCE]
+        );
+
+        // 组合 commands: WRAP_ETH (0x0b) + V4_SWAP (0x10)
+        finalCommands = ethers.solidityPacked(
+            ['uint8', 'bytes'],
+            [Commands.WRAP_ETH, v4Commands]
+        );
+
+        finalInputs = [wrapParams, ...v4Inputs];
+    }
+
+    // 3. 如果输出需要 unwrapped native (暂略，如果 future 需要支持则在这里添加 UNWRAP_WETH)
 
     // Universal Router execute(bytes commands, bytes[] inputs, uint256 deadline)
     const routerInterface = new ethers.Interface([
@@ -149,8 +192,8 @@ export function buildV4SwapTransaction(
     ]);
 
     const data = routerInterface.encodeFunctionData('execute', [
-        commands,
-        inputs,
+        finalCommands,
+        finalInputs,
         deadline
     ]);
 

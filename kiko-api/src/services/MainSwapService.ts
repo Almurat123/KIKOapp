@@ -394,8 +394,11 @@ export class MainSwapService {
     });
 
     // [Logic]: FastSwapMode 使用直接交易 (V3/V4)，跳过 0x/Kyber
-    if (request.userSettings?.fastSwapMode && isDirectSwapSupported(request.chainId)) {
-      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap'));
+    // [Logic]: 只有买入 (ETH/Native → Token) 时使用 DirectSwap，因为 ETH 不需要 approve
+    // [Logic]: 卖出 (Token → ETH) 走 0x/Kyber，它们有完整的授权处理逻辑
+    const isBuyWithNative = isNativeToken(request.tokenIn, request.chainId);
+    if (request.userSettings?.fastSwapMode && isDirectSwapSupported(request.chainId) && isBuyWithNative) {
+      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (BUY with native)'));
       try {
         const directResult = await executeDirectSwap({
           userId: request.userId,

@@ -7,6 +7,7 @@
 
 import { ethers } from 'ethers';
 import { callRpc } from '../rpcManager.js';
+import { getChainConfig } from '../../config/chainConfig.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import {
@@ -20,6 +21,7 @@ import {
 } from './types.js';
 
 const AERODROME_FACTORY = '0x420DD381b31aEf6683db6B902084cB0FFECe40Da';
+const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
 const aerodromeInterface = new ethers.Interface(AERODROME_ROUTER_ABI);
 const erc20Interface = new ethers.Interface(ERC20_ABI);
@@ -38,12 +40,22 @@ export async function getAerodromeQuote(
     }
 
     try {
+        const chainConfig = getChainConfig(chainId);
+        const wrappedNative = chainConfig.wrappedNativeAddress;
+        const isNativeIn = params.tokenIn.toLowerCase() === ETH_ADDRESS;
+        const isNativeOut = params.tokenOut.toLowerCase() === ETH_ADDRESS;
+
+        const routeFrom = isNativeIn ? wrappedNative : params.tokenIn;
+        const routeTo = isNativeOut ? wrappedNative : params.tokenOut;
+
+        let bestQuote: DexQuote | null = null;
+
         // Try volatile pool first, then stable
         for (const stable of [false, true]) {
             try {
                 const routes = [{
-                    from: params.tokenIn,
-                    to: params.tokenOut,
+                    from: routeFrom,
+                    to: routeTo,
                     stable: stable,
                     factory: AERODROME_FACTORY
                 }];
@@ -77,20 +89,35 @@ export async function getAerodromeQuote(
                 // Build swap calldata
                 const deadline = params.deadline || Math.floor(Date.now() / 1000) + DEFAULT_DEADLINE_SECONDS;
 
-                const swapCalldata = aerodromeInterface.encodeFunctionData('swapExactTokensForTokens', [
-                    params.amountIn,
-                    amountOutMin,
-                    routes,
-                    params.recipient,
-                    deadline
-                ]);
+                const swapCalldata = isNativeIn
+                    ? aerodromeInterface.encodeFunctionData('swapExactETHForTokens', [
+                        amountOutMin,
+                        routes,
+                        params.recipient,
+                        deadline
+                    ])
+                    : isNativeOut
+                        ? aerodromeInterface.encodeFunctionData('swapExactTokensForETH', [
+                            params.amountIn,
+                            amountOutMin,
+                            routes,
+                            params.recipient,
+                            deadline
+                        ])
+                        : aerodromeInterface.encodeFunctionData('swapExactTokensForTokens', [
+                            params.amountIn,
+                            amountOutMin,
+                            routes,
+                            params.recipient,
+                            deadline
+                        ]);
 
                 const poolType = stable ? 'stable' : 'volatile';
                 logger.info(LogCode.API_FETCH_SUCCESS, `✅ Aerodrome quote: ${poolType} pool`, {
                     amountOut: amountOut.toString()
                 });
 
-                return {
+                const quote: DexQuote = {
                     dex: `Aerodrome (${poolType})`,
                     router: AERODROME_ROUTER.address,
                     amountOut,
@@ -104,12 +131,16 @@ export async function getAerodromeQuote(
                     },
                     priceImpact: 0
                 };
+
+                if (!bestQuote || quote.amountOut > bestQuote.amountOut) {
+                    bestQuote = quote;
+                }
             } catch {
                 continue;
             }
         }
 
-        return null;
+        return bestQuote;
     } catch (err: any) {
         logger.debug(LogCode.API_FETCH_FAILED, 'Aerodrome quote failed', {
             error: err.message?.substring(0, 100)
@@ -134,19 +165,22 @@ export async function buildAerodromeSwapTransaction(
         return null;
     }
 
-    // Check approval
-    const allowanceData = erc20Interface.encodeFunctionData('allowance', [params.recipient, quote.router]);
-    let needsApproval = true;
+    const isNativeIn = params.tokenIn.toLowerCase() === ETH_ADDRESS;
 
-    try {
-        const result = await callRpc<string>(chainId, 'eth_call', [{
-            to: params.tokenIn,
-            data: allowanceData
-        }, 'latest']);
-        const currentAllowance = BigInt(result || '0x0');
-        needsApproval = currentAllowance < params.amountIn;
-    } catch {
-        needsApproval = true;
+    // Check approval
+    let needsApproval = !isNativeIn;
+    if (!isNativeIn) {
+        const allowanceData = erc20Interface.encodeFunctionData('allowance', [params.recipient, quote.router]);
+        try {
+            const result = await callRpc<string>(chainId, 'eth_call', [{
+                to: params.tokenIn,
+                data: allowanceData
+            }, 'latest']);
+            const currentAllowance = BigInt(result || '0x0');
+            needsApproval = currentAllowance < params.amountIn;
+        } catch {
+            needsApproval = true;
+        }
     }
 
     const result: {
@@ -158,7 +192,7 @@ export async function buildAerodromeSwapTransaction(
         swapTx: {
             to: quote.router,
             data: quote.calldata,
-            value: '0x0'
+            value: isNativeIn ? params.amountIn.toString() : '0x0'
         }
     };
 

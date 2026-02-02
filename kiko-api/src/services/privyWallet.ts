@@ -167,7 +167,6 @@ export interface TransactionRequest {
     gasPrice?: string;
     maxFeePerGas?: string;
     maxPriorityFeePerGas?: string;
-    nonce?: string;
     chainId: number;
 }
 
@@ -228,7 +227,6 @@ export async function sendTransaction(
         console.log('[sendTransaction] Gas:', tx.gas);
         console.log('[sendTransaction] MaxFeePerGas:', tx.maxFeePerGas);
         console.log('[sendTransaction] MaxPriorityFeePerGas:', tx.maxPriorityFeePerGas);
-        console.log('[sendTransaction] Nonce:', tx.nonce);
         console.log('[sendTransaction] Full TX object:', tx);
         console.log('[sendTransaction] ===========================================');
 
@@ -251,10 +249,8 @@ export async function sendTransaction(
                         data: tx.data as `0x${string}`,
                         value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : undefined,
                         gasLimit: tx.gas ? `0x${BigInt(tx.gas).toString(16)}` : undefined,
-                        gasPrice: tx.gasPrice ? `0x${BigInt(tx.gasPrice).toString(16)}` : undefined,
                         maxFeePerGas: tx.maxFeePerGas ? `0x${BigInt(tx.maxFeePerGas).toString(16)}` : undefined,
                         maxPriorityFeePerGas: tx.maxPriorityFeePerGas ? `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}` : undefined,
-                        nonce: tx.nonce ? `0x${BigInt(tx.nonce).toString(16)}` : undefined,
                     },
                 });
 
@@ -537,3 +533,4 @@ export async function signTypedData(
 export function isPrivyConfigured(): boolean {
     return !!(PRIVY_APP_ID && PRIVY_APP_SECRET);
 }
+

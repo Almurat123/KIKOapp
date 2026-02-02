@@ -112,9 +112,7 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
             42161: 'Arbitrum',
             10: 'Optimism',
             137: 'Polygon',
-            43114: 'Avalanche',
-            250: 'Fantom',
-            900: 'Solana',
+            900: 'Solana'
         };
 
         const tokenInfo: TokenInfo = {
@@ -165,9 +163,7 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
             42161: 'arbitrum',
             10: 'optimism',
             137: 'polygon',
-            43114: 'avalanche',
-            250: 'fantom',
-            900: 'solana',
+            900: 'solana'
         };
 
         const chainSlug = chainMap[chainId];
