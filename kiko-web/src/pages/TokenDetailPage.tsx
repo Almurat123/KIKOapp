@@ -15,6 +15,7 @@ import { favoriteApi } from '../services/favoriteService';
 import { usePrivy } from '@privy-io/react-auth';
 import { useSidebar } from '../components/Layout/Layout';
 import { proxyImageUrl } from '../utils/imageProxy';
+import { detectLaunchpadByAddress, LAUNCHPAD_LOGOS, getLaunchpadDisplayName } from '../utils/launchpadLogos';
 
 import { GeckoTerminalChart } from '../components/Chart/GeckoTerminalChart';
 import { useThemeContext } from '../contexts/ThemeContext';
@@ -129,6 +130,10 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   const loadingSecurity = false;
   const securityData = null;
   const [copied, setCopied] = useState(false);
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+
+  // Detect launchpad
+  const launchpad = detectLaunchpadByAddress(token.address, token.chain);
 
   // Quick Trade Handler
   const handleTradeAction = (action: 'buy' | 'sell') => {
@@ -358,7 +363,11 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
               <ArrowLeft size={18} />
             </button>
 
-            <div className={styles.tokenIconWrapper}>
+            <div
+              className={styles.tokenIconWrapper}
+              onClick={() => setImageModalOpen(true)}
+              style={{ cursor: 'pointer' }}
+            >
               <img
                 src={proxyImageUrl(token.imageUrl) || proxyImageUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff`) || `https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff`}
                 alt={token.name}
@@ -428,6 +437,21 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
                 {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
               </button>
             </div>
+
+            {/* Launchpad Badge */}
+            {launchpad && LAUNCHPAD_LOGOS[launchpad] && (
+              <div className={styles.launchpadBadge}>
+                <img
+                  src={LAUNCHPAD_LOGOS[launchpad]}
+                  alt={getLaunchpadDisplayName(launchpad)}
+                  className={styles.launchpadLogo}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <span className={styles.launchpadText}>{getLaunchpadDisplayName(launchpad)}</span>
+              </div>
+            )}
 
             {/* Social Links moved here */}
             {token.socialLinks && (
@@ -578,6 +602,23 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
           />
         </div>
       </div>
+
+      {/* Image Modal */}
+      {imageModalOpen && (
+        <div
+          className={styles.imageModal}
+          onClick={() => setImageModalOpen(false)}
+        >
+          <div className={styles.imageModalContent}>
+            <img
+              src={proxyImageUrl(token.imageUrl) || `https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff&size=512`}
+              alt={token.name}
+              className={styles.imageModalImg}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

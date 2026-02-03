@@ -896,13 +896,12 @@ export async function getTrendingTokensPremium(
 
     let trendingAddresses: string[] = [];
     const isWSAvailable = isWSSupportedChain(normalizedChainId);
-    const WS_ONLY_CHAINS = new Set(['base', 'bsc']);
 
-    // Note: Solana WebSocket returns binary protobuf data that can't be reliably parsed
-    // with regex - extracted addresses are invalid. Skip WebSocket for Solana.
-    const useWebSocket = isWSAvailable && WS_ONLY_CHAINS.has(normalizedChainId);
-    const QUALITY_MIN_LIQ_USD = useWebSocket ? 1000 : 5000;
-    const QUALITY_MIN_VOL_USD = useWebSocket ? 200 : 1000;
+    // All WS-supported chains can try WebSocket first, then fallback to HTTP if needed.
+    // Previously WS_ONLY_CHAINS restricted some chains but this caused failures when WS returned bad data.
+    const useWebSocket = isWSAvailable;
+    const QUALITY_MIN_LIQ_USD = 1000;
+    const QUALITY_MIN_VOL_USD = 200;
 
     // Step 1: Try to get trending addresses from WebSocket (Most accurate for EVM chains)
     if (useWebSocket) {
@@ -923,9 +922,10 @@ export async function getTrendingTokensPremium(
     }
 
 
-    // Step 2: Fallback to Boosts + Search if WS fails or is not supported
-    if (trendingAddresses.length === 0) {
-      logger.info(LogCode.API_FETCH_SUCCESS, 'Using fallback discovery (Boosts + Organic search)');
+    // Step 2: Fallback to Boosts + Search if WS fails or returns too few tokens
+    const MIN_WS_ADDRESSES = 20;
+    if (trendingAddresses.length < MIN_WS_ADDRESSES) {
+      logger.info(LogCode.API_FETCH_SUCCESS, 'Using fallback discovery (Boosts + Organic search)', { wsAddressCount: trendingAddresses.length });
 
       // Step 2a: Fetch token boosts
       let chainBoosts: any[] = [];
@@ -970,7 +970,14 @@ export async function getTrendingTokensPremium(
       }
 
       const boostedAddrs = chainBoosts.map(b => b.tokenAddress?.toLowerCase());
-      trendingAddresses = [...new Set([...boostedAddrs, ...Array.from(organicTokenAddresses)])].filter(Boolean) as string[];
+      // Merge WS addresses with fallback addresses (WS addresses take priority)
+      const fallbackAddresses = [...new Set([...boostedAddrs, ...Array.from(organicTokenAddresses)])].filter(Boolean) as string[];
+      trendingAddresses = [...new Set([...trendingAddresses, ...fallbackAddresses])];
+      logger.info(LogCode.API_FETCH_SUCCESS, 'Merged addresses', {
+        wsCount: trendingAddresses.length - fallbackAddresses.length,
+        fallbackCount: fallbackAddresses.length,
+        totalUnique: trendingAddresses.length
+      });
     }
 
     if (trendingAddresses.length === 0) {

@@ -15,25 +15,54 @@ import { validateTrendingTokenForListing } from '../services/trendingValidation.
 
 /**
  * Supported chains configuration
- * Each chain has its own refresh schedule to avoid rate limiting
+ * PRIMARY: High-volume chains refreshed every 5 minutes
+ * SECONDARY: Low-volume chains refreshed every 4 hours
  */
-const SUPPORTED_CHAINS = [
+const PRIMARY_CHAINS = [
   { id: 'eth', name: 'Ethereum', geckoNetwork: 'eth' },
   { id: 'solana', name: 'Solana', geckoNetwork: 'solana' },
   { id: 'base', name: 'Base', geckoNetwork: 'base' },
   { id: 'bsc', name: 'BSC', geckoNetwork: 'bsc' },
+];
+
+const SECONDARY_CHAINS = [
   { id: 'arbitrum', name: 'Arbitrum', geckoNetwork: 'arbitrum' },
   { id: 'optimism', name: 'Optimism', geckoNetwork: 'optimism' },
   { id: 'polygon', name: 'Polygon', geckoNetwork: 'polygon_pos' },
 ];
 
+const SUPPORTED_CHAINS = [...PRIMARY_CHAINS, ...SECONDARY_CHAINS];
 
-// Refresh interval in minutes (staggered to avoid hitting rate limits)
-const REFRESH_INTERVAL_MINUTES = 5;
-// Delay between chains in milliseconds (spread load)
-const CHAIN_DELAY_MS = 20000; // 20 seconds between each chain (better rate limit margin)
+// Refresh intervals
+const PRIMARY_REFRESH_INTERVAL_MINUTES = 5;    // Main chains: every 5 minutes
+const SECONDARY_REFRESH_INTERVAL_HOURS = 4;    // Secondary chains: every 4 hours
+
+// Delay between chains (串行执行，避免并发)
+const PRIMARY_CHAIN_DELAY_MS = 30000;   // 30 seconds between primary chains
+const SECONDARY_CHAIN_DELAY_MS = 60000; // 60 seconds between secondary chains
+
 // Number of tokens to fetch per chain
 const TOKENS_PER_CHAIN = 100;
+
+// Global rate limiter to prevent API abuse
+const apiRateLimiter = {
+  geckoTerminal: { lastCall: 0, minInterval: 5000, backoffUntil: 0 },  // 5s minimum interval
+  dexScreener: { lastCall: 0, minInterval: 2000 }                        // 2s minimum interval
+};
+
+/**
+ * Check if GeckoTerminal is currently in backoff period
+ */
+function isGeckoBackoffActive(): boolean {
+  return Date.now() < apiRateLimiter.geckoTerminal.backoffUntil;
+}
+
+/**
+ * Set GeckoTerminal backoff period (called when 429 is detected)
+ */
+export function setGeckoBackoff(durationMs: number): void {
+  apiRateLimiter.geckoTerminal.backoffUntil = Date.now() + durationMs;
+}
 
 /**
  * Refresh trending tokens for a single chain
@@ -85,20 +114,21 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
 
     console.log(`[TokenJob] Fetching trending tokens for ${chain.name} via DexScreener Premium...`);
 
+    // Rate limiter for DexScreener
+    const now = Date.now();
+    const dexDelay = apiRateLimiter.dexScreener.minInterval - (now - apiRateLimiter.dexScreener.lastCall);
+    if (dexDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, dexDelay));
+    }
+    apiRateLimiter.dexScreener.lastCall = Date.now();
+
     // Use DexScreener Premium (WebSocket-based) as primary source
-    // This matches the DexScreener website's trending order
     let tokens = await getTrendingTokensPremium(chain.id, 100);
 
-    // Fallback to GeckoTerminal only if DexScreener returns very few tokens
-    // Threshold raised from 10 to 20 to reduce GeckoTerminal API load
-    if (tokens.length < 20) {
-      console.log(`[TokenJob] DexScreener returned ${tokens.length} tokens, trying GeckoTerminal fallback...`);
-      const geckoTokens = await getTrendingTokens(chain.geckoNetwork, 100, '5m');
-      if (geckoTokens.length > tokens.length) {
-        tokens = geckoTokens;
-        console.log(`[TokenJob] Using GeckoTerminal fallback: ${tokens.length} tokens`);
-      }
-    }
+    // Note: GeckoTerminal fallback removed
+    // GeckoTerminal is only used for pool price/time data, not token metadata
+    // DexScreener provides more complete token data including imageUrl
+
 
     if (tokens.length === 0) {
       console.warn(`[TokenJob] No tokens found for ${chain.name}`);
@@ -148,24 +178,45 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
 }
 
 /**
- * Refresh all chains with staggered timing
- * This spreads the API load and avoids rate limiting
+ * Refresh primary chains (ETH, Solana, Base, BSC)
+ * Called every 5 minutes
  */
-async function refreshAllChains(force = false): Promise<void> {
+async function refreshPrimaryChains(force = false): Promise<void> {
   const startTime = Date.now();
 
-  for (let i = 0; i < SUPPORTED_CHAINS.length; i++) {
-    const chain = SUPPORTED_CHAINS[i];
+  for (let i = 0; i < PRIMARY_CHAINS.length; i++) {
+    const chain = PRIMARY_CHAINS[i];
     await refreshChainTokens(chain, force);
 
-    // Add delay between chains (except for the last one)
-    if (i < SUPPORTED_CHAINS.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, CHAIN_DELAY_MS));
+    // Add delay between chains (串行执行)
+    if (i < PRIMARY_CHAINS.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, PRIMARY_CHAIN_DELAY_MS));
     }
   }
 
   const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[TokenJob] Refreshed ${SUPPORTED_CHAINS.length} chains in ${duration}s`);
+  console.log(`[TokenJob] Refreshed ${PRIMARY_CHAINS.length} primary chains in ${duration}s`);
+}
+
+/**
+ * Refresh secondary chains (Arbitrum, Optimism, Polygon)
+ * Called every 4 hours
+ */
+async function refreshSecondaryChains(force = false): Promise<void> {
+  const startTime = Date.now();
+
+  for (let i = 0; i < SECONDARY_CHAINS.length; i++) {
+    const chain = SECONDARY_CHAINS[i];
+    await refreshChainTokens(chain, force);
+
+    // Add delay between chains (串行执行)
+    if (i < SECONDARY_CHAINS.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, SECONDARY_CHAIN_DELAY_MS));
+    }
+  }
+
+  const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[TokenJob] Refreshed ${SECONDARY_CHAINS.length} secondary chains in ${duration}s`);
 }
 
 /**
@@ -193,16 +244,23 @@ export function getSupportedChains(): string[] {
  * Initialize and start cron jobs
  */
 export function startTokenDataJobs(): void {
-  // Multi-chain refresh: Every 5 minutes
-  cron.schedule(`*/${REFRESH_INTERVAL_MINUTES} * * * *`, () => refreshAllChains(), {
+  // Primary chains: Every 5 minutes
+  cron.schedule(`*/${PRIMARY_REFRESH_INTERVAL_MINUTES} * * * *`, () => refreshPrimaryChains(), {
     timezone: 'UTC',
   });
 
-  console.log(`[TokenJob] Scheduled: Every ${REFRESH_INTERVAL_MINUTES}min (${SUPPORTED_CHAINS.map(c => c.name).join(', ')})`);
+  // Secondary chains: Every 4 hours
+  cron.schedule(`0 */${SECONDARY_REFRESH_INTERVAL_HOURS} * * *`, () => refreshSecondaryChains(), {
+    timezone: 'UTC',
+  });
+
+  console.log(`[TokenJob] Scheduled: Primary chains every ${PRIMARY_REFRESH_INTERVAL_MINUTES}min (${PRIMARY_CHAINS.map(c => c.name).join(', ')})`);
+  console.log(`[TokenJob] Scheduled: Secondary chains every ${SECONDARY_REFRESH_INTERVAL_HOURS}h (${SECONDARY_CHAINS.map(c => c.name).join(', ')})`);
 
   // Run initial refresh on startup (with delay for services to be ready)
   setTimeout(() => {
     console.log('[TokenJob] Starting initial token refresh...');
-    refreshAllChains();
-  }, 30000); // Wait 30 seconds for services to be ready and user to settle
+    refreshPrimaryChains();  // Start with primary chains
+    // Secondary chains will wait for their scheduled time
+  }, 30000); // Wait 30 seconds for services to be ready
 }

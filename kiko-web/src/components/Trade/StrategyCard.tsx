@@ -132,6 +132,10 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
                 <span className={styles.rowItemLabel}>Buy</span>
                 <span className={styles.rowItemValue}>${copyConfig?.buyAmountUsd}</span>
               </div>
+              <div className={styles.rowItem}>
+                <span className={styles.rowItemLabel}>Sell</span>
+                <span className={styles.rowItemValue}>{copyConfig?.mirrorSell ? 'Mirror' : 'None'}</span>
+              </div>
             </>
           ) : (
             <>
@@ -293,6 +297,13 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
               <div className={styles.strategyItem}>
                 <span className={styles.buyAmountLabel}>Buy Amount</span>
                 <span className={styles.buyAmountValue}>${copyConfig?.buyAmountUsd?.toLocaleString() || strategy.executionAmount}</span>
+              </div>
+
+              <div className={styles.strategyDivider}></div>
+
+              <div className={styles.strategyItem}>
+                <span className={styles.buyAmountLabel}>Mirror Sell Target</span>
+                <span className={styles.buyAmountValue}>{copyConfig?.mirrorSell ? 'YES' : 'NO'}</span>
               </div>
             </>
           ) : (

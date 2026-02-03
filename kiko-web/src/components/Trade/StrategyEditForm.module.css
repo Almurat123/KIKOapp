@@ -206,3 +206,17 @@
     transform: none;
     box-shadow: none;
 }
+.checkbox {
+    width: 18px;
+    height: 18px;
+    accent-color: #10b981;
+    cursor: pointer;
+}
+
+.toggleRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+}

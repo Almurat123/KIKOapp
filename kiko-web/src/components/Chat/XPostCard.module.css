@@ -9,9 +9,7 @@
 }
 
 .xPostCard:hover {
-  background: var(--bg-tertiary, #222);
-  border-color: rgba(29, 155, 240, 0.3);
-  transform: translateY(-1px);
+  /* Hover effects removed as per request */
 }
 
 .header {
@@ -100,8 +98,13 @@
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .footer {

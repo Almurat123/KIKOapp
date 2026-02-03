@@ -489,6 +489,15 @@ export async function callGeckoTerminal(
         const backoffMs = 60000; // 60 seconds (doubled from 30s for better recovery)
         geckoTerminalBackoffUntil = Date.now() + backoffMs;
         logger.warn(LogCode.API_RATE_LIMIT, 'GeckoTerminal 429 triggered backoff', { backoffMs });
+
+        // Notify TokenJob to skip GeckoTerminal calls during backoff
+        try {
+          const { setGeckoBackoff } = await import('../jobs/tokenDataJob.js');
+          setGeckoBackoff(backoffMs);
+        } catch (err) {
+          // Gracefully handle if tokenDataJob is not loaded yet
+        }
+
         throw new Error(`Rate limit hit, backing off for ${backoffMs}ms`);
       }
 

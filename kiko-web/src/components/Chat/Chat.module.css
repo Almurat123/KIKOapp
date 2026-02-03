@@ -421,7 +421,7 @@
 }
 
 .sourcesButton:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: transparent;
 }
 
 .messageRow:hover .actions {
@@ -3191,10 +3191,7 @@
 }
 
 .sourcesSidebarItem:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.2);
-    transform: translateX(-4px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    /* Hover effects removed as per request */
 }
 
 .light .sourcesSidebarItem {
@@ -3207,10 +3204,7 @@
 }
 
 .light .sourcesSidebarItem:hover {
-    background: rgba(255, 255, 255, 0.8) !important;
-    border-color: rgba(0, 0, 0, 0.1) !important;
-    transform: translateX(-4px);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06) !important;
+    /* Hover effects removed as per request */
 }
 
 .sourcesSidebarItemIcon {
@@ -3307,7 +3301,7 @@
 }
 
 .sourcesSidebarItem:hover .sourcesSidebarItemArrow {
-    opacity: 0.8;
+    opacity: 0.4;
 }
 
 /* Markdown Blockquote - Simple style without card design */

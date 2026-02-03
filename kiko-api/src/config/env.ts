@@ -120,6 +120,9 @@ export interface EnvConfig {
     security: {
         alchemyWebhookSecret?: string; // Secret for verifying Alchemy webhooks
         internalWebhookSecret?: string; // Secret for verifying internal Go service requests
+        cdpWebhookSecret?: string; // Secret for verifying Coinbase CDP webhooks
+        cdpWebhookToleranceSec?: number; // Max allowed clock skew for CDP webhooks
+        cdpWebhookSecretsJson?: Record<string, string>; // Map subscriptionId -> secret
     };
     aiModel: string; // AI Model for analysis
     logLevel?: string; // Log level (debug, info, warn, error)
@@ -330,6 +333,19 @@ function validateEnv(): EnvConfig {
         security: {
             alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,
             internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET,
+            cdpWebhookSecret: process.env.COINBASE_CDP_WEBHOOK_SECRET,
+            cdpWebhookToleranceSec: Number.parseInt(process.env.CDP_WEBHOOK_TOLERANCE_SEC || '300', 10),
+            cdpWebhookSecretsJson: process.env.COINBASE_CDP_WEBHOOK_SECRETS_JSON
+                ? (() => {
+                    try {
+                        const parsed = JSON.parse(process.env.COINBASE_CDP_WEBHOOK_SECRETS_JSON as string);
+                        return typeof parsed === 'object' && parsed !== null ? parsed : undefined;
+                    } catch {
+                        console.warn('[Env] Failed to parse COINBASE_CDP_WEBHOOK_SECRETS_JSON, ignoring.');
+                        return undefined;
+                    }
+                })()
+                : undefined,
         },
         aiModel: process.env.AI_MODEL || 'grok-beta',
         logLevel: process.env.LOG_LEVEL || 'info',

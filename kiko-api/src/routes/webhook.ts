@@ -32,6 +32,114 @@ const NETWORK_TO_CHAIN_ID: Record<string, number> = {
     'SOL': 900,                 // Short alias
 };
 
+type SignatureParts = {
+    t?: string;
+    h?: string;
+    v1?: string;
+};
+
+function parseHook0Signature(header: string): SignatureParts {
+    const parts: SignatureParts = {};
+    const segments = header.split(',').map(s => s.trim()).filter(Boolean);
+    for (const segment of segments) {
+        const [key, value] = segment.split('=');
+        if (!key || value === undefined) continue;
+        const k = key.trim();
+        const v = value.trim();
+        if (k === 't') parts.t = v;
+        if (k === 'h') parts.h = v;
+        if (k === 'v1') parts.v1 = v;
+    }
+    return parts;
+}
+
+function splitHeaderNames(raw?: string): { names: string[]; delimiter: string } {
+    if (!raw) return { names: [], delimiter: ':' };
+    const delimiters = [';', ':', '|', ' '];
+    for (const d of delimiters) {
+        if (raw.includes(d)) {
+            return { names: raw.split(d).map(s => s.trim()).filter(Boolean), delimiter: d };
+        }
+    }
+    return { names: [raw.trim()].filter(Boolean), delimiter: ':' };
+}
+
+function getHeaderValue(headers: Record<string, any>, name: string): string {
+    const value = headers[name.toLowerCase()];
+    if (Array.isArray(value)) return value.join(',');
+    if (typeof value === 'string') return value;
+    return '';
+}
+
+function verifyCdpSignature(request: any, secret: string, toleranceSec: number): boolean {
+    const signatureHeader = request.headers['x-hook0-signature'] as string | undefined;
+    if (!signatureHeader) {
+        console.warn('[Webhook] Missing CDP signature header');
+        return false;
+    }
+
+    const { t, h, v1 } = parseHook0Signature(signatureHeader);
+    if (!t || !v1) {
+        console.warn('[Webhook] Invalid CDP signature header format');
+        return false;
+    }
+
+    const timestamp = Number(t);
+    if (!Number.isFinite(timestamp)) {
+        console.warn('[Webhook] Invalid CDP signature timestamp');
+        return false;
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (Math.abs(nowSec - timestamp) > toleranceSec) {
+        console.warn('[Webhook] CDP signature timestamp outside tolerance', { nowSec, timestamp, toleranceSec });
+        return false;
+    }
+
+    const rawBody = request.rawBody;
+    if (!rawBody) {
+        console.error('[Webhook] rawBody is missing despite being enabled for /coinbase');
+        return false;
+    }
+
+    const rawBodyString = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : String(rawBody);
+    const { names, delimiter } = splitHeaderNames(h);
+    const headerNames = h || '';
+    const headerValues = names.map(n => getHeaderValue(request.headers, n)).join(delimiter);
+
+    const signingPayload = `${t}.${headerNames}.${headerValues}.${rawBodyString}`;
+    const digest = crypto.createHmac('sha256', secret).update(signingPayload).digest('hex');
+
+    try {
+        const a = Buffer.from(digest, 'hex');
+        const b = Buffer.from(v1, 'hex');
+        if (a.length !== b.length) return false;
+        return crypto.timingSafeEqual(a, b);
+    } catch (error) {
+        console.warn('[Webhook] CDP signature comparison failed', error);
+        return false;
+    }
+}
+
+function extractCdpSubscriptionId(payload: any): string | undefined {
+    return (
+        payload?.data?.subscriptionId ||
+        payload?.data?.subscription_id ||
+        payload?.subscriptionId ||
+        payload?.subscription_id
+    );
+}
+
+function getCdpSecretForRequest(request: any): string | undefined {
+    const payload = request.body;
+    const subscriptionId = extractCdpSubscriptionId(payload);
+    const secretMap = env.security.cdpWebhookSecretsJson;
+    if (subscriptionId && secretMap && secretMap[subscriptionId]) {
+        return secretMap[subscriptionId];
+    }
+    return env.security.cdpWebhookSecret;
+}
+
 export default async function webhookRoutes(fastify: FastifyInstance) {
     /**
      * POST /api/webhook/process-tx
@@ -270,7 +378,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     console.log(`[Webhook] No recognizable activity or transaction array in eventData`);
                 }
 
-                for (const item of items) {
+                const processItem = async (item: any) => {
                     let txHash = '';
                     let candidates: string[] = [];
 
@@ -298,12 +406,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         candidates = [fromAddr, toAddr].filter(Boolean);
                     }
 
-                    if (!txHash) continue;
+                    if (!txHash) return;
 
                     // FAST in-memory deduplication check (shared with watcher)
                     if (isTxProcessed(txHash)) {
                         console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
-                        continue;
+                        return;
                     }
 
                     const trackedWallets = await prisma.trackedWallet.findMany({
@@ -315,7 +423,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                     if (trackedWallets.length === 0) {
                         console.log(`[Webhook] ⚠️ Ignoring tx ${txHash.slice(0, 8)}: No matched tracked wallets in [${candidates.map(c => c.slice(0, 6)).join(', ')}]`);
-                        continue;
+                        return;
                     }
 
                     // Mark as processing ONLY if we have matched wallets
@@ -361,12 +469,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                             if (!tx) {
                                 console.error(`[Webhook] ❌ Failed to fetch Solana tx details after trying all RPCs: ${txHash.slice(0, 16)}`);
-                                continue;
+                                return;
                             }
 
                             // Trigger copy trade for EACH matched tracked wallet
                             const { handleSwapDetected } = await import('../services/autoTradeService.js');
-                            for (const walletRecord of trackedWallets) {
+                            await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
                                 const trackedTarget = walletRecord.address;
 
                                 // Decode Solana Swap
@@ -382,11 +490,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                                 } else {
                                     // console.log(`[Webhook] Solana tx ${txHash.slice(0, 8)} was not a swap for tracked wallet`);
                                 }
-                            }
+                            }));
                         } catch (err) {
                             console.error(`[Webhook] Error fetching Solana tx details:`, err);
                         }
-                        continue;
+                        return;
                     }
 
                     // EVM Logic (Base, BSC, etc.)
@@ -397,13 +505,13 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                     if (!tx || !receipt) {
                         console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash.slice(0, 16)}`);
-                        continue;
+                        return;
                     }
 
                     // Trigger copy trade for EACH matched tracked wallet
                     const { handleSwapDetected } = await import('../services/autoTradeService.js');
 
-                    for (const walletRecord of trackedWallets) {
+                    await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
                         const trackedTarget = walletRecord.address;
 
                         // Parse as swap - IMPORTANT: Use trackedTarget as the identity for decoding
@@ -424,7 +532,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                         if (!swap) {
                             console.log(`[Webhook] Not a swap tx for ${trackedTarget.slice(0, 10)}: ${txHash.slice(0, 16)}`);
-                            continue;
+                            return;
                         }
 
                         console.log(`[Webhook] ✅ Swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
@@ -434,11 +542,142 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         });
 
                         await handleSwapDetected(trackedTarget, swap, chainId);
-                    }
+                    }));
+                };
+
+                // Process items in parallel batches for speed without overload
+                const BATCH_SIZE = 5;
+                for (let i = 0; i < items.length; i += BATCH_SIZE) {
+                    const batch = items.slice(i, i + BATCH_SIZE);
+                    await Promise.allSettled(batch.map(processItem));
                 }
             } catch (error) {
                 console.error(`[Webhook] Error processing Alchemy webhook:`, error);
             }
         }); // End setImmediate
+    });
+
+    /**
+     * POST /api/webhook/coinbase
+     * Coinbase Base webhook handler (fast ack + async processing)
+     */
+    fastify.post('/coinbase', async (request, reply) => {
+        const hasSecretConfig = !!env.security.cdpWebhookSecret || !!env.security.cdpWebhookSecretsJson;
+        if (hasSecretConfig) {
+            const cdpSecret = getCdpSecretForRequest(request);
+            if (!cdpSecret) {
+                console.warn('[Webhook] Missing CDP secret for subscription');
+                return reply.status(401).send({ error: 'Invalid signature' });
+            }
+            const toleranceSec = env.security.cdpWebhookToleranceSec ?? 300;
+            const ok = verifyCdpSignature(request, cdpSecret, toleranceSec);
+            if (!ok) {
+                return reply.status(401).send({ error: 'Invalid signature' });
+            }
+        }
+
+        const payload = request.body as any;
+        console.log(`[Webhook] Incoming Coinbase: ${JSON.stringify(payload)}`);
+        reply.send({ success: true });
+
+        setImmediate(async () => {
+            try {
+                const chainId = 8453; // Coinbase Base
+
+                const txHashes = new Set<string>();
+                const pushHash = (h?: string) => {
+                    if (h && typeof h === 'string') txHashes.add(h);
+                };
+
+                // Flexible extraction for different webhook shapes
+                pushHash(payload?.txHash);
+                pushHash(payload?.transactionHash);
+                pushHash(payload?.transaction_hash);
+                pushHash(payload?.event?.hash);
+                pushHash(payload?.event?.transactionHash);
+                pushHash(payload?.event?.transaction_hash);
+                pushHash(payload?.event?.data?.transactionHash);
+                pushHash(payload?.event?.data?.transaction_hash);
+                pushHash(payload?.data?.transactionHash);
+                pushHash(payload?.data?.transaction_hash);
+                if (Array.isArray(payload?.transactions)) {
+                    payload.transactions.forEach((t: any) => pushHash(t?.hash || t?.transactionHash || t?.transaction_hash));
+                }
+                if (Array.isArray(payload?.activity)) {
+                    payload.activity.forEach((a: any) => pushHash(a?.hash));
+                }
+                if (Array.isArray(payload?.event?.activity)) {
+                    payload.event.activity.forEach((a: any) => pushHash(a?.hash));
+                }
+                if (Array.isArray(payload?.event?.transactions)) {
+                    payload.event.transactions.forEach((t: any) => pushHash(t?.hash || t?.transactionHash || t?.transaction_hash));
+                }
+
+                if (txHashes.size === 0) {
+                    console.warn('[Webhook] Coinbase webhook missing tx hash');
+                    return;
+                }
+
+                const { handleSwapDetected } = await import('../services/autoTradeService.js');
+
+                const processTx = async (txHash: string) => {
+                    if (isTxProcessed(txHash)) return;
+
+                    const [tx, receipt] = await Promise.all([
+                        fetchTransaction(txHash, chainId),
+                        fetchTransactionReceipt(txHash, chainId),
+                    ]);
+
+                    if (!tx || !receipt) {
+                        console.warn(`[Webhook] Coinbase: Could not fetch tx/receipt ${txHash.slice(0, 16)}`);
+                        return;
+                    }
+
+                    const candidates = [normalizeAddress(tx.from), normalizeAddress(tx.to)].filter(Boolean);
+                    if (candidates.length === 0) return;
+
+                    const trackedWallets = await prisma.trackedWallet.findMany({
+                        where: {
+                            address: { in: candidates, mode: 'insensitive' },
+                            chainId,
+                        }
+                    });
+
+                    if (trackedWallets.length === 0) return;
+
+                    markTxAsProcessed(txHash);
+
+                    await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
+                        const trackedTarget = walletRecord.address;
+                        const swap = await parseSwapTransaction(
+                            {
+                                hash: txHash,
+                                from: trackedTarget,
+                                to: tx.to,
+                                input: tx.input,
+                                value: tx.value,
+                            },
+                            {
+                                logs: receipt.logs,
+                                status: parseInt(receipt.status, 16),
+                            },
+                            chainId
+                        );
+
+                        if (!swap) return;
+                        await handleSwapDetected(trackedTarget, swap, chainId);
+                    }));
+                };
+
+                const BATCH_SIZE = 5;
+                const hashes = Array.from(txHashes);
+                for (let i = 0; i < hashes.length; i += BATCH_SIZE) {
+                    const batch = hashes.slice(i, i + BATCH_SIZE);
+                    await Promise.allSettled(batch.map(processTx));
+                }
+            } catch (error) {
+                console.error('[Webhook] Error processing Coinbase webhook:', error);
+            }
+        });
     });
 }

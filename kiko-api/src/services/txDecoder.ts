@@ -73,6 +73,8 @@ export function getDexName(routerAddress: string, chainId: number): string {
     if (chainId === 8453) {
         const baseRouters: Record<string, string> = {
             '0x2626664c2603336e57b271c5c0b26f421741e481': 'Uniswap V3',
+            '0x6ff5693b99212da76ad316178a184ab56d299b43': 'Uniswap Universal Router (v4)',
+            '0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap v4 PoolManager',
             '0x6131b5fae19ea4f9d964eac0408e4408b66337b5': 'KyberSwap',
             '0x0000000000001ff3684f28c67538d4d072c22734': '0x Protocol',
             '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae': 'LiFi',

@@ -128,6 +128,32 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                 </div>
             </div>
 
+            {/* Mirror Sell */}
+            <div className={styles.section}>
+                <div className={styles.inputGroup}>
+                    <label className={styles.label}>Execution Logic</label>
+                    <div
+                        className={styles.toggleRow}
+                        onClick={() => setFormData({ ...formData, mirrorSell: !formData.mirrorSell })}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={formData.mirrorSell}
+                            onChange={() => { }} // Handled by div for better hit area
+                            className={styles.checkbox}
+                        />
+                        <span className={styles.helperText} style={{ marginTop: 0 }}>
+                            <strong>Mirror Sell:</strong> Follow the target wallet's sell actions immediately.
+                        </span>
+                    </div>
+                    {!formData.mirrorSell && (
+                        <p className={styles.helperText} style={{ color: 'var(--warning-color, #f59e0b)', fontSize: '11px' }}>
+                            Note: If disabled, you must manually manage exits or rely purely on TP/SL levels.
+                        </p>
+                    )}
+                </div>
+            </div>
+
             {/* Actions */}
             <div className={styles.actions}>
                 <button
