@@ -435,6 +435,7 @@ export function getDexName(routerAddress: string, chainId: number): string {
             '0x7a250d5630b4cf539739df2c5dacb4c659f2488d': 'Uniswap V2',
             '0xe592427a0aece92de3edee1f18e0157c05861564': 'Uniswap V3',
             '0xdef1c0ded9bec7f1a1670819833240faca6db2a2': '0x Protocol',
+            '0x000000000004444c5dc75cb358380d2e3de08a90': 'Uniswap v4 PoolManager',
         };
         return ethRouters[address] || 'Unknown DEX';
     }

@@ -150,6 +150,7 @@ const QUOTER_V4_ADDRESSES: Record<number, string> = {
 };
 
 const V4_POOL_MANAGER_ADDRESSES: Record<number, string> = {
+    1: '0x000000000004444c5dc75cB358380D2e3dE08A90', // Ethereum
     8453: '0x498581ff718922c3f8e6a244956af099b2652b2b', // Base
 };
 
@@ -159,6 +160,7 @@ const NATIVE_PLACEHOLDER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const V4_PAIR_CACHE_TTL_MS = 5 * 60 * 1000;
 const v4PairCache = new Map<string, { pools: Array<{ poolId: string; token0: string; token1: string }>; timestamp: number }>();
 const V4_INIT_FROM_BLOCKS: Record<number, string> = {
+    1: '0x14af009',  // Ethereum v4 PoolManager deployment block (21688329)
     8453: '0x27b6a9f', // Base v4 PoolManager deployment block (41642655)
 };
 
@@ -180,6 +182,7 @@ const priceCache = new Map<string, PriceCache>();
 const PRICE_CACHE_TTL = 5000; // 5 second cache
 
 type RpcStrategy = 'fast' | 'cheap';
+const FAST_RPC_RACE = Number(process.env.FAST_RPC_RACE || 2);
 
 async function callRpcWithStrategy<T = any>(
     chainId: number,
@@ -187,6 +190,13 @@ async function callRpcWithStrategy<T = any>(
     params: any[],
     rpcStrategy: RpcStrategy
 ): Promise<T> {
+    if (rpcStrategy === 'fast' && FAST_RPC_RACE > 1) {
+        const candidates = ['fast', 'cheap'];
+        const attempts = candidates.slice(0, FAST_RPC_RACE).map((strategy) =>
+            callRpc<T>(chainId, method, params, { strategy: strategy as 'fast' | 'cheap' })
+        );
+        return await Promise.any(attempts);
+    }
     return callRpc<T>(chainId, method, params, { strategy: rpcStrategy });
 }
 

@@ -7,6 +7,7 @@ import { ethers } from 'ethers';
 import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
+import { enqueueCopyTradeTask } from './copyTradeQueue.js';
 import { MainSwapService } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
@@ -202,6 +203,13 @@ export async function handleSwapDetected(
         return; // Skip duplicate
     }
 
+    // 🔥 Pre-warm cache (non-blocking) for faster downstream execution
+    Promise.allSettled([
+        getTokenInfo(swap.tokenIn, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
+        getTokenInfo(swap.tokenOut, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
+        getNativeTokenPriceUsd(chainId),
+    ]).catch(() => undefined);
+
     const chainConfig = getChainConfig(chainId);
 
     // Stablecoin/ETH addresses (what we consider "cash out")
@@ -293,7 +301,7 @@ async function handleTargetBuy(
     // 2. SECOND: Fetch Token Info & Checks (Only if we have interested users)
     // 🚀 Copy Trade uses HIGH priority to bypass rate limits for critical order execution
     const [tokenInfo, launchpadResult] = await Promise.all([
-        getTokenInfo(tokenToBuy, chainId, { priority: 'high', rpcStrategy: 'fast' }),
+        getTokenInfo(tokenToBuy, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
         detectLaunchpadToken(tokenToBuy, chainId)
     ]);
 
@@ -392,12 +400,12 @@ async function processBuyWithInfo(
 
         if (isStableIn) {
             // USDC/USDT - fetch dynamic info to get true decimals
-            const stableInfo = await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast' });
+            const stableInfo = await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true });
             const decimalsIn = stableInfo?.decimals || 6; // Fallback to 6 if fetch fails (safe for USDC/USDT)
             targetSwapValueUsd = formatTokenAmount(amountInBN, decimalsIn);
         } else if (isZoraIn) {
             // ZORA Token price - fetch dynamically
-            const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast' });
+            const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true });
             if (!zoraInfo || zoraInfo.price <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch ZORA price, cannot calculate trade value', { token: ZORA_TOKEN });
                 targetSwapValueUsd = 0; // Cannot proceed without price
@@ -1851,7 +1859,7 @@ async function handleTargetSell(
             prisma.position.findMany({
                 where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
             }),
-            getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast' })
+            getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true })
         ]);
 
         if (positions.length === 0 || !tokenInfo) return;
@@ -1890,7 +1898,9 @@ export function initAutoTradeService(): void {
     logger.info(LogCode.SYS_STARTUP, 'Initializing auto trade service...');
 
     // Register swap callbacks
-    onSwapDetected(handleSwapDetected);
+    onSwapDetected(async (targetWallet, swap, chainId) => {
+        enqueueCopyTradeTask(targetWallet, swap, chainId);
+    });
     onSolanaSwapDetected(handleSwapDetected);
 
     // NOTE: EVM watcher disabled - using Alchemy webhooks for real-time push notifications

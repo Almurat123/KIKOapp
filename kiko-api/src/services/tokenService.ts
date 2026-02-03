@@ -39,19 +39,20 @@ export async function getTokenInfo(
         forceRefresh?: boolean;
         priority?: ApiPriority;
         rpcStrategy?: 'fast' | 'cheap';
+        fastMode?: boolean;
     } = { verbose: true, forceRefresh: false, priority: 'normal' }
 ): Promise<any> {
-    const { verbose = true, forceRefresh = false, priority = 'normal', rpcStrategy = 'cheap' } = options;
+    const { verbose = true, forceRefresh = false, priority = 'normal', rpcStrategy = 'cheap', fastMode = false } = options;
 
     // 如果强制刷新，直接从 API 获取
     if (forceRefresh) {
-        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority, rpcStrategy);
+        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority, rpcStrategy, fastMode);
     }
 
     // 🔗 通过缓存中心获取（统一缓存链）
     return cacheHub.getTokenInfo(tokenAddress, chainId, async () => {
         // 缓存未命中时的获取逻辑
-        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority, rpcStrategy);
+        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority, rpcStrategy, fastMode);
     });
 }
 
@@ -132,7 +133,8 @@ async function fetchTokenInfoFromAPIs(
     chainId: number,
     verbose: boolean,
     priority: ApiPriority = 'normal',
-    rpcStrategy: 'fast' | 'cheap' = 'cheap'
+    rpcStrategy: 'fast' | 'cheap' = 'cheap',
+    fastMode: boolean = false
 ): Promise<any> {
     const chainSlug = getChainSlug(chainId);
     const gtSlug = chainSlug.geckoTerminal;
@@ -149,26 +151,38 @@ async function fetchTokenInfoFromAPIs(
     }
 
     // 🚀 PARALLEL EXECUTION: RPC/Jupiter (price) + API (liquidity) + Metadata
-    const [rpcData, liquidityData, metadata] = await Promise.allSettled([
-        // 1. Price: RPC (EVM) or Jupiter API (Solana)
-        isSolana ? (async () => {
+    const rpcPromise = isSolana
+        ? (async () => {
             const { getSolanaTokenInfo } = await import('./solanaOnChainPriceService.js');
             return getSolanaTokenInfo(tokenAddress);
-        })() : (async () => {
+        })()
+        : (async () => {
             const { getOnChainPrice } = await import('./onChainPriceService.js');
             return getOnChainPrice(tokenAddress, chainId, { rpcStrategy });
-        })(),
+        })();
 
-        // 2. API: Get liquidity data (~200ms, may hit rate limit)
-        getLiquidityData(tokenAddress, chainId, priority),
+    const liquidityPromise = getLiquidityData(tokenAddress, chainId, priority);
 
-        // 3. RPC/API: Get token metadata (~50ms, Solana uses API fallback)
-        isSolana ? Promise.resolve({ symbol: 'UNKNOWN', name: 'Unknown Token', decimals: 9 }) : getTokenMetadata(chainId, tokenAddress, { rpcStrategy })
-    ]);
+    const metaPromise = isSolana
+        ? Promise.resolve({ symbol: 'UNKNOWN', name: 'Unknown Token', decimals: 9 })
+        : getTokenMetadata(chainId, tokenAddress, { rpcStrategy });
+
+    const [rpcData, metadata] = await Promise.allSettled([rpcPromise, metaPromise]);
+
+    let liquidityData: PromiseSettledResult<any> | null = null;
+    if (fastMode) {
+        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 300));
+        const liqWinner = await Promise.race([liquidityPromise, timeout]);
+        liquidityData = { status: 'fulfilled', value: liqWinner } as PromiseFulfilledResult<any>;
+    } else {
+        liquidityData = await Promise.resolve(liquidityPromise)
+            .then((value) => ({ status: 'fulfilled', value } as PromiseFulfilledResult<any>))
+            .catch((reason) => ({ status: 'rejected', reason } as PromiseRejectedResult));
+    }
 
     // Extract results
     const rpc = rpcData.status === 'fulfilled' ? rpcData.value : null;
-    const liq = liquidityData.status === 'fulfilled' ? liquidityData.value : null;
+    const liq = liquidityData && liquidityData.status === 'fulfilled' ? liquidityData.value : null;
     const meta = metadata.status === 'fulfilled' ? metadata.value : null;
 
     // 🛡️ MERGE STRATEGY: Use best data from each source
@@ -188,29 +202,61 @@ async function fetchTokenInfoFromAPIs(
             rpcPrice: rpc?.price
         });
 
-        try {
-            // Try GeckoTerminal for complete data
+        const tryGecko = async () => {
             const gtData = await getTokenDetails(gtSlug, tokenAddress, priority);
             if (gtData && gtData.price && gtData.price > 0) {
-                price = gtData.price;
+                return gtData;
+            }
+            return null;
+        };
+
+        const tryDex = async () => {
+            const dexChainId = isSolana ? 'solana' : chainId;
+            const dexPrice = await getDexPrice(tokenAddress, dexChainId);
+            return dexPrice > 0 ? dexPrice : null;
+        };
+
+        if (fastMode) {
+            const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 800));
+            const winner = await Promise.race([tryGecko(), tryDex(), timeout]);
+            if (typeof winner === 'number') {
+                price = winner;
+                provider = isSolana ? 'jupiter-dex' : '0x-dex';
+            } else if (winner && typeof winner === 'object') {
+                const gtData = winner as any;
+                price = gtData.price || 0;
                 symbol = gtData.symbol || symbol;
                 name = gtData.name || name;
                 decimals = gtData.decimals || decimals;
-                liquidity = liquidity || gtData.liquidity || 0;  // Keep API liquidity if we have it
+                liquidity = liquidity || gtData.liquidity || 0;
                 volume24h = volume24h || gtData.volume24h || 0;
                 marketCap = (gtData.marketCap || gtData.fdv || marketCap) as number;
                 provider = 'geckoterminal';
+            }
+        } else {
+            try {
+                const gtData = await tryGecko();
+                if (gtData) {
+                    price = gtData.price || 0;
+                    symbol = gtData.symbol || symbol;
+                    name = gtData.name || name;
+                    decimals = gtData.decimals || decimals;
+                    liquidity = liquidity || gtData.liquidity || 0;
+                    volume24h = volume24h || gtData.volume24h || 0;
+                    marketCap = (gtData.marketCap || gtData.fdv || marketCap) as number;
+                    provider = 'geckoterminal';
 
-                logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from GeckoTerminal', {
-                    symbol,
-                    price
+                    logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from GeckoTerminal', {
+                        symbol,
+                        price
+                    });
+                }
+            } catch (gtErr: any) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'GeckoTerminal fallback failed', {
+                    token: tokenAddress,
+                    error: gtErr.message
                 });
             }
-        } catch (gtErr: any) {
-            logger.warn(LogCode.API_FETCH_FAILED, 'GeckoTerminal fallback failed', {
-                token: tokenAddress,
-                error: gtErr.message
-            });
         }
 
         // 🔗 FINAL FALLBACK: Try DEX price (0x for EVM, Jupiter for Solana)

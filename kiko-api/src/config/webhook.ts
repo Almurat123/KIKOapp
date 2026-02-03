@@ -97,8 +97,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             });
 
             // Import and trigger copy trade (dynamic import to avoid circular deps)
-            const { handleSwapDetected } = await import('../services/autoTradeService.js');
-            await handleSwapDetected(wallet, swap, chainId);
+            const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
+            enqueueCopyTradeTask(wallet, swap, chainId);
 
             return reply.send({ success: true, swap: { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut } });
         } catch (error: any) {
@@ -230,8 +230,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 });
 
                 // Trigger copy trade
-                const { handleSwapDetected } = await import('../services/autoTradeService.js');
-                await handleSwapDetected(trackedTarget, swap, chainId);
+                const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
+                enqueueCopyTradeTask(trackedTarget, swap, chainId);
             }
         } catch (error) {
             console.error(`[Webhook] Error processing Alchemy webhook:`, error);
