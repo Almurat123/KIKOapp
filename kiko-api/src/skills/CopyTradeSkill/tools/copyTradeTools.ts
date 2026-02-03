@@ -64,6 +64,7 @@ export const CreateCopyTradeConfigTool: Tool = {
     handler: async (args, context) => {
         const userId = context?.userId;
         const walletAddress = context?.walletAddress;
+        const MAX_COPY_TRADE_USD = 1_000_000;
 
         if (!userId || !walletAddress) {
             throw new Error('User not authenticated');
@@ -75,6 +76,9 @@ export const CreateCopyTradeConfigTool: Tool = {
             // Validate address format early
             if (!validateAddress(args.target_wallet)) {
                 throw new Error('Invalid target wallet address');
+            }
+            if (!Number.isFinite(args.buy_amount_usd) || args.buy_amount_usd <= 0 || args.buy_amount_usd > MAX_COPY_TRADE_USD) {
+                throw new Error(`buy_amount_usd must be between 0 and ${MAX_COPY_TRADE_USD}`);
             }
 
             // Determine Chain ID

@@ -24,6 +24,8 @@ interface CreateConfigBody {
     mirrorSell?: boolean;
 }
 
+const MAX_COPY_TRADE_USD = 1_000_000;
+
 export default async function copyTradeRoutes(fastify: FastifyInstance) {
     async function assertEoaTarget(chainId: number, address: string): Promise<void> {
         if (!address || !address.startsWith('0x')) return;
@@ -113,6 +115,9 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
 
         if (!targetWallet || !buyAmountUsd) {
             return reply.status(400).send({ error: 'targetWallet and buyAmountUsd are required' });
+        }
+        if (!Number.isFinite(buyAmountUsd) || buyAmountUsd <= 0 || buyAmountUsd > MAX_COPY_TRADE_USD) {
+            return reply.status(400).send({ error: `buyAmountUsd must be between 0 and ${MAX_COPY_TRADE_USD}` });
         }
 
         targetWallet = targetWallet.trim();
@@ -408,6 +413,13 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     }
                 } catch (validationError: any) {
                     return reply.status(400).send({ error: validationError.message || 'Invalid target wallet' });
+                }
+            }
+
+            if (updates.buyAmountUsd !== undefined) {
+                const nextBuyAmount = Number(updates.buyAmountUsd);
+                if (!Number.isFinite(nextBuyAmount) || nextBuyAmount <= 0 || nextBuyAmount > MAX_COPY_TRADE_USD) {
+                    return reply.status(400).send({ error: `buyAmountUsd must be between 0 and ${MAX_COPY_TRADE_USD}` });
                 }
             }
 

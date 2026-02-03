@@ -102,6 +102,7 @@ let zombieCleanupInterval: NodeJS.Timeout | null = null;
 // This prevents the race condition where two webhooks bypass cooldown before Position is created
 const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
+const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
 
 /**
  * Check if a token is currently locked for a user (trade in progress)
@@ -463,14 +464,7 @@ async function processBuyWithInfo(
         ),
         // 2. 获取 Native 价格（通过缓存中心）
         cacheHub.getNativePrice(chainId, async () => {
-            if (chainId === 900) {
-                const solInfo = await getTokenInfo(SOLANA_CONFIG.TOKENS.SOL, 900, { verbose: false });
-                return solInfo?.price || 0;
-            } else {
-                const { wrappedNativeAddress } = getChainConfig(chainId);
-                const ethInfo = await getTokenInfo(wrappedNativeAddress, chainId, { verbose: false });
-                return ethInfo?.price || 0;
-            }
+            return getNativeTokenPriceUsd(chainId);
         })
     ]);
 
@@ -752,7 +746,32 @@ async function processSingleUserBuy(
 
         // Calculate how much to buy in token units
         // Apply scaling factor for liquidity protection (reduces amount when many users buy simultaneously)
-        const rawUsdAmount = config.buyAmountUsd;
+        const rawUsdAmount = Number(config.buyAmountUsd);
+        if (!Number.isFinite(rawUsdAmount) || rawUsdAmount <= 0 || rawUsdAmount > MAX_COPY_TRADE_USD) {
+            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Invalid buy amount', {
+                userId: config.userId,
+                buyAmountUsd: config.buyAmountUsd
+            });
+
+            await notificationService.sendNotification({
+                userId: config.userId,
+                farcasterFid: config.user.farcasterFid,
+                type: 'COPY_TRADE_SKIPPED',
+                data: {
+                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                    tokenAddress: tokenToBuy,
+                    targetWallet: targetWallet,
+                    chainId: chainId,
+                    skipReason: `Invalid buy amount ($${String(config.buyAmountUsd)}). Please update your copy trade amount.`,
+                    targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                }
+            });
+
+            return;
+        }
+
         const usdAmount = rawUsdAmount * scalingFactor;
 
         // Log if scaling was applied
@@ -767,6 +786,36 @@ async function processSingleUserBuy(
 
         // ⚡ OPTIMIZATION: Use shared native price instead of querying again
         let nativePrice = sharedNativePrice;
+        if (!Number.isFinite(nativePrice) || nativePrice <= 1) {
+            const fallbackNative = await getNativeTokenPriceUsd(chainId);
+            if (Number.isFinite(fallbackNative) && fallbackNative > 1) {
+                nativePrice = fallbackNative;
+            } else {
+                logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Native price unavailable', {
+                    userId: config.userId,
+                    chainId,
+                    nativePrice
+                });
+
+                await notificationService.sendNotification({
+                    userId: config.userId,
+                    farcasterFid: config.user.farcasterFid,
+                    type: 'COPY_TRADE_SKIPPED',
+                    data: {
+                        tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                        tokenAddress: tokenToBuy,
+                        targetWallet: targetWallet,
+                        chainId: chainId,
+                        skipReason: 'Native token price unavailable. Please retry in a moment.',
+                        targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                        marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                        liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                    }
+                });
+
+                return;
+            }
+        }
 
         const cooldownMinutes = userSettings?.copyTradeTokenCooldownMinutes ?? 60;
         if (cooldownMinutes > 0) {
