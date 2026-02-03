@@ -30,15 +30,32 @@ export async function acquireLock(key: string, ttlSeconds: number, value: string
         const now = Date.now();
         const expiresAt = existing.expiresAt ? existing.expiresAt.getTime() : null;
         const ageMs = now - existing.updatedAt.getTime();
-        console.warn('[DBLock] Lock already held', {
+
+        // Check if lock has expired - if so, clean it up and acquire new lock
+        const isExpired = expiresAt && now > expiresAt;
+        const isVeryStale = !expiresAt && ageMs > (ttlSeconds + 60) * 1000;
+
+        if (isExpired || isVeryStale) {
+            console.warn('[DBLock] Cleaning expired/stale lock', {
+                key,
+                expiresAt: existing.expiresAt?.toISOString() || null,
+                ageMs,
+                isExpired,
+                isVeryStale
+            });
+            // Delete the stale lock and acquire new one
+            await dbCache.del(key);
+            await dbCache.set(key, value, ttlSeconds);
+            console.info('[DBLock] Acquired lock after cleaning stale entry', { key });
+            return true;
+        }
+
+        // Lock is still valid and held by someone else
+        console.warn('[DBLock] Lock already held (valid)', {
             key,
             expiresAt: existing.expiresAt?.toISOString() || null,
             ageMs
         });
-        // If lock looks stale (no expiry or very old), surface it for ops.
-        if (!expiresAt || ageMs > (ttlSeconds + 60) * 1000) {
-            console.warn('[DBLock] Potential stale lock detected', { key, ageMs, ttlSeconds });
-        }
         return false;
     }
     await dbCache.set(key, value, ttlSeconds);
