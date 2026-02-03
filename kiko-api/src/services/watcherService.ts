@@ -7,6 +7,7 @@ import prisma from '../db/prisma.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
+import { callRpc as rpcCall } from './rpcManager.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 
 // Alchemy API for Base
@@ -66,20 +67,7 @@ import { getChainConfig } from '../config/chainConfig.js';
  */
 export async function fetchTransaction(txHash: string, chainId: number): Promise<any | null> {
     try {
-        const { rpcUrls } = getChainConfig(chainId);
-        const rpcUrl = rpcUrls[0];
-        const data = await fetchJson({
-            url: rpcUrl,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'eth_getTransactionByHash',
-                params: [txHash],
-            })
-        });
-        return data.result;
+        return await rpcCall(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast' });
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction by hash', { txHash, chainId, error: error.message });
         return null;
@@ -91,20 +79,7 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
  */
 export async function fetchTransactionReceipt(txHash: string, chainId: number): Promise<any | null> {
     try {
-        const { rpcUrls } = getChainConfig(chainId);
-        const rpcUrl = rpcUrls[0];
-        const data = await fetchJson({
-            url: rpcUrl,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'eth_getTransactionReceipt',
-                params: [txHash],
-            })
-        });
-        return data.result;
+        return await rpcCall(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast' });
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction receipt', { txHash, chainId, error: error.message });
         return null;
@@ -118,19 +93,11 @@ export async function fetchTransactionReceipt(txHash: string, chainId: number): 
  */
 async function fetchRecentTransactionsRpc(address: string, chainId: number): Promise<any[]> {
     try {
-        const { rpcUrls } = getChainConfig(chainId);
-        const rpcUrl = rpcUrls[0];
-
         // 1. Get latest block number
-        const blockData = await fetchJson<{ result?: string }>({
-            url: rpcUrl,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] })
-        });
-        if (!blockData.result) return [];
+        const blockHex = await rpcCall<string>(chainId, 'eth_blockNumber', [], { strategy: 'cheap' });
+        if (!blockHex) return [];
 
-        const latestBlock = parseInt(blockData.result, 16);
+        const latestBlock = parseInt(blockHex, 16);
         const lookback = 20; // Increase lookback to avoid missing blocks between polls (20 blocks ~ 60s on BSC)
         // console.log(`[Watcher] Fetching blocks ${latestBlock - lookback} to ${latestBlock} for chain ${chainId}`);
         const transfers: any[] = [];
@@ -139,14 +106,7 @@ async function fetchRecentTransactionsRpc(address: string, chainId: number): Pro
         const promises = [];
         for (let i = 0; i < lookback; i++) {
             const blockNum = '0x' + (latestBlock - i).toString(16);
-            promises.push(fetchJson({
-                url: rpcUrl,
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    jsonrpc: '2.0', id: 1, method: 'eth_getBlockByNumber', params: [blockNum, true]
-                })
-            }));
+            promises.push(rpcCall<any>(chainId, 'eth_getBlockByNumber', [blockNum, true], { strategy: 'cheap' }));
         }
 
         const results = await Promise.all(promises);
@@ -154,7 +114,7 @@ async function fetchRecentTransactionsRpc(address: string, chainId: number): Pro
         // 3. Filter for transactions involving our address
         const lowerAddr = address.toLowerCase();
         for (const res of results) {
-            const block = (res as any).result;
+            const block = res as any;
             if (!block || !block.transactions) continue;
 
             for (const tx of block.transactions) {
@@ -336,7 +296,8 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
                 logs: receipt.logs,
                 status: parseInt(receipt.status, 16),
             },
-            chainId
+            chainId,
+            address
         );
 
         if (swap) {

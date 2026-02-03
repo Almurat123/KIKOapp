@@ -34,6 +34,10 @@ export interface RpcEndpointConfig {
  *   3-4: 付费节点 (Alchemy) - 备用 (高可靠性保证)
  */
 export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndpointConfig[] {
+  if (chainSlug === 'base') {
+    return getBasePreferredEndpoints(primaryUrl);
+  }
+
   const endpoints: RpcEndpointConfig[] = [];
 
   // ============================================
@@ -95,6 +99,102 @@ export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndp
   }
 
   return endpoints.sort((a, b) => a.priority - b.priority);
+}
+
+export function getRpcEndpointsWithStrategy(
+  chainSlug: string,
+  strategy: 'fast' | 'cheap' = 'cheap',
+  primaryUrl?: string
+): RpcEndpointConfig[] {
+  if (chainSlug === 'base') {
+    return strategy === 'fast'
+      ? getBasePreferredEndpoints(primaryUrl)
+      : getBaseCheapEndpoints(primaryUrl);
+  }
+
+  // For other chains, keep existing ordering until we benchmark them.
+  return getRpcEndpoints(chainSlug, primaryUrl);
+}
+
+function getBasePreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
+  const endpoints: RpcEndpointConfig[] = [];
+  let priority = 1;
+
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+    if (!url) return;
+    endpoints.push({ name, url, priority: priority++, requiresAuth, type });
+  };
+
+  // Preferred order (fastest to slowest based on local benchmark)
+  // Alchemy -> DRPC -> Ankr -> Base Official -> Coinbase -> PublicNode -> Infura
+  if (env.apiKeys.alchemy) {
+    push('Alchemy', getAlchemyUrl('base') || undefined, true, 'premium');
+  }
+
+  if (primaryUrl) {
+    push('Primary', primaryUrl, true, 'premium');
+  }
+
+  push('DRPC', 'https://base.drpc.org', false, 'public');
+
+  if (env.apiKeys.ankr) {
+    push('Ankr', `https://rpc.ankr.com/base/${env.apiKeys.ankr}`, true, 'premium');
+  }
+
+  push('Base Official', 'https://mainnet.base.org', false, 'public');
+  push('Coinbase', 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t', false, 'public');
+  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public');
+
+  if (env.apiKeys.infura) {
+    push('Infura', `https://base-mainnet.infura.io/v3/${env.apiKeys.infura}`, true, 'premium');
+  }
+
+  // Deduplicate by URL (preserve priority)
+  const seen = new Set<string>();
+  return endpoints.filter(ep => {
+    if (seen.has(ep.url)) return false;
+    seen.add(ep.url);
+    return true;
+  });
+}
+
+function getBaseCheapEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
+  const endpoints: RpcEndpointConfig[] = [];
+  let priority = 1;
+
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+    if (!url) return;
+    endpoints.push({ name, url, priority: priority++, requiresAuth, type });
+  };
+
+  // Cheap-first order: free endpoints -> premium fallbacks
+  push('Base Official', 'https://mainnet.base.org', false, 'public');
+  push('Coinbase', 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t', false, 'public');
+  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public');
+  push('DRPC', 'https://base.drpc.org', false, 'public');
+
+  if (primaryUrl) {
+    push('Primary', primaryUrl, true, 'premium');
+  }
+
+  if (env.apiKeys.alchemy) {
+    push('Alchemy', getAlchemyUrl('base') || undefined, true, 'premium');
+  }
+
+  if (env.apiKeys.ankr) {
+    push('Ankr', `https://rpc.ankr.com/base/${env.apiKeys.ankr}`, true, 'premium');
+  }
+
+  if (env.apiKeys.infura) {
+    push('Infura', `https://base-mainnet.infura.io/v3/${env.apiKeys.infura}`, true, 'premium');
+  }
+
+  const seen = new Set<string>();
+  return endpoints.filter(ep => {
+    if (seen.has(ep.url)) return false;
+    seen.add(ep.url);
+    return true;
+  });
 }
 
 /**
@@ -432,6 +532,14 @@ export const MORALIS_CONFIG = {
  */
 export function getRpcUrlsArray(chainSlug: string, primaryUrl?: string): string[] {
   return getRpcEndpoints(chainSlug, primaryUrl).map(e => e.url);
+}
+
+export function getRpcUrlsArrayWithStrategy(
+  chainSlug: string,
+  strategy: 'fast' | 'cheap' = 'cheap',
+  primaryUrl?: string
+): string[] {
+  return getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl).map(e => e.url);
 }
 
 /**

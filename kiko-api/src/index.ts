@@ -52,7 +52,7 @@ import { zoraAlertService } from './services/zoraAlertService.js';
 import fastifyRawBody from 'fastify-raw-body';
 import helmet from '@fastify/helmet';
 import { tracingHook } from './middleware/tracing.js';
-import { startRpcHealthMonitor } from './services/rpcManager.js';
+import { startRpcHealthMonitor, startRpcBenchmarkSampling } from './services/rpcManager.js';
 
 const fastify = Fastify({
     logger: true,
@@ -271,6 +271,14 @@ async function start() {
             logger.info(LogCode.SYS_STARTUP, 'RPC health monitor started');
         } catch (rpcHealthError: any) {
             logger.error(LogCode.SYS_ERROR, 'RPC health monitor failed to start', { error: rpcHealthError.message });
+        }
+
+        // Start RPC benchmark sampling (Base) to update health stats
+        try {
+            startRpcBenchmarkSampling();
+            logger.info(LogCode.SYS_STARTUP, 'RPC benchmark sampling started');
+        } catch (rpcBenchError: any) {
+            logger.error(LogCode.SYS_ERROR, 'RPC benchmark sampling failed to start', { error: rpcBenchError.message });
         }
 
         // Now start background services

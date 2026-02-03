@@ -80,7 +80,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     logs: receipt.logs,
                     status: parseInt(receipt.status, 16),
                 },
-                chainId
+                chainId,
+                wallet
             );
 
             if (!swap) {
@@ -203,7 +204,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 const swap = await parseSwapTransaction(
                     {
                         hash: txHash,
-                        from: trackedTarget, // The identity we are decoding FOR
+                        from: tx.from,
                         to: tx.to,
                         input: tx.input,
                         value: tx.value,
@@ -212,7 +213,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         logs: receipt.logs,
                         status: parseInt(receipt.status, 16),
                     },
-                    chainId
+                    chainId,
+                    trackedTarget
                 );
 
                 if (!swap) {

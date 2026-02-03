@@ -18,6 +18,7 @@ import { sanitizeString, validateNetwork, validateAddress, validateLimit, valida
 import { detectLaunchpadToken, getParagraphToken } from '../services/ai/launchpadDetector.js';
 import * as tokenAnalysis from '../services/tokenAnalysis.js';
 import { getHolderCount } from '../services/goPlus.js';
+import { getTokenSecurity } from '../services/tokenSecurity.js';
 
 const GECKO_TERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 
@@ -971,6 +972,57 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       });
     } catch (error: any) {
       console.error('[TokenRoutes] Error in early-buyers route:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Internal Server Error'
+      });
+    }
+  });
+
+  // Token Security Check Route
+  fastify.get('/security/:chain/:address', async (request, reply) => {
+    try {
+      const { chain, address } = request.params as { chain: string; address: string };
+
+      // Validate inputs
+      if (!chain || !address) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Missing required parameters: chain and address'
+        });
+      }
+
+      // Check cache first (5 minute TTL)
+      const cacheKey = `token:security:${chain}:${address.toLowerCase()}`;
+      const cached = await get(cacheKey);
+      if (cached) {
+        return reply.send({
+          success: true,
+          data: JSON.parse(cached),
+          cached: true
+        });
+      }
+
+      // Fetch security data
+      const securityData = await getTokenSecurity(address, chain);
+
+      if (!securityData) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Unable to fetch security data for this token'
+        });
+      }
+
+      // Cache for 5 minutes
+      await set(cacheKey, JSON.stringify(securityData), 300);
+
+      return reply.send({
+        success: true,
+        data: securityData,
+        cached: false
+      });
+    } catch (error: any) {
+      console.error('[TokenRoutes] Error in security route:', error);
       return reply.status(500).send({
         success: false,
         error: error.message || 'Internal Server Error'

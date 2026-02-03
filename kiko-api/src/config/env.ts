@@ -41,6 +41,7 @@ export interface EnvConfig {
         okxProjectId?: string; // OKX DEX project ID
         infuraGas?: string; // Infura Gas API key for gas price estimation
         infuraGasSecret?: string; // Infura Gas API secret
+        infura?: string; // Infura RPC API key
         quicknode?: string; // QuickNode API key for token balance queries (multi-chain)
         helius?: string; // Helius API key for Solana transaction history and token balances
         ankr?: string; // Ankr API key for multi-chain RPC fallback (free tier)
@@ -120,9 +121,6 @@ export interface EnvConfig {
     security: {
         alchemyWebhookSecret?: string; // Secret for verifying Alchemy webhooks
         internalWebhookSecret?: string; // Secret for verifying internal Go service requests
-        cdpWebhookSecret?: string; // Secret for verifying Coinbase CDP webhooks
-        cdpWebhookToleranceSec?: number; // Max allowed clock skew for CDP webhooks
-        cdpWebhookSecretsJson?: Record<string, string>; // Map subscriptionId -> secret
     };
     aiModel: string; // AI Model for analysis
     logLevel?: string; // Log level (debug, info, warn, error)
@@ -250,6 +248,7 @@ function validateEnv(): EnvConfig {
             jupiter: process.env.JUPITER_API_KEY,
             infuraGas: process.env.INFURA_GAS_API_KEY,
             infuraGasSecret: process.env.INFURA_GAS_API_SECRET,
+            infura: process.env.INFURA_API_KEY,
             quicknode: process.env.QUICKNODE_API_KEY,
             helius: process.env.HELIUS_API_KEY,
             ankr: process.env.ANKR_API_KEY,
@@ -333,19 +332,6 @@ function validateEnv(): EnvConfig {
         security: {
             alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,
             internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET,
-            cdpWebhookSecret: process.env.COINBASE_CDP_WEBHOOK_SECRET,
-            cdpWebhookToleranceSec: Number.parseInt(process.env.CDP_WEBHOOK_TOLERANCE_SEC || '300', 10),
-            cdpWebhookSecretsJson: process.env.COINBASE_CDP_WEBHOOK_SECRETS_JSON
-                ? (() => {
-                    try {
-                        const parsed = JSON.parse(process.env.COINBASE_CDP_WEBHOOK_SECRETS_JSON as string);
-                        return typeof parsed === 'object' && parsed !== null ? parsed : undefined;
-                    } catch {
-                        console.warn('[Env] Failed to parse COINBASE_CDP_WEBHOOK_SECRETS_JSON, ignoring.');
-                        return undefined;
-                    }
-                })()
-                : undefined,
         },
         aiModel: process.env.AI_MODEL || 'grok-beta',
         logLevel: process.env.LOG_LEVEL || 'info',

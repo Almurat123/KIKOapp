@@ -11,12 +11,18 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { callRpc as unifiedCallRpc, fetchJson } from '../config/unifiedApiService.js';
+import { getRpcUrlsArrayWithStrategy } from '../config/apiEndpoints.js';
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 
 const RPC_TIMEOUT_MS = 10000; // 10s timeout for reliable RPC calls (Alchemy can be slow)
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Open circuit after 5 consecutive failures (more tolerant)
 const CIRCUIT_BREAKER_RESET_TIME = 30000; // Try again after 30s
+const BENCHMARK_INTERVAL_MS = 300000; // 5 minutes
+const BENCHMARK_TIMEOUT_MS = 3000;
+const BENCHMARK_CHAIN_ID = 8453;
+const BENCHMARK_TOKEN_ADDRESS = process.env.RPC_BENCH_TOKEN_ADDRESS || '0xf48bC234855aB08ab2EC0cfaaEb2A80D065a3b07';
+const BENCHMARK_DECIMALS_CALL = '0x313ce567'; // decimals()
 
 // Endpoint health tracking
 interface EndpointHealth {
@@ -27,6 +33,7 @@ interface EndpointHealth {
     avgResponseTime: number;
     successCount: number;
     totalAttempts: number;
+    lastBenchmarkTime?: number;
 }
 
 const endpointHealth = new Map<string, EndpointHealth>();
@@ -71,7 +78,8 @@ interface RpcResponse<T = any> {
 export async function callRpc<T = any>(
     chainIdOrName: number | string,
     method: string,
-    params: any[] = []
+    params: any[] = [],
+    options: { strategy?: 'fast' | 'cheap' } = {}
 ): Promise<T> {
     let endpoints: string[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
@@ -97,8 +105,21 @@ export async function callRpc<T = any>(
 
     try {
         const config = getChainConfig(chainId);
-        endpoints = config.rpcUrls;
         chainName = config.name;
+        const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
+        endpoints = options.strategy
+            ? getRpcUrlsArrayWithStrategy(chainSlug, options.strategy)
+            : config.rpcUrls;
+
+        if (options.strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
+            const upgraded = getRpcUrlsArrayWithStrategy(chainSlug, 'fast');
+            if (upgraded.length > 0) {
+                endpoints = upgraded;
+                logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
+                    chain: chainName
+                });
+            }
+        }
     } catch (e) {
         // Safe fallback for edge cases
         throw new Error(`Unsupported chain ID: ${chainId}`);
@@ -302,6 +323,55 @@ function recordFailure(url: string): void {
     }
 }
 
+async function probeEndpoint(url: string, method: string, params: any[] = [], timeoutMs = BENCHMARK_TIMEOUT_MS): Promise<{ ok: boolean; ms: number }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const start = Date.now();
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+            signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        const ms = Date.now() - start;
+        if (!response.ok || data.error) {
+            return { ok: false, ms };
+        }
+        return { ok: true, ms };
+    } catch {
+        return { ok: false, ms: Date.now() - start };
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function runBenchmarkSample(chainId: number, tokenAddress: string): Promise<void> {
+    const endpoints = getRpcEndpoints(chainId, 'fast');
+    if (endpoints.length === 0) return;
+
+    const methods: Array<[string, any[]]> = [
+        ['eth_blockNumber', []],
+        ['eth_getBlockByNumber', ['latest', false]],
+        ['eth_call', [{ to: tokenAddress, data: BENCHMARK_DECIMALS_CALL }, 'latest']],
+    ];
+
+    for (const endpoint of endpoints) {
+        for (const [method, params] of methods) {
+            recordAttempt(endpoint);
+            const result = await probeEndpoint(endpoint, method, params);
+            if (result.ok) {
+                recordSuccess(endpoint, result.ms);
+            } else {
+                recordFailure(endpoint);
+            }
+        }
+        const health = getOrCreateHealth(endpoint);
+        health.lastBenchmarkTime = Date.now();
+    }
+}
+
 function sortEndpointsByHealth(endpoints: string[]): string[] {
     return endpoints.slice().sort((a, b) => {
         const healthA = getOrCreateHealth(a);
@@ -327,6 +397,20 @@ function sortEndpointsByHealth(endpoints: string[]): string[] {
 function maskEndpoint(url: string): string {
     // Mask API keys in URLs for logging
     return url.replace(/[a-zA-Z0-9]{32,}/g, '***');
+}
+
+function shouldUpgradeToFast(endpoints: string[]): boolean {
+    if (endpoints.length === 0) return false;
+    const top = endpoints.slice(0, 3);
+    let badCount = 0;
+    for (const url of top) {
+        const health = getOrCreateHealth(url);
+        const attempts = health.totalAttempts;
+        const successRate = attempts > 0 ? (health.successCount / attempts) * 100 : 100;
+        const isBad = health.circuitOpen || (attempts >= 10 && successRate < 50);
+        if (isBad) badCount++;
+    }
+    return badCount === top.length;
 }
 
 /**
@@ -568,8 +652,12 @@ import { ethers } from 'ethers';
 /**
  * Get available RPC endpoints for a chain
  */
-export function getRpcEndpoints(chainId: number): string[] {
+export function getRpcEndpoints(chainId: number, strategy?: 'fast' | 'cheap'): string[] {
     try {
+        if (strategy) {
+            const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
+            return getRpcUrlsArrayWithStrategy(chainSlug, strategy);
+        }
         return getChainConfig(chainId).rpcUrls;
     } catch {
         return [];
@@ -658,5 +746,20 @@ export function startRpcHealthMonitor(intervalMs = 60000): NodeJS.Timeout {
                 endpoints: unhealthy.slice(0, 5)
             });
         }
+    }, intervalMs);
+}
+
+/**
+ * Start periodic RPC benchmark sampling (updates health metrics)
+ */
+export function startRpcBenchmarkSampling(
+    intervalMs = BENCHMARK_INTERVAL_MS,
+    chainId = BENCHMARK_CHAIN_ID,
+    tokenAddress = BENCHMARK_TOKEN_ADDRESS
+): NodeJS.Timeout {
+    // Warm once immediately
+    runBenchmarkSample(chainId, tokenAddress).catch(() => undefined);
+    return setInterval(() => {
+        runBenchmarkSample(chainId, tokenAddress).catch(() => undefined);
     }, intervalMs);
 }

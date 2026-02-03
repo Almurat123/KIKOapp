@@ -7,6 +7,7 @@ import { JsonRpcProvider } from 'ethers';
 import fs from 'fs';
 import path from 'path';
 import { fetchJson } from '../../../config/unifiedApiService.js';
+import { analyzeSnipers, analyzeTransferNetwork, analyzeHolderDistribution } from '../../../services/sniperAnalysis.js';
 
 const CHAIN_IDS: Record<string, string | number> = {
     eth: 1,
@@ -49,6 +50,21 @@ export interface TokenSecurity {
         findingsCount: number;
         criticalFindings: string[];
         riskScore: number;
+    };
+    // Enhanced Analysis Fields (New)
+    sniperAnalysis?: {
+        sniperCount: number;
+        sniperPercentage: number;
+        topSnipers: Array<{ address: string; buyBlock: number; buyAmount: string }>;
+    };
+    networkAnalysis?: {
+        circularTransfers: number;
+        washTradingScore: number;
+    };
+    holderAnalysis?: {
+        top10Concentration: number;
+        top50Concentration: number;
+        uniqueHolders: number;
     };
 }
 
@@ -692,7 +708,7 @@ function generateRecommendation(riskScore: number, isHoneypot: boolean, warnings
 export const CheckTokenRiskTool: Tool = {
     definition: {
         name: 'check_token_risk',
-        description: 'Comprehensive token security scanner with multi-layer detection. Checks: (1) GoPlus API data (honeypot, tax rates, ownership), (2) Local source code analysis (regex + AST scanning), (3) Offline runtime signals (real-time event monitoring: tax spikes, LP drops, blacklist bursts, large transactions, proxy changes), (4) Fund flow tracing (multi-hop paths, mixer/exchange detection, deployer loops), (5) Bytecode fingerprinting (risky selector detection). Returns risk score (0-100), warnings, offline alerts/flows/fingerprints, and safety status. Use before any swap to verify token safety.',
+        description: 'Comprehensive token security scanner with multi-layer detection. Checks: (1) GoPlus API data (honeypot, tax rates, ownership), (2) Local source code analysis (regex + AST scanning), (3) Sniper Analysis (early buyer detection within first 10 blocks), (4) Transfer Network Analysis (wash trading & circular transfer detection), (5) Holder Distribution Analysis (concentration metrics), (6) Offline runtime signals, (7) Bytecode fingerprinting. Returns risk score (0-100), warnings, sniper/network/holder analysis, and safety status. Use before any swap to verify token safety.',
         parameters: {
             type: 'object',
             properties: {
@@ -724,13 +740,25 @@ export const CheckTokenRiskTool: Tool = {
                 return JSON.parse(cached);
             }
 
-            // Parallel execution: Fetch from GoPlus + Local Scan + Creator Analysis
-            const [goplusData, localScanResult] = await Promise.all([
+            // Parallel execution: Fetch from GoPlus + Local Scan + Sniper Analysis + Network Analysis
+            const [goplusData, localScanResult, sniperResult, networkResult, holderResult] = await Promise.all([
                 fetchGoPlusSecurity(chainId, address).catch(err => {
                     console.error('[CheckTokenRisk] GoPlus failed:', err);
                     return null;
                 }),
-                performLocalScan(address, chain)
+                performLocalScan(address, chain),
+                analyzeSnipers(address, chain).catch(err => {
+                    console.error('[CheckTokenRisk] Sniper analysis failed:', err);
+                    return null;
+                }),
+                analyzeTransferNetwork(address, chain).catch(err => {
+                    console.error('[CheckTokenRisk] Network analysis failed:', err);
+                    return null;
+                }),
+                analyzeHolderDistribution(address, chain).catch(err => {
+                    console.error('[CheckTokenRisk] Holder analysis failed:', err);
+                    return null;
+                }),
             ]);
 
             if (!goplusData) {
@@ -762,6 +790,24 @@ export const CheckTokenRiskTool: Tool = {
                 if (creatorProfile.riskLevel === 'High') mergedWarnings.push(`🚨 Creator History: ${creatorProfile.tags.join(', ')}`);
                 if (creatorProfile.riskLevel === 'Medium') mergedWarnings.push(`⚠️ Creator History: ${creatorProfile.tags.join(', ')}`);
                 mergedRiskScore = Math.max(mergedRiskScore, creatorProfile.riskScore);
+            }
+
+            // Merge Sniper Analysis Results
+            if (sniperResult) {
+                mergedWarnings.push(...sniperResult.warnings);
+                mergedRiskScore += sniperResult.riskScore;
+            }
+
+            // Merge Transfer Network Analysis Results
+            if (networkResult) {
+                mergedWarnings.push(...networkResult.warnings);
+                mergedRiskScore += networkResult.washTradingScore;
+            }
+
+            // Merge Holder Distribution Analysis Results
+            if (holderResult) {
+                mergedWarnings.push(...holderResult.warnings);
+                mergedRiskScore += holderResult.riskScore;
             }
 
             // Offline enrichment
@@ -814,7 +860,22 @@ export const CheckTokenRiskTool: Tool = {
                     address: creatorProfile.address,
                     riskLevel: creatorProfile.riskLevel,
                     tags: creatorProfile.tags
-                } : undefined
+                } : undefined,
+                // New Enhanced Analysis Fields
+                sniperAnalysis: sniperResult ? {
+                    sniperCount: sniperResult.sniperCount,
+                    sniperPercentage: sniperResult.sniperPercentage,
+                    topSnipers: sniperResult.topSnipers.slice(0, 5),
+                } : undefined,
+                networkAnalysis: networkResult ? {
+                    circularTransfers: networkResult.circularTransfers,
+                    washTradingScore: networkResult.washTradingScore,
+                } : undefined,
+                holderAnalysis: holderResult ? {
+                    top10Concentration: holderResult.top10Concentration,
+                    top50Concentration: holderResult.top50Concentration,
+                    uniqueHolders: holderResult.uniqueHolders,
+                } : undefined,
             } as any;
 
             // Cache for 5 minutes

@@ -22,7 +22,7 @@ const V4_STATE_VIEW_ABI = [
 ];
 
 // StateView 地址
-const V4_STATE_VIEW: Record<number, string> = {
+export const V4_STATE_VIEW: Record<number, string> = {
     1: '0x000000002e0D16f0FF88E0bAD58f69B47c8656e9',
     8453: '0xa3c0c9b65bad0b08107aa264b0f3db444b867a71',
     42161: '0x76fd297e2D437cd7f76d50F01AfE6160f86e8557',

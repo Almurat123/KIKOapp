@@ -1,17 +1,20 @@
-/**
- * Launchpad Logo Configuration
- * Maps launchpad names to their logo URLs and detection logic
- */
+// Import local launchpad logo images
+import PumpFunLogo from '../assets/images/PumpFun.png';
+import BonkFunLogo from '../assets/images/BonkFun.png';
+import ZoraLogo from '../assets/images/Zorb.svg';
+import ClankerLogo from '../assets/images/ClankerOG.png';
+import FourMemeLogo from '../assets/images/FourMeme.png';
+import ParagraphLogo from '../assets/images/Paragraph.png';
+import RaydiumLogo from '../assets/images/Raydium.png';
 
 export const LAUNCHPAD_LOGOS: Record<string, string> = {
-    'pump.fun': 'https://pump.fun/icon.png',
-    'bonk.fun': 'https://static.bonk.fun/logo.png',
-    'zora': 'https://zora.co/assets/zora-orb.svg',
-    'clanker': 'https://www.clanker.world/clanker-logo.png',
-    'four.meme': 'https://4.meme/logo.png',
-    'paragraph': 'https://paragraph.xyz/favicon.ico',
-    'uniswap': 'https://app.uniswap.org/favicon.png',
-    'raydium': 'https://raydium.io/logo/logo-text.svg',
+    'pump.fun': PumpFunLogo,
+    'bonk.fun': BonkFunLogo,
+    'zora': ZoraLogo,
+    'clanker': ClankerLogo,
+    'four.meme': FourMemeLogo,
+    'paragraph': ParagraphLogo,
+    'raydium': RaydiumLogo,
 };
 
 /**
@@ -38,35 +41,33 @@ export function detectLaunchpadByAddress(address: string, chain: string): string
             return 'bonk.fun';
         }
 
-        // Four.meme: addresses ending with '4mem' or 'meme'
-        if (lowerAddress.endsWith('4mem') || lowerAddress.endsWith('meme')) {
-            return 'four.meme';
-        }
-
         // Raydium: common pattern (most Solana tokens without specific suffix)
         // We only return if we're confident - otherwise null
         return null;
     }
 
+    // BSC chain launchpads
+    if (normalizedChain === 'bsc' || normalizedChain === 'bnb') {
+        // Four.meme: addresses ending with '4444'
+        if (lowerAddress.endsWith('4444')) {
+            return 'four.meme';
+        }
+        return null;
+    }
+
     // Base chain launchpads (EVM addresses - 0x...)
     if (normalizedChain === 'base') {
-        // Zora: addresses ending with specific pattern (if known)
-        // Clanker: addresses ending with specific pattern (if known)
-        // Paragraph: addresses ending with specific pattern (if known)
+        // Clanker: addresses ending with 'b07'
+        if (lowerAddress.endsWith('b07')) {
+            return 'clanker';
+        }
 
-        // Default Base tokens to Uniswap if no specific pattern
-        return 'uniswap';
+        // Zora and Paragraph: no specific pattern available yet
+        return null;
     }
 
     // Ethereum and other EVM chains
-    if (normalizedChain === 'eth' || normalizedChain === 'ethereum') {
-        return 'uniswap';
-    }
-
-    if (normalizedChain === 'bsc' || normalizedChain === 'bnb') {
-        return 'uniswap'; // PancakeSwap uses similar UI
-    }
-
+    // No default - only return if we have a specific pattern
     return null;
 }
 

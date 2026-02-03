@@ -1,0 +1,368 @@
+/**
+ * Sniper Analysis Service
+ * 
+ * Analyzes early token transactions to identify sniper wallets.
+ * Uses free APIs (Etherscan, BSCScan, etc.) to fetch transaction history.
+ */
+
+import { fetchJson } from '../config/unifiedApiService.js';
+import { env } from '../config/env.js';
+
+export interface SniperAnalysisResult {
+    sniperCount: number;
+    sniperPercentage: number;
+    topSnipers: Array<{
+        address: string;
+        buyBlock: number;
+        buyAmount: string;
+        currentHolding: string;
+        soldAll: boolean;
+    }>;
+    riskScore: number;
+    warnings: string[];
+}
+
+const EXPLORER_APIS: Record<string, string> = {
+    eth: 'https://api.etherscan.io/api',
+    bsc: 'https://api.bscscan.com/api',
+    base: 'https://api.basescan.org/api',
+    polygon: 'https://api.polygonscan.com/api',
+    arbitrum: 'https://api.arbiscan.io/api',
+};
+
+/**
+ * Analyze early buyers (snipers) of a token
+ * Snipers are defined as wallets that bought within the first 10 blocks of token creation
+ */
+export async function analyzeSnipers(
+    tokenAddress: string,
+    chain: string,
+    creationBlock?: number
+): Promise<SniperAnalysisResult | null> {
+    const apiUrl = EXPLORER_APIS[chain.toLowerCase()];
+    if (!apiUrl) {
+        console.log(`[SniperAnalysis] Chain ${chain} not supported`);
+        return null;
+    }
+
+    const apiKey = env.apiKeys.etherscan;
+    if (!apiKey) {
+        console.log('[SniperAnalysis] No Etherscan API key available');
+        return null;
+    }
+
+    try {
+        // Step 1: Get token transfer events using Etherscan API V2
+        // V2 format: https://api.etherscan.io/v2/api?chainid=1&module=account&action=tokentx...
+        const chainIdMap: Record<string, number> = {
+            eth: 1,
+            bsc: 56,
+            base: 8453,
+            polygon: 137,
+            arbitrum: 42161,
+        };
+
+        const chainId = chainIdMap[chain.toLowerCase()] || 1;
+        const transfersUrl = `https://api.etherscan.io/v2/api?chainid=${chainId}&module=account&action=tokentx&contractaddress=${tokenAddress}&page=1&offset=100&sort=asc&apikey=${apiKey}`;
+
+        const data = await fetchJson({
+            url: transfersUrl,
+            timeout: 15000,
+            endpointName: 'etherscan_transfers',
+        });
+
+        console.log(`[SniperAnalysis] API response status: ${data.status}, result type: ${typeof data.result}, is array: ${Array.isArray(data.result)}`);
+
+        if (String(data.status) !== '1' || !data.result || !Array.isArray(data.result)) {
+            console.log('[SniperAnalysis] No transfer data available', { status: data.status, hasResult: !!data.result, message: data.message });
+            return null;
+        }
+
+        const transfers = data.result;
+        if (transfers.length === 0) {
+            return null;
+        }
+
+        // Step 2: Determine creation block from first transfer
+        const firstTransfer = transfers[0];
+        const deployBlock = creationBlock || parseInt(firstTransfer.blockNumber);
+        const sniperWindowEnd = deployBlock + 10; // First 10 blocks = sniper window
+
+        // Step 3: Identify snipers (buyers in first 10 blocks)
+        const buyerMap = new Map<string, { block: number; amount: bigint }>();
+        const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+        for (const tx of transfers) {
+            const block = parseInt(tx.blockNumber);
+            if (block > sniperWindowEnd) break;
+
+            // Buy = transfer FROM liquidity pool or zero address TO buyer
+            const from = tx.from.toLowerCase();
+            const to = tx.to.toLowerCase();
+
+            if (from === ZERO_ADDRESS || from.includes('dead')) continue; // Skip mints/burns
+
+            // If receiving tokens early, mark as potential sniper
+            if (to !== ZERO_ADDRESS && to !== tokenAddress.toLowerCase()) {
+                const existing = buyerMap.get(to);
+                const amount = BigInt(tx.value || '0');
+                if (!existing || block < existing.block) {
+                    buyerMap.set(to, { block, amount });
+                }
+            }
+        }
+
+        // Step 4: Calculate sniper stats
+        const snipers = Array.from(buyerMap.entries())
+            .filter(([_, data]) => data.block <= sniperWindowEnd)
+            .sort((a, b) => a[1].block - b[1].block)
+            .slice(0, 10); // Top 10 snipers
+
+        const sniperCount = snipers.length;
+        const totalEarlyBuyers = buyerMap.size;
+        const sniperPercentage = totalEarlyBuyers > 0
+            ? (sniperCount / totalEarlyBuyers) * 100
+            : 0;
+
+        // Step 5: Generate risk assessment
+        const warnings: string[] = [];
+        let riskScore = 0;
+
+        if (sniperCount >= 5) {
+            warnings.push(`🚨 检测到 ${sniperCount} 个狙击手钱包（前10区块内买入）`);
+            riskScore += 25;
+        } else if (sniperCount >= 2) {
+            warnings.push(`⚠️ 检测到 ${sniperCount} 个早期买入钱包（可能是狙击手）`);
+            riskScore += 10;
+        }
+
+        // Check if snipers are still holding or dumped
+        const topSnipers = snipers.map(([address, data]) => ({
+            address,
+            buyBlock: data.block,
+            buyAmount: data.amount.toString(),
+            currentHolding: 'unknown', // Would need separate balance check
+            soldAll: false, // Would need to track sells
+        }));
+
+        return {
+            sniperCount,
+            sniperPercentage,
+            topSnipers,
+            riskScore,
+            warnings,
+        };
+
+    } catch (error) {
+        console.error('[SniperAnalysis] Error:', error);
+        return null;
+    }
+}
+
+/**
+ * Analyze transfer network patterns for wash trading detection
+ */
+export async function analyzeTransferNetwork(
+    tokenAddress: string,
+    chain: string
+): Promise<{
+    suspiciousPatterns: number;
+    washTradingScore: number;
+    circularTransfers: number;
+    warnings: string[];
+} | null> {
+    const apiUrl = EXPLORER_APIS[chain.toLowerCase()];
+    if (!apiUrl) return null;
+
+    const apiKey = env.apiKeys.etherscan;
+    if (!apiKey) return null;
+
+    try {
+        // Fetch recent transfers using Etherscan API V2
+        const chainIdMap: Record<string, number> = {
+            eth: 1,
+            bsc: 56,
+            base: 8453,
+            polygon: 137,
+            arbitrum: 42161,
+        };
+
+        const chainId = chainIdMap[chain.toLowerCase()] || 1;
+        const transfersUrl = `https://api.etherscan.io/v2/api?chainid=${chainId}&module=account&action=tokentx&contractaddress=${tokenAddress}&page=1&offset=500&sort=desc&apikey=${apiKey}`;
+
+        const data = await fetchJson({
+            url: transfersUrl,
+            timeout: 15000,
+            endpointName: 'etherscan_network',
+        });
+
+        console.log(`[TransferNetwork] API response status: ${data.status}`);
+        if (String(data.status) !== '1' || !data.result) {
+            console.log('[TransferNetwork] No transfer data', { status: data.status, message: data.message });
+            return null;
+        }
+
+        const transfers = data.result;
+
+        // Build address interaction graph
+        const interactions = new Map<string, Set<string>>();
+
+        for (const tx of transfers) {
+            const from = tx.from.toLowerCase();
+            const to = tx.to.toLowerCase();
+
+            if (!interactions.has(from)) interactions.set(from, new Set());
+            interactions.get(from)!.add(to);
+        }
+
+        // Detect circular patterns (A -> B -> A)
+        let circularTransfers = 0;
+        for (const [addr, targets] of interactions) {
+            for (const target of targets) {
+                const targetInteractions = interactions.get(target);
+                if (targetInteractions?.has(addr)) {
+                    circularTransfers++;
+                }
+            }
+        }
+        circularTransfers = Math.floor(circularTransfers / 2); // Each circle counted twice
+
+        // Calculate wash trading score
+        const totalAddresses = interactions.size;
+        const avgConnections = transfers.length / Math.max(totalAddresses, 1);
+
+        let washTradingScore = 0;
+        const warnings: string[] = [];
+
+        if (circularTransfers > 10) {
+            washTradingScore += 30;
+            warnings.push(`🚨 检测到 ${circularTransfers} 个循环转账模式（疑似刷量）`);
+        } else if (circularTransfers > 3) {
+            washTradingScore += 15;
+            warnings.push(`⚠️ 检测到 ${circularTransfers} 个双向转账（需关注）`);
+        }
+
+        if (avgConnections > 5) {
+            washTradingScore += 10;
+            warnings.push('📌 地址间交互频繁（可能存在机器人活动）');
+        }
+
+        return {
+            suspiciousPatterns: circularTransfers,
+            washTradingScore,
+            circularTransfers,
+            warnings,
+        };
+
+    } catch (error) {
+        console.error('[TransferNetwork] Error:', error);
+        return null;
+    }
+}
+
+/**
+ * Enhanced holder analysis using GeckoTerminal API (Free)
+ * Ref: https://api.geckoterminal.com/api/v2/networks/{network}/tokens/{address}/info
+ * Evidence: GeckoTerminal provides holder count and distribution data for free (30 calls/min)
+ * Risk: API may not have data for very new tokens
+ */
+export async function analyzeHolderDistribution(
+    tokenAddress: string,
+    chain: string
+): Promise<{
+    top10Concentration: number;
+    top50Concentration: number;
+    uniqueHolders: number;
+    warnings: string[];
+    riskScore: number;
+} | null> {
+    try {
+        // Map chain names to GeckoTerminal network IDs
+        const networkMap: Record<string, string> = {
+            eth: 'eth',
+            ethereum: 'eth',
+            bsc: 'bsc',
+            binance: 'bsc',
+            base: 'base',
+            polygon: 'polygon_pos',
+            matic: 'polygon_pos',
+            arbitrum: 'arbitrum',
+        };
+
+        const network = networkMap[chain.toLowerCase()];
+        if (!network) {
+            console.log(`[HolderAnalysis] Unsupported chain: ${chain}`);
+            return null;
+        }
+
+        const url = `https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${tokenAddress.toLowerCase()}/info`;
+        
+        console.log(`[HolderAnalysis] Fetching from GeckoTerminal: ${url}`);
+
+        const response = await fetchJson({
+            url,
+            timeout: 15000,
+            endpointName: 'geckoterminal_holders',
+        });
+
+        if (!response.data || !response.data.attributes) {
+            console.log('[HolderAnalysis] No data from GeckoTerminal');
+            return null;
+        }
+
+        const attrs = response.data.attributes;
+        const holders = attrs.holders;
+
+        if (!holders || !holders.count) {
+            console.log('[HolderAnalysis] No holder data available');
+            return null;
+        }
+
+        // Extract holder data
+        const totalHolders = holders.count;
+        const distribution = holders.distribution_percentage;
+
+        // Parse concentration percentages
+        const top10Concentration = distribution?.top_10 
+            ? parseFloat(distribution.top_10) 
+            : 0;
+        
+        // Calculate top50 = top_10 + 11_30 + 31_50
+        const top50Concentration = distribution
+            ? parseFloat(distribution.top_10 || '0') + 
+              parseFloat(distribution['11_30'] || '0') + 
+              parseFloat(distribution['31_50'] || '0')
+            : 0;
+
+        const warnings: string[] = [];
+        let riskScore = 0;
+
+        // Risk assessment
+        if (top10Concentration > 80) {
+            warnings.push(`🚨 前10持有者控制 ${top10Concentration.toFixed(1)}% 供应量（极度集中）`);
+            riskScore += 25;
+        } else if (top10Concentration > 50) {
+            warnings.push(`⚠️ 前10持有者控制 ${top10Concentration.toFixed(1)}% 供应量`);
+            riskScore += 10;
+        }
+
+        if (totalHolders < 50) {
+            warnings.push(`📌 仅 ${totalHolders} 个持有者（流动性可能不足）`);
+            riskScore += 5;
+        }
+
+        console.log(`[HolderAnalysis] Success: ${totalHolders} holders, Top10: ${top10Concentration.toFixed(1)}%`);
+
+        return {
+            top10Concentration: Math.round(top10Concentration * 10) / 10,
+            top50Concentration: Math.round(top50Concentration * 10) / 10,
+            uniqueHolders: totalHolders,
+            warnings,
+            riskScore,
+        };
+
+    } catch (error) {
+        console.error('[HolderAnalysis] Error:', error);
+        return null;
+    }
+}

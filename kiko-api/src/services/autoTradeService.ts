@@ -293,7 +293,7 @@ async function handleTargetBuy(
     // 2. SECOND: Fetch Token Info & Checks (Only if we have interested users)
     // 🚀 Copy Trade uses HIGH priority to bypass rate limits for critical order execution
     const [tokenInfo, launchpadResult] = await Promise.all([
-        getTokenInfo(tokenToBuy, chainId, { priority: 'high' }),
+        getTokenInfo(tokenToBuy, chainId, { priority: 'high', rpcStrategy: 'fast' }),
         detectLaunchpadToken(tokenToBuy, chainId)
     ]);
 
@@ -392,12 +392,12 @@ async function processBuyWithInfo(
 
         if (isStableIn) {
             // USDC/USDT - fetch dynamic info to get true decimals
-            const stableInfo = await getTokenInfo(swap.tokenIn, chainId);
+            const stableInfo = await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast' });
             const decimalsIn = stableInfo?.decimals || 6; // Fallback to 6 if fetch fails (safe for USDC/USDT)
             targetSwapValueUsd = formatTokenAmount(amountInBN, decimalsIn);
         } else if (isZoraIn) {
             // ZORA Token price - fetch dynamically
-            const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId);
+            const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast' });
             if (!zoraInfo || zoraInfo.price <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch ZORA price, cannot calculate trade value', { token: ZORA_TOKEN });
                 targetSwapValueUsd = 0; // Cannot proceed without price
@@ -651,7 +651,7 @@ async function processBuyWithInfo(
             // 📊 Optional: Re-check price after high-impact batches
             if (impactRatio > 0.05 && i + dynamicBatchSize * 2 < sortedConfigs.length) {
                 try {
-                    const freshInfo = await getTokenInfo(tokenToBuy, chainId, { forceRefresh: true, priority: 'high' });
+                    const freshInfo = await getTokenInfo(tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: 'fast' });
                     if (freshInfo && freshInfo.price > 0 && tokenInfo.price > 0) {
                         currentPriceMultiplier = freshInfo.price / tokenInfo.price;
 
@@ -1134,7 +1134,7 @@ async function processSingleUserBuy(
                     if (userSettings?.checkTokenBeforeSwap) {
                         logger.info(LogCode.EXE_QUOTE_FETCHED, 'Conservative Mode: Checking price stability before retry...', { userId: config.userId });
                         try {
-                            const freshInfo = await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true });
+                            const freshInfo = await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' });
                             if (freshInfo && freshInfo.price > 0) {
                                 const priceChange = freshInfo.price / tokenInfo.price;
                                 if (priceChange > 2.00) { // > 100% spike (2x)
@@ -1851,7 +1851,7 @@ async function handleTargetSell(
             prisma.position.findMany({
                 where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
             }),
-            getTokenInfo(tokenToSell, chainId, { priority: 'high' })
+            getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast' })
         ]);
 
         if (positions.length === 0 || !tokenInfo) return;

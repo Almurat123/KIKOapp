@@ -34,19 +34,24 @@ const NATIVE_TOKENS = new Set([
 export async function getTokenInfo(
     tokenAddress: string,
     chainId: number,
-    options: { verbose?: boolean; forceRefresh?: boolean; priority?: ApiPriority } = { verbose: true, forceRefresh: false, priority: 'normal' }
+    options: {
+        verbose?: boolean;
+        forceRefresh?: boolean;
+        priority?: ApiPriority;
+        rpcStrategy?: 'fast' | 'cheap';
+    } = { verbose: true, forceRefresh: false, priority: 'normal' }
 ): Promise<any> {
-    const { verbose = true, forceRefresh = false, priority = 'normal' } = options;
+    const { verbose = true, forceRefresh = false, priority = 'normal', rpcStrategy = 'cheap' } = options;
 
     // 如果强制刷新，直接从 API 获取
     if (forceRefresh) {
-        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority);
+        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority, rpcStrategy);
     }
 
     // 🔗 通过缓存中心获取（统一缓存链）
     return cacheHub.getTokenInfo(tokenAddress, chainId, async () => {
         // 缓存未命中时的获取逻辑
-        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority);
+        return fetchTokenInfoFromAPIs(tokenAddress, chainId, verbose, priority, rpcStrategy);
     });
 }
 
@@ -122,7 +127,13 @@ async function getLiquidityData(
  * 🚀 HYBRID STRATEGY: RPC (price) + API (liquidity) 并行获取
  * @param priority - 'high' for Copy Trade (skips rate limits)
  */
-async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, verbose: boolean, priority: ApiPriority = 'normal'): Promise<any> {
+async function fetchTokenInfoFromAPIs(
+    tokenAddress: string,
+    chainId: number,
+    verbose: boolean,
+    priority: ApiPriority = 'normal',
+    rpcStrategy: 'fast' | 'cheap' = 'cheap'
+): Promise<any> {
     const chainSlug = getChainSlug(chainId);
     const gtSlug = chainSlug.geckoTerminal;
 
@@ -145,14 +156,14 @@ async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, ver
             return getSolanaTokenInfo(tokenAddress);
         })() : (async () => {
             const { getOnChainPrice } = await import('./onChainPriceService.js');
-            return getOnChainPrice(tokenAddress, chainId);
+            return getOnChainPrice(tokenAddress, chainId, { rpcStrategy });
         })(),
 
         // 2. API: Get liquidity data (~200ms, may hit rate limit)
         getLiquidityData(tokenAddress, chainId, priority),
 
         // 3. RPC/API: Get token metadata (~50ms, Solana uses API fallback)
-        isSolana ? Promise.resolve({ symbol: 'UNKNOWN', name: 'Unknown Token', decimals: 9 }) : getTokenMetadata(chainId, tokenAddress)
+        isSolana ? Promise.resolve({ symbol: 'UNKNOWN', name: 'Unknown Token', decimals: 9 }) : getTokenMetadata(chainId, tokenAddress, { rpcStrategy })
     ]);
 
     // Extract results
@@ -259,4 +270,3 @@ async function fetchTokenInfoFromAPIs(tokenAddress: string, chainId: number, ver
 
     return result;
 }
-

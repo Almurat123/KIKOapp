@@ -2,10 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft,
   Copy,
-  TrendingUp,
   Star,
   Check,
-  Zap,
   Sparkles,
   Globe,
   Send,
@@ -127,8 +125,6 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
   const { authenticated } = usePrivy();
   const sidebar = useSidebar();
 
-  const loadingSecurity = false;
-  const securityData = null;
   const [copied, setCopied] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
 
@@ -395,6 +391,17 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
                   }
                 }}
               />
+              {/* Launchpad Logo - top right corner */}
+              {launchpad && LAUNCHPAD_LOGOS[launchpad] && (
+                <img
+                  src={LAUNCHPAD_LOGOS[launchpad]}
+                  alt={getLaunchpadDisplayName(launchpad)}
+                  className={styles.launchpadLogo}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              )}
             </div>
             <div className={styles.tokenNameWrapper}>
               <h1 className={styles.tokenSymbol}>{token.symbol}</h1>
@@ -437,21 +444,6 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
                 {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
               </button>
             </div>
-
-            {/* Launchpad Badge */}
-            {launchpad && LAUNCHPAD_LOGOS[launchpad] && (
-              <div className={styles.launchpadBadge}>
-                <img
-                  src={LAUNCHPAD_LOGOS[launchpad]}
-                  alt={getLaunchpadDisplayName(launchpad)}
-                  className={styles.launchpadLogo}
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-                <span className={styles.launchpadText}>{getLaunchpadDisplayName(launchpad)}</span>
-              </div>
-            )}
 
             {/* Social Links moved here */}
             {token.socialLinks && (
@@ -519,55 +511,19 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
       {/* Security Section */}
       <div className={styles.sectionHeader}>
         <h3>SECURITY</h3>
-        {/* Ask AI Button */}
-        <button className={styles.askAiButton} onClick={handleAskAI}>
-          <Sparkles size={12} fill="currentColor" /> Ask AI
-        </button>
       </div>
 
-      <div className={styles.securityCard}>
-        {/* Authority Row */}
-        <div className={styles.securityRow}>
-          <div className={styles.securityLabel}>
-            <div className={styles.iconBox}><Zap size={12} /></div>
-            <span>Authority</span>
-          </div>
-          <div className={styles.securityValue}>
-            {loadingSecurity ? <span className={styles.loadingPulse}>...</span> : securityData ? (
-              (securityData as any).hasRenouncedOwner ?
-                <div className={styles.safeBadge}><Check size={10} /> Renounced</div> :
-                <div className={styles.warnBadge}>Active</div>
-            ) : '-'}
-          </div>
+      <div className={styles.securitySectionCompact}>
+        <div className={styles.securityInfo}>
+          <p className={styles.securityTitle}>Smart Contract Analysis</p>
+          <p className={styles.securityDesc}>Analyze honeypot, tax, and ownership via KIKO AI.</p>
         </div>
 
-        {/* Mintable Row */}
-        <div className={styles.securityRow}>
-          <div className={styles.securityLabel}>
-            <div className={styles.iconBox}><Copy size={12} /></div>
-            <span>Mintable</span>
-          </div>
-          <div className={styles.securityValue}>
-            {loadingSecurity ? <span className={styles.loadingPulse}>...</span> : securityData ? (
-              (securityData as any).isMintable ? 'Yes' : 'No'
-            ) : '-'}
-          </div>
-        </div>
+        <button className={styles.askAiActionBtn} onClick={handleAskAI}>
+          <Sparkles size={14} /> Analyze with AI
+        </button>
 
-        {/* Tax Row */}
-        <div className={styles.securityRow}>
-          <div className={styles.securityLabel}>
-            <div className={styles.iconBox}><TrendingUp size={12} /></div>
-            <span>Tax (B/S)</span>
-          </div>
-          <div className={styles.securityValue}>
-            {loadingSecurity ? <span className={styles.loadingPulse}>...</span> : securityData ? (
-              <span className={(securityData as any).buyTax > 5 || (securityData as any).sellTax > 5 ? styles.redText : styles.greenText}>
-                {(securityData as any).buyTax}% / {(securityData as any).sellTax}%
-              </span>
-            ) : '0% / 0%'}
-          </div>
-        </div>
+        <span className={styles.brandFooter}>Powered by KIKO</span>
       </div>
 
       {/* Holders Section */}
@@ -579,20 +535,13 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
         <div className={styles.holdersMainRow}>
           <span className={styles.holderCountLabel}>Total Holders</span>
           <span className={styles.holderCountValue}>
-            {(securityData as any)?.holdersCount || (token.holders ? formatCompact(token.holders) : '-')}
+            {token.holders ? formatCompact(token.holders) : '-'}
           </span>
         </div>
-        {/* Show Top 10 percentage if available, otherwise hide detail */}
-        {(securityData as any)?.top10Percentage && (
-          <div className={styles.holdersDetailRow}>
-            <span>Top 10:</span>
-            <span>{(securityData as any).top10Percentage}%</span>
-          </div>
-        )}
       </div>
 
+      {/* Chart Section */}
       <div className={styles.mainContent}>
-        {/* Chart Section */}
         <div className={styles.chartCard} style={{ padding: 0, overflow: 'hidden' }}>
           <GeckoTerminalChart
             chain={token.chain}
@@ -604,21 +553,23 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
       </div>
 
       {/* Image Modal */}
-      {imageModalOpen && (
-        <div
-          className={styles.imageModal}
-          onClick={() => setImageModalOpen(false)}
-        >
-          <div className={styles.imageModalContent}>
-            <img
-              src={proxyImageUrl(token.imageUrl) || `https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff&size=512`}
-              alt={token.name}
-              className={styles.imageModalImg}
-              onClick={(e) => e.stopPropagation()}
-            />
+      {
+        imageModalOpen && (
+          <div
+            className={styles.imageModal}
+            onClick={() => setImageModalOpen(false)}
+          >
+            <div className={styles.imageModalContent}>
+              <img
+                src={proxyImageUrl(token.imageUrl) || `https://ui-avatars.com/api/?name=${encodeURIComponent(token.symbol)}&background=random&color=fff&size=512`}
+                alt={token.name}
+                className={styles.imageModalImg}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 };

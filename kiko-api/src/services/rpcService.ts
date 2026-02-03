@@ -18,7 +18,12 @@ export interface OnChainMetadata {
 /**
  * Fetch token metadata directly from chain via RPC (Failover safe)
  */
-export async function getTokenMetadata(chainId: number, address: string): Promise<OnChainMetadata> {
+export async function getTokenMetadata(
+    chainId: number,
+    address: string,
+    options: { rpcStrategy?: 'fast' | 'cheap' } = {}
+): Promise<OnChainMetadata> {
+    const rpcStrategy = options.rpcStrategy || 'cheap';
     const normalized = address.toLowerCase();
     if (normalized === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
         normalized === '0x0000000000000000000000000000000000000000') {
@@ -67,9 +72,9 @@ export async function getTokenMetadata(chainId: number, address: string): Promis
 
     // 2. EVM Handling (ETH, Base, BSC, etc.)
     const [nameResult, symbolResult, decimalsResult] = await Promise.allSettled([
-        callEthCall(chainId, address, 'name'),
-        callEthCall(chainId, address, 'symbol'),
-        callEthCall(chainId, address, 'decimals')
+        callEthCall(chainId, address, 'name', rpcStrategy),
+        callEthCall(chainId, address, 'symbol', rpcStrategy),
+        callEthCall(chainId, address, 'decimals', rpcStrategy)
     ]);
 
     const name = nameResult.status === 'fulfilled' ? nameResult.value as string : 'Unknown Token';
@@ -83,7 +88,12 @@ export async function getTokenMetadata(chainId: number, address: string): Promis
     return { name, symbol, decimals };
 }
 
-async function callEthCall(chainId: number, to: string, functionName: 'name' | 'symbol' | 'decimals') {
+async function callEthCall(
+    chainId: number,
+    to: string,
+    functionName: 'name' | 'symbol' | 'decimals',
+    rpcStrategy: 'fast' | 'cheap'
+) {
     const data = encodeFunctionData({
         abi: ERC20_ABI,
         functionName: functionName
@@ -92,7 +102,7 @@ async function callEthCall(chainId: number, to: string, functionName: 'name' | '
     const resultHex = await callRpc<string>(chainId, 'eth_call', [{
         to,
         data
-    }, 'latest']);
+    }, 'latest'], { strategy: rpcStrategy });
 
     return decodeFunctionResult({
         abi: ERC20_ABI,
