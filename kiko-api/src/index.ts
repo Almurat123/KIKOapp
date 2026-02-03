@@ -52,6 +52,7 @@ import { zoraAlertService } from './services/zoraAlertService.js';
 import fastifyRawBody from 'fastify-raw-body';
 import helmet from '@fastify/helmet';
 import { tracingHook } from './middleware/tracing.js';
+import { startRpcHealthMonitor } from './services/rpcManager.js';
 
 const fastify = Fastify({
     logger: true,
@@ -136,14 +137,22 @@ fastify.addHook('preHandler', async (request, reply) => {
     if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }
+    const sensitiveEndpoints = ['/api/swap/', '/api/trade/', '/api/wallet/'];
+    const isSensitive = sensitiveEndpoints.some(p => request.url.startsWith(p));
+    const hasSignature = !!(request.headers['x-signature'] && request.headers['x-timestamp']);
+
+    // If signed internal request, verify signature first and bypass origin/app key
+    if (isSensitive && hasSignature) {
+        await verifyRequestSignature(request, reply);
+        return;
+    }
+
     // Validate origin/referer first
     await requireAllowedOrigin(request, reply);
     // Then validate app key
     await requireAppKey(request, reply);
     // Optional: Verify request signature (if configured)
-    // Only for sensitive endpoints like swap/trade operations
-    const sensitiveEndpoints = ['/api/swap/', '/api/trade/', '/api/wallet/'];
-    if (sensitiveEndpoints.some(p => request.url.startsWith(p))) {
+    if (isSensitive) {
         await verifyRequestSignature(request, reply);
     }
 });
@@ -255,6 +264,14 @@ async function start() {
             url: `http://localhost:${env.port}`,
             health: `http://localhost:${env.port}/health`
         });
+
+        // Start RPC health monitor (logs only when unhealthy)
+        try {
+            startRpcHealthMonitor();
+            logger.info(LogCode.SYS_STARTUP, 'RPC health monitor started');
+        } catch (rpcHealthError: any) {
+            logger.error(LogCode.SYS_ERROR, 'RPC health monitor failed to start', { error: rpcHealthError.message });
+        }
 
         // Now start background services
         logger.debug(LogCode.SYS_STARTUP, 'Starting background jobs...');

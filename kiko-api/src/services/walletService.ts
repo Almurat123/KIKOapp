@@ -1,5 +1,7 @@
 import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPortfolio, getNativeBalances } from './alchemy.js';
 import prisma from '../db/prisma.js';
+import { getNativeBalance } from './rpcManager.js';
+import { ethers } from 'ethers';
 
 const ALL_BALANCES_CACHE_TTL_MS = 60_000; // 增加到 60 秒，减少 RPC 调用
 const allBalancesCache = new Map<string, { timestamp: number; data: Record<string, WalletBalance> }>();
@@ -13,8 +15,24 @@ export const walletService = {
      * Get real-time balance for an address
      */
     async getWalletBalance(address: string, chain: string = 'eth'): Promise<WalletBalance> {
-        const results = await getPortfolio(address, [chain]);
-        return results[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
+        try {
+            const results = await getPortfolio(address, [chain]);
+            return results[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
+        } catch (err) {
+            // Fallback to direct RPC (native balance only)
+            const raw = await getNativeBalance(address, chain);
+            let formatted = 0;
+            try {
+                if (chain === 'solana') {
+                    formatted = Number(raw) / 1e9;
+                } else {
+                    formatted = Number(ethers.formatEther(raw));
+                }
+            } catch {
+                formatted = 0;
+            }
+            return { ethBalance: raw, ethBalanceFormatted: formatted, tokens: [] };
+        }
     },
 
     /**

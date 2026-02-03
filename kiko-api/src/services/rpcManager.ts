@@ -10,7 +10,7 @@
 import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { callRpc as unifiedCallRpc, getEndpointHealthStats, fetchJson } from '../config/unifiedApiService.js';
+import { callRpc as unifiedCallRpc, fetchJson } from '../config/unifiedApiService.js';
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 
 const RPC_TIMEOUT_MS = 10000; // 10s timeout for reliable RPC calls (Alchemy can be slow)
@@ -349,6 +349,66 @@ export async function getNativeBalance(
 }
 
 /**
+ * Get ERC20 balance via eth_call with RPC failover
+ */
+export async function getErc20Balance(
+    tokenAddress: string,
+    ownerAddress: string,
+    chainIdOrName: number | string
+): Promise<bigint> {
+    const iface = new ethers.Interface(['function balanceOf(address) view returns (uint256)']);
+    const data = iface.encodeFunctionData('balanceOf', [ownerAddress]);
+    const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
+        to: tokenAddress,
+        data
+    }, 'latest']);
+
+    if (!result || result === '0x') return 0n;
+    const [balance] = iface.decodeFunctionResult('balanceOf', result);
+    return BigInt(balance);
+}
+
+/**
+ * Get ERC20 decimals via eth_call with RPC failover
+ */
+export async function getErc20Decimals(
+    tokenAddress: string,
+    chainIdOrName: number | string
+): Promise<number> {
+    const iface = new ethers.Interface(['function decimals() view returns (uint8)']);
+    const data = iface.encodeFunctionData('decimals', []);
+    const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
+        to: tokenAddress,
+        data
+    }, 'latest']);
+
+    if (!result || result === '0x') return 18;
+    const [decimals] = iface.decodeFunctionResult('decimals', result);
+    return Number(decimals);
+}
+
+/**
+ * Get ERC20 allowance via eth_call with RPC failover
+ */
+export async function getErc20Allowance(
+    tokenAddress: string,
+    ownerAddress: string,
+    spenderAddress: string,
+    chainIdOrName: number | string
+): Promise<bigint> {
+    const iface = new ethers.Interface(['function allowance(address owner, address spender) view returns (uint256)']);
+    const data = iface.encodeFunctionData('allowance', [ownerAddress, spenderAddress]);
+    const result = await callRpc<string>(chainIdOrName, 'eth_call', [{
+        to: tokenAddress,
+        data
+    }, 'latest']);
+
+    if (!result || result === '0x') return 0n;
+    const [allowance] = iface.decodeFunctionResult('allowance', result);
+    return BigInt(allowance);
+}
+
+/**
  * Get current block number
  */
 export async function getBlockNumber(chainIdOrName: number | string): Promise<number> {
@@ -560,3 +620,43 @@ export function getEthersProvider(chainId: number): ethers.JsonRpcProvider {
     return provider;
 }
 
+/**
+ * Get RPC health stats (RPC-only)
+ */
+export function getRpcHealthStats(): Array<{
+    url: string;
+    successRate: number;
+    avgResponseTime: number;
+    circuitOpen: boolean;
+    consecutiveFailures: number;
+}> {
+    const stats: Array<any> = [];
+    for (const [url, health] of endpointHealth.entries()) {
+        const successRate = health.totalAttempts > 0
+            ? (health.successCount / health.totalAttempts) * 100
+            : 0;
+        stats.push({
+            url: maskEndpoint(url),
+            successRate: Math.round(successRate * 100) / 100,
+            avgResponseTime: Math.round(health.avgResponseTime),
+            circuitOpen: health.circuitOpen,
+            consecutiveFailures: health.consecutiveFailures
+        });
+    }
+    return stats.sort((a, b) => b.successRate - a.successRate);
+}
+
+/**
+ * Start periodic RPC health logging (only logs unhealthy endpoints)
+ */
+export function startRpcHealthMonitor(intervalMs = 60000): NodeJS.Timeout {
+    return setInterval(() => {
+        const stats = getRpcHealthStats();
+        const unhealthy = stats.filter(s => s.circuitOpen || s.successRate < 50);
+        if (unhealthy.length > 0) {
+            logger.warn(LogCode.SYS_ERROR, 'RPC health degraded', {
+                endpoints: unhealthy.slice(0, 5)
+            });
+        }
+    }, intervalMs);
+}

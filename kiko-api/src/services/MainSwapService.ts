@@ -427,7 +427,7 @@ export class MainSwapService {
           };
         }
         // 直接交易失败，fallback 到 0x/Kyber
-        logger.warn(LogCode.SYS_INFO, trace('Direct swap failed, falling back to 0x/Kyber'), {
+        logger.warn(LogCode.SYS_INFO, trace(`Direct swap failed, falling back to 0x/Kyber: ${directResult.error || 'unknown'}`), {
           error: directResult.error
         });
       } catch (directErr: any) {

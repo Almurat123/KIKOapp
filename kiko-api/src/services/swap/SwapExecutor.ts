@@ -14,7 +14,7 @@ import { walletService } from '../walletService.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { NATIVE_TOKEN_ADDRESS, SOLANA_NATIVE_MINT, TOKEN_REGISTRY, isNativeToken } from '../../config/tokenRegistry.js';
 import { handleSwapError } from './handleSwapError.js';
-import { getTransactionReceipt, getTransactionByHash, callRpc, getEthersProvider } from '../../services/rpcManager.js';
+import { getTransactionReceipt, getTransactionByHash, callRpc, getErc20Balance, getErc20Decimals, getErc20Allowance } from '../../services/rpcManager.js';
 
 export interface SwapParams {
     userId: string;
@@ -151,12 +151,7 @@ export class SwapExecutor {
                 if (isNativeIn) {
                     decimalsIn = 18;
                 } else {
-                    const config = getChainConfig(chainId);
-                    // Use rpcManager helper if possible, or ethers provider
-                    // Here we construct a temp provider to ensure we get the value
-                    const provider = getEthersProvider(chainId);
-                    const contract = new ethers.Contract(actualTokenInFixed, ['function decimals() view returns (uint8)'], provider);
-                    decimalsIn = Number(await contract.decimals());
+                    decimalsIn = await getErc20Decimals(actualTokenInFixed, chainId);
                     logger.info(LogCode.SYS_INFO, 'Fetched missing decimals on-chain', { token: actualTokenInFixed, decimals: decimalsIn });
                 }
             } catch (e) {
@@ -206,10 +201,7 @@ export class SwapExecutor {
         } else {
             // For ERC20 sells, ensure amountInBase does not exceed on-chain balance.
             try {
-                const provider = getEthersProvider(chainId);
-                const contract = new ethers.Contract(actualTokenInFixed, ['function balanceOf(address) view returns (uint256)'], provider);
-                const balance = await contract.balanceOf(walletAddress);
-                const balanceBigInt = BigInt(balance);
+                const balanceBigInt = await getErc20Balance(actualTokenInFixed, walletAddress, chainId);
                 const amountInBigInt = BigInt(amountInBase);
                 if (amountInBigInt > balanceBigInt) {
                     amountInBase = balanceBigInt.toString();
@@ -325,14 +317,10 @@ export class SwapExecutor {
 
                     // CRITICAL: Must wait for approval to be CONFIRMED on-chain
                     // Allowance-holder checks on-chain state, mempool is not enough
-                    const config = getChainConfig(chainId);
-                    const provider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
-
                     logger.info(LogCode.EXE_TX_BROADCAST, 'Waiting for approval confirmation...', { txHash: approveTxHash });
 
-                    const receipt = await provider.waitForTransaction(approveTxHash, 1, 60000);
-
-                    if (!receipt || receipt.status === 0) {
+                    const receipt = await SwapExecutor.waitForReceipt(chainId, approveTxHash, 60000);
+                    if (!receipt || receipt.status === 0 || receipt.status === '0x0') {
                         throw new Error(`Approval transaction failed: ${approveTxHash}`);
                     }
 
@@ -457,11 +445,16 @@ export class SwapExecutor {
 
         // Add Gas Buffer (50% for safety on Base/complex routes to prevent Out Of Gas)
         // Explicitly fetch current network fee data to prevent underpriced transaction submissions
-        const config = getChainConfig(chainId);
-        const provider = new ethers.JsonRpcProvider(config.rpcUrls[0]);
         let feeData;
         try {
-            feeData = await provider.getFeeData();
+            const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false]);
+            const baseFeePerGas = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
+            const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', []);
+            const priorityFee = priorityHex ? BigInt(priorityHex) : null;
+            feeData = {
+                maxPriorityFeePerGas: priorityFee ?? undefined,
+                maxFeePerGas: baseFeePerGas && priorityFee ? (baseFeePerGas * 2n + priorityFee) : undefined
+            };
         } catch (feeErr) {
             console.warn('[SwapExecutor] Failed to fetch fee data, using defaults', feeErr);
             feeData = {};
@@ -1024,10 +1017,16 @@ export class SwapExecutor {
                 let gasPrice = tx.gasPrice ? BigInt(tx.gasPrice) : undefined;
 
                 if (!maxFeePerGas && !maxPriorityFeePerGas && !gasPrice) {
-                    const provider = getEthersProvider(chainId);
-                    const feeData = await provider.getFeeData();
-                    if (feeData.maxFeePerGas) maxFeePerGas = feeData.maxFeePerGas;
-                    if (feeData.maxPriorityFeePerGas) maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
+                    try {
+                        const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false]);
+                        const baseFeePerGas = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
+                        const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', []);
+                        const priorityFee = priorityHex ? BigInt(priorityHex) : null;
+                        if (priorityFee) maxPriorityFeePerGas = priorityFee;
+                        if (baseFeePerGas && priorityFee) maxFeePerGas = baseFeePerGas * 2n + priorityFee;
+                    } catch {
+                        // ignore
+                    }
                 }
 
                 if (maxFeePerGas) maxFeePerGas = bump(maxFeePerGas);
@@ -1230,14 +1229,8 @@ export class SwapExecutor {
     ): Promise<boolean> {
         if (isNativeToken(token, chainId)) return false;
 
-        const provider = getEthersProvider(chainId);
-        const contract = new ethers.Contract(token, [
-            'function allowance(address owner, address spender) view returns (uint256)'
-        ], provider);
-
         try {
-            const current = await contract.allowance(owner, spender);
-            const currentBigInt = BigInt(current);
+            const currentBigInt = await getErc20Allowance(token, owner, spender, chainId);
             const amountBigInt = BigInt(amount);
             const needsApproval = currentBigInt < amountBigInt;
 
@@ -1245,7 +1238,7 @@ export class SwapExecutor {
             logger.info(LogCode.EXE_TX_BROADCAST, needsApproval ? 'Approval required' : 'Approval not needed or already set', {
                 token: token.slice(0, 10),
                 spender: spender.slice(0, 10),
-                currentAllowance: current.toString(),
+                currentAllowance: currentBigInt.toString(),
                 requiredAmount: amount,
                 needsApproval
             });
@@ -1280,8 +1273,7 @@ export class SwapExecutor {
             chainId
         });
 
-        const provider = getEthersProvider(chainId);
-        await provider.waitForTransaction(txHash, 1, 60000); // 1 min timeout
+        await SwapExecutor.waitForReceipt(chainId, txHash, 60000); // 1 min timeout
         return txHash;
     }
 
@@ -1294,4 +1286,25 @@ export class SwapExecutor {
      * Decodes revert reasons if transaction fails
      */
     // (Duplicate removed - checks are done in the first implementation at line 582)
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+    private static async waitForReceipt(
+        chainId: number,
+        txHash: string,
+        timeoutMs: number
+    ): Promise<any | null> {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            try {
+                const receipt = await getTransactionReceipt(chainId, txHash).catch(() => null);
+                if (receipt) return receipt;
+            } catch {
+                // ignore and retry
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        return null;
+    }
 }

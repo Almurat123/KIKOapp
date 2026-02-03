@@ -12,7 +12,7 @@ import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
 
-import { getChainConfig, getProvider, CHAINS } from '../config/chainConfig.js';
+import { getChainConfig, CHAINS } from '../config/chainConfig.js';
 
 import { executeSolanaSwap } from './solanaExecutor.js';
 import { SOLANA_CONFIG, getSolanaConnection } from '../config/solanaConfig.js';
@@ -34,9 +34,11 @@ import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
 import { notificationService } from './notificationService.js';
 import { getTokenInfo } from './tokenService.js';
+import { getDexPrice } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -459,7 +461,7 @@ async function processBuyWithInfo(
     const [userSettingsMap, sharedNativePrice] = await Promise.all([
         // 1. 批量预热用户设置缓存
         cacheHub.warmupUserSettings(
-            configs.map(c => c.user?.id).filter(Boolean),
+            configs.map(c => c.userId).filter(Boolean),
             async (userId) => prisma.userSettings.findUnique({ where: { userId } })
         ),
         // 2. 获取 Native 价格（通过缓存中心）
@@ -478,7 +480,7 @@ async function processBuyWithInfo(
     // 🚀 100 users: 500ms (serial) → ~5ms (parallel)
     const filterResults = await Promise.all(
         configs.map(async (config) => {
-            const userSettings = userSettingsMap.get(config.user?.id);
+            const userSettings = userSettingsMap.get(config.userId);
             const universalSlippageBps = getSlippageBps(userSettings);
             const effectiveConfig = {
                 ...config,
@@ -608,7 +610,7 @@ async function processBuyWithInfo(
             batch.map(config =>
                 processSingleUserBuy(
                     config,
-                    userSettingsMap.get(config.user?.id),
+                    userSettingsMap.get(config.userId),
                     targetWallet,
                     tokenToBuy,
                     swap,
@@ -1558,16 +1560,9 @@ async function executePositionExit(params: {
 
         } else {
             // EVM Logic
-            const chainConfig = getChainConfig(chainId);
-            const evmProvider = getProvider(chainId); // Use cached provider
-            const contract = new ethers.Contract(tokenAddress, [
-                'function balanceOf(address) view returns (uint256)',
-                'function decimals() view returns (uint8)'
-            ], evmProvider);
-
             const [bal, dec] = await Promise.all([
-                contract.balanceOf(user.walletAddress),
-                contract.decimals()
+                getErc20Balance(tokenAddress, user.walletAddress, chainId),
+                getErc20Decimals(tokenAddress, chainId).catch(() => 18)
             ]);
             balance = bal;
             decimals = Number(dec);
@@ -1651,7 +1646,7 @@ async function executePositionExit(params: {
             // Sweep dust
             if (txHash) {
                 try {
-                    const remainingBalance = await contract.balanceOf(user.walletAddress);
+                    const remainingBalance = await getErc20Balance(tokenAddress, user.walletAddress, chainId);
                     const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                     if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
                         const dustAmountHuman = ethers.formatUnits(remainingBalance, decimals);
@@ -2044,9 +2039,23 @@ export async function checkPositionsForExits(): Promise<void> {
         const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
         await Promise.all(batch.map(async ({ address, chainId }) => {
             try {
+                // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
+                const dexChainId = chainId === 900 ? 'solana' : chainId;
+                const dexPrice = await getDexPrice(address, dexChainId);
+
+                if (dexPrice > 0) {
+                    const info = await getTokenInfo(address, chainId).catch(() => null);
+                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, {
+                        ...(info || {}),
+                        price: dexPrice,
+                        provider: chainId === 900 ? 'jupiter-dex' : '0x-dex'
+                    });
+                    return;
+                }
+
+                // Fallback: full token info (RPC + GeckoTerminal)
                 const info = await getTokenInfo(address, chainId);
                 if (info && info.price) {
-                    // Cache the COMPLETE tokenInfo object to preserve all fields
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
                 }
             } catch (err) {
@@ -2087,13 +2096,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         }
                     } else {
                         // EVM Balance Check
-                        const provider = getProvider(position.chainId); // Use cached provider
-                        const tokenContract = new ethers.Contract(
-                            position.tokenAddress,
-                            ['function balanceOf(address) view returns (uint256)'],
-                            provider
-                        );
-                        balance = await tokenContract.balanceOf(position.user.walletAddress);
+                        balance = await getErc20Balance(position.tokenAddress, position.user.walletAddress, position.chainId);
                         isBalanceCheckSuccess = true;
                     }
 
@@ -2267,9 +2270,8 @@ function getSlippageBps(userSettings: any): number {
 
 async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint> {
     try {
-        const { rpcUrls } = getChainConfig(chainId);
-        const provider = getProvider(chainId); // Use cached provider
-        return await provider.getBalance(walletAddress);
+        const raw = await rpcGetNativeBalance(walletAddress, chainId);
+        return BigInt(raw);
     } catch (error) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch native balance for gas check', { wallet: walletAddress, chainId });
         return 0n; // Fail open (don't block trade on RPC error, assume enough gas)
