@@ -397,6 +397,9 @@ export class MainSwapService {
     // [Logic]: 只有买入 (ETH/Native → Token) 时使用 DirectSwap，因为 ETH 不需要 approve
     // [Logic]: 卖出 (Token → ETH) 走 0x/Kyber，它们有完整的授权处理逻辑
     const isBuyWithNative = isNativeToken(request.tokenIn, request.chainId);
+    const enforcedSlippageBps = request.mode === 'copytrade'
+      ? Math.max(request.slippageBps ?? 1500, 1500)
+      : (request.slippageBps ?? 50);
     if (request.userSettings?.fastSwapMode && isDirectSwapSupported(request.chainId) && isBuyWithNative) {
       logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (BUY with native)'));
       try {
@@ -408,7 +411,7 @@ export class MainSwapService {
           tokenOut: request.tokenOut,
           amountIn: request.amountIn,
           chainId: request.chainId,
-          slippageBps: request.slippageBps || 50
+          slippageBps: enforcedSlippageBps
         });
 
         if (directResult.success) {
@@ -444,7 +447,7 @@ export class MainSwapService {
       tokenOut: request.tokenOut,
       amountIn: request.amountIn,
       chainId: request.chainId,
-      slippageBps: request.slippageBps || 50,
+      slippageBps: enforcedSlippageBps,
       feeContext,
       feeBpsOverride: request.feeBpsOverride,
       isSell: false, // Determined automatically by SwapExecutor

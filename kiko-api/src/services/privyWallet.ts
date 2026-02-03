@@ -11,7 +11,6 @@ import { AppError } from '../middleware/errorHandler.js';
 import { redact } from '../utils/sanitizer.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { callRpc } from './rpcManager.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -231,7 +230,6 @@ export async function sendTransaction(
         console.log('[sendTransaction] Full TX object:', tx);
         console.log('[sendTransaction] ===========================================');
 
-        let lastError: any;
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Ethereum transaction via Privy', {
@@ -264,7 +262,6 @@ export async function sendTransaction(
 
                 return response.hash;
             } catch (error: any) {
-                lastError = error;
                 const errorMessage = error.message || '';
                 const isNonceError = errorMessage.includes('nonce too low') ||
                     errorMessage.includes('nonce has already been used') ||
@@ -300,57 +297,9 @@ export async function sendTransaction(
             }
         }
 
-        // Fallback: try Privy signTransaction + RPC broadcast (if supported)
-        try {
-            const fallbackHash = await tryRpcBroadcastFallback(client, walletInfo, tx);
-            if (fallbackHash) {
-                logger.warn(LogCode.EXE_TX_BROADCAST, 'Privy send failed; RPC fallback broadcast succeeded', {
-                    txHash: fallbackHash,
-                    chainId: tx.chainId
-                });
-                return fallbackHash;
-            }
-        } catch (fallbackError: any) {
-            logger.error(LogCode.EXE_TX_REVERTED, 'RPC fallback broadcast failed', {
-                error: fallbackError.message,
-                chainId: tx.chainId
-            });
-        }
-
         // Should never reach here, but just in case
-        const message = lastError?.message || 'Transaction failed after max retries';
-        throw new AppError(500, message, 'TRANSACTION_FAILED');
+        throw new AppError(500, 'Transaction failed after max retries', 'TRANSACTION_FAILED');
     });
-}
-
-async function tryRpcBroadcastFallback(
-    client: PrivyClient,
-    walletInfo: { id: string; address?: string },
-    tx: TransactionRequest
-): Promise<string | null> {
-    const signer = (client.walletApi?.ethereum as any);
-    if (!signer || typeof signer.signTransaction !== 'function') {
-        return null;
-    }
-
-    const signed = await signer.signTransaction({
-        walletId: walletInfo.id,
-        caip2: `eip155:${tx.chainId}`,
-        transaction: {
-            to: tx.to as `0x${string}`,
-            data: tx.data as `0x${string}`,
-            value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : undefined,
-            gasLimit: tx.gas ? `0x${BigInt(tx.gas).toString(16)}` : undefined,
-            maxFeePerGas: tx.maxFeePerGas ? `0x${BigInt(tx.maxFeePerGas).toString(16)}` : undefined,
-            maxPriorityFeePerGas: tx.maxPriorityFeePerGas ? `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}` : undefined,
-        }
-    });
-
-    const rawTx = signed?.rawTransaction || signed?.signedTransaction || signed?.transaction;
-    if (!rawTx) return null;
-
-    const txHash = await callRpc<string>(tx.chainId, 'eth_sendRawTransaction', [rawTx]);
-    return txHash || null;
 }
 
 /**
@@ -584,3 +533,4 @@ export async function signTypedData(
 export function isPrivyConfigured(): boolean {
     return !!(PRIVY_APP_ID && PRIVY_APP_SECRET);
 }
+
