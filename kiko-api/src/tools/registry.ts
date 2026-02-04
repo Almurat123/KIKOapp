@@ -48,6 +48,7 @@ export interface Tool<TArgs = any, TResult = any> {
  */
 export class ToolRegistry {
     private tools: Map<string, Tool> = new Map();
+    private locks: Map<string, Promise<any>> = new Map();
 
     register(tool: Tool) {
         this.tools.set(tool.definition.name, tool);
@@ -74,7 +75,37 @@ export class ToolRegistry {
         if (!tool) {
             throw new Error(`Tool ${name} not found`);
         }
-        return tool.handler(args, context);
+        const key = this.buildIsolationKey(name, context);
+        return this.runWithIsolation(key, () => tool.handler(args, context));
+    }
+
+    private buildIsolationKey(name: string, context?: ToolContext): string {
+        const userKey =
+            context?.userId ||
+            (context as any)?.privyDid ||
+            context?.userAddress ||
+            'anon';
+        return `${name}:${userKey}`;
+    }
+
+    private async runWithIsolation<T>(key: string, fn: () => Promise<T>): Promise<T> {
+        const prev = this.locks.get(key) || Promise.resolve();
+        const startWait = Date.now();
+        const current = prev.then(async () => {
+            const waitMs = Date.now() - startWait;
+            if (waitMs > 50) {
+                console.log(`[ToolRegistry] Isolation wait ${waitMs}ms for ${key}`);
+            }
+            return fn();
+        });
+        this.locks.set(key, current);
+        try {
+            return await current;
+        } finally {
+            if (this.locks.get(key) === current) {
+                this.locks.delete(key);
+            }
+        }
     }
 }
 

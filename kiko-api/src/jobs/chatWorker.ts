@@ -2947,8 +2947,15 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
     private async executeTools(sessionId: string, messageId: string, toolCalls: any[], context: any = {}, userId: string | null = null, cache?: Map<string, any>, trace?: ToolTraceState, execState?: { chunkIndex: number; totalContent: string; shouldContinue: boolean; task: any }): Promise<{ results: any[], citations: any[] }> {
         const results: any[] = [];
         const allCitations: any[] = [];
+        logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: executing tools batch', {
+            sessionId,
+            messageId,
+            userId: userId || undefined,
+            toolCount: toolCalls.length
+        });
 
         for (const tc of toolCalls) {
+            const toolStart = Date.now();
             let args: any = {};
             try {
                 args = JSON.parse(tc.function.arguments);
@@ -2971,6 +2978,12 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             }
 
             const toolName = tc.function.name;
+            logger.info(LogCode.AI_API_CALL, 'ChatWorker: tool start', {
+                tool: toolName,
+                sessionId,
+                messageId,
+                userId: userId || undefined
+            });
             if (toolName === 'get_wallet_info') {
                 const walletAddress = context?.walletAddress || context?.userAddress;
                 if (walletAddress && !args.address) {
@@ -3083,6 +3096,13 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
 
                 const result = await toolRegistry.execute(tc.function.name, args, context);
+                logger.info(LogCode.AI_API_CALL, 'ChatWorker: tool success', {
+                    tool: toolName,
+                    sessionId,
+                    messageId,
+                    userId: userId || undefined,
+                    durationMs: Date.now() - toolStart
+                });
 
                 // CRITICAL: Check for _final flag - tool completed, AI should stop iterating
                 if (result && typeof result === 'object' && result._final) {
@@ -3268,6 +3288,14 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     trace.toolCalls.push({ tool: toolName, argsKey, status: 'success' });
                 }
             } catch (err: any) {
+                logger.warn(LogCode.AI_API_CALL, 'ChatWorker: tool error', {
+                    tool: toolName,
+                    sessionId,
+                    messageId,
+                    userId: userId || undefined,
+                    durationMs: Date.now() - toolStart,
+                    error: err?.message || 'Tool execution failed'
+                });
                 const failCount = (trace?.toolFailures[toolName] || 0) + 1;
                 if (trace) {
                     trace.toolFailures[toolName] = failCount;
