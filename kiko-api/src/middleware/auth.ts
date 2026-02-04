@@ -118,6 +118,14 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
     : auth.trim();
 
   if (!token) {
+    console.warn('[auth] Missing Authorization Bearer token', {
+      url: request.url,
+      method: request.method,
+      ip: request.ip,
+      origin: request.headers.origin || 'none',
+      referer: request.headers.referer || 'none',
+      userAgent: (request.headers['user-agent'] || '').toString().substring(0, 120),
+    });
     throw new AppError(401, 'Missing Authorization Bearer token', 'UNAUTHORIZED');
   }
 
