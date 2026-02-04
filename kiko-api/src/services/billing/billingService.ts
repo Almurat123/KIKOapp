@@ -14,8 +14,6 @@ export function getUtcDateString(date: Date = new Date()): string {
 export function normalizeModelForPricing(model: string): string {
     if (!model) return '';
     const lower = model.toLowerCase();
-    if (lower === 'deepseek-v3-fast') return 'deepseek-chat';
-    if (lower === 'deepseek-v3-thinking') return 'deepseek-reasoner';
     return lower;
 }
 

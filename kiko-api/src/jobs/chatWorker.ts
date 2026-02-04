@@ -23,21 +23,6 @@ const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
-// DeepSeek model name mapping
-// Frontend sends: deepseek-v3-fast, deepseek-v3-thinking
-// API expects: deepseek-chat, deepseek-reasoner
-function mapDeepSeekModel(model: string): string {
-    const modelMap: Record<string, string> = {
-        'deepseek-v3-fast': 'deepseek-chat',
-        'deepseek-v3-thinking': 'deepseek-reasoner',
-        'deepseek-chat': 'deepseek-chat',
-        'deepseek-reasoner': 'deepseek-reasoner',
-    };
-    const mapped = modelMap[model] || model;
-    console.log(`[ChatWorker] DeepSeek model: ${model} -> ${mapped}`);
-    return mapped;
-}
-
 // Chain ID to Alchemy/Service chain name map
 const CHAIN_ID_MAP: Record<number, string> = {
     1: 'eth',
@@ -985,7 +970,8 @@ export class ChatWorker {
             }
 
             // DeepSeek Reasoner (thinking mode) requires reasoning_content in assistant messages
-            const isReasonerModel = mapDeepSeekModel(task.model) === 'deepseek-reasoner';
+            const normalizedModel = (task.model || '').toLowerCase();
+            const isReasonerModel = normalizedModel === 'deepseek-reasoner';
 
             // Transform history for reasoner model - add reasoning_content to assistant messages
             // CRITICAL: DeepSeek strict API requirement
@@ -2150,7 +2136,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             }
 
             const requestBody: any = {
-                model: mapDeepSeekModel(task.model),
+                model: (task.model || '').toLowerCase() || 'deepseek-chat',
                 messages: [...messages, ...finalMessages],
                 stream: true,
                 tools: toolDefinitions,

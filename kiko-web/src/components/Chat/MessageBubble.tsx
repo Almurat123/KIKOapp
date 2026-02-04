@@ -440,7 +440,15 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                     title={`Total: ${message.usage.total_tokens} tokens (Prompt: ${message.usage.prompt_tokens}, Completion: ${message.usage.completion_tokens})`}
                                 >
                                     <Flame size={13} className={styles.tokenIcon} />
-                                    <span>{formatCost(calculateCost(modelId, message.usage.prompt_tokens, message.usage.completion_tokens, message.tool_calls?.length || 0))}</span>
+                                    {(() => {
+                                        const cost = calculateCost(
+                                            modelId,
+                                            message.usage.prompt_tokens,
+                                            message.usage.completion_tokens,
+                                            message.tool_calls?.length || 0
+                                        );
+                                        return <span>{formatCost(cost.amount, cost.currency)}</span>;
+                                    })()}
                                 </div>
                             )
                         }

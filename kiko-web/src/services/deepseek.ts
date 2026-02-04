@@ -79,18 +79,15 @@ const RETRY_DELAY = 1000; // 1 second
  * - deepseek-reasoner: DeepSeek-V3.2 (思考模式) - Thinking/reasoning model
  *   - 输出长度: 默认 32K，最大 64K
  * 
- * @param modelId - Frontend model identifier (e.g., 'deepseek-v3-thinking')
+ * @param modelId - Frontend model identifier (e.g., 'deepseek-reasoner')
  * @param mode - Model mode ('thinking' or 'fast')
  * @returns Actual DeepSeek API model name
  */
 export function getModelName(modelId?: string, mode?: string): string {
-  // If modelId is provided and contains 'thinking', or mode is 'thinking'
-  if (modelId?.includes('thinking') || mode === 'thinking') {
-    // Use reasoning model for thinking mode
-    return 'deepseek-reasoner';
+  if (modelId === 'deepseek-reasoner' || modelId === 'deepseek-chat') {
+    return modelId;
   }
-
-  // For fast mode or default, use standard chat model
+  if (mode === 'thinking') return 'deepseek-reasoner';
   return DEFAULT_MODEL;
 }
 
@@ -417,5 +414,4 @@ export async function* streamChatCompletion(
     }
   }
 }
-
 

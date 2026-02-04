@@ -38,10 +38,10 @@ import { logger } from '../../utils/logger';
 // - grok-4-1-fast-reasoning: Grok-4.1 Fast (Reasoning mode) - for complex multi-step workflows
 // - grok-4-1-fast-non-reasoning: Grok-4.1 Fast (Non-reasoning mode) - for fast chat, brainstorming
 const MODEL_OPTIONS = [
-    { id: 'deepseek-v3-fast', name: 'DeepSeek-V3.2', mode: 'fast' },
-    { id: 'deepseek-v3-thinking', name: 'DeepSeek-V3.2', mode: 'thinking' },
-    { id: 'grok-4-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
-    { id: 'grok-4-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
+    { id: 'deepseek-chat', name: 'DeepSeek-V3.2', mode: 'fast' },
+    { id: 'deepseek-reasoner', name: 'DeepSeek-V3.2', mode: 'thinking' },
+    { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
+    { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
 ];
 
 // Common token addresses by chain with decimals

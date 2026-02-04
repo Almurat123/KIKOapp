@@ -70,7 +70,7 @@ async function main() {
                 id: session.id,
                 userId: session.userId,
                 title: session.title,
-                model: session.model || 'grok-2-1212',
+                model: session.model || 'grok-4-1-fast-reasoning',
                 status: session.status || 'active',
                 createdAt: new Date(session.createdAt),
                 updatedAt: new Date(session.updatedAt),

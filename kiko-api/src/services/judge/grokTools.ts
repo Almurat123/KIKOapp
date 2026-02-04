@@ -119,7 +119,7 @@ Output ONLY this JSON:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: [{ role: 'user', content: prompt }],
-                model: 'grok-4-reasoning',  // Use Grok 4 (supports tools)
+                model: 'grok-4-1-fast-reasoning',  // Use Grok 4 (supports tools)
                 stream: false,
                 temperature: 0.1,
                 enable_search: true,
@@ -217,7 +217,7 @@ Output ONLY this JSON:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: [{ role: 'user', content: prompt }],
-                model: 'grok-4-reasoning',
+                model: 'grok-4-1-fast-reasoning',
                 stream: false,
                 temperature: 0.1,
                 enable_search: true,
@@ -318,7 +318,7 @@ Classify the narrative type and strength. Output JSON:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: [{ role: 'user', content: narrativePrompt }],
-                model: 'grok-4-reasoning',
+                model: 'grok-4-1-fast-reasoning',
                 stream: false,
                 temperature: 0.1,
             }),
@@ -387,7 +387,7 @@ Instructions:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: [{ role: 'user', content: prompt }],
-                model: 'grok-4-reasoning',
+                model: 'grok-4-1-fast-reasoning',
                 stream: false,
                 temperature: 0.7,
                 enable_search: true // Added enable_search here as per instruction

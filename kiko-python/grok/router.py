@@ -1315,19 +1315,9 @@ def normalize_model_name(model: str) -> str:
     Normalize model name to xai-sdk compatible format.
     Maps frontend model names to actual API model names.
     """
-    # Model name mapping - keep reasoning mode intact
-    # Model name mapping - match frontend getXaiModelName() logic
-    # Frontend sends: grok-4-non-reasoning, grok-4-reasoning
-    # API expects: grok-4-1-fast-non-reasoning, grok-4-1-fast-reasoning
     model_map = {
-        # Frontend model IDs -> Valid xAI API model names
-        "grok-4-non-reasoning": "grok-4-1-fast-non-reasoning",
         "grok-4-reasoning": "grok-4-1-fast-reasoning",
-        "grok-beta": "grok-4-1-fast-reasoning",
-        "grok-2-1212": "grok-4-1-fast-reasoning",
-        "grok-2": "grok-4-1-fast-reasoning",
-        "grok-2-latest": "grok-4-1-fast-reasoning",
-        "grok-3": "grok-4-1-fast-reasoning",
+        "grok-4-non-reasoning": "grok-4-1-fast-non-reasoning",
     }
     normalized = model_map.get(model, model)
     print(f"[Model] Original: {model} -> Normalized: {normalized}")

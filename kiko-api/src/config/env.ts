@@ -189,23 +189,21 @@ function validateEnv(): EnvConfig {
             console.warn('[Env] Failed to parse USAGE_LIMITS_TIERS_JSON, using default tiers.');
         }
     }
-    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner,deepseek-v3-fast,deepseek-v3-thinking')
+    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner')
         .split(',')
         .map(v => v.trim())
         .filter(Boolean);
-    const grokModels = (process.env.BILLING_GROK_MODELS || 'grok-beta,grok-2,grok-2-1212,grok-4-reasoning')
+    const grokModels = (process.env.BILLING_GROK_MODELS || 'grok-4-1-fast-reasoning,grok-4-1-fast-non-reasoning')
         .split(',')
         .map(v => v.trim())
         .filter(Boolean);
     let modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number }> = {
-        'grok-4-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
-        'grok-4-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         'grok-4-1-fast-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         'grok-4-1-fast-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
-        'deepseek-v3-fast': { promptUsdPer1M: 0.28, completionUsdPer1M: 0.42 },
-        'deepseek-v3-thinking': { promptUsdPer1M: 0.28, completionUsdPer1M: 0.42 },
-        'deepseek-chat': { promptUsdPer1M: 0.28, completionUsdPer1M: 0.42 },
-        'deepseek-reasoner': { promptUsdPer1M: 0.28, completionUsdPer1M: 0.42 },
+        // DeepSeek (CNY pricing converted to USD at 1 USD = 7.00 CNY)
+        // 2 CNY -> 0.285714 USD, 3 CNY -> 0.428571 USD
+        'deepseek-chat': { promptUsdPer1M: 0.285714, completionUsdPer1M: 0.428571 },
+        'deepseek-reasoner': { promptUsdPer1M: 0.285714, completionUsdPer1M: 0.428571 },
     };
     if (process.env.BILLING_MODEL_PRICING_JSON) {
         try {
@@ -333,7 +331,7 @@ function validateEnv(): EnvConfig {
             alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,
             internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET,
         },
-        aiModel: process.env.AI_MODEL || 'grok-beta',
+        aiModel: process.env.AI_MODEL || 'grok-4-1-fast-reasoning',
         logLevel: process.env.LOG_LEVEL || 'info',
     };
 }

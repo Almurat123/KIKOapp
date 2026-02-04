@@ -1,7 +1,7 @@
 /**
  * X.ai API Service
  * Handles communication with X.ai (Grok) API
- * Supports grok-4-1-fast (reasoning) and grok-4-fast-non-reasoning models
+ * Supports grok-4-1-fast-reasoning and grok-4-1-fast-non-reasoning models
  * Note: Tools (web_search, x_search) only work with reasoning models
  */
 
@@ -59,6 +59,7 @@ export interface XaiRequest {
   stream?: boolean;
   enable_search?: boolean; // For Python service
   tool_config?: ToolConfig; // Dynamic tool configuration
+  client_timezone?: string; // IANA timezone from client
 }
 
 export interface XaiResponse {
@@ -157,17 +158,15 @@ const RETRY_DELAY = 1000; // 1 second
  * - grok-4-1-fast-reasoning: Grok 4.1 Fast (Reasoning mode) - supports tools
  * - grok-4-1-fast-non-reasoning: Grok 4.1 Fast (Non-reasoning mode) - faster, no tools
  * 
- * @param modelId - Frontend model identifier (e.g., 'grok-4-reasoning')
+ * @param modelId - Frontend model identifier (e.g., 'grok-4-1-fast-reasoning')
  * @param mode - Model mode ('thinking' or 'fast')
  * @returns Actual X.ai API model name
  */
 export function getXaiModelName(modelId?: string, mode?: string): string {
-  // If modelId contains 'reasoning' (but not 'non-reasoning') or mode is 'thinking', use reasoning model
-  if ((modelId?.includes('reasoning') && !modelId?.includes('non-reasoning')) || mode === 'thinking') {
-    return 'grok-4-1-fast-reasoning';
+  if (modelId === 'grok-4-1-fast-reasoning' || modelId === 'grok-4-1-fast-non-reasoning') {
+    return modelId;
   }
-
-  // For fast mode or default, use non-reasoning model
+  if (mode === 'thinking') return 'grok-4-1-fast-reasoning';
   return 'grok-4-1-fast-non-reasoning';
 }
 
@@ -265,6 +264,7 @@ export async function chatCompletion(
     max_tokens?: number;
     model?: string;
     enable_search?: boolean; // Enable search via Python service
+    client_timezone?: string;
   } = {}
 ): Promise<XaiResponse> {
   const model = options.model || DEFAULT_MODEL;
@@ -277,6 +277,7 @@ export async function chatCompletion(
     max_tokens: options.max_tokens ?? getRecommendedMaxTokens(),
     stream: false,
     enable_search: options.enable_search !== false, // Enable by default
+    client_timezone: options.client_timezone,
   };
 
   const response = await makeRequest(request);
@@ -295,6 +296,7 @@ export async function* streamChatCompletion(
     signal?: AbortSignal;
     enable_search?: boolean; // Enable search via Python service
     tool_config?: ToolConfig; // Dynamic tool configuration
+    client_timezone?: string;
   } = {}
 ): AsyncGenerator<AIStreamChunk, void, unknown> {
   // [xai] Starting streamChatCompletion via Python service
@@ -312,6 +314,7 @@ export async function* streamChatCompletion(
     stream: true,
     enable_search: options.enable_search !== false, // Enable by default
     tool_config: options.tool_config, // Pass dynamic tool configuration
+    client_timezone: options.client_timezone,
   };
 
   // Request model log removed for security
@@ -697,4 +700,3 @@ export async function* streamChatCompletion(
     reader.releaseLock();
   }
 }
-

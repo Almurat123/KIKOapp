@@ -152,7 +152,7 @@ function generateToolConfig(userMessage: string): ToolConfig | undefined {
         'coindesk.com',
         'beincrypto.com'
       ].slice(0, 5), // Max 5 domains - using official Grok's recommended sources
-      enable_image_understanding: false // Faster without image processing
+      enable_image_understanding: true
     };
   }
 
@@ -164,8 +164,8 @@ function generateToolConfig(userMessage: string): ToolConfig | undefined {
 
     toolConfig.x_search = {
       from_date: threeDaysAgo.toISOString().split('T')[0], // YYYY-MM-DD format
-      enable_image_understanding: false,
-      enable_video_understanding: false // Faster without media processing
+      enable_image_understanding: true,
+      enable_video_understanding: true
     };
 
     // Add crypto-related X handles if it's crypto + social
@@ -280,7 +280,6 @@ export async function* streamAIResponse(
     // Check both modelId and mode to determine if we should add thinking instructions
     const grokReasoningModelIds = new Set([
       'grok-4-1-fast-reasoning',
-      'grok-4-reasoning',
     ]);
     // isGrokModel is already defined above
     const isGrokThinkingMode = isGrokModel && (
@@ -546,6 +545,7 @@ export async function* streamAIResponse(
         }
 
         let xaiCitations: Array<{ url: string; avatar_url?: string }> | undefined;
+        const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         for await (const chunk of xaiStreamChatCompletion(xaiMessages, {
           // Use lower temperature for fast mode to reduce latency
           temperature: isReasoningModel ? 0.8 : 0.3, // Fast mode: 0.3 for speed, Reasoning: 0.8 for quality
@@ -555,6 +555,7 @@ export async function* streamAIResponse(
           signal,
           enable_search: shouldEnableSearch, // Only enable for reasoning models
           tool_config: toolConfig, // Pass intelligent tool configuration
+          client_timezone: clientTimezone,
         })) {
           fullContent += chunk.content;
           // Collect citations from X.ai response
@@ -714,4 +715,3 @@ export async function* streamAIResponse(
  * Get intent description for display
  */
 export { getIntentDescription } from './intentParser';
-

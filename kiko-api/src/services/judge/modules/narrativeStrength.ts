@@ -75,7 +75,7 @@ Output JSON:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: [{ role: 'user', content: prompt }],
-                model: 'grok-2-1212',  // Use Grok reasoning
+                model: 'grok-4-1-fast-reasoning',  // Use Grok reasoning
                 stream: false,
                 temperature: 0.1,
             }),

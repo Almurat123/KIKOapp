@@ -388,7 +388,7 @@ model ChatSession {
   id        String        @id @default(cuid())
   userId    String
   title     String
-  model     String        @default("grok-2-1212")
+  model     String        @default("grok-4-1-fast-reasoning")
   status    String        @default("active")
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt

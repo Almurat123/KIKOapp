@@ -9,6 +9,7 @@ import { toolRegistry } from '../tools/index.js';
 import { searchWeb, formatSearchResults } from '../services/searchService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { resolveGeoFromIp } from '../services/ipGeo.js';
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -32,6 +33,11 @@ interface ChatRequest {
     stream?: boolean;
     enable_search?: boolean;
     allowed_tools?: string[];
+    tool_config?: {
+        web_search?: Record<string, any>;
+        x_search?: Record<string, any>;
+    };
+    client_timezone?: string;
     chain_context?: {
         chainId: number;
         chainName: string;
@@ -295,13 +301,46 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     console.log(`[AI Routes] Routing Grok request to ${grokServiceUrl}`);
 
                     try {
+                        const headers = request.headers as Record<string, string | string[] | undefined>;
+                        const forwarded = headers['x-forwarded-for'];
+                        const cfConnectingIp = headers['cf-connecting-ip'];
+                        const headerIp = Array.isArray(forwarded) ? forwarded[0] : (forwarded || cfConnectingIp || '');
+                        const clientIp = (headerIp || request.ip || '').toString();
+                        const geo = await resolveGeoFromIp(clientIp);
+                        const clientTimezone = request.body.client_timezone || geo.timezone;
+
+                        let toolConfig = request.body.tool_config || {};
+                        if (enable_search) {
+                            const webSearch = { ...(toolConfig.web_search || {}) } as Record<string, any>;
+                            if (clientTimezone && !webSearch.user_location_timezone) {
+                                webSearch.user_location_timezone = clientTimezone;
+                            }
+                            if (geo.country && !webSearch.user_location_country) {
+                                webSearch.user_location_country = geo.country;
+                            }
+                            if (geo.region && !webSearch.user_location_region) {
+                                webSearch.user_location_region = geo.region;
+                            }
+                            if (geo.city && !webSearch.user_location_city) {
+                                webSearch.user_location_city = geo.city;
+                            }
+                            if (Object.keys(webSearch).length > 0) {
+                                toolConfig = { ...toolConfig, web_search: webSearch };
+                            }
+                        }
+
+                        const requestBody = {
+                            ...request.body,
+                            tool_config: toolConfig,
+                        };
+
                         const response = await fetch(`${grokServiceUrl}/v1/chat/completions`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                                 'Authorization': request.headers.authorization as string,
                             },
-                            body: JSON.stringify(request.body),
+                            body: JSON.stringify(requestBody),
                         });
 
                         if (!response.ok) {
