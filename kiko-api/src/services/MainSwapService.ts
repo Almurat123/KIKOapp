@@ -402,10 +402,19 @@ export class MainSwapService {
       : (request.slippageBps ?? 50);
     const fastSwapEnabled = request.userSettings?.fastSwapMode === true;
     if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || !isBuyWithNative) {
+      const reasons: string[] = [];
+      if (!fastSwapEnabled) reasons.push('fastSwapMode=false');
+      if (!isDirectSwapSupported(request.chainId)) reasons.push('chain_not_supported');
+      if (!isBuyWithNative) reasons.push('tokenIn_not_native');
       logger.debug(LogCode.SYS_INFO, trace('Direct swap not attempted'), {
+        reasons,
         fastSwapEnabled,
         isDirectSwapSupported: isDirectSwapSupported(request.chainId),
-        isBuyWithNative
+        isBuyWithNative,
+        chainId: request.chainId,
+        tokenIn: request.tokenIn,
+        tokenOut: request.tokenOut,
+        mode: request.mode
       });
     }
 

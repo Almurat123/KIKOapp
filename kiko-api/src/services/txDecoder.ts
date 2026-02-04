@@ -659,19 +659,29 @@ export function decodeSwapFromLogs(
         '0x0000000000000000000000000000000000000000', // Null
     ];
 
-    // Identify what user RECEIVED (Result of Swap -> tokenOut)
-    const tokenReceived = incomingTransfers
-        .reverse() // check from end (most likely final swap output)
-        .find(t => !IGNORED_ADDRESSES.includes(t.token.toLowerCase()) && t.amount > 0n);
+    // Identify what user RECEIVED (Result of Swap -> tokenOut) by largest incoming amount
+    const incomingTotals = new Map<string, bigint>();
+    for (const t of incomingTransfers) {
+        if (IGNORED_ADDRESSES.includes(t.token.toLowerCase()) || t.amount <= 0n) continue;
+        incomingTotals.set(t.token, (incomingTotals.get(t.token) || 0n) + t.amount);
+    }
+    const tokenReceived = [...incomingTotals.entries()]
+        .sort((a, b) => (b[1] > a[1] ? 1 : -1))[0];
 
-    // Identify what user SENT (Source of Swap -> tokenIn)
-    // Note: If user sent ETH, there is no Transfer event from user. Logic handles this below.
-    let tokenSent = transfers.find(t => t.from.toLowerCase() === walletAddress.toLowerCase());
-    let amountSent = tokenSent?.amount.toString();
-    let tokenSentAddress = tokenSent?.token;
+    // Identify what user SENT (Source of Swap -> tokenIn) by largest outgoing amount
+    const outgoingTransfers = transfers.filter(t => t.from.toLowerCase() === walletAddress.toLowerCase());
+    const outgoingTotals = new Map<string, bigint>();
+    for (const t of outgoingTransfers) {
+        if (IGNORED_ADDRESSES.includes(t.token.toLowerCase()) || t.amount <= 0n) continue;
+        outgoingTotals.set(t.token, (outgoingTotals.get(t.token) || 0n) + t.amount);
+    }
+    const tokenSent = [...outgoingTotals.entries()]
+        .sort((a, b) => (b[1] > a[1] ? 1 : -1))[0];
+    let tokenSentAddress = tokenSent?.[0];
+    let amountSent = tokenSent?.[1]?.toString();
 
     logger.debug(LogCode.DEC_SWAP_DETECTION, 'Transaction logic analysis', {
-        received: tokenReceived?.token,
+        received: tokenReceived?.[0],
         sent: tokenSentAddress
     });
 
@@ -705,6 +715,12 @@ export function decodeSwapFromLogs(
         });
         return null;
     }
+    if (tokenReceived[0].toLowerCase() === tokenSentAddress.toLowerCase()) {
+        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Decoded same token in/out; falling back to other decoders', {
+            token: tokenSentAddress
+        });
+        return null;
+    }
 
     // Standard Case: User Sent A, Received B
     // tokenIn = What Sent (Source)
@@ -714,18 +730,18 @@ export function decodeSwapFromLogs(
     // tokenOut = What Received (Result)
     logger.info(LogCode.DEC_SUCCESS, 'Swap successfully decoded from logs', {
         tokenIn: tokenSentAddress,
-        tokenOut: tokenReceived.token
+        tokenOut: tokenReceived[0]
     });
     logger.debug(LogCode.DEC_SUCCESS, 'Decoded swap values', {
         amountIn: amountSent,
-        amountOut: tokenReceived.amount.toString()
+        amountOut: tokenReceived[1].toString()
     });
 
     return {
         tokenIn: tokenSentAddress,
-        tokenOut: tokenReceived.token,
+        tokenOut: tokenReceived[0],
         amountIn: amountSent,
-        amountOut: tokenReceived.amount.toString(),
+        amountOut: tokenReceived[1].toString(),
         router: '',
         dexName: '',
     };
