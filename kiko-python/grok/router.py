@@ -661,6 +661,9 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
     internal_key = os.getenv("INTERNAL_SERVICE_KEY", "")
     if internal_key:
         headers["X-Internal-Service-Key"] = internal_key
+    app_key = os.getenv("KIKO_WEB_APP_KEY", "")
+    if app_key:
+        headers["X-App-Key"] = app_key
     
     try:
         # IMPORTANT: Many KiKo backend endpoints require user auth (Privy JWT).
