@@ -319,9 +319,6 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         return;
                     }
 
-                    // Mark as processing ONLY if we have matched wallets
-                    markTxAsProcessed(txHash);
-
                     console.log(`[Webhook] 🎯 Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
 
                     // Branch by chain type: Solana vs EVM
@@ -391,15 +388,36 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     }
 
                     // EVM Logic (Base, BSC, etc.)
-                    const [tx, receipt] = await Promise.all([
-                        fetchTransaction(txHash, chainId),
-                        fetchTransactionReceipt(txHash, chainId),
-                    ]);
+                    const fetchWithRetry = async () => {
+                        const maxAttempts = 3;
+                        let tx: any = null;
+                        let receipt: any = null;
+                        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                            [tx, receipt] = await Promise.all([
+                                fetchTransaction(txHash, chainId),
+                                fetchTransactionReceipt(txHash, chainId),
+                            ]);
+                            if (tx && receipt) break;
+                            if (attempt < maxAttempts) {
+                                await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+                            }
+                        }
+                        return { tx, receipt, attempts: maxAttempts };
+                    };
+
+                    const { tx, receipt, attempts } = await fetchWithRetry();
 
                     if (!tx || !receipt) {
-                        console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash.slice(0, 16)}`);
+                        console.warn(`[Webhook] Could not fetch tx/receipt after retries: ${txHash.slice(0, 16)}`, {
+                            txMissing: !tx,
+                            receiptMissing: !receipt,
+                            attempts
+                        });
                         return;
                     }
+
+                    // Mark as processed only after tx/receipt fetch succeeded
+                    markTxAsProcessed(txHash);
 
                     // Trigger copy trade for EACH matched tracked wallet
                     const { handleSwapDetected } = await import('../services/autoTradeService.js');
