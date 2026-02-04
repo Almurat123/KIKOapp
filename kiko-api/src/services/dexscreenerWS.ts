@@ -6,11 +6,187 @@
  * 
  * Supported chains: base, ethereum, bsc
  * Supported time frames: m5 (5 min), h1 (1 hour), h6 (6 hours), h24 (24 hours)
+ * 
+ * NOTE: Uses Chrome TLS fingerprint simulation to bypass Cloudflare Bot detection.
  */
 
 import WebSocket from 'ws';
+import * as https from 'https';
+import * as tls from 'tls';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+
+/**
+ * Chrome 122 TLS Cipher Suites (JA3 fingerprint simulation)
+ * These are ordered to match Chrome's TLS handshake signature.
+ * Reference: https://engineering.salesforce.com/tls-fingerprinting-with-ja3-and-ja3s-247362855967
+ */
+const CHROME_CIPHERS = [
+    'TLS_AES_128_GCM_SHA256',
+    'TLS_AES_256_GCM_SHA384',
+    'TLS_CHACHA20_POLY1305_SHA256',
+    'ECDHE-ECDSA-AES128-GCM-SHA256',
+    'ECDHE-RSA-AES128-GCM-SHA256',
+    'ECDHE-ECDSA-AES256-GCM-SHA384',
+    'ECDHE-RSA-AES256-GCM-SHA384',
+    'ECDHE-ECDSA-CHACHA20-POLY1305',
+    'ECDHE-RSA-CHACHA20-POLY1305',
+    'ECDHE-RSA-AES128-SHA',
+    'ECDHE-RSA-AES256-SHA',
+    'AES128-GCM-SHA256',
+    'AES256-GCM-SHA384',
+    'AES128-SHA',
+    'AES256-SHA',
+].join(':');
+
+/**
+ * Create HTTPS Agent with Chrome-like TLS fingerprint
+ */
+function createChromeAgent(): https.Agent {
+    return new https.Agent({
+        // TLS 1.2 and 1.3 (Chrome default)
+        minVersion: 'TLSv1.2' as tls.SecureVersion,
+        maxVersion: 'TLSv1.3' as tls.SecureVersion,
+        // Chrome cipher order
+        ciphers: CHROME_CIPHERS,
+        // Chrome elliptic curves order
+        ecdhCurve: 'X25519:P-256:P-384',
+        // Enable session tickets (Chrome behavior)
+        sessionTimeout: 300,
+        // Keep connections alive
+        keepAlive: true,
+        keepAliveMsecs: 10000,
+    });
+}
+
+// ============== FREE ROTATING PROXY POOL ==============
+
+/**
+ * Free proxy sources (no registration required)
+ */
+const FREE_PROXY_SOURCES = [
+    // ProxyScrape - SOCKS5 proxies, updated frequently
+    'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=all&ssl=all&anonymity=all',
+    // ProxyScrape - SOCKS4 proxies (fallback)
+    'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks4&timeout=5000&country=all&ssl=all&anonymity=all',
+];
+
+// Proxy pool cache
+let proxyPool: string[] = [];
+let lastProxyFetch = 0;
+let currentProxyIndex = 0;
+const PROXY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Fetch fresh proxies from free sources
+ */
+async function fetchFreeProxies(): Promise<string[]> {
+    const proxies: string[] = [];
+
+    for (const sourceUrl of FREE_PROXY_SOURCES) {
+        try {
+            const response = await fetch(sourceUrl, {
+                signal: AbortSignal.timeout(10000)
+            });
+            if (!response.ok) continue;
+
+            const text = await response.text();
+            const lines = text.split('\n').filter(line => line.trim());
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                // Format: IP:PORT
+                if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(trimmed)) {
+                    // Determine protocol based on source URL
+                    const protocol = sourceUrl.includes('socks5') ? 'socks5' : 'socks4';
+                    proxies.push(`${protocol}://${trimmed}`);
+                }
+            }
+        } catch (error) {
+            // Silently continue to next source
+        }
+    }
+
+    // Shuffle to randomize
+    for (let i = proxies.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [proxies[i], proxies[j]] = [proxies[j], proxies[i]];
+    }
+
+    return proxies;
+}
+
+/**
+ * Get a proxy from the rotating pool
+ * Returns null if pool is empty or disabled
+ */
+async function getRotatingProxy(): Promise<string | null> {
+    // Check if free proxy pool is disabled
+    if (process.env.DISABLE_FREE_PROXY_POOL === 'true') {
+        return null;
+    }
+
+    // Check if we have a static proxy configured (takes priority)
+    const staticProxy = process.env.DEXSCREENER_PROXY ||
+        process.env.HTTPS_PROXY ||
+        process.env.HTTP_PROXY;
+    if (staticProxy) {
+        return staticProxy;
+    }
+
+    // Refresh proxy pool if expired
+    const now = Date.now();
+    if (proxyPool.length === 0 || now - lastProxyFetch > PROXY_CACHE_TTL) {
+        logger.debug(LogCode.SYS_INFO, 'Refreshing free proxy pool...');
+        proxyPool = await fetchFreeProxies();
+        lastProxyFetch = now;
+        currentProxyIndex = 0;
+        logger.debug(LogCode.SYS_INFO, 'Free proxy pool refreshed', { count: proxyPool.length });
+
+        if (proxyPool.length === 0) {
+            logger.warn(LogCode.SYS_ERROR, 'No free proxies available');
+            return null;
+        }
+    }
+
+    // Round-robin selection
+    const proxy = proxyPool[currentProxyIndex];
+    currentProxyIndex = (currentProxyIndex + 1) % proxyPool.length;
+
+    return proxy;
+}
+
+/**
+ * Mark a proxy as bad (remove from pool)
+ */
+function markProxyBad(proxyUrl: string): void {
+    const index = proxyPool.indexOf(proxyUrl);
+    if (index > -1) {
+        proxyPool.splice(index, 1);
+        logger.debug(LogCode.SYS_INFO, 'Removed bad proxy from pool', { remaining: proxyPool.length });
+    }
+}
+
+/**
+ * Create proxy agent for WebSocket connection
+ * Supports HTTP/HTTPS and SOCKS5 proxies
+ */
+async function createProxyAgent(proxyUrl: string): Promise<https.Agent | null> {
+    try {
+        // Dynamically import proxy agent based on protocol
+        if (proxyUrl.startsWith('socks')) {
+            const { SocksProxyAgent } = await import('socks-proxy-agent');
+            // SocksProxyAgent doesn't support TLS options directly, but it handles TLS internally
+            return new SocksProxyAgent(proxyUrl);
+        } else {
+            const { HttpsProxyAgent } = await import('https-proxy-agent');
+            return new HttpsProxyAgent(proxyUrl);
+        }
+    } catch (error: any) {
+        logger.warn(LogCode.SYS_ERROR, 'Failed to create proxy agent', { error: error.message });
+        return null;
+    }
+}
 
 // DexScreener WebSocket base URL
 const WS_BASE_URL = 'wss://io.dexscreener.com/dex/screener/v5/pairs';
@@ -44,6 +220,10 @@ interface WSOptions {
 /**
  * Fetch trending token addresses from DexScreener WebSocket
  * 
+ * Strategy:
+ * 1. First attempt: Direct connection with Chrome TLS fingerprint
+ * 2. Fallback: If proxy is configured and direct fails, retry via proxy
+ * 
  * @param options - WebSocket options (chain, timeFrame, rankBy)
  * @returns Promise<string[]> - Array of token addresses (lowercase)
  */
@@ -67,16 +247,69 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
     // Build WebSocket URL
     const url = `${WS_BASE_URL}/${timeFrame}/1?rankBy[key]=${rankBy}&rankBy[order]=desc&filters[chainIds][0]=${normalizedChain}`;
 
-    logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Connecting', { chain: normalizedChain, timeFrame });
+    // Attempt 1: Direct connection with Chrome TLS fingerprint
+    logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Trying direct connection', { chain: normalizedChain });
+    const directResult = await attemptWSConnection(url, normalizedChain, timeout, createChromeAgent());
 
-    return new Promise((resolve, reject) => {
+    if (directResult.length > 0) {
+        logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Direct connection succeeded', { count: directResult.length });
+        return directResult;
+    }
+
+    // Attempt 2-4: Retry via rotating proxy pool (up to 3 proxies)
+    const MAX_PROXY_RETRIES = 3;
+    for (let i = 0; i < MAX_PROXY_RETRIES; i++) {
+        const proxyUrl = await getRotatingProxy();
+        if (!proxyUrl) {
+            logger.debug(LogCode.SYS_INFO, 'DexScreener WS: No proxy available, skipping proxy retry');
+            break;
+        }
+
+        logger.debug(LogCode.SYS_INFO, `DexScreener WS: Trying proxy ${i + 1}/${MAX_PROXY_RETRIES}`, { chain: normalizedChain });
+        const proxyAgent = await createProxyAgent(proxyUrl);
+        if (proxyAgent) {
+            const proxyResult = await attemptWSConnection(url, normalizedChain, Math.min(timeout, 8000), proxyAgent);
+            if (proxyResult.length > 0) {
+                logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Proxy connection succeeded', { count: proxyResult.length, proxyIndex: i + 1 });
+                return proxyResult;
+            }
+            // Mark this proxy as bad
+            markProxyBad(proxyUrl);
+        }
+    }
+
+    // All attempts failed
+    logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener WS: All connection attempts failed', { chain: normalizedChain });
+    return [];
+}
+
+/**
+ * Internal: Attempt a single WebSocket connection
+ */
+function attemptWSConnection(
+    url: string,
+    normalizedChain: string,
+    timeout: number,
+    agent: https.Agent
+): Promise<string[]> {
+    return new Promise((resolve) => {
         const startTime = Date.now();
         let resolved = false;
 
         const ws = new WebSocket(url, {
+            agent: agent,
             headers: {
+                // Full browser-like headers to bypass Cloudflare Bot detection
+                'Host': 'io.dexscreener.com',
                 'Origin': 'https://dexscreener.com',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://dexscreener.com/',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-WebSocket-Extensions': 'permessage-deflate; client_max_window_bits',
+                'Sec-WebSocket-Version': '13',
             },
         });
 
@@ -86,7 +319,7 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
                 resolved = true;
                 logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener WS: Timeout', { chain: normalizedChain, timeout });
                 ws.close();
-                resolve([]); // Return empty on timeout, don't reject
+                resolve([]);
             }
         }, timeout);
 
@@ -130,8 +363,15 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
                             // Skip if contains http (part of URL)
                             if (match.includes('http')) continue;
 
-                            // Valid Solana address - add it (including pump.fun addresses ending with 'pump')
-                            solAddresses.push(match);
+                            // Filter out common false positives
+                            // Valid Solana addresses typically don't have repeated patterns
+                            if (match.length >= 32 && match.length <= 44) {
+                                // Skip if it looks like a hash or has too many repeated chars
+                                const repeatedCharRatio = (match.match(/(.)\1{2,}/g) || []).length / match.length;
+                                if (repeatedCharRatio < 0.1) {
+                                    solAddresses.push(match);
+                                }
+                            }
                         }
                     }
 

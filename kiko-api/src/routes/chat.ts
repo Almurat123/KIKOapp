@@ -277,11 +277,10 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 // Create user message
                 const userMessage = await chatRepo.createMessage(sessionId, 'user', content.trim());
 
-                // Track user activity (need internal User ID, not privyDid)
-                // Session.userId IS privyDid in this context, so we need to look up the User
+                // Track user activity (using privyDid as required by UserActivity schema)
                 const userRecord = await prisma.user.findUnique({ where: { privyDid: userId } });
                 if (userRecord) {
-                    trackChatMessage(userRecord.id);
+                    trackChatMessage(userRecord.privyDid);
                 }
 
                 // Create empty assistant message (will be populated by worker)

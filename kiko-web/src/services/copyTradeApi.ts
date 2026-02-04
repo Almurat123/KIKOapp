@@ -16,6 +16,8 @@ export interface CopyTradeConfig {
     mirrorSell: boolean;
     status: 'active' | 'paused';
     aiAnalysisMode: 'disabled' | 'analyze_only' | 'auto_decide';
+    enableDynamicTP: boolean;
+    dynamicTPMinProfitPct: number;
     createdAt: string;
     updatedAt: string;
 }

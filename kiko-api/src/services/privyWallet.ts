@@ -205,6 +205,17 @@ export async function sendTransaction(
 ): Promise<string> {
     // Wrap entire execution in a per-user lock
     return withUserLock(userId, async () => {
+        // === SIMULATION MODE ===
+        if (process.env.SIMULATION_MODE === 'true') {
+            logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Skipping actual Privy send', {
+                userId,
+                to: tx.to,
+                value: tx.value,
+                chainId: tx.chainId
+            });
+            return `0xSIMULATION_PRIVY_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        }
+
         const client = getPrivyClient();
         const MAX_RETRIES = 3;
         const RETRY_DELAY_MS = 2000;
@@ -533,4 +544,3 @@ export async function signTypedData(
 export function isPrivyConfigured(): boolean {
     return !!(PRIVY_APP_ID && PRIVY_APP_SECRET);
 }
-

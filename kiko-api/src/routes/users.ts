@@ -67,7 +67,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 }
 
                 // Track daily login activity
-                trackLogin(user.id);
+                trackLogin(user.privyDid);
 
                 // Return settings or null if not set
                 return {

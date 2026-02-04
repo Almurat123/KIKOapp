@@ -182,6 +182,10 @@ USER_QUERY_END
                 parts.push(`- Swap execution: Review mode. When calling prepare_swap_transaction, ALWAYS set execute: false parameter. User will confirm in a card before execution.`);
             }
 
+            if (config.showQuoteBeforeSwap && !config.fastSwapMode) {
+                parts.push(`- Price Simulation: ENABLED. 🚨 CRITICAL RULE: You MUST call simulate_swap FIRST before ANY swap execution. DO NOT call prepare_swap_transaction until you have called simulate_swap and outputted the result to the user. This is a HARD REQUIREMENT.`);
+            }
+
             if (config.defaultSwapAmount) {
                 const unit = config.defaultSwapUnit === 'usd' ? 'USD' : 'native token units';
                 parts.push(`- Default amount: ${config.defaultSwapAmount} ${unit} when user omits amount.`);

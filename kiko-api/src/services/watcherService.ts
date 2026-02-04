@@ -10,6 +10,8 @@ import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
 import { callRpc as rpcCall } from './rpcManager.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 
+const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
+
 // Alchemy API for Base
 const ALCHEMY_BASE_URL = process.env.ALCHEMY_BASE_URL || 'https://base-mainnet.g.alchemy.com/v2';
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || '';
@@ -66,8 +68,17 @@ import { getChainConfig } from '../config/chainConfig.js';
  * Fetch transaction by hash (Standard RPC)
  */
 export async function fetchTransaction(txHash: string, chainId: number): Promise<any | null> {
+    const start = Date.now();
     try {
-        return await rpcCall(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast' });
+        const result = await rpcCall(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast' });
+        if (PROFILE) {
+            logger.info(LogCode.SYS_INFO, '[Profile] fetchTransaction', {
+                chainId,
+                tx: txHash.slice(0, 12),
+                ms: Date.now() - start
+            });
+        }
+        return result;
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction by hash', { txHash, chainId, error: error.message });
         return null;
@@ -78,8 +89,17 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
  * Fetch transaction receipt (Standard RPC)
  */
 export async function fetchTransactionReceipt(txHash: string, chainId: number): Promise<any | null> {
+    const start = Date.now();
     try {
-        return await rpcCall(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast' });
+        const result = await rpcCall(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast' });
+        if (PROFILE) {
+            logger.info(LogCode.SYS_INFO, '[Profile] fetchReceipt', {
+                chainId,
+                tx: txHash.slice(0, 12),
+                ms: Date.now() - start
+            });
+        }
+        return result;
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching transaction receipt', { txHash, chainId, error: error.message });
         return null;

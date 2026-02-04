@@ -5,11 +5,7 @@
  */
 
 import { zoraService } from '../zoraService.js';
-// ParagraphAPI imported dynamically to avoid startup crash from broken doppler-router
-import { getChainConfig } from '../../config/chainConfig.js';
-import { env } from '../../config/env.js';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { redact } from '../../utils/sanitizer.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
@@ -40,7 +36,7 @@ async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
 }
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'bonkfun';
+    provider: 'zora' | 'fourmeme' | 'pumpfun' | 'bonkfun';
     data: any;
     chainId: number;
 }
@@ -49,115 +45,6 @@ export interface LaunchpadResult {
 const DETECTION_CACHE = new Map<string, { result: LaunchpadResult | null, expiry: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-
-import { createPublicClient, http } from 'viem';
-import { base } from 'viem/chains';
-
-const CLANKER_FACTORY = '0xE85A59c628F7d27878ACeB4bf3b35733630083a9';
-// Event: TokenCreated(address indexed token, uint256 indexed tokenId, ...)
-// Topic0: 0xe5b9f4d1f6cf7c3238f0c0b48597a9ccd3ff3d2309f3ccd30bd46aad5e06a638
-const CLANKER_TOPIC = '0xe5b9f4d1f6cf7c3238f0c0b48597a9ccd3ff3d2309f3ccd30bd46aad5e06a638';
-
-/**
- * Detect Clanker token (Base)
- * Uses API first, then falls back to on-chain Factory check
- */
-async function getClankerToken(address: string): Promise<any | null> {
-    try {
-        // Only run for Base (8453)
-        // 1. Try API
-        const url = `https://www.clanker.world/api/tokens?q=${encodeURIComponent(address)}`;
-        const data = await fetchJson({
-            url,
-            timeout: 2000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json'
-            }
-        });
-
-        if (data && data.data && data.data.length > 0) {
-            const token = data.data.find(
-                (t: any) => t.contract_address?.toLowerCase() === address.toLowerCase()
-            );
-            if (token) return token;
-        }
-
-        return null; // Stick to API for now to avoid false positives
-    } catch (error: any) {
-        logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Clanker check failed', { address, error: error.message });
-        return null;
-    }
-}
-
-/**
- * Detect Paragraph token (Base)
- */
-export async function getParagraphToken(address: string): Promise<any | null> {
-    const paragraphApiKey = (env.apiKeys as any).paragraph || process.env.PARAGRAPH_API_KEY || '';
-
-    // Dynamic import to avoid startup crash from broken doppler-router sub-dependency
-    let ParagraphAPI: any;
-    try {
-        const sdk = await import('@paragraph_xyz/sdk');
-        ParagraphAPI = sdk.ParagraphAPI;
-    } catch (e: any) {
-        logger.error(LogCode.SYS_ERROR, 'LaunchpadDetector: Failed to load Paragraph SDK', { error: e.message });
-        return null;
-    }
-
-    // Use SDK with empty key if not provided, or fallback to public API
-    const api = new ParagraphAPI(paragraphApiKey ? { apiKey: paragraphApiKey } : {});
-
-    try {
-        const coinBasic = await (api as any).getCoinByContract(address);
-        if (!coinBasic || !coinBasic.id) {
-            return null;
-        }
-
-        let coinFull: any = null;
-        try {
-            const apiAny = api as any;
-            if (apiAny.coins && typeof apiAny.coins.get === 'function') {
-                coinFull = await apiAny.coins.get({ id: coinBasic.id }).single();
-            } else if (typeof apiAny.getCoin === 'function') {
-                coinFull = await apiAny.getCoin(coinBasic.id);
-            }
-        } catch (err: any) {
-            logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Failed to get Paragraph coin details', { coinId: coinBasic.id, error: err.message });
-            return null;
-        }
-
-        const creationDateAttr = coinFull?.metadata?.attributes?.find((a: any) => a.trait_type === 'Token Creation Date')?.value;
-
-        const result = {
-            id: coinBasic.id,
-            contractAddress: (coinBasic as any).contractAddress || address,
-            symbol: coinFull?.metadata?.symbol || (coinBasic as any).symbol || 'UNKNOWN',
-            postId: (coinBasic as any).postId,
-            name: coinFull?.metadata?.name || coinFull?.metadata?.symbol || (coinBasic as any).symbol || 'Unknown Token',
-            image: coinFull?.metadata?.image || coinFull?.metadata?.logoURI || undefined,
-            description: coinFull?.metadata?.description || undefined,
-            createdAt: creationDateAttr ? new Date(creationDateAttr).getTime() : undefined,
-        };
-
-        logger.info(LogCode.AI_LAUNCHPAD_DETECTED, 'LaunchpadDetector: Returning Paragraph coin data', { result });
-        return result;
-    } catch (error: any) {
-        const statusCode = error?.response?.status || error?.status || error?.statusCode;
-
-        if (statusCode === 404) {
-            return null;
-        }
-
-        logger.error(LogCode.SYS_ERROR, 'LaunchpadDetector: Paragraph fetch failed', redact({
-            address,
-            error: error.message
-        }));
-
-        return null;
-    }
-}
 
 /**
  * Detect Four.meme token (BSC)
@@ -476,27 +363,7 @@ async function handleDetection(
             }
         }
 
-        // Priority 2 & 3: Clanker and Paragraph in parallel (only if Zora not found)
-        if (basePlatforms) {
-            const [clankerResult, paragraphResult] = await Promise.all([
-                getClankerToken(address).catch(() => null),
-                getParagraphToken(address).catch(() => null)
-            ]);
-
-            if (clankerResult) {
-                const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
-                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                return result;
-            }
-
-            if (paragraphResult) {
-                const result: LaunchpadResult = { provider: 'paragraph', data: paragraphResult, chainId: 8453 };
-                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                return result;
-            }
-        }
-
-        // Priority 4: FourMeme (BSC only)
+        // Priority 2: FourMeme (BSC only)
         if (bscPlatforms) {
             try {
                 const fourmemeResult = await getFourMemeToken(address);

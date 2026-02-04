@@ -400,7 +400,16 @@ export class MainSwapService {
     const enforcedSlippageBps = request.mode === 'copytrade'
       ? Math.max(request.slippageBps ?? 1500, 1500)
       : (request.slippageBps ?? 50);
-    if (request.userSettings?.fastSwapMode && isDirectSwapSupported(request.chainId) && isBuyWithNative) {
+    const fastSwapEnabled = request.userSettings?.fastSwapMode === true;
+    if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || !isBuyWithNative) {
+      logger.debug(LogCode.SYS_INFO, trace('Direct swap not attempted'), {
+        fastSwapEnabled,
+        isDirectSwapSupported: isDirectSwapSupported(request.chainId),
+        isBuyWithNative
+      });
+    }
+
+    if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && isBuyWithNative) {
       logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (BUY with native)'));
       try {
         const directResult = await executeDirectSwap({

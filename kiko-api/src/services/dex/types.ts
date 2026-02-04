@@ -84,7 +84,7 @@ export const AERODROME_ROUTER: RouterConfig = {
 export const PANCAKE_ROUTERS: Record<string, RouterConfig> = {
     v3: {
         name: 'PancakeSwap V3',
-        address: '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4',
+        address: '0x1b81D678ffb9C0263b24A97847620C99d213eB14',
         type: 'v3',
         chainId: 56
     },

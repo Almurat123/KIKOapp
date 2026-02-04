@@ -14,7 +14,7 @@ import { callRpc as unifiedCallRpc, fetchJson } from '../config/unifiedApiServic
 import { getRpcUrlsArrayWithStrategy } from '../config/apiEndpoints.js';
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 
-const RPC_TIMEOUT_MS = 10000; // 10s timeout for reliable RPC calls (Alchemy can be slow)
+const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default; override for faster benchmarks
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Open circuit after 5 consecutive failures (more tolerant)
 const CIRCUIT_BREAKER_RESET_TIME = 30000; // Try again after 30s

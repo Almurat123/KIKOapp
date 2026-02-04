@@ -106,14 +106,53 @@ export function getRpcEndpointsWithStrategy(
   strategy: 'fast' | 'cheap' = 'cheap',
   primaryUrl?: string
 ): RpcEndpointConfig[] {
+  const preferPremium = (process.env.RPC_FAST_PREFER_PREMIUM || 'true').toLowerCase() === 'true';
+  const onlyPremium = (process.env.RPC_FAST_ONLY_PREMIUM || 'false').toLowerCase() === 'true';
+  const override = getFastOverride(chainSlug);
+  if (strategy === 'fast' && override.length > 0) {
+    return override;
+  }
   if (chainSlug === 'base') {
-    return strategy === 'fast'
+    const list = strategy === 'fast'
       ? getBasePreferredEndpoints(primaryUrl)
       : getBaseCheapEndpoints(primaryUrl);
+    const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
+    if (strategy === 'fast' && onlyPremium) {
+      const premium = ordered.filter(e => e.type === 'premium');
+      return premium.length > 0 ? premium : ordered;
+    }
+    return ordered;
   }
 
   // For other chains, keep existing ordering until we benchmark them.
-  return getRpcEndpoints(chainSlug, primaryUrl);
+  const list = getRpcEndpoints(chainSlug, primaryUrl);
+  const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
+  if (strategy === 'fast' && onlyPremium) {
+    const premium = ordered.filter(e => e.type === 'premium');
+    return premium.length > 0 ? premium : ordered;
+  }
+  return ordered;
+}
+
+function prioritizePremium(endpoints: RpcEndpointConfig[]): RpcEndpointConfig[] {
+  const premium = endpoints.filter(e => e.type === 'premium');
+  const rest = endpoints.filter(e => e.type !== 'premium');
+  const ordered = [...premium, ...rest];
+  return ordered.map((ep, idx) => ({ ...ep, priority: idx + 1 }));
+}
+
+function getFastOverride(chainSlug: string): RpcEndpointConfig[] {
+  const key = `RPC_FAST_OVERRIDE_${chainSlug.toUpperCase()}`;
+  const raw = (process.env as Record<string, string | undefined>)[key];
+  if (!raw) return [];
+  const urls = raw.split(',').map(s => s.trim()).filter(Boolean);
+  return urls.map((url, idx) => ({
+    name: `Override-${idx + 1}`,
+    url,
+    priority: idx + 1,
+    requiresAuth: true,
+    type: 'premium'
+  }));
 }
 
 function getBasePreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
@@ -125,8 +164,8 @@ function getBasePreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
     endpoints.push({ name, url, priority: priority++, requiresAuth, type });
   };
 
-  // Preferred order (fastest to slowest based on local benchmark)
-  // Alchemy -> DRPC -> Ankr -> Base Official -> Coinbase -> PublicNode -> Infura
+  // Preferred order (most stable)
+  // Alchemy/Primary -> DRPC -> PublicNode -> Base Official -> Coinbase -> Ankr -> Infura
   if (env.apiKeys.alchemy) {
     push('Alchemy', getAlchemyUrl('base') || undefined, true, 'premium');
   }
@@ -136,14 +175,13 @@ function getBasePreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
   }
 
   push('DRPC', 'https://base.drpc.org', false, 'public');
+  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public');
+  push('Base Official', 'https://mainnet.base.org', false, 'public');
+  push('Coinbase', 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t', false, 'public');
 
   if (env.apiKeys.ankr) {
     push('Ankr', `https://rpc.ankr.com/base/${env.apiKeys.ankr}`, true, 'premium');
   }
-
-  push('Base Official', 'https://mainnet.base.org', false, 'public');
-  push('Coinbase', 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t', false, 'public');
-  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public');
 
   if (env.apiKeys.infura) {
     push('Infura', `https://base-mainnet.infura.io/v3/${env.apiKeys.infura}`, true, 'premium');
@@ -167,11 +205,11 @@ function getBaseCheapEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
     endpoints.push({ name, url, priority: priority++, requiresAuth, type });
   };
 
-  // Cheap-first order: free endpoints -> premium fallbacks
+  // Cheap-first order: stable public endpoints -> premium fallbacks
+  push('DRPC', 'https://base.drpc.org', false, 'public');
+  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public');
   push('Base Official', 'https://mainnet.base.org', false, 'public');
   push('Coinbase', 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t', false, 'public');
-  push('PublicNode', 'https://base-rpc.publicnode.com', false, 'public');
-  push('DRPC', 'https://base.drpc.org', false, 'public');
 
   if (primaryUrl) {
     push('Primary', primaryUrl, true, 'premium');
@@ -209,19 +247,19 @@ function getVerifiedFreeEndpoints(chainSlug: string): { name: string; url: strin
       { name: 'DRPC', url: 'https://eth.drpc.org' },
     ],
 
-    // Base: Official + Coinbase + PublicNode 都很稳定
+    // Base: DRPC/PublicNode are generally more stable than rate-limited public endpoints
     'base': [
+      { name: 'DRPC', url: 'https://base.drpc.org' },
+      { name: 'PublicNode', url: 'https://base-rpc.publicnode.com' },
       { name: 'Base Official', url: 'https://mainnet.base.org' },
       { name: 'Coinbase', url: 'https://api.developer.coinbase.com/rpc/v1/base/ilSV6rJjgR0WwRdvqjG5cL07exQrmr8t' },
-      { name: 'PublicNode', url: 'https://base-rpc.publicnode.com' },
-      { name: 'DRPC', url: 'https://base.drpc.org' },
     ],
 
-    // BSC: Binance Official + Defibit 5/5 并发测试通过
+    // BSC: PublicNode/Defibit are more stable under load than binance dataseed
     'bsc': [
-      { name: 'Binance Official', url: 'https://bsc-dataseed.binance.org' },
-      { name: 'Defibit-1', url: 'https://bsc-dataseed1.defibit.io' },
       { name: 'PublicNode', url: 'https://bsc-rpc.publicnode.com' },
+      { name: 'Defibit-1', url: 'https://bsc-dataseed1.defibit.io' },
+      { name: 'Binance Official', url: 'https://bsc-dataseed.binance.org' },
     ],
 
     // Polygon: PublicNode 100% 成功率

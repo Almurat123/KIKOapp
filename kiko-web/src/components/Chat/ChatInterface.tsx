@@ -690,61 +690,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             });
                         });
 
-                    } else if (event.data.action.type === 'show_swap_card') {
-                        // Show SwapCard UI for user confirmation (manual swap)
-                        setMessages(prev => {
-                            const lastMsg = prev[prev.length - 1];
-                            if (lastMsg && lastMsg.role === 'assistant') {
-                                const actionData = event.data.action.payload || event.data.action.data;
-                                const targetChainId = actionData.chainId || actionData.chain_id || chainId;
 
-                                // Helper to resolve token object from symbol
-                                const resolveToken = (symbolOrObj: any): any => {
-                                    if (!symbolOrObj) return undefined;
-                                    const symbol = typeof symbolOrObj === 'string' ? symbolOrObj : symbolOrObj.symbol;
-
-                                    // Handle Native
-                                    if (['ETH', 'SOL', 'BNB', 'MATIC', 'AVAX'].includes(symbol)) {
-                                        return {
-                                            symbol,
-                                            address: '0x0000000000000000000000000000000000000000',
-                                            decimals: 18,
-                                            chainId: targetChainId
-                                        };
-                                    }
-
-                                    // Lookup in COMMON_TOKENS
-                                    const common = COMMON_TOKENS[targetChainId]?.find(t => t.symbol === symbol);
-                                    if (common) {
-                                        return { ...common, chainId: targetChainId };
-                                    }
-
-                                    // Fallback: return as-is
-                                    if (typeof symbolOrObj === 'object' && symbolOrObj.address) {
-                                        return symbolOrObj;
-                                    }
-                                    return { symbol, address: '', chainId: targetChainId };
-                                };
-
-                                const swapData = {
-                                    tokenIn: resolveToken(actionData.tokenIn || actionData.token_in),
-                                    tokenOut: resolveToken(actionData.tokenOut || actionData.token_out),
-                                    amountIn: actionData.amountIn || actionData.amount_in,
-                                    amountOutMin: actionData.amountOutMin || actionData.amount_out_min,
-                                    slippageBps: actionData.slippageBps || actionData.slippage_bps || (actionData.slippage ? actionData.slippage * 100 : undefined),
-                                    chainId: targetChainId,
-                                    autoExecute: false,
-                                    useServerExecution: false
-                                };
-
-                                return prev.map((m, idx) => idx === prev.length - 1 ? {
-                                    ...m,
-                                    type: 'swap-card',
-                                    data: swapData
-                                } : m);
-                            }
-                            return prev;
-                        });
+                        // DEPRECATED: show_swap_card removed from chat interface (kept in WalletPage)
                     } else if (event.data.action.type === 'show_strategy_card') {
                         // For strategy cards, trigger an immediate refresh of the strategies list
                         // This helps avoid the "deleted" race condition
@@ -1303,11 +1250,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 };
                 const chainName = chainNameMap[chainId] || 'eth';
                 const nativeBalance = await getWalletBalance(walletAddress, chainName);
-                if (nativeBalance?.ethBalanceFormatted) {
+                if (nativeBalance?.ethBalanceFormatted !== undefined) {
                     const nativeSymbol = NATIVE_SYMBOLS[chainId] || 'ETH';
-                    if (nativeBalance.ethBalanceFormatted > 0) {
-                        balances[nativeSymbol] = nativeBalance.ethBalanceFormatted.toFixed(4);
-                    }
+                    // IMPORTANT: Always include native balance (even 0) so AI knows we checked
+                    balances[nativeSymbol] = (nativeBalance.ethBalanceFormatted || 0).toFixed(8);
                 }
 
                 // Call the unified portfolio API - returns ALL tokens with known metadata/decimals
@@ -1320,7 +1266,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         // Prefer formatted balance directly from API as it handles decimals correctly
                         // But API returns string like "123.456"
                         const balanceVal = parseFloat(token.formatted);
-                        if (balanceVal > 0) {
+                        // IMPORTANT: Include tokens with 0 balance so AI knows we checked and found 0
+                        if (balanceVal >= 0 && !isNaN(balanceVal)) {
                             balances[token.symbol] = token.formatted;
                             // Also store by address for context awareness
                             if (token.contractAddress) {

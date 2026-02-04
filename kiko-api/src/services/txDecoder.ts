@@ -50,6 +50,10 @@ const V3_SWAP_EVENT = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e1
 const V4_SWAP_EVENT = ethers.id('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)');
 const V4_INIT_EVENT = ethers.id('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)');
 const USER_OP_EVENT = '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f';
+const INFINITY_CL_POOL_MANAGER = '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b';
+const INFINITY_BIN_POOL_MANAGER = '0xc697d2898e0d09264376196696c51d7abbbaa4a9';
+const INFINITY_CL_SWAP_EVENT = ethers.id('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24,uint16)');
+const INFINITY_BIN_SWAP_EVENT = ethers.id('Swap(bytes32,address,int128,int128,uint24,uint24,uint16)');
 
 const ENTRYPOINT_ADDRESSES = new Set([
     '0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789', // EntryPoint v0.6
@@ -60,6 +64,7 @@ const poolTokenCache = new Map<string, { token0: string; token1: string }>();
 const v4PoolTokenCache = new Map<string, { token0: string; token1: string } | null>();
 const v4PoolTokenInflight = new Map<string, Promise<{ token0: string; token1: string } | null>>();
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const infinityPoolKeyCache = new Set<string>();
 
 async function getPoolTokens(chainId: number, pool: string): Promise<{ token0: string; token1: string } | null> {
     const key = `${chainId}:${pool.toLowerCase()}`;
@@ -92,6 +97,77 @@ async function getPoolTokens(chainId: number, pool: string): Promise<{ token0: s
     }
 }
 
+function extractTransfersFromLogs(logs: Array<{ address: string; topics: string[]; data: string }>): Array<{
+    token: string;
+    from: string;
+    to: string;
+    amount: bigint;
+}> {
+    const transfers: Array<{
+        token: string;
+        from: string;
+        to: string;
+        amount: bigint;
+    }> = [];
+
+    for (const log of logs) {
+        if (log.topics[0]?.toLowerCase() === TRANSFER_EVENT.toLowerCase() && log.topics.length >= 3) {
+            const fromAddress = '0x' + log.topics[1].slice(26);
+            const toAddress = '0x' + log.topics[2].slice(26);
+            const amount = BigInt(log.data && log.data !== '0x' ? log.data : '0');
+
+            transfers.push({
+                token: log.address.toLowerCase(),
+                from: fromAddress.toLowerCase(),
+                to: toAddress.toLowerCase(),
+                amount
+            });
+        }
+    }
+
+    return transfers;
+}
+
+function inferSwapFromPoolTransfers(
+    logs: Array<{ address: string; topics: string[]; data: string }>,
+    poolAddress: string
+): { tokenIn: string; tokenOut: string; amountIn: bigint; amountOut: bigint } | null {
+    const pool = poolAddress.toLowerCase();
+    const transfers = extractTransfersFromLogs(logs);
+    if (!transfers.length) return null;
+
+    const totals = new Map<string, { in: bigint; out: bigint }>();
+    for (const t of transfers) {
+        if (t.to === pool) {
+            const entry = totals.get(t.token) || { in: 0n, out: 0n };
+            entry.in += t.amount;
+            totals.set(t.token, entry);
+        }
+        if (t.from === pool) {
+            const entry = totals.get(t.token) || { in: 0n, out: 0n };
+            entry.out += t.amount;
+            totals.set(t.token, entry);
+        }
+    }
+
+    const entries = [...totals.entries()].filter(([, v]) => v.in > 0n || v.out > 0n);
+    if (entries.length < 2) return null;
+
+    const tokenInEntry = entries.sort((a, b) => (b[1].in > a[1].in ? 1 : -1))[0];
+    const tokenOutEntry = entries.sort((a, b) => (b[1].out > a[1].out ? 1 : -1))[0];
+
+    if (!tokenInEntry || !tokenOutEntry) return null;
+    if (tokenInEntry[0] === tokenOutEntry[0]) return null;
+    if (tokenInEntry[1].in <= 0n || tokenOutEntry[1].out <= 0n) return null;
+
+    return {
+        tokenIn: tokenInEntry[0],
+        tokenOut: tokenOutEntry[0],
+        amountIn: tokenInEntry[1].in,
+        amountOut: tokenOutEntry[1].out
+    };
+}
+
 function normalizeCurrencyAddress(address: string): string {
     const normalized = address.toLowerCase();
     return normalized === ZERO_ADDRESS ? NATIVE_TOKEN_ADDRESS : normalized;
@@ -107,6 +183,87 @@ function findV4InitLogInReceipt(
         && log.topics?.[0]?.toLowerCase() === V4_INIT_EVENT.toLowerCase()
         && log.topics?.[1]?.toLowerCase() === poolId.toLowerCase()
     ) || null;
+}
+
+const infinityPoolKeyInterface = new ethers.Interface([
+    'function poolIdToPoolKey(bytes32) view returns (tuple(address currency0,address currency1,address hooks,address poolManager,uint24 fee,bytes32 parameters))'
+]);
+
+async function cacheInfinityPoolKey(
+    chainId: number,
+    poolManager: string,
+    poolId: string
+): Promise<void> {
+    const key = `${chainId}:${poolManager.toLowerCase()}:${poolId.toLowerCase()}`;
+    if (infinityPoolKeyCache.has(key)) return;
+    infinityPoolKeyCache.add(key);
+
+    try {
+        const callData = infinityPoolKeyInterface.encodeFunctionData('poolIdToPoolKey', [poolId]);
+        const result = await rpcCall<string>(chainId, 'eth_call', [{
+            to: poolManager,
+            data: callData
+        }, 'latest'], { strategy: 'fast' });
+
+        if (!result || result === '0x') return;
+        const decoded = infinityPoolKeyInterface.decodeFunctionResult('poolIdToPoolKey', result)[0];
+        const poolKey = {
+            currency0: (decoded.currency0 as string).toLowerCase(),
+            currency1: (decoded.currency1 as string).toLowerCase(),
+            hooks: (decoded.hooks as string).toLowerCase(),
+            poolManager: (decoded.poolManager as string).toLowerCase(),
+            fee: Number(decoded.fee),
+            parameters: decoded.parameters as string
+        };
+
+        const pairKey = `infi:pair:${chainId}:${poolKey.currency0}:${poolKey.currency1}`;
+        const poolKeyKey = `infi:poolkey:${chainId}:${poolId.toLowerCase()}`;
+
+        await setDbCache(poolKeyKey, JSON.stringify(poolKey), 60 * 60 * 24 * 7);
+
+        const existing = await getDbCache(pairKey);
+        let poolIds: string[] = [];
+        if (existing) {
+            try {
+                poolIds = JSON.parse(existing);
+            } catch { }
+        }
+        if (!poolIds.includes(poolId.toLowerCase())) {
+            poolIds.push(poolId.toLowerCase());
+            await setDbCache(pairKey, JSON.stringify(poolIds), 60 * 60 * 24 * 7);
+        }
+    } catch (err: any) {
+        logger.debug(LogCode.DEC_SWAP_DETECTION, 'Failed to cache infinity pool key', {
+            poolId,
+            error: err?.message?.slice(0, 120)
+        });
+    }
+}
+
+function cacheInfinityPoolKeysFromLogs(
+    logs: Array<{ address: string; topics: string[]; data: string }>,
+    chainId: number
+): void {
+    if (chainId !== 56) return;
+    const tasks: Promise<void>[] = [];
+    for (const log of logs) {
+        const addr = log.address?.toLowerCase();
+        const topic0 = log.topics?.[0]?.toLowerCase();
+        const poolId = log.topics?.[1];
+        if (!poolId) continue;
+
+        if (addr === INFINITY_CL_POOL_MANAGER && topic0 === INFINITY_CL_SWAP_EVENT.toLowerCase()) {
+            tasks.push(cacheInfinityPoolKey(chainId, INFINITY_CL_POOL_MANAGER, poolId));
+            continue;
+        }
+        if (addr === INFINITY_BIN_POOL_MANAGER && topic0 === INFINITY_BIN_SWAP_EVENT.toLowerCase()) {
+            tasks.push(cacheInfinityPoolKey(chainId, INFINITY_BIN_POOL_MANAGER, poolId));
+            continue;
+        }
+    }
+    if (tasks.length) {
+        Promise.allSettled(tasks).catch(() => undefined);
+    }
 }
 
 async function fetchV4InitLog(
@@ -286,6 +443,18 @@ async function decodeSwapFromPoolEvents(
     if (!lastSwapLog || !swapType) return null;
 
     const pool = lastSwapLog.address.toLowerCase();
+    const inferred = inferSwapFromPoolTransfers(logs, pool);
+    if (inferred) {
+        return {
+            tokenIn: inferred.tokenIn,
+            tokenOut: inferred.tokenOut,
+            amountIn: inferred.amountIn.toString(),
+            amountOut: inferred.amountOut.toString(),
+            router: '',
+            dexName: swapType === 'v3' ? 'V3 Pool' : 'V2 Pair'
+        };
+    }
+
     const tokens = await getPoolTokens(chainId, pool);
     if (!tokens) return null;
 
@@ -458,28 +627,7 @@ export function decodeSwapFromLogs(
         nativeValue
     });
 
-    const transfers: Array<{
-        token: string;
-        from: string;
-        to: string;
-        amount: bigint;
-    }> = [];
-
-    // Parse Transfer events
-    for (const log of logs) {
-        if (log.topics[0]?.toLowerCase() === TRANSFER_EVENT.toLowerCase() && log.topics.length >= 3) {
-            const fromAddress = '0x' + log.topics[1].slice(26);
-            const toAddress = '0x' + log.topics[2].slice(26);
-            const amount = BigInt(log.data && log.data !== '0x' ? log.data : '0');
-
-            transfers.push({
-                token: log.address.toLowerCase(),
-                from: fromAddress.toLowerCase(),
-                to: toAddress.toLowerCase(),
-                amount,
-            });
-        }
-    }
+    const transfers = extractTransfersFromLogs(logs);
 
     logger.debug(LogCode.DEC_SWAP_DETECTION, `Found ${transfers.length} Transfer events in logs`);
     for (const t of transfers) {
@@ -601,13 +749,24 @@ export async function parseSwapTransaction(
     chainId: number,
     targetWallet?: string
 ): Promise<DecodedSwap | null> {
+    const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
+    const t0 = Date.now();
     // Only process successful transactions
     const status = typeof receipt.status === 'string'
         ? Number.parseInt(receipt.status, 16)
         : receipt.status === true
             ? 1
             : receipt.status;
-    if (status !== 1) return null;
+    if (status !== 1) {
+        if (PROFILE) {
+            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+                tx: tx.hash?.slice(0, 12),
+                path: 'status_not_success',
+                ms: Date.now() - t0
+            });
+        }
+        return null;
+    }
 
     // Determine effective wallet for Transfer-based decoding
     let effectiveWallet = targetWallet?.toLowerCase() || tx.from.toLowerCase();
@@ -626,12 +785,33 @@ export async function parseSwapTransaction(
         }
     }
 
-    const hasV4Swap = receipt.logs.some((log) => {
-        const topic0 = log.topics?.[0]?.toLowerCase();
-        return topic0 === V4_SWAP_EVENT.toLowerCase();
-    });
+    const v4SwapTopic = V4_SWAP_EVENT.toLowerCase();
+    const hasV4Swap = receipt.logs.some((log) => log.topics?.[0]?.toLowerCase() === v4SwapTopic);
 
-    // 1) Prefer transfer-based decode for the target wallet (wallet perspective)
+    // Cache Pancake Infinity pool keys (non-blocking)
+    cacheInfinityPoolKeysFromLogs(receipt.logs, chainId);
+
+    // 1) If V4 swap exists, decode from V4 events first to avoid heavy transfer scans
+    if (hasV4Swap) {
+        const tV4Start = Date.now();
+        const v4Swap = await decodeSwapFromV4Events(receipt.logs, chainId);
+        if (v4Swap) {
+            v4Swap.router = tx.to;
+            v4Swap.txHash = tx.hash;
+            if (PROFILE) {
+                logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+                    tx: tx.hash?.slice(0, 12),
+                    path: 'v4_events',
+                    v4Ms: Date.now() - tV4Start,
+                    totalMs: Date.now() - t0
+                });
+            }
+            return v4Swap;
+        }
+    }
+
+    // 2) Prefer transfer-based decode for the target wallet (wallet perspective)
+    const tTransferStart = Date.now();
     const transferSwap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
     if (transferSwap) {
         transferSwap.router = tx.to;
@@ -647,18 +827,19 @@ export async function parseSwapTransaction(
         if (transferSwap.tokenOut.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
             transferSwap.tokenOut = NATIVE_ADDRESS;
         }
+        if (PROFILE) {
+            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+                tx: tx.hash?.slice(0, 12),
+                path: 'transfer_logs',
+                transferMs: Date.now() - tTransferStart,
+                totalMs: Date.now() - t0
+            });
+        }
         return transferSwap;
     }
 
-    // 2) V4 pool event decode (pool perspective)
-    const v4Swap = await decodeSwapFromV4Events(receipt.logs, chainId);
-    if (v4Swap) {
-        v4Swap.router = tx.to;
-        v4Swap.txHash = tx.hash;
-        return v4Swap;
-    }
-
     // 3) Pool Swap events (V2/V3)
+    const tPoolStart = Date.now();
     const poolSwap = await decodeSwapFromPoolEvents(receipt.logs, chainId);
     if (poolSwap) {
         poolSwap.router = tx.to;
@@ -675,6 +856,14 @@ export async function parseSwapTransaction(
         if (poolSwap.tokenOut.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
             poolSwap.tokenOut = NATIVE_ADDRESS;
         }
+        if (PROFILE) {
+            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+                tx: tx.hash?.slice(0, 12),
+                path: 'pool_events',
+                poolMs: Date.now() - tPoolStart,
+                totalMs: Date.now() - t0
+            });
+        }
         return poolSwap;
     }
 
@@ -686,8 +875,19 @@ export async function parseSwapTransaction(
     // This approach works with ANY DEX, aggregator, or custom router
 
     // Decode from logs, PASSING tx.value
+    const tFallbackStart = Date.now();
     const swap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
-    if (!swap) return null;
+    if (!swap) {
+        if (PROFILE) {
+            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+                tx: tx.hash?.slice(0, 12),
+                path: 'no_swap',
+                fallbackMs: Date.now() - tFallbackStart,
+                totalMs: Date.now() - t0
+            });
+        }
+        return null;
+    }
 
     // Add router info
     swap.router = tx.to;
@@ -724,5 +924,13 @@ export async function parseSwapTransaction(
         swap.tokenOut = NATIVE_ADDRESS;
     }
 
+    if (PROFILE) {
+        logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+            tx: tx.hash?.slice(0, 12),
+            path: 'fallback_transfer',
+            fallbackMs: Date.now() - tFallbackStart,
+            totalMs: Date.now() - t0
+        });
+    }
     return swap;
 }

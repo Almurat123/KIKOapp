@@ -113,6 +113,8 @@ model CopyTradeConfig {
   takeProfitPct     Float?
   stopLossPct       Float?
   mirrorSell        Boolean             @default(true)
+  enableDynamicTP   Boolean             @default(false)
+  dynamicTPMinProfitPct Float           @default(100)
   status            String              @default("active")
   aiAnalysisMode    String              @default("disabled")
   createdAt         DateTime            @default(now())
@@ -348,6 +350,9 @@ model Position {
   entryTxHash       String
   entryUsdValue     Float
   currentPrice      Float?
+  peakPrice         Float?              // For dynamic TP
+  priceHistory      Json?               @default("[]") // For ATR/Rapid decline
+  dynamicTPTriggered Boolean            @default(false)
   profitLossPct     Float?
   exitTxHash        String?
   exitReason        String?

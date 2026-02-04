@@ -26,9 +26,8 @@ Tool input contracts (use only these parameters):
 
 Tool output contracts (do not guess fields):
 - `prepare_swap_transaction` returns one of:
-  - Prepared confirmation: `mode="prepared"`, `requires_user_confirmation=true`, `__client_action.type="show_swap_card"`.
-  - Client-side instant execute fallback: `mode="execute_client"`, `__client_action.type="execute_swap_instant"` (no tx hash yet).
-  - Executed: `mode="executed"`, `success=true`, `txHash` present.
+  - Awaiting confirmation: `mode="awaiting_confirmation"`, `requires_confirmation=true` (user must reply to confirm).
+  - Executed: `mode="executed"`, `success=true`, `txHash` present, shows transaction-status-card.
   - Error: `mode="error"` with `error`.
 - `simulate_swap` returns: `expected_out_human`, `price_impact_pct` (number), `is_safe`, optional `warning`.
 - `get_token_info` returns normalized aliases: `tokenSymbol`, `tokenName`, `priceUsd`, `liquidityUsd`, `fdvUsd`, `volume24hUsd`, plus `launchpad` and `isLaunchpad`.

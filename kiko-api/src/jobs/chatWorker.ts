@@ -1128,9 +1128,11 @@ export class ChatWorker {
             const fastSwapModeEnabled = task.toolContext?.toolConfig?.fastSwapMode === true;
             const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade, ignore database
             const isAllowanceTradeMode = true; // FORCED: Always true
+            const showQuoteBeforeSwap = task.toolContext?.toolConfig?.showQuoteBeforeSwap === true;
 
-            // Fast swap triggers if: explicit fastSwapMode OR allowance_trade mode (always true now)
-            const fastSwapMode = fastSwapModeEnabled || isAllowanceTradeMode;
+            // Fast swap ONLY triggers if explicit fastSwapMode is enabled
+            // CRITICAL: allowance_trade does NOT bypass LLM (AI calls tools normally)
+            const fastSwapMode = fastSwapModeEnabled;
 
             const isSwapIntent = parsedIntent.detailed.action === 'swap';
             const hasSwapTarget = !!parsedIntent.swapIntent?.tokenOut || !!parsedIntent.contractAddress;
@@ -1140,9 +1142,10 @@ export class ChatWorker {
             if (isSwapIntent && hasSwapTarget && hasExplicitSwapVerb) {
                 console.log('[ChatWorker] 🚀 Fast Swap Decision:', {
                     fastSwapModeEnabled,
-                    isAllowanceTradeMode,
                     willFastSwap: fastSwapMode,
-                    reason: fastSwapModeEnabled ? 'fastSwapMode=true' : (isAllowanceTradeMode ? 'swapMethod=allowance_trade' : 'conditions not met')
+                    reason: fastSwapMode
+                        ? 'fastSwapMode=true (LLM bypassed)'
+                        : 'Normal LLM flow (AI will call tools)'
                 });
             }
 
@@ -1505,7 +1508,7 @@ export class ChatWorker {
                         } catch (err) {
                             console.warn('[ChatWorker] Fast swap pre-quote failed:', (err as Error).message);
                         }
-                    })().catch(() => {});
+                    })().catch(() => { });
 
                     let swapResult: any;
                     try {
@@ -3219,8 +3222,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
                     // PERSIST: Map client action type to DB message type
                     let dbMessageType = 'text';
-                    if (clientAction.type === 'show_swap_card') dbMessageType = 'swap-card';
-                    else if (clientAction.type === 'show_launchpad_card') dbMessageType = 'launchpad-card';
+                    // DEPRECATED: show_swap_card removed from chat interface
+                    if (clientAction.type === 'show_launchpad_card') dbMessageType = 'launchpad-card';
                     else if (clientAction.type === 'show_chart_card') dbMessageType = 'chart-card';
                     else if (clientAction.type === 'show_strategy_card') dbMessageType = 'strategy-card';
                     else if (clientAction.type === 'show_token_card') dbMessageType = 'token-card';

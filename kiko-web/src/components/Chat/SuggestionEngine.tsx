@@ -556,21 +556,58 @@ export class SuggestionEngine {
 
     private static getPastePrompt(text: string): MatchResult[] {
         const results: MatchResult[] = [];
+        const lowerText = text.toLowerCase();
+
+        // Standardize on 'to' per user preference
+        const connector = 'to';
+
+        // Check for ANY existing common connectors at the end
+        const commonConnectors = ['to', 'of', 'for', 'at', 'on'];
+        const words = lowerText.trim().split(/\s+/);
+        const lastWord = words[words.length - 1];
+        const hasAnyConnector = commonConnectors.includes(lastWord);
+
+        // Check if native token is missing: "swap 1 to" or "swap 0.1 to" patterns
+        // Should become "swap 1 ETH to" or "swap 0.1 ETH to"
+        const swapAmountPattern = /^(swap|buy|sell)\s+(\d+(?:\.\d+)?)\s*$/i;
+        const swapAmountWithConnectorPattern = /^(swap|buy|sell)\s+(\d+(?:\.\d+)?)\s+(to|of|for)$/i;
+
+        let basePrepared = text.endsWith(' ') ? text : text + ' ';
+
+        // If user typed "swap 1" or "swap 1 to" without token symbol, insert ETH
+        if (swapAmountPattern.test(text.trim())) {
+            // "swap 1" -> "swap 1 ETH "
+            basePrepared = text.trim() + ' ETH ';
+        } else if (swapAmountWithConnectorPattern.test(text.trim())) {
+            // "swap 1 to" -> "swap 1 ETH to "
+            const match = text.trim().match(swapAmountWithConnectorPattern);
+            if (match) {
+                const [, verb, amount, conn] = match;
+                basePrepared = `${verb} ${amount} ETH ${conn} `;
+            }
+        }
+
+        // If no connector exists, we need to add "to "
+        const finalPrefix = hasAnyConnector ? basePrepared : `${basePrepared}${connector} `;
+
         results.push({
             id: 'paste-prompt',
-            label: `${text} [Paste Contract Address]`,
-            actionText: text,
+            label: `${finalPrefix}[Paste Contract Address]`,
+            actionText: finalPrefix,
             displayText: `[Paste Contract Address]`,
             score: 1000,
             type: 'progressive'
         });
 
         // Add popular tokens
-        POPULAR_TOKENS.forEach(t => {
+        POPULAR_TOKENS.forEach((t) => {
+            // Avoid duplicate suggestions
+            if (lowerText.includes(t.toLowerCase())) return;
+
             results.push({
                 id: `target-${t}`,
-                label: `${text}${t}`,
-                actionText: `${text}${t}`,
+                label: `${finalPrefix}${t}`,
+                actionText: `${finalPrefix}${t}`,
                 score: 800,
                 type: 'progressive'
             });
@@ -1014,9 +1051,14 @@ export class SuggestionEngine {
 
         switch (stage) {
             case 'ARGS_AMOUNT':
-                // Matches digits that aren't part of a hex address (simple heuristic)
-                // Use a word boundary and ensure it's not followed by 'x'
-                return /\b\d+(\.\d+)?\b/.test(lower.replace(/0x[a-fA-F0-9]+/g, ' '));
+                // Robust word-based detection for amount satisfaction
+                const amountKeywords = ['all', 'half', 'max', 'everything', 'full'];
+                const cleanText = lower.replace(/0x[a-fA-F0-9]+/i, ' ');
+                const textWords = cleanText.split(/\s+/);
+                return textWords.some(w =>
+                    amountKeywords.includes(w) ||
+                    /^\d+(\.\d+)?%?$/.test(w)
+                );
 
             case 'ARGS_TARGET':
             case 'ARGS_COPY_TARGET':

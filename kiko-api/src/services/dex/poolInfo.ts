@@ -65,6 +65,7 @@ export interface PoolInfo {
     tvlUsd?: number;  // Calculated TVL in USD
     price?: number;  // token1/token0 price
     version?: 'v2' | 'v3' | 'v4' | 'aerodrome';  // Pool version
+    dex?: 'uniswap' | 'pancake' | 'aerodrome';   // DEX family
 }
 
 const v2PoolInterface = new ethers.Interface(V2_POOL_ABI);
@@ -264,23 +265,26 @@ export async function findTokenPools(
     const normalizedTokenA = ethers.getAddress(tokenA.toLowerCase());
     const normalizedTokenB = ethers.getAddress(tokenB.toLowerCase());
 
-    // V3 fee tiers to check (100 = 0.01%, 500 = 0.05%, 3000 = 0.3%, 10000 = 1%)
-    const v3Fees = [100, 500, 3000, 10000];
-
-    // Factory addresses by chain
-    const factories: Record<number, { v2?: string; v3?: string; aerodrome?: string }> = {
+    // Factory addresses by chain + DEX family
+    const factories: Record<number, {
+        v2?: { address: string; dex: 'uniswap' | 'pancake' };
+        v3?: { address: string; dex: 'uniswap' | 'pancake'; feeTiers: number[] }[];
+        aerodrome?: { address: string; dex: 'aerodrome' };
+    }> = {
         1: {
-            v2: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f',  // Uniswap V2
-            v3: '0x1F98431c8aD98523631AE4a59f267346ea31F984'   // Uniswap V3
+            v2: { address: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f', dex: 'uniswap' },  // Uniswap V2
+            v3: [{ address: '0x1F98431c8aD98523631AE4a59f267346ea31F984', dex: 'uniswap', feeTiers: [100, 500, 3000, 10000] }]
         },
         8453: {
-            v2: '0x8909Dc15e40173FF4699343b6eB8132c65e18eC6',  // Uniswap V2 on Base
-            v3: '0x33128a8fC17869897dcE68Ed026d694621f6FDfD',  // Uniswap V3 on Base
-            aerodrome: '0x420DD381b31aEf6683db6B902084cB0FFECe40Da' // Aerodrome
+            v2: { address: '0x8909Dc15e40173FF4699343b6eB8132c65e18eC6', dex: 'uniswap' },  // Uniswap V2 on Base
+            v3: [{ address: '0x33128a8fC17869897dcE68Ed026d694621f6FDfD', dex: 'uniswap', feeTiers: [100, 500, 3000, 10000] }],
+            aerodrome: { address: '0x420DD381b31aEf6683db6B902084cB0FFECe40Da', dex: 'aerodrome' } // Aerodrome
         },
         56: {
-            v2: '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73',  // PancakeSwap V2
-            v3: '0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865'   // PancakeSwap V3
+            v2: { address: '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73', dex: 'pancake' },  // PancakeSwap V2
+            v3: [
+                { address: '0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865', dex: 'pancake', feeTiers: [100, 500, 2500, 10000] }
+            ]
         }
     };
 
@@ -294,7 +298,7 @@ export async function findTokenPools(
         try {
             const pairData = v2FactoryInterface.encodeFunctionData('getPair', [normalizedTokenA, normalizedTokenB]);
             const pairResult = await callRpc<string>(chainId, 'eth_call', [{
-                to: factory.v2,
+                to: factory.v2.address,
                 data: pairData
             }, 'latest']);
 
@@ -302,6 +306,7 @@ export async function findTokenPools(
                 const pairAddress = ethers.getAddress('0x' + pairResult.slice(-40));
                 const poolInfo = await getV2PoolInfo(pairAddress, chainId);
                 if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
+                    poolInfo.dex = factory.v2.dex;
                     pools.push(poolInfo);
                 }
             }
@@ -309,32 +314,36 @@ export async function findTokenPools(
     }
 
     // Check V3 pools (multiple fee tiers) - 并行查询
-    if (factory.v3) {
+    if (factory.v3?.length) {
         const v3Results = await Promise.all(
-            v3Fees.map(async (fee) => {
-                try {
-                    const poolData = v3FactoryInterface.encodeFunctionData('getPool', [normalizedTokenA, normalizedTokenB, fee]);
-                    const poolResult = await callRpc<string>(chainId, 'eth_call', [{
-                        to: factory.v3,
-                        data: poolData
-                    }, 'latest']);
+            factory.v3.flatMap((v3Factory) =>
+                v3Factory.feeTiers.map(async (fee) => {
+                    try {
+                        const poolData = v3FactoryInterface.encodeFunctionData('getPool', [normalizedTokenA, normalizedTokenB, fee]);
+                        const poolResult = await callRpc<string>(chainId, 'eth_call', [{
+                            to: v3Factory.address,
+                            data: poolData
+                        }, 'latest']);
 
-                    if (poolResult && poolResult !== '0x' + '0'.repeat(64)) {
-                        const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
-                        const poolInfo = await getV3PoolInfo(poolAddress, chainId);
-                        if (poolInfo && BigInt(poolInfo.liquidity || '0') > 0) {
-                            return poolInfo;
+                        if (poolResult && poolResult !== '0x' + '0'.repeat(64)) {
+                            const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
+                            const poolInfo = await getV3PoolInfo(poolAddress, chainId);
+                            if (poolInfo && BigInt(poolInfo.liquidity || '0') > 0) {
+                                poolInfo.dex = v3Factory.dex;
+                                return poolInfo;
+                            }
                         }
-                    }
-                } catch { }
-                return null;
-            })
+                    } catch { }
+                    return null;
+                })
+            )
         );
         pools.push(...v3Results.filter((p): p is PoolInfo => p !== null));
     }
 
     // Check Aerodrome pools (stable/volatile)
     if (factory.aerodrome) {
+        const aerodromeFactory = factory.aerodrome;
         const aeroResults = await Promise.all(
             [false, true].map(async (stable) => {
                 try {
@@ -344,7 +353,7 @@ export async function findTokenPools(
                         stable
                     ]);
                     const poolResult = await callRpc<string>(chainId, 'eth_call', [{
-                        to: factory.aerodrome,
+                        to: aerodromeFactory.address,
                         data: poolData
                     }, 'latest']);
 
@@ -352,6 +361,7 @@ export async function findTokenPools(
                         const poolAddress = ethers.getAddress('0x' + poolResult.slice(-40));
                         const poolInfo = await getV2PoolInfo(poolAddress, chainId);
                         if (poolInfo && BigInt(poolInfo.reserve0 || '0') > 0) {
+                            poolInfo.dex = aerodromeFactory.dex;
                             return {
                                 ...poolInfo,
                                 version: 'aerodrome'
@@ -382,7 +392,8 @@ export async function findTokenPools(
                         18,
                         18
                     ),
-                    version: 'v4'
+                    version: 'v4',
+                    dex: 'uniswap'
                 });
             }
         } catch (err) {

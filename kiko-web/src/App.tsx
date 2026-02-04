@@ -11,6 +11,7 @@ import { SuperDefiPage } from './pages/SuperDefiPage';
 
 import { TradePage } from './pages/TradePage';
 import WalletPage from './pages/WalletPage';
+import SettingsPage from './pages/SettingsPage';
 import NewsPage from './pages/NewsPage';
 import { useConversations } from './hooks/useConversations';
 import type { Message } from './hooks/useConversations';
@@ -20,7 +21,7 @@ import { ToastContainer, useToast } from './components/Toast';
 
 
 function App() {
-  const { authenticated, ready, getAccessToken } = usePrivy();
+  const { authenticated, ready, getAccessToken, logout } = usePrivy();
 
   const [activeTab, setActiveTab] = useState('chat');
   const [pendingAIPrompt, setPendingAIPrompt] = useState<string | null>(null);
@@ -506,6 +507,7 @@ function App() {
         onConversationDelete={handleConversationDelete}
         generatingConversationId={generatingConversationId}
         setGeneratingConversationId={setGeneratingConversationId}
+        onBack={activeTab === 'wallet-settings' ? () => setActiveTab('wallet') : undefined}
       >
         {activeTab === 'chat' && (
           <ChatInterface
@@ -532,7 +534,8 @@ function App() {
         {activeTab.startsWith('defi') && <SuperDefiPage />}
         {activeTab === 'social' && <SocialPage />}
         {activeTab === 'kol' && <WalletPage />}
-        {activeTab === 'wallet' && <WalletPage />}
+        {activeTab === 'wallet' && <WalletPage onTabChange={setActiveTab} />}
+        {activeTab === 'wallet-settings' && <SettingsPage onDisconnect={logout} />}
 
         {activeTab === 'trade' && <TradePage />}
       </Layout>

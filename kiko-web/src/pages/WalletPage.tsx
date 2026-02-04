@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Shield } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { WalletSettingsModal } from '../components/Wallet/WalletSettingsModal';
 import { ReceiveModal } from '../components/Wallet/ReceiveModal';
 import { SendModal } from '../components/Wallet/SendModal';
 import { SwapCardIntegrated } from '../components/Swap/SwapCardIntegrated';
@@ -14,16 +13,19 @@ import { TransactionList } from '../components/Wallet/TransactionList';
 import { PolymarketOrderCard, PolymarketHistoryItem } from '../components/Wallet/PolymarketSection';
 import styles from './WalletPage.module.css';
 
-export default function WalletPage() {
+interface WalletPageProps {
+  onTabChange?: (tab: string) => void;
+}
+
+export default function WalletPage({ onTabChange }: WalletPageProps) {
   const {
     authenticated, user, walletAddress, isSolana, chainId, currentChain,
     holdings, loading, transactions, transactionsLoading,
     orders, pendingOrders, ordersLoading, orderHistory, orderHistoryLoading,
-    getAccessToken, logout, portfolioStats, setOrders, setPendingOrders,
+    getAccessToken, portfolioStats, setOrders, setPendingOrders,
     refreshData
   } = useWalletPageData();
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
@@ -40,10 +42,6 @@ export default function WalletPage() {
     const solNeeds = !!sol && !sol.delegated;
     return evmNeeds || solNeeds;
   })();
-
-  const handleDisconnect = async () => {
-    try { await logout(); } catch (e) { console.error('Logout failed', e); }
-  };
 
   const handleCancelOrder = async (orderId: string) => {
     try {
@@ -89,7 +87,7 @@ export default function WalletPage() {
       <div className={styles.contentWrapper}>
         <WalletHeader
           user={user} loading={loading} totalValue={portfolioStats.totalValue}
-          onSettingsClick={() => setIsSettingsOpen(true)}
+          onSettingsClick={() => onTabChange?.('wallet-settings')}
           onSendClick={() => {
             const defaultToken = holdings.find(h => h.isNative && h.chainId === currentChain.id) || holdings.find(h => h.isNative);
             setSelectedToken(defaultToken || null);
@@ -106,7 +104,7 @@ export default function WalletPage() {
             </div>
             <button
               className={styles.authorizationButton}
-              onClick={() => setIsSettingsOpen(true)}
+              onClick={() => onTabChange?.('wallet-settings')}
             >
               Authorize
             </button>
@@ -139,7 +137,6 @@ export default function WalletPage() {
             <TransactionList loading={transactionsLoading} transactions={transactions} styles={styles} walletAddress={walletAddress || ''} />}
         </div>
       </div>
-      <WalletSettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onDisconnect={handleDisconnect} />
       <ReceiveModal isOpen={isReceiveOpen} onClose={() => setIsReceiveOpen(false)} walletAddress={walletAddress || ''} chainName={isSolana ? 'Solana' : currentChain.name} />
       <SendModal
         isOpen={isSendOpen}

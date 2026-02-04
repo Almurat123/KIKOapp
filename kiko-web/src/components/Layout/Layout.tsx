@@ -145,19 +145,21 @@ export const Layout: React.FC<LayoutProps> = ({
                         )}
                     </div>
 
-                    <div className={styles.mobileFloatingRight}>
-                        <button
-                            className={styles.mobileProfileBtn}
-                            onClick={handleProfileClick}
-                            title={userName}
-                        >
-                            {avatarUrl ? (
-                                <img src={avatarUrl} alt={userName} className={styles.profileAvatarImg} />
-                            ) : (
-                                <span className={styles.profileInitials}>{userInitials}</span>
-                            )}
-                        </button>
-                    </div>
+                    {activeTab !== 'wallet' && activeTab !== 'wallet-settings' && (
+                        <div className={styles.mobileFloatingRight}>
+                            <button
+                                className={styles.mobileProfileBtn}
+                                onClick={handleProfileClick}
+                                title={userName}
+                            >
+                                {avatarUrl ? (
+                                    <img src={avatarUrl} alt={userName} className={styles.profileAvatarImg} />
+                                ) : (
+                                    <span className={styles.profileInitials}>{userInitials}</span>
+                                )}
+                            </button>
+                        </div>
+                    )}
 
                     {/* Desktop Header - Sidebar trigger + Back button */}
                     <div className={`${styles.desktopHeader} ${!isDesktopSidebarOpen ? styles.desktopHeaderCollapsed : ''}`}>
@@ -183,21 +185,23 @@ export const Layout: React.FC<LayoutProps> = ({
                     </div>
 
                     {/* Desktop Top Right Profile */}
-                    <div className={styles.desktopProfileContainer}>
-                        <button
-                            className={styles.desktopProfileBtn}
-                            onClick={handleProfileClick}
-                            title={authenticated ? "Wallet Profile" : "Login"}
-                        >
-                            <span className={styles.desktopProfileAvatar}>
-                                {avatarUrl ? (
-                                    <img src={avatarUrl} alt={userName} className={styles.desktopProfileAvatarImg} />
-                                ) : (
-                                    userInitials
-                                )}
-                            </span>
-                        </button>
-                    </div>
+                    {activeTab !== 'wallet' && activeTab !== 'wallet-settings' && (
+                        <div className={styles.desktopProfileContainer}>
+                            <button
+                                className={styles.desktopProfileBtn}
+                                onClick={handleProfileClick}
+                                title={authenticated ? "Wallet Profile" : "Login"}
+                            >
+                                <span className={styles.desktopProfileAvatar}>
+                                    {avatarUrl ? (
+                                        <img src={avatarUrl} alt={userName} className={styles.desktopProfileAvatarImg} />
+                                    ) : (
+                                        userInitials
+                                    )}
+                                </span>
+                            </button>
+                        </div>
+                    )}
 
                     <div className={styles.content} data-scroll-container="app">
                         {children}

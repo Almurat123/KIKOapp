@@ -15,7 +15,7 @@ import { env } from '../config/env.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 import { sanitizeString, validateNetwork, validateAddress, validateLimit, validateTimeframe } from '../utils/validation.js';
-import { detectLaunchpadToken, getParagraphToken } from '../services/ai/launchpadDetector.js';
+import { detectLaunchpadToken } from '../services/ai/launchpadDetector.js';
 import * as tokenAnalysis from '../services/tokenAnalysis.js';
 import { getHolderCount } from '../services/goPlus.js';
 import { getTokenSecurity } from '../services/tokenSecurity.js';
@@ -880,58 +880,6 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       });
     } catch (error: any) {
       console.error('[TokenRoutes] Launchpad detection error:', error);
-      return reply.status(500).send({
-        success: false,
-        error: error.message || 'Internal Server Error',
-      });
-    }
-  });
-
-  // GET /api/tokens/launchpad/paragraph - Detect Paragraph token specifically
-  fastify.get('/launchpad/paragraph', async (request, reply) => {
-    try {
-      const { address } = request.query as {
-        address?: string;
-      };
-
-      if (!address) {
-        return reply.status(400).send({
-          success: false,
-          error: 'Address parameter is required',
-        });
-      }
-
-      // Validate address format
-      if (!validateAddress(address)) {
-        return reply.status(400).send({
-          success: false,
-          error: 'Invalid address format',
-        });
-      }
-
-      console.log(`[TokenRoutes] Detecting Paragraph token: ${address}`);
-      const tokenData = await getParagraphToken(address);
-
-      if (!tokenData) {
-        console.log(`[TokenRoutes] Paragraph token ${address} not found`);
-        return reply.send({
-          success: true,
-          data: null,
-          message: 'Token not found on Paragraph',
-        });
-      }
-
-      console.log(`[TokenRoutes] Found Paragraph token: ${tokenData.symbol} for ${address}`);
-      return reply.send({
-        success: true,
-        data: {
-          provider: 'paragraph',
-          data: tokenData,
-          chainId: 8453, // Base
-        },
-      });
-    } catch (error: any) {
-      console.error('[TokenRoutes] Paragraph detection error:', error);
       return reply.status(500).send({
         success: false,
         error: error.message || 'Internal Server Error',

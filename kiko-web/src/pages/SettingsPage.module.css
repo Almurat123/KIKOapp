@@ -1,18 +1,5 @@
-.modal {
-    padding: 24px;
-    background: #18181b;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    color: #f4f4f5;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-}
-
-:global(.light) .modal {
-    background: #ffffff;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    color: #18181b;
+.settingsPage {
+    width: 100%;
 }
 
 .content {
@@ -53,20 +40,14 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    /* Added gap since items are now separate */
 }
-
-/* Removed background/border from global light groupList */
 
 .groupItem {
     display: flex;
     flex-direction: column;
     gap: 12px;
     padding: 0;
-    /* Remove padding since no longer in a box */
 }
-
-/* Removed border-bottom from groupItem */
 
 .itemHeader {
     display: flex;

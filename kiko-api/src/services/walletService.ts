@@ -13,11 +13,33 @@ const accessCache = new Map<string, { timestamp: number; allowed: boolean }>();
 export const walletService = {
     /**
      * Get real-time balance for an address
+     * Filters out spam/low-value tokens to keep AI context clean
      */
     async getWalletBalance(address: string, chain: string = 'eth'): Promise<WalletBalance> {
         try {
             const results = await getPortfolio(address, [chain]);
-            return results[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
+            const balance = results[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
+
+            // Filter spam/low-value tokens
+            // Keep: stablecoins, tokens with price, tokens with meaningful value
+            const TRUSTED_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'USDBC', 'ETH', 'WETH', 'BTC', 'WBTC']);
+            const MIN_VALUE_USD = 0.01; // Minimum $0.01 to include
+
+            if (balance.tokens && balance.tokens.length > 0) {
+                balance.tokens = balance.tokens.filter((t: any) => {
+                    const symbol = (t.symbol || '').toUpperCase();
+                    // Always keep trusted stablecoins
+                    if (TRUSTED_SYMBOLS.has(symbol)) return true;
+                    // Keep tokens with meaningful USD value
+                    if (t.valueUsd && t.valueUsd >= MIN_VALUE_USD) return true;
+                    // Keep tokens with price and non-zero balance
+                    if (t.price && parseFloat(t.tokenBalance || '0') > 0) return true;
+                    // Filter out: no price = likely scam/unknown
+                    return false;
+                });
+            }
+
+            return balance;
         } catch (err) {
             // Fallback to direct RPC (native balance only)
             const raw = await getNativeBalance(address, chain);

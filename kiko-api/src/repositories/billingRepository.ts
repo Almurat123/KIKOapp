@@ -51,6 +51,7 @@ export async function insertUsageRecord(params: {
 }): Promise<void> {
     await prisma.$executeRaw`
         INSERT INTO billing_usage_ledger (
+            id,
             assistant_message_id,
             user_id,
             model,
@@ -63,6 +64,7 @@ export async function insertUsageRecord(params: {
             date_utc,
             is_free
         ) VALUES (
+            gen_random_uuid(),
             ${params.assistantMessageId},
             ${params.userId},
             ${params.model},

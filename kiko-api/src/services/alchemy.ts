@@ -2052,28 +2052,79 @@ export async function getPortfolio(
     }
 
     // Ensure all requested chains have at least empty values
+    // Also fetch stablecoin balances as fallback when Portfolio API fails
     for (const c of chains) {
       const chainKey = normalizeChainKey(c);
       if (!results[chainKey]) {
         const defaultPrice = NATIVE_PRICES[chainKey.toLowerCase()] || 0;
         if (chainKey !== 'solana') {
           const fallback = await fetchEvmNativeBalance(chainKey, address);
-          if (fallback) {
-            results[chainKey] = {
-              ethBalance: fallback.balanceHex,
-              ethBalanceFormatted: fallback.balanceFormatted,
-              ethPrice: defaultPrice,
-              tokens: [],
-            } as any;
-            continue;
+          const tokens: TokenBalance[] = [];
+
+          // Fallback: Fetch stablecoin balances via direct RPC calls
+          const stableList = stablecoinOverrides[chainKey];
+          if (stableList) {
+            const readErc20Balance = async (tokenAddress: string): Promise<bigint> => {
+              try {
+                const data = `0x70a08231${address.toLowerCase().replace('0x', '').padStart(64, '0')}`;
+                const result = await rpcManager.callRpc<string>(chainKey, 'eth_call', [
+                  { to: tokenAddress, data },
+                  'latest',
+                ]);
+                return BigInt(result);
+              } catch {
+                return 0n;
+              }
+            };
+
+            const formatBalance = (raw: bigint, decimals: number): string => {
+              if (decimals <= 0) return raw.toString();
+              const divisor = 10n ** BigInt(decimals);
+              const whole = raw / divisor;
+              const fraction = raw % divisor;
+              const fractionStr = fraction.toString().padStart(decimals, '0').replace(/0+$/, '');
+              return fractionStr ? `${whole}.${fractionStr}` : whole.toString();
+            };
+
+            await Promise.allSettled(Object.entries(stableList).map(async ([addr, meta]) => {
+              const raw = await readErc20Balance(addr);
+              // Include even zero balances so AI knows we checked
+              const formatted = formatBalance(raw, meta.decimals);
+              tokens.push({
+                contractAddress: addr,
+                tokenBalance: formatted,
+                symbol: meta.symbol,
+                name: meta.name,
+                decimals: meta.decimals,
+                price: 1,
+                valueUsd: parseFloat(formatted),
+              });
+            }));
+            logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback stablecoin balances fetched via RPC', {
+              chain: chainKey,
+              address,
+              tokenCount: tokens.length,
+            });
           }
+
+          // Always set results with tokens, regardless of native balance success
+          results[chainKey] = {
+            ethBalance: fallback?.balanceHex || '0',
+            ethBalanceFormatted: fallback?.balanceFormatted || 0,
+            ethPrice: defaultPrice,
+            tokens,
+          } as any;
+          continue;
         }
-        results[chainKey] = {
-          ethBalance: '0',
-          ethBalanceFormatted: 0,
-          ethPrice: defaultPrice,
-          tokens: [],
-        } as any;
+        // Solana fallback (no ERC20 tokens)
+        if (!results[chainKey]) {
+          results[chainKey] = {
+            ethBalance: '0',
+            ethBalanceFormatted: 0,
+            ethPrice: defaultPrice,
+            tokens: [],
+          } as any;
+        }
       }
     }
 

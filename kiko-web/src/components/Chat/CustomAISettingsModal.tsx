@@ -14,6 +14,7 @@ export interface CustomAISettings {
     defaultSwapAmount: number;
     defaultSwapUnit: string;
     checkTokenBeforeSwap: boolean;
+    showQuoteBeforeSwap: boolean;
 
     swapMethod: string;
     // Swap Protection fields
@@ -41,6 +42,7 @@ const DEFAULT_SETTINGS: CustomAISettings = {
     defaultSwapAmount: 100,
     defaultSwapUnit: 'native',
     checkTokenBeforeSwap: true,
+    showQuoteBeforeSwap: true,
 
     swapMethod: 'allowance_trade',
     // Swap Protection defaults
@@ -337,6 +339,24 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
                     </div>
                     <p className={clsx(styles.headerDesc, styles.headerDescWithMargin)}>
                         Let AI check token risk before swap
+                    </p>
+
+                    <div className={styles.headerRow}>
+                        <div className={clsx(styles.headerTitle, settings.fastSwapMode && styles.disabledText)}>
+                            Show quote before swap
+                        </div>
+                        <label className={clsx(styles.toggleSwitch, settings.fastSwapMode && styles.disabledToggle)}>
+                            <input
+                                type="checkbox"
+                                checked={settings.showQuoteBeforeSwap && !settings.fastSwapMode}
+                                onChange={e => setSettings(prev => ({ ...prev, showQuoteBeforeSwap: e.target.checked }))}
+                                disabled={settings.fastSwapMode}
+                            />
+                            <span className={styles.slider}></span>
+                        </label>
+                    </div>
+                    <p className={clsx(styles.headerDesc, styles.headerDescWithMargin)}>
+                        Show estimated output price and ask for confirmation before trading (Disabled when Fast Swap is ON)
                     </p>
 
 

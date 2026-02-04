@@ -19,5 +19,12 @@ export const preprocessMarkdown = (content: string): string => {
     // Replaces "Text\n```" with "Text\n\n```"
     processed = processed.replace(/([^\n])\n```/g, '$1\n\n```');
 
+    // 4. Convert token tags [TOKEN:address:symbol:chainId] to special markdown links
+    // This allows them to be captured by the <a> component and rendered as TokenCapsule
+    // Format: [symbol](token://address?chainId=chainId)
+    processed = processed.replace(/\[TOKEN:([^:]+):([^:]+)(?::([^\]]+))?\]/g, (_match, addr, sym, chainId) => {
+        return `[${sym}](token://${addr}${chainId ? `?chainId=${chainId}` : ''})`;
+    });
+
     return processed;
 };

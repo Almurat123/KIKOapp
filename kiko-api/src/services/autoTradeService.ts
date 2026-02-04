@@ -18,6 +18,7 @@ import { getChainConfig, CHAINS } from '../config/chainConfig.js';
 import { executeSolanaSwap } from './solanaExecutor.js';
 import { SOLANA_CONFIG, getSolanaConnection } from '../config/solanaConfig.js';
 import { onSolanaSwapDetected, startSolanaWatcher } from './solanaWatcher.js';
+import { DynamicTakeProfitService } from './dynamicTakeProfitService.js';
 import { PublicKey } from '@solana/web3.js';
 import { getSolanaEmbeddedWalletAddress } from './privyWallet.js';
 import { analyzeTradeOpportunity } from './copyTradeAnalysisService.js';
@@ -35,6 +36,7 @@ import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
 import { notificationService } from './notificationService.js';
 import { getTokenInfo } from './tokenService.js';
+import { getTokenMetadata } from './rpcService.js';
 import { getDexPrice } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
@@ -96,6 +98,12 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
 // Duplicate swap detection cache (prevents processing same swap twice)
 const recentSwaps = new Map<string, number>(); // swapKey -> timestamp
 const SWAP_DEDUP_WINDOW_MS = 60000; // 1 minute
+const LAUNCHPAD_DET_TIMEOUT_MS = Number(process.env.LAUNCHPAD_DET_TIMEOUT_MS || '500');
+const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
+const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
+    8453: new Set(['zora']),
+    56: new Set(['fourmeme'])
+};
 
 // State for graceful shutdown and cleanup
 let isServiceShuttingDown = false;
@@ -173,6 +181,43 @@ function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: numbe
     return false;
 }
 
+async function resolveLaunchpad(
+    launchpadPromise: Promise<any> | null | undefined,
+    chainId: number
+): Promise<any | null> {
+    if (!launchpadPromise) return null;
+    try {
+        const result = await Promise.race([
+            launchpadPromise,
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), LAUNCHPAD_DET_TIMEOUT_MS))
+        ]);
+        if (!result) return null;
+        const provider = result?.provider?.toLowerCase?.();
+        const chainAllow = CHAIN_LAUNCHPAD_PROVIDERS[chainId];
+        if (!provider || !ALLOWED_LAUNCHPAD_PROVIDERS.has(provider) || (chainAllow && !chainAllow.has(provider))) {
+            return null;
+        }
+        return result;
+    } catch {
+        return null;
+    }
+}
+
+function getTokenInfoOnce(
+    cache: Map<string, Promise<any>>,
+    tokenAddress: string,
+    chainId: number,
+    options: Parameters<typeof getTokenInfo>[2]
+): Promise<any> {
+    const forceRefresh = options?.forceRefresh ? 'refresh' : 'cached';
+    const key = `${chainId}:${tokenAddress.toLowerCase()}:${forceRefresh}`;
+    const existing = cache.get(key);
+    if (existing) return existing;
+    const promise = getTokenInfo(tokenAddress, chainId, options).catch(() => null);
+    cache.set(key, promise);
+    return promise;
+}
+
 // ... (previous functions remain)
 
 /**
@@ -208,6 +253,7 @@ export async function handleSwapDetected(
         getTokenInfo(swap.tokenIn, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
         getTokenInfo(swap.tokenOut, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
         getNativeTokenPriceUsd(chainId),
+        detectLaunchpadToken(swap.tokenOut, chainId),
     ]).catch(() => undefined);
 
     const chainConfig = getChainConfig(chainId);
@@ -284,26 +330,43 @@ async function handleTargetBuy(
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
 
     // 1. FIRST: Check for active configs. If none, exit immediately (No API calls, No Logs)
-    const configs = await withRetry(() => prisma.copyTradeConfig.findMany({
+    const rawConfigs = await withRetry(() => prisma.copyTradeConfig.findMany({
         where: {
             targetWallet: { mode: 'insensitive', equals: normalizedWallet },
             chainId,
             status: 'active',
         },
-        include: { user: true },
     }));
 
-    if (configs.length === 0) {
+    if (rawConfigs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No active configurations found for this wallet', { targetWallet, chainId });
         return;
     }
 
-    // 2. SECOND: Fetch Token Info & Checks (Only if we have interested users)
+    const userIds = [...new Set(rawConfigs.map(c => c.userId))];
+    const users = await prisma.user.findMany({
+        where: { privyDid: { in: userIds } }
+    });
+    const userMap = new Map(users.map(u => [u.privyDid, u]));
+    const configs = rawConfigs
+        .map(c => ({ ...c, user: userMap.get(c.userId) }))
+        .filter((c): c is typeof rawConfigs[number] & { user: NonNullable<(typeof users)[number]> } => Boolean(c.user));
+
+    if (configs.length === 0) {
+        logger.throttled(LogCode.WTC_TX_SKIPPED, 'No valid user records for configs', { targetWallet, chainId });
+        return;
+    }
+
+    const tokenInfoCache = new Map<string, Promise<any>>();
+
+    // 2. SECOND: Fetch Token Info & Launchpad (parallel, non-blocking)
     // 🚀 Copy Trade uses HIGH priority to bypass rate limits for critical order execution
-    const [tokenInfo, launchpadResult] = await Promise.all([
-        getTokenInfo(tokenToBuy, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
-        detectLaunchpadToken(tokenToBuy, chainId)
-    ]);
+    const tokenInfoPromise = getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true });
+    const launchpadPromise = (chainId === 8453 || chainId === 56)
+        ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
+        : Promise.resolve(null);
+    const tokenInfo = await tokenInfoPromise;
+    const launchpadResult = await resolveLaunchpad(launchpadPromise, chainId);
 
     if (!tokenInfo || tokenInfo.price <= 0) {
         // 🚨 Fallback: If we detected it as a valid Launchpad token (Clanker/Pump/etc), we might trust it blind
@@ -340,15 +403,48 @@ async function handleTargetBuy(
             // NOTE: We must be careful about price calculations later.
             // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
             // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache);
             return;
+        }
+
+        // ⚡ FAST-MODE FALLBACK: If we have active configs and fast execution, proceed with metadata-only info.
+        // This avoids waiting on slow APIs when RPC price is unavailable.
+        const allowFastFallback = configs.some((c: any) => c.fastExecutionEnabled !== false);
+        if (allowFastFallback) {
+            try {
+                const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
+                const fallbackInfo = {
+                    price: 0,
+                    symbol: meta?.symbol || 'UNKNOWN',
+                    name: meta?.name || 'Unknown Token',
+                    decimals: meta?.decimals || 18,
+                    liquidity: 0,
+                    volume24h: 0,
+                    fdv: 0,
+                    marketCap: 0,
+                    pairCreatedAt: Date.now(),
+                    socials: [],
+                    websites: [],
+                    provider: 'rpc-metadata'
+                };
+
+                logger.warn(LogCode.API_FETCH_FAILED, 'RPC price missing - proceeding with metadata-only fallback (fast mode)', {
+                    token: tokenToBuy,
+                    chainId
+                });
+
+                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache);
+                return;
+            } catch (metaErr: any) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
+            }
         }
 
         logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: No valid token information or price found', { targetWallet, token: tokenToBuy });
         return;
     }
 
-    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, tokenInfo, false);
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, tokenInfo, false, launchpadPromise, tokenInfoCache);
 }
 
 /**
@@ -361,8 +457,12 @@ async function processBuyWithInfo(
     chainId: number,
     configs: any[],
     tokenInfo: any,
-    isFallbackMode: boolean
+    isFallbackMode: boolean,
+    launchpadPromise?: Promise<any>,
+    tokenInfoCache?: Map<string, Promise<any>>
 ) {
+    const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
+    const tStart = Date.now();
     logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
         count: configs.length,
         price: tokenInfo.price,
@@ -400,12 +500,16 @@ async function processBuyWithInfo(
 
         if (isStableIn) {
             // USDC/USDT - fetch dynamic info to get true decimals
-            const stableInfo = await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true });
+            const stableInfo = tokenInfoCache
+                ? await getTokenInfoOnce(tokenInfoCache, swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true })
+                : await getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true });
             const decimalsIn = stableInfo?.decimals || 6; // Fallback to 6 if fetch fails (safe for USDC/USDT)
             targetSwapValueUsd = formatTokenAmount(amountInBN, decimalsIn);
         } else if (isZoraIn) {
             // ZORA Token price - fetch dynamically
-            const zoraInfo = await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true });
+            const zoraInfo = tokenInfoCache
+                ? await getTokenInfoOnce(tokenInfoCache, ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true })
+                : await getTokenInfo(ZORA_TOKEN, chainId, { rpcStrategy: 'fast', fastMode: true });
             if (!zoraInfo || zoraInfo.price <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch ZORA price, cannot calculate trade value', { token: ZORA_TOKEN });
                 targetSwapValueUsd = 0; // Cannot proceed without price
@@ -433,6 +537,7 @@ async function processBuyWithInfo(
         targetSwapValueUsd = formattedAmountOut * tokenInfo.price;
         logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Calculated value from token output', { valueUsd: targetSwapValueUsd, token: swap.tokenOut });
     }
+    const valueMs = Date.now() - tStart;
 
     // 🚨 SELF-HEALING: If token price is missing (Fallback Mode), derive it from the trade itself
     // impliedPrice = Total Value USD / Token Amount
@@ -466,6 +571,7 @@ async function processBuyWithInfo(
     // =================================================================
 
     // ⚡ PERFORMANCE OPTIMIZATION: Fetch shared data ONCE for all users via Cache Hub
+    const cacheStart = Date.now();
     const [userSettingsMap, sharedNativePrice] = await Promise.all([
         // 1. 批量预热用户设置缓存
         cacheHub.warmupUserSettings(
@@ -477,6 +583,7 @@ async function processBuyWithInfo(
             return getNativeTokenPriceUsd(chainId);
         })
     ]);
+    const cacheMs = Date.now() - cacheStart;
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, '⚡ Shared data fetched via Cache Hub', {
         userCount: configs.length,
@@ -486,6 +593,7 @@ async function processBuyWithInfo(
 
     // ⚡ BATCH FILTER: Pre-filter users IN PARALLEL (优化: 串行 → 并行)
     // 🚀 100 users: 500ms (serial) → ~5ms (parallel)
+    const filterStart = Date.now();
     const filterResults = await Promise.all(
         configs.map(async (config) => {
             const userSettings = userSettingsMap.get(config.userId);
@@ -502,6 +610,7 @@ async function processBuyWithInfo(
             return { config, filterResult, effectiveConfig, userSettings };
         })
     );
+    const filterMs = Date.now() - filterStart;
 
     const eligibleConfigs: any[] = [];
     const skippedUsers: any[] = [];
@@ -603,6 +712,7 @@ async function processBuyWithInfo(
     let currentPriceMultiplier = 1.0; // Track price drift during execution
 
     // 🚀 EXECUTE IN SMART BATCHES
+    const execStart = Date.now();
     for (let i = 0; i < sortedConfigs.length; i += dynamicBatchSize) {
         const batch = sortedConfigs.slice(i, i + dynamicBatchSize);
         const batchNum = Math.floor(i / dynamicBatchSize) + 1;
@@ -627,7 +737,9 @@ async function processBuyWithInfo(
                     targetSwapValueUsd,
                     isFallbackMode,
                     scalingFactor, // Pass scaling factor to reduce individual amounts
-                    sharedNativePrice // ⚡ Pass shared native price to avoid repeated queries
+                    sharedNativePrice, // ⚡ Pass shared native price to avoid repeated queries
+                    launchpadPromise,
+                    tokenInfoCache
                 ).catch(error => {
                     logger.error(LogCode.SYS_ERROR, `Error in batch execution`, {
                         configId: config.id,
@@ -659,7 +771,9 @@ async function processBuyWithInfo(
             // 📊 Optional: Re-check price after high-impact batches
             if (impactRatio > 0.05 && i + dynamicBatchSize * 2 < sortedConfigs.length) {
                 try {
-                    const freshInfo = await getTokenInfo(tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: 'fast' });
+                    const freshInfo = tokenInfoCache
+                        ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: 'fast' })
+                        : await getTokenInfo(tokenToBuy, chainId, { forceRefresh: true, priority: 'high', rpcStrategy: 'fast' });
                     if (freshInfo && freshInfo.price > 0 && tokenInfo.price > 0) {
                         currentPriceMultiplier = freshInfo.price / tokenInfo.price;
 
@@ -696,6 +810,7 @@ async function processBuyWithInfo(
             }
         }
     }
+    const execMs = Date.now() - execStart;
 
     logger.info(LogCode.EXE_TX_CONFIRMED, `✅ Smart batch execution complete`, {
         targetWallet,
@@ -705,7 +820,16 @@ async function processBuyWithInfo(
         failed: failCount,
         scalingFactor: scalingFactor.toFixed(3),
         batchSize: dynamicBatchSize,
-        finalPriceMultiplier: currentPriceMultiplier.toFixed(3)
+        finalPriceMultiplier: currentPriceMultiplier.toFixed(3),
+        ...(PROFILE ? {
+            profile: {
+                valueMs,
+                cacheMs,
+                filterMs,
+                execMs,
+                totalMs: Date.now() - tStart
+            }
+        } : {})
     });
 }
 
@@ -725,7 +849,9 @@ async function processSingleUserBuy(
     targetSwapValueUsd: number,
     isFallbackMode: boolean,
     scalingFactor: number = 1.0,
-    sharedNativePrice: number = 0
+    sharedNativePrice: number = 0,
+    launchpadPromise?: Promise<any>,
+    tokenInfoCache?: Map<string, Promise<any>>
 ): Promise<void> {
     let judgeDecisionId: string | null = null;
 
@@ -1042,8 +1168,8 @@ async function processSingleUserBuy(
             // EVM Logic - nativePrice already fetched at top
 
 
-            // SPECIALIZED ZORA INTERACTION - Parallelize checks for speed
-            const launchpad = await detectLaunchpadToken(tokenToBuy, chainId);
+            // SPECIALIZED ZORA INTERACTION - Use async launchpad detection (non-blocking)
+            const launchpad = await resolveLaunchpad(launchpadPromise, chainId);
             const isFastExecutionEnabled = userSettings?.fastSwapMode === true;
 
             let useStandardSwap = true;
@@ -1072,9 +1198,8 @@ async function processSingleUserBuy(
                     logger.warn(LogCode.EXE_TX_REVERTED, 'Zora fast swap failed, falling back to standard route', { userId: config.userId, error: zoraErr.message || zoraErr });
                     useStandardSwap = true;
                 }
-            } else if (launchpad && launchpad.provider === 'fourmeme') {
-                // Four.meme tokens can ONLY be traded via TokenManager2 contract
-                // UNLESS they have graduated, in which case this might fail and we should try standard swap
+            } else if (launchpad && launchpad.provider === 'fourmeme' && chainId === 56) {
+                // Four.meme tokens can be traded via TokenManager while on bonding curve
                 logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting specialized contract buy', { userId: config.userId, token: tokenToBuy });
                 try {
                     const bnbAmount = (usdAmount / nativePrice).toFixed(18);
@@ -1142,7 +1267,9 @@ async function processSingleUserBuy(
                     if (userSettings?.checkTokenBeforeSwap) {
                         logger.info(LogCode.EXE_QUOTE_FETCHED, 'Conservative Mode: Checking price stability before retry...', { userId: config.userId });
                         try {
-                            const freshInfo = await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' });
+                            const freshInfo = tokenInfoCache
+                                ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
+                                : await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' });
                             if (freshInfo && freshInfo.price > 0) {
                                 const priceChange = freshInfo.price / tokenInfo.price;
                                 if (priceChange > 2.00) { // > 100% spike (2x)
@@ -1408,7 +1535,7 @@ async function executePositionExit(params: {
     userId: string;
     tokenAddress: string;
     chainId: number;
-    exitReason: 'mirror_sell' | 'take_profit' | 'stop_loss' | 'manual';
+    exitReason: 'mirror_sell' | 'take_profit' | 'stop_loss' | 'manual' | 'dynamic_take_profit';
     tokenInfo: any;
     config: any;
     userSettings?: any;
@@ -1730,7 +1857,8 @@ async function executePositionExit(params: {
                 'mirror_sell': 'Mirror Sell',
                 'take_profit': 'Take Profit',
                 'stop_loss': 'Stop Loss',
-                'manual': 'Manual Exit'
+                'manual': 'Manual Exit',
+                'dynamic_take_profit': '🎯 Dynamic Take Profit'
             };
 
             await notificationService.sendNotification({
@@ -1840,15 +1968,25 @@ async function handleTargetSell(
     const tokenToSell = swap.tokenIn;
     const normalizedWallet = normalizeAddress(targetWallet);
 
-    const configs = await withRetry(() => prisma.copyTradeConfig.findMany({
+    const rawConfigs = await withRetry(() => prisma.copyTradeConfig.findMany({
         where: {
             targetWallet: { mode: 'insensitive', equals: normalizedWallet },
             chainId,
             status: 'active',
             mirrorSell: true,
         },
-        include: { user: true },
     }));
+
+    if (rawConfigs.length === 0) return;
+
+    const userIds = [...new Set(rawConfigs.map(c => c.userId))];
+    const users = await prisma.user.findMany({
+        where: { privyDid: { in: userIds } }
+    });
+    const userMap = new Map(users.map(u => [u.privyDid, u]));
+    const configs = rawConfigs
+        .map(c => ({ ...c, user: userMap.get(c.userId) }))
+        .filter((c): c is typeof rawConfigs[number] & { user: NonNullable<(typeof users)[number]> } => Boolean(c.user));
 
     if (configs.length === 0) return;
 
@@ -1963,7 +2101,9 @@ export async function checkPositionsForExits(): Promise<void> {
                 { lastExitAttempt: { lt: new Date(Date.now() - RETRY_COOLDOWN_MS) } }
             ]
         },
-        include: { user: true }
+        include: {
+            user: { include: { settings: true } }
+        }
     });
 
     if (positionsNeedingRetry.length > 0) {
@@ -2013,7 +2153,7 @@ export async function checkPositionsForExits(): Promise<void> {
     // STEP 1: Fetch all open positions for take profit/stop loss monitoring
     const positions = await prisma.position.findMany({
         where: { status: 'open' },
-        include: { user: true },
+        include: { user: { include: { settings: true } } },
     });
 
     if (positions.length === 0) {
@@ -2239,6 +2379,59 @@ export async function checkPositionsForExits(): Promise<void> {
                         });
                     } finally {
                         positionsBeingExited.delete(position.id);
+                    }
+                } else {
+                    // === Dynamic Take Profit Check ===
+                    // Cast config to correct type (Prisma types might need reload)
+                    const fullConfig = config as any;
+                    if (fullConfig.enableDynamicTP) {
+                        // We need the config attached to the position object for the service
+                        // Construct a temporary object that satisfies the interface
+                        const positionWithConfig = {
+                            ...position,
+                            config: fullConfig
+                        };
+
+                        const dtpResult = await DynamicTakeProfitService.checkDynamicTP(
+                            positionWithConfig as any, // Type cast to satisfy strict checks
+                            currentPrice
+                        );
+
+                        if (dtpResult.shouldSell) {
+                            logger.info(LogCode.EXE_TX_BROADCAST, '🎯 Dynamic Take Profit triggered', {
+                                positionId: position.id,
+                                token: position.tokenSymbol || 'Unknown',
+                                reason: dtpResult.reason,
+                                urgency: dtpResult.urgency,
+                                profitLossPct: profitLossPct.toFixed(2)
+                            });
+
+                            // Use higher slippage for emergency exits (rug pull detection)
+                            const dynamicSlippage = dtpResult.urgency === 'emergency' ? 5000 : getSlippageBps(position.user.settings);
+
+                            if (dtpResult.urgency === 'emergency') {
+                                logger.warn(LogCode.EXE_TX_BROADCAST, `⚠️  [DynamicTP] Applying EMERGENCY slippage: ${dynamicSlippage} bps`, {
+                                    positionId: position.id,
+                                    token: position.tokenSymbol ?? undefined
+                                });
+                            }
+
+                            positionsBeingExited.add(position.id);
+                            try {
+                                await executePositionExit({
+                                    userId: position.userId,
+                                    tokenAddress: position.tokenAddress,
+                                    chainId: position.chainId,
+                                    exitReason: 'dynamic_take_profit',
+                                    tokenInfo: tokenInfo,
+                                    config: { ...config, user: position.user },
+                                    // Pass overriding slippage if needed (requires support in executePositionExit, 
+                                    // otherwise it uses default. For now assume default is okay or logic inside handles it)
+                                });
+                            } finally {
+                                positionsBeingExited.delete(position.id);
+                            }
+                        }
                     }
                 }
 

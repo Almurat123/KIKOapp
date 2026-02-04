@@ -202,8 +202,7 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
 
 
             // Check if instant execution is requested (default: true) AND user approves auto-execution
-            // via custom settings "allowance" mode.
-            // If settings are missing or not 'allowance', fallback to safe 'show_swap_card' mode.
+            // via custom settings "allowance" mode. (swap_card mode is deprecated)
 
             // FORCED: All users use allowance_trade mode (swap_card removed from UI)
             // Ignore any old database values for swapMethod
@@ -364,19 +363,20 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
                 }
             }
 
-            // Fallback: show swap card for manual confirmation
+            // DEPRECATED: Swap cards removed from chat interface
+            // Return text-based confirmation response
             return {
-                __client_action: {
-                    type: 'show_swap_card',
-                    payload: {
-                        tokenIn: normalizedArgs.token_in,   // ✅ Normalized
-                        tokenOut: normalizedArgs.token_out, // ✅ Normalized
-                        amountIn: args.amount_in,
-                        chainId: args.chain_id,
-                        slippage: args.slippage || 0.5
-                    }
-                },
-                summary: `Prepared swap for ${args.amount_in} ${args.token_in} to ${args.token_out} on chain ${args.chain_id}. Please confirm the transaction details in the card.`
+                mode: 'awaiting_confirmation',
+                success: true,
+                summary: `Swap prepared: ${args.amount_in} ${args.token_in} → ${args.token_out}. Please reply "confirm" to execute the trade.`,
+                requires_confirmation: true,
+                swapDetails: {
+                    tokenIn: normalizedArgs.token_in,
+                    tokenOut: normalizedArgs.token_out,
+                    amountIn: args.amount_in,
+                    chainId: args.chain_id,
+                    slippage: args.slippage || 0.5
+                }
             };
 
         } catch (error: any) {

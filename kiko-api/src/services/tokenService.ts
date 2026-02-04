@@ -3,7 +3,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getChainSlug, CHAINS } from '../config/chainConfig.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
-import { getTokenDetails } from './geckoTerminal.js';
+// GeckoTerminal disabled for copytrade latency/limits; use DexScreener + RPC only.
 import { getTokenMetadata } from './rpcService.js';
 import { fetchJson, ApiPriority } from '../config/unifiedApiService.js';
 import { cacheHub } from '../cache/DataCacheHub.js'; // 🔗 连接缓存中心
@@ -67,8 +67,6 @@ async function getLiquidityData(
 ): Promise<{ liquidity: number; volume24h: number; fdv?: number } | null> {
     const chainSlug = getChainSlug(chainId);
     const dsSlug = chainSlug.dexScreener;
-    const gtSlug = chainSlug.geckoTerminal;
-
     // --- STEP 1: Try DexScreener (Primary) ---
     try {
         const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
@@ -102,23 +100,6 @@ async function getLiquidityData(
         });
     }
 
-    // --- STEP 2: Try GeckoTerminal (Fallback) ---
-    try {
-        const gtData = await getTokenDetails(gtSlug, tokenAddress, priority);
-        if (gtData) {
-            return {
-                liquidity: gtData.liquidity || 0,
-                volume24h: gtData.volume24h || 0,
-                fdv: gtData.fdv || gtData.marketCap || 0
-            };
-        }
-    } catch (gtErr: any) {
-        logger.debug(LogCode.API_FETCH_FAILED, 'GeckoTerminal liquidity fetch failed', {
-            token: tokenAddress,
-            error: gtErr.message
-        });
-    }
-
     logger.warn(LogCode.API_FETCH_FAILED, 'All API liquidity sources failed', { token: tokenAddress });
     return null; // 无 liquidity 数据
 }
@@ -137,7 +118,7 @@ async function fetchTokenInfoFromAPIs(
     fastMode: boolean = false
 ): Promise<any> {
     const chainSlug = getChainSlug(chainId);
-    const gtSlug = chainSlug.geckoTerminal;
+    // GeckoTerminal disabled for speed/limits; keep DexScreener + RPC only.
 
     // 🚀 HYBRID STRATEGY: RPC/Jupiter (price) + API (liquidity)
     // ⚠️ Solana (chainId 900): Uses Jupiter API instead of RPC
@@ -202,14 +183,6 @@ async function fetchTokenInfoFromAPIs(
             rpcPrice: rpc?.price
         });
 
-        const tryGecko = async () => {
-            const gtData = await getTokenDetails(gtSlug, tokenAddress, priority);
-            if (gtData && gtData.price && gtData.price > 0) {
-                return gtData;
-            }
-            return null;
-        };
-
         const tryDex = async () => {
             const dexChainId = isSolana ? 'solana' : chainId;
             const dexPrice = await getDexPrice(tokenAddress, dexChainId);
@@ -218,45 +191,13 @@ async function fetchTokenInfoFromAPIs(
 
         if (fastMode) {
             const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 800));
-            const winner = await Promise.race([tryGecko(), tryDex(), timeout]);
+            const winner = await Promise.race([tryDex(), timeout]);
             if (typeof winner === 'number') {
                 price = winner;
                 provider = isSolana ? 'jupiter-dex' : '0x-dex';
-            } else if (winner && typeof winner === 'object') {
-                const gtData = winner as any;
-                price = gtData.price || 0;
-                symbol = gtData.symbol || symbol;
-                name = gtData.name || name;
-                decimals = gtData.decimals || decimals;
-                liquidity = liquidity || gtData.liquidity || 0;
-                volume24h = volume24h || gtData.volume24h || 0;
-                marketCap = (gtData.marketCap || gtData.fdv || marketCap) as number;
-                provider = 'geckoterminal';
             }
         } else {
-            try {
-                const gtData = await tryGecko();
-                if (gtData) {
-                    price = gtData.price || 0;
-                    symbol = gtData.symbol || symbol;
-                    name = gtData.name || name;
-                    decimals = gtData.decimals || decimals;
-                    liquidity = liquidity || gtData.liquidity || 0;
-                    volume24h = volume24h || gtData.volume24h || 0;
-                    marketCap = (gtData.marketCap || gtData.fdv || marketCap) as number;
-                    provider = 'geckoterminal';
-
-                    logger.info(LogCode.API_FETCH_SUCCESS, 'Fallback: Got price from GeckoTerminal', {
-                        symbol,
-                        price
-                    });
-                }
-            } catch (gtErr: any) {
-                logger.warn(LogCode.API_FETCH_FAILED, 'GeckoTerminal fallback failed', {
-                    token: tokenAddress,
-                    error: gtErr.message
-                });
-            }
+            // No GeckoTerminal fallback in non-fast mode
         }
 
         // 🔗 FINAL FALLBACK: Try DEX price (0x for EVM, Jupiter for Solana)

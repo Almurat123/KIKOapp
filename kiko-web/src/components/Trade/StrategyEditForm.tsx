@@ -24,7 +24,9 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
         takeProfitPct: config.takeProfitPct || 100,
         stopLossPct: config.stopLossPct || 20,
         aiAnalysisMode: config.aiAnalysisMode || 'disabled',
-        mirrorSell: config.mirrorSell
+        mirrorSell: config.mirrorSell,
+        enableDynamicTP: config.enableDynamicTP || false,
+        dynamicTPMinProfitPct: config.dynamicTPMinProfitPct || 100
     });
 
     const [isSaving, setIsSaving] = useState(false);
@@ -146,10 +148,42 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             <strong>Mirror Sell:</strong> Follow the target wallet's sell actions immediately.
                         </span>
                     </div>
-                    {!formData.mirrorSell && (
-                        <p className={styles.helperText} style={{ color: 'var(--warning-color, #f59e0b)', fontSize: '11px' }}>
-                            Note: If disabled, you must manually manage exits or rely purely on TP/SL levels.
-                        </p>
+                </div>
+            </div>
+
+            {/* Dynamic Take Profit */}
+            <div className={styles.section}>
+                <div className={styles.inputGroup}>
+                    <div
+                        className={styles.toggleRow}
+                        onClick={() => setFormData({ ...formData, enableDynamicTP: !formData.enableDynamicTP })}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={formData.enableDynamicTP}
+                            onChange={() => { }}
+                            className={styles.checkbox}
+                        />
+                        <span className={styles.label} style={{ marginBottom: 0 }}>Enable Dynamic Take Profit (ATR)</span>
+                    </div>
+                    <p className={styles.helperText}>
+                        Protect your gains using Chandelier Exit & Rapid Decline detection.
+                    </p>
+
+                    {formData.enableDynamicTP && (
+                        <div className={styles.inputGroup} style={{ marginTop: '12px' }}>
+                            <label className={styles.label}>Activate Dynamic TP at Profit (%)</label>
+                            <input
+                                type="number"
+                                value={formData.dynamicTPMinProfitPct ?? ''}
+                                onChange={e => setFormData({ ...formData, dynamicTPMinProfitPct: parseFloat(e.target.value) })}
+                                className={styles.input}
+                                placeholder="100"
+                            />
+                            <p className={styles.helperText} style={{ fontSize: '11px', color: '#10b981' }}>
+                                Strategy will start tracking peaks and calculating ATR trailing stops once profit exceeds this level.
+                            </p>
+                        </div>
                     )}
                 </div>
             </div>

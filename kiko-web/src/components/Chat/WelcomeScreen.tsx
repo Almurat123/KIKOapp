@@ -94,11 +94,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSuggestionClick 
       setInputValue('');
     }, // onSend
     (text) => {
-      // For WelcomeScreen, immediately send when a suggestion is selected
-      // instead of just filling the input
-      onSuggestionClick(text);
-      setInputValue('');
-    } // onSetInput - also send immediately
+      // Fill the input box instead of sending immediately
+      setInputValue(text);
+    } // onSetInput
   );
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

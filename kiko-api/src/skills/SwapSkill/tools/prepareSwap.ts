@@ -62,13 +62,11 @@ The amount_in parameter MUST be a numeric string like '0.1' or '100'. Never pass
                 },
                 execute: {
                     type: 'boolean',
-                    description: `CRITICAL: Controls whether the swap executes automatically or shows a confirmation card.
-- Set to FALSE (default): Shows a swap card for user to review and confirm manually.
-- Set to TRUE: Executes the swap automatically without confirmation.
+                    description: `CRITICAL: Controls whether the swap executes automatically.
+- Set to FALSE (default): Returns simulation/quote info, waits for user text confirmation.
+- Set to TRUE: Executes the swap automatically and shows transaction-status-card.
 
-You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
-- If "SWAP CARD MODE": Always set execute=false
-- If "ALLOWANCE TRADE MODE": Set execute=true`,
+For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                     default: false
                 }
             },
@@ -251,20 +249,17 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
 
 
 
-            // Check if instant execution is requested (default: true) AND user approves auto-execution
-            // via custom settings "allowance" mode.
-            // If settings are missing or not 'allowance', fallback to safe 'show_swap_card' mode.
-
             // FORCED: All users use allowance_trade mode (swap_card removed from UI)
             // Ignore any old database values for swapMethod
             const config = context?.toolConfig as any;
             const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade
             const fastSwapMode = config?.fastSwapMode === true;
 
-            // Execute instantly if:
-            // 1. swapMethod is always 'allowance_trade' (forced for all users), OR
+            // Execute instantly ONLY if:
+            // 1. args.execute is explicitly true (AI decision), OR
             // 2. fastSwapMode is enabled (for Zora fast swap)
-            const shouldExecute = true; // Always true since swapMethod is forced to 'allowance_trade'
+            // CRITICAL: Respect args.execute=false for simulation/quote mode
+            const shouldExecute = args.execute === true || fastSwapMode;
 
             console.log('[PrepareSwapTransaction] Execution Decision:', {
                 argsExecute: args.execute,
@@ -272,6 +267,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                 fastSwapMode,
                 finalDecision: shouldExecute
             });
+
 
             if (shouldExecute) {
                 console.log('[PrepareSwapTransaction] Executing backend swap via internal API...');
@@ -412,7 +408,7 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                     } catch (err) {
                         console.warn('[PrepareSwapTransaction] Failed to update estimated receive:', (err as Error).message);
                     }
-                }).catch(() => {});
+                }).catch(() => { });
 
                 // ⚡ STEP 2: Execute swap (blocking - wait for result)
                 const API_BASE = process.env.API_BASE_URL ||
@@ -750,22 +746,22 @@ You MUST check the user's 'Swap Method' setting in [USER_PREFERENCES_MODULE]:
                 }
             }
 
-            // Fallback: show swap card for manual confirmation
+            // DEPRECATED: Swap cards removed from chat interface
+            // Return simulation-only response, user must explicitly confirm via text
             return {
-                __client_action: {
-                    type: 'show_swap_card',
-                    payload: {
-                        tokenIn: args.token_in,
-                        tokenOut: args.token_out,
-                        amountIn: args.amount_in,
-                        chainId: args.chain_id,
-                        slippage: args.slippage || 0.5
-                    }
-                },
-                mode: 'prepared',
-                requires_user_confirmation: true,
-                summary: `Prepared swap for ${args.amount_in} ${args.token_in} to ${args.token_out} on chain ${args.chain_id}. Please confirm the transaction details in the card.`
+                mode: 'simulation_only',
+                success: true,
+                summary: `Swap prepared: ${args.amount_in} ${args.token_in} → ${args.token_out}. Please reply "confirm" or "execute" to complete the trade.`,
+                requires_confirmation: true,
+                swapDetails: {
+                    tokenIn: args.token_in,
+                    tokenOut: args.token_out,
+                    amountIn: args.amount_in,
+                    chainId: args.chain_id,
+                    slippage: args.slippage || 0.5
+                }
             };
+
 
         } catch (error: any) {
             console.error('[PrepareSwapTransaction] Error:', error);

@@ -8,11 +8,13 @@ import { toast } from 'sonner';
 import clsx from 'clsx';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { preprocessMarkdown } from '../../utils/markdownUtils';
-import { SwapCardChat } from './SwapCardChat';
+// DEPRECATED: SwapCardChat removed from chat interface (kept in WalletPage)
+// import { SwapCardChat } from './SwapCardChat';
 import { StrategyCard } from '../Trade/StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { LaunchpadCard } from '../Launchpad/LaunchpadCard';
 import { TransactionStatusCard } from './TransactionStatusCard';
+import { TokenCapsule } from './TokenCapsule';
 import { CitationRenderer } from './CitationRenderer';
 import { XPostCard } from './XPostCard';
 import { getSourceLogoProps, getSourceTitle } from '../../utils/sourceUtils';
@@ -58,8 +60,23 @@ const MarkdownComponents = {
         );
     },
     a: ({ node, ...props }: any) => {
+        const href = props.href || '';
+        // Check for token capsule protocol
+        if (href.startsWith('token://')) {
+            const url = new URL(href);
+            const address = url.hostname;
+            const chainId = url.searchParams.get('chainId');
+            return (
+                <TokenCapsule
+                    address={address}
+                    symbol={props.children?.[0] || 'Token'}
+                    chainId={chainId ? parseInt(chainId) : undefined}
+                />
+            );
+        }
+
         // Check if the link is likely an image
-        const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(props.href || '');
+        const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(href);
 
         if (isImage) {
             return (
@@ -82,7 +99,7 @@ const MarkdownComponents = {
 };
 
 // Memoized MessageBubble to prevent re-renders during streaming
-const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction, userAddress, chainId, sessionId,
+const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGrouped, onContinue, canContinue, onCardAction, chainId, sessionId,
     thinkingText,
     modelId,
     onFeedback
@@ -192,27 +209,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
         if (!message.type || !message.data) return null;
 
         switch (message.type) {
-            case 'swap-card':
-                return (
-                    <div className={styles.inlineCard}>
-                        <div className={styles.animFluid}>
-                            <div className={styles.cardContent}>
-                                <SwapCardChat
-                                    initialData={message.data}
-                                    userAddress={userAddress}
-                                    chainId={chainId}
-                                    onSwapSuccess={(txHash) => {
-                                        onCardAction?.('swap-success', { txHash, data: message.data });
-                                    }}
-                                    onSwapError={(error) => {
-                                        onCardAction?.('swap-error', { error, data: message.data });
-                                    }}
-                                    onCancel={() => onCardAction?.('swap-cancel', message.data)}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                );
+            // DEPRECATED: swap-card removed from chat interface (kept in WalletPage)
+            // case 'swap-card': ...
+
             case 'strategy-card':
                 return (
                     <div className={styles.inlineCard}>
