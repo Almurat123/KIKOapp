@@ -26,6 +26,7 @@ import { getTokenMetadata } from '../rpcService.js';
 import { get as getDbCache } from '../../cache/dbCache.js';
 import { V2_ROUTER_ABI, V3_FEE_TIERS } from './types.js';
 import { buildAerodromeSwapTransaction, getAerodromeQuote } from './aerodrome.js';
+import { getChainConfig } from '../../config/chainConfig.js';
 
 // 常用代币地址
 const WETH_ADDRESSES: Record<number, string> = {
@@ -90,16 +91,23 @@ const INFINITY_HOOKS_ZERO = '0x0000000000000000000000000000000000000000';
 
 const REFERENCE_DEVIATION_BPS = Number(process.env.DIRECT_SWAP_REF_DEVIATION_BPS || '1500');
 const V4_SPOT_CACHE_TTL_MS = Number(process.env.V4_SPOT_CACHE_TTL_MS || '15000');
+const V4_QUOTER_CACHE_TTL_MS = Number(process.env.V4_QUOTER_CACHE_TTL_MS || '10000');
+const V4_QUOTER_TIMEOUT_MS = Number(process.env.V4_QUOTER_TIMEOUT_MS || '1200');
 const REFERENCE_QUOTE_TTL_MS = Number(process.env.DIRECT_SWAP_REF_CACHE_TTL_MS || '10000');
 const REFERENCE_QUOTE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_REF_TIMEOUT_MS || '2000');
 const V4_FAST_PATH = (process.env.DIRECT_SWAP_V4_FAST_PATH || 'true') === 'true';
 
 const v4SpotCache = new Map<string, { value: bigint; timestamp: number }>();
+const v4QuoterCache = new Map<string, { value: bigint; timestamp: number }>();
 const referenceQuoteCache = new Map<string, { value: bigint; timestamp: number }>();
 const infinityPairCache = new Map<string, { poolKeys: InfinityPoolKey[]; timestamp: number }>();
 
 type DexFamily = 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
 type StrategyKind = 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity';
+
+const V4_QUOTER_ADDRESSES: Record<number, string> = {
+    8453: '0x0d5e0f971ed27fbff6c2837bf31316121532048d'
+};
 
 interface DexStrategy {
     kind: StrategyKind;
@@ -923,6 +931,97 @@ async function getV4BestSpotOut(
     }
 }
 
+function getV4QuoterAddress(chainId: number): string | undefined {
+    return V4_QUOTER_ADDRESSES[chainId];
+}
+
+function decodeV4QuoterRevert(data: string): bigint | null {
+    if (!data || data === '0x') return null;
+    const selector = ethers.id('QuoteSwap(uint256)').slice(0, 10);
+    if (!data.startsWith(selector)) return null;
+    try {
+        const decoded = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], '0x' + data.slice(10));
+        return BigInt(decoded[0].toString());
+    } catch {
+        return null;
+    }
+}
+
+async function callV4QuoterExactOut(
+    poolKey: V4PoolKey,
+    zeroForOne: boolean,
+    amountInWei: bigint,
+    chainId: number
+): Promise<bigint> {
+    const quoter = getV4QuoterAddress(chainId);
+    if (!quoter) return 0n;
+    const MAX_UINT128 = (1n << 128n) - 1n;
+    if (amountInWei <= 0n || amountInWei > MAX_UINT128) return 0n;
+
+    const cacheKey = `${chainId}:${poolKey.currency0.toLowerCase()}:${poolKey.currency1.toLowerCase()}:${poolKey.fee}:${poolKey.tickSpacing}:${poolKey.hooks.toLowerCase()}:${zeroForOne ? '1' : '0'}:${amountInWei.toString()}`;
+    const cached = v4QuoterCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < V4_QUOTER_CACHE_TTL_MS) {
+        return cached.value;
+    }
+
+    const iface = new ethers.Interface([
+        'function quoteExactInputSingle((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) external returns (uint256 amountOut,uint256 gasEstimate)'
+    ]);
+
+    const data = iface.encodeFunctionData('quoteExactInputSingle', [{
+        poolKey: {
+            currency0: poolKey.currency0,
+            currency1: poolKey.currency1,
+            fee: poolKey.fee,
+            tickSpacing: poolKey.tickSpacing,
+            hooks: poolKey.hooks
+        },
+        zeroForOne,
+        exactAmount: amountInWei,
+        hookData: '0x'
+    }]);
+
+    const chainConfig = getChainConfig(chainId);
+    const endpoints = chainConfig.rpcUrls || [];
+    for (const endpoint of endpoints) {
+        if (!endpoint) continue;
+        try {
+            const response = await withTimeout(fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: Date.now(),
+                    method: 'eth_call',
+                    params: [{ to: quoter, data }, 'latest']
+                })
+            }).then(res => res.json()), V4_QUOTER_TIMEOUT_MS);
+
+            if (response?.result) {
+                const decoded = iface.decodeFunctionResult('quoteExactInputSingle', response.result);
+                const amountOut = BigInt(decoded[0].toString());
+                v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
+                return amountOut;
+            }
+
+            const errorData = response?.error?.data?.data
+                || response?.error?.data
+                || response?.error?.message?.data;
+            if (typeof errorData === 'string' && errorData.startsWith('0x')) {
+                const amountOut = decodeV4QuoterRevert(errorData);
+                if (amountOut && amountOut > 0n) {
+                    v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
+                    return amountOut;
+                }
+            }
+        } catch {
+            continue;
+        }
+    }
+
+    return 0n;
+}
+
 async function getV4BestPoolQuote(
     tokenIn: string,
     tokenOut: string,
@@ -942,26 +1041,46 @@ async function getV4BestPoolQuote(
 
     let bestOut = 0n;
     let bestPool: PoolInfo | null = null;
+    const Q96 = 2n ** 96n;
+    const FEE_DENOMINATOR = 1_000_000n; // Uniswap fee in pips (1e-6)
 
     for (const pool of pools) {
         const zeroForOne = pool.poolKey.currency0.toLowerCase() === tokenIn.toLowerCase();
+        const sqrtP = BigInt(pool.sqrtPriceX96);
+        const liquidity = BigInt(pool.liquidity);
+        if (sqrtP <= 0n || liquidity <= 0n) continue;
+
         const spotPrice = calculatePriceFromSqrtX96(
             BigInt(pool.sqrtPriceX96),
             decimals0,
             decimals1
         );
 
-        if (!Number.isFinite(spotPrice) || spotPrice <= 0) continue;
+        const reserve0 = (liquidity * Q96) / sqrtP;
+        const reserve1 = (liquidity * sqrtP) / Q96;
+        if (reserve0 <= 0n || reserve1 <= 0n) continue;
 
-        const amountInHuman = Number(amountInWei) / Math.pow(10, zeroForOne ? decimals0 : decimals1);
-        const spotOutHuman = zeroForOne
-            ? amountInHuman * spotPrice
-            : amountInHuman / spotPrice;
-        const outDecimals = zeroForOne ? decimals1 : decimals0;
-        const outWei = BigInt(Math.max(0, Math.floor(spotOutHuman * Math.pow(10, outDecimals))));
+        const feePips = BigInt(pool.lpFee || 0);
+        const amountInAfterFee = amountInWei * (FEE_DENOMINATOR - feePips) / FEE_DENOMINATOR;
+        let outWei = 0n;
 
-        if (outWei > bestOut) {
-            bestOut = outWei;
+        if (zeroForOne) {
+            const k = reserve0 * reserve1;
+            const newReserve0 = reserve0 + amountInAfterFee;
+            const newReserve1 = newReserve0 > 0n ? k / newReserve0 : 0n;
+            outWei = reserve1 > newReserve1 ? reserve1 - newReserve1 : 0n;
+        } else {
+            const k = reserve0 * reserve1;
+            const newReserve1 = reserve1 + amountInAfterFee;
+            const newReserve0 = newReserve1 > 0n ? k / newReserve1 : 0n;
+            outWei = reserve0 > newReserve0 ? reserve0 - newReserve0 : 0n;
+        }
+
+        const quoterOut = await callV4QuoterExactOut(pool.poolKey, zeroForOne, amountInWei, chainId);
+        const finalOut = quoterOut > 0n ? quoterOut : outWei;
+
+        if (finalOut > bestOut) {
+            bestOut = finalOut;
             bestPool = {
                 poolAddress: pool.poolId,
                 token0: pool.poolKey.currency0,
@@ -1045,6 +1164,19 @@ async function getReferenceExpectedOutput(
             durationMs: Date.now() - refStart
         });
         return bestRef;
+    }
+
+    // Fallback: use V4 spot quote as reference for very new tokens
+    if (isV4SwapSupported(chainId)) {
+        const v4Spot = await getV4BestSpotOut(tokenIn, tokenOut, amountInWei, chainId);
+        if (v4Spot > 0n) {
+            referenceQuoteCache.set(cacheKey, { value: v4Spot, timestamp: Date.now() });
+            logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote fallback (V4 spot)', {
+                outWei: v4Spot.toString().slice(0, 15),
+                durationMs: Date.now() - refStart
+            });
+            return v4Spot;
+        }
     }
 
     try {

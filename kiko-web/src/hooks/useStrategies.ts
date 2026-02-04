@@ -99,9 +99,21 @@ export const useStrategies = () => {
 
         // Calculate Stats
         const totalExecutions = positions.length;
-        // Assume pnl field is available in position, sum it up. 
-        // If not, default to 0. We might need to adjust field name after user feedback.
-        const totalPnL = positions.reduce((acc: number, pos: any) => acc + (Number(pos.realizedPnL) || 0) + (Number(pos.unrealizedPnL) || 0), 0);
+        // Sum up realized PNL from closed positions + unrealized PNL from open positions
+        // realizedPnlUsd: actual profit/loss from closed positions
+        // profitLossPct: current profit/loss percentage for open positions (need to convert to USD)
+        const totalPnL = positions.reduce((acc: number, pos: any) => {
+          // Closed positions: use realizedPnlUsd directly
+          if (pos.status === 'closed' && pos.realizedPnlUsd) {
+            return acc + Number(pos.realizedPnlUsd);
+          }
+          // Open positions: calculate unrealized PNL from profitLossPct
+          if (pos.status === 'open' && pos.profitLossPct && pos.entryUsdValue) {
+            const unrealizedPnl = (Number(pos.profitLossPct) / 100) * Number(pos.entryUsdValue);
+            return acc + unrealizedPnl;
+          }
+          return acc;
+        }, 0);
 
         setStats({ totalExecutions, totalPnL });
 

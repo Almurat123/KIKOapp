@@ -60,7 +60,7 @@ export function calculateCost(
  * Handles very small numbers by showing appropriate precision
  */
 export function formatCost(cost: number, currency: Currency): string {
-    const symbol = '$';
+    const symbol = currency === 'USD' ? '$' : '$';
     if (cost === 0) return `${symbol}0`;
     if (cost < 0.0001) return `<${symbol}0.0001`;
     // Show 4 decimal places for precision
