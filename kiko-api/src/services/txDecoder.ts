@@ -609,11 +609,21 @@ export async function parseSwapTransaction(
             : receipt.status;
     if (status !== 1) return null;
 
-    const v4Swap = await decodeSwapFromV4Events(receipt.logs, chainId);
-    if (v4Swap) {
-        v4Swap.router = tx.to;
-        v4Swap.txHash = tx.hash;
-        return v4Swap;
+    // Determine effective wallet for Transfer-based decoding
+    let effectiveWallet = targetWallet?.toLowerCase() || tx.from.toLowerCase();
+    if (!targetWallet) {
+        const entrypoint = tx.to?.toLowerCase();
+        if (entrypoint && ENTRYPOINT_ADDRESSES.has(entrypoint)) {
+            const userOpLog = receipt.logs.find(log => log.topics?.[0]?.toLowerCase() === USER_OP_EVENT);
+            if (userOpLog && userOpLog.topics.length >= 3) {
+                effectiveWallet = ('0x' + userOpLog.topics[2].slice(26)).toLowerCase();
+            }
+        } else {
+            const userOpLog = receipt.logs.find(log => log.topics?.[0]?.toLowerCase() === USER_OP_EVENT);
+            if (userOpLog && userOpLog.topics.length >= 3) {
+                effectiveWallet = ('0x' + userOpLog.topics[2].slice(26)).toLowerCase();
+            }
+        }
     }
 
     const hasV4Swap = receipt.logs.some((log) => {
@@ -621,7 +631,34 @@ export async function parseSwapTransaction(
         return topic0 === V4_SWAP_EVENT.toLowerCase();
     });
 
-    // 1) Try pool Swap events (V2/V3). More reliable than Transfer heuristics.
+    // 1) Prefer transfer-based decode for the target wallet (wallet perspective)
+    const transferSwap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
+    if (transferSwap) {
+        transferSwap.router = tx.to;
+        transferSwap.dexName = hasV4Swap ? 'Uniswap v4' : getDexName(tx.to, chainId);
+        transferSwap.txHash = tx.hash;
+        // Normalize Wrapped Native to Native for display
+        const NATIVE_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+        const chainConfig = getChainConfig(chainId);
+        const WRAPPED_NATIVE = chainConfig.wrappedNativeAddress;
+        if (transferSwap.tokenIn.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
+            transferSwap.tokenIn = NATIVE_ADDRESS;
+        }
+        if (transferSwap.tokenOut.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
+            transferSwap.tokenOut = NATIVE_ADDRESS;
+        }
+        return transferSwap;
+    }
+
+    // 2) V4 pool event decode (pool perspective)
+    const v4Swap = await decodeSwapFromV4Events(receipt.logs, chainId);
+    if (v4Swap) {
+        v4Swap.router = tx.to;
+        v4Swap.txHash = tx.hash;
+        return v4Swap;
+    }
+
+    // 3) Pool Swap events (V2/V3)
     const poolSwap = await decodeSwapFromPoolEvents(receipt.logs, chainId);
     if (poolSwap) {
         poolSwap.router = tx.to;
@@ -639,23 +676,6 @@ export async function parseSwapTransaction(
             poolSwap.tokenOut = NATIVE_ADDRESS;
         }
         return poolSwap;
-    }
-
-    // Determine effective wallet for Transfer-based decoding
-    let effectiveWallet = targetWallet?.toLowerCase() || tx.from.toLowerCase();
-    if (!targetWallet) {
-        const entrypoint = tx.to?.toLowerCase();
-        if (entrypoint && ENTRYPOINT_ADDRESSES.has(entrypoint)) {
-            const userOpLog = receipt.logs.find(log => log.topics?.[0]?.toLowerCase() === USER_OP_EVENT);
-            if (userOpLog && userOpLog.topics.length >= 3) {
-                effectiveWallet = ('0x' + userOpLog.topics[2].slice(26)).toLowerCase();
-            }
-        } else {
-            const userOpLog = receipt.logs.find(log => log.topics?.[0]?.toLowerCase() === USER_OP_EVENT);
-            if (userOpLog && userOpLog.topics.length >= 3) {
-                effectiveWallet = ('0x' + userOpLog.topics[2].slice(26)).toLowerCase();
-            }
-        }
     }
 
     // OLD: Check if it's a swap transaction based on method signature

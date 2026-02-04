@@ -895,6 +895,7 @@ export async function getTrendingTokensPremium(
     logger.info(LogCode.API_FETCH_SUCCESS, 'Fetching premium trending tokens', { chain: normalizedChainId, limit });
 
     let trendingAddresses: string[] = [];
+    let wsAddressCount = 0; // Track original WS count for final logging
     const isWSAvailable = isWSSupportedChain(normalizedChainId);
 
     // All WS-supported chains can try WebSocket first, then fallback to HTTP if needed.
@@ -913,8 +914,11 @@ export async function getTrendingTokensPremium(
           rankBy: 'trendingScoreM5'
         });
 
-        if (trendingAddresses.length > 0) {
-          logger.info(LogCode.WTC_SWAP_DETECTED, 'Found addresses via WebSocket', { count: trendingAddresses.length, chain: normalizedChainId });
+        wsAddressCount = trendingAddresses.length;
+        if (wsAddressCount > 0) {
+          logger.info(LogCode.WTC_SWAP_DETECTED, 'WS addresses discovered', { wsCount: wsAddressCount, chain: normalizedChainId });
+        } else {
+          logger.warn(LogCode.API_FETCH_FAILED, 'WS returned 0 addresses', { chain: normalizedChainId });
         }
       } catch (wsError: any) {
         logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener Premium WebSocket fetch failed', { error: wsError.message });
@@ -972,11 +976,14 @@ export async function getTrendingTokensPremium(
       const boostedAddrs = chainBoosts.map(b => b.tokenAddress?.toLowerCase());
       // Merge WS addresses with fallback addresses (WS addresses take priority)
       const fallbackAddresses = [...new Set([...boostedAddrs, ...Array.from(organicTokenAddresses)])].filter(Boolean) as string[];
+      const preMergeWsCount = trendingAddresses.length;
       trendingAddresses = [...new Set([...trendingAddresses, ...fallbackAddresses])];
       logger.info(LogCode.API_FETCH_SUCCESS, 'Merged addresses', {
-        wsCount: trendingAddresses.length - fallbackAddresses.length,
-        fallbackCount: fallbackAddresses.length,
-        totalUnique: trendingAddresses.length
+        wsOriginal: wsAddressCount,
+        boostCount: chainBoosts.length,
+        organicCount: organicTokenAddresses.size,
+        fallbackTotal: fallbackAddresses.length,
+        mergedTotal: trendingAddresses.length
       });
     }
 
@@ -1112,7 +1119,9 @@ export async function getTrendingTokensPremium(
     logger.info(LogCode.API_FETCH_SUCCESS, 'Premium trending tokens fetch complete', {
       count: finalTokens.length,
       chain: normalizedChainId,
-      durationMs: duration
+      durationMs: duration,
+      source: wsAddressCount >= 20 ? 'WebSocket' : 'Fallback',
+      wsOriginal: wsAddressCount
     });
 
     // Step 6: Optional symbol de-dupe (only if we still have >= limit).
