@@ -128,63 +128,6 @@ export async function generateAIResponse(
 }
 
 /**
- * Generate intelligent tool configuration based on user message
- */
-function generateToolConfig(userMessage: string): ToolConfig | undefined {
-  const toolConfig: ToolConfig = {};
-
-  // Crypto/Trading related keywords
-  const isCryptoRelated = /\b(crypto|bitcoin|btc|ethereum|eth|token|coin|swap|trade|defi|nft|blockchain|price|market)\b/i.test(userMessage);
-
-  // News/Research keywords
-  const isNewsRelated = /\b(news|latest|recent|update|announcement|happening|trend)\b/i.test(userMessage);
-
-  // Social/Sentiment keywords
-  const isSocialRelated = /\b(twitter|x\.com|tweet|post|social|sentiment|opinion|discussion)\b/i.test(userMessage);
-
-  // Configure web_search
-  if (isCryptoRelated) {
-    toolConfig.web_search = {
-      allowed_domains: [
-        'bloomberg.com',
-        'reuters.com',
-        'cointelegraph.com',
-        'coindesk.com',
-        'beincrypto.com'
-      ].slice(0, 5), // Max 5 domains - using official Grok's recommended sources
-      enable_image_understanding: true
-    };
-  }
-
-  // Configure x_search with date filter for recent content
-  if (isNewsRelated || isSocialRelated) {
-    // Shortened to 3 days for faster search
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-    toolConfig.x_search = {
-      from_date: threeDaysAgo.toISOString().split('T')[0], // YYYY-MM-DD format
-      enable_image_understanding: true,
-      enable_video_understanding: true
-    };
-
-    // Add crypto-related X handles if it's crypto + social
-    if (isCryptoRelated) {
-      toolConfig.x_search.allowed_x_handles = [
-        'VitalikButerin',
-        'cz_binance',
-        'coinbase',
-        'ethereum',
-        'bitcoin'
-      ].slice(0, 5); // Max 5 handles
-    }
-  }
-
-  // Return undefined if no config was set (use defaults)
-  return Object.keys(toolConfig).length > 0 ? toolConfig : undefined;
-}
-
-/**
  * Check if message is a simple greeting that doesn't need search
  */
 function isSimpleGreeting(message: string): boolean {
@@ -536,11 +479,13 @@ export async function* streamAIResponse(
         // Fast models will only get web_search from backend, not x_search
         const shouldEnableSearch = !isSimpleGreeting(userMessage);
 
-        // Generate intelligent tool configuration based on user message
-        const toolConfig = shouldEnableSearch ? generateToolConfig(userMessage) : undefined;
-        if (toolConfig) {
-          console.log('[aiService] Using intelligent tool config:', toolConfig);
-        } else if (!shouldEnableSearch) {
+        // Default: enable image/video understanding but do not constrain dates/handles.
+        const toolConfig = shouldEnableSearch ? {
+          web_search: { enable_image_understanding: true },
+          x_search: { enable_image_understanding: true, enable_video_understanding: true },
+        } : undefined;
+
+        if (!shouldEnableSearch) {
           console.log('[aiService] Simple greeting detected - search disabled for faster response');
         }
 
@@ -554,7 +499,7 @@ export async function* streamAIResponse(
           model: xaiModelName,
           signal,
           enable_search: shouldEnableSearch, // Only enable for reasoning models
-          tool_config: toolConfig, // Pass intelligent tool configuration
+          tool_config: toolConfig, // Only enable image/video understanding by default
           client_timezone: clientTimezone,
         })) {
           fullContent += chunk.content;
