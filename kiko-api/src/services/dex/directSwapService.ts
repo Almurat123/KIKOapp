@@ -968,8 +968,8 @@ async function callV4QuoterExactOut(
         'function quoteExactInputSingle((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) external returns (uint256 amountOut,uint256 gasEstimate)'
     ]);
 
-    const data = iface.encodeFunctionData('quoteExactInputSingle', [{
-        poolKey: {
+    const data = iface.encodeFunctionData('quoteExactInputSingle', [
+        {
             currency0: poolKey.currency0,
             currency1: poolKey.currency1,
             fee: poolKey.fee,
@@ -977,9 +977,9 @@ async function callV4QuoterExactOut(
             hooks: poolKey.hooks
         },
         zeroForOne,
-        exactAmount: amountInWei,
-        hookData: '0x'
-    }]);
+        amountInWei,
+        '0x'
+    ]);
 
     const chainConfig = getChainConfig(chainId);
     const endpoints = chainConfig.rpcUrls || [];
@@ -1128,6 +1128,15 @@ async function getReferenceExpectedOutput(
     slippageBps: number,
     recipient: string
 ): Promise<bigint> {
+    if (process.env.DIRECT_SWAP_REF_MODE === 'onchain-only') {
+        const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+        const weth = WETH_ADDRESSES[chainId];
+        const poolTokenIn = tokenIn.toLowerCase() === ETH_ADDRESS && weth ? weth : tokenIn;
+        const poolTokenOut = tokenOut.toLowerCase() === ETH_ADDRESS && weth ? weth : tokenOut;
+        const v4Best = await getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId);
+        if (v4Best.amountOut > 0n) return v4Best.amountOut;
+        return 0n;
+    }
     const cacheKey = `${chainId}:${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}:${amountInWei.toString()}`;
     const cached = referenceQuoteCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < REFERENCE_QUOTE_TTL_MS) {
@@ -1357,8 +1366,9 @@ async function executeV4Swap(
     // 计算金额 (wei)
     const amountInWei = ethers.parseEther(amountIn);
 
-    // [Safety]: 使用 V4 Pool 的 spot price 做报价偏离校验，避免极端误报价
+    // [Safety]: 使用 V4 Pool 的 spot price + Quoter 做报价偏离校验，避免极端误报价
     let spotOutWei = 0n;
+    let quoterOutWei = 0n;
     try {
         const [meta0, meta1] = await Promise.all([
             getTokenMetadata(chainId, poolKey.currency0),
@@ -1385,14 +1395,21 @@ async function executeV4Swap(
         });
     }
 
-    if (spotOutWei <= 0n) {
+    quoterOutWei = await callV4QuoterExactOut(poolKey, zeroForOne, amountInWei, chainId);
+    let baseOutWei = quoterOutWei > 0n ? quoterOutWei : spotOutWei;
+    if (baseOutWei <= 0n) {
+        const fallbackBest = await getV4BestPoolQuote(normalizedIn!, normalizedOut!, amountInWei, chainId);
+        baseOutWei = fallbackBest.amountOut;
+    }
+    if (baseOutWei <= 0n) {
         return { success: false, error: 'V4 spot price unavailable', provider: 'failed' };
     }
 
-    const minAmountOut = spotOutWei * BigInt(10000 - slippageBps) / BigInt(10000);
+    const minAmountOut = baseOutWei * BigInt(10000 - slippageBps) / BigInt(10000);
 
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] V4 minAmountOut calculated', {
         spotOut: spotOutWei.toString().slice(0, 15),
+        quoterOut: quoterOutWei.toString().slice(0, 15),
         minAmountOut: minAmountOut.toString().slice(0, 15),
         slippageBps
     });
@@ -1419,7 +1436,7 @@ async function executeV4Swap(
             from: params.walletAddress,
             to: tx.to,
             data: tx.data,
-            value: isNativeIn ? ethers.toBeHex(amountInWei) : '0x0'
+            value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
         }, 'latest']);
     } catch (err: any) {
         logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 pre-simulation failed', {
@@ -1436,7 +1453,7 @@ async function executeV4Swap(
             from: params.walletAddress,
             to: tx.to,
             data: tx.data,
-            value: isNativeIn ? ethers.toBeHex(amountInWei) : '0x0'
+            value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
         }]);
 
         const estimatedGas = BigInt(estimate);

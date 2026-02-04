@@ -59,6 +59,96 @@ function createChromeAgent(): https.Agent {
     });
 }
 
+// ============== FLARESOLVERR CLOUDFLARE BYPASS ==============
+
+/**
+ * FlareSolverr session cache
+ * Stores the cf_clearance cookie and user-agent to reuse across connections
+ */
+interface CloudflareSession {
+    cookies: string;         // cf_clearance cookie string
+    userAgent: string;       // User-agent from FlareSolverr browser
+    expiresAt: number;       // Session expiry timestamp
+}
+
+let cfSession: CloudflareSession | null = null;
+const CF_SESSION_TTL = 10 * 60 * 1000; // 10 minutes (Cloudflare cookies last ~15 min)
+
+/**
+ * Get or refresh Cloudflare session via FlareSolverr
+ * 
+ * FlareSolverr runs a headless browser to solve Cloudflare challenges
+ * and returns the session cookies needed for subsequent requests.
+ * 
+ * @returns CloudflareSession or null if unavailable
+ */
+async function getCloudflareSession(): Promise<CloudflareSession | null> {
+    // Check if FlareSolverr is configured
+    const flareSolverrUrl = process.env.FLARESOLVERR_URL;
+    if (!flareSolverrUrl) {
+        return null;
+    }
+
+    // Return cached session if still valid
+    if (cfSession && Date.now() < cfSession.expiresAt) {
+        return cfSession;
+    }
+
+    try {
+        logger.debug(LogCode.SYS_INFO, 'FlareSolverr: Requesting new Cloudflare session...');
+
+        const response = await fetch(flareSolverrUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cmd: 'request.get',
+                url: 'https://dexscreener.com/',
+                maxTimeout: 60000,
+            }),
+            signal: AbortSignal.timeout(65000),
+        });
+
+        if (!response.ok) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'FlareSolverr: HTTP error', { status: response.status });
+            return null;
+        }
+
+        const data = await response.json() as {
+            status: string;
+            solution?: {
+                cookies: Array<{ name: string; value: string }>;
+                userAgent: string;
+            };
+        };
+
+        if (data.status !== 'ok' || !data.solution) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'FlareSolverr: Challenge failed', { status: data.status });
+            return null;
+        }
+
+        // Extract cf_clearance cookie
+        const cookies = data.solution.cookies
+            .map(c => `${c.name}=${c.value}`)
+            .join('; ');
+
+        cfSession = {
+            cookies: cookies,
+            userAgent: data.solution.userAgent,
+            expiresAt: Date.now() + CF_SESSION_TTL,
+        };
+
+        logger.debug(LogCode.SYS_INFO, 'FlareSolverr: Session obtained', {
+            cookieCount: data.solution.cookies.length,
+            userAgent: cfSession.userAgent.substring(0, 50) + '...'
+        });
+
+        return cfSession;
+    } catch (error: any) {
+        logger.warn(LogCode.API_FETCH_FAILED, 'FlareSolverr: Request failed', { error: error.message });
+        return null;
+    }
+}
+
 // ============== FREE ROTATING PROXY POOL ==============
 
 /**
@@ -256,7 +346,18 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
         return directResult;
     }
 
-    // Attempt 2-4: Retry via rotating proxy pool (up to 3 proxies)
+    // Attempt 2: Try with FlareSolverr Cloudflare cookies (if configured)
+    const cfSession = await getCloudflareSession();
+    if (cfSession) {
+        logger.debug(LogCode.SYS_INFO, 'DexScreener WS: Trying with FlareSolverr cookies', { chain: normalizedChain });
+        const cfResult = await attemptWSConnectionWithCookies(url, normalizedChain, timeout, cfSession);
+        if (cfResult.length > 0) {
+            logger.debug(LogCode.SYS_INFO, 'DexScreener WS: FlareSolverr connection succeeded', { count: cfResult.length });
+            return cfResult;
+        }
+    }
+
+    // Attempt 3-5: Retry via rotating proxy pool (up to 3 proxies)
     const MAX_PROXY_RETRIES = 3;
     for (let i = 0; i < MAX_PROXY_RETRIES; i++) {
         const proxyUrl = await getRotatingProxy();
@@ -281,6 +382,113 @@ export async function fetchTrendingAddresses(options: WSOptions): Promise<string
     // All attempts failed
     logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener WS: All connection attempts failed', { chain: normalizedChain });
     return [];
+}
+
+/**
+ * Attempt WebSocket connection with FlareSolverr cookies
+ * Uses the cf_clearance cookie to bypass Cloudflare
+ */
+function attemptWSConnectionWithCookies(
+    url: string,
+    normalizedChain: string,
+    timeout: number,
+    session: CloudflareSession
+): Promise<string[]> {
+    return new Promise((resolve) => {
+        const startTime = Date.now();
+        let resolved = false;
+
+        const agent = createChromeAgent();
+
+        const ws = new WebSocket(url, {
+            agent: agent,
+            headers: {
+                'Host': 'io.dexscreener.com',
+                'Origin': 'https://dexscreener.com',
+                'Referer': 'https://dexscreener.com/',
+                'User-Agent': session.userAgent, // Use FlareSolverr's user-agent
+                'Cookie': session.cookies,        // Include cf_clearance cookie
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-WebSocket-Extensions': 'permessage-deflate; client_max_window_bits',
+                'Sec-WebSocket-Version': '13',
+            },
+        });
+
+        const timeoutId = setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener WS: FlareSolverr timeout', { chain: normalizedChain });
+                ws.close();
+                resolve([]);
+            }
+        }, timeout);
+
+        ws.on('open', () => {
+            logger.debug(LogCode.SYS_INFO, 'DexScreener WS: FlareSolverr connected', { chain: normalizedChain });
+        });
+
+        ws.on('message', (data: Buffer) => {
+            if (resolved) return;
+
+            try {
+                const text = data.toString('utf8');
+
+                if (text.length > 1000) {
+                    const ethAddresses = text.match(/0x[0-9a-fA-F]{40}/g) || [];
+                    const solAddresses: string[] = [];
+
+                    if (normalizedChain === 'solana') {
+                        const solMatches = text.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/g) || [];
+                        for (const match of solMatches) {
+                            if (match.length >= 32 && match.length <= 44) {
+                                const repeatedCharRatio = (match.match(/(.)\1{2,}/g) || []).length / match.length;
+                                if (repeatedCharRatio < 0.1) {
+                                    solAddresses.push(match);
+                                }
+                            }
+                        }
+                    }
+
+                    const allAddresses = [...ethAddresses.map(a => a.toLowerCase()), ...solAddresses];
+                    const uniqueAddresses = [...new Set(allAddresses)];
+
+                    const duration = Date.now() - startTime;
+                    logger.debug(LogCode.SYS_INFO, 'DexScreener WS: FlareSolverr received addresses', {
+                        chain: normalizedChain,
+                        count: uniqueAddresses.length,
+                        durationMs: duration
+                    });
+
+                    resolved = true;
+                    clearTimeout(timeoutId);
+                    ws.close();
+                    resolve(uniqueAddresses);
+                }
+            } catch (error: any) {
+                logger.error(LogCode.SYS_ERROR, 'DexScreener WS: FlareSolverr parse error', { error: error.message });
+            }
+        });
+
+        ws.on('error', (error) => {
+            if (!resolved) {
+                logger.error(LogCode.SYS_ERROR, 'DexScreener WS: FlareSolverr connection error', { error: error.message, chain: normalizedChain });
+                resolved = true;
+                clearTimeout(timeoutId);
+                resolve([]);
+            }
+        });
+
+        ws.on('close', () => {
+            if (!resolved) {
+                resolved = true;
+                clearTimeout(timeoutId);
+                resolve([]);
+            }
+        });
+    });
 }
 
 /**

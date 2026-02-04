@@ -1,3 +1,164 @@
+2026-02-04T15:14:47.000000000Z [inf]  Starting Container
+2026-02-04T15:14:48.738138248Z [inf]  
+2026-02-04T15:14:48.738142172Z [inf]  > kiko-api@1.0.0 start
+2026-02-04T15:14:48.738145278Z [inf]  > node dist/index.js
+2026-02-04T15:14:48.738148681Z [inf]  
+2026-02-04T15:14:50.748675263Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
+2026-02-04T15:14:50.822806401Z [inf]  Zora SDK initialized with API Key
+2026-02-04T15:14:51.132360838Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
+2026-02-04T15:14:51.598342067Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
+2026-02-04T15:14:51.819823386Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills...
+2026-02-04T15:14:51.819828814Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills...
+2026-02-04T15:14:51.959199917Z [inf]  Serving static files from:
+2026-02-04T15:14:51.959202956Z [inf]  Initializing services...
+2026-02-04T15:14:52.099487898Z [inf]  [DataRetention] Checking retention policies...
+2026-02-04T15:14:52.099493527Z [inf]  [DataRetention] Starting cleanup job...
+2026-02-04T15:14:52.099496972Z [inf]  Redis initialized
+2026-02-04T15:14:52.099500193Z [inf]  Starting server on port 8080...
+2026-02-04T15:14:52.099540817Z [inf]  [Prisma] DB connection is healthy
+2026-02-04T15:14:52.099544421Z [inf]  Database connection successful
+2026-02-04T15:14:52.211368801Z [inf]  Server listening at http://0.0.0.0:8080
+2026-02-04T15:14:52.211375615Z [inf]  Server listening
+2026-02-04T15:14:52.211380010Z [inf]  RPC health monitor started
+2026-02-04T15:14:52.211384028Z [inf]  RPC benchmark sampling started
+2026-02-04T15:14:52.216484511Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
+2026-02-04T15:14:52.216489202Z [inf]  [TokenJob] Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
+2026-02-04T15:14:52.216492975Z [inf]  [TokenJob] Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
+2026-02-04T15:14:52.217441223Z [inf]  Position monitor started
+2026-02-04T15:14:52.217444160Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
+2026-02-04T15:14:52.217446614Z [inf]  Token Alert Service started
+2026-02-04T15:14:52.217451700Z [inf]  Token alert service started
+2026-02-04T15:14:52.217451984Z [inf]  Background jobs started
+2026-02-04T15:14:52.217457307Z [inf]  [ChatWorker] Started polling for AI tasks (interval: 3000ms)
+2026-02-04T15:14:52.217458074Z [inf]  Initializing auto trade service...
+2026-02-04T15:14:52.217461938Z [inf]  Chat worker started
+2026-02-04T15:14:52.217464372Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
+2026-02-04T15:14:52.217467768Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook enabled)
+2026-02-04T15:14:52.217470529Z [inf]  Auto trade service started
+2026-02-04T15:14:52.217474183Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
+2026-02-04T15:14:52.217906929Z [inf]  Starting Global Zora Alpha Detector (API Polling)
+2026-02-04T15:14:52.217910654Z [inf]  🎉 All services initialized!
+2026-02-04T15:14:52.338495751Z [err]  [DataRetention] No cleanup handler for table: SuggestionEvent
+2026-02-04T15:14:52.358877001Z [inf]  [DataRetention] Cleanup job completed.
+2026-02-04T15:14:57.230213040Z [inf]  [MarketJob] Overview is fresh, skipping API call
+2026-02-04T15:14:57.230229092Z [inf]  [MarketJob] Protocols are fresh, skipping API call
+2026-02-04T15:14:57.230242188Z [inf]  [MarketJob] Running startup staleness check...
+2026-02-04T15:14:57.230246928Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:14:57.300023622Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-04T15:14:57.300029020Z [inf]  [Job] ✅ Got 612 quality users from database
+2026-02-04T15:14:57.300034046Z [inf]  [SocialJob] fetchCastsFromUsers starting with 612 FIDs, target: 1000
+2026-02-04T15:14:57.300037697Z [err]  [Job] Real hot users file not found: 
+2026-02-04T15:14:57.605543740Z [inf]  0x API price received successfully
+2026-02-04T15:14:57.834525603Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:14:57.834528401Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-04T15:14:57.834531052Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-04T15:14:57.985034475Z [wrn]  RPC endpoint failed
+2026-02-04T15:14:57.990045374Z [wrn]  RPC endpoint failed
+2026-02-04T15:14:58.050898289Z [inf]  RPC failover success
+2026-02-04T15:14:58.085625769Z [inf]  RPC failover success
+2026-02-04T15:14:58.862015876Z [wrn]  RPC endpoint failed
+2026-02-04T15:14:58.862020020Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:14:58.960165790Z [inf]  RPC failover success
+2026-02-04T15:14:59.017157440Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:15:00.544334590Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-04T15:15:00.544361560Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
+2026-02-04T15:15:00.544365581Z [inf]  Fetching premium trending tokens
+2026-02-04T15:15:00.544396792Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
+2026-02-04T15:15:00.544401174Z [inf]  Timer finished: recalc_heat_scores
+2026-02-04T15:15:00.544404929Z [err]  DexScreener WS: Connection error
+2026-02-04T15:15:09.099507891Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:15:28.957032257Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:15:28.957036304Z [inf]  [TokenJob] Starting initial token refresh...
+2026-02-04T15:15:28.957040340Z [inf]  [TokenJob] Skipping refresh for Ethereum - update already in progress
+2026-02-04T15:15:28.957050574Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:15:28.957054337Z [wrn]  WS returned 0 addresses
+2026-02-04T15:15:28.957058063Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:15:28.957061980Z [inf]  Merged addresses
+2026-02-04T15:15:28.957067752Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:15:28.957071351Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:15:28.957074761Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:15:29.614273200Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:15:30.036735894Z [inf]  0x API price received successfully
+2026-02-04T15:15:30.219796680Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:15:30.219799942Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:15:31.398848095Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:15:31.398850892Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:15:34.213603288Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:15:34.213606121Z [err]  GeckoTerminal API error after retries
+2026-02-04T15:15:34.213609669Z [err]  Error fetching trending tokens
+2026-02-04T15:15:34.213612414Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:15:34.213615008Z [inf]  [TokenJob] Got 27 trending tokens for Ethereum
+2026-02-04T15:15:34.213617752Z [err]  [TokenJob] New list too small (27) for Ethereum; keeping existing (100)
+2026-02-04T15:15:41.493904765Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:16:01.547772970Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:16:01.547776076Z [inf]  [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
+2026-02-04T15:16:01.547779355Z [inf]  Fetching premium trending tokens
+2026-02-04T15:16:01.547782388Z [err]  DexScreener WS: Connection error
+2026-02-04T15:16:01.547785644Z [err]  DexScreener WS: Connection error
+2026-02-04T15:16:01.547788973Z [err]  DexScreener WS: Connection error
+2026-02-04T15:16:01.547792725Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:01.547796156Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:01.547799299Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:01.548512751Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:01.548517479Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:01.548520365Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:01.548524734Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:01.548527909Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:16:01.548530870Z [wrn]  WS returned 0 addresses
+2026-02-04T15:16:01.548533471Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:16:01.548536131Z [inf]  Merged addresses
+2026-02-04T15:16:01.851766150Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:16:02.098875760Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:16:02.098879963Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:16:02.098884198Z [inf]  [TokenJob] Got 100 trending tokens for Solana
+2026-02-04T15:16:02.098888334Z [inf]  [TokenJob] Filtered out 2 invalid tokens for Solana
+2026-02-04T15:16:02.159863361Z [inf]  Saved 98 trending tokens for solana to database and memory cache
+2026-02-04T15:16:02.199587054Z [inf]  [TokenJob] Saved 98 tokens for Solana to DB + cache
+2026-02-04T15:16:02.278397248Z [inf]  0x API price received successfully
+2026-02-04T15:16:02.278399897Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:16:03.569709990Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:16:03.590145404Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:16:04.223616230Z [inf]  [TokenJob] Tokens for Solana are fresh, skipping API call
+2026-02-04T15:16:13.817786820Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:16:13.948971876Z [inf]  📊 Position P/L check
+2026-02-04T15:16:33.953819678Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:16:33.953823293Z [inf]  📊 Position P/L check
+2026-02-04T15:16:33.953827254Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+2026-02-04T15:16:33.953830973Z [inf]  Fetching premium trending tokens
+2026-02-04T15:16:33.953834255Z [err]  DexScreener WS: Connection error
+2026-02-04T15:16:33.953837238Z [err]  DexScreener WS: Connection error
+2026-02-04T15:16:34.298362910Z [inf]  [TokenJob] Skipping refresh for Base - update already in progress
+2026-02-04T15:16:34.342982295Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:16:34.717916760Z [inf]  0x API price received successfully
+2026-02-04T15:16:34.945635543Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:16:35.518310570Z [wrn]  RPC endpoint failed
+2026-02-04T15:16:35.591402602Z [inf]  RPC failover success
+2026-02-04T15:16:35.979020042Z [wrn]  RPC endpoint failed
+2026-02-04T15:16:35.979023245Z [inf]  RPC failover success
+2026-02-04T15:16:35.979027050Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:16:35.984193539Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:16:36.102054156Z [inf]  📊 Position P/L check
+2026-02-04T15:16:42.405923161Z [err]  DexScreener WS: Connection error
+2026-02-04T15:16:42.405928561Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:16:42.405932392Z [wrn]  WS returned 0 addresses
+2026-02-04T15:16:42.405935189Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:16:42.696130088Z [inf]  Merged addresses
+2026-02-04T15:16:43.096226921Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:16:43.512583687Z [inf]  Skipping low liquidity token
+2026-02-04T15:16:44.412809078Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:16:45.432421004Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:16:46.114407398Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:16:46.211883439Z [inf]  📊 Position P/L check
+2026-02-04T15:16:47.446654967Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:16:51.677619045Z [err]  Error fetching trending tokens
+2026-02-04T15:16:51.677623786Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:16:51.677628103Z [inf]  [TokenJob] Got 45 trending tokens for Base
+2026-02-04T15:16:51.677633808Z [err]  [TokenJob] New list too small (45) for Base; keeping existing (71)
+2026-02-04T15:16:56.208948417Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:16:56.249194772Z [inf]  📊 Position P/L check
+2026-02-04T15:16:57.588792081Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:57.743260869Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:16:58.494745217Z [inf]  Alpha Detector: Checking new coin
 2026-02-04T15:16:58.614878964Z [inf]  Alpha Detector: Checking new coin
 2026-02-04T15:16:58.740450353Z [inf]  Alpha Detector: Checking new coin
 2026-02-04T15:16:59.340052480Z [inf]  Alpha Detector: Checking new coin
@@ -1009,7 +1170,10 @@
 2026-02-04T15:23:04.301054844Z [inf]  ✅ Hybrid fetch complete
 2026-02-04T15:23:04.772720461Z [inf]  ✅ Hybrid fetch complete
 2026-02-04T15:23:04.958628388Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:23:11.854457874Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:23:11.968396212Z [inf]  Alpha Detector: Checking new coin
 2026-02-04T15:23:12.098140218Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:23:12.244363715Z [inf]  Alpha Detector: Checking new coin
 2026-02-04T15:23:12.362722338Z [inf]  Alpha Detector: Checking new coin
 2026-02-04T15:23:12.491178565Z [inf]  Alpha Detector: Checking new coin
 2026-02-04T15:23:12.620354806Z [inf]  Alpha Detector: Checking new coin
@@ -1021,3 +1185,1314 @@
 2026-02-04T15:23:16.633607502Z [wrn]  RPC price failed, falling back to full API fetch
 2026-02-04T15:23:16.633613081Z [err]  Critical: No valid price data available
 2026-02-04T15:23:16.654194997Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:23:36.655909597Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:23:36.655914644Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:23:36.655917972Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:23:36.655920584Z [err]  Critical: No valid price data available
+2026-02-04T15:23:36.655923470Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:23:38.161904294Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:23:38.517702127Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:23:38.517706873Z [inf]  0x API price received successfully
+2026-02-04T15:23:39.312868386Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:23:39.312872766Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:23:39.312876000Z [err]  Critical: No valid price data available
+2026-02-04T15:23:39.594820153Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:23:39.654751676Z [wrn]  RPC endpoint failed
+2026-02-04T15:23:40.277088689Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:23:40.288856795Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:23:44.628536649Z [inf]  incoming request
+2026-02-04T15:23:44.628540878Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_madivuxfjib7fl84","createdAt":"2026-02-04T15:23:44.397Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913","toAddress":"0x1111111111111111111111111111111111111111","blockNum":"0x27c83ce","hash":"0xb848164cfd45cb98f5208f7d354f51113634bfb1b7ba09ad51a2441a56eb544e","value":500,"asset":"(t.me/s/US_POOL) *claim until 05.02.26","category":"token","rawContract":{"rawValue":"0x00000000000000000000000000000000000000000000000000000000000001f4","address":"0x9765eaa10b7416da46a5f3de7f3f55ccfa12ce91","decimals":0},"log":{"address":"0x9765eaa10b7416da46a5f3de7f3f55ccfa12ce91","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913","0x0000000000000000000000001111111111111111111111111111111111111111"],"data":"0x00000000000000000000000000000000000000000000000000000000000001f4","blockHash":"0x5819063cfdb5bd83779f5e17e6efd3ab8dd2817cedc6efc35cbc91e8dc886aef","blockNumber":"0x27c83ce","blockTimestamp":"0x6983647f","transactionHash":"0xb848164cfd45cb98f5208f7d354f51113634bfb1b7ba09ad51a2441a56eb544e","transactionIndex":"0x71","logIndex":"0x26b","removed":false},"blockTimestamp":"0x6983647f"}],"source":"chainlake-kafka"}}
+2026-02-04T15:23:44.628544285Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:23:44.628547731Z [inf]  request completed
+2026-02-04T15:23:44.628550469Z [inf]  [Webhook] ⚠️ Ignoring tx 0xb84816: No matched tracked wallets in [0x8335, 0x1111]
+2026-02-04T15:23:50.301083438Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:23:50.644832133Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:23:51.577883928Z [wrn]  RPC endpoint failed
+2026-02-04T15:23:51.662629310Z [inf]  RPC failover success
+2026-02-04T15:23:52.298852591Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:23:52.298915649Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:23:52.298918519Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:23:52.298921061Z [err]  Critical: No valid price data available
+2026-02-04T15:23:52.298923729Z [inf]  📊 Position P/L check
+2026-02-04T15:24:12.199985566Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:24:12.199989076Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:24:12.199993081Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:24:12.199996662Z [err]  Critical: No valid price data available
+2026-02-04T15:24:12.200003602Z [inf]  📊 Position P/L check
+2026-02-04T15:24:12.200007569Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:24:13.486213211Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:24:13.715050588Z [inf]  0x API price received successfully
+2026-02-04T15:24:13.786059058Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:24:14.510327436Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:24:14.510331157Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:24:14.510334542Z [err]  Critical: No valid price data available
+2026-02-04T15:24:14.894513793Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:24:15.197308788Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:24:15.197316117Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:24:15.353190190Z [inf]  📊 Position P/L check
+2026-02-04T15:24:16.521951945Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:24:16.609548999Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:24:16.851001498Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:24:16.979929240Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:24:17.122158750Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:24:17.251844813Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:24:17.516873470Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:24:25.576583091Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:24:25.876758040Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:24:28.980502922Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:24:28.980507749Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:24:28.980511167Z [err]  Critical: No valid price data available
+2026-02-04T15:24:28.992119521Z [inf]  📊 Position P/L check
+2026-02-04T15:24:29.073941567Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:24:49.060098343Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:24:49.060102986Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:24:49.060106946Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:24:49.060110794Z [err]  Critical: No valid price data available
+2026-02-04T15:24:49.060116267Z [inf]  📊 Position P/L check
+2026-02-04T15:24:49.060119413Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:24:50.983391151Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:24:51.388149665Z [inf]  0x API price received successfully
+2026-02-04T15:24:51.388154395Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:24:51.910566862Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:24:51.910571273Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:24:51.910575351Z [err]  Critical: No valid price data available
+2026-02-04T15:24:52.466977161Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:24:52.817276165Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:24:52.817279767Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:25:00.374391990Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-04T15:25:00.374394882Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
+2026-02-04T15:25:00.374398418Z [inf]  Fetching premium trending tokens
+2026-02-04T15:25:00.397701127Z [err]  DexScreener WS: Connection error
+2026-02-04T15:25:00.432392603Z [err]  DexScreener WS: Connection error
+2026-02-04T15:25:00.471118814Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
+2026-02-04T15:25:00.471124900Z [inf]  Timer finished: recalc_heat_scores
+2026-02-04T15:25:02.913420954Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:25:03.123748664Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:25:03.354742058Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-04T15:25:03.598717592Z [wrn]  RPC endpoint failed
+2026-02-04T15:25:03.662701796Z [inf]  RPC failover success
+2026-02-04T15:25:04.527978161Z [wrn]  RPC endpoint failed
+2026-02-04T15:25:04.608724009Z [inf]  RPC failover success
+2026-02-04T15:25:04.636463316Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:25:04.636468139Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:25:04.636471408Z [err]  Critical: No valid price data available
+2026-02-04T15:25:04.658727607Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:25:24.646084529Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:25:24.646090218Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:25:24.646093098Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:25:24.646096786Z [err]  Critical: No valid price data available
+2026-02-04T15:25:24.646099626Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:25:24.646102314Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:25:24.646105898Z [wrn]  WS returned 0 addresses
+2026-02-04T15:25:24.646108359Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:25:24.647111878Z [inf]  Merged addresses
+2026-02-04T15:25:24.647116084Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:25:24.647120087Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:25:24.647123337Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:25:24.647126361Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:25:24.647129191Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:25:24.647132121Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:25:24.647135058Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:25:24.648107545Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:25:24.648114107Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:25:24.648117734Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:25:24.648121214Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:25:25.354271910Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:25:25.691847137Z [inf]  0x API price received successfully
+2026-02-04T15:25:25.788889261Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:25:26.344073998Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:25:26.344079731Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:25:26.344083195Z [err]  Critical: No valid price data available
+2026-02-04T15:25:26.503295451Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:25:26.798968752Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:25:27.201682517Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:25:27.201685076Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:25:30.462952404Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:25:30.462954997Z [err]  GeckoTerminal API error after retries
+2026-02-04T15:25:30.462957763Z [err]  Error fetching trending tokens
+2026-02-04T15:25:30.462960341Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:25:30.462962947Z [inf]  [TokenJob] Got 27 trending tokens for Ethereum
+2026-02-04T15:25:30.462965643Z [err]  [TokenJob] New list too small (27) for Ethereum; keeping existing (100)
+2026-02-04T15:25:37.269532767Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:25:37.617062573Z [inf]  0x API price received successfully
+2026-02-04T15:25:39.589190696Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:25:39.589195015Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:25:39.589199868Z [err]  Critical: No valid price data available
+2026-02-04T15:25:39.589202645Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:25:59.777225643Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:25:59.777230058Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:25:59.777235479Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:25:59.777239446Z [err]  Critical: No valid price data available
+2026-02-04T15:25:59.777243725Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:26:00.880438900Z [inf]  [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
+2026-02-04T15:26:00.880442624Z [inf]  Fetching premium trending tokens
+2026-02-04T15:26:00.913353392Z [err]  DexScreener WS: Connection error
+2026-02-04T15:26:01.113647858Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:26:01.569263658Z [inf]  0x API price received successfully
+2026-02-04T15:26:01.569267738Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:26:01.579899745Z [err]  DexScreener WS: Connection error
+2026-02-04T15:26:02.115613361Z [err]  DexScreener WS: Connection error
+2026-02-04T15:26:02.266550848Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:26:02.266553783Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:26:02.266556555Z [err]  Critical: No valid price data available
+2026-02-04T15:26:02.306496016Z [err]  DexScreener WS: Connection error
+2026-02-04T15:26:02.306498963Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:26:02.306501719Z [wrn]  WS returned 0 addresses
+2026-02-04T15:26:02.306504599Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:26:02.563432955Z [inf]  Merged addresses
+2026-02-04T15:26:02.563435534Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:26:02.734901751Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:26:02.756974883Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:26:03.254823237Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:26:03.254828548Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:26:03.254832267Z [inf]  [TokenJob] Got 100 trending tokens for Solana
+2026-02-04T15:26:03.254835330Z [inf]  [TokenJob] Filtered out 2 invalid tokens for Solana
+2026-02-04T15:26:03.297385703Z [inf]  Saved 98 trending tokens for solana to database and memory cache
+2026-02-04T15:26:03.323025460Z [inf]  [TokenJob] Saved 98 tokens for Solana to DB + cache
+2026-02-04T15:26:12.862877598Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:26:13.157771199Z [inf]  0x API price received successfully
+2026-02-04T15:26:14.930703732Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:26:14.930708349Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:26:14.930711624Z [err]  Critical: No valid price data available
+2026-02-04T15:26:14.953717485Z [wrn]  TP/SL check skipped: Price not available
+2026-02-04T15:26:14.954988740Z [inf]  📊 Position P/L check
+2026-02-04T15:26:20.385800301Z [inf]  incoming request
+2026-02-04T15:26:20.385806742Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_uzoiz5e5in7y644h","createdAt":"2026-02-04T15:26:20.160Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","toAddress":"0x4409921ae43a39a11d90f7b7f96cfd0b8093d9fc","blockNum":"0x27c841c","hash":"0x8545aa639454aa7151724702b2c48b100f30fe6e3b822418cb36544f558f0548","value":0,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x0","decimals":18},"blockTimestamp":"0x6983651b"},{"fromAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","toAddress":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","blockNum":"0x27c841c","hash":"0x12e0e583635bec6ac556107d14c9bfc87c135d8801a232d158c4f0cec2c7d1d8","value":0,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x0","decimals":18},"blockTimestamp":"0x6983651b"}],"source":"chainlake-kafka"}}
+2026-02-04T15:26:20.385810890Z [inf]  [Webhook] Processing as EVM activity (2 items)
+2026-02-04T15:26:20.385814911Z [inf]  request completed
+2026-02-04T15:26:20.390870396Z [inf]  [Webhook] ⚠️ Ignoring tx 0x8545aa: No matched tracked wallets in [0xfb64, 0x4409]
+2026-02-04T15:26:20.431351426Z [inf]  incoming request
+2026-02-04T15:26:20.431355951Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_zypqdjjj8keptnbi","createdAt":"2026-02-04T15:26:20.226Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x4409921ae43a39a11d90f7b7f96cfd0b8093d9fc","toAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","blockNum":"0x27c841c","hash":"0x8545aa639454aa7151724702b2c48b100f30fe6e3b822418cb36544f558f0548","value":0.006300778085636084,"typeTraceAddress":"CALL_6","asset":"ETH","category":"internal","rawContract":{"rawValue":"0x166286379a57f4","decimals":18},"blockTimestamp":"0x6983651b"}]}}
+2026-02-04T15:26:20.431359203Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:26:20.431363289Z [inf]  request completed
+2026-02-04T15:26:20.431365940Z [inf]  [Webhook] ⚠️ Ignoring tx 0x8545aa: No matched tracked wallets in [0x4409, 0xfb64]
+2026-02-04T15:26:20.450110735Z [inf]  [Webhook] ⚠️ Ignoring tx 0x12e0e5: No matched tracked wallets in [0xfb64, 0x2fc3]
+2026-02-04T15:26:20.581924401Z [inf]  incoming request
+2026-02-04T15:26:20.581931606Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_s9co6rw0lv6nloj4","createdAt":"2026-02-04T15:26:20.349Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","toAddress":"0xd87b6f1b9fcb9deb0baf5661ffd9775ab5e94a55","blockNum":"0x27c841c","hash":"0x8545aa639454aa7151724702b2c48b100f30fe6e3b822418cb36544f558f0548","value":12636649.580492882,"asset":"CLAWIAI","category":"token","rawContract":{"rawValue":"0x0000000000000000000000000000000000000000000a73ea257ad35f3b24fea3","address":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","decimals":18},"log":{"address":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b","0x000000000000000000000000d87b6f1b9fcb9deb0baf5661ffd9775ab5e94a55"],"data":"0x0000000000000000000000000000000000000000000a73ea257ad35f3b24fea3","blockHash":"0x2fc7383221ad0b4bf56b75c9da99a61f14b887dbdf4cd32de144822968e747f4","blockNumber":"0x27c841c","blockTimestamp":"0x6983651b","transactionHash":"0x8545aa639454aa7151724702b2c48b100f30fe6e3b822418cb36544f558f0548","transactionIndex":"0x117","logIndex":"0x6bd","removed":false},"blockTimestamp":"0x6983651b"}],"source":"chainlake-kafka"}}
+2026-02-04T15:26:20.581935677Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:26:20.581939213Z [inf]  request completed
+2026-02-04T15:26:20.588105730Z [inf]  [Webhook] ⚠️ Ignoring tx 0x8545aa: No matched tracked wallets in [0xfb64, 0xd87b]
+2026-02-04T15:26:21.473711286Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:21.610970479Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:21.789804642Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:21.873527043Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:22.013139349Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:22.147299705Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:22.268445637Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:22.402210738Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:22.548932470Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:26:24.965202018Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:26:26.032573997Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:26:26.032578157Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:26:26.032581845Z [err]  Critical: No valid price data available
+2026-02-04T15:26:26.038364636Z [inf]  Auto-closing position: 0 balance found on-chain (likely manual sell)
+2026-02-04T15:26:26.050349690Z [inf]  [Warpcast] Sending DM to FID 877398: "🔴 Sold $CLAWIAI
+2026-02-04T15:26:26.050354413Z [inf]  
+2026-02-04T15:26:26.050357576Z [inf]  🔴 **SOLD $CLAWIAI**
+2026-02-04T15:26:26.050360624Z [inf]  💰 **Value*..."
+2026-02-04T15:26:26.191607827Z [inf]  📊 Position P/L check
+2026-02-04T15:26:26.396394821Z [inf]  [Warpcast] DM sent successfully. Daily usage: 2/50000
+2026-02-04T15:26:33.394000502Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+2026-02-04T15:26:33.394006582Z [inf]  Fetching premium trending tokens
+2026-02-04T15:26:33.415968570Z [err]  DexScreener WS: Connection error
+2026-02-04T15:26:36.405958488Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:26:36.742900811Z [inf]  0x API price received successfully
+2026-02-04T15:26:36.912547099Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:26:38.035226581Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:26:38.316808910Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:26:38.316811810Z [inf]  📊 Position P/L check
+2026-02-04T15:26:41.566034748Z [err]  DexScreener WS: Connection error
+2026-02-04T15:26:41.717885981Z [err]  DexScreener WS: Connection error
+2026-02-04T15:26:41.717891024Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:26:41.717894238Z [wrn]  WS returned 0 addresses
+2026-02-04T15:26:41.717897598Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:26:42.069148873Z [inf]  Merged addresses
+2026-02-04T15:26:42.699304548Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:26:42.944988211Z [inf]  Skipping low liquidity token
+2026-02-04T15:26:47.352428701Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:26:48.378513960Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:26:48.458602673Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:26:48.500594571Z [inf]  📊 Position P/L check
+2026-02-04T15:26:50.397887872Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:26:54.733674550Z [inf]  Trending tokens fetch complete
+2026-02-04T15:26:54.733677166Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:26:54.733679854Z [inf]  [TokenJob] Got 100 trending tokens for Base
+2026-02-04T15:26:54.781276103Z [inf]  Saved 100 trending tokens for base to database and memory cache
+2026-02-04T15:26:54.803966767Z [inf]  [TokenJob] Saved 100 tokens for Base to DB + cache
+2026-02-04T15:26:58.701468491Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:26:58.776557208Z [inf]  📊 Position P/L check
+2026-02-04T15:27:18.777092357Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:27:18.777097804Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:27:18.777100768Z [inf]  0x API price received successfully
+2026-02-04T15:27:18.777104117Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:27:18.777107793Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:27:20.984958827Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:27:23.174140602Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:27:23.323121850Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:27:23.328225758Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:27:23.462092427Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:27:23.582521087Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:27:23.710425449Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:27:23.868362103Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:27:24.866473241Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
+2026-02-04T15:27:24.866476132Z [inf]  Fetching premium trending tokens
+2026-02-04T15:27:24.866480075Z [err]  DexScreener WS: Connection error
+2026-02-04T15:27:30.949159952Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:27:33.396322480Z [err]  DexScreener WS: Connection error
+2026-02-04T15:27:33.396326915Z [err]  DexScreener WS: Connection error
+2026-02-04T15:27:33.396330112Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:27:33.396333127Z [wrn]  WS returned 0 addresses
+2026-02-04T15:27:33.396336282Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:27:33.998566625Z [inf]  Merged addresses
+2026-02-04T15:27:34.404309319Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:27:34.404314210Z [err]  Error fetching trending tokens
+2026-02-04T15:27:34.404317152Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:27:34.404320207Z [inf]  [TokenJob] Got 31 trending tokens for BSC
+2026-02-04T15:27:34.404323606Z [err]  [TokenJob] New list too small (31) for BSC; keeping existing (100)
+2026-02-04T15:27:34.404326807Z [inf]  [TokenJob] Refreshed 4 primary chains in 154.0s
+2026-02-04T15:27:41.009910305Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:27:41.439862019Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:27:41.439865564Z [inf]  0x API price received successfully
+2026-02-04T15:27:42.460753974Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:27:42.554050263Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:28:02.693881215Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:28:02.693883955Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:28:22.603082610Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:28:22.603086048Z [inf]  0x API price received successfully
+2026-02-04T15:28:22.603089765Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:28:22.603093865Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:28:22.603099037Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:28:24.305913810Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:28:24.451173472Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:28:24.564083142Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:28:24.872004418Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:28:24.872010618Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:28:24.973898612Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:28:25.101636702Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:28:25.263088427Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:28:34.494302668Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:28:54.486309726Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:28:54.486312534Z [inf]  0x API price received successfully
+2026-02-04T15:28:54.486315923Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:28:54.486318800Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:28:54.486321648Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:28:56.553028748Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:28:56.553031714Z [inf]  📊 Position P/L check
+2026-02-04T15:29:16.545005447Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:29:16.545009572Z [inf]  📊 Position P/L check
+2026-02-04T15:29:16.666212322Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:29:17.058160134Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:29:17.064224824Z [inf]  0x API price received successfully
+2026-02-04T15:29:17.732789026Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:29:18.115982774Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:29:18.116046883Z [inf]  📊 Position P/L check
+2026-02-04T15:29:25.774013573Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:29:26.188389599Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:29:26.337771816Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:29:26.540120357Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:29:26.587564585Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:29:26.724160653Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:29:26.849056296Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:29:28.183470883Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:29:28.222945674Z [inf]  📊 Position P/L check
+2026-02-04T15:29:38.208873051Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:29:38.288472145Z [inf]  📊 Position P/L check
+2026-02-04T15:29:58.321383118Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:29:58.321387242Z [inf]  0x API price received successfully
+2026-02-04T15:29:58.321391338Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:29:58.321394968Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:29:58.321398505Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:29:59.863758472Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:30:00.617098925Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-04T15:30:00.690477923Z [err]  [Job] Real hot users file not found: 
+2026-02-04T15:30:00.690480577Z [inf]  [Job] ✅ Got 612 quality users from database
+2026-02-04T15:30:00.690483257Z [inf]  [SocialJob] fetchCastsFromUsers starting with 612 FIDs, target: 1000
+2026-02-04T15:30:00.712394780Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
+2026-02-04T15:30:00.712399384Z [inf]  Timer finished: recalc_heat_scores
+2026-02-04T15:30:00.853648914Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
+2026-02-04T15:30:00.853651711Z [inf]  Fetching premium trending tokens
+2026-02-04T15:30:00.853654730Z [err]  DexScreener WS: Connection error
+2026-02-04T15:30:09.927336525Z [err]  DexScreener WS: Connection error
+2026-02-04T15:30:10.028992095Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:30:16.130905520Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x489f33
+2026-02-04T15:30:16.130953331Z [inf]  incoming request
+2026-02-04T15:30:16.130956681Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_owq8nv2xyrepvnqu","createdAt":"2026-02-04T15:30:15.928Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x8d0d118070b728e104294471fbe93c2e3affd694","blockNum":"0x27c8492","hash":"0x489f33ff3f5932e6dd9fc366839385fcda0315e8da3cf1d602bfec6aec208b0b","value":0,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x0","decimals":18},"blockTimestamp":"0x69836607"}],"source":"chainlake-kafka"}}
+2026-02-04T15:30:16.130961044Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:30:16.130965059Z [inf]  request completed
+2026-02-04T15:30:16.190845692Z [inf]  incoming request
+2026-02-04T15:30:16.190851109Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_bac27xvk3x3we0ko","createdAt":"2026-02-04T15:30:15.974Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x8d0d118070b728e104294471fbe93c2e3affd694","toAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","blockNum":"0x27c8492","hash":"0x489f33ff3f5932e6dd9fc366839385fcda0315e8da3cf1d602bfec6aec208b0b","value":0.30396516553041864,"typeTraceAddress":"CALL_9","asset":"ETH","category":"internal","rawContract":{"rawValue":"0x437e6b523888db2","decimals":18},"blockTimestamp":"0x69836607"}]}}
+2026-02-04T15:30:16.190855549Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:30:16.190858808Z [inf]  request completed
+2026-02-04T15:30:16.190861794Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x489f33
+2026-02-04T15:30:16.190864505Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:30:16.259647836Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:30:16.267429896Z [inf]  incoming request
+2026-02-04T15:30:16.267433709Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_rof37h7cqwsstrvx","createdAt":"2026-02-04T15:30:15.984Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x6ff5693b99212da76ad316178a184ab56d299b43","blockNum":"0x27c8492","hash":"0x489f33ff3f5932e6dd9fc366839385fcda0315e8da3cf1d602bfec6aec208b0b","value":455817225.76464677,"asset":"CLAWIAI","category":"token","rawContract":{"rawValue":"0x000000000000000000000000000000000000000001790b0d524ef4e4652a0da1","address":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","decimals":18},"log":{"address":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000b4beddf1b828aaed9638601f7145b0f6093f2d3f","0x0000000000000000000000006ff5693b99212da76ad316178a184ab56d299b43"],"data":"0x000000000000000000000000000000000000000001790b0d524ef4e4652a0da1","blockHash":"0x9dc60439e2ef8d5ebfe37e8e38c18ae639c5a24e4477d4f5485dffbcd02d4004","blockNumber":"0x27c8492","blockTimestamp":"0x69836607","transactionHash":"0x489f33ff3f5932e6dd9fc366839385fcda0315e8da3cf1d602bfec6aec208b0b","transactionIndex":"0x83","logIndex":"0x27b","removed":false},"blockTimestamp":"0x69836607"}],"source":"chainlake-kafka"}}
+2026-02-04T15:30:16.267437153Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:30:16.267444328Z [inf]  request completed
+2026-02-04T15:30:16.267447512Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x489f33
+2026-02-04T15:30:16.268287784Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:30:16.307696302Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:30:16.307700950Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:30:16.307703892Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0xb4beddf1: {
+2026-02-04T15:30:16.307706914Z [inf]    tokenIn: '0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07',
+2026-02-04T15:30:16.307709779Z [inf]    tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+2026-02-04T15:30:16.307712445Z [inf]    dex: 'Uniswap v4'
+2026-02-04T15:30:16.307715309Z [inf]  }
+2026-02-04T15:30:16.307721170Z [inf]  Swap detected on target wallet
+2026-02-04T15:30:16.307723896Z [inf]  Target is selling - triggering mirror sell
+2026-02-04T15:30:16.389293868Z [inf]    tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+2026-02-04T15:30:16.389300093Z [inf]    dex: 'Uniswap v4'
+2026-02-04T15:30:16.389304313Z [inf]  }
+2026-02-04T15:30:16.389309418Z [inf]  Swap detected on target wallet
+2026-02-04T15:30:16.389329121Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:30:16.389333885Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:30:16.389337871Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0xb4beddf1: {
+2026-02-04T15:30:16.389341008Z [inf]    tokenIn: '0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07',
+2026-02-04T15:30:16.437619902Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:30:16.437625219Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:30:16.437629771Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0xb4beddf1: {
+2026-02-04T15:30:16.437632782Z [inf]    tokenIn: '0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07',
+2026-02-04T15:30:16.437635811Z [inf]    tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+2026-02-04T15:30:16.437638979Z [inf]    dex: 'Uniswap v4'
+2026-02-04T15:30:16.437641860Z [inf]  }
+2026-02-04T15:30:16.437644673Z [inf]  Swap detected on target wallet
+2026-02-04T15:30:16.516816178Z [inf]  Timer finished: launchpad_det_0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+2026-02-04T15:30:16.516819756Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:30:16.516824585Z [wrn]  All API liquidity sources failed
+2026-02-04T15:30:17.616992940Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:30:17.616996735Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:30:17.824882328Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:30:17.824888836Z [wrn]  WS returned 0 addresses
+2026-02-04T15:30:17.824892752Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:30:18.016358534Z [inf]  0x API price received successfully
+2026-02-04T15:30:18.016362007Z [err]  Critical: No valid price data available
+2026-02-04T15:30:18.147377192Z [inf]  Merged addresses
+2026-02-04T15:30:18.473182450Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:30:20.306582502Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:30:20.547678846Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:30:20.685224785Z [inf]  0x API price received successfully
+2026-02-04T15:30:21.050301608Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:30:21.373391201Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:30:23.106039119Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:30:24.121595716Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:30:26.149603032Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:30:27.348272881Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:30:27.526742500Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:30:27.656545505Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:30:27.846271046Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:30:28.210019304Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:30:28.331373715Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:30:30.161343752Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:30:30.161350687Z [err]  GeckoTerminal API error after retries
+2026-02-04T15:30:30.161357244Z [err]  Error fetching trending tokens
+2026-02-04T15:30:30.161361694Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:30:30.161365868Z [inf]  [TokenJob] Got 27 trending tokens for Ethereum
+2026-02-04T15:30:30.171715146Z [err]  [TokenJob] New list too small (27) for Ethereum; keeping existing (100)
+2026-02-04T15:30:31.414604350Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:30:51.414097151Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:30:51.543918427Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:30:51.843297741Z [inf]  0x API price received successfully
+2026-02-04T15:30:51.921167480Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:30:53.120659584Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:30:53.212555175Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:31:00.319217524Z [inf]  [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
+2026-02-04T15:31:00.319221430Z [inf]  Fetching premium trending tokens
+2026-02-04T15:31:00.324484506Z [err]  DexScreener WS: Connection error
+2026-02-04T15:31:03.227729768Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:31:23.268715800Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:31:23.268734104Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:31:23.268737109Z [inf]  📊 Position P/L check
+2026-02-04T15:31:23.268740132Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:31:23.268744324Z [err]  DexScreener WS: Connection error
+2026-02-04T15:31:23.268748006Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:31:23.268751042Z [wrn]  WS returned 0 addresses
+2026-02-04T15:31:23.268754259Z [inf]  Merged addresses
+2026-02-04T15:31:23.268757295Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:31:23.275981485Z [inf]  [TokenJob] Got 100 trending tokens for Solana
+2026-02-04T15:31:23.275985550Z [inf]  [TokenJob] Filtered out 2 invalid tokens for Solana
+2026-02-04T15:31:23.275989632Z [inf]  Saved 98 trending tokens for solana to database and memory cache
+2026-02-04T15:31:23.275993140Z [inf]  [TokenJob] Saved 98 tokens for Solana to DB + cache
+2026-02-04T15:31:23.348892638Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:31:23.734813489Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:31:23.734818038Z [inf]  0x API price received successfully
+2026-02-04T15:31:24.431681394Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:31:24.464705255Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:31:24.486597328Z [inf]  📊 Position P/L check
+2026-02-04T15:31:28.907535381Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:29.091854427Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:29.234977022Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:29.426333715Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:29.550628311Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:29.784604408Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:29.862238936Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:29.946478995Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:30.089489340Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:31:34.581712280Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:31:34.645995514Z [inf]  📊 Position P/L check
+2026-02-04T15:31:54.645692579Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:31:54.645695441Z [inf]  📊 Position P/L check
+2026-02-04T15:31:54.645701168Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+2026-02-04T15:31:54.645704934Z [inf]  Fetching premium trending tokens
+2026-02-04T15:31:54.645707926Z [err]  DexScreener WS: Connection error
+2026-02-04T15:31:54.742332074Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:31:55.273304043Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:31:55.273306997Z [inf]  0x API price received successfully
+2026-02-04T15:31:56.286210325Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:31:56.623059594Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:31:56.658882112Z [inf]  📊 Position P/L check
+2026-02-04T15:32:16.648250280Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:32:16.648256683Z [inf]  📊 Position P/L check
+2026-02-04T15:32:16.648260465Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:32:16.648264875Z [wrn]  WS returned 0 addresses
+2026-02-04T15:32:16.648270112Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:32:16.648274166Z [inf]  Merged addresses
+2026-02-04T15:32:16.648277622Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:32:16.648281547Z [inf]  Repeated x3: API-5001:Skipping low liquidity token
+2026-02-04T15:32:16.648284630Z [inf]  Skipping low liquidity token
+2026-02-04T15:32:16.869609832Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:32:17.192336285Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:32:18.193058283Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:32:20.663369373Z [inf]  Skipping low liquidity token
+2026-02-04T15:32:20.912500263Z [err]  Error fetching trending tokens
+2026-02-04T15:32:20.912502834Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:32:20.912505368Z [inf]  [TokenJob] Got 45 trending tokens for Base
+2026-02-04T15:32:20.912508051Z [err]  [TokenJob] New list too small (45) for Base; keeping existing (100)
+2026-02-04T15:32:23.266537536Z [inf]  [SocialJob] Checking Zora coin status for 258 casts...
+2026-02-04T15:32:26.997169433Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:32:27.427657562Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:32:27.449789126Z [inf]  0x API price received successfully
+2026-02-04T15:32:28.452845999Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:32:28.644980129Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:32:30.574242602Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:32:30.786265786Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:32:30.905490145Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:32:31.026449081Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:32:31.275958282Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:32:31.280730497Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:32:31.421915374Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:32:34.968000232Z [inf]  [SocialRepo] Cleaned up 95 old casts (cap: 1000)
+2026-02-04T15:32:35.643876971Z [inf]  Timer finished: get_trending_casts_trending
+2026-02-04T15:32:36.065928868Z [inf]  SocialRepo: Updated cache with 500 merged casts
+2026-02-04T15:32:36.065934000Z [inf]  SocialRepo: Saved 258 trending casts to database
+2026-02-04T15:32:36.065937135Z [inf]  Timer finished: save_trending_casts
+2026-02-04T15:32:36.065940097Z [inf]  [SocialJob] Casts refreshed: 258 saved
+2026-02-04T15:32:36.065942863Z [inf]  [SocialJob] 🚀 Triggering OGP Prefetch for top 50 casts...
+2026-02-04T15:32:38.680421935Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:32:58.666374342Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:32:58.666380485Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
+2026-02-04T15:32:58.666384169Z [inf]  Fetching premium trending tokens
+2026-02-04T15:32:58.666390961Z [err]  DexScreener WS: Connection error
+2026-02-04T15:32:58.666394589Z [err]  DexScreener WS: Connection error
+2026-02-04T15:32:58.666399025Z [err]  DexScreener WS: Connection error
+2026-02-04T15:32:58.666402583Z [err]  DexScreener WS: Connection error
+2026-02-04T15:32:58.666406326Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:32:58.666409679Z [wrn]  WS returned 0 addresses
+2026-02-04T15:32:58.666413296Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:32:58.667488463Z [inf]  Merged addresses
+2026-02-04T15:32:58.667493610Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:32:58.667497321Z [err]  Error fetching trending tokens
+2026-02-04T15:32:58.667500650Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:32:58.667504674Z [inf]  [TokenJob] Got 31 trending tokens for BSC
+2026-02-04T15:32:58.667508868Z [err]  [TokenJob] New list too small (31) for BSC; keeping existing (100)
+2026-02-04T15:32:58.667514209Z [inf]  [TokenJob] Refreshed 4 primary chains in 175.3s
+2026-02-04T15:32:58.806135674Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:32:59.198696493Z [inf]  0x API price received successfully
+2026-02-04T15:32:59.198700259Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:33:00.669251047Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:33:01.113031595Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:33:21.143593446Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:33:21.464738576Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:33:41.471283880Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:33:41.471288274Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:33:41.471291090Z [inf]  0x API price received successfully
+2026-02-04T15:33:41.471293820Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:33:41.471296759Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:33:41.471299654Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:33:41.471302452Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:33:41.471305194Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:33:41.472123766Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:33:41.472130174Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:33:41.472133471Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:33:41.472137511Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:33:43.002703437Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:34:02.829338422Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:34:02.829342728Z [inf]  📊 Position P/L check
+2026-02-04T15:34:03.179503038Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:34:03.586186047Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:34:03.586190664Z [inf]  0x API price received successfully
+2026-02-04T15:34:04.134539046Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:34:04.636956492Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:34:04.658909257Z [inf]  📊 Position P/L check
+2026-02-04T15:34:24.650977303Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:34:24.650984890Z [inf]  📊 Position P/L check
+2026-02-04T15:34:24.724952009Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:34:24.745889226Z [inf]  📊 Position P/L check
+2026-02-04T15:34:34.001959149Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:34:34.144534896Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:34:34.356022849Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:34:34.489614069Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:34:34.625505793Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:34:34.766041096Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:34:34.766043894Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:34:35.097767297Z [inf]  0x API price received successfully
+2026-02-04T15:34:35.125739637Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:34:35.843552049Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:34:36.363300542Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:34:36.363304200Z [inf]  📊 Position P/L check
+2026-02-04T15:34:46.290492806Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:34:46.619279017Z [inf]  📊 Position P/L check
+2026-02-04T15:35:06.673744672Z [err]  DexScreener WS: Connection error
+2026-02-04T15:35:06.673745667Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:35:06.673751566Z [err]  DexScreener WS: Connection error
+2026-02-04T15:35:06.673757455Z [err]  DexScreener WS: Connection error
+2026-02-04T15:35:06.673757833Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:35:06.673762804Z [err]  DexScreener WS: Connection error
+2026-02-04T15:35:06.673766658Z [inf]  Merged addresses
+2026-02-04T15:35:06.673773125Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:35:06.673778654Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:35:06.673782607Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:35:06.673784884Z [wrn]  WS returned 0 addresses
+2026-02-04T15:35:06.673791571Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-04T15:35:06.673797839Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
+2026-02-04T15:35:06.673802548Z [inf]  Fetching premium trending tokens
+2026-02-04T15:35:06.673809056Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
+2026-02-04T15:35:06.673814285Z [inf]  Timer finished: recalc_heat_scores
+2026-02-04T15:35:06.754942861Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:35:07.178274148Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:35:07.184087753Z [inf]  0x API price received successfully
+2026-02-04T15:35:07.248029993Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-04T15:35:07.248036257Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-04T15:35:07.692544394Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:35:08.769695110Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:35:08.769698997Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:35:09.787214933Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:35:13.773126353Z [err]  Error fetching trending tokens
+2026-02-04T15:35:13.773133270Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:35:13.773137638Z [inf]  [TokenJob] Got 27 trending tokens for Ethereum
+2026-02-04T15:35:13.773141202Z [err]  [TokenJob] New list too small (27) for Ethereum; keeping existing (100)
+2026-02-04T15:35:13.773172464Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:35:13.773176858Z [err]  GeckoTerminal API error after retries
+2026-02-04T15:35:18.789468804Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:35:38.655220300Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:35:38.655223253Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:35:38.655226238Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:35:38.655229035Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:35:38.655231873Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:35:38.655234953Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:35:38.655238286Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:35:38.655241094Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:35:38.656203374Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:35:38.911587702Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:35:39.234654696Z [inf]  0x API price received successfully
+2026-02-04T15:35:39.337521365Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:35:40.050279877Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:35:40.088823596Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:35:45.407561254Z [inf]  [TokenJob] Tokens for Solana are fresh, skipping API call
+2026-02-04T15:35:50.118275411Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:36:10.115356389Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:36:10.225867516Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:36:10.545625578Z [inf]  0x API price received successfully
+2026-02-04T15:36:10.566660460Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:36:11.388068961Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:36:11.754452287Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:36:11.772522221Z [inf]  📊 Position P/L check
+2026-02-04T15:36:15.605867253Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+2026-02-04T15:36:15.605872100Z [inf]  Fetching premium trending tokens
+2026-02-04T15:36:15.622477676Z [err]  DexScreener WS: Connection error
+2026-02-04T15:36:17.745101376Z [err]  DexScreener WS: Connection error
+2026-02-04T15:36:21.930419860Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:36:21.981638714Z [inf]  📊 Position P/L check
+2026-02-04T15:36:26.514444075Z [err]  DexScreener WS: Connection error
+2026-02-04T15:36:26.514448925Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:36:26.514454813Z [wrn]  WS returned 0 addresses
+2026-02-04T15:36:26.514459004Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:36:26.821832063Z [inf]  Merged addresses
+2026-02-04T15:36:27.383709388Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:36:27.881033515Z [inf]  Repeated x2: API-5001:Skipping low liquidity token
+2026-02-04T15:36:27.881039649Z [inf]  Skipping low liquidity token
+2026-02-04T15:36:28.661683420Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:36:29.649544945Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:36:32.186251717Z [err]  Error fetching trending tokens
+2026-02-04T15:36:32.186255806Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:36:32.186260907Z [inf]  [TokenJob] Got 45 trending tokens for Base
+2026-02-04T15:36:32.186265242Z [err]  [TokenJob] New list too small (45) for Base; keeping existing (100)
+2026-02-04T15:36:32.267266350Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:36:32.289075474Z [inf]  📊 Position P/L check
+2026-02-04T15:36:33.253107172Z [inf]  incoming request
+2026-02-04T15:36:33.259142847Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_d6coh7qn0rjjwjg2","createdAt":"2026-02-04T15:36:28.735Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x6ff5693b99212da76ad316178a184ab56d299b43","blockNum":"0x27c854c","hash":"0x26c26434ecd3dc60a66eb4b9dcfd60a741d38272177185ce93883550fad8276e","value":305397541.2623133,"asset":"CLAWIAI","category":"token","rawContract":{"rawValue":"0x000000000000000000000000000000000000000000fc9e71e2aaa9329ff0a7da","address":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","decimals":18},"log":{"address":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000b4beddf1b828aaed9638601f7145b0f6093f2d3f","0x0000000000000000000000006ff5693b99212da76ad316178a184ab56d299b43"],"data":"0x000000000000000000000000000000000000000000fc9e71e2aaa9329ff0a7da","blockHash":"0xad8b050b14bee680bac3eb768993766198e20280d577e3f14d7ac6d269574119","blockNumber":"0x27c854c","blockTimestamp":"0x6983677b","transactionHash":"0x26c26434ecd3dc60a66eb4b9dcfd60a741d38272177185ce93883550fad8276e","transactionIndex":"0x23a","logIndex":"0x446","removed":false},"blockTimestamp":"0x6983677b"}],"source":"chainlake-kafka"}}
+2026-02-04T15:36:33.259149104Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:36:33.259155030Z [inf]  request completed
+2026-02-04T15:36:33.262367204Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x26c264
+2026-02-04T15:36:33.284999623Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:36:33.354162219Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:36:33.354167608Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:36:33.354170912Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0xb4beddf1: {
+2026-02-04T15:36:33.354173621Z [inf]    tokenIn: '0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07',
+2026-02-04T15:36:33.354177434Z [inf]    tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+2026-02-04T15:36:33.354180447Z [inf]    dex: 'Uniswap v4'
+2026-02-04T15:36:33.354183121Z [inf]  }
+2026-02-04T15:36:33.354185789Z [inf]  Swap detected on target wallet
+2026-02-04T15:36:33.359401978Z [inf]  Timer finished: launchpad_det_0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+2026-02-04T15:36:33.359407270Z [inf]  Target is selling - triggering mirror sell
+2026-02-04T15:36:33.551089149Z [wrn]  All API liquidity sources failed
+2026-02-04T15:36:33.551093825Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:36:33.573380910Z [inf]  incoming request
+2026-02-04T15:36:33.573385289Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_lfu7qyp608oqzyp7","createdAt":"2026-02-04T15:36:28.702Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x8d0d118070b728e104294471fbe93c2e3affd694","toAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","blockNum":"0x27c854c","hash":"0x26c26434ecd3dc60a66eb4b9dcfd60a741d38272177185ce93883550fad8276e","value":0.30152811016185976,"typeTraceAddress":"CALL_9","asset":"ETH","category":"internal","rawContract":{"rawValue":"0x42f3e37f7fe14b6","decimals":18},"blockTimestamp":"0x6983677b"}]}}
+2026-02-04T15:36:33.573388314Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:36:33.573391340Z [inf]  [Webhook] Tx already in processedTxs cache: 0x26c26434ecd3dc
+2026-02-04T15:36:33.573395818Z [inf]  request completed
+2026-02-04T15:36:33.595549308Z [inf]  incoming request
+2026-02-04T15:36:33.595553641Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_bi0tt341xb82cv10","createdAt":"2026-02-04T15:36:28.658Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x8d0d118070b728e104294471fbe93c2e3affd694","blockNum":"0x27c854c","hash":"0x26c26434ecd3dc60a66eb4b9dcfd60a741d38272177185ce93883550fad8276e","value":0,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x0","decimals":18},"blockTimestamp":"0x6983677b"}],"source":"chainlake-kafka"}}
+2026-02-04T15:36:33.595556550Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:36:33.595559284Z [inf]  [Webhook] Tx already in processedTxs cache: 0x26c26434ecd3dc
+2026-02-04T15:36:33.595563224Z [inf]  request completed
+2026-02-04T15:36:34.559863341Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:36:34.559868047Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:36:34.888467404Z [inf]  0x API price received successfully
+2026-02-04T15:36:34.888470175Z [err]  Critical: No valid price data available
+2026-02-04T15:36:38.215476718Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:36:38.308581120Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:36:38.488596253Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:36:38.563836635Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:36:38.687226935Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:36:38.873230915Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:36:39.014620585Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:36:42.432193021Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:36:42.767739237Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:36:42.976950457Z [inf]  0x API price received successfully
+2026-02-04T15:36:43.325110846Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:36:43.615883258Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:36:43.626804037Z [inf]  📊 Position P/L check
+2026-02-04T15:37:03.715382738Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:37:03.715385831Z [inf]  📊 Position P/L check
+2026-02-04T15:37:03.715389023Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
+2026-02-04T15:37:03.715392199Z [inf]  Fetching premium trending tokens
+2026-02-04T15:37:03.715395883Z [err]  DexScreener WS: Connection error
+2026-02-04T15:37:03.715398843Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:37:03.884073855Z [inf]  📊 Position P/L check
+2026-02-04T15:37:10.927408071Z [err]  DexScreener WS: Connection error
+2026-02-04T15:37:13.777675523Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:37:14.046420185Z [inf]  0x API price received successfully
+2026-02-04T15:37:14.064507643Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:37:14.815748286Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:37:14.839179111Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:37:18.910545813Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:37:18.910549704Z [wrn]  WS returned 0 addresses
+2026-02-04T15:37:18.910553019Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:37:19.843791010Z [inf]  Merged addresses
+2026-02-04T15:37:20.169088389Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:37:20.169094954Z [err]  Error fetching trending tokens
+2026-02-04T15:37:20.169098147Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:37:20.169101216Z [inf]  [TokenJob] Got 31 trending tokens for BSC
+2026-02-04T15:37:20.170096592Z [err]  [TokenJob] New list too small (31) for BSC; keeping existing (100)
+2026-02-04T15:37:20.193662119Z [inf]  [TokenJob] Refreshed 4 primary chains in 139.6s
+2026-02-04T15:37:24.869256764Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:37:44.813557784Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:37:44.813565788Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.813570435Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.813574401Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.813578522Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.813583209Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.813587600Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.813591890Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.814465783Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.814470065Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:44.814473995Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:37:45.042875930Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:37:45.264890680Z [inf]  0x API price received successfully
+2026-02-04T15:37:45.304551511Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:37:45.644957831Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:37:46.393858338Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:38:06.506647314Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:38:06.506653127Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:38:26.561945225Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:38:26.561952328Z [inf]  0x API price received successfully
+2026-02-04T15:38:26.561956520Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:38:26.561960794Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:38:26.561964509Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:38:27.733623208Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:38:47.802694185Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:38:47.802698213Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:38:47.802701703Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:38:47.802705273Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:38:47.802709149Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:38:47.802713429Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:38:47.834785373Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:38:48.156958601Z [inf]  0x API price received successfully
+2026-02-04T15:38:48.205432874Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:38:49.110105837Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:38:49.264981582Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:38:49.264984429Z [inf]  📊 Position P/L check
+2026-02-04T15:39:09.316337239Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:39:09.316340253Z [inf]  📊 Position P/L check
+2026-02-04T15:39:09.522530181Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:39:09.575419177Z [inf]  📊 Position P/L check
+2026-02-04T15:39:19.654264755Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:39:19.895018360Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:39:19.896056087Z [inf]  0x API price received successfully
+2026-02-04T15:39:20.729842846Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:39:21.222057133Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:39:21.290389368Z [inf]  📊 Position P/L check
+2026-02-04T15:39:41.366366380Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:39:41.366369010Z [inf]  📊 Position P/L check
+2026-02-04T15:39:41.368117257Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:39:41.688706031Z [inf]  📊 Position P/L check
+2026-02-04T15:39:43.411637948Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:43.539235460Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:43.686920734Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:44.140110576Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:44.140113720Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:44.140118949Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:46.154203714Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:46.391632097Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:46.479409290Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:39:51.592497891Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:39:52.057995324Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:39:52.057999666Z [inf]  0x API price received successfully
+2026-02-04T15:39:52.787364782Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:39:53.089447096Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:40:00.900867654Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
+2026-02-04T15:40:00.900872161Z [inf]  Fetching premium trending tokens
+2026-02-04T15:40:00.956198235Z [err]  DexScreener WS: Connection error
+2026-02-04T15:40:00.956204016Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
+2026-02-04T15:40:00.956208946Z [inf]  Timer finished: recalc_heat_scores
+2026-02-04T15:40:01.226383951Z [err]  DexScreener WS: Connection error
+2026-02-04T15:40:01.226387039Z [inf]  Saved 15 trending tokens to database via Prisma with retry protection
+2026-02-04T15:40:01.226389792Z [inf]  [MarketJob] Trending tokens refreshed: 15 tokens
+2026-02-04T15:40:01.865866375Z [err]  DexScreener WS: Connection error
+2026-02-04T15:40:02.989083504Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:40:05.232106240Z [err]  DexScreener WS: Connection error
+2026-02-04T15:40:05.232110467Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:40:05.232113633Z [wrn]  WS returned 0 addresses
+2026-02-04T15:40:05.232116260Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:40:05.574247095Z [inf]  Merged addresses
+2026-02-04T15:40:05.793278549Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:40:11.523570157Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:40:12.472049715Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:40:13.298650397Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:40:14.492459623Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:40:18.521793723Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:40:18.521797775Z [err]  GeckoTerminal API error after retries
+2026-02-04T15:40:18.521801371Z [err]  Error fetching trending tokens
+2026-02-04T15:40:18.521805018Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:40:18.521808607Z [inf]  [TokenJob] Got 27 trending tokens for Ethereum
+2026-02-04T15:40:18.521811859Z [err]  [TokenJob] New list too small (27) for Ethereum; keeping existing (100)
+2026-02-04T15:40:23.323734205Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:40:23.685092462Z [inf]  0x API price received successfully
+2026-02-04T15:40:23.707098159Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:40:24.727016326Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:40:24.805118119Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:40:44.769158429Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:40:45.042251710Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:40:47.822425470Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:40:47.931743595Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:40:48.070152741Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:40:48.194439401Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:40:48.327528243Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:40:48.448721194Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:40:48.654815730Z [inf]  [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
+2026-02-04T15:40:48.654819756Z [inf]  Fetching premium trending tokens
+2026-02-04T15:40:48.654822936Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:40:48.654826778Z [err]  DexScreener WS: Connection error
+2026-02-04T15:40:50.281919359Z [err]  DexScreener WS: Connection error
+2026-02-04T15:40:55.153714738Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:40:55.540438916Z [inf]  0x API price received successfully
+2026-02-04T15:40:55.784570760Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:40:56.865119351Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:40:56.865126004Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:40:58.472635692Z [err]  DexScreener WS: Connection error
+2026-02-04T15:40:58.472640299Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:40:58.472643297Z [wrn]  WS returned 0 addresses
+2026-02-04T15:40:58.472646073Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:40:58.848732013Z [inf]  Merged addresses
+2026-02-04T15:40:59.526268953Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:40:59.526271824Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:40:59.526275487Z [inf]  [TokenJob] Got 100 trending tokens for Solana
+2026-02-04T15:40:59.526279017Z [inf]  [TokenJob] Filtered out 2 invalid tokens for Solana
+2026-02-04T15:41:00.025200454Z [inf]  Saved 98 trending tokens for solana to database and memory cache
+2026-02-04T15:41:00.025204071Z [inf]  [TokenJob] Saved 98 tokens for Solana to DB + cache
+2026-02-04T15:41:06.902958205Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:41:26.797990982Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:41:26.797995458Z [inf]  📊 Position P/L check
+2026-02-04T15:41:27.013168999Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:41:27.284463824Z [inf]  0x API price received successfully
+2026-02-04T15:41:27.317646202Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:41:28.185786240Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:41:28.367989668Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:41:28.375093397Z [inf]  📊 Position P/L check
+2026-02-04T15:41:29.799386815Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+2026-02-04T15:41:29.799390071Z [inf]  Fetching premium trending tokens
+2026-02-04T15:41:29.816711537Z [err]  DexScreener WS: Connection error
+2026-02-04T15:41:31.053618070Z [err]  DexScreener WS: Connection error
+2026-02-04T15:41:34.335589057Z [err]  DexScreener WS: Connection error
+2026-02-04T15:41:38.398750183Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:41:38.455921364Z [inf]  📊 Position P/L check
+2026-02-04T15:41:42.335379138Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:41:42.335385346Z [wrn]  WS returned 0 addresses
+2026-02-04T15:41:42.335388254Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:41:42.674508767Z [inf]  Merged addresses
+2026-02-04T15:41:43.248637243Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:41:43.573495088Z [inf]  Skipping low liquidity token
+2026-02-04T15:41:47.621627203Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:41:48.465631593Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:41:48.547110387Z [inf]  📊 Position P/L check
+2026-02-04T15:41:48.654599256Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:41:49.251060611Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:49.367349703Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:49.506010045Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:49.642778087Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:49.817956524Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:49.947507009Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:50.103330493Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:50.240777005Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:50.403340337Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:50.537229564Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:41:50.652797594Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:41:55.173002040Z [inf]  Trending tokens fetch complete
+2026-02-04T15:41:55.173005111Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:41:55.173008306Z [inf]  [TokenJob] Got 100 trending tokens for Base
+2026-02-04T15:41:55.183795554Z [inf]  Saved 100 trending tokens for base to database and memory cache
+2026-02-04T15:41:55.313038938Z [inf]  [TokenJob] Saved 100 tokens for Base to DB + cache
+2026-02-04T15:41:58.536550452Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:41:58.914449252Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:41:58.941765153Z [inf]  0x API price received successfully
+2026-02-04T15:41:59.792152208Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:41:59.797265230Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:41:59.808521662Z [inf]  📊 Position P/L check
+2026-02-04T15:42:19.813039746Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:42:19.899744325Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:42:25.230851806Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
+2026-02-04T15:42:25.230855202Z [inf]  Fetching premium trending tokens
+2026-02-04T15:42:25.271309463Z [err]  DexScreener WS: Connection error
+2026-02-04T15:42:29.982679490Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:42:30.344202967Z [inf]  0x API price received successfully
+2026-02-04T15:42:30.604377638Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:42:30.969695263Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:42:31.620874388Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:42:34.616756806Z [err]  DexScreener WS: Connection error
+2026-02-04T15:42:34.622985091Z [err]  DexScreener WS: Connection error
+2026-02-04T15:42:34.622988772Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:42:34.622991666Z [wrn]  WS returned 0 addresses
+2026-02-04T15:42:34.622994388Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:42:35.430847572Z [inf]  Merged addresses
+2026-02-04T15:42:35.745960706Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:42:35.745964898Z [err]  Error fetching trending tokens
+2026-02-04T15:42:35.745967916Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:42:35.745970526Z [inf]  [TokenJob] Got 31 trending tokens for BSC
+2026-02-04T15:42:35.767685127Z [err]  [TokenJob] New list too small (31) for BSC; keeping existing (100)
+2026-02-04T15:42:35.768859663Z [inf]  [TokenJob] Refreshed 4 primary chains in 154.9s
+2026-02-04T15:42:41.655648854Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:43:01.618489528Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:43:01.618494289Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.618497551Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.618500934Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.618504401Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.618518145Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.618523626Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.618526554Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.619307550Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.619311179Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:01.880622833Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:43:02.157120704Z [inf]  0x API price received successfully
+2026-02-04T15:43:02.319021918Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:43:02.870664236Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:43:03.650474157Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:43:23.650564087Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:43:23.786390295Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:43:43.780193086Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:43:43.780197822Z [inf]  0x API price received successfully
+2026-02-04T15:43:43.780200830Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:43:43.780203923Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:43:43.780207111Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:43:45.157143571Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:43:53.700472037Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:53.856539320Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:54.000039409Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:54.203933828Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:54.245421805Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:54.366690698Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:55.009978914Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:55.202290795Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:43:55.225475375Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:43:55.306833202Z [inf]  📊 Position P/L check
+2026-02-04T15:44:15.175558405Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:44:15.175564620Z [inf]  0x API price received successfully
+2026-02-04T15:44:15.175568478Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:44:15.175576026Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:44:15.175579519Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:44:15.175584257Z [inf]  📊 Position P/L check
+2026-02-04T15:44:16.890300906Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:44:16.962152428Z [inf]  📊 Position P/L check
+2026-02-04T15:44:36.956139823Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:44:36.956143953Z [inf]  📊 Position P/L check
+2026-02-04T15:44:37.053090460Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:44:37.420206238Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:44:37.425311591Z [inf]  0x API price received successfully
+2026-02-04T15:44:38.625940758Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:44:38.625943330Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:44:38.625947328Z [inf]  📊 Position P/L check
+2026-02-04T15:44:58.512746077Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:44:58.512750988Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.512754240Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.512756791Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.512759576Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.512762306Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.512764979Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.512767565Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.513544339Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.513548758Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:44:58.619712709Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:45:00.107927559Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-04T15:45:00.186298391Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
+2026-02-04T15:45:00.186301648Z [inf]  Fetching premium trending tokens
+2026-02-04T15:45:00.196385414Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
+2026-02-04T15:45:00.196392220Z [inf]  Timer finished: recalc_heat_scores
+2026-02-04T15:45:00.234770425Z [err]  DexScreener WS: Connection error
+2026-02-04T15:45:02.471059873Z [inf]  incoming request
+2026-02-04T15:45:02.471064748Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_6c5xcec7n12ozrj7","createdAt":"2026-02-04T15:45:02.261Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x4d9000a7ea4e1fc3ae174425db931fc76cd2ba5e","toAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","blockNum":"0x27c864d","hash":"0x9043768970f3796d8536b0913ae7a52f66eb37510b24238697b9ecdfd78fdd6e","value":250,"asset":"FUEF","category":"token","rawContract":{"rawValue":"0x00000000000000000000000000000000000000000000000d8d726b7177a80000","address":"0xaae9a22c965f969371cc3da1fa17d5ac7be82096","decimals":18},"log":{"address":"0xaae9a22c965f969371cc3da1fa17d5ac7be82096","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000004d9000a7ea4e1fc3ae174425db931fc76cd2ba5e","0x000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b"],"data":"0x00000000000000000000000000000000000000000000000d8d726b7177a80000","blockHash":"0x8a8f92088e44a5c596792c66bc6e796b51458946560f39d0c91863028fb14e93","blockNumber":"0x27c864d","blockTimestamp":"0x6983697d","transactionHash":"0x9043768970f3796d8536b0913ae7a52f66eb37510b24238697b9ecdfd78fdd6e","transactionIndex":"0x20","logIndex":"0x179","removed":false},"blockTimestamp":"0x6983697d"}],"source":"chainlake-kafka"}}
+2026-02-04T15:45:02.471894970Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:45:02.471902627Z [inf]  request completed
+2026-02-04T15:45:02.484611788Z [inf]  [Webhook] ⚠️ Ignoring tx 0x904376: No matched tracked wallets in [0x4d90, 0xfb64]
+2026-02-04T15:45:04.574720472Z [err]  DexScreener WS: Connection error
+2026-02-04T15:45:04.869643751Z [err]  DexScreener WS: Connection error
+2026-02-04T15:45:08.686291067Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:45:09.030141457Z [inf]  0x API price received successfully
+2026-02-04T15:45:09.043000209Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:45:09.077818486Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-04T15:45:09.083821011Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-04T15:45:09.904694383Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:45:09.976719597Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:45:12.928681052Z [wrn]  WS returned 0 addresses
+2026-02-04T15:45:12.928689620Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:45:12.928752521Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:45:13.040239794Z [inf]  Merged addresses
+2026-02-04T15:45:13.260529451Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:45:17.372101834Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:45:18.241412998Z [inf]  incoming request
+2026-02-04T15:45:18.241419872Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_vm4xjva7g6xri7qa","createdAt":"2026-02-04T15:45:18.042Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x743f2f29cdd66242fb27d292ab2cc92f45674635","blockNum":"0x27c8655","hash":"0x19473764aab529946da642aafca871726fe216871b3db6b07c340531a6ab3eab","value":0.5,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x6f05b59d3b20000","decimals":18},"blockTimestamp":"0x6983698d"}],"source":"chainlake-kafka"}}
+2026-02-04T15:45:18.241424452Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:45:18.241427901Z [inf]  request completed
+2026-02-04T15:45:18.241615065Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x194737
+2026-02-04T15:45:18.282157061Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:45:18.282159965Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:45:18.283259333Z [inf]  Swap successfully decoded from logs
+2026-02-04T15:45:18.283262131Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:45:18.283265618Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0xb4beddf1: {
+2026-02-04T15:45:18.283268798Z [inf]    tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+2026-02-04T15:45:18.283271547Z [inf]    tokenOut: '0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f',
+2026-02-04T15:45:18.283274253Z [inf]    dex: 'Uniswap v4'
+2026-02-04T15:45:18.283276953Z [inf]  }
+2026-02-04T15:45:18.283279804Z [inf]  Swap detected on target wallet
+2026-02-04T15:45:18.289945854Z [inf]  Target is buying - triggering copy trade
+2026-02-04T15:45:18.393413562Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:45:18.395858780Z [wrn]  All API liquidity sources failed
+2026-02-04T15:45:18.418676458Z [inf]  incoming request
+2026-02-04T15:45:18.418681968Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_kltfqwdn112gkw2c","createdAt":"2026-02-04T15:45:18.182Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x4d9000a7ea4e1fc3ae174425db931fc76cd2ba5e","toAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","blockNum":"0x27c8655","hash":"0x650b26f900d5425f245b5da12b81b4bd2e6dd6c6ba144848e48ffa110c7c2e54","value":250,"asset":"FUEF","category":"token","rawContract":{"rawValue":"0x00000000000000000000000000000000000000000000000d8d726b7177a80000","address":"0xaae9a22c965f969371cc3da1fa17d5ac7be82096","decimals":18},"log":{"address":"0xaae9a22c965f969371cc3da1fa17d5ac7be82096","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000004d9000a7ea4e1fc3ae174425db931fc76cd2ba5e","0x000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b"],"data":"0x00000000000000000000000000000000000000000000000d8d726b7177a80000","blockHash":"0xfd2ae6b07a812550194cc39119cbd12beacd60da16702b972bf83409eea28cac","blockNumber":"0x27c8655","blockTimestamp":"0x6983698d","transactionHash":"0x650b26f900d5425f245b5da12b81b4bd2e6dd6c6ba144848e48ffa110c7c2e54","transactionIndex":"0x1a","logIndex":"0xae","removed":false},"blockTimestamp":"0x6983698d"},{"fromAddress":"0x498581ff718922c3f8e6a244956af099b2652b2b","toAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","blockNum":"0x27c8655","hash":"0x19473764aab529946da642aafca871726fe216871b3db6b07c340531a6ab3eab","value":3373743487.949109,"asset":"SUPERKY","category":"token","rawContract":{"rawValue":"0x00000000000000000000000000000000000000000ae6b1f8f3c0e9e1e2a2e2dc","address":"0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f","decimals":18},"log":{"address":"0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000498581ff718922c3f8e6a244956af099b2652b2b","0x000000000000000000000000b4beddf1b828aaed9638601f7145b0f6093f2d3f"],"data":"0x00000000000000000000000000000000000000000ae6b1f8f3c0e9e1e2a2e2dc","blockHash":"0xfd2ae6b07a812550194cc39119cbd12beacd60da16702b972bf83409eea28cac","blockNumber":"0x27c8655","blockTimestamp":"0x6983698d","transactionHash":"0x19473764aab529946da642aafca871726fe216871b3db6b07c340531a6ab3eab","transactionIndex":"0x72","logIndex":"0x44e","removed":false},"blockTimestamp":"0x6983698d"}],"source":"chainlake-kafka"}}
+2026-02-04T15:45:18.419926735Z [inf]  [Webhook] Processing as EVM activity (2 items)
+2026-02-04T15:45:18.419934407Z [inf]  [Webhook] Tx already in processedTxs cache: 0x19473764aab529
+2026-02-04T15:45:18.419938963Z [inf]  request completed
+2026-02-04T15:45:18.422376840Z [inf]  [Webhook] ⚠️ Ignoring tx 0x650b26: No matched tracked wallets in [0x4d90, 0xfb64]
+2026-02-04T15:45:18.439880801Z [inf]  Timer finished: launchpad_det_0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f
+2026-02-04T15:45:18.474658094Z [wrn]  All API liquidity sources failed
+2026-02-04T15:45:18.474661714Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:45:18.475294775Z [wrn]  All API liquidity sources failed
+2026-02-04T15:45:18.973504039Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:45:18.973506673Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:45:18.973509304Z [inf]  🔥 Warming up 1 user settings
+2026-02-04T15:45:19.028239465Z [inf]  🔍 Batch filter complete (PARALLEL)
+2026-02-04T15:45:19.028242520Z [inf]  No eligible users after batch filter
+2026-02-04T15:45:19.029401513Z [inf]  [Warpcast] Sending DM to FID 877398: "⏭️ Copy Trade Skipped: $SUPERKY
+2026-02-04T15:45:19.029406354Z [inf]  
+2026-02-04T15:45:19.029409753Z [inf]  ⏭️ **COPY TRADE S..."
+2026-02-04T15:45:19.380418892Z [inf]  [Warpcast] DM sent successfully. Daily usage: 3/50000
+2026-02-04T15:45:19.982765318Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:45:20.047403581Z [inf]  incoming request
+2026-02-04T15:45:20.047410144Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_dgkprkh6pxm2xmap","createdAt":"2026-02-04T15:45:19.834Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f","blockNum":"0x27c8656","hash":"0xe1abb070be9850c23c76378a68dcc916bde728e5b4f952ca7d3acc4ea581109f","value":0,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x0","decimals":18},"blockTimestamp":"0x6983698f"}],"source":"chainlake-kafka"}}
+2026-02-04T15:45:20.047413844Z [inf]  request completed
+2026-02-04T15:45:20.047417297Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:45:20.053293984Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0xe1abb0
+2026-02-04T15:45:20.066173987Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:45:20.147988615Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:45:20.147993160Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:45:20.147996326Z [inf]  [Webhook] Not a swap tx for 0xb4beddf1: 0xe1abb070be9850
+2026-02-04T15:45:20.417193833Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:45:24.436637654Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:45:24.436641210Z [err]  GeckoTerminal API error after retries
+2026-02-04T15:45:24.436644437Z [err]  Error fetching trending tokens
+2026-02-04T15:45:24.436648268Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:45:24.436651129Z [inf]  [TokenJob] Got 25 trending tokens for Ethereum
+2026-02-04T15:45:24.453713672Z [err]  [TokenJob] New list too small (25) for Ethereum; keeping existing (100)
+2026-02-04T15:45:30.098634934Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:45:50.049193819Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x382844
+2026-02-04T15:45:50.049200563Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:45:50.049204448Z [inf]  incoming request
+2026-02-04T15:45:50.049208426Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_xh8q15pkdwq6yp4r","createdAt":"2026-02-04T15:45:40.017Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x743f2f29cdd66242fb27d292ab2cc92f45674635","toAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","blockNum":"0x27c8660","hash":"0x3828440c06d8309c244b390b67756f94cc15a82c2016730687ec74b2c87e9860","value":0.518043731709351,"typeTraceAddress":"CALL_0_0_2","asset":"ETH","category":"internal","rawContract":{"rawValue":"0x73076077ea75446","decimals":18},"blockTimestamp":"0x698369a3"}]}}
+2026-02-04T15:45:50.049227125Z [inf]  incoming request
+2026-02-04T15:45:50.049230180Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_bn2i8rvjqpsd4zb1","createdAt":"2026-02-04T15:45:39.959Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x743f2f29cdd66242fb27d292ab2cc92f45674635","blockNum":"0x27c8660","hash":"0x3828440c06d8309c244b390b67756f94cc15a82c2016730687ec74b2c87e9860","value":0,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x0","decimals":18},"blockTimestamp":"0x698369a3"}],"source":"chainlake-kafka"}}
+2026-02-04T15:45:50.049233458Z [inf]  request completed
+2026-02-04T15:45:50.049236554Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:45:50.050133316Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:45:50.050138154Z [inf]  request completed
+2026-02-04T15:45:50.050142208Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x382844
+2026-02-04T15:45:50.050145380Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:45:50.050149838Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:45:50.050152957Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:45:50.050156043Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:45:50.050159625Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0xb4beddf1: {
+2026-02-04T15:45:50.050162968Z [inf]    tokenIn: '0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f',
+2026-02-04T15:45:50.050167557Z [inf]    tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+2026-02-04T15:45:50.050171477Z [inf]    dex: 'Uniswap v4'
+2026-02-04T15:45:50.050174698Z [inf]  }
+2026-02-04T15:45:50.051020374Z [inf]  Swap detected on target wallet
+2026-02-04T15:45:50.051023873Z [inf]  Timer finished: launchpad_det_0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+2026-02-04T15:45:50.051026714Z [inf]  Target is selling - triggering mirror sell
+2026-02-04T15:45:50.051029575Z [inf]  incoming request
+2026-02-04T15:45:50.051032607Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_h3wkhoca9qdukl7o","createdAt":"2026-02-04T15:45:40.243Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x6ff5693b99212da76ad316178a184ab56d299b43","blockNum":"0x27c8660","hash":"0x3828440c06d8309c244b390b67756f94cc15a82c2016730687ec74b2c87e9860","value":3373743487.949109,"asset":"SUPERKY","category":"token","rawContract":{"rawValue":"0x00000000000000000000000000000000000000000ae6b1f8f3c0e9e1e2a2e2dc","address":"0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f","decimals":18},"log":{"address":"0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000b4beddf1b828aaed9638601f7145b0f6093f2d3f","0x0000000000000000000000006ff5693b99212da76ad316178a184ab56d299b43"],"data":"0x00000000000000000000000000000000000000000ae6b1f8f3c0e9e1e2a2e2dc","blockHash":"0xd3a031f5fcc0cb97b40051c39205ab92aecbf584958ff04dd1b7da173dd8e0fa","blockNumber":"0x27c8660","blockTimestamp":"0x698369a3","transactionHash":"0x3828440c06d8309c244b390b67756f94cc15a82c2016730687ec74b2c87e9860","transactionIndex":"0x1","logIndex":"0x0","removed":false},"blockTimestamp":"0x698369a3"}],"source":"chainlake-kafka"}}
+2026-02-04T15:45:50.052218296Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:45:50.052222167Z [inf]  [Webhook] Tx already in processedTxs cache: 0x3828440c06d830
+2026-02-04T15:45:50.052226570Z [inf]  request completed
+2026-02-04T15:45:50.052230533Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:45:50.052234096Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:45:50.052238085Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:45:50.052241896Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0xb4beddf1: {
+2026-02-04T15:45:50.052245558Z [inf]    tokenIn: '0x62456f94fb5f840aa8a791d7bb9230ba51b50d9f',
+2026-02-04T15:45:50.052249307Z [inf]    tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+2026-02-04T15:45:50.052253556Z [inf]    dex: 'Uniswap v4'
+2026-02-04T15:45:50.052257942Z [inf]  }
+2026-02-04T15:45:50.052261239Z [inf]  Swap detected on target wallet
+2026-02-04T15:45:50.053076755Z [inf]  0x API price received successfully
+2026-02-04T15:45:50.053080709Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:45:50.053084101Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:45:51.664868004Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:45:54.517880985Z [inf]  [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
+2026-02-04T15:45:54.517886063Z [inf]  Fetching premium trending tokens
+2026-02-04T15:45:54.533907239Z [err]  DexScreener WS: Connection error
+2026-02-04T15:45:54.781430287Z [err]  DexScreener WS: Connection error
+2026-02-04T15:45:54.809606459Z [err]  DexScreener WS: Connection error
+2026-02-04T15:45:55.508746377Z [err]  DexScreener WS: Connection error
+2026-02-04T15:45:55.508752207Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:45:55.508755238Z [wrn]  WS returned 0 addresses
+2026-02-04T15:45:55.508758044Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:45:55.678216724Z [inf]  Merged addresses
+2026-02-04T15:45:56.192836628Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:45:56.192841319Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:45:56.192844732Z [inf]  [TokenJob] Got 100 trending tokens for Solana
+2026-02-04T15:45:56.192847992Z [inf]  [TokenJob] Filtered out 2 invalid tokens for Solana
+2026-02-04T15:45:56.225664580Z [inf]  Saved 98 trending tokens for solana to database and memory cache
+2026-02-04T15:45:56.245672869Z [inf]  [TokenJob] Saved 98 tokens for Solana to DB + cache
+2026-02-04T15:45:58.175835784Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:45:58.261472464Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:45:59.016987987Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:45:59.184837521Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:45:59.457360131Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:45:59.457363194Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:46:01.758689397Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:46:21.749873107Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:46:21.749876021Z [inf]  0x API price received successfully
+2026-02-04T15:46:21.749879752Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:46:21.749883278Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:46:21.749886872Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:46:21.749889406Z [inf]  📊 Position P/L check
+2026-02-04T15:46:23.404678793Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:46:23.438238921Z [inf]  📊 Position P/L check
+2026-02-04T15:46:26.289218193Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+2026-02-04T15:46:26.289222281Z [inf]  Fetching premium trending tokens
+2026-02-04T15:46:26.310753254Z [err]  DexScreener WS: Connection error
+2026-02-04T15:46:33.434665666Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:46:33.496691618Z [inf]  📊 Position P/L check
+2026-02-04T15:46:34.926320332Z [err]  DexScreener WS: Connection error
+2026-02-04T15:46:42.966852917Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:46:42.966856109Z [wrn]  WS returned 0 addresses
+2026-02-04T15:46:42.966860832Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:46:43.271175006Z [inf]  Merged addresses
+2026-02-04T15:46:43.494853821Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:46:43.976807008Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:46:43.976810510Z [inf]  0x API price received successfully
+2026-02-04T15:46:43.976814205Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:46:44.386089529Z [inf]  Repeated x2: API-5001:Skipping low liquidity token
+2026-02-04T15:46:44.386092948Z [inf]  Skipping low liquidity token
+2026-02-04T15:46:44.966468971Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:46:44.966471964Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:46:44.966474916Z [inf]  📊 Position P/L check
+2026-02-04T15:46:46.158288398Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:46:47.163430440Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-04T15:46:49.703367100Z [err]  Error fetching trending tokens
+2026-02-04T15:46:49.703370446Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:46:49.703374268Z [inf]  [TokenJob] Got 45 trending tokens for Base
+2026-02-04T15:46:49.703377716Z [err]  [TokenJob] New list too small (45) for Base; keeping existing (100)
+2026-02-04T15:46:54.854004930Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:46:54.895307462Z [inf]  📊 Position P/L check
+2026-02-04T15:46:59.932700615Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:47:00.210568450Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:47:00.244682931Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:47:00.426630788Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:47:00.543619927Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:47:00.822632095Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:47:00.943444395Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:47:04.898240422Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:47:04.940471782Z [inf]  📊 Position P/L check
+2026-02-04T15:47:24.966447155Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:47:24.966450823Z [inf]  0x API price received successfully
+2026-02-04T15:47:24.966454389Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:47:24.966458267Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:47:24.966462194Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:47:24.966465911Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
+2026-02-04T15:47:24.966470401Z [inf]  Fetching premium trending tokens
+2026-02-04T15:47:24.966473875Z [err]  DexScreener WS: Connection error
+2026-02-04T15:47:24.972341961Z [err]  DexScreener WS: Connection error
+2026-02-04T15:47:24.972350423Z [err]  DexScreener WS: Connection error
+2026-02-04T15:47:24.972355752Z [err]  DexScreener WS: Connection error
+2026-02-04T15:47:24.972360152Z [wrn]  DexScreener WS: All connection attempts failed
+2026-02-04T15:47:24.972364704Z [wrn]  WS returned 0 addresses
+2026-02-04T15:47:24.972369263Z [inf]  Using fallback discovery (Boosts + Organic search)
+2026-02-04T15:47:24.972373366Z [inf]  Merged addresses
+2026-02-04T15:47:24.972377329Z [inf]  Processed DexScreener trending candidates
+2026-02-04T15:47:24.972381789Z [err]  Error fetching trending tokens
+2026-02-04T15:47:24.972388423Z [inf]  Premium trending tokens fetch complete
+2026-02-04T15:47:24.972392818Z [inf]  [TokenJob] Got 31 trending tokens for BSC
+2026-02-04T15:47:24.972397547Z [err]  [TokenJob] New list too small (31) for BSC; keeping existing (100)
+2026-02-04T15:47:24.972402325Z [inf]  [TokenJob] Refreshed 4 primary chains in 140.9s
+2026-02-04T15:47:26.123627306Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:47:46.109018915Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:47:46.281963227Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:47:46.684784117Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:47:46.686216070Z [inf]  0x API price received successfully
+2026-02-04T15:47:47.442531512Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:47:47.707616288Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:47:57.677449802Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:48:02.957819316Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:48:03.093333856Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:48:03.235751155Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:48:03.376260801Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:48:03.765282178Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:48:03.923442189Z [inf]  Alpha Detector: Checking new coin
+2026-02-04T15:48:07.727923968Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:48:14.288344939Z [inf]  incoming request
+2026-02-04T15:48:14.288349146Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_wmn0loc5ayy0a9la","createdAt":"2026-02-04T15:48:14.105Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x8d0d118070b728e104294471fbe93c2e3affd694","blockNum":"0x27c86ad","hash":"0x87c95f33ef6ab0fd8e1368fcd37cf298e104fc30210af251561969fb4cff86b6","value":0,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x0","decimals":18},"blockTimestamp":"0x69836a3d"}],"source":"chainlake-kafka"}}
+2026-02-04T15:48:14.288352571Z [inf]  request completed
+2026-02-04T15:48:14.288355327Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:48:14.294461233Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x87c95f
+2026-02-04T15:48:14.327645712Z [inf]  [Profile] fetchTransaction
+2026-02-04T15:48:14.333214137Z [inf]  [Profile] fetchReceipt
+2026-02-04T15:48:14.333219946Z [inf]  [Profile] parseSwapTransaction
+2026-02-04T15:48:14.333223879Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0xb4beddf1: {
+2026-02-04T15:48:14.333227454Z [inf]    tokenIn: '0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07',
+2026-02-04T15:48:14.333230616Z [inf]    tokenOut: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+2026-02-04T15:48:14.333233828Z [inf]    dex: 'Uniswap v4'
+2026-02-04T15:48:14.333237348Z [inf]  }
+2026-02-04T15:48:14.333240593Z [inf]  Swap detected on target wallet
+2026-02-04T15:48:14.338092010Z [inf]  Target is selling - triggering mirror sell
+2026-02-04T15:48:14.362135739Z [inf]  incoming request
+2026-02-04T15:48:14.362141610Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_yvieqor3zjcyeptn","createdAt":"2026-02-04T15:48:14.184Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x8d0d118070b728e104294471fbe93c2e3affd694","toAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","blockNum":"0x27c86ad","hash":"0x87c95f33ef6ab0fd8e1368fcd37cf298e104fc30210af251561969fb4cff86b6","value":0.3457370110503736,"typeTraceAddress":"CALL_9","asset":"ETH","category":"internal","rawContract":{"rawValue":"0x4cc4dfad15ce1da","decimals":18},"blockTimestamp":"0x69836a3d"}]}}
+2026-02-04T15:48:14.362145223Z [inf]  request completed
+2026-02-04T15:48:14.362149003Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:48:14.362151853Z [inf]  [Webhook] Tx already in processedTxs cache: 0x87c95f33ef6ab0
+2026-02-04T15:48:14.477477012Z [wrn]  All API liquidity sources failed
+2026-02-04T15:48:14.477482738Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:48:14.570843842Z [inf]  incoming request
+2026-02-04T15:48:14.570848571Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_jfxkoje2anfdz4ca","createdAt":"2026-02-04T15:48:14.292Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xb4beddf1b828aaed9638601f7145b0f6093f2d3f","toAddress":"0x6ff5693b99212da76ad316178a184ab56d299b43","blockNum":"0x27c86ad","hash":"0x87c95f33ef6ab0fd8e1368fcd37cf298e104fc30210af251561969fb4cff86b6","value":204616352.64574993,"asset":"CLAWIAI","category":"token","rawContract":{"rawValue":"0x000000000000000000000000000000000000000000a94132b406d2a47a85144d","address":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","decimals":18},"log":{"address":"0x2fc3dd4dacfd1b2fabac157de8727b54bade4b07","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000b4beddf1b828aaed9638601f7145b0f6093f2d3f","0x0000000000000000000000006ff5693b99212da76ad316178a184ab56d299b43"],"data":"0x000000000000000000000000000000000000000000a94132b406d2a47a85144d","blockHash":"0xf595e7aab2322847aab38815866c90070bac826e407a66841c82faa3ac65d5e3","blockNumber":"0x27c86ad","blockTimestamp":"0x69836a3d","transactionHash":"0x87c95f33ef6ab0fd8e1368fcd37cf298e104fc30210af251561969fb4cff86b6","transactionIndex":"0x97","logIndex":"0x41f","removed":false},"blockTimestamp":"0x69836a3d"}],"source":"chainlake-kafka"}}
+2026-02-04T15:48:14.570851921Z [inf]  [Webhook] Processing as EVM activity (1 items)
+2026-02-04T15:48:14.570854901Z [inf]  request completed
+2026-02-04T15:48:14.570857777Z [inf]  [Webhook] Tx already in processedTxs cache: 0x87c95f33ef6ab0
+2026-02-04T15:48:15.249265960Z [wrn]  All on-chain DEX queries failed (Factory + Router)
+2026-02-04T15:48:15.249269522Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-04T15:48:15.595043919Z [inf]  0x API price received successfully
+2026-02-04T15:48:15.595046834Z [err]  Critical: No valid price data available
+2026-02-04T15:48:17.227869442Z [inf]  incoming request
+2026-02-04T15:48:17.227872041Z [inf]  request completed
+2026-02-04T15:48:17.227875548Z [inf]  incoming request
+2026-02-04T15:48:17.227878109Z [inf]  request completed
+2026-02-04T15:48:17.227880889Z [inf]  incoming request
+2026-02-04T15:48:17.227883459Z [inf]  request completed
+2026-02-04T15:48:17.227886188Z [inf]  incoming request
+2026-02-04T15:48:17.227888905Z [inf]  request completed
+2026-02-04T15:48:17.228738229Z [inf]  incoming request
+2026-02-04T15:48:17.228742899Z [inf]  request completed
+2026-02-04T15:48:17.228746009Z [inf]  incoming request
+2026-02-04T15:48:17.228749547Z [inf]  request completed
+2026-02-04T15:48:17.228752388Z [inf]  incoming request
+2026-02-04T15:48:17.228756773Z [inf]  request completed
+2026-02-04T15:48:17.228759360Z [inf]  incoming request
+2026-02-04T15:48:17.228762277Z [inf]  request completed
+2026-02-04T15:48:17.229787608Z [inf]  incoming request
+2026-02-04T15:48:17.229791105Z [inf]  request completed
+2026-02-04T15:48:17.229793877Z [inf]  incoming request
+2026-02-04T15:48:17.229796570Z [inf]  request completed
+2026-02-04T15:48:17.229799217Z [inf]  incoming request
+2026-02-04T15:48:17.229801989Z [inf]  request completed
+2026-02-04T15:48:17.229804707Z [inf]  incoming request
+2026-02-04T15:48:17.229807449Z [inf]  request completed
+2026-02-04T15:48:17.230919660Z [inf]  incoming request
+2026-02-04T15:48:17.230923137Z [inf]  request completed
+2026-02-04T15:48:17.230927274Z [inf]  incoming request
+2026-02-04T15:48:17.230930189Z [inf]  request completed
+2026-02-04T15:48:17.480380602Z [inf]  incoming request
+2026-02-04T15:48:17.480383591Z [inf]  incoming request
+2026-02-04T15:48:17.480386792Z [inf]  incoming request
+2026-02-04T15:48:17.481305518Z [inf]  incoming request
+2026-02-04T15:48:17.481312700Z [inf]  incoming request
+2026-02-04T15:48:17.481317694Z [inf]  incoming request
+2026-02-04T15:48:17.481323805Z [inf]  incoming request
+2026-02-04T15:48:17.481328774Z [inf]  incoming request
+2026-02-04T15:48:17.481333561Z [inf]  incoming request
+2026-02-04T15:48:17.481908911Z [inf]  incoming request
+2026-02-04T15:48:17.487057285Z [inf]  incoming request
+2026-02-04T15:48:17.487062750Z [inf]  incoming request
+2026-02-04T15:48:17.487660693Z [inf]  incoming request
+2026-02-04T15:48:17.488395418Z [inf]  incoming request
+2026-02-04T15:48:17.629897264Z [inf]  request completed
+2026-02-04T15:48:17.715679215Z [inf]  request completed
+2026-02-04T15:48:17.783150603Z [inf]  request completed
+2026-02-04T15:48:17.810976577Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-04T15:48:17.822517099Z [inf]  request completed
+2026-02-04T15:48:17.822521582Z [inf]  request completed
+2026-02-04T15:48:18.003891722Z [inf]  request completed
+2026-02-04T15:48:18.003899866Z [inf]  request completed
+2026-02-04T15:48:18.003905268Z [inf]  request completed
+2026-02-04T15:48:18.003909683Z [inf]  request completed
+2026-02-04T15:48:18.003954901Z [inf]  request completed
+2026-02-04T15:48:18.003958713Z [inf]  request completed
+2026-02-04T15:48:18.003961878Z [inf]  request completed
+2026-02-04T15:48:18.003965092Z [inf]  request completed
+2026-02-04T15:48:18.003968525Z [inf]  request completed
+2026-02-04T15:48:18.124337820Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-04T15:48:18.228516377Z [inf]  0x API price received successfully
+2026-02-04T15:48:19.013862543Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:48:19.330269700Z [inf]  ✅ Hybrid fetch complete
+2026-02-04T15:48:19.806357469Z [inf]  incoming request
+2026-02-04T15:48:19.806362991Z [inf]  incoming request
+2026-02-04T15:48:19.806366508Z [inf]  incoming request
+2026-02-04T15:48:19.806369361Z [inf]  incoming request
+2026-02-04T15:48:19.806372017Z [inf]  incoming request
+2026-02-04T15:48:20.006545357Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
+2026-02-04T15:48:20.006550057Z [inf]  request completed
+2026-02-04T15:48:20.006554225Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
+2026-02-04T15:48:20.006559323Z [inf]  request completed
+2026-02-04T15:48:20.006563937Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
+2026-02-04T15:48:20.006569614Z [inf]  request completed
+2026-02-04T15:48:20.006573577Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
+2026-02-04T15:48:20.006578594Z [inf]  request completed
+2026-02-04T15:48:20.006581970Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
+2026-02-04T15:48:20.006587420Z [inf]  request completed
+2026-02-04T15:48:20.182879692Z [inf]  incoming request
+2026-02-04T15:48:20.187968046Z [inf]  incoming request
+2026-02-04T15:48:20.187975031Z [inf]  incoming request
+2026-02-04T15:48:20.193446553Z [inf]  incoming request
+2026-02-04T15:48:20.195316512Z [inf]  incoming request
+2026-02-04T15:48:20.200877126Z [inf]  incoming request
+2026-02-04T15:48:20.251398682Z [inf]  request completed
+2026-02-04T15:48:20.286348471Z [inf]  request completed
+2026-02-04T15:48:20.286366996Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
+2026-02-04T15:48:20.286370189Z [inf]  request completed
+2026-02-04T15:48:20.286373437Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
+2026-02-04T15:48:20.286376257Z [inf]  request completed
+2026-02-04T15:48:20.286379240Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
+2026-02-04T15:48:20.303174639Z [inf]  request completed
+2026-02-04T15:48:20.396163489Z [inf]  request completed
+2026-02-04T15:48:24.000000000Z [inf]  Stopping Container
+2026-02-04T15:48:24.119473058Z [err]  npm error path /app
+2026-02-04T15:48:24.119478128Z [err]  npm error command failed
+2026-02-04T15:48:24.119485854Z [err]  npm error signal SIGTERM
+2026-02-04T15:48:24.119490367Z [err]  npm error command sh -c node dist/index.js
+2026-02-04T15:48:24.119494150Z [err]  npm error A complete log of this run can be found in: /root/.npm/_logs/2026-02-04T15_14_47_883Z-debug-0.log
