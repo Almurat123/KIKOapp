@@ -68,29 +68,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
     tokenBalance: number;
   } | null>(null);
 
-  useEffect(() => {
+  const fetchUsageSummary = React.useCallback(async () => {
     if (!authenticated || !ready) {
       setUsageSummary(null);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const token = await getAccessToken();
-        if (!token) {
-          if (!cancelled) setUsageSummary(null);
-          return;
-        }
-        const summary = await getUsageSummary(token);
-        if (!cancelled) setUsageSummary(summary);
-      } catch {
-        if (!cancelled) setUsageSummary(null);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setUsageSummary(null);
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      const summary = await getUsageSummary(token);
+      setUsageSummary(summary);
+    } catch {
+      setUsageSummary(null);
+    }
   }, [authenticated, ready, getAccessToken]);
+
+  useEffect(() => {
+    fetchUsageSummary();
+  }, [fetchUsageSummary]);
+
+  useEffect(() => {
+    const handler = () => {
+      fetchUsageSummary();
+    };
+    window.addEventListener('kiko-usage-refresh', handler as EventListener);
+    return () => window.removeEventListener('kiko-usage-refresh', handler as EventListener);
+  }, [fetchUsageSummary]);
 
   useEffect(() => {
     const handleResize = () => {

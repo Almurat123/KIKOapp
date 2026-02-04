@@ -15,6 +15,7 @@ interface SidebarContextType {
     onOpenProfile: () => void;
     setChatStarted: (started: boolean) => void;
     chatStarted: boolean;
+    refreshUsageSummary: () => void;
     setGeneratingConversationId: (id: string | null) => void;
     onBackHandler: (() => void) | null;
     setOnBackHandler: (handler: (() => void) | null) => void;
@@ -93,6 +94,11 @@ export const Layout: React.FC<LayoutProps> = ({
         onOpenProfile: handleProfileClick,
         setChatStarted,
         chatStarted,
+        refreshUsageSummary: () => {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('kiko-usage-refresh'));
+            }
+        },
         setGeneratingConversationId: setGeneratingConversationId || (() => { }),
         onBackHandler,
         setOnBackHandler,

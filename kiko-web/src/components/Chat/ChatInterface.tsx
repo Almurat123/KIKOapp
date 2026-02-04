@@ -1707,6 +1707,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 if (onTaskUpdate) {
                     onTaskUpdate({ id: task.id, status: task.status });
                 }
+                if (sidebar?.refreshUsageSummary) {
+                    sidebar.refreshUsageSummary();
+                }
 
                 // WebSocket will handle the chunks and status updates
             } else {
