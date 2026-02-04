@@ -54,7 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   generatingConversationId,
 }) => {
   const { resolvedTheme } = useThemeContext();
-  const { user, authenticated } = usePrivy();
+  const { user, authenticated, ready, getAccessToken } = usePrivy();
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set(['chat']));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
@@ -69,22 +69,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
   } | null>(null);
 
   useEffect(() => {
-    if (!authenticated) {
+    if (!authenticated || !ready) {
       setUsageSummary(null);
       return;
     }
     let cancelled = false;
-    getUsageSummary()
-      .then(summary => {
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) {
+          if (!cancelled) setUsageSummary(null);
+          return;
+        }
+        const summary = await getUsageSummary(token);
         if (!cancelled) setUsageSummary(summary);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setUsageSummary(null);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [authenticated]);
+  }, [authenticated, ready, getAccessToken]);
 
   useEffect(() => {
     const handleResize = () => {

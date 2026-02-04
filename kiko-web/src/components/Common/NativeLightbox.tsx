@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getOptimizedImageUrl } from '../../services/api';
@@ -22,6 +22,7 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
 }) => {
     const [[page, direction], setPage] = useState([initialIndex, 0]);
     const [zoom, setZoom] = useState(1);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // Keep page state in sync with external initialIndex when opening
     useEffect(() => {
@@ -157,14 +158,18 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
                 </button>
 
                 {/* Image Container */}
-                <div style={{
-                    position: 'relative',
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                }}>
+                <div
+                    ref={containerRef}
+                    style={{
+                        position: 'relative',
+                        width: '100%',
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden' // Ensure dragged image doesn't overflow
+                    }}
+                >
                     <AnimatePresence initial={false} custom={direction} mode="popLayout">
                         <motion.img
                             key={page}
@@ -178,18 +183,21 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
                                 x: { type: "spring", stiffness: 300, damping: 30 },
                                 opacity: { duration: 0.2 }
                             }}
-                            drag={zoom > 1 ? false : "x"}
-                            dragConstraints={{ left: 0, right: 0 }}
-                            dragElastic={0.7}
+                            drag={zoom > 1 ? true : "x"}
+                            dragConstraints={zoom > 1 ? containerRef : { left: 0, right: 0 }}
+                            dragElastic={0.2}
+                            dragMomentum={false}
                             onDragEnd={(_, { offset, velocity }) => {
-                                const swipe = swipePower(offset.x, velocity.x);
-
-                                if (swipe < -swipeConfidenceThreshold) {
-                                    paginate(1);
-                                } else if (swipe > swipeConfidenceThreshold) {
-                                    paginate(-1);
-                                } else if (Math.abs(offset.y) > 150) {
-                                    onClose();
+                                // Only handle swipe pagination if not zoomed
+                                if (zoom <= 1) {
+                                    const swipe = swipePower(offset.x, velocity.x);
+                                    if (swipe < -swipeConfidenceThreshold) {
+                                        paginate(1);
+                                    } else if (swipe > swipeConfidenceThreshold) {
+                                        paginate(-1);
+                                    } else if (Math.abs(offset.y) > 150) {
+                                        onClose();
+                                    }
                                 }
                             }}
                             style={{
@@ -198,7 +206,7 @@ export const NativeLightbox: React.FC<NativeLightboxProps> = React.memo(({
                                 objectFit: 'contain',
                                 userSelect: 'none',
                                 position: 'absolute',
-                                cursor: zoom > 1 ? 'zoom-out' : 'zoom-in',
+                                cursor: zoom > 1 ? 'grab' : 'zoom-in',
                                 borderRadius: '8px',
                                 scale: zoom,
                             }}

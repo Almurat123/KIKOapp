@@ -4,8 +4,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || (
   import.meta.env.PROD ? 'https://api.kiko.app' : 'http://localhost:3001'
 );
 
-async function authFetch(path: string, options: RequestInit = {}) {
-  const token = await getAuthToken();
+async function authFetch(path: string, options: RequestInit = {}, authToken?: string | null) {
+  const token = authToken ?? await getAuthToken();
   const headers = new Headers(options.headers);
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -51,8 +51,8 @@ export async function revokeBillingConsent() {
   return response.json() as Promise<{ success: boolean }>;
 }
 
-export async function getUsageSummary() {
-  const response = await authFetch('/api/billing/usage-summary');
+export async function getUsageSummary(authToken?: string | null) {
+  const response = await authFetch('/api/billing/usage-summary', {}, authToken);
   if (!response.ok) {
     throw new Error('Failed to fetch usage summary');
   }
