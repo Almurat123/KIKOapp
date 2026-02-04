@@ -1536,11 +1536,13 @@ async function executePositionExit(params: {
     tokenAddress: string;
     chainId: number;
     exitReason: 'mirror_sell' | 'take_profit' | 'stop_loss' | 'manual' | 'dynamic_take_profit';
-    tokenInfo: any;
+    tokenInfo?: any;
     config: any;
     userSettings?: any;
 }): Promise<string | null> {
-    const { userId, tokenAddress, chainId, exitReason, tokenInfo, config } = params;
+    const { userId, tokenAddress, chainId, exitReason, config } = params;
+    const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
+    const hasValidPrice = Number.isFinite(tokenInfo?.price) && tokenInfo.price > 0;
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'Executing position exit', {
         userId,
@@ -1596,14 +1598,14 @@ async function executePositionExit(params: {
                 decimals = acc.account.data.parsed.info.tokenAmount.decimals;
             }
 
-            const balanceUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
+            const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
 
             // 2. Rent Reclamation / Dust Handling
             // If balance is effectively zero (or just dust < 1000 raw units), we consider it empty.
             if (balance < 1000n) {
                 // CHECK: If we have an open position record but no balance, close it.
                 // This handles the case where an external sell happened or previous sell leftover dust.
-                if (balance <= 0n || balanceUsd < 0.1) {
+                if (balance <= 0n || (hasValidPrice && balanceUsd < 0.1)) {
                     logger.throttled(LogCode.WTC_TX_SKIPPED, 'Closing database record for empty or negligible balance', {
                         userId,
                         token: tokenAddress,
@@ -1701,9 +1703,9 @@ async function executePositionExit(params: {
             ]);
             balance = bal;
             decimals = Number(dec);
-            const balanceUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
+            const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
 
-            if (balance <= 0n || balanceUsd < 0.1) {
+            if (balance <= 0n || (hasValidPrice && balanceUsd < 0.1)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', { userId, tokenAddress, balanceUsd });
                 await prisma.position.updateMany({
                     where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
@@ -1809,15 +1811,25 @@ async function executePositionExit(params: {
             // [Logic]: Calculate sell value FIRST (needed for PNL)
             // [Ref]: formatTokenAmount helper + tokenInfo.price from API
             // [Risk]: tokenInfo.price may be stale or 0 if API fails
-            const sellVolUsd = formatTokenAmount(balance, decimals) * (tokenInfo?.price || 0);
-            const exitPrice = tokenInfo?.price || 0;
+            const openPositions = await prisma.position.findMany({
+                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
+            });
+            const fallbackExitPrice = openPositions.find(p => (p.currentPrice || 0) > 0)?.currentPrice
+                ?? openPositions.find(p => (p.entryPrice || 0) > 0)?.entryPrice
+                ?? 0;
+            const exitPrice = hasValidPrice ? tokenInfo.price : fallbackExitPrice;
+            const sellVolUsd = exitPrice > 0 ? formatTokenAmount(balance, decimals) * exitPrice : 0;
 
             // [Logic]: Fetch open positions to get entry data for PNL calculation
             // [Ref]: Prisma Position model has entryPrice, entryUsdValue fields
             // [Risk]: Position may have been closed by another process (race condition)
-            const openPositions = await prisma.position.findMany({
-                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
-            });
+            if (!hasValidPrice && exitPrice > 0) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Exit price missing from live data; using fallback price', {
+                    userId,
+                    token: tokenAddress,
+                    exitPrice
+                });
+            }
 
             // [Logic]: Update each position with calculated PNL
             // [Ref]: Prisma schema fields: realizedPnlUsd, realizedPnlPct, exitPrice, exitUsdValue
@@ -2000,7 +2012,7 @@ async function handleTargetSell(
             getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true })
         ]);
 
-        if (positions.length === 0 || !tokenInfo) return;
+        if (positions.length === 0) return;
 
         // Leader stat tracking (only for mirror sell)
         const balanceUsdForStats = positions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
