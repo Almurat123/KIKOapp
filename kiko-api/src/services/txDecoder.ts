@@ -807,26 +807,7 @@ export async function parseSwapTransaction(
     // Cache Pancake Infinity pool keys (non-blocking)
     cacheInfinityPoolKeysFromLogs(receipt.logs, chainId);
 
-    // 1) If V4 swap exists, decode from V4 events first to avoid heavy transfer scans
-    if (hasV4Swap) {
-        const tV4Start = Date.now();
-        const v4Swap = await decodeSwapFromV4Events(receipt.logs, chainId);
-        if (v4Swap) {
-            v4Swap.router = tx.to;
-            v4Swap.txHash = tx.hash;
-            if (PROFILE) {
-                logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
-                    tx: tx.hash?.slice(0, 12),
-                    path: 'v4_events',
-                    v4Ms: Date.now() - tV4Start,
-                    totalMs: Date.now() - t0
-                });
-            }
-            return v4Swap;
-        }
-    }
-
-    // 2) Prefer transfer-based decode for the target wallet (wallet perspective)
+    // 1) Prefer transfer-based decode for the target wallet (wallet perspective)
     const tTransferStart = Date.now();
     const transferSwap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
     if (transferSwap) {
@@ -852,6 +833,25 @@ export async function parseSwapTransaction(
             });
         }
         return transferSwap;
+    }
+
+    // 2) If V4 swap exists, decode from V4 events as fallback
+    if (hasV4Swap) {
+        const tV4Start = Date.now();
+        const v4Swap = await decodeSwapFromV4Events(receipt.logs, chainId);
+        if (v4Swap) {
+            v4Swap.router = tx.to;
+            v4Swap.txHash = tx.hash;
+            if (PROFILE) {
+                logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+                    tx: tx.hash?.slice(0, 12),
+                    path: 'v4_events',
+                    v4Ms: Date.now() - tV4Start,
+                    totalMs: Date.now() - t0
+                });
+            }
+            return v4Swap;
+        }
     }
 
     // 3) Pool Swap events (V2/V3)
