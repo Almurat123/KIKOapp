@@ -491,9 +491,14 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const signature = request.headers['x-hook0-signature'] as string | undefined;
         const internalSecret = env.security.internalWebhookSecret;
         const internalHeader = (request.headers['x-internal-secret'] as string | undefined) || '';
-        const isInternalBypass = internalSecret && internalHeader && internalHeader === internalSecret;
+        const isInternalBypass = !!internalSecret && !!internalHeader && internalHeader === internalSecret;
         // If not a CDP webhook, ignore silently (likely Alchemy misrouted)
         if (!signature && !isInternalBypass) {
+            console.warn('[Webhook] CDP bypass check failed', {
+                hasInternalSecret: !!internalSecret,
+                headerPresent: !!internalHeader,
+                headerMatch: !!internalSecret && internalHeader === internalSecret
+            });
             console.warn('[Webhook] CDP missing signature', {
                 ip: request.ip,
                 ua: request.headers['user-agent'],
