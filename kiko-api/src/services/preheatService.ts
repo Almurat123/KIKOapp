@@ -306,6 +306,9 @@ function extractTokenAddressFromPayload(data: any, factoryAddress?: string): str
     if (data?.event && typeof data.event === 'object') {
         candidates.push(...extractAddressesFromObject(data.event));
     }
+    if (data?.parameters && typeof data.parameters === 'object') {
+        candidates.push(...extractAddressesFromObject(data.parameters));
+    }
 
     const filtered = candidates.filter(addr =>
         addr !== '0x0000000000000000000000000000000000000000' &&
@@ -343,7 +346,15 @@ export function handleCdpWebhookPayload(payload: any) {
 
     const type = payload?.type || payload?.event?.type || payload?.data?.type;
     const data = payload?.data || payload?.event?.data || payload?.event || payload;
-    const eventName = (data?.eventName || payload?.eventName || payload?.event?.eventName || '').toString();
+    const eventName = (
+        data?.eventName ||
+        data?.event_name ||
+        payload?.eventName ||
+        payload?.event_name ||
+        payload?.event?.eventName ||
+        payload?.event?.event_name ||
+        ''
+    ).toString();
 
     if (!type && !eventName) return;
     if (type && !type.toLowerCase().includes('onchain')) return;
@@ -351,10 +362,22 @@ export function handleCdpWebhookPayload(payload: any) {
         return;
     }
 
-    const chainId = parseChainId(data?.networkId || payload?.networkId || data?.chainId || payload?.chainId);
+    const chainId = parseChainId(
+        data?.networkId ||
+        payload?.networkId ||
+        data?.chainId ||
+        payload?.chainId ||
+        data?.network ||
+        payload?.network
+    );
     if (!chainId) return;
 
-    const factoryAddress = normalizeAddress(data?.contractAddress || data?.contract || data?.address);
+    const factoryAddress = normalizeAddress(
+        data?.contractAddress ||
+        data?.contract_address ||
+        data?.contract ||
+        data?.address
+    );
 
     const allowlist = preheatConfig.factoryAllowlist[chainId] || [];
     if (allowlist.length > 0 && factoryAddress && !allowlist.includes(factoryAddress)) {
