@@ -489,8 +489,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
      */
     fastify.post('/cdp', { config: { rawBody: true } }, async (request, reply) => {
         const signature = request.headers['x-hook0-signature'] as string | undefined;
+        const internalSecret = env.security.internalWebhookSecret;
+        const internalHeader = (request.headers['x-internal-secret'] as string | undefined) || '';
+        const isInternalBypass = internalSecret && internalHeader && internalHeader === internalSecret;
         // If not a CDP webhook, ignore silently (likely Alchemy misrouted)
-        if (!signature) {
+        if (!signature && !isInternalBypass) {
             console.warn('[Webhook] CDP missing signature', {
                 ip: request.ip,
                 ua: request.headers['user-agent'],
@@ -503,15 +506,16 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const cdpSecrets = cdpSecretRaw
             ? cdpSecretRaw.split(',').map(s => s.trim()).filter(Boolean)
             : [];
-        if (cdpSecrets.length > 0) {
+        if (cdpSecrets.length > 0 && !isInternalBypass) {
             const rawBody = (request as any).rawBody;
             if (!rawBody) {
                 console.error('[Webhook] rawBody missing for CDP webhook');
                 return reply.status(500).send({ error: 'Internal server error' });
             }
 
+            const signatureValue = signature || '';
             const isValid = cdpSecrets.some(secret =>
-                verifyCdpSignature(signature, rawBody.toString(), request.headers, secret)
+                verifyCdpSignature(signatureValue, rawBody.toString(), request.headers, secret)
             );
             if (!isValid) {
                 console.warn('[Webhook] Invalid CDP signature');

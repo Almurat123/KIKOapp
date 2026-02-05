@@ -333,14 +333,18 @@ export class ChatWorker {
         });
         if (payload.balance) {
             const entries = this.parseBalanceEntries(payload.balance);
+            const filteredEntries = this.filterBalanceEntriesForAi(entries, payload.chainId);
+            if (filteredEntries && filteredEntries.length > 0) {
+                payload.balance = filteredEntries;
+            }
             const spotlightSymbols = new Set(['USDC', 'ETH']);
-            const spotlight = entries
-                ? entries.filter((token) => spotlightSymbols.has(String(token.symbol).toUpperCase()))
+            const spotlight = filteredEntries
+                ? filteredEntries.filter((token) => spotlightSymbols.has(String(token.symbol).toUpperCase()))
                 : [];
             logger.info(LogCode.AI_API_CALL, 'ChatWorker: client balance snapshot summary', {
-                tokenCount: entries ? entries.length : 0,
-                sample: entries
-                    ? entries.slice(0, 5).map((token) => ({
+                tokenCount: filteredEntries ? filteredEntries.length : 0,
+                sample: filteredEntries
+                    ? filteredEntries.slice(0, 5).map((token) => ({
                         symbol: token.symbol,
                         balance: token.balance,
                         decimals: token.decimals,
@@ -370,6 +374,25 @@ export class ChatWorker {
         const cacheStatus = cacheInfo.length > 0 ? `\n\n═══════════════════════════════════════\n🗄️ CACHED DATA AVAILABLE - DO NOT RE-FETCH\n═══════════════════════════════════════\n${cacheInfo.join('\n')}\n═══════════════════════════════════════\n` : '';
 
         return `[CLIENT_CONTEXT]\n${serialized}${cacheStatus}\n\n⚡ CRITICAL OPTIMIZATION RULES:\n1. The above context contains CACHED DATA that is already available\n2. DO NOT call get_wallet_info for the CURRENT chain (${payload.chainId ?? 'unknown'}) when balance data is present above\n3. If the user asks about a DIFFERENT chain, you MAY call get_wallet_info for that chain\n4. DO NOT call get_token_info if token data appears in conversation\n5. Use cached data directly and proceed immediately with user's request\n6. Only call tools when you need NEW information not available in cache\n7. When you see [TOKEN_CONTEXT ✅ FROM CACHE] or [USER_BALANCE_CONTEXT ✅ CACHED], that data is ready to use`;
+    }
+
+    private filterBalanceEntriesForAi(
+        entries: Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }> | undefined,
+        chainId?: number
+    ) {
+        if (!entries || entries.length === 0) return entries;
+        const nativeSymbols = new Set(['ETH', 'MATIC', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
+        const isEvm = chainId !== 900 && chainId !== undefined;
+        return entries.filter((token) => {
+            const symbol = String(token.symbol || '').toUpperCase();
+            if (nativeSymbols.has(symbol)) return true;
+            const addr = token.contractAddress || '';
+            if (!addr) return false;
+            if (isEvm) {
+                return /^0x[0-9a-fA-F]{40}$/.test(addr);
+            }
+            return addr.length >= 32; // allow Solana base58 mints
+        });
     }
 
     private seedToolCacheFromContext(cache: Map<string, any>, task: AITask) {

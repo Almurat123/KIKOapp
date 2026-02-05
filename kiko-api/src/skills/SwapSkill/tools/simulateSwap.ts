@@ -26,6 +26,8 @@ export const SimulateSwapTool: Tool = {
             const accessToken = context?.accessToken;
             const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
 
+            const userAddress = context?.walletAddress || context?.userAddress;
+
             const result = await fetchJson({
                 url: `${API_BASE}/api/swap/quote`,
                 method: 'POST',
@@ -39,7 +41,8 @@ export const SimulateSwapTool: Tool = {
                         tokenOut: args.token_out,
                         amountIn: args.amount_in,
                         chainId: args.chain_id,
-                        slippageBps: Math.round((args.slippage || 1.0) * 100)
+                        slippageBps: Math.round((args.slippage || 1.0) * 100),
+                        userAddress
                     }))
                 },
                 body: JSON.stringify({
@@ -47,15 +50,16 @@ export const SimulateSwapTool: Tool = {
                     tokenOut: args.token_out,
                     amountIn: args.amount_in,
                     chainId: args.chain_id,
-                    slippageBps: Math.round((args.slippage || 1.0) * 100)
+                    slippageBps: Math.round((args.slippage || 1.0) * 100),
+                    userAddress
                 })
             });
 
-            // Basic safety check from simulation
-            const priceImpact = Number(result.quote?.priceImpact || 0);
+            const quote = (result as any)?.data || (result as any)?.quote;
+            const priceImpact = Number(quote?.priceImpact || 0);
             const isRisky = priceImpact > 10;
-            const expectedOut = result.quote?.amountOutHuman || '0';
-            const feeHuman = result.quote?.totalFeeHuman || '0';
+            const expectedOut = quote?.amountOut || quote?.amountOutHuman || '0';
+            const feeHuman = quote?.totalFeeHuman || quote?.fee || '0';
 
             return {
                 expected_out: expectedOut,
@@ -63,11 +67,11 @@ export const SimulateSwapTool: Tool = {
                 price_impact: `${priceImpact}%`,
                 price_impact_pct: priceImpact,
                 is_safe: !isRisky && parseFloat(expectedOut) > 0,
-                path: result.quote?.path || 'direct',
+                path: quote?.path || 'direct',
                 fee: feeHuman,
                 fee_human: feeHuman,
                 warning: isRisky ? '🚨 HIGH PRICE IMPACT! This trade is risky.' : null,
-                quote_ok: true
+                quote_ok: !!quote && parseFloat(expectedOut) > 0
             };
         } catch (error: any) {
             return { error: error.message || 'Simulation failed' };
