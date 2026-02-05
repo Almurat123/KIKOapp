@@ -33,6 +33,14 @@ export const V4_STATE_VIEW: Record<number, string> = {
 const stateViewInterface = new ethers.Interface(V4_STATE_VIEW_ABI);
 
 const CLANKER_HOOKS_BASE = CLANKER_HOOKS_BY_CHAIN[8453] || [];
+const CLANKER_HOOKS_DYNAMIC_BASE = [
+    '0xd60d6b218116cfd801e28f78d011a203d2b068cc', // ClankerHookDynamicFeeV2 v4.1.0
+    '0x34a45c6b61876d739400bd71228cbcbd4f53e8cc', // ClankerHookDynamicFee v4.0.0
+];
+const CLANKER_HOOKS_STATIC_BASE = [
+    '0xb429d62f8f3bffb98cdb9569533ea23bf0ba28cc', // ClankerHookStaticFeeV2 v4.1.0
+    '0xdd5eeaff7bd481ad55db083062b13a3cdf0a68cc', // ClankerHookStaticFee v4.0.0
+];
 
 // Zora Creator Coin Hooks (Base)
 const ZORA_HOOKS_BASE = [
@@ -54,8 +62,13 @@ interface V4PoolConfig {
 // 常见 V4 配置 - 精简版 (只保留最常用)
 const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
     8453: [ // Base
-        // Dynamic fee (Clanker hooks)
-        { fee: DYNAMIC_FEE_FLAG, tickSpacing: 200, hooks: CLANKER_HOOKS_BASE },
+        // Dynamic fee (Clanker dynamic hooks)
+        { fee: DYNAMIC_FEE_FLAG, tickSpacing: 200, hooks: CLANKER_HOOKS_DYNAMIC_BASE },
+
+        // Static fee tiers (Clanker static hooks)
+        { fee: 500, tickSpacing: 10, hooks: CLANKER_HOOKS_STATIC_BASE },
+        { fee: 3000, tickSpacing: 60, hooks: CLANKER_HOOKS_STATIC_BASE },
+        { fee: 10000, tickSpacing: 200, hooks: CLANKER_HOOKS_STATIC_BASE },
 
         // Common static fee tiers (hookless + Zora hooks)
         { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000', ...ZORA_HOOKS_BASE] },

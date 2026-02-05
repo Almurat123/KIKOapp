@@ -1007,6 +1007,14 @@ export class ChatWorker {
         let lastToolResults: any[] = [];
         const citationUrlSet = new Set<string>();
 
+        // Immediately broadcast thinking status so UI doesn't feel stuck
+        this.broadcastTaskStatus(userId, task, {
+            status: 'running',
+            iteration: 1,
+            maxIterations: maxIterations,
+            message: 'Thinking'
+        });
+
         // CRITICAL: Broadcast message_start so frontend creates the message BEFORE chunks arrive
         // This fixes the race condition where chunks are dropped because frontend message doesn't exist yet
         this.ws.broadcastToUser(userId!, {

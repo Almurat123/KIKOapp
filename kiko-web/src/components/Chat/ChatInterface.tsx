@@ -114,7 +114,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         messagesRef.current = messages;
     }, [messages]);
 
-    const pendingAssistantIdRef = useRef<string | null>(null);
 
     // Get wallet address based on current chain (Solana vs EVM)
     // If on Solana (900), try to find Solana embedded wallet first
@@ -490,14 +489,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const msgId = event.data.messageId || event.data.message_id;
                         logger.debug('message_start received, creating placeholder for:', msgId);
                         setMessages(prev => {
-                            const pendingId = pendingAssistantIdRef.current;
-                            if (pendingId) {
-                                const pendingIdx = prev.findIndex(m => m.id === pendingId);
-                                if (pendingIdx !== -1) {
-                                    pendingAssistantIdRef.current = null;
-                                    return prev.map(m => m.id === pendingId ? { ...m, id: msgId } : m);
-                                }
-                            }
                             // Check if message already exists (e.g., from initial load)
                             const exists = prev.some(m => m.id === msgId);
                             if (exists) {
@@ -1595,19 +1586,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             });
         }
 
-        const assistantPlaceholderId = `pending-assistant-${userMsg.id}`;
-        pendingAssistantIdRef.current = assistantPlaceholderId;
-        const assistantPlaceholder: Message = {
-            id: assistantPlaceholderId,
-            role: 'assistant',
-            content: '',
-            reasoning_content: '',
-            status: 'streaming',
-            timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            date: now.toISOString().split('T')[0],
-            type: 'text',
-        };
-        setMessages(prev => [...prev, assistantPlaceholder]);
+        // Stop any previous generation BEFORE showing new thinking
+        stopGeneration(true);
 
         // 3. Show thinking state immediately
         setIsThinking(true);
@@ -1631,7 +1611,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 toast.error(moderationResult.reason || 'Message blocked by safety policy');
                 // Revert optimistic UI on moderation failure
                 setIsThinking(false);
-                setMessages(prev => prev.filter(m => m.id !== userMsg.id && m.id !== assistantPlaceholderId));
+                setMessages(prev => prev.filter(m => m.id !== userMsg.id));
                 if (!conversationId) setHasStarted(false);
                 return;
             }
@@ -1675,7 +1655,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (!currentConvId) {
                 // Revert optimistic UI on session creation failure
                 setIsThinking(false);
-                setMessages(prev => prev.filter(m => m.id !== userMsg.id && m.id !== assistantPlaceholderId));
+                setMessages(prev => prev.filter(m => m.id !== userMsg.id));
                 setHasStarted(false);
                 if (!authenticated) {
                     toast.error('Session expired. Login to KIKO to create chat session.');
@@ -1685,9 +1665,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 return;
             }
 
-            stopGeneration();
-            setIsThinking(true);
-            setThinkingText('Thinking');
             logger.debug('Setting isThinking=true');
 
             // 3. WebSocket is already connected globally in App.tsx
@@ -1714,30 +1691,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                 // Add assistant message placeholder (WebSocket will stream content to this ID)
                 const createdAt = (assistantMessage as any).created_at ?? assistantMessage.timestamp ?? Date.now();
-                setMessages(prev => {
-                    const exists = prev.some(m => m.id === assistantMessage.id);
-                    if (exists) return prev;
-                    const pendingId = pendingAssistantIdRef.current;
-                    if (pendingId) {
-                        pendingAssistantIdRef.current = null;
-                        return prev.map(m => m.id === pendingId
-                            ? { ...m, id: assistantMessage.id }
-                            : m
-                        );
-                    }
-                    const aiMsg: Message = {
-                        id: assistantMessage.id,
-                        role: 'assistant',
-                        content: '',
-                        reasoning_content: '',
-                        timestamp: new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        date: new Date(createdAt).toISOString().split('T')[0],
-                        type: 'text',
-                        status: 'streaming',
-                    };
-                    logger.debug('Added AI message placeholder, id:', aiMsg.id);
-                    return [...prev, aiMsg];
-                });
+                const aiMsg: Message = {
+                    id: assistantMessage.id,
+                    role: 'assistant',
+                    content: '',
+                    reasoning_content: '',
+                    timestamp: new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    date: new Date(createdAt).toISOString().split('T')[0],
+                    type: 'text',
+                    status: 'streaming',
+                };
+
+                setMessages(prev => [...prev, aiMsg]);
+                logger.debug('Added AI message placeholder, id:', aiMsg.id);
                 setActiveTaskId(task.id);
 
                 // Update task state in parent component
@@ -1756,7 +1722,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         } catch (error: any) {
             logger.error('Error sending message:', error);
             setIsThinking(false);
-            setMessages(prev => prev.filter(m => m.id !== assistantPlaceholderId));
             const errorMsg: Message = {
                 id: Date.now().toString(),
                 role: 'assistant',
@@ -2088,9 +2053,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                                 );
                                                 messagesRef.current = updated;
                                                 if (onMessagesChange && currentConversationIdRef.current) {
-                                                    setTimeout(() => {
-                                                        onMessagesChange(updated);
-                                                    }, 0);
+                                                    setTimeout(() => onMessagesChange(updated), 0);
                                                 }
                                                 return updated;
                                             });
@@ -2170,8 +2133,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                             });
                                         } else if (action === 'strategy-details') {
                                         }
-                                    }
-                                    }
+                                    }}
                                 />
 
                             </React.Fragment>

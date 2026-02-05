@@ -210,30 +210,17 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const payload = request.body as any;
-        const payloadEventName = (
-            payload?.data?.eventName ||
-            payload?.data?.event_name ||
-            payload?.event?.eventName ||
-            payload?.event?.event_name ||
-            payload?.eventName ||
-            payload?.event_name
-        );
-        const payloadContract = (
-            payload?.data?.contractAddress ||
-            payload?.data?.contract_address ||
-            payload?.event?.contractAddress ||
-            payload?.event?.contract_address ||
-            payload?.contractAddress ||
-            payload?.contract_address
-        );
-        console.log(`[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'} ${JSON.stringify(payload).slice(0, 600)}`);
-
         const evmNetwork = payload?.event?.network;
         const solNetwork = payload?.event?.event?.network || payload?.event?.network;
         const rawNetwork = evmNetwork || solNetwork || payload?.network || 'unknown';
-
-        // Debug: Log full payload as single-line JSON
-        console.log(`[Webhook] Incoming Alchemy (${rawNetwork}): ${JSON.stringify(payload)}`);
+        const sampleActivity = payload?.event?.activity?.[0] || payload?.event?.activity;
+        const sampleTx = payload?.event?.event?.transaction?.[0] || payload?.event?.event?.transaction;
+        const sampleHash = sampleActivity?.hash || sampleTx?.signature || 'n/a';
+        const sampleCategory = sampleActivity?.category || 'n/a';
+        const sampleAsset = sampleActivity?.asset || sampleActivity?.rawContract?.address || 'n/a';
+        console.log(
+            `[Webhook] Alchemy payload: network=${rawNetwork} hash=${String(sampleHash).slice(0, 12)} category=${sampleCategory} asset=${sampleAsset}`
+        );
 
         // Respond immediately with 200 (Alchemy expects this)
         reply.send({ success: true });
@@ -333,7 +320,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     });
 
                     if (trackedWallets.length === 0) {
-                        console.log(`[Webhook] ⚠️ Ignoring tx ${txHash.slice(0, 8)}: No matched tracked wallets in [${candidates.map(c => c.slice(0, 6)).join(', ')}]`);
+                        console.log(
+                            `[Webhook] Ignore tx ${txHash.slice(0, 12)}: no tracked wallets (from/to ${candidates.map(c => c.slice(0, 6)).join(', ')})`
+                        );
                         return;
                     }
 
@@ -455,7 +444,10 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         );
 
                         if (!swap) {
-                            console.log(`[Webhook] Not a swap tx for ${trackedTarget.slice(0, 10)}: ${txHash.slice(0, 16)}`);
+                            const selector = tx.input?.slice(0, 10) || '0x';
+                            console.log(
+                                `[Webhook] Not swap: tx=${txHash.slice(0, 12)} to=${(tx.to || '').slice(0, 10)} sel=${selector} status=${parseInt(receipt.status, 16)} logs=${receipt.logs?.length ?? 0}`
+                            );
                             return;
                         }
 
@@ -490,6 +482,10 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     fastify.post('/cdp', { config: { rawBody: true } }, async (request, reply) => {
         const signature = request.headers['x-hook0-signature'] as string | undefined;
         const internalSecret = env.security.internalWebhookSecret;
+        const cdpSecretRaw = env.security.coinbaseCdpWebhookSecret;
+        const cdpSecrets = cdpSecretRaw
+            ? cdpSecretRaw.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
         const allowUnsigned = (process.env.CDP_ALLOW_UNSIGNED || '').toLowerCase() === 'true';
         const cdpAuthHeader = env.security.cdpWebhookAuthHeader;
         const cdpAuthValue = env.security.cdpWebhookAuthValue;
@@ -506,8 +502,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const secretList = splitList(internalSecret);
         const headerList = splitList(internalHeader);
         const isInternalBypass = secretList.length > 0 && headerList.some(h => secretList.includes(h));
+        const isCdpSecretBypass = cdpSecrets.length > 0 && headerList.some(h => cdpSecrets.includes(h));
         const isAuthBypass = Boolean(cdpAuthHeader && cdpAuthValue && authHeaderValue === cdpAuthValue);
-        const isBypass = isInternalBypass || isAuthBypass;
+        const isBypass = isInternalBypass || isCdpSecretBypass || isAuthBypass;
         // If not a CDP webhook, ignore silently (likely Alchemy misrouted)
         if (!signature && !isBypass && !allowUnsigned) {
             console.warn('[Webhook] CDP bypass check failed', {
@@ -527,10 +524,6 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return reply.send({ success: true, ignored: true });
         }
 
-        const cdpSecretRaw = env.security.coinbaseCdpWebhookSecret;
-        const cdpSecrets = cdpSecretRaw
-            ? cdpSecretRaw.split(',').map(s => s.trim()).filter(Boolean)
-            : [];
         if (cdpSecrets.length > 0 && !isBypass) {
             const rawBody = (request as any).rawBody;
             if (!rawBody) {
