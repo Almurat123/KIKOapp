@@ -1,23 +1,17 @@
 /**
  * AI Service
- * Main service for AI interactions, combining DeepSeek API and Intent parsing
+ * Main service for AI interactions (backend-orchestrated)
  */
 
 import { chatCompletion, streamChatCompletion, getModelName, type DeepSeekMessage } from './deepseek';
 import { streamChatCompletion as xaiStreamChatCompletion, getXaiModelName, getRecommendedMaxTokens as getXaiRecommendedMaxTokens, type XaiMessage } from './xai';
-import { parseIntent, type Intent, type IntentType } from './intentParser';
-import { buildContextPrompt, GROK_CORE_PROMPT, DEEPSEEK_CORE_PROMPT } from '../config/aiPrompts';
-import { AIApiService } from './aiApiService';
-import { AIExtendedIntentParser } from './aiExtendedIntentParser';
+import type { Intent, IntentType } from './intentTypes';
 import { logger } from '../utils/logger';
 
 import { type AIStreamChunk, type AIClientAction, type AICitation } from './aiTypes';
 
 // Export these for backward compatibility if needed by other files
 export type { AIClientAction, AICitation };
-
-// Types that have their own API handlers in AIApiService
-const typesWithOwnHandlersInApi = ['TOKEN_SECURITY', 'RISK_ASSESSMENT'];
 
 export interface StreamResponse extends AIStreamChunk {
   intent?: Intent;
@@ -46,29 +40,12 @@ export interface UserContext {
 export async function generateAIResponse(
   userMessage: string,
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
-  conversationId?: string,
+  _conversationId?: string,
   userContext?: UserContext
 ): Promise<AIResponse> {
   try {
-    // Parse intent first
-    logger.intent('parse', { message: userMessage });
-    const intent = await parseIntent(userMessage, conversationId, userContext);
-    logger.intent('result', { action: intent.action });
-
-    // Build system prompt with user context
-    // Default to DeepSeek prompt for generateAIResponse as it doesn't take modelId yet
-    let systemPrompt = DEEPSEEK_CORE_PROMPT;
-    if (userContext) {
-      const contextPrompt = buildContextPrompt(userContext);
-      systemPrompt += contextPrompt;
-    }
-
     // Build conversation context
     const messages: DeepSeekMessage[] = [
-      {
-        role: 'system',
-        content: systemPrompt,
-      },
       ...conversationHistory.slice(-10).map(msg => ({
         role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
         content: msg.content,
@@ -96,49 +73,15 @@ export async function generateAIResponse(
 
     const content = response.choices[0]?.message?.content || 'I apologize, but I encountered an error processing your request.';
 
-    // Determine if we should show a card based on intent
-    const shouldShowCard = !!(intent.action === 'token_info' && intent.token_symbol);
-    const cardData = shouldShowCard ? {
-      symbol: intent.token_symbol,
-      // In real implementation, fetch actual data from market APIs
-      // For now, return placeholder structure
-    } : undefined;
-
     return {
       content,
-      intent,
-      intentType: intent.action,
-      shouldShowCard,
-      cardData,
     };
   } catch (error: unknown) {
     logger.error('AI', 'AI service error', error);
     return {
       content: 'I apologize, but I encountered an error. Please try again.',
-      intent: {
-        version: '1.0',
-        intent_id: `error-${Date.now()}`,
-        origin: 'chat',
-        action: 'general_query',
-        query: userMessage,
-      },
-      intentType: 'general_query',
     };
   }
-}
-
-/**
- * Check if message is a simple greeting that doesn't need search
- */
-function isSimpleGreeting(message: string): boolean {
-  const greetingPatterns = [
-    /^(hi|hello|hey|yo|gm|gn)\b/i,
-    /^(how are you|what's up|sup)\b/i,
-    /^(thanks|thank you|ty)\b/i,
-    /^(bye|goodbye|see you|later)\b/i,
-  ];
-
-  return greetingPatterns.some(pattern => pattern.test(message.trim()));
 }
 
 /**
@@ -160,182 +103,18 @@ export interface CustomAISettings {
 export async function* streamAIResponse(
   userMessage: string,
   conversationHistory: Array<{ role: 'user' | 'ai'; content: string }> = [],
-  conversationId?: string,
+  _conversationId?: string,
   signal?: AbortSignal,
   userContext?: UserContext,
   modelId?: string,
   mode?: string,
-  customSettings?: CustomAISettings
+  _customSettings?: CustomAISettings
 ): AsyncGenerator<StreamResponse, void, unknown> {
   try {
     // Yield initial status
     yield { content: '', tool_status: 'Analyzing request...' };
 
-    // Parse intent first
-    const intent = await parseIntent(userMessage, conversationId, userContext);
-
-    // If intent has a contract address, detect which chain it's on and update chain_id
-    const contractAddress = intent.token_out?.match(/^0x[a-fA-F0-9]{40}$/) ? intent.token_out :
-      intent.token_address?.match(/^0x[a-fA-F0-9]{40}$/) ? intent.token_address :
-        null;
-
-    console.log('[aiService] Contract address detection:', { contractAddress, token_out: intent.token_out, token_address: intent.token_address });
-
-    if (contractAddress && intent.action === 'swap') {
-      try {
-        yield { content: '', tool_status: 'Checking contract address...' };
-        const { findTokenOnAnyChain } = await import('./tokenDataService');
-        console.log('[aiService] Calling findTokenOnAnyChain for:', contractAddress);
-        const tokenData = await findTokenOnAnyChain(contractAddress);
-        console.log('[aiService] findTokenOnAnyChain result:', tokenData);
-        if (tokenData && tokenData.chainId) {
-          console.log(`[aiService] Updating intent.chain_id from ${intent.chain_id} to ${tokenData.chainId}`);
-          intent.chain_id = tokenData.chainId;
-        } else {
-          console.warn('[aiService] No chainId found in tokenData');
-        }
-      } catch (error) {
-        console.warn('[aiService] Failed to detect chain for contract address:', error);
-      }
-    }
-
-    // Check for "thinking" or Grok models to determine prompt
-    const isGrokModel = (modelId ?? '').startsWith('grok-');
-
-    // Select correct system prompt based on model
-    // This resolves the "thinking mistake" issue by strictly separating personas
-    const BASE_SYSTEM_PROMPT = isGrokModel ? GROK_CORE_PROMPT : DEEPSEEK_CORE_PROMPT;
-
-    // Build system prompt with user context
-    // Note: SAFETY_PROMPT is already included in CORE_PROMPT definitions now, 
-    // but FULL_SYSTEM_PROMPT legacy usage might rely on it. 
-    // Since we are using specific CORE prompts which include SAFETY, we don't need to append it again 
-    // UNLESS we want to be doubly sure or if the CORE definitions change.
-    // Looking at aiPrompts.ts:
-    // DEEPSEEK_CORE_PROMPT = IDENTITY + SAFETY + RULES
-    // GROK_CORE_PROMPT = IDENTITY + SAFETY + RULES
-    // so we just use the BASE_SYSTEM_PROMPT.
-
-    let systemPrompt = BASE_SYSTEM_PROMPT;
-
-    // Add Grok thinking mode instructions if using reasoning/thinking mode
-    console.log('[aiService] Model ID:', modelId, 'Mode:', mode);
-    // Check both modelId and mode to determine if we should add thinking instructions
-    const grokReasoningModelIds = new Set([
-      'grok-4-1-fast-reasoning',
-    ]);
-    // isGrokModel is already defined above
-    const isGrokThinkingMode = isGrokModel && (
-      mode === 'thinking' || grokReasoningModelIds.has(modelId ?? '')
-    );
-
-    // Grok thinking mode - feature abandoned, no special prompts needed
-    // The model will output directly
-    if (isGrokThinkingMode) {
-      console.log('[aiService] Grok thinking mode - no special prompts (feature disabled)');
-    } else {
-      console.log('[aiService] Not using thinking mode. Mode:', mode, 'Model:', modelId);
-
-      // For Grok Fast mode (which has no tools enabled in backend), explicitly forbid tool usage
-      // This prevents the model from hallucinating tool calls like <tool>check_token_risk</tool>
-      if (isGrokModel && (mode === 'fast' || modelId?.includes('fast')) && !modelId?.includes('reasoning')) {
-        console.log('[aiService] Adding Grok Fast mode PARTIAL-TOOL instructions');
-        systemPrompt += `\n\nCRITICAL SYSTEM NOTE: You are in FAST MODE.You HAVE access to Web Search and X Search.Use them for market data / prices.You do NOT have access to internal tools(check_token_risk, etc).Do NOT output < tool > tags for internal tools.`;
-      }
-    }
-
-    if (userContext) {
-      const contextPrompt = buildContextPrompt(userContext);
-      systemPrompt += contextPrompt;
-    }
-
-    // Add custom settings to system prompt
-    if (customSettings) {
-      console.log('[aiService] Applying custom AI settings');
-      let customInstructions = '\n\n[Custom User Preferences]';
-
-      if (customSettings.aiRole && customSettings.aiRole !== 'default') {
-        const roleMap: Record<string, string> = {
-          'crypto_analyst': 'an expert Crypto Analyst',
-          'defi_expert': 'a DeFi Expert',
-          'nft_collector': 'an avid NFT Collector',
-          'auditor': 'a Smart Contract Auditor',
-          'beginner': 'a Beginner',
-          'trader': 'a Trader',
-          'developer': 'a Developer'
-        };
-        const roleName = roleMap[customSettings.aiRole] || customSettings.aiRole;
-        customInstructions += `\nAct as ${roleName}.`;
-      }
-
-      if (customSettings.userRole && customSettings.userRole !== 'default') {
-        const roleMap: Record<string, string> = {
-          'beginner': 'a Beginner in crypto',
-          'trader': 'an experienced Trader',
-          'developer': 'a Developer'
-        };
-        const roleName = roleMap[customSettings.userRole] || customSettings.userRole;
-        customInstructions += `\nThe user is ${roleName}. Adjust your explanation accordingly.`;
-      }
-
-      if (customSettings.autoExplain) {
-        customInstructions += `\nAuto - explain: Always explain technical terms and jargon in simple terms.`;
-      }
-
-      if (customSettings.additionalInstructions) {
-        customInstructions += `\nAdditional Instructions: ${customSettings.additionalInstructions} `;
-      }
-
-      if (customSettings.checkTokenBeforeSwap) {
-        customInstructions += `\nSecurity Check: Always check token security and risk before suggesting a swap.`;
-      }
-
-
-
-
-
-      if (customSettings.defaultSwapAmount) {
-        customInstructions += `\nDefault Swap Amount: ${customSettings.defaultSwapAmount} (Native Token).`;
-      }
-
-      systemPrompt += customInstructions;
-    }
-
-
-    // Check for contract addresses in user message and fetch info
-    const contractAddressMatch = userMessage.match(/0x[a-fA-F0-9]{40}/);
-    if (contractAddressMatch) {
-      const address = contractAddressMatch[0];
-      try {
-        const { getTokenData, findTokenOnAnyChain } = await import('./tokenDataService');
-        // Default to Ethereum (1) if no chain specified, or try to detect from context
-        const chainId = userContext?.chainId || 1;
-
-        // Try current chain first
-        let tokenData = await getTokenData(address, chainId);
-
-        // If not found, try global search
-        if (!tokenData || tokenData.symbol === 'UNKNOWN') {
-          const globalToken = await findTokenOnAnyChain(address);
-          if (globalToken) {
-            tokenData = globalToken;
-          }
-        }
-
-        if (tokenData && tokenData.symbol !== 'UNKNOWN') {
-          systemPrompt += `\n\n[Token Context]\nUser mentioned token: ${address} \nSymbol: ${tokenData.symbol} \nName: ${tokenData.name} \nChain ID: ${tokenData.chainId} \nPrice: $${tokenData.price || 'Unknown'} \nMarket Cap: $${tokenData.marketCap || 'Unknown'} \n24h Change: ${tokenData.priceChange24h || 0}%\n`;
-        }
-      } catch (error) {
-        console.warn('[aiService] Failed to fetch token info for context:', error);
-      }
-    }
-
-    // Build conversation context
     const messages: DeepSeekMessage[] = [
-      {
-        role: 'system',
-        content: systemPrompt,
-      },
       ...conversationHistory.slice(-10).map(msg => ({
         role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
         content: msg.content,
@@ -345,105 +124,6 @@ export async function* streamAIResponse(
         content: userMessage,
       },
     ];
-
-    // Check if we should call an API based on intent
-    // For swap intents, also call API to get quote and balance info
-    const shouldCallApi = intent.action !== 'general_query' &&
-      (intent.action.startsWith('news_') ||
-        intent.action.startsWith('social_') ||
-        intent.action.startsWith('market_') ||
-        intent.action.startsWith('token_') ||
-        intent.action.startsWith('wallet_') ||
-        intent.action === 'swap'); // Include swap to get quote
-
-    let apiData: unknown = null;
-    if (shouldCallApi) {
-      try {
-        // Parse extended intent for API calls
-        const extendedIntent = await AIExtendedIntentParser.parseUserIntent(userMessage);
-        const actionType = (extendedIntent?.type || extendedIntent?.action || 'UNKNOWN').toUpperCase();
-
-        if (extendedIntent && actionType !== 'UNKNOWN' && (extendedIntent.apiEndpoint || typesWithOwnHandlersInApi.includes(actionType))) {
-          yield { content: '', tool_status: `Fetching ${actionType.toLowerCase().replace(/_/g, ' ')}...` };
-          const apiResponse = await AIApiService.callApiByIntent(extendedIntent);
-          if (apiResponse.success && apiResponse.data) {
-            apiData = apiResponse.data;
-            // Add API data to system prompt for context
-            systemPrompt += `\n\nAPI Response Data: \n${JSON.stringify(apiData, null, 2).slice(0, 2000)} `;
-            // Rebuild messages with API data
-            messages[0].content = systemPrompt;
-          }
-        } else if (intent.action === 'swap' && intent.token_in && intent.token_out && userContext?.userAddress) {
-          // For swap, also get price data and balance
-          try {
-            const { getPriceData } = await import('./swapService');
-            const { getUserBalance } = await import('./swapService');
-
-            // Get token addresses
-            const getTokenAddress = (symbolOrAddress: string, chainId: number): string => {
-              // If it looks like an address, return it
-              if (symbolOrAddress.startsWith('0x') && symbolOrAddress.length === 42) {
-                return symbolOrAddress;
-              }
-
-              const tokenMap: Record<string, Record<number, string>> = {
-                'ETH': { 1: '0x0000000000000000000000000000000000000000', 8453: '0x4200000000000000000000000000000000000006' },
-                'USDC': { 1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', 8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' },
-                'USDT': { 1: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
-                'DAI': { 1: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
-                'WBTC': { 1: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599' },
-                'WETH': { 1: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' },
-              };
-              return tokenMap[symbolOrAddress.toUpperCase()]?.[chainId] || '';
-            };
-
-            const chainId = intent.chain_id || userContext.chainId || 1;
-            // Use token_in/out directly to resolve address, fallback to token_address only if it matches
-            let tokenInAddress = getTokenAddress(intent.token_in || '', chainId);
-            const tokenOutAddress = getTokenAddress(intent.token_out || '', chainId);
-
-            // Safety check: if tokenIn and tokenOut are the same, default tokenIn to USDC
-            if (tokenInAddress && tokenOutAddress && tokenInAddress.toLowerCase() === tokenOutAddress.toLowerCase()) {
-              console.warn('[aiService] tokenIn and tokenOut are identical, defaulting tokenIn to USDC');
-              tokenInAddress = getTokenAddress('USDC', chainId);
-            }
-
-            if (tokenInAddress && tokenOutAddress) {
-              yield { content: '', tool_status: 'Fetching swap prices...' };
-              // Get prices
-              const priceData = await getPriceData(tokenInAddress, tokenOutAddress, chainId);
-
-              // Get balance for tokenIn
-              const balance = await getUserBalance(userContext.userAddress, tokenInAddress, chainId);
-
-              if (priceData || balance) {
-                const swapInfo: Record<string, unknown> = {};
-                if (priceData) {
-                  swapInfo.prices = priceData;
-                  swapInfo.estimatedAmountOut = intent.amount && priceData.tokenInPrice && priceData.tokenOutPrice
-                    ? (parseFloat(intent.amount) * priceData.tokenOutPrice) / priceData.tokenInPrice
-                    : null;
-                }
-                if (balance) {
-                  // Convert hex balance to readable format
-                  const balanceBigInt = balance.startsWith('0x') ? BigInt(balance) : BigInt(parseInt(balance));
-                  const decimals = intent.token_in?.toUpperCase() === 'USDC' || intent.token_in?.toUpperCase() === 'USDT' ? 6 : 18;
-                  swapInfo.userBalance = Number(balanceBigInt) / Math.pow(10, decimals);
-                }
-
-                systemPrompt += `\n\nSwap Information: \n${JSON.stringify(swapInfo, null, 2)} `;
-                messages[0].content = systemPrompt;
-              }
-            }
-          } catch (error) {
-            console.error('[AI Service] Error fetching swap info:', error);
-          }
-        }
-      } catch (error) {
-        console.error('[AI Service] Error calling API:', error);
-        // Continue without API data
-      }
-    }
 
     // Stream response
     // Determine which API to use based on modelId
@@ -475,19 +155,14 @@ export async function* streamAIResponse(
         // - Reasoning models: Both web_search and x_search
         const isReasoningModel = xaiModelName.includes('reasoning') && !xaiModelName.includes('non-reasoning');
 
-        // Enable search for ALL models EXCEPT simple greetings
-        // Fast models will only get web_search from backend, not x_search
-        const shouldEnableSearch = !isSimpleGreeting(userMessage);
+        // Frontend no longer decides tool usage; backend orchestrator handles it.
+        const shouldEnableSearch = true;
 
         // Default: enable image/video understanding but do not constrain dates/handles.
         const toolConfig = shouldEnableSearch ? {
           web_search: { enable_image_understanding: true },
           x_search: { enable_image_understanding: true, enable_video_understanding: true },
         } : undefined;
-
-        if (!shouldEnableSearch) {
-          console.log('[aiService] Simple greeting detected - search disabled for faster response');
-        }
 
         let xaiCitations: Array<{ url: string; avatar_url?: string }> | undefined;
         const clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -521,7 +196,6 @@ export async function* streamAIResponse(
 
           yield {
             content: chunk.content,
-            intent: fullContent.length < 50 ? intent : undefined,
             citations: xaiCitations,
             reasoning_content: chunk.reasoning_content,
             tool_call: chunk.tool_call,
@@ -541,27 +215,10 @@ export async function* streamAIResponse(
       console.log('[aiService] Using DeepSeek API');
       const modelName = getModelName(modelId, mode);
 
-      // Enable tools if intent is token related or contains crypto keywords
-      const isCryptoQuery = /\b(price|token|coin|market|chart|volume|trending|buy|sell|swap|contract|address)\b/i.test(userMessage);
-      // IMPORTANT: fast 模式默认开启工具，除非是简单问候；避免意外被视为 enable_search=false
-      // Fast 模式：仅在非问候且存在市场/代币意图时开启工具，避免过度调用
-      const shouldEnableTools =
-        !isSimpleGreeting(userMessage) &&
-        (intent.action !== 'general_query' || isCryptoQuery);
+      // Frontend no longer decides tool usage; backend orchestrator handles it.
+      const shouldEnableTools = true;
 
-      console.log('[aiService] Tool enable check (DeepSeek):', {
-        intentAction: intent.action,
-        isCryptoQuery,
-        shouldEnableTools,
-        isGreeting: isSimpleGreeting(userMessage)
-      });
-
-      // Configure allowed tools based on mode
-      // Remove tool restrictions - allow all tools in both fast and thinking modes
-      // Thinking mode only affects reasoning_content display, not tool availability
-      const allowedTools: string[] | undefined = undefined; // undefined = no filter, allow all tools
-
-      console.log('[aiService] Allowing ALL tools for mode:', mode);
+      console.log('[aiService] Tool gating handled by backend orchestrator.');
 
       let deepseekCitations: Array<{ url: string; avatar_url?: string }> | undefined;
 
@@ -572,7 +229,6 @@ export async function* streamAIResponse(
         model: modelName,
         signal,
         enable_search: shouldEnableTools, // Enable backend tool registry
-        allowed_tools: allowedTools, // Apply tool restrictions
         chain_context: userContext?.chainId && userContext?.chainName ? {
           chainId: userContext.chainId,
           chainName: userContext.chainName
@@ -603,7 +259,6 @@ export async function* streamAIResponse(
 
         yield {
           content: chunk.content,
-          intent: fullContent.length < 50 ? intent : undefined,
           citations: formattedCitations,
           reasoning_content: chunk.reasoning_content, // Pass thinking process to frontend
           client_actions: chunk.client_actions as AIClientAction[] | undefined, // Pass client actions to frontend
@@ -612,8 +267,7 @@ export async function* streamAIResponse(
       }
     }
 
-    // Yield final intent after streaming completes
-    yield { content: '', intent };
+    yield { content: '' };
   } catch (error: unknown) {
     const err = error as Error;
     // If aborted, don't yield error message - just stop
@@ -633,30 +287,11 @@ export async function* streamAIResponse(
     if (err.message?.includes('VITE_XAI_API_KEY')) {
       yield {
         content: `❌ X.ai API error: please check VITE_XAI_API_KEY is set.\n\nDetails: ${err.message} `,
-        intent: {
-          version: '1.0',
-          intent_id: `error - ${Date.now()} `,
-          origin: 'chat',
-          action: 'general_query',
-          query: userMessage,
-        },
       };
     } else {
       yield {
         content: `❌ Error: ${err.message || 'Something went wrong, please try again later.'} `,
-        intent: {
-          version: '1.0',
-          intent_id: `error - ${Date.now()} `,
-          origin: 'chat',
-          action: 'general_query',
-          query: userMessage,
-        },
       };
     }
   }
 }
-
-/**
- * Get intent description for display
- */
-export { getIntentDescription } from './intentParser';

@@ -347,8 +347,7 @@ export function handleCdpWebhookPayload(payload: any) {
 
     if (!type && !eventName) return;
     if (type && !type.toLowerCase().includes('onchain')) return;
-    if (!eventName) return;
-    if (!preheatConfig.eventNames.includes(eventName.toLowerCase())) {
+    if (eventName && !preheatConfig.eventNames.includes(eventName.toLowerCase())) {
         return;
     }
 

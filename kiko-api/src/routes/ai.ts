@@ -8,6 +8,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { toolRegistry } from '../tools/index.js';
 import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
 import { parseIntent } from '../services/ai/intentParser.js';
+import { skillRegistryExec } from '../skills/registry.js';
 import { searchWeb, formatSearchResults } from '../services/searchService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { fetchJson } from '../config/unifiedApiService.js';
@@ -34,7 +35,6 @@ interface ChatRequest {
     max_tokens?: number;
     stream?: boolean;
     enable_search?: boolean;
-    allowed_tools?: string[];
     walletAddress?: string;
     tool_config?: {
         web_search?: Record<string, any>;
@@ -49,6 +49,35 @@ interface ChatRequest {
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
+const THINKING_TOOL_ALLOWLIST = new Set<string>([
+    'get_token_info',
+    'get_token_price',
+    'get_historical_price',
+    'get_trending_tokens',
+    'get_market_overview',
+    'get_economic_calendar',
+    'get_wallet_info',
+    'analyze_wallet_pnl',
+    'get_user_favorites',
+    'check_token_risk',
+    'get_trending_casts',
+    'search_farcaster_casts',
+    'get_farcaster_user',
+    'get_zora_trending',
+    'get_zora_profile',
+    'get_early_buyers',
+    'analyze_creator',
+    'get_polymarket_trending',
+    'get_polymarket_trending_markets',
+    'get_polymarket_event',
+    'search_polymarket',
+    'get_new_markets',
+    'get_market_activity',
+    'get_whale_watch',
+    'get_polymarket_trader_stats',
+    'external_web_search'
+]);
+
 // Helper to get DeepSeek API Key
 function getDeepSeekApiKey(): string {
     const key = process.env.DEEPSEEK_API_KEY;
@@ -56,24 +85,6 @@ function getDeepSeekApiKey(): string {
         throw new Error('DEEPSEEK_API_KEY is not set in environment variables');
     }
     return key;
-}
-
-/**
- * Convert internal tool definition to OpenAI/DeepSeek comptabile JSON schema
- * Optional: filter by allowed tool names
- */
-function getOpenAITools(allowedTools?: string[]) {
-    let definitions = toolRegistry.getAllDefinitions();
-
-    // Filter if allowedTools is provided and not empty
-    if (allowedTools && allowedTools.length > 0) {
-        definitions = definitions.filter(def => allowedTools.includes(def.name));
-    }
-
-    return definitions.map(def => ({
-        type: 'function',
-        function: def
-    }));
 }
 
 /**
@@ -304,6 +315,33 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     console.log(`[AI Routes] Routing Grok request to ${grokServiceUrl}`);
 
                     try {
+                        const grokMessages = Array.isArray(request.body.messages) ? [...request.body.messages] : [];
+                        const lastUserMessage = grokMessages.filter(m => m.role === 'user').pop()?.content || '';
+                        const parsedIntent = await parseIntent(lastUserMessage, {
+                            userAddress: request.body.walletAddress,
+                            chainId: request.body.chain_context?.chainId,
+                            chainName: request.body.chain_context?.chainName,
+                            isWalletConnected: !!request.body.walletAddress,
+                        });
+                        const intentType = parsedIntent.highLevel.type;
+                        const systemPrompt = promptOrchestrator.getSystemPrompt('grok', intentType);
+
+                        const contextLines: string[] = [];
+                        if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
+                        if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
+                            contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
+                        }
+                        const contextBlock = contextLines.length > 0
+                            ? `[CONTEXT]\n${contextLines.join('\n')}`
+                            : null;
+
+                        const systemMessages: ChatMessage[] = [
+                            { role: 'system', content: systemPrompt },
+                            ...(contextBlock ? [{ role: 'system' as const, content: contextBlock }] : [])
+                        ];
+
+                        const mergedMessages = [...systemMessages, ...grokMessages.filter(m => m.role !== 'system')];
+
                         const headers = request.headers as Record<string, string | string[] | undefined>;
                         const forwarded = headers['x-forwarded-for'];
                         const cfConnectingIp = headers['cf-connecting-ip'];
@@ -334,6 +372,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                         const requestBody = {
                             ...request.body,
+                            messages: mergedMessages,
                             tool_config: toolConfig,
                         };
 
@@ -413,7 +452,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     chainName: request.body.chain_context?.chainName,
                     isWalletConnected: !!request.body.walletAddress,
                 });
-                const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', parsedIntent.highLevel.type);
+                const intentType = parsedIntent.highLevel.type;
+                const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intentType);
 
                 const contextLines: string[] = [];
                 if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
@@ -463,13 +503,30 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     };
 
                     if (enable_search) {
-                        // Load tools from registry (filter if allowed_tools is provided)
-                        requestBody.tools = getOpenAITools((request.body as any).allowed_tools);
-                        // Let model decide; avoid forcing endless tool chains
-                        if (requestBody.tools && requestBody.tools.length > 0) {
-                            requestBody.tool_choice = 'auto';
+                        const freeIntents = new Set(['MARKET_ANALYSIS', 'SOCIAL_SENSING', 'GENERAL_CHAT', 'PREDICTION_MARKETS', 'RISK_SCAN']);
+                        const routingMode = freeIntents.has(intentType) ? 'thinking' : 'execution';
+                        let allowedToolNames: Set<string>;
 
-                            // Debug log to confirm tools are attached
+                        if (routingMode === 'thinking') {
+                            allowedToolNames = new Set(THINKING_TOOL_ALLOWLIST);
+                        } else {
+                            const intentStr = String(intentType).toUpperCase();
+                            const matchedSkills = skillRegistryExec.getSkillsByIntent(intentStr);
+                            allowedToolNames = new Set<string>();
+                            for (const skill of matchedSkills) {
+                                for (const name of skill.metadata.tools || []) {
+                                    allowedToolNames.add(name);
+                                }
+                            }
+                            allowedToolNames.add('external_web_search');
+                        }
+
+                        const definitions = toolRegistry.getAllDefinitions();
+                        const filtered = definitions.filter(def => allowedToolNames.has(def.name));
+                        requestBody.tools = filtered.map(def => ({ type: 'function', function: def }));
+
+                        if (requestBody.tools.length > 0) {
+                            requestBody.tool_choice = 'auto';
                             const toolNames = requestBody.tools.map((t: any) => t.function?.name || t.name);
                             console.log(`[AI Routes] Attached tools: ${toolNames.join(', ')}, tool_choice: ${requestBody.tool_choice}`);
                         } else {

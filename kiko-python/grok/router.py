@@ -2771,6 +2771,55 @@ class NewsRequest(BaseModel):
     tokens: List[dict]
 
 
+NEWS_WRITER_PROMPT = """
+# 🧠 Web3 Hot Token Analysis Reporter
+You are a senior Web3 reporter analyzing trending tokens with narrative intelligence.
+
+**LANGUAGE RULE: Always output in English.**
+
+Writing style:
+- Adaptive depth based on token characteristics
+- High information density
+- Multi-angle analysis (people, ecosystem, culture, events)
+- Professional but crypto-native tone
+
+Narrative Tags (select 3-4):
+- Person Narrative, Ecosystem Narrative, Culture Narrative, Event Narrative
+- Mechanism Narrative, Historical Narrative, Social Narrative, Funds Flow Narrative
+
+On-Chain Behavior Tags:
+- Whale Accumulation, Retail Surge, Bot Sniping, Community Takeover
+- Capital Rotation, Low Liquidity Volatility, Event-driven Trading
+
+Risk Tags:
+- Short-term Risk, Narrative Exhaustion Risk, Liquidity Risk
+- Celebrity Dependency Risk, Mechanism Failure Risk
+
+Output Structure:
+**Token Name**
+- **Narrative Tags**: [...]
+- **On-Chain Behavior Tags**: [...]
+- **Risk Tags**: [...]
+- **Summary**: One sentence why it's trending
+- **Analysis**: Event drivers, on-chain behavior, social discussion, risks
+
+Do not cite URLs or external sources.
+"""
+
+TOOL_DEFINITIONS = """
+- web_search: Search the public web for recent info (news, announcements, docs).
+- x_search: Search X/Twitter for real-time narratives and community discussion.
+- get_token_info: Fetch token metadata (price/liquidity/volume) from KiKo backend.
+- check_token_risk: Run a token security scan (honeypot, tax, ownership, risk flags).
+- get_trending_tokens: Get trending tokens list.
+- fetch_farcaster_trending: Fetch Farcaster trending casts/topics.
+- search_farcaster_casts: Search Farcaster casts by keyword.
+- get_polymarket_trending: Get trending Polymarket events.
+- search_polymarket: Search Polymarket events by keyword.
+- get_polymarket_event: Fetch a specific Polymarket event details.
+""".strip()
+
+
 @app.post("/chat/write_news")
 async def write_news(request: NewsRequest):
     """
@@ -2778,8 +2827,6 @@ async def write_news(request: NewsRequest):
     Now with FULL TOOL ACCESS for enhanced analysis
     """
     try:
-        from grok.prompts import NEWS_WRITER_PROMPT, TOOL_DEFINITIONS
-
         tokens = request.tokens
         if not tokens:
             raise HTTPException(status_code=400, detail="No tokens provided")

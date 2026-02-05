@@ -1,6 +1,6 @@
 import type { Message } from '../hooks/useConversations';
 import type { TradingStrategy } from '../hooks/useStrategies';
-import type { Intent } from '../services/intentParser';
+import type { Intent } from '../services/intentTypes';
 
 /**
  * Extract trading strategies from chat messages

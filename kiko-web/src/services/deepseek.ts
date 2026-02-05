@@ -18,7 +18,6 @@ export interface DeepSeekRequest {
   max_tokens?: number;
   stream?: boolean;
   enable_search?: boolean; // Enable/disable search tools
-  allowed_tools?: string[]; // Optional list of allowed tools
   chain_context?: {
     chainId: number;
     chainName: string;
@@ -177,7 +176,6 @@ export async function chatCompletion(
     max_tokens?: number;
     model?: string;
     enable_search?: boolean; // Disable search tools for intent parsing
-    allowed_tools?: string[];
     chain_context?: {
       chainId: number;
       chainName: string;
@@ -196,7 +194,6 @@ export async function chatCompletion(
     max_tokens: options.max_tokens ?? getRecommendedMaxTokens(model),
     stream: false,
     enable_search: options.enable_search, // Pass enable_search to backend
-    allowed_tools: options.allowed_tools, // Pass allowed_tools to backend
     chain_context: options.chain_context,
     walletAddress: options.walletAddress,
   };
@@ -218,7 +215,6 @@ export async function* streamChatCompletion(
     model?: string;
     signal?: AbortSignal;
     enable_search?: boolean; // Enable search/tools
-    allowed_tools?: string[]; // Optional list of allowed tools
     chain_context?: {
       chainId: number;
       chainName: string;
@@ -239,7 +235,6 @@ export async function* streamChatCompletion(
     max_tokens: options.max_tokens ?? getRecommendedMaxTokens(model),
     stream: true,
     enable_search: options.enable_search, // Pass enable_search to backend
-    allowed_tools: options.allowed_tools, // Pass allowed_tools to backend
     chain_context: options.chain_context,
     walletAddress: options.walletAddress,
   };
