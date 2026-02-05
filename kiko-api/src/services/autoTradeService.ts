@@ -99,6 +99,8 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
 const recentSwaps = new Map<string, number>(); // swapKey -> timestamp
 const SWAP_DEDUP_WINDOW_MS = 60000; // 1 minute
 const LAUNCHPAD_DET_TIMEOUT_MS = Number(process.env.LAUNCHPAD_DET_TIMEOUT_MS || '500');
+const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '5000');
+const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHECK_TIMEOUT_MS || '1200');
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
     8453: new Set(['zora']),
@@ -216,6 +218,18 @@ function getTokenInfoOnce(
     const promise = getTokenInfo(tokenAddress, chainId, options).catch(() => null);
     cache.set(key, promise);
     return promise;
+}
+
+async function getDexPriceWithTimeout(tokenAddress: string, chainId: number | 'solana'): Promise<number> {
+    try {
+        const price = await Promise.race([
+            getDexPrice(tokenAddress, chainId),
+            new Promise<number>((resolve) => setTimeout(() => resolve(0), COPYTRADE_PRICE_CHECK_TIMEOUT_MS))
+        ]);
+        return Number.isFinite(price) ? price : 0;
+    } catch {
+        return 0;
+    }
 }
 
 // ... (previous functions remain)
@@ -349,7 +363,7 @@ async function handleTargetBuy(
             chainId,
             status: 'active',
         },
-    }));
+    })) as any[];
 
     if (rawConfigs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No active configurations found for this wallet', { targetWallet, chainId });
@@ -362,8 +376,13 @@ async function handleTargetBuy(
     });
     const userMap = new Map(users.map(u => [u.privyDid, u]));
     const configs = rawConfigs
-        .map(c => ({ ...c, user: userMap.get(c.userId) }))
-        .filter((c): c is typeof rawConfigs[number] & { user: NonNullable<(typeof users)[number]> } => Boolean(c.user));
+        .map((c: any) => ({
+            ...c,
+            user: userMap.get(c.userId),
+            // Fast execution flag (Base-only, controlled by per-strategy toggle)
+            fastExecutionEnabled: chainId === 8453 && c.disableTokenInfo === true
+        }))
+        .filter((c) => Boolean(c.user));
 
     if (configs.length === 0) {
         logger.throttled(LogCode.WTC_TX_SKIPPED, 'No valid user records for configs', { targetWallet, chainId });
@@ -372,12 +391,49 @@ async function handleTargetBuy(
 
     const tokenInfoCache = new Map<string, Promise<any>>();
 
-    // 2. SECOND: Fetch Token Info & Launchpad (parallel, non-blocking)
-    // 🚀 Copy Trade uses HIGH priority to bypass rate limits for critical order execution
-    const tokenInfoPromise = getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true });
     const launchpadPromise = (chainId === 8453 || chainId === 56)
         ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
         : Promise.resolve(null);
+
+    // 🔥 Base Fast Mode: If ALL configs explicitly disable Token Info, skip heavy APIs
+    const skipTokenInfo = chainId === 8453 && configs.every(c => c.disableTokenInfo === true);
+    if (skipTokenInfo) {
+        try {
+            const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
+            const fallbackInfo = {
+                price: 0,
+                symbol: meta?.symbol || 'UNKNOWN',
+                name: meta?.name || 'Unknown Token',
+                decimals: meta?.decimals || 18,
+                liquidity: 0,
+                volume24h: 0,
+                fdv: 0,
+                marketCap: 0,
+                pairCreatedAt: Date.now(),
+                socials: [],
+                websites: [],
+                provider: 'rpc-metadata'
+            };
+
+            logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Token info disabled - using RPC metadata fallback', {
+                token: tokenToBuy,
+                chainId
+            });
+
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
+            return;
+        } catch (err: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
+                token: tokenToBuy,
+                error: err?.message?.slice(0, 120)
+            });
+            // Fall through to standard flow
+        }
+    }
+
+    // 2. SECOND: Fetch Token Info & Launchpad (parallel, non-blocking)
+    // 🚀 Copy Trade uses HIGH priority to bypass rate limits for critical order execution
+    const tokenInfoPromise = getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true });
     const tokenInfo = await tokenInfoPromise;
     const launchpadResult = await resolveLaunchpad(launchpadPromise, chainId);
 
@@ -416,7 +472,7 @@ async function handleTargetBuy(
             // NOTE: We must be careful about price calculations later.
             // If price is 0, we can only do "Buy X ETH worth", not "Buy Y Tokens".
             // Our logic below handles "Target Swap Value" based on Input ETH, so we are safe.
-            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache);
+            await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
             return;
         }
 
@@ -446,7 +502,7 @@ async function handleTargetBuy(
                     chainId
                 });
 
-                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache);
+                await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
                 return;
             } catch (metaErr: any) {
                 logger.warn(LogCode.API_FETCH_FAILED, 'Metadata fallback failed', { token: tokenToBuy, error: metaErr.message });
@@ -457,7 +513,7 @@ async function handleTargetBuy(
         return;
     }
 
-    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, tokenInfo, false, launchpadPromise, tokenInfoCache);
+    await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, tokenInfo, false, launchpadPromise, tokenInfoCache, detectedAt);
 }
 
 /**
@@ -472,7 +528,8 @@ async function processBuyWithInfo(
     tokenInfo: any,
     isFallbackMode: boolean,
     launchpadPromise?: Promise<any>,
-    tokenInfoCache?: Map<string, Promise<any>>
+    tokenInfoCache?: Map<string, Promise<any>>,
+    detectedAt?: number
 ) {
     const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const tStart = Date.now();
@@ -752,7 +809,8 @@ async function processBuyWithInfo(
                     scalingFactor, // Pass scaling factor to reduce individual amounts
                     sharedNativePrice, // ⚡ Pass shared native price to avoid repeated queries
                     launchpadPromise,
-                    tokenInfoCache
+                    tokenInfoCache,
+                    detectedAt
                 ).catch(error => {
                     logger.error(LogCode.SYS_ERROR, `Error in batch execution`, {
                         configId: config.id,
@@ -864,11 +922,29 @@ async function processSingleUserBuy(
     scalingFactor: number = 1.0,
     sharedNativePrice: number = 0,
     launchpadPromise?: Promise<any>,
-    tokenInfoCache?: Map<string, Promise<any>>
+    tokenInfoCache?: Map<string, Promise<any>>,
+    detectedAt?: number
 ): Promise<void> {
-    let judgeDecisionId: string | null = null;
+    return withTradeLock(config.userId, async () => {
+        let judgeDecisionId: string | null = null;
 
-    try {
+        try {
+            if (detectedAt && Date.now() - detectedAt > COPYTRADE_MAX_DELAY_MS) {
+                logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: copytrade delay exceeded', {
+                    userId: config.userId,
+                    token: tokenToBuy,
+                    delayMs: Date.now() - detectedAt
+                });
+                return;
+            }
+
+            if (isTokenLockedForUser(config.userId, tokenToBuy)) {
+                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: token lock active', {
+                    userId: config.userId,
+                    token: tokenToBuy
+                });
+                return;
+            }
         // Universal Global Slippage (userSettings already passed in)
         const universalSlippageBps = getSlippageBps(userSettings);
 
@@ -966,19 +1042,20 @@ async function processSingleUserBuy(
             }
         }
 
-        const cooldownMinutes = userSettings?.copyTradeTokenCooldownMinutes ?? 60;
+        const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
         if (cooldownMinutes > 0) {
             // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
             // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
             // If the target paid significantly more than Oracle price, we should be cautious.
             // This protects against buying at the absolute top of a "scam wick" or high slippage event.
+            let targetExecutionPrice = 0;
             if (tokenInfo.price > 0 && chainId !== 900 && targetSwapValueUsd > 0) { // Skip for Solana (diff mechanic)
                 try {
                     const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || 18));
                     if (estimatedOut > 0) {
                         // Calculate IMPLIED execution price from TARGET WALLET's trade
                         // This is how much the target ACTUALLY paid per token
-                        const targetExecutionPrice = targetSwapValueUsd / estimatedOut;
+                        targetExecutionPrice = targetSwapValueUsd / estimatedOut;
                         const priceDeviation = targetExecutionPrice / tokenInfo.price;
 
                         if (priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
@@ -1011,6 +1088,38 @@ async function processSingleUserBuy(
                         }
                     }
                 } catch (e) { }
+            }
+
+            if (targetExecutionPrice > 0) {
+                const dexChainId = chainId === 900 ? 'solana' : chainId;
+                const currentPrice = await getDexPriceWithTimeout(tokenToBuy, dexChainId);
+                if (currentPrice > 0) {
+                    const deviationBps = Math.abs(targetExecutionPrice - currentPrice) / currentPrice * 10000;
+                    if (deviationBps > effectiveConfig.maxSlippageBps) {
+                        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: price deviation exceeds user limit', {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            deviationBps: deviationBps.toFixed(0),
+                            limitBps: effectiveConfig.maxSlippageBps
+                        });
+
+                        await notificationService.sendNotification({
+                            userId: config.userId,
+                            farcasterFid: config.user.farcasterFid,
+                            type: 'COPY_TRADE_SKIPPED',
+                            data: {
+                                tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                                tokenAddress: tokenToBuy,
+                                targetWallet: targetWallet,
+                                chainId: chainId,
+                                skipReason: `Price deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxSlippageBps} bps`,
+                                targetBuyValue: targetSwapValueUsd.toFixed(2),
+                            }
+                        }).catch(() => { });
+
+                        return;
+                    }
+                }
             }
 
             // 🛡️ GAS BUFFER CHECK (EVM Only)
@@ -1109,14 +1218,6 @@ async function processSingleUserBuy(
             return;
         }
 
-        // === CONCURRENCY CONTROL (Simple Check) ===
-        // Check if this user already has a trade pending - skip if so
-        const userLockKey = `trade:${config.userId}`;
-        if (userTradeLocks.has(userLockKey)) {
-            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping: User already has a pending trade', { userId: config.userId });
-            return;
-        }
-
         logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Executing trade', {
             userId: config.userId,
             wallet: config.user.walletAddress,
@@ -1129,8 +1230,11 @@ async function processSingleUserBuy(
             let solAddress: string | null = null;
             try {
                 solAddress = await getSolanaEmbeddedWalletAddress(config.user.privyDid);
-            } catch (e: any) {
-                logger.error(LogCode.API_AUTH_FAILED, 'Error fetching Solana wallet from Privy', { userId: config.userId, error: e.message });
+            } catch (err: any) {
+                logger.error(LogCode.SYS_ERROR, 'Unexpected error in processSingleUserBuy', {
+                    userId: config.userId,
+                    error: err?.message || String(err)
+                });
             }
 
             if (!solAddress) {
@@ -1261,6 +1365,7 @@ async function processSingleUserBuy(
                         eth: baseAmount.toFixed(6),
                         timingMs: Date.now() - timingDetectedAt
                     });
+                    const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
                     const result1 = await MainSwapService.executeSwap({
                         userId: effectiveConfig.user.privyDid,
                         walletAddress: effectiveConfig.user.walletAddress,
@@ -1272,7 +1377,7 @@ async function processSingleUserBuy(
                         slippageBps: baseSlippage,
                         mode: 'copytrade',
                         feeBpsOverride: copyTradeFeeBpsOverride,
-                        userSettings: { fastSwapMode: userSettings?.fastSwapMode }
+                        userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
                     });
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
@@ -1324,6 +1429,7 @@ async function processSingleUserBuy(
                         const amount99 = baseAmount * 0.99;
                         const slippage2 = 2000; // 20% (baseSlippage is now 15%, so we bump +5%)
                         logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
+                        const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
                         const result2 = await MainSwapService.executeSwap({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
@@ -1335,7 +1441,7 @@ async function processSingleUserBuy(
                             slippageBps: slippage2,
                             mode: 'copytrade',
                             feeBpsOverride: copyTradeFeeBpsOverride,
-                            userSettings: { fastSwapMode: userSettings?.fastSwapMode }
+                            userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
                         });
                         if (!result2.success) throw new Error(result2.error);
                         txHash = result2.txHash!;
@@ -1348,6 +1454,7 @@ async function processSingleUserBuy(
                             const amount98 = baseAmount * 0.98;
                             const slippage3 = 2500; // 25% (maximum tolerance for volatile new tokens)
                             logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 25% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
+                            const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
                             const result3 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
@@ -1359,7 +1466,7 @@ async function processSingleUserBuy(
                                 slippageBps: slippage3,
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
-                                userSettings: { fastSwapMode: userSettings?.fastSwapMode }
+                                userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
                             });
                             if (!result3.success) throw new Error(result3.error);
                             txHash = result3.txHash!;
@@ -1545,6 +1652,7 @@ ${analysis.rawAnalysis}
             }
         });
     }
+    });
 }
 
 /**

@@ -1166,7 +1166,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             // If task is still running, restore UI state
             if (task.status === 'queued' || task.status === 'running') {
-                logger.debug('Restoring UI state for active task:', task.id, task.status);
+                // logger.debug('Restoring UI state for active task:', task.id, task.status);
 
                 // Set active task ID
                 setActiveTaskId(task.id);
@@ -1180,7 +1180,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     if (lastMessage.status === 'streaming') {
                         setIsThinking(false);
                         setIsStreaming(true);
-                        logger.debug('Task is streaming (message status is streaming)');
+                        // logger.debug('Task is streaming (message status is streaming)');
                     } else if (lastMessage.status === 'complete') {
                         // If message is complete but task is running, AI is likely between turns (e.g. tool calling)
                         // so we should be in thinking state, not streaming
@@ -1691,19 +1691,22 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                 // Add assistant message placeholder (WebSocket will stream content to this ID)
                 const createdAt = (assistantMessage as any).created_at ?? assistantMessage.timestamp ?? Date.now();
-                const aiMsg: Message = {
-                    id: assistantMessage.id,
-                    role: 'assistant',
-                    content: '',
-                    reasoning_content: '',
-                    timestamp: new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    date: new Date(createdAt).toISOString().split('T')[0],
-                    type: 'text',
-                    status: 'streaming',
-                };
-
-                setMessages(prev => [...prev, aiMsg]);
-                logger.debug('Added AI message placeholder, id:', aiMsg.id);
+                setMessages(prev => {
+                    const exists = prev.some(m => m.id === assistantMessage.id);
+                    if (exists) return prev;
+                    const aiMsg: Message = {
+                        id: assistantMessage.id,
+                        role: 'assistant',
+                        content: '',
+                        reasoning_content: '',
+                        timestamp: new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        date: new Date(createdAt).toISOString().split('T')[0],
+                        type: 'text',
+                        status: 'streaming',
+                    };
+                    logger.debug('Added AI message placeholder, id:', aiMsg.id);
+                    return [...prev, aiMsg];
+                });
                 setActiveTaskId(task.id);
 
                 // Update task state in parent component

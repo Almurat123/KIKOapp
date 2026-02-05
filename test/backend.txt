@@ -1,397 +1,831 @@
-2026-02-05T17:03:31.000000000Z [inf]  Starting Container
-2026-02-05T17:03:32.101505894Z [inf]  > node dist/index.js
-2026-02-05T17:03:32.101517604Z [inf]  
-2026-02-05T17:03:32.101599223Z [inf]  
-2026-02-05T17:03:32.101604843Z [inf]  > kiko-api@1.0.0 start
-2026-02-05T17:03:32.683086875Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
-2026-02-05T17:03:32.734887109Z [inf]  Zora SDK initialized with API Key
-2026-02-05T17:03:32.846327318Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
-2026-02-05T17:03:33.103190346Z [inf]  Initializing services...
-2026-02-05T17:03:33.103274176Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
-2026-02-05T17:03:33.103279806Z [err]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
-2026-02-05T17:03:33.103285076Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
-2026-02-05T17:03:33.103287236Z [inf]  Build SHA
-2026-02-05T17:03:33.103293536Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
-2026-02-05T17:03:33.103293966Z [inf]  Serving static files from:
-2026-02-05T17:03:33.103299846Z [err]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
-2026-02-05T17:03:33.137958819Z [inf]  [Prisma] DB connection is healthy
-2026-02-05T17:03:33.152633653Z [inf]  Database connection successful
-2026-02-05T17:03:33.152638973Z [inf]  [DataRetention] Checking retention policies...
-2026-02-05T17:03:33.159845192Z [inf]  [DataRetention] Starting cleanup job...
-2026-02-05T17:03:33.159850462Z [inf]  Redis initialized
-2026-02-05T17:03:33.159854481Z [inf]  Starting server on port 8080...
-2026-02-05T17:03:33.219568076Z [inf]  Server listening at http://0.0.0.0:8080
-2026-02-05T17:03:33.219571206Z [inf]  Server listening
-2026-02-05T17:03:33.219574116Z [inf]  RPC health monitor started
-2026-02-05T17:03:33.225694405Z [inf]  RPC benchmark sampling started
-2026-02-05T17:03:33.239167461Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
-2026-02-05T17:03:33.239171481Z [inf]  [TokenJob] Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
-2026-02-05T17:03:33.239175870Z [inf]  [TokenJob] Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
-2026-02-05T17:03:33.239179830Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
-2026-02-05T17:03:33.239183940Z [inf]  Background jobs started
-2026-02-05T17:03:33.239187140Z [inf]  Initializing auto trade service...
-2026-02-05T17:03:33.239190920Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
-2026-02-05T17:03:33.239194560Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook enabled)
-2026-02-05T17:03:33.239198250Z [inf]  Auto trade service started
-2026-02-05T17:03:33.239202130Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
-2026-02-05T17:03:33.239206170Z [inf]  Position monitor started
-2026-02-05T17:03:33.239209200Z [inf]  Token Alert Service started
-2026-02-05T17:03:33.240193281Z [inf]  Token alert service started
-2026-02-05T17:03:33.240200441Z [inf]  [ChatWorker] Started polling for AI tasks (interval: 3000ms)
-2026-02-05T17:03:33.240205220Z [inf]  Chat worker started
-2026-02-05T17:03:33.240209350Z [inf]  Starting Global Zora Alpha Detector (API Polling)
-2026-02-05T17:03:33.240213890Z [inf]  🎉 All services initialized!
-2026-02-05T17:03:33.240217900Z [inf]  [CDP] Webhook secret loaded
-2026-02-05T17:03:33.286418109Z [err]  [DataRetention] No cleanup handler for table: SuggestionEvent
-2026-02-05T17:03:33.291544408Z [inf]  [DataRetention] Cleanup job completed.
-2026-02-05T17:03:38.235979216Z [inf]  [MarketJob] Running startup staleness check...
-2026-02-05T17:03:38.242629420Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T17:03:38.242634580Z [inf]  [MarketJob] Overview is fresh, skipping API call
-2026-02-05T17:03:38.242638190Z [inf]  [MarketJob] Protocols are fresh, skipping API call
-2026-02-05T17:03:38.244525232Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
-2026-02-05T17:03:38.262072836Z [inf]  [SocialJob] Trending casts are fresh, skipping Snapchain API call
-2026-02-05T17:03:38.651842188Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T17:03:38.900731996Z [wrn]  All API liquidity sources failed
-2026-02-05T17:03:38.901000423Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-05T17:03:39.436592380Z [inf]  RPC failover success
-2026-02-05T17:03:39.436594420Z [inf]  RPC failover success
-2026-02-05T17:03:39.436597480Z [inf]  RPC failover success
-2026-02-05T17:03:39.436598910Z [inf]  RPC failover success
-2026-02-05T17:03:39.436601910Z [inf]  RPC failover success
-2026-02-05T17:03:39.436606460Z [inf]  RPC failover success
-2026-02-05T17:03:39.436611250Z [inf]  RPC failover success
-2026-02-05T17:03:39.436617080Z [inf]  RPC failover success
-2026-02-05T17:03:39.436630700Z [inf]  RPC failover success
-2026-02-05T17:03:39.436635130Z [inf]  RPC failover success
-2026-02-05T17:03:39.436639200Z [inf]  RPC failover success
-2026-02-05T17:03:39.436643310Z [inf]  RPC failover success
-2026-02-05T17:03:39.436648220Z [inf]  RPC failover success
-2026-02-05T17:03:39.436648330Z [inf]  RPC failover success
-2026-02-05T17:03:39.436652300Z [inf]  RPC failover success
-2026-02-05T17:03:39.436664850Z [inf]  RPC failover success
-2026-02-05T17:03:39.436677659Z [inf]  RPC failover success
-2026-02-05T17:03:39.436704109Z [inf]  RPC failover success
-2026-02-05T17:03:39.436739269Z [inf]  RPC failover success
-2026-02-05T17:03:39.436782538Z [wrn]  RPC endpoint failed
-2026-02-05T17:03:39.436786558Z [inf]  RPC failover success
-2026-02-05T17:03:39.436798568Z [inf]  incoming request
-2026-02-05T17:03:39.436816218Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xf67f7cdd989067230b394bf36034ecdc2a66ca3bdaf1b873c46accc2e979d0e3 sub=n/a hook0=n/a
-2026-02-05T17:03:39.436821108Z [inf]  [Webhook] CDP payload raw: {"block_number":41760833,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1686,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"967a70c6d7efe7e9502d6e0e26ad363c59f1e426c3045740a19ab3ee0707d2b3","startingTick":"-230400","tokenAddress":"0x6DE2E484be02c63df2F597BC94B4c03463f8602F","tokenAdmin":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","tokenContext":"{\"interface\":\"Clawnch\",\"platform\":\"moltx\",\"messageId\":\"6891ff29-08bd-4135-ab0d-4416c90c1bac\",\"id\":\"chookrook\"}","tokenImage":"https://pbs.twimg.com/profile_images/1998951340391702528/L0UasuPb_normal.jpg","tokenMetadata":"{\"description\":\"chookrook\\n\\n{LAUNCHED WITH CLAWNCH VIA MOLTX}\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://moltx.io/post/6891ff29-08bd-4135-ab0d-4416c90c1bac\"},{\"platform\":\"moltx\",\"url\":\"https://moltx.io/post/6891ff29-08bd-4135-ab0d-4416c90c1bac\"},{\"platform\":\"moltx_profile\",\"url\":\"https://moltx.io/chookrook\"},{\"platform\":\"twitter\",\"url\":\"https://x.com/SweetHeavywater\"}]}","tokenName":"chookrook","tokenSymbol":"CHOOKROOK"},"timestamp":"2026-02-05T17:03:38Z","transaction_from":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","transaction_hash":"0xf67f7cdd989067230b394bf36034ecdc2a66ca3bdaf1b873c46accc2e979d0e3","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:39.436824728Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:39.436828548Z [inf]  [Preheat] Start
-2026-02-05T17:03:39.436835968Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:39.436859827Z [inf]  request completed
-2026-02-05T17:03:39.436863677Z [inf]  incoming request
-2026-02-05T17:03:39.436867217Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x48130e6b4bb78d8ccc7ad38beccff5c638b2c6ef32327437921d79692f75fde7 sub=n/a hook0=n/a
-2026-02-05T17:03:39.436871017Z [inf]  [Webhook] CDP payload raw: {"block_number":41760833,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":535,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x2112b8456AC07c15fA31ddf3Bf713E77716fF3F9","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"7c3d486688d0b757525ff0511e87646057918765fdeb3d31449bcd02d7ccb917","startingTick":"-230400","tokenAddress":"0xb3e0279378E5cE1539844Db9C073349f4Af6cB07","tokenAdmin":"0x3e2E521F24B24A2F36d2876EcD44c9Ca104B0773","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/giee_nadine/status/2019456697199132928\",\"id\":\"1836115876741054464\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"MaiclawMX","tokenSymbol":"MAICLAW"},"timestamp":"2026-02-05T17:03:38Z","transaction_from":"0x2112b8456AC07c15fA31ddf3Bf713E77716fF3F9","transaction_hash":"0x48130e6b4bb78d8ccc7ad38beccff5c638b2c6ef32327437921d79692f75fde7","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:39.436906047Z [inf]  RPC failover success
-2026-02-05T17:03:39.436909057Z [inf]  request completed
-2026-02-05T17:03:39.436955496Z [inf]  RPC failover success
-2026-02-05T17:03:39.436962946Z [inf]  RPC failover success
-2026-02-05T17:03:39.436965976Z [inf]  RPC failover success
-2026-02-05T17:03:39.450672200Z [inf]  RPC failover success
-2026-02-05T17:03:39.450676890Z [inf]  RPC failover success
-2026-02-05T17:03:39.450679710Z [inf]  RPC failover success
-2026-02-05T17:03:39.568413715Z [inf]  RPC failover success
-2026-02-05T17:03:39.594288247Z [inf]  RPC failover success
-2026-02-05T17:03:39.594291357Z [inf]  RPC failover success
-2026-02-05T17:03:39.594291857Z [inf]  RPC failover success
-2026-02-05T17:03:39.594299376Z [inf]  RPC failover success
-2026-02-05T17:03:39.594305546Z [inf]  RPC failover success
-2026-02-05T17:03:39.594310476Z [inf]  RPC failover success
-2026-02-05T17:03:39.594315536Z [inf]  RPC failover success
-2026-02-05T17:03:39.607473925Z [inf]  RPC failover success
-2026-02-05T17:03:39.608426166Z [inf]  RPC failover success
-2026-02-05T17:03:39.610289897Z [inf]  RPC failover success
-2026-02-05T17:03:39.610295727Z [inf]  RPC failover success
-2026-02-05T17:03:39.610299717Z [inf]  RPC failover success
-2026-02-05T17:03:39.610302707Z [inf]  RPC failover success
-2026-02-05T17:03:39.612762022Z [inf]  RPC failover success
-2026-02-05T17:03:39.612766612Z [inf]  RPC failover success
-2026-02-05T17:03:39.659773603Z [inf]  RPC failover success
-2026-02-05T17:03:39.813697398Z [inf]  RPC failover success
-2026-02-05T17:03:39.813708878Z [inf]  RPC failover success
-2026-02-05T17:03:39.813976895Z [inf]  RPC failover success
-2026-02-05T17:03:40.114390838Z [inf]  incoming request
-2026-02-05T17:03:40.114398798Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xd2711e99be63bf022c4a1920421d9c7f476e2a996d164c8a8a2c6e55de455e64 sub=n/a hook0=n/a
-2026-02-05T17:03:40.114402508Z [inf]  [Webhook] CDP payload raw: {"block_number":41760834,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1019,"network":"base-mainnet","parameters":{"extensions":"[0x8E845EAd15737bF71904A30BdDD3aEE76d6ADF6C]","extensionsSupply":"30000000000000000000000000000","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xd9aCd656A5f1B519C9E76a2A6092265A74186e58","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"08ead56254c281ddead56369a6c54cf9bd511e069f67d865fa6fb5c5c35ed457","startingTick":"-230400","tokenAddress":"0xAc71Bb2a6b8b2733Ab738a36DdE9EF47b7A2bb07","tokenAdmin":"0x2adB444BD659DB483f74b439B9F2fe46fF214794","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"farcaster\",\"messageId\":\"bankr deployment\",\"id\":\"886870\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed through the Bankr Terminal @ bankr.bot\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"DIYUKSHai","tokenSymbol":"DIYUKSHai"},"timestamp":"2026-02-05T17:03:39Z","transaction_from":"0xd9aCd656A5f1B519C9E76a2A6092265A74186e58","transaction_hash":"0xd2711e99be63bf022c4a1920421d9c7f476e2a996d164c8a8a2c6e55de455e64","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:40.115152591Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x2da34e578bec7d1fcffb4eead3b75db2be7a8f4b09150ca984e05232ccf426bc sub=n/a hook0=n/a
-2026-02-05T17:03:40.115166051Z [inf]  [Webhook] CDP payload raw: {"block_number":41760834,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":430,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x6e7E683D3E88dE5B68Af69cd94E047f0dC033F63","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"a4c78f088e28fa1e6947cce2af842f3affbbacfbea69983ae597347b80280d1d","startingTick":"-230400","tokenAddress":"0xA6A871e6E3F9E488862a59FCB3B217A4ab05b359","tokenAdmin":"0x6e7E683D3E88dE5B68Af69cd94E047f0dC033F63","tokenContext":"{\"interface\":\"queenmolt\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/queenmolt/status/1016745714185198768\",\"id\":\"1016745714185198768\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[{\"platform\":\"x\",\"url\":\"https://x.com/queenmolt\"}],\"auditUrls\":[]}","tokenName":"Rainbow","tokenSymbol":"Rainbow"},"timestamp":"2026-02-05T17:03:39Z","transaction_from":"0x6e7E683D3E88dE5B68Af69cd94E047f0dC033F63","transaction_hash":"0x2da34e578bec7d1fcffb4eead3b75db2be7a8f4b09150ca984e05232ccf426bc","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:40.115299999Z [inf]  request completed
-2026-02-05T17:03:40.115303849Z [inf]  incoming request
-2026-02-05T17:03:40.116135480Z [inf]  request completed
-2026-02-05T17:03:40.239625408Z [inf]  incoming request
-2026-02-05T17:03:40.239629058Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x1186e72dd4f0148b6b215906a0997a880e207c47b37e67689f1a83bc74f6317f sub=n/a hook0=n/a
-2026-02-05T17:03:40.239631828Z [inf]  [Webhook] CDP payload raw: {"block_number":41760835,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":375,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"38ef7e7d8c5e99ebd2228c3df34958fa7d4ed1e0be8eb1cab7ac66af158d9e37","startingTick":"-230400","tokenAddress":"0x5Da0A8213bA557bFd34a73249323f2d2C0Cbab07","tokenAdmin":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/giee_nadine/status/2019456697199132928\",\"id\":\"1836115876741054464\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"MaiclawMX","tokenSymbol":"MAICLAW"},"timestamp":"2026-02-05T17:03:39Z","transaction_from":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","transaction_hash":"0x1186e72dd4f0148b6b215906a0997a880e207c47b37e67689f1a83bc74f6317f","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:40.240684128Z [inf]  request completed
-2026-02-05T17:03:40.307876218Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:40.503509506Z [inf]  incoming request
-2026-02-05T17:03:40.503514306Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xaa6737ac01760aed082cea5643243712f2ec3c3a445c8247b6398444479c694c sub=n/a hook0=n/a
-2026-02-05T17:03:40.503519816Z [inf]  [Webhook] CDP payload raw: {"block_number":41760835,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":869,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x594D9aa196f6a31B50E53887836255ba6e432440","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"f8466ca85483cd290c453b4566e3d17e27fc8067744975b4663429a7ebede40b","startingTick":"-230400","tokenAddress":"0xC272a66Aa6d44e194455a9084cd58EdcCCE6b7AB","tokenAdmin":"0x594D9aa196f6a31B50E53887836255ba6e432440","tokenContext":"{\"interface\":\"private_ak16634\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/private_ak16634/status/2414708402900209152\",\"id\":\"2414708402900209152\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[{\"platform\":\"x\",\"url\":\"https://x.com/private_ak16634\"}],\"auditUrls\":[]}","tokenName":"BobbysManus","tokenSymbol":"BobbysManus"},"timestamp":"2026-02-05T17:03:39Z","transaction_from":"0x594D9aa196f6a31B50E53887836255ba6e432440","transaction_hash":"0xaa6737ac01760aed082cea5643243712f2ec3c3a445c8247b6398444479c694c","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:40.505792163Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:40.505798033Z [inf]  [Preheat] Start
-2026-02-05T17:03:40.505801903Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:40.505805763Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:40.505809933Z [inf]  request completed
-2026-02-05T17:03:40.774415724Z [inf]  RPC failover success
-2026-02-05T17:03:40.774421943Z [inf]  RPC failover success
-2026-02-05T17:03:40.775767320Z [inf]  RPC failover success
-2026-02-05T17:03:40.775773990Z [inf]  RPC failover success
-2026-02-05T17:03:40.775778320Z [inf]  RPC failover success
-2026-02-05T17:03:40.816361495Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:40.816366935Z [inf]  [Preheat] Start
-2026-02-05T17:03:40.816479063Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:40.816483093Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:40.824774820Z [inf]  RPC failover success
-2026-02-05T17:03:40.829777081Z [inf]  RPC failover success
-2026-02-05T17:03:40.829782131Z [inf]  RPC failover success
-2026-02-05T17:03:40.829786450Z [inf]  RPC failover success
-2026-02-05T17:03:40.830937119Z [inf]  RPC failover success
-2026-02-05T17:03:40.831884260Z [inf]  RPC failover success
-2026-02-05T17:03:40.844823471Z [inf]  RPC failover success
-2026-02-05T17:03:40.844826831Z [inf]  RPC failover success
-2026-02-05T17:03:40.856387166Z [inf]  RPC failover success
-2026-02-05T17:03:40.897315177Z [inf]  RPC failover success
-2026-02-05T17:03:40.898547245Z [inf]  RPC failover success
-2026-02-05T17:03:40.927704395Z [inf]  RPC failover success
-2026-02-05T17:03:40.928541976Z [inf]  RPC failover success
-2026-02-05T17:03:40.929564845Z [inf]  RPC failover success
-2026-02-05T17:03:41.145082125Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:41.145085215Z [inf]  [Preheat] Start
-2026-02-05T17:03:41.145088835Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:41.145092535Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:41.254527193Z [inf]  RPC failover success
-2026-02-05T17:03:41.544821937Z [wrn]  All on-chain DEX queries failed (Factory + Router)
-2026-02-05T17:03:41.544825376Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-05T17:03:41.544828946Z [err]  Critical: No valid price data available
-2026-02-05T17:03:41.578879516Z [wrn]  TP/SL check skipped: Price not available
-2026-02-05T17:03:42.313007492Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:42.313012202Z [inf]  [Preheat] Start
-2026-02-05T17:03:42.313016032Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:42.313019502Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:42.500810129Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:42.500813789Z [inf]  [Preheat] Start
-2026-02-05T17:03:42.500817789Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:42.500820788Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:43.154302337Z [inf]  incoming request
-2026-02-05T17:03:43.154311957Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x830e92a91a94872c79a5c066c19977e02af894ea052cae5575b753084ccbb35e sub=n/a hook0=n/a
-2026-02-05T17:03:43.154318337Z [inf]  [Webhook] CDP payload raw: {"block_number":41760836,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1446,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xd9aCd656A5f1B519C9E76a2A6092265A74186e58","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"a819d85b2ffd778ecb4fbafe404afa108ff7f7642b178c64778429cccdd3fb5d","startingTick":"-230400","tokenAddress":"0xA116e85898BE1467C50F62C29DD4c6a41BB4Db07","tokenAdmin":"0x43Bd6B93741609759b5c4Dd9F206b043c896D874","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/queenmolt/status/2019456791856484755\",\"id\":\"2018223265119100928\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"Rainbow","tokenSymbol":"Rainbow"},"timestamp":"2026-02-05T17:03:42Z","transaction_from":"0xd9aCd656A5f1B519C9E76a2A6092265A74186e58","transaction_hash":"0x830e92a91a94872c79a5c066c19977e02af894ea052cae5575b753084ccbb35e","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:43.155304657Z [inf]  request completed
-2026-02-05T17:03:43.155308557Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:43.155311707Z [inf]  [Preheat] Start
-2026-02-05T17:03:43.155317717Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:43.155321307Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:43.440158035Z [inf]  incoming request
-2026-02-05T17:03:43.440162845Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xe0eddd89c3b6b033cc6e0098f45da75e51703e121c7c22bd298e9808524c8fc4 sub=n/a hook0=n/a
-2026-02-05T17:03:43.440167385Z [inf]  [Webhook] CDP payload raw: {"block_number":41760836,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":348,"network":"base-mainnet","parameters":{"extensions":"[0x8E845EAd15737bF71904A30BdDD3aEE76d6ADF6C]","extensionsSupply":"30000000000000000000000000000","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x2112b8456AC07c15fA31ddf3Bf713E77716fF3F9","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"f21ee1b121a6c6f875cb235d3ff875998893a6d68dea8ea01d88a1af24dcf937","startingTick":"-230400","tokenAddress":"0x29aD66d98243846Fb9b54053e1B4e5EafEb36b07","tokenAdmin":"0xA06683F26be7b5e712Bc90dadf740984b8A33d7C","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"farcaster\",\"messageId\":\"bankr deployment\",\"id\":\"886870\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed through the Bankr Terminal @ bankr.bot\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"DIYUKSHai","tokenSymbol":"DIYUKSHai"},"timestamp":"2026-02-05T17:03:42Z","transaction_from":"0x2112b8456AC07c15fA31ddf3Bf713E77716fF3F9","transaction_hash":"0xe0eddd89c3b6b033cc6e0098f45da75e51703e121c7c22bd298e9808524c8fc4","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:43.442161125Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:43.442166235Z [inf]  [Preheat] Start
-2026-02-05T17:03:43.442169475Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:43.442172675Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:43.442175435Z [inf]  request completed
-2026-02-05T17:03:43.592242107Z [inf]  incoming request
-2026-02-05T17:03:43.592245347Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x5ff12ab0c12f977cdd65cb9d33a532a1d156d257f15a68fd26c2129e7a40a877 sub=n/a hook0=n/a
-2026-02-05T17:03:43.592248707Z [inf]  [Webhook] CDP payload raw: {"block_number":41760837,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":715,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"be34882c29d9e3bb74c534092c0e9ce276ad2f59e0ffdb81af74b0c752777070","startingTick":"-230400","tokenAddress":"0x837b186dD9AC9dbaB68672B1a398a01ac61f7B07","tokenAdmin":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","tokenContext":"{\"interface\":\"Clawnch\",\"platform\":\"moltx\",\"messageId\":\"6891ff29-08bd-4135-ab0d-4416c90c1bac\",\"id\":\"chookrook\"}","tokenImage":"https://pbs.twimg.com/profile_images/1998951340391702528/L0UasuPb_normal.jpg","tokenMetadata":"{\"description\":\"chookrook\\n\\n{LAUNCHED WITH CLAWNCH VIA MOLTX}\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://moltx.io/post/6891ff29-08bd-4135-ab0d-4416c90c1bac\"},{\"platform\":\"moltx\",\"url\":\"https://moltx.io/post/6891ff29-08bd-4135-ab0d-4416c90c1bac\"},{\"platform\":\"moltx_profile\",\"url\":\"https://moltx.io/chookrook\"},{\"platform\":\"twitter\",\"url\":\"https://x.com/SweetHeavywater\"}],\"auditUrls\":[]}","tokenName":"chookrook","tokenSymbol":"CHOOKROOK"},"timestamp":"2026-02-05T17:03:43Z","transaction_from":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","transaction_hash":"0x5ff12ab0c12f977cdd65cb9d33a532a1d156d257f15a68fd26c2129e7a40a877","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:43.592936951Z [inf]  request completed
-2026-02-05T17:03:43.592941621Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:43.592944861Z [inf]  [Preheat] Start
-2026-02-05T17:03:43.592948201Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:43.592951651Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:43.658861542Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:43.658864972Z [inf]  [Preheat] Start
-2026-02-05T17:03:43.658868712Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:43.658871742Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:44.100816352Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:44.100819602Z [inf]  [Preheat] Start
-2026-02-05T17:03:44.100822502Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:44.100826842Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:44.100830662Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:44.101829372Z [inf]  [Preheat] Start
-2026-02-05T17:03:44.101832362Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:44.101860821Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:45.168249419Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:45.168253769Z [inf]  [Preheat] Start
-2026-02-05T17:03:45.168256509Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:45.168259429Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:45.317607118Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:45.317610668Z [inf]  [Preheat] Start
-2026-02-05T17:03:45.317614808Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:45.317620458Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:45.443123566Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:45.443127086Z [inf]  [Preheat] Start
-2026-02-05T17:03:45.443130596Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:45.443133666Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:45.500365565Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:45.500370875Z [inf]  [Preheat] Start
-2026-02-05T17:03:45.505932949Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:45.505940709Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:45.593329617Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:45.593334396Z [inf]  [Preheat] Start
-2026-02-05T17:03:45.594814822Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:45.594819072Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:46.115050069Z [inf]  incoming request
-2026-02-05T17:03:46.115053339Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x9a77ea81aad6528fcef5c8884d36598ecfbbe3c5a958cff4eda74cd651d2164a sub=n/a hook0=n/a
-2026-02-05T17:03:46.115056189Z [inf]  [Webhook] CDP payload raw: {"block_number":41760838,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1223,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"7122b453b38043d0f3122233cca7cab84ae98d875800d90d42d213769cee3ea6","startingTick":"-230400","tokenAddress":"0xfCE5e455052b89585C78551bDa5443834D749eA2","tokenAdmin":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","tokenContext":"{\"interface\":\"CryptoAsuran\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/CryptoAsuran/status/8242735543609056256\",\"id\":\"8242735543609056256\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[{\"platform\":\"x\",\"url\":\"https://x.com/CryptoAsuran\"}],\"auditUrls\":[]}","tokenName":"🌈","tokenSymbol":"🌈"},"timestamp":"2026-02-05T17:03:45Z","transaction_from":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","transaction_hash":"0x9a77ea81aad6528fcef5c8884d36598ecfbbe3c5a958cff4eda74cd651d2164a","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:46.115536135Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:46.115539865Z [inf]  [Preheat] Start
-2026-02-05T17:03:46.115542895Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:46.115545795Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:46.115548565Z [inf]  request completed
-2026-02-05T17:03:46.547505873Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:46.547508643Z [inf]  [Preheat] Start
-2026-02-05T17:03:46.547511623Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:46.547514533Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:47.705724432Z [inf]  incoming request
-2026-02-05T17:03:47.707183828Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xc135304fae428cb185112d87eff16c9329b192aebabd340e6893b01b51b235ee sub=n/a hook0=n/a
-2026-02-05T17:03:47.707189668Z [inf]  [Webhook] CDP payload raw: {"block_number":41760839,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":740,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x5A766DCfA0B179f3A2EA1f2fdE0Ac7cBD2922455","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"a45fbcc8739e36324bafd133a6510e3441ab04ec11ed1d5c37f43dfb730ab70c","startingTick":"-230400","tokenAddress":"0x92469B360FFA7987c487Ca29094fC638Eb7faFA1","tokenAdmin":"0x5A766DCfA0B179f3A2EA1f2fdE0Ac7cBD2922455","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/callmejackieee_/status/2019456894876938646\",\"id\":\"2019456894876938646\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"this quote ticker","tokenSymbol":"this quote ticker"},"timestamp":"2026-02-05T17:03:47Z","transaction_from":"0x5A766DCfA0B179f3A2EA1f2fdE0Ac7cBD2922455","transaction_hash":"0xc135304fae428cb185112d87eff16c9329b192aebabd340e6893b01b51b235ee","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:47.708603234Z [inf]  request completed
-2026-02-05T17:03:47.708608534Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:47.708611573Z [inf]  [Preheat] Start
-2026-02-05T17:03:47.714694293Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:47.714704203Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:47.853882804Z [inf]  incoming request
-2026-02-05T17:03:47.853887403Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xed99659f0c88195817b7c46625ad9cb934caabcebfd5341de40e8521b7eb8dc3 sub=n/a hook0=n/a
-2026-02-05T17:03:47.853940693Z [inf]  [Webhook] CDP payload raw: {"block_number":41760839,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":512,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"f92154287c88fea7db83ae69766a6a4675dd80459ced2e4156331ef9cc54a0bc","startingTick":"-230400","tokenAddress":"0x0Dd62c3b6E73dDcd588f0DD235947c5687662b07","tokenAdmin":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/queenmolt/status/2019456791856484755\",\"id\":\"2018223265119100928\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"Rainbow","tokenSymbol":"Rainbow"},"timestamp":"2026-02-05T17:03:47Z","transaction_from":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","transaction_hash":"0xed99659f0c88195817b7c46625ad9cb934caabcebfd5341de40e8521b7eb8dc3","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:47.855301759Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:47.855305389Z [inf]  [Preheat] Start
-2026-02-05T17:03:47.855308629Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:47.855312009Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:47.855315039Z [inf]  request completed
-2026-02-05T17:03:48.163274045Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:48.163279065Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:48.163282715Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:48.163314975Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:48.163328705Z [inf]  [Preheat] Start
-2026-02-05T17:03:48.167722640Z [inf]  [Preheat] Start
-2026-02-05T17:03:48.167725600Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:48.167728370Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:48.215522183Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:48.215526613Z [inf]  [Preheat] Start
-2026-02-05T17:03:48.215529413Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:48.215532213Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:48.357487666Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:48.357491226Z [inf]  [Preheat] Start
-2026-02-05T17:03:48.359272349Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:48.359275699Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:48.444252490Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:48.444260640Z [inf]  [Preheat] Start
-2026-02-05T17:03:48.446331409Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:48.446337719Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:48.596134874Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:48.596140004Z [inf]  [Preheat] Start
-2026-02-05T17:03:48.598746318Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:48.599871307Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:49.339123987Z [inf]  incoming request
-2026-02-05T17:03:49.339131367Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xfc5f9c39a4267c7e75309c9b167b02359af49ce140dae984a9fd47f04f3f7637 sub=n/a hook0=n/a
-2026-02-05T17:03:49.339135516Z [inf]  [Webhook] CDP payload raw: {"block_number":41760840,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1077,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x6e7E683D3E88dE5B68Af69cd94E047f0dC033F63","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"fc563f991062134b5671497e55c0354db5e5fc63c11983b939ba7ed16cee726c","startingTick":"-230400","tokenAddress":"0x340494d933BFc0a4443B7dCe2bff943299aA0923","tokenAdmin":"0x6e7E683D3E88dE5B68Af69cd94E047f0dC033F63","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/private_ak16634/status/2019456893660631299\",\"id\":\"2019456893660631299\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"ClawdeClawy","tokenSymbol":"ClawdeClawy"},"timestamp":"2026-02-05T17:03:48Z","transaction_from":"0x6e7E683D3E88dE5B68Af69cd94E047f0dC033F63","transaction_hash":"0xfc5f9c39a4267c7e75309c9b167b02359af49ce140dae984a9fd47f04f3f7637","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:49.340885830Z [inf]  request completed
-2026-02-05T17:03:49.340897090Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:49.340902810Z [inf]  [Preheat] Start
-2026-02-05T17:03:49.340907499Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:49.340912099Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:49.716911765Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:49.716915365Z [inf]  [Preheat] Start
-2026-02-05T17:03:49.716919095Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:49.716922375Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:49.844691149Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:49.844695359Z [inf]  [Preheat] Start
-2026-02-05T17:03:49.844698979Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:49.844702439Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:49.863300963Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:49.863306333Z [inf]  [Preheat] Start
-2026-02-05T17:03:49.863310243Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:49.863313543Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:51.129832128Z [inf]  incoming request
-2026-02-05T17:03:51.129853148Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:51.129858578Z [inf]  [Preheat] Start
-2026-02-05T17:03:51.129863648Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:51.129868249Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:51.130577561Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x3f0f953fe12f0dee085ea5738b39dfb9573586953d1b6fc7ccb7946e9e6c20be sub=n/a hook0=n/a
-2026-02-05T17:03:51.130580221Z [inf]  [Webhook] CDP payload raw: {"block_number":41760841,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":771,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xAf1a3814D4f2CDd489708DCDB318C8F7D48393b5","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"9e11ee77cbc892d557e5f7dc6249413bf25310ed245e07e2df639de0f9f92bda","startingTick":"-230400","tokenAddress":"0xe202a1F8a03cE7F5E5Ea17A24491B248dbCa4832","tokenAdmin":"0xAf1a3814D4f2CDd489708DCDB318C8F7D48393b5","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/callmejackieee_/status/2019456894876938646\",\"id\":\"2019456894876938646\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"TeslaMoonBot","tokenSymbol":"TeslaMoonBot"},"timestamp":"2026-02-05T17:03:50Z","transaction_from":"0xAf1a3814D4f2CDd489708DCDB318C8F7D48393b5","transaction_hash":"0x3f0f953fe12f0dee085ea5738b39dfb9573586953d1b6fc7ccb7946e9e6c20be","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:51.130582791Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:51.131347404Z [inf]  [Preheat] Start
-2026-02-05T17:03:51.131350954Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:51.131354574Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:51.131357694Z [inf]  request completed
-2026-02-05T17:03:51.131361364Z [inf]  incoming request
-2026-02-05T17:03:51.131364444Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x0e267a444272ed9e409bcac4f4a82f6e411acaf89c4259d38a956fac2073e1e7 sub=n/a hook0=n/a
-2026-02-05T17:03:51.133459532Z [inf]  [Webhook] CDP payload raw: {"block_number":41760841,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":874,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"f26c6f9f12315ebf8e11902d2aae4d9e347aefda79bf372ce1667acf98dd42ff","startingTick":"-230400","tokenAddress":"0xe768cE08Bb6FB808A3BcE22Cc36dA6Aa88ac6B07","tokenAdmin":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/callmejackieee_/status/2019456894876938646\",\"id\":\"2019456894876938646\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"this quote ticker","tokenSymbol":"this quote ticker"},"timestamp":"2026-02-05T17:03:50Z","transaction_from":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","transaction_hash":"0x0e267a444272ed9e409bcac4f4a82f6e411acaf89c4259d38a956fac2073e1e7","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:51.133463332Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:51.133466422Z [inf]  [Preheat] Start
-2026-02-05T17:03:51.137151125Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:51.137155235Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:51.137158735Z [inf]  request completed
-2026-02-05T17:03:51.343391746Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:51.343394886Z [inf]  [Preheat] Start
-2026-02-05T17:03:51.345149608Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:51.345153188Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:51.574478758Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T17:03:51.595715667Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:51.595729377Z [inf]  [Preheat] Start
-2026-02-05T17:03:51.595734267Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:51.595738857Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:51.632676887Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:51.632680497Z [inf]  [Preheat] Start
-2026-02-05T17:03:51.632683967Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:51.632688767Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:51.815752620Z [wrn]  All API liquidity sources failed
-2026-02-05T17:03:52.314547159Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:52.314551229Z [inf]  [Preheat] Start
-2026-02-05T17:03:52.315977405Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:52.315981385Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:52.505532673Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:52.505536533Z [inf]  [Preheat] Start
-2026-02-05T17:03:52.505539823Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:52.505544852Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:52.652770692Z [wrn]  All on-chain DEX queries failed (Factory + Router)
-2026-02-05T17:03:52.652776052Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-05T17:03:52.652781212Z [err]  Critical: No valid price data available
-2026-02-05T17:03:52.716204509Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:52.716209079Z [inf]  [Preheat] Start
-2026-02-05T17:03:52.719197858Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:52.719203428Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:52.865407168Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:52.865412108Z [inf]  [Preheat] Start
-2026-02-05T17:03:52.865415008Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:52.865417878Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:52.929723487Z [wrn]  TP/SL check skipped: Price not available
-2026-02-05T17:03:53.153027767Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:53.153030177Z [inf]  [Preheat] Start
-2026-02-05T17:03:53.153033067Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:53.153035717Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:53.153038287Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:53.154248935Z [inf]  [Preheat] Start
-2026-02-05T17:03:53.154251445Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:53.154253945Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:53.333543753Z [inf]  incoming request
-2026-02-05T17:03:53.333548743Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x3f118086aad751c094a20232095950cf473b416c0092eabb83adcb34b7843f36 sub=n/a hook0=n/a
-2026-02-05T17:03:53.333551593Z [inf]  [Webhook] CDP payload raw: {"block_number":41760842,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1513,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"b0dad6027d242479526d8cda19bf791a86c4963c537fd1834e0f5a15c8479de7","startingTick":"-230400","tokenAddress":"0x61D9b4e938DCEA6fb2d46120fDed150f4128FB07","tokenAdmin":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/private_ak16634/status/2019456893660631299\",\"id\":\"2019456893660631299\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"ClawdeClawy","tokenSymbol":"ClawdeClawy"},"timestamp":"2026-02-05T17:03:53Z","transaction_from":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","transaction_hash":"0x3f118086aad751c094a20232095950cf473b416c0092eabb83adcb34b7843f36","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:53.335334536Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:53.335350226Z [inf]  [Preheat] Start
-2026-02-05T17:03:53.335355516Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:53.335360556Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:53.335367686Z [inf]  request completed
-2026-02-05T17:03:53.836268683Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:53.836271843Z [inf]  [Preheat] Start
-2026-02-05T17:03:53.836275993Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:53.836279303Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:54.348337320Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:54.348346780Z [inf]  [Preheat] Start
-2026-02-05T17:03:54.348352629Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:54.348358129Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:55.179405949Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:55.179409959Z [inf]  [Preheat] Start
-2026-02-05T17:03:55.179413309Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:55.179417569Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:55.200348160Z [inf]  incoming request
-2026-02-05T17:03:55.200352030Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xe809b5a8ad88a173c1ce1f07bffe9382f24b15ef86f96f157c778721bf291943 sub=n/a hook0=n/a
-2026-02-05T17:03:55.200356420Z [inf]  [Webhook] CDP payload raw: {"block_number":41760843,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1322,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"8c07f3453282d86fb2937d44f40bfc9129f68b2fa30b870acd78ff853b38e1e3","startingTick":"-230400","tokenAddress":"0x126CBbCc2E91D0c90bCB1a9F8E9E2726037D4b07","tokenAdmin":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/callmejackieee_/status/2019456894876938646\",\"id\":\"2019456894876938646\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"TeslaMoonBot","tokenSymbol":"TeslaMoonBot"},"timestamp":"2026-02-05T17:03:54Z","transaction_from":"0xD019a9340D6A1923BF3b73E103571a712a9CbAE3","transaction_hash":"0xe809b5a8ad88a173c1ce1f07bffe9382f24b15ef86f96f157c778721bf291943","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
-2026-02-05T17:03:55.202046644Z [inf]  request completed
-2026-02-05T17:03:55.202052584Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:55.202056694Z [inf]  [Preheat] Start
-2026-02-05T17:03:55.202060374Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:55.202063904Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T17:03:55.334404091Z [inf]  [Preheat] Enqueue
-2026-02-05T17:03:55.334408651Z [inf]  [Preheat] Start
-2026-02-05T17:03:55.334412721Z [wrn]  [Preheat] PoolId not matched to config
-2026-02-05T17:03:55.334416671Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T17:18:28.000000000Z [inf]  Starting Container
+2026-02-05T17:18:28.640822021Z [inf]  
+2026-02-05T17:18:28.640826111Z [inf]  > kiko-api@1.0.0 start
+2026-02-05T17:18:28.640829921Z [inf]  > node dist/index.js
+2026-02-05T17:18:28.640833991Z [inf]  
+2026-02-05T17:18:29.279197556Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
+2026-02-05T17:18:29.330735403Z [inf]  Zora SDK initialized with API Key
+2026-02-05T17:18:29.442513074Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
+2026-02-05T17:18:29.700629140Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
+2026-02-05T17:18:29.700633140Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
+2026-02-05T17:18:29.700636200Z [err]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
+2026-02-05T17:18:29.700639450Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
+2026-02-05T17:18:29.700642370Z [err]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
+2026-02-05T17:18:29.700645840Z [inf]  Build SHA
+2026-02-05T17:18:29.700649060Z [inf]  Serving static files from:
+2026-02-05T17:18:29.700652140Z [inf]  Initializing services...
+2026-02-05T17:18:29.763206196Z [inf]  [Prisma] DB connection is healthy
+2026-02-05T17:18:29.775485914Z [inf]  Database connection successful
+2026-02-05T17:18:29.775488844Z [inf]  [DataRetention] Checking retention policies...
+2026-02-05T17:18:29.788704977Z [inf]  [DataRetention] Starting cleanup job...
+2026-02-05T17:18:29.788707527Z [inf]  Redis initialized
+2026-02-05T17:18:29.788710037Z [inf]  Starting server on port 8080...
+2026-02-05T17:18:29.835240611Z [inf]  Server listening at http://0.0.0.0:8080
+2026-02-05T17:18:29.835243971Z [inf]  Server listening
+2026-02-05T17:18:29.835247281Z [inf]  RPC health monitor started
+2026-02-05T17:18:29.838889074Z [inf]  RPC benchmark sampling started
+2026-02-05T17:18:29.853836264Z [inf]  Token Alert Service started
+2026-02-05T17:18:29.853860754Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
+2026-02-05T17:18:29.853864163Z [inf]  [TokenJob] Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
+2026-02-05T17:18:29.853867313Z [inf]  [TokenJob] Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
+2026-02-05T17:18:29.853870053Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
+2026-02-05T17:18:29.853872823Z [inf]  Background jobs started
+2026-02-05T17:18:29.853876313Z [inf]  Initializing auto trade service...
+2026-02-05T17:18:29.853879163Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
+2026-02-05T17:18:29.853882413Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook enabled)
+2026-02-05T17:18:29.853885713Z [inf]  Auto trade service started
+2026-02-05T17:18:29.853889033Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
+2026-02-05T17:18:29.853891983Z [inf]  Position monitor started
+2026-02-05T17:18:29.854762396Z [inf]  Token alert service started
+2026-02-05T17:18:29.854766006Z [inf]  [ChatWorker] Started polling for AI tasks (interval: 3000ms)
+2026-02-05T17:18:29.854769046Z [inf]  Chat worker started
+2026-02-05T17:18:29.854771586Z [inf]  Starting Global Zora Alpha Detector (API Polling)
+2026-02-05T17:18:29.854776546Z [inf]  🎉 All services initialized!
+2026-02-05T17:18:29.899256667Z [err]  [DataRetention] No cleanup handler for table: SuggestionEvent
+2026-02-05T17:18:29.906718781Z [inf]  [DataRetention] Cleanup job completed.
+2026-02-05T17:18:32.708917888Z [inf]  incoming request
+2026-02-05T17:18:32.711027261Z [inf]  request completed
+2026-02-05T17:18:33.240064568Z [inf]  incoming request
+2026-02-05T17:18:33.241092820Z [inf]  request completed
+2026-02-05T17:18:34.855616906Z [inf]  [MarketJob] Running startup staleness check...
+2026-02-05T17:18:34.857021265Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:18:34.857024655Z [inf]  [MarketJob] Overview is fresh, skipping API call
+2026-02-05T17:18:34.859896354Z [inf]  [MarketJob] Protocols are fresh, skipping API call
+2026-02-05T17:18:34.861299294Z [err]  [Job] Real hot users file not found: 
+2026-02-05T17:18:34.861302434Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-05T17:18:34.862754853Z [inf]  [Job] ✅ Got 656 quality users from database
+2026-02-05T17:18:34.862757383Z [inf]  [SocialJob] fetchCastsFromUsers starting with 656 FIDs, target: 1000
+2026-02-05T17:18:35.299679902Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T17:18:35.340778028Z [wrn]  All API liquidity sources failed
+2026-02-05T17:18:35.420418847Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-05T17:18:35.790536692Z [inf]  RPC failover success
+2026-02-05T17:18:35.790540602Z [inf]  RPC failover success
+2026-02-05T17:18:35.790543892Z [inf]  RPC failover success
+2026-02-05T17:18:35.790547232Z [inf]  RPC failover success
+2026-02-05T17:18:35.790550932Z [inf]  RPC failover success
+2026-02-05T17:18:35.798663221Z [inf]  RPC failover success
+2026-02-05T17:18:35.823378948Z [inf]  RPC failover success
+2026-02-05T17:18:35.827138830Z [inf]  RPC failover success
+2026-02-05T17:18:35.827143340Z [inf]  RPC failover success
+2026-02-05T17:18:35.827146640Z [inf]  RPC failover success
+2026-02-05T17:18:35.830772264Z [inf]  RPC failover success
+2026-02-05T17:18:35.830775334Z [inf]  RPC failover success
+2026-02-05T17:18:35.830778634Z [inf]  RPC failover success
+2026-02-05T17:18:35.832720329Z [inf]  RPC failover success
+2026-02-05T17:18:35.834393207Z [inf]  RPC failover success
+2026-02-05T17:18:35.836736009Z [inf]  RPC failover success
+2026-02-05T17:18:35.840368972Z [inf]  RPC failover success
+2026-02-05T17:18:35.840374012Z [inf]  RPC failover success
+2026-02-05T17:18:35.841500274Z [inf]  RPC failover success
+2026-02-05T17:18:35.849457165Z [inf]  RPC failover success
+2026-02-05T17:18:35.849460465Z [wrn]  RPC endpoint failed
+2026-02-05T17:18:35.919345857Z [inf]  RPC failover success
+2026-02-05T17:18:35.973863153Z [inf]  RPC failover success
+2026-02-05T17:18:35.975946856Z [inf]  RPC failover success
+2026-02-05T17:18:35.977347437Z [inf]  RPC failover success
+2026-02-05T17:18:35.981855943Z [inf]  RPC failover success
+2026-02-05T17:18:36.013652427Z [inf]  RPC failover success
+2026-02-05T17:18:36.183026301Z [inf]  RPC failover success
+2026-02-05T17:18:36.183030601Z [inf]  RPC failover success
+2026-02-05T17:18:36.183035051Z [inf]  RPC failover success
+2026-02-05T17:18:36.190548306Z [inf]  RPC failover success
+2026-02-05T17:18:36.196545141Z [inf]  RPC failover success
+2026-02-05T17:18:36.196551221Z [inf]  RPC failover success
+2026-02-05T17:18:36.196554931Z [inf]  RPC failover success
+2026-02-05T17:18:36.196557931Z [inf]  RPC failover success
+2026-02-05T17:18:36.196561131Z [inf]  RPC failover success
+2026-02-05T17:18:36.198271668Z [inf]  RPC failover success
+2026-02-05T17:18:36.198278578Z [inf]  RPC failover success
+2026-02-05T17:18:36.198282728Z [inf]  RPC failover success
+2026-02-05T17:18:36.199914306Z [inf]  RPC failover success
+2026-02-05T17:18:36.199919386Z [inf]  RPC failover success
+2026-02-05T17:18:36.199924126Z [inf]  RPC failover success
+2026-02-05T17:18:36.201722582Z [inf]  RPC failover success
+2026-02-05T17:18:36.201725402Z [inf]  RPC failover success
+2026-02-05T17:18:36.201727962Z [inf]  RPC failover success
+2026-02-05T17:18:36.201730772Z [inf]  RPC failover success
+2026-02-05T17:18:36.201735692Z [inf]  RPC failover success
+2026-02-05T17:18:36.201738392Z [inf]  RPC failover success
+2026-02-05T17:18:36.201741042Z [inf]  RPC failover success
+2026-02-05T17:18:36.205925521Z [inf]  RPC failover success
+2026-02-05T17:18:36.205937141Z [inf]  RPC failover success
+2026-02-05T17:18:36.205940521Z [inf]  RPC failover success
+2026-02-05T17:18:36.217695833Z [inf]  RPC failover success
+2026-02-05T17:18:36.221067819Z [inf]  RPC failover success
+2026-02-05T17:18:36.234986006Z [inf]  RPC failover success
+2026-02-05T17:18:36.234988406Z [inf]  RPC failover success
+2026-02-05T17:18:36.234991656Z [inf]  RPC failover success
+2026-02-05T17:18:36.234994326Z [inf]  RPC failover success
+2026-02-05T17:18:36.234996946Z [inf]  RPC failover success
+2026-02-05T17:18:36.236801472Z [inf]  RPC failover success
+2026-02-05T17:18:36.258001715Z [inf]  RPC failover success
+2026-02-05T17:18:36.258004165Z [inf]  RPC failover success
+2026-02-05T17:18:36.258006675Z [inf]  RPC failover success
+2026-02-05T17:18:36.309068737Z [inf]  RPC failover success
+2026-02-05T17:18:36.483323664Z [inf]  incoming request
+2026-02-05T17:18:36.483327474Z [inf]  request completed
+2026-02-05T17:18:36.717306419Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T17:18:36.784021964Z [inf]  incoming request
+2026-02-05T17:18:36.784025614Z [inf]  request completed
+2026-02-05T17:18:37.008785397Z [inf]  incoming request
+2026-02-05T17:18:37.008788287Z [inf]  request completed
+2026-02-05T17:18:37.413698274Z [inf]  incoming request
+2026-02-05T17:18:37.414369439Z [inf]  request completed
+2026-02-05T17:18:37.699619583Z [inf]  incoming request
+2026-02-05T17:18:37.699622403Z [inf]  request completed
+2026-02-05T17:18:37.817472550Z [inf]  incoming request
+2026-02-05T17:18:37.817478350Z [inf]  request completed
+2026-02-05T17:18:38.726545638Z [inf]  incoming request
+2026-02-05T17:18:38.726552728Z [inf]  request completed
+2026-02-05T17:18:38.726557508Z [inf]  incoming request
+2026-02-05T17:18:38.726563118Z [inf]  request completed
+2026-02-05T17:18:38.797251333Z [inf]  incoming request
+2026-02-05T17:18:38.803455557Z [inf]  request completed
+2026-02-05T17:18:39.112103009Z [inf]  incoming request
+2026-02-05T17:18:39.113448149Z [inf]  request completed
+2026-02-05T17:18:40.408478365Z [inf]  incoming request
+2026-02-05T17:18:40.408481955Z [inf]  request completed
+2026-02-05T17:18:40.720055844Z [inf]  incoming request
+2026-02-05T17:18:40.720060994Z [inf]  request completed
+2026-02-05T17:18:41.236847442Z [inf]  incoming request
+2026-02-05T17:18:41.238333451Z [inf]  request completed
+2026-02-05T17:18:41.243324154Z [inf]  incoming request
+2026-02-05T17:18:41.243329664Z [inf]  request completed
+2026-02-05T17:18:41.720356517Z [inf]  incoming request
+2026-02-05T17:18:41.720360977Z [inf]  request completed
+2026-02-05T17:18:41.720364537Z [inf]  incoming request
+2026-02-05T17:18:41.720368537Z [inf]  request completed
+2026-02-05T17:18:44.115585875Z [inf]  incoming request
+2026-02-05T17:18:44.115590565Z [inf]  request completed
+2026-02-05T17:18:44.115595425Z [inf]  incoming request
+2026-02-05T17:18:44.115599095Z [inf]  request completed
+2026-02-05T17:18:44.454546432Z [inf]  incoming request
+2026-02-05T17:18:44.454549772Z [inf]  request completed
+2026-02-05T17:18:44.727235289Z [inf]  incoming request
+2026-02-05T17:18:44.727240819Z [inf]  request completed
+2026-02-05T17:18:44.892657743Z [inf]  incoming request
+2026-02-05T17:18:44.892661093Z [inf]  request completed
+2026-02-05T17:18:44.982976283Z [inf]  incoming request
+2026-02-05T17:18:44.982978873Z [inf]  request completed
+2026-02-05T17:18:45.139642862Z [inf]  incoming request
+2026-02-05T17:18:45.139646792Z [inf]  request completed
+2026-02-05T17:18:46.817791837Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:18:46.945570440Z [inf]  incoming request
+2026-02-05T17:18:46.945574870Z [inf]  request completed
+2026-02-05T17:18:46.951604615Z [inf]  incoming request
+2026-02-05T17:18:46.951607895Z [inf]  request completed
+2026-02-05T17:18:47.179843753Z [inf]  incoming request
+2026-02-05T17:18:47.179850523Z [inf]  request completed
+2026-02-05T17:18:47.476041997Z [inf]  incoming request
+2026-02-05T17:18:47.476047367Z [inf]  request completed
+2026-02-05T17:18:48.735377419Z [inf]  incoming request
+2026-02-05T17:18:48.735384939Z [inf]  request completed
+2026-02-05T17:18:48.735389539Z [inf]  incoming request
+2026-02-05T17:18:48.735395039Z [inf]  request completed
+2026-02-05T17:18:48.868010126Z [inf]  incoming request
+2026-02-05T17:18:48.868013905Z [inf]  request completed
+2026-02-05T17:18:49.005375757Z [inf]  incoming request
+2026-02-05T17:18:49.005382297Z [inf]  request completed
+2026-02-05T17:18:49.123268074Z [inf]  incoming request
+2026-02-05T17:18:49.123272184Z [inf]  request completed
+2026-02-05T17:18:49.123276414Z [inf]  incoming request
+2026-02-05T17:18:49.123281834Z [inf]  request completed
+2026-02-05T17:18:49.212769189Z [inf]  incoming request
+2026-02-05T17:18:49.212773799Z [inf]  request completed
+2026-02-05T17:18:49.219260621Z [inf]  incoming request
+2026-02-05T17:18:49.219265771Z [inf]  request completed
+2026-02-05T17:18:50.719198260Z [inf]  incoming request
+2026-02-05T17:18:50.720134653Z [inf]  request completed
+2026-02-05T17:18:50.883919589Z [inf]  incoming request
+2026-02-05T17:18:50.883923679Z [inf]  request completed
+2026-02-05T17:18:50.907960030Z [inf]  incoming request
+2026-02-05T17:18:50.908985343Z [inf]  request completed
+2026-02-05T17:18:50.908987673Z [inf]  incoming request
+2026-02-05T17:18:50.910049015Z [inf]  request completed
+2026-02-05T17:18:51.051482997Z [inf]  incoming request
+2026-02-05T17:18:51.051488957Z [inf]  request completed
+2026-02-05T17:18:51.058209717Z [inf]  incoming request
+2026-02-05T17:18:51.058214137Z [inf]  request completed
+2026-02-05T17:18:51.159323327Z [inf]  incoming request
+2026-02-05T17:18:51.160335459Z [inf]  request completed
+2026-02-05T17:18:51.173662531Z [inf]  incoming request
+2026-02-05T17:18:51.173665221Z [inf]  request completed
+2026-02-05T17:18:52.471539128Z [inf]  incoming request
+2026-02-05T17:18:52.478554466Z [inf]  request completed
+2026-02-05T17:18:52.704667469Z [inf]  incoming request
+2026-02-05T17:18:52.704673979Z [inf]  request completed
+2026-02-05T17:18:52.724249984Z [inf]  incoming request
+2026-02-05T17:18:52.726140491Z [inf]  request completed
+2026-02-05T17:18:55.000487778Z [inf]  incoming request
+2026-02-05T17:18:55.000493428Z [inf]  request completed
+2026-02-05T17:18:55.000497908Z [inf]  incoming request
+2026-02-05T17:18:55.000501788Z [inf]  request completed
+2026-02-05T17:18:55.001579500Z [inf]  incoming request
+2026-02-05T17:18:55.001582960Z [inf]  request completed
+2026-02-05T17:18:55.144827428Z [inf]  incoming request
+2026-02-05T17:18:55.144830168Z [inf]  request completed
+2026-02-05T17:18:55.151211511Z [inf]  incoming request
+2026-02-05T17:18:55.151215871Z [inf]  request completed
+2026-02-05T17:18:55.481437903Z [inf]  incoming request
+2026-02-05T17:18:55.481441893Z [inf]  request completed
+2026-02-05T17:18:55.481445563Z [inf]  incoming request
+2026-02-05T17:18:55.482643064Z [inf]  request completed
+2026-02-05T17:18:55.495770657Z [inf]  incoming request
+2026-02-05T17:18:55.495777106Z [inf]  request completed
+2026-02-05T17:18:55.734686506Z [inf]  incoming request
+2026-02-05T17:18:55.734693685Z [inf]  request completed
+2026-02-05T17:18:56.886205768Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:18:56.942485521Z [inf]  📊 Position P/L check
+2026-02-05T17:18:58.119771043Z [inf]  incoming request
+2026-02-05T17:18:58.120822176Z [inf]  request completed
+2026-02-05T17:18:58.373961249Z [inf]  incoming request
+2026-02-05T17:18:58.373965989Z [inf]  request completed
+2026-02-05T17:18:58.373968879Z [inf]  incoming request
+2026-02-05T17:18:58.373971169Z [inf]  request completed
+2026-02-05T17:18:58.487450578Z [inf]  incoming request
+2026-02-05T17:18:58.487454248Z [inf]  request completed
+2026-02-05T17:18:58.488689769Z [inf]  incoming request
+2026-02-05T17:18:58.490082058Z [inf]  request completed
+2026-02-05T17:18:58.490088568Z [inf]  incoming request
+2026-02-05T17:18:58.491450388Z [inf]  request completed
+2026-02-05T17:18:58.732063984Z [inf]  incoming request
+2026-02-05T17:18:58.734736084Z [inf]  request completed
+2026-02-05T17:18:59.853192553Z [inf]  [TokenJob] Starting initial token refresh...
+2026-02-05T17:18:59.873103586Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
+2026-02-05T17:18:59.873107896Z [inf]  Fetching premium trending tokens
+2026-02-05T17:19:00.184291348Z [inf]  WS addresses discovered
+2026-02-05T17:19:00.428802976Z [inf]  incoming request
+2026-02-05T17:19:00.428805816Z [inf]  request completed
+2026-02-05T17:19:00.446175627Z [inf]  incoming request
+2026-02-05T17:19:00.446178387Z [inf]  request completed
+2026-02-05T17:19:00.773169083Z [inf]  request completed
+2026-02-05T17:19:00.773232103Z [inf]  incoming request
+2026-02-05T17:19:00.833767034Z [inf]  incoming request
+2026-02-05T17:19:00.833773004Z [inf]  request completed
+2026-02-05T17:19:01.184460424Z [inf]  incoming request
+2026-02-05T17:19:01.184463074Z [inf]  request completed
+2026-02-05T17:19:01.186982235Z [inf]  incoming request
+2026-02-05T17:19:01.188271396Z [inf]  request completed
+2026-02-05T17:19:01.354166227Z [inf]  Processed DexScreener trending candidates
+2026-02-05T17:19:01.412726192Z [inf]  incoming request
+2026-02-05T17:19:01.412729282Z [inf]  request completed
+2026-02-05T17:19:02.436692671Z [inf]  incoming request
+2026-02-05T17:19:02.439747359Z [inf]  request completed
+2026-02-05T17:19:02.534804075Z [inf]  incoming request
+2026-02-05T17:19:02.534811184Z [inf]  request completed
+2026-02-05T17:19:02.738015428Z [inf]  incoming request
+2026-02-05T17:19:02.738020358Z [inf]  request completed
+2026-02-05T17:19:03.179178288Z [inf]  incoming request
+2026-02-05T17:19:03.179181308Z [inf]  request completed
+2026-02-05T17:19:03.997433232Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T17:19:05.046447457Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T17:19:05.051667218Z [inf]  incoming request
+2026-02-05T17:19:05.051671308Z [inf]  request completed
+2026-02-05T17:19:05.051675828Z [inf]  incoming request
+2026-02-05T17:19:05.051679818Z [inf]  request completed
+2026-02-05T17:19:05.195762720Z [inf]  incoming request
+2026-02-05T17:19:05.196777752Z [inf]  request completed
+2026-02-05T17:19:05.197967733Z [inf]  incoming request
+2026-02-05T17:19:05.197972553Z [inf]  request completed
+2026-02-05T17:19:05.197976743Z [inf]  incoming request
+2026-02-05T17:19:05.197980473Z [inf]  request completed
+2026-02-05T17:19:05.197985123Z [inf]  incoming request
+2026-02-05T17:19:05.197988793Z [inf]  request completed
+2026-02-05T17:19:05.199288213Z [inf]  incoming request
+2026-02-05T17:19:05.199291153Z [inf]  request completed
+2026-02-05T17:19:05.204035908Z [inf]  incoming request
+2026-02-05T17:19:05.204039748Z [inf]  request completed
+2026-02-05T17:19:05.224428708Z [inf]  incoming request
+2026-02-05T17:19:05.226039605Z [inf]  request completed
+2026-02-05T17:19:05.229806678Z [inf]  incoming request
+2026-02-05T17:19:05.231225537Z [inf]  request completed
+2026-02-05T17:19:05.263725116Z [inf]  incoming request
+2026-02-05T17:19:05.263728096Z [inf]  request completed
+2026-02-05T17:19:05.350432194Z [inf]  incoming request
+2026-02-05T17:19:05.355276377Z [inf]  request completed
+2026-02-05T17:19:05.355279127Z [inf]  incoming request
+2026-02-05T17:19:05.355282257Z [inf]  request completed
+2026-02-05T17:19:06.940817725Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:19:07.061566430Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T17:19:07.350256941Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T17:19:07.798414258Z [inf]  RPC failover success
+2026-02-05T17:19:07.798428048Z [inf]  RPC failover success
+2026-02-05T17:19:07.798434548Z [inf]  RPC failover success
+2026-02-05T17:19:07.798438648Z [inf]  RPC failover success
+2026-02-05T17:19:07.798444718Z [inf]  RPC failover success
+2026-02-05T17:19:07.798447058Z [inf]  RPC failover success
+2026-02-05T17:19:07.798451488Z [inf]  RPC failover success
+2026-02-05T17:19:07.798455608Z [inf]  RPC failover success
+2026-02-05T17:19:07.800169656Z [inf]  RPC failover success
+2026-02-05T17:19:07.800172146Z [inf]  RPC failover success
+2026-02-05T17:19:07.800174546Z [inf]  RPC failover success
+2026-02-05T17:19:07.800177756Z [inf]  RPC failover success
+2026-02-05T17:19:07.800180666Z [inf]  RPC failover success
+2026-02-05T17:19:07.800183476Z [inf]  RPC failover success
+2026-02-05T17:19:07.800186396Z [inf]  RPC failover success
+2026-02-05T17:19:07.800190076Z [inf]  RPC failover success
+2026-02-05T17:19:07.802618168Z [inf]  RPC failover success
+2026-02-05T17:19:07.802622738Z [inf]  RPC failover success
+2026-02-05T17:19:07.802627938Z [inf]  RPC failover success
+2026-02-05T17:19:07.802633238Z [inf]  RPC failover success
+2026-02-05T17:19:07.802637617Z [inf]  RPC failover success
+2026-02-05T17:19:07.802643437Z [inf]  RPC failover success
+2026-02-05T17:19:07.802647207Z [inf]  RPC failover success
+2026-02-05T17:19:07.802651907Z [inf]  RPC failover success
+2026-02-05T17:19:07.802656207Z [inf]  RPC failover success
+2026-02-05T17:19:07.802660437Z [inf]  RPC failover success
+2026-02-05T17:19:07.802664837Z [inf]  RPC failover success
+2026-02-05T17:19:07.802670567Z [inf]  RPC failover success
+2026-02-05T17:19:07.802677707Z [inf]  RPC failover success
+2026-02-05T17:19:07.802682667Z [inf]  RPC failover success
+2026-02-05T17:19:07.853098063Z [inf]  RPC failover success
+2026-02-05T17:19:07.858969860Z [inf]  RPC failover success
+2026-02-05T17:19:07.901951201Z [inf]  RPC failover success
+2026-02-05T17:19:07.919533711Z [inf]  RPC failover success
+2026-02-05T17:19:07.938330581Z [inf]  RPC failover success
+2026-02-05T17:19:07.970427064Z [inf]  incoming request
+2026-02-05T17:19:07.971549716Z [inf]  request completed
+2026-02-05T17:19:07.973402591Z [inf]  incoming request
+2026-02-05T17:19:07.973409431Z [inf]  request completed
+2026-02-05T17:19:08.077900356Z [inf]  RPC failover success
+2026-02-05T17:19:08.077904996Z [inf]  RPC failover success
+2026-02-05T17:19:08.077909646Z [inf]  RPC failover success
+2026-02-05T17:19:08.077914576Z [inf]  RPC failover success
+2026-02-05T17:19:08.077918926Z [inf]  RPC failover success
+2026-02-05T17:19:08.077923356Z [inf]  RPC failover success
+2026-02-05T17:19:08.077927886Z [inf]  RPC failover success
+2026-02-05T17:19:08.077932226Z [inf]  RPC failover success
+2026-02-05T17:19:08.079180577Z [inf]  RPC failover success
+2026-02-05T17:19:08.079187787Z [inf]  RPC failover success
+2026-02-05T17:19:08.079192657Z [inf]  RPC failover success
+2026-02-05T17:19:08.079197337Z [inf]  RPC failover success
+2026-02-05T17:19:08.079200847Z [inf]  RPC failover success
+2026-02-05T17:19:08.081456570Z [inf]  RPC failover success
+2026-02-05T17:19:08.081465710Z [inf]  RPC failover success
+2026-02-05T17:19:08.081470520Z [inf]  RPC failover success
+2026-02-05T17:19:08.081475270Z [inf]  RPC failover success
+2026-02-05T17:19:08.083204717Z [inf]  RPC failover success
+2026-02-05T17:19:08.083208917Z [inf]  RPC failover success
+2026-02-05T17:19:08.083213287Z [inf]  RPC failover success
+2026-02-05T17:19:08.083217837Z [inf]  RPC failover success
+2026-02-05T17:19:08.083222847Z [inf]  RPC failover success
+2026-02-05T17:19:08.083226437Z [inf]  RPC failover success
+2026-02-05T17:19:08.083230217Z [inf]  RPC failover success
+2026-02-05T17:19:08.086470973Z [inf]  RPC failover success
+2026-02-05T17:19:08.086474313Z [inf]  RPC failover success
+2026-02-05T17:19:08.086477103Z [inf]  RPC failover success
+2026-02-05T17:19:08.095865633Z [inf]  RPC failover success
+2026-02-05T17:19:08.115220880Z [inf]  RPC failover success
+2026-02-05T17:19:08.118070649Z [inf]  RPC failover success
+2026-02-05T17:19:08.118076019Z [inf]  RPC failover success
+2026-02-05T17:19:08.118080799Z [inf]  RPC failover success
+2026-02-05T17:19:08.118085389Z [inf]  RPC failover success
+2026-02-05T17:19:08.134650796Z [inf]  RPC failover success
+2026-02-05T17:19:08.134655406Z [inf]  RPC failover success
+2026-02-05T17:19:08.148576683Z [inf]  RPC failover success
+2026-02-05T17:19:08.156158117Z [inf]  RPC failover success
+2026-02-05T17:19:08.179088317Z [inf]  RPC failover success
+2026-02-05T17:19:08.204805526Z [inf]  RPC failover success
+2026-02-05T17:19:08.204811936Z [wrn]  All API liquidity sources failed
+2026-02-05T17:19:08.204816446Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T17:19:08.228439041Z [inf]  RPC failover success
+2026-02-05T17:19:08.228445661Z [inf]  📊 Position P/L check
+2026-02-05T17:19:11.076349923Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T17:19:11.076356223Z [err]  GeckoTerminal API error after retries
+2026-02-05T17:19:11.076360253Z [err]  Error fetching trending tokens
+2026-02-05T17:19:11.076364133Z [inf]  Premium trending tokens fetch complete
+2026-02-05T17:19:11.076367513Z [inf]  [TokenJob] Got 93 trending tokens for Ethereum
+2026-02-05T17:19:11.123523043Z [inf]  Saved 93 trending tokens for eth to database and memory cache
+2026-02-05T17:19:11.141503730Z [inf]  [TokenJob] Saved 93 tokens for Ethereum to DB + cache
+2026-02-05T17:19:18.231188147Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:19:18.305785864Z [inf]  📊 Position P/L check
+2026-02-05T17:19:28.304975250Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:19:28.376882887Z [inf]  📊 Position P/L check
+2026-02-05T17:19:29.837856832Z [wrn]  RPC health degraded
+2026-02-05T17:19:36.132968873Z [inf]  incoming request
+2026-02-05T17:19:36.134929278Z [inf]  request completed
+2026-02-05T17:19:38.393999372Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:19:38.897875479Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T17:19:38.933591195Z [wrn]  All API liquidity sources failed
+2026-02-05T17:19:39.935782040Z [inf]  RPC failover success
+2026-02-05T17:19:39.986412455Z [inf]  RPC failover success
+2026-02-05T17:19:40.059484294Z [inf]  RPC failover success
+2026-02-05T17:19:40.079784203Z [inf]  RPC failover success
+2026-02-05T17:19:40.315086360Z [inf]  RPC failover success
+2026-02-05T17:19:40.315089230Z [inf]  RPC failover success
+2026-02-05T17:19:40.322837793Z [inf]  RPC failover success
+2026-02-05T17:19:40.322841373Z [inf]  RPC failover success
+2026-02-05T17:19:40.322845503Z [inf]  RPC failover success
+2026-02-05T17:19:40.322848833Z [inf]  RPC failover success
+2026-02-05T17:19:40.322853983Z [inf]  RPC failover success
+2026-02-05T17:19:40.322857263Z [inf]  RPC failover success
+2026-02-05T17:19:40.322860563Z [inf]  RPC failover success
+2026-02-05T17:19:40.324346892Z [inf]  RPC failover success
+2026-02-05T17:19:40.326602485Z [inf]  RPC failover success
+2026-02-05T17:19:40.326607995Z [inf]  RPC failover success
+2026-02-05T17:19:40.326611745Z [inf]  RPC failover success
+2026-02-05T17:19:40.326615405Z [inf]  RPC failover success
+2026-02-05T17:19:40.328878758Z [inf]  RPC failover success
+2026-02-05T17:19:40.328882008Z [inf]  RPC failover success
+2026-02-05T17:19:40.328885458Z [inf]  RPC failover success
+2026-02-05T17:19:40.328888608Z [inf]  RPC failover success
+2026-02-05T17:19:40.328891678Z [inf]  RPC failover success
+2026-02-05T17:19:40.328894288Z [inf]  RPC failover success
+2026-02-05T17:19:40.328897288Z [inf]  RPC failover success
+2026-02-05T17:19:40.337742753Z [inf]  RPC failover success
+2026-02-05T17:19:40.355619770Z [inf]  RPC failover success
+2026-02-05T17:19:40.356827031Z [inf]  RPC failover success
+2026-02-05T17:19:40.358017242Z [inf]  RPC failover success
+2026-02-05T17:19:40.358027262Z [inf]  RPC failover success
+2026-02-05T17:19:40.359273163Z [inf]  RPC failover success
+2026-02-05T17:19:40.359277103Z [inf]  RPC failover success
+2026-02-05T17:19:40.361188769Z [inf]  RPC failover success
+2026-02-05T17:19:40.369802275Z [inf]  RPC failover success
+2026-02-05T17:19:40.369805455Z [inf]  RPC failover success
+2026-02-05T17:19:40.369808335Z [inf]  RPC failover success
+2026-02-05T17:19:40.370844697Z [inf]  RPC failover success
+2026-02-05T17:19:40.371764711Z [inf]  RPC failover success
+2026-02-05T17:19:40.384491277Z [inf]  RPC failover success
+2026-02-05T17:19:40.395788592Z [inf]  RPC failover success
+2026-02-05T17:19:40.532872437Z [inf]  RPC failover success
+2026-02-05T17:19:40.560740101Z [inf]  RPC failover success
+2026-02-05T17:19:41.156268389Z [inf]  [TokenJob] Tokens for Solana are fresh, skipping API call
+2026-02-05T17:19:41.835727106Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T17:19:41.835729946Z [inf]  📊 Position P/L check
+2026-02-05T17:19:42.127138837Z [inf]  incoming request
+2026-02-05T17:19:42.127143577Z [inf]  request completed
+2026-02-05T17:19:42.602691655Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:19:44.120192853Z [inf]  incoming request
+2026-02-05T17:19:44.121923470Z [inf]  request completed
+2026-02-05T17:19:47.917480595Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:19:51.879673419Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:19:53.608104627Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:19:58.930855077Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:20:00.921299637Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-05T17:20:00.921303187Z [inf]  [TokenJob] Tokens for Ethereum are fresh, skipping API call
+2026-02-05T17:20:00.996228802Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
+2026-02-05T17:20:00.996245462Z [inf]  Timer finished: recalc_heat_scores
+2026-02-05T17:20:01.948546529Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:20:01.948550119Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:20:02.466485694Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:20:02.596899519Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:20:02.907983675Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:20:05.954706424Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:20:07.905878276Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:20:11.336082958Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+2026-02-05T17:20:11.336088178Z [inf]  Fetching premium trending tokens
+2026-02-05T17:20:11.399704937Z [inf]  WS addresses discovered
+2026-02-05T17:20:11.951500291Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:20:12.351787847Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T17:20:12.456609300Z [wrn]  All API liquidity sources failed
+2026-02-05T17:20:12.592033998Z [inf]  Processed DexScreener trending candidates
+2026-02-05T17:20:12.698097522Z [inf]  RPC failover success
+2026-02-05T17:20:12.698105702Z [inf]  RPC failover success
+2026-02-05T17:20:12.698110812Z [inf]  RPC failover success
+2026-02-05T17:20:12.700345166Z [inf]  RPC failover success
+2026-02-05T17:20:12.700350636Z [inf]  RPC failover success
+2026-02-05T17:20:12.702436801Z [inf]  RPC failover success
+2026-02-05T17:20:12.702442671Z [inf]  RPC failover success
+2026-02-05T17:20:12.702447241Z [inf]  RPC failover success
+2026-02-05T17:20:12.708394937Z [inf]  RPC failover success
+2026-02-05T17:20:12.736053491Z [inf]  RPC failover success
+2026-02-05T17:20:12.743386777Z [inf]  RPC failover success
+2026-02-05T17:20:12.743394637Z [inf]  RPC failover success
+2026-02-05T17:20:12.743400507Z [inf]  RPC failover success
+2026-02-05T17:20:12.743404837Z [inf]  RPC failover success
+2026-02-05T17:20:12.743409147Z [inf]  RPC failover success
+2026-02-05T17:20:12.743413717Z [inf]  RPC failover success
+2026-02-05T17:20:12.743418357Z [inf]  RPC failover success
+2026-02-05T17:20:12.743423117Z [inf]  RPC failover success
+2026-02-05T17:20:12.746026168Z [inf]  RPC failover success
+2026-02-05T17:20:12.746033658Z [inf]  RPC failover success
+2026-02-05T17:20:12.746037428Z [inf]  RPC failover success
+2026-02-05T17:20:12.746040577Z [inf]  RPC failover success
+2026-02-05T17:20:12.746044777Z [inf]  RPC failover success
+2026-02-05T17:20:12.749354594Z [inf]  RPC failover success
+2026-02-05T17:20:12.749358114Z [inf]  RPC failover success
+2026-02-05T17:20:12.749361524Z [inf]  RPC failover success
+2026-02-05T17:20:12.749364734Z [inf]  RPC failover success
+2026-02-05T17:20:12.752064423Z [inf]  RPC failover success
+2026-02-05T17:20:12.754138867Z [inf]  RPC failover success
+2026-02-05T17:20:12.754144067Z [inf]  RPC failover success
+2026-02-05T17:20:12.770824734Z [inf]  RPC failover success
+2026-02-05T17:20:12.781846963Z [inf]  RPC failover success
+2026-02-05T17:20:12.965706241Z [inf]  RPC failover success
+2026-02-05T17:20:13.311397542Z [inf]  RPC failover success
+2026-02-05T17:20:13.311402832Z [inf]  RPC failover success
+2026-02-05T17:20:13.311408102Z [inf]  RPC failover success
+2026-02-05T17:20:13.311464281Z [inf]  RPC failover success
+2026-02-05T17:20:13.431185365Z [inf]  RPC failover success
+2026-02-05T17:20:13.434277352Z [inf]  RPC failover success
+2026-02-05T17:20:13.434283121Z [inf]  RPC failover success
+2026-02-05T17:20:13.434287831Z [inf]  RPC failover success
+2026-02-05T17:20:13.434292431Z [inf]  RPC failover success
+2026-02-05T17:20:13.434302241Z [inf]  RPC failover success
+2026-02-05T17:20:13.434306531Z [inf]  RPC failover success
+2026-02-05T17:20:13.434311441Z [inf]  RPC failover success
+2026-02-05T17:20:13.435837321Z [inf]  RPC failover success
+2026-02-05T17:20:13.437454488Z [inf]  RPC failover success
+2026-02-05T17:20:13.441640077Z [inf]  RPC failover success
+2026-02-05T17:20:13.441646887Z [inf]  RPC failover success
+2026-02-05T17:20:13.441651737Z [inf]  RPC failover success
+2026-02-05T17:20:13.442885198Z [inf]  RPC failover success
+2026-02-05T17:20:13.442889218Z [inf]  RPC failover success
+2026-02-05T17:20:13.445726507Z [inf]  RPC failover success
+2026-02-05T17:20:13.445730297Z [inf]  RPC failover success
+2026-02-05T17:20:13.445733697Z [inf]  RPC failover success
+2026-02-05T17:20:13.445737367Z [inf]  RPC failover success
+2026-02-05T17:20:13.445740397Z [inf]  RPC failover success
+2026-02-05T17:20:13.447360275Z [inf]  RPC failover success
+2026-02-05T17:20:13.447365665Z [inf]  RPC failover success
+2026-02-05T17:20:13.447369595Z [inf]  RPC failover success
+2026-02-05T17:20:13.447373456Z [inf]  RPC failover success
+2026-02-05T17:20:13.449339921Z [inf]  RPC failover success
+2026-02-05T17:20:13.449342851Z [inf]  RPC failover success
+2026-02-05T17:20:13.449347811Z [inf]  RPC failover success
+2026-02-05T17:20:13.449351010Z [inf]  RPC failover success
+2026-02-05T17:20:13.449354710Z [inf]  RPC failover success
+2026-02-05T17:20:13.450976568Z [inf]  RPC failover success
+2026-02-05T17:20:13.496429182Z [inf]  RPC failover success
+2026-02-05T17:20:13.545171501Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T17:20:13.703190551Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T17:20:14.715157569Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T17:20:15.355608227Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:20:16.749615756Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T17:20:20.763465870Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T17:20:20.763470760Z [err]  GeckoTerminal API error after retries
+2026-02-05T17:20:20.763475490Z [err]  Error fetching trending tokens
+2026-02-05T17:20:20.763480360Z [inf]  Premium trending tokens fetch complete
+2026-02-05T17:20:20.763483700Z [inf]  [TokenJob] Got 64 trending tokens for Base
+2026-02-05T17:20:20.805261651Z [inf]  Saved 64 trending tokens for base to database and memory cache
+2026-02-05T17:20:20.830883000Z [inf]  [TokenJob] Saved 64 tokens for Base to DB + cache
+2026-02-05T17:20:23.710361774Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:20:29.837239821Z [wrn]  RPC health degraded
+2026-02-05T17:20:30.987023440Z [inf]  [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
+2026-02-05T17:20:30.987026300Z [inf]  Fetching premium trending tokens
+2026-02-05T17:20:31.333491805Z [inf]  WS addresses discovered
+2026-02-05T17:20:32.095577705Z [inf]  Processed DexScreener trending candidates
+2026-02-05T17:20:32.095581525Z [inf]  Premium trending tokens fetch complete
+2026-02-05T17:20:32.095586135Z [inf]  [TokenJob] Got 100 trending tokens for Solana
+2026-02-05T17:20:32.132498221Z [inf]  Saved 100 trending tokens for solana to database and memory cache
+2026-02-05T17:20:32.161456016Z [inf]  [TokenJob] Saved 100 tokens for Solana to DB + cache
+2026-02-05T17:20:33.885268867Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:20:53.885659133Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:20:53.885670243Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T17:20:53.885678343Z [wrn]  All API liquidity sources failed
+2026-02-05T17:20:53.885683393Z [inf]  RPC failover success
+2026-02-05T17:20:53.885690123Z [inf]  RPC failover success
+2026-02-05T17:20:53.885695923Z [inf]  RPC failover success
+2026-02-05T17:20:53.885700633Z [inf]  RPC failover success
+2026-02-05T17:20:53.885705713Z [inf]  RPC failover success
+2026-02-05T17:20:53.885713293Z [inf]  RPC failover success
+2026-02-05T17:20:53.887221072Z [inf]  RPC failover success
+2026-02-05T17:20:53.887228332Z [inf]  RPC failover success
+2026-02-05T17:20:53.887232452Z [inf]  RPC failover success
+2026-02-05T17:20:53.887236121Z [inf]  RPC failover success
+2026-02-05T17:20:53.887240001Z [inf]  RPC failover success
+2026-02-05T17:20:53.887243431Z [inf]  RPC failover success
+2026-02-05T17:20:53.887247321Z [inf]  RPC failover success
+2026-02-05T17:20:53.887252201Z [inf]  RPC failover success
+2026-02-05T17:20:53.889339556Z [inf]  RPC failover success
+2026-02-05T17:20:53.889402396Z [inf]  RPC failover success
+2026-02-05T17:20:53.889404936Z [inf]  RPC failover success
+2026-02-05T17:20:53.889407506Z [inf]  RPC failover success
+2026-02-05T17:20:53.889411046Z [inf]  RPC failover success
+2026-02-05T17:20:53.889414216Z [inf]  RPC failover success
+2026-02-05T17:20:53.889417776Z [inf]  RPC failover success
+2026-02-05T17:20:53.889420326Z [inf]  RPC failover success
+2026-02-05T17:20:53.890624587Z [inf]  RPC failover success
+2026-02-05T17:20:53.890628597Z [inf]  RPC failover success
+2026-02-05T17:20:53.890632887Z [inf]  RPC failover success
+2026-02-05T17:20:53.890637106Z [inf]  RPC failover success
+2026-02-05T17:20:53.890641996Z [inf]  RPC failover success
+2026-02-05T17:20:53.890645646Z [inf]  RPC failover success
+2026-02-05T17:20:53.890649606Z [inf]  RPC failover success
+2026-02-05T17:20:53.890654266Z [inf]  RPC failover success
+2026-02-05T17:20:53.892155215Z [inf]  RPC failover success
+2026-02-05T17:20:53.892160635Z [inf]  RPC failover success
+2026-02-05T17:20:53.892166485Z [inf]  RPC failover success
+2026-02-05T17:20:53.892171895Z [inf]  RPC failover success
+2026-02-05T17:20:53.892177045Z [inf]  RPC failover success
+2026-02-05T17:20:53.892372623Z [inf]  RPC failover success
+2026-02-05T17:20:53.892376563Z [inf]  RPC failover success
+2026-02-05T17:20:53.892380363Z [inf]  RPC failover success
+2026-02-05T17:20:53.893526605Z [inf]  RPC failover success
+2026-02-05T17:20:53.893530495Z [inf]  RPC failover success
+2026-02-05T17:20:53.893535015Z [inf]  RPC failover success
+2026-02-05T17:20:53.893538745Z [inf]  RPC failover success
+2026-02-05T17:20:53.893543615Z [inf]  RPC failover success
+2026-02-05T17:20:53.893547245Z [inf]  RPC failover success
+2026-02-05T17:20:53.893550695Z [inf]  RPC failover success
+2026-02-05T17:20:53.893554335Z [inf]  RPC failover success
+2026-02-05T17:20:53.895462691Z [inf]  RPC failover success
+2026-02-05T17:20:53.895467451Z [inf]  RPC failover success
+2026-02-05T17:20:53.895470531Z [inf]  RPC failover success
+2026-02-05T17:20:53.895473861Z [inf]  RPC failover success
+2026-02-05T17:20:53.895477301Z [inf]  RPC failover success
+2026-02-05T17:20:53.895481401Z [inf]  RPC failover success
+2026-02-05T17:20:53.895484131Z [inf]  RPC failover success
+2026-02-05T17:20:53.895486951Z [inf]  RPC failover success
+2026-02-05T17:20:53.896641983Z [inf]  RPC failover success
+2026-02-05T17:20:53.896645522Z [inf]  RPC failover success
+2026-02-05T17:20:53.896649552Z [inf]  RPC failover success
+2026-02-05T17:20:53.896653432Z [inf]  RPC failover success
+2026-02-05T17:20:53.896656002Z [inf]  RPC failover success
+2026-02-05T17:20:53.896658622Z [inf]  RPC failover success
+2026-02-05T17:20:53.896661142Z [inf]  RPC failover success
+2026-02-05T17:20:53.896663952Z [inf]  RPC failover success
+2026-02-05T17:20:53.897984493Z [inf]  RPC failover success
+2026-02-05T17:20:53.897992472Z [inf]  RPC failover success
+2026-02-05T17:20:53.897995982Z [inf]  RPC failover success
+2026-02-05T17:20:53.898000122Z [inf]  RPC failover success
+2026-02-05T17:20:53.898004292Z [inf]  RPC failover success
+2026-02-05T17:20:53.898009042Z [inf]  RPC failover success
+2026-02-05T17:20:53.898012962Z [inf]  RPC failover success
+2026-02-05T17:20:53.898016972Z [inf]  RPC failover success
+2026-02-05T17:20:53.899151714Z [inf]  RPC failover success
+2026-02-05T17:20:53.899156324Z [inf]  RPC failover success
+2026-02-05T17:20:53.899159124Z [inf]  RPC failover success
+2026-02-05T17:20:53.899162114Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T17:20:53.899165104Z [inf]  RPC failover success
+2026-02-05T17:20:53.899168064Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
+2026-02-05T17:20:53.899170794Z [inf]  Fetching premium trending tokens
+2026-02-05T17:20:53.899173574Z [inf]  WS addresses discovered
+2026-02-05T17:20:53.899176544Z [inf]  Processed DexScreener trending candidates
+2026-02-05T17:20:53.901125679Z [err]  Error fetching trending tokens
+2026-02-05T17:20:53.901132279Z [inf]  Premium trending tokens fetch complete
+2026-02-05T17:20:53.901135159Z [inf]  [TokenJob] Got 76 trending tokens for BSC
+2026-02-05T17:20:53.901138009Z [inf]  Saved 76 trending tokens for bsc to database and memory cache
+2026-02-05T17:20:53.901141229Z [inf]  [TokenJob] Saved 76 tokens for BSC to DB + cache
+2026-02-05T17:20:53.901144089Z [inf]  [TokenJob] Refreshed 4 primary chains in 112.3s
+2026-02-05T17:20:55.143654665Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:21:02.489056646Z [inf]  [TokenJob] Tokens for Base are fresh, skipping API call
+2026-02-05T17:21:05.702077116Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:21:07.509514614Z [inf]  incoming request
+2026-02-05T17:21:07.509518114Z [inf]  request completed
+2026-02-05T17:21:11.525816272Z [inf]  [SocialJob] Checking Zora coin status for 502 casts...
+2026-02-05T17:21:15.827409461Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:21:16.013441215Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:16.179221509Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:16.237325440Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T17:21:16.522589089Z [wrn]  All API liquidity sources failed
+2026-02-05T17:21:16.595765628Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:16.797645705Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:16.832711706Z [inf]  RPC failover success
+2026-02-05T17:21:16.832715096Z [inf]  RPC failover success
+2026-02-05T17:21:16.832718405Z [inf]  RPC failover success
+2026-02-05T17:21:16.832721085Z [inf]  RPC failover success
+2026-02-05T17:21:16.832724035Z [inf]  RPC failover success
+2026-02-05T17:21:16.832726565Z [inf]  RPC failover success
+2026-02-05T17:21:16.832729385Z [inf]  RPC failover success
+2026-02-05T17:21:16.832732225Z [inf]  RPC failover success
+2026-02-05T17:21:16.836378797Z [inf]  RPC failover success
+2026-02-05T17:21:16.860667238Z [inf]  RPC failover success
+2026-02-05T17:21:16.860672148Z [inf]  RPC failover success
+2026-02-05T17:21:16.861970628Z [inf]  RPC failover success
+2026-02-05T17:21:16.863313259Z [inf]  RPC failover success
+2026-02-05T17:21:16.864950146Z [inf]  RPC failover success
+2026-02-05T17:21:16.869594642Z [inf]  RPC failover success
+2026-02-05T17:21:16.869599782Z [inf]  RPC failover success
+2026-02-05T17:21:16.871510588Z [inf]  RPC failover success
+2026-02-05T17:21:16.873548033Z [inf]  RPC failover success
+2026-02-05T17:21:16.877989780Z [inf]  RPC failover success
+2026-02-05T17:21:16.878970103Z [inf]  RPC failover success
+2026-02-05T17:21:16.878978933Z [inf]  RPC failover success
+2026-02-05T17:21:16.881051708Z [inf]  RPC failover success
+2026-02-05T17:21:16.881055478Z [inf]  RPC failover success
+2026-02-05T17:21:16.881059448Z [inf]  RPC failover success
+2026-02-05T17:21:16.881063268Z [inf]  RPC failover success
+2026-02-05T17:21:16.883193911Z [inf]  RPC failover success
+2026-02-05T17:21:16.883201371Z [inf]  RPC failover success
+2026-02-05T17:21:16.883206531Z [inf]  RPC failover success
+2026-02-05T17:21:16.883210761Z [inf]  RPC failover success
+2026-02-05T17:21:17.033956666Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:17.075708128Z [inf]  RPC failover success
+2026-02-05T17:21:17.091065844Z [inf]  RPC failover success
+2026-02-05T17:21:17.135234847Z [inf]  RPC failover success
+2026-02-05T17:21:17.273206127Z [inf]  RPC failover success
+2026-02-05T17:21:17.273210256Z [inf]  RPC failover success
+2026-02-05T17:21:17.273214136Z [inf]  RPC failover success
+2026-02-05T17:21:17.273218456Z [inf]  RPC failover success
+2026-02-05T17:21:17.273876462Z [inf]  RPC failover success
+2026-02-05T17:21:17.273880442Z [inf]  RPC failover success
+2026-02-05T17:21:17.273883172Z [inf]  RPC failover success
+2026-02-05T17:21:17.273886002Z [inf]  RPC failover success
+2026-02-05T17:21:17.279215942Z [inf]  RPC failover success
+2026-02-05T17:21:17.279219702Z [inf]  RPC failover success
+2026-02-05T17:21:17.279222422Z [inf]  RPC failover success
+2026-02-05T17:21:17.287584350Z [inf]  RPC failover success
+2026-02-05T17:21:17.287587080Z [inf]  RPC failover success
+2026-02-05T17:21:17.287590170Z [inf]  RPC failover success
+2026-02-05T17:21:17.287592890Z [inf]  RPC failover success
+2026-02-05T17:21:17.287596580Z [inf]  RPC failover success
+2026-02-05T17:21:17.287599560Z [inf]  RPC failover success
+2026-02-05T17:21:17.289199439Z [inf]  RPC failover success
+2026-02-05T17:21:17.290130481Z [inf]  RPC failover success
+2026-02-05T17:21:17.290134971Z [inf]  RPC failover success
+2026-02-05T17:21:17.291187854Z [inf]  RPC failover success
+2026-02-05T17:21:17.291191454Z [inf]  RPC failover success
+2026-02-05T17:21:17.291195274Z [inf]  RPC failover success
+2026-02-05T17:21:17.294600109Z [inf]  RPC failover success
+2026-02-05T17:21:17.294603199Z [inf]  RPC failover success
+2026-02-05T17:21:17.294606269Z [inf]  RPC failover success
+2026-02-05T17:21:17.294609369Z [inf]  RPC failover success
+2026-02-05T17:21:17.294612019Z [inf]  RPC failover success
+2026-02-05T17:21:17.294614609Z [inf]  RPC failover success
+2026-02-05T17:21:17.540621789Z [inf]  RPC failover success
+2026-02-05T17:21:17.540626299Z [inf]  RPC failover success
+2026-02-05T17:21:17.540631229Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:17.540635429Z [inf]  RPC failover success
+2026-02-05T17:21:17.541990188Z [inf]  RPC failover success
+2026-02-05T17:21:17.541998548Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T17:21:17.550966072Z [inf]  RPC failover success
+2026-02-05T17:21:17.588865302Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:18.189575228Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:18.530612126Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:18.530615966Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:18.664940562Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:19.109674623Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:19.326729937Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T17:21:27.552859723Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:21:29.841632206Z [wrn]  RPC health degraded
+2026-02-05T17:21:30.894839707Z [inf]  incoming request
+2026-02-05T17:21:30.894842997Z [inf]  request completed
+2026-02-05T17:21:32.520974551Z [inf]  [TokenJob] Tokens for BSC are fresh, skipping API call
+2026-02-05T17:21:32.531975491Z [inf]  [TokenJob] Refreshed 4 primary chains in 91.6s
+2026-02-05T17:21:37.684559826Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:21:57.685478899Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T17:21:57.685489008Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T17:21:57.685495638Z [wrn]  All API liquidity sources failed
+2026-02-05T17:21:57.685499588Z [inf]  RPC failover success
+2026-02-05T17:21:57.685502848Z [inf]  RPC failover success
+2026-02-05T17:21:57.685506888Z [inf]  RPC failover success
+2026-02-05T17:21:57.685510468Z [inf]  RPC failover success
+2026-02-05T17:21:57.685552188Z [inf]  RPC failover success
+2026-02-05T17:21:57.685555268Z [inf]  RPC failover success
+2026-02-05T17:21:57.686824598Z [inf]  RPC failover success
+2026-02-05T17:21:57.686829858Z [inf]  RPC failover success
+2026-02-05T17:21:57.686834548Z [inf]  RPC failover success
+2026-02-05T17:21:57.686840078Z [inf]  RPC failover success
+2026-02-05T17:21:57.686844688Z [inf]  RPC failover success
+2026-02-05T17:21:57.686849218Z [inf]  RPC failover success
+2026-02-05T17:21:57.686856048Z [inf]  RPC failover success
+2026-02-05T17:21:57.686860728Z [inf]  RPC failover success
+2026-02-05T17:21:57.687722482Z [inf]  RPC failover success
+2026-02-05T17:21:57.687727452Z [inf]  RPC failover success
+2026-02-05T17:21:57.687732302Z [inf]  RPC failover success
+2026-02-05T17:21:57.687735342Z [inf]  RPC failover success
+2026-02-05T17:21:57.687739842Z [inf]  RPC failover success
+2026-02-05T17:21:57.687742892Z [inf]  RPC failover success
+2026-02-05T17:21:57.687746022Z [inf]  RPC failover success
+2026-02-05T17:21:57.687748742Z [inf]  RPC failover success
+2026-02-05T17:21:57.689023862Z [inf]  RPC failover success
+2026-02-05T17:21:57.689027452Z [inf]  RPC failover success
+2026-02-05T17:21:57.689031252Z [inf]  RPC failover success
+2026-02-05T17:21:57.689035682Z [inf]  RPC failover success
+2026-02-05T17:21:57.689039612Z [inf]  RPC failover success
+2026-02-05T17:21:57.689044852Z [inf]  RPC failover success
+2026-02-05T17:21:57.689049982Z [inf]  RPC failover success
+2026-02-05T17:21:57.689053242Z [inf]  RPC failover success
+2026-02-05T17:21:57.690041285Z [inf]  RPC failover success
+2026-02-05T17:21:57.690046295Z [inf]  RPC failover success
+2026-02-05T17:21:57.690049485Z [inf]  RPC failover success
+2026-02-05T17:21:57.690053095Z [inf]  RPC failover success
+2026-02-05T17:21:57.690056435Z [inf]  RPC failover success
+2026-02-05T17:21:57.690060235Z [inf]  RPC failover success
+2026-02-05T17:21:57.690065305Z [inf]  RPC failover success
+2026-02-05T17:21:57.690068905Z [inf]  RPC failover success
+2026-02-05T17:21:57.691403055Z [inf]  RPC failover success
+2026-02-05T17:21:57.691407045Z [inf]  RPC failover success
+2026-02-05T17:21:57.691409865Z [inf]  RPC failover success
+2026-02-05T17:21:57.691412735Z [inf]  RPC failover success
+2026-02-05T17:21:57.691415985Z [inf]  RPC failover success
+2026-02-05T17:21:57.691418595Z [inf]  RPC failover success
+2026-02-05T17:21:57.691420985Z [inf]  RPC failover success
+2026-02-05T17:21:57.691423535Z [inf]  RPC failover success
+2026-02-05T17:21:57.692518336Z [inf]  RPC failover success
+2026-02-05T17:21:57.692524426Z [inf]  RPC failover success
+2026-02-05T17:21:57.692528376Z [inf]  RPC failover success
+2026-02-05T17:21:57.692534116Z [inf]  RPC failover success
+2026-02-05T17:21:57.692539616Z [inf]  RPC failover success
+2026-02-05T17:21:57.692544086Z [inf]  RPC failover success
+2026-02-05T17:21:57.692548656Z [inf]  RPC failover success
+2026-02-05T17:21:57.692555556Z [inf]  RPC failover success
+2026-02-05T17:21:57.693820687Z [inf]  RPC failover success
+2026-02-05T17:21:57.693825966Z [inf]  RPC failover success
+2026-02-05T17:21:57.693829166Z [inf]  RPC failover success
+2026-02-05T17:21:57.693832106Z [inf]  RPC failover success
+2026-02-05T17:21:57.693835906Z [inf]  RPC failover success
+2026-02-05T17:21:57.693838516Z [inf]  RPC failover success
+2026-02-05T17:21:57.693840866Z [inf]  RPC failover success
+2026-02-05T17:21:57.693843716Z [inf]  RPC failover success
+2026-02-05T17:21:57.694742010Z [inf]  RPC failover success
+2026-02-05T17:21:57.694744570Z [inf]  RPC failover success
+2026-02-05T17:21:57.694747110Z [inf]  RPC failover success
+2026-02-05T17:21:57.694749610Z [inf]  RPC failover success
+2026-02-05T17:21:57.694752140Z [inf]  RPC failover success
+2026-02-05T17:21:57.694754600Z [inf]  RPC failover success
+2026-02-05T17:21:57.694757710Z [inf]  RPC failover success
+2026-02-05T17:21:57.694760260Z [inf]  RPC failover success
+2026-02-05T17:21:57.695514815Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T17:21:59.819250603Z [inf]  [PositionMonitor] 🔄 Running position check...

@@ -55,7 +55,10 @@ import { tracingHook } from './middleware/tracing.js';
 import { startRpcHealthMonitor, startRpcBenchmarkSampling } from './services/rpcManager.js';
 
 const fastify = Fastify({
-    logger: true,
+    logger: {
+        level: env.logLevel || 'info',
+    },
+    disableRequestLogging: true,
     requestTimeout: env.apiConfig.requestTimeout,
     connectionTimeout: env.apiConfig.requestTimeout,
     bodyLimit: env.apiConfig.maxRequestSize,

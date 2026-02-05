@@ -11,6 +11,8 @@ export interface CopyTradeConfig {
     minMarketCapUsd?: number | null;
     minLiquidityUsd?: number | null;
     minTargetValueUsd?: number | null;
+    copyTradeTokenCooldownMinutes?: number | null;
+    disableTokenInfo?: boolean | null;
     takeProfitPct?: number | null;
     stopLossPct?: number | null;
     mirrorSell: boolean;
@@ -29,6 +31,8 @@ export interface CreateConfigParams {
     minMarketCapUsd?: number;
     minLiquidityUsd?: number;
     minTargetValueUsd?: number;
+    copyTradeTokenCooldownMinutes?: number;
+    disableTokenInfo?: boolean;
     takeProfitPct?: number;
     stopLossPct?: number;
     mirrorSell?: boolean;

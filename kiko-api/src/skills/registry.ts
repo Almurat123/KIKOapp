@@ -54,11 +54,11 @@ class Registry implements SkillRegistry {
     }
 
     private loadSkills() {
-        console.log(`[SkillRegistry:${this.label}] Loading skills from ${this.baseDir}...`);
+        console.debug(`[SkillRegistry:${this.label}] Loading skills from ${this.baseDir}...`);
 
         const skillsDir = this.baseDir;
         if (!fs.existsSync(skillsDir)) {
-            console.warn(`[SkillRegistry:${this.label}] Skills dir not found, skipping: ${skillsDir}`);
+            console.debug(`[SkillRegistry:${this.label}] Skills dir not found, skipping: ${skillsDir}`);
             return;
         }
         const entries = fs.readdirSync(skillsDir, { withFileTypes: true });

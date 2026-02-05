@@ -19,6 +19,8 @@ interface CreateConfigBody {
     minMarketCapUsd?: number;
     minLiquidityUsd?: number;
     minTargetValueUsd?: number;
+    copyTradeTokenCooldownMinutes?: number;
+    disableTokenInfo?: boolean;
     takeProfitPct?: number;
     stopLossPct?: number;
     mirrorSell?: boolean;
@@ -108,6 +110,8 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             minMarketCapUsd,
             minLiquidityUsd,
             minTargetValueUsd,
+            copyTradeTokenCooldownMinutes,
+            disableTokenInfo,
             takeProfitPct,
             stopLossPct,
             mirrorSell = true,
@@ -196,6 +200,8 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     minMarketCapUsd,
                     minLiquidityUsd,
                     minTargetValueUsd,
+                    copyTradeTokenCooldownMinutes,
+                    disableTokenInfo,
                     takeProfitPct,
                     stopLossPct,
                     mirrorSell,

@@ -457,13 +457,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                         {
                             (() => {
                                 const hasCitations = !isUser && message.citations && message.citations.length > 0;
-                                console.log('[MessageBubble] Citations check:', {
-                                    messageId: message.id,
-                                    role: message.role,
-                                    hasCitations,
-                                    citationsLength: message.citations?.length || 0,
-                                    citationsSample: message.citations?.[0]
-                                });
                                 return hasCitations;
                             })() && (
                                 <button

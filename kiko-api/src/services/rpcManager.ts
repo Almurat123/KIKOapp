@@ -310,7 +310,7 @@ export async function callRpc<T = any>(
 
             // Only log failover, not primary success
             if (i > 0) {
-                logger.info(LogCode.API_FETCH_SUCCESS, `RPC failover success`, {
+                logger.debug(LogCode.API_FETCH_SUCCESS, `RPC failover success`, {
                     chain: chainName,
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
@@ -338,7 +338,7 @@ export async function callRpc<T = any>(
 
             // Only log first 2 failures to reduce noise
             if (i < 2) {
-                logger.warn(LogCode.API_FETCH_FAILED, `RPC endpoint failed`, {
+                logger.throttled(LogCode.API_FETCH_FAILED, `RPC endpoint failed`, {
                     chain: chainName,
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
@@ -464,7 +464,7 @@ export async function callRpcCustom<T = any>(
             recordSuccess(endpoint.url, responseTime);
 
             if (i > 0) {
-                logger.info(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
+                logger.debug(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
                     responseTime
@@ -487,7 +487,7 @@ export async function callRpcCustom<T = any>(
             recordFailure(endpoint.url);
 
             if (i < 2) {
-                logger.warn(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
+                logger.throttled(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
                     error: error.message,
@@ -616,7 +616,7 @@ export async function callRpcRaw<T = any>(
             recordSuccess(endpoint.url, responseTime);
 
             if (i > 0) {
-                logger.info(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
+                logger.debug(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
                     chain: chainName,
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
@@ -640,7 +640,7 @@ export async function callRpcRaw<T = any>(
             recordFailure(endpoint.url);
 
             if (i < 2) {
-                logger.warn(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
+                logger.throttled(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
                     chain: chainName,
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
@@ -699,7 +699,7 @@ function isCircuitOpen(url: string): boolean {
     if (Date.now() - health.lastFailureTime > CIRCUIT_BREAKER_RESET_TIME) {
         health.circuitOpen = false;
         health.consecutiveFailures = 0;
-        logger.info(LogCode.API_FETCH_SUCCESS, 'RPC circuit breaker reset', { endpoint: maskEndpoint(url) });
+        logger.debug(LogCode.API_FETCH_SUCCESS, 'RPC circuit breaker reset', { endpoint: maskEndpoint(url) });
         return false;
     }
 
@@ -733,7 +733,7 @@ function recordFailure(url: string): void {
     // Open circuit if threshold reached
     if (health.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
         health.circuitOpen = true;
-        logger.warn(LogCode.API_FETCH_FAILED, 'RPC circuit breaker opened', {
+        logger.throttled(LogCode.API_FETCH_FAILED, 'RPC circuit breaker opened', {
             endpoint: maskEndpoint(url),
             failures: health.consecutiveFailures
         });

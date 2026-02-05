@@ -19,7 +19,11 @@ const AI_ANALYSIS_OPTIONS = [
 export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave, onCancel }) => {
     const [formData, setFormData] = useState<Partial<CopyTradeConfig>>({
         targetWallet: config.targetWallet,
-        minTargetValueUsd: config.minTargetValueUsd || 0,
+        minTargetValueUsd: config.minTargetValueUsd ?? undefined,
+        minMarketCapUsd: config.minMarketCapUsd ?? undefined,
+        minLiquidityUsd: config.minLiquidityUsd ?? undefined,
+        copyTradeTokenCooldownMinutes: config.copyTradeTokenCooldownMinutes ?? undefined,
+        disableTokenInfo: config.disableTokenInfo ?? false,
         buyAmountUsd: config.buyAmountUsd,
         takeProfitPct: config.takeProfitPct || 100,
         stopLossPct: config.stopLossPct || 20,
@@ -30,6 +34,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     });
 
     const [isSaving, setIsSaving] = useState(false);
+    const isBase = config.chainId === 8453;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -83,8 +88,11 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                         <label className={styles.label}>Min Follow Amount ($)</label>
                         <input
                             type="number"
-                            value={formData.minTargetValueUsd ?? 0}
-                            onChange={e => setFormData({ ...formData, minTargetValueUsd: parseFloat(e.target.value) })}
+                            value={formData.minTargetValueUsd ?? ''}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setFormData({ ...formData, minTargetValueUsd: val === '' ? undefined : parseFloat(val) });
+                            }}
                             className={styles.input}
                             placeholder="0"
                         />
@@ -101,6 +109,83 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             placeholder="100"
                         />
                     </div>
+                </div>
+            </div>
+
+            {/* Copy Trade Safety */}
+            <div className={styles.section}>
+                <div className={styles.grid}>
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Repeat Buy Cooldown (minutes)</label>
+                        <input
+                            type="number"
+                            min={0}
+                            value={formData.copyTradeTokenCooldownMinutes ?? ''}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setFormData({
+                                    ...formData,
+                                    copyTradeTokenCooldownMinutes: val === '' ? undefined : parseFloat(val)
+                                });
+                            }}
+                            className={styles.input}
+                            placeholder="60"
+                        />
+                    </div>
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Min Market Cap (USD)</label>
+                        <input
+                            type="number"
+                            min={0}
+                            value={formData.minMarketCapUsd ?? ''}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setFormData({ ...formData, minMarketCapUsd: val === '' ? undefined : parseFloat(val) });
+                            }}
+                            className={styles.input}
+                            placeholder="Optional"
+                        />
+                    </div>
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Min Liquidity (USD)</label>
+                        <input
+                            type="number"
+                            min={0}
+                            value={formData.minLiquidityUsd ?? ''}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setFormData({ ...formData, minLiquidityUsd: val === '' ? undefined : parseFloat(val) });
+                            }}
+                            className={styles.input}
+                            placeholder="Optional"
+                        />
+                    </div>
+                </div>
+
+                <div className={styles.inputGroup} style={{ marginTop: '12px' }}>
+                    <div
+                        className={styles.toggleRow}
+                        onClick={() => {
+                            if (!isBase) return;
+                            setFormData({ ...formData, disableTokenInfo: !formData.disableTokenInfo });
+                        }}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={!!formData.disableTokenInfo}
+                            onChange={() => { }}
+                            className={styles.checkbox}
+                            disabled={!isBase}
+                        />
+                        <span className={styles.label} style={{ marginBottom: 0 }}>
+                            Disable Token Info (Base V4 Fast)
+                        </span>
+                    </div>
+                    <p className={styles.helperText}>
+                        {isBase
+                            ? 'Skips token info checks to execute Base V4 fast swaps. BSC still uses price comparison.'
+                            : 'Only available on Base.'}
+                    </p>
                 </div>
             </div>
 

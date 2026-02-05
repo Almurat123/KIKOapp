@@ -257,6 +257,8 @@ CREATE TABLE IF NOT EXISTS "CopyTradeConfig" (
   "minMarketCapUsd" DOUBLE PRECISION,
   "minLiquidityUsd" DOUBLE PRECISION,
   "minTargetValueUsd" DOUBLE PRECISION,
+  "copyTradeTokenCooldownMinutes" INTEGER,
+  "disableTokenInfo" BOOLEAN DEFAULT FALSE,
   "takeProfitPct" DOUBLE PRECISION,
   "stopLossPct" DOUBLE PRECISION,
   "mirrorSell" BOOLEAN DEFAULT TRUE,

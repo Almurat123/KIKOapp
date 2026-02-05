@@ -110,6 +110,8 @@ model CopyTradeConfig {
   minMarketCapUsd   Float?
   minLiquidityUsd   Float?
   minTargetValueUsd Float?
+  copyTradeTokenCooldownMinutes Int?
+  disableTokenInfo  Boolean             @default(false)
   takeProfitPct     Float?
   stopLossPct       Float?
   mirrorSell        Boolean             @default(true)
