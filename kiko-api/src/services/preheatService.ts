@@ -95,21 +95,40 @@ function processQueue() {
 }
 
 async function runPreheat(event: PreheatEvent, attempt: number) {
-    const chainConfig = CHAINS[event.chainId];
-    if (!chainConfig) return;
-
-    const token = normalizeAddress(event.tokenAddress);
-    const weth = normalizeAddress(chainConfig.wrappedNativeAddress);
-
-    if (!token || token === weth) return;
-
     logger.info(LogCode.SYS_INFO, '[Preheat] Start', {
         chainId: event.chainId,
-        token,
+        token: event.tokenAddress,
         factory: event.factoryAddress,
         eventName: event.eventName,
         attempt
     });
+
+    const chainConfig = CHAINS[event.chainId];
+    if (!chainConfig) {
+        logger.warn(LogCode.SYS_INFO, '[Preheat] Skip (no chain config)', {
+            chainId: event.chainId
+        });
+        return;
+    }
+
+    const token = normalizeAddress(event.tokenAddress);
+    const weth = normalizeAddress(chainConfig.wrappedNativeAddress);
+
+    if (!token) {
+        logger.warn(LogCode.SYS_INFO, '[Preheat] Skip (empty token)', {
+            chainId: event.chainId,
+            token: event.tokenAddress
+        });
+        return;
+    }
+
+    if (token === weth) {
+        logger.warn(LogCode.SYS_INFO, '[Preheat] Skip (token is WETH)', {
+            chainId: event.chainId,
+            token
+        });
+        return;
+    }
 
     // 1) Try WETH pair first (most Clanker pools)
     let pools = await findV4Pools(token, weth, event.chainId, { strategy: 'cheap' });
