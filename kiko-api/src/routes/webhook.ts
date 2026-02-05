@@ -210,6 +210,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const payload = request.body as any;
+        console.log(`[Webhook] CDP payload: ${JSON.stringify(payload).slice(0, 800)}`);
 
         const evmNetwork = payload?.event?.network;
         const solNetwork = payload?.event?.event?.network || payload?.event?.network;

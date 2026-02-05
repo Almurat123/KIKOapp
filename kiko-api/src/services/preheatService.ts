@@ -57,6 +57,14 @@ export function enqueuePreheat(event: PreheatEvent, attempt = 0) {
     if (cached && isCacheFresh(cached)) return;
     if (preheatInflight.has(key)) return;
 
+    logger.info(LogCode.SYS_INFO, '[Preheat] Enqueue', {
+        chainId: event.chainId,
+        token: event.tokenAddress,
+        factory: event.factoryAddress,
+        eventName: event.eventName,
+        attempt
+    });
+
     preheatQueue.push({ event, attempt });
     processQueue();
 }
