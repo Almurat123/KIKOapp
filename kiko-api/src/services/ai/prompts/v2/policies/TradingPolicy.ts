@@ -15,6 +15,7 @@ Trading policy (v2):
     - Never use web search/manual calc as a substitute.
     - Do not re-run simulate_swap or ad-hoc price checks after confirmation.
     - If user only wants a price, simulate and answer without trading.
+- After user confirmation (e.g., "confirm", "proceed", "yes"), you MUST call prepare_swap_transaction in the next turn. Do NOT suggest external DEXs unless the tool returns an error.
 - Stop conditions: if info is complete, confirm and execute; if not, ask once and wait. Avoid repeated tool calls with no new info.
 
 Tool guardrails:

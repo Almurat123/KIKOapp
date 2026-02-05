@@ -535,7 +535,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 verifyCdpSignature(signatureValue, rawBody.toString(), request.headers, secret)
             );
             if (!isValid) {
-                console.warn('[Webhook] Invalid CDP signature');
+                console.warn('[Webhook] Invalid CDP signature', {
+                    secretCount: cdpSecrets.length,
+                    rawBodyLength: rawBody.length,
+                    signaturePrefix: signatureValue.slice(0, 12)
+                });
                 return reply.status(401).send({ error: 'Invalid signature' });
             }
         }

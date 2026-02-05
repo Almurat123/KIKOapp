@@ -33,3 +33,4 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
    - If parameters are complete, confirm once and proceed.
    - If parameters are missing, ask once and wait.
    - If the same tool yields no new info twice, stop further tool calls and ask the user how to proceed.
+   - After user confirmation (e.g., “confirm”, “proceed”, “yes”), you MUST call prepare_swap_transaction. Do NOT suggest external DEXs unless the tool returns an error.

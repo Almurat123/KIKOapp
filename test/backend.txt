@@ -1,465 +1,187 @@
-2026-02-05T14:06:17.000000000Z [inf]  Starting Container
-2026-02-05T14:06:17.554334277Z [inf]  
-2026-02-05T14:06:17.554338537Z [inf]  > kiko-api@1.0.0 start
-2026-02-05T14:06:17.554342297Z [inf]  > node dist/index.js
-2026-02-05T14:06:17.554345837Z [inf]  
-2026-02-05T14:06:18.047106569Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
-2026-02-05T14:06:18.106361483Z [inf]  Zora SDK initialized with API Key
-2026-02-05T14:06:18.512783800Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
-2026-02-05T14:06:18.512789110Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
-2026-02-05T14:06:18.512793020Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
-2026-02-05T14:06:18.512797030Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
-2026-02-05T14:06:18.512801349Z [err]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
-2026-02-05T14:06:18.512805719Z [err]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
-2026-02-05T14:06:18.512810409Z [inf]  Serving static files from:
-2026-02-05T14:06:18.512815579Z [inf]  Initializing services...
-2026-02-05T14:06:18.548507854Z [inf]  [Prisma] DB connection is healthy
-2026-02-05T14:06:18.559167635Z [inf]  Database connection successful
-2026-02-05T14:06:18.559172495Z [inf]  [DataRetention] Checking retention policies...
-2026-02-05T14:06:18.568789816Z [inf]  [DataRetention] Starting cleanup job...
-2026-02-05T14:06:18.568794406Z [inf]  Redis initialized
-2026-02-05T14:06:18.568797716Z [inf]  Starting server on port 8080...
-2026-02-05T14:06:18.637376213Z [inf]  Server listening at http://0.0.0.0:8080
-2026-02-05T14:06:18.637379053Z [inf]  Server listening
-2026-02-05T14:06:18.637382193Z [inf]  RPC health monitor started
-2026-02-05T14:06:18.637385663Z [inf]  RPC benchmark sampling started
-2026-02-05T14:06:18.646130003Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
-2026-02-05T14:06:18.646132853Z [inf]  [TokenJob] Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
-2026-02-05T14:06:18.646135393Z [inf]  [TokenJob] Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
-2026-02-05T14:06:18.646138533Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
-2026-02-05T14:06:18.646141213Z [inf]  Background jobs started
-2026-02-05T14:06:18.646143663Z [inf]  Initializing auto trade service...
-2026-02-05T14:06:18.646146603Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
-2026-02-05T14:06:18.646150803Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook enabled)
-2026-02-05T14:06:18.646153883Z [inf]  Auto trade service started
-2026-02-05T14:06:18.646157203Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
-2026-02-05T14:06:18.646160893Z [inf]  Position monitor started
-2026-02-05T14:06:18.646163603Z [inf]  Token Alert Service started
-2026-02-05T14:06:18.647110914Z [inf]  Token alert service started
-2026-02-05T14:06:18.647116904Z [inf]  [ChatWorker] Started polling for AI tasks (interval: 3000ms)
-2026-02-05T14:06:18.647121364Z [inf]  Chat worker started
-2026-02-05T14:06:18.647125124Z [inf]  Starting Global Zora Alpha Detector (API Polling)
-2026-02-05T14:06:18.647128504Z [inf]  🎉 All services initialized!
-2026-02-05T14:06:18.686895586Z [err]  [DataRetention] No cleanup handler for table: SuggestionEvent
-2026-02-05T14:06:18.692606107Z [inf]  [DataRetention] Cleanup job completed.
-2026-02-05T14:06:23.588544462Z [inf]  request completed
-2026-02-05T14:06:23.588554712Z [inf]  incoming request
-2026-02-05T14:06:23.588559942Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:23.588563622Z [inf]  request completed
-2026-02-05T14:06:23.588691861Z [inf]  incoming request
-2026-02-05T14:06:23.588695741Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:23.644058934Z [inf]  [MarketJob] Running startup staleness check...
-2026-02-05T14:06:23.652622476Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:06:23.652625486Z [inf]  [MarketJob] Overview is fresh, skipping API call
-2026-02-05T14:06:23.655857803Z [inf]  [MarketJob] Protocols are fresh, skipping API call
-2026-02-05T14:06:23.660137029Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
-2026-02-05T14:06:23.660142459Z [err]  [Job] Real hot users file not found: 
-2026-02-05T14:06:23.663131018Z [inf]  [Job] ✅ Got 648 quality users from database
-2026-02-05T14:06:23.663138998Z [inf]  [SocialJob] fetchCastsFromUsers starting with 648 FIDs, target: 1000
-2026-02-05T14:06:24.063860714Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T14:06:24.119149378Z [wrn]  All API liquidity sources failed
-2026-02-05T14:06:24.631482991Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-05T14:06:24.631486281Z [wrn]  RPC endpoint failed
-2026-02-05T14:06:24.655136329Z [inf]  RPC failover success
-2026-02-05T14:06:24.879905967Z [inf]  RPC failover success
-2026-02-05T14:06:24.911686882Z [inf]  RPC failover success
-2026-02-05T14:06:24.911691852Z [inf]  RPC failover success
-2026-02-05T14:06:24.935881304Z [inf]  RPC failover success
-2026-02-05T14:06:25.573027449Z [wrn]  RPC endpoint failed
-2026-02-05T14:06:25.573032079Z [wrn]  RPC endpoint failed
-2026-02-05T14:06:25.573037399Z [inf]  RPC failover success
-2026-02-05T14:06:25.573050938Z [inf]  RPC failover success
-2026-02-05T14:06:25.694095969Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T14:06:25.707130356Z [inf]  RPC failover success
-2026-02-05T14:06:45.877779729Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:06:45.877783299Z [inf]  incoming request
-2026-02-05T14:06:45.877787278Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:45.877791648Z [inf]  request completed
-2026-02-05T14:06:45.877795238Z [inf]  incoming request
-2026-02-05T14:06:45.877798648Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:45.877802218Z [inf]  request completed
-2026-02-05T14:06:45.877805348Z [inf]  incoming request
-2026-02-05T14:06:45.877808578Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:45.877812168Z [inf]  request completed
-2026-02-05T14:06:45.877815318Z [inf]  incoming request
-2026-02-05T14:06:45.878348933Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:45.878352172Z [inf]  request completed
-2026-02-05T14:06:45.878355612Z [inf]  incoming request
-2026-02-05T14:06:45.878358792Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:45.878361752Z [inf]  request completed
-2026-02-05T14:06:45.878364912Z [inf]  incoming request
-2026-02-05T14:06:45.878367972Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:45.878370692Z [inf]  request completed
-2026-02-05T14:06:45.878375852Z [inf]  incoming request
-2026-02-05T14:06:45.878378912Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:45.878381832Z [inf]  request completed
-2026-02-05T14:06:45.879937697Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:06:46.738389840Z [inf]  incoming request
-2026-02-05T14:06:46.738393810Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_np8nyta93pxh4s0s","createdAt":"2026-02-05T14:06:46.372Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x49e8739bab61fcb193b2f912cd694effb5cd0c85","toAddress":"0x4f67f52147c6bc03563772fa3d7af3adffb92110","blockNum":"0x27d2389","hash":"0x8b9c09eb01e808195405a31edfd276ec98ec9136f4dbd7d43f9d8c9a9cec9f56","value":418,"asset":"BLOWFISH","category":"token","rawContract":{"rawValue":"0x000000000000000000000000000000000000000000000016a8ea515751480000","address":"0x59b2b00eb399f5752c3acf561f944220b0bd21a7","decimal
-2026-02-05T14:06:46.738397520Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_np8nyta93pxh4s0s","createdAt":"2026-02-05T14:06:46.372Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x49e8739bab61fcb193b2f912cd694effb5cd0c85","toAddress":"0x4f67f52147c6bc03563772fa3d7af3adffb92110","blockNum":"0x27d2389","hash":"0x8b9c09eb01e808195405a31edfd276ec98ec9136f4dbd7d43f9d8c9a9cec9f56","value":418,"asset":"BLOWFISH","category":"token","rawContract":{"rawValue":"0x000000000000000000000000000000000000000000000016a8ea515751480000","address":"0x59b2b00eb399f5752c3acf561f944220b0bd21a7","decimals":18},"log":{"address":"0x59b2b00eb399f5752c3acf561f944220b0bd21a7","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x00000000000000000000000049e8739bab61fcb193b2f912cd694effb5cd0c85","0x0000000000000000000000004f67f52147c6bc03563772fa3d7af3adffb92110"],"data":"0x000000000000000000000000000000000000000000000016a8ea515751480000","blockHash":"0xfbb2d5196b2ecfe1b8cfa8d42d4fb4f941319fc37bee6ef0cc44a353cfbaeb85","blockNumber":"0x27d2389","blockTimestamp":"0x6984a3f5","transactionHash":"0x8b9c09eb01e808195405a31edfd276ec98ec9136f4dbd7d43f9d8c9a9cec9f56","transactionIndex":"0xfa","logIndex":"0x3c5","removed":false},"blockTimestamp":"0x6984a3f5"}],"source":"chainlake-kafka"}}
-2026-02-05T14:06:46.738539578Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-05T14:06:46.738542578Z [inf]  request completed
-2026-02-05T14:06:46.738545628Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x8b9c09
-2026-02-05T14:06:46.768234124Z [inf]  [Profile] fetchTransaction
-2026-02-05T14:06:46.782672236Z [inf]  [Profile] fetchReceipt
-2026-02-05T14:06:46.788038831Z [inf]  [Profile] parseSwapTransaction
-2026-02-05T14:06:46.788047221Z [inf]  [Webhook] Not a swap tx for 0x4f67f521: 0x8b9c09eb01e808
-2026-02-05T14:06:48.645426130Z [inf]  [TokenJob] Starting initial token refresh...
-2026-02-05T14:06:48.659975881Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
-2026-02-05T14:06:48.661029111Z [inf]  Fetching premium trending tokens
-2026-02-05T14:06:48.930255595Z [inf]  WS addresses discovered
-2026-02-05T14:06:50.079233215Z [inf]  Processed DexScreener trending candidates
-2026-02-05T14:06:51.099798049Z [inf]  incoming request
-2026-02-05T14:06:51.101275165Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:51.101279605Z [inf]  request completed
-2026-02-05T14:06:51.128945712Z [inf]  incoming request
-2026-02-05T14:06:51.128949371Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:51.128952861Z [inf]  request completed
-2026-02-05T14:06:52.703812654Z [inf]  incoming request
-2026-02-05T14:06:52.703816883Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:06:52.703820893Z [inf]  request completed
-2026-02-05T14:06:52.737792356Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:06:53.757081335Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:06:55.771328341Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:06:55.996202750Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:06:56.754445670Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T14:06:56.754449640Z [wrn]  All API liquidity sources failed
-2026-02-05T14:06:56.814374257Z [inf]  RPC failover success
-2026-02-05T14:06:56.814386366Z [inf]  RPC failover success
-2026-02-05T14:06:56.850855314Z [inf]  RPC failover success
-2026-02-05T14:06:56.850858824Z [inf]  RPC failover success
-2026-02-05T14:06:56.874900857Z [inf]  RPC failover success
-2026-02-05T14:06:56.874909698Z [inf]  RPC failover success
-2026-02-05T14:06:56.892145141Z [inf]  RPC failover success
-2026-02-05T14:06:57.019460328Z [inf]  RPC failover success
-2026-02-05T14:06:57.019464168Z [inf]  RPC failover success
-2026-02-05T14:06:57.035199257Z [inf]  RPC failover success
-2026-02-05T14:06:57.069647354Z [inf]  RPC failover success
-2026-02-05T14:06:57.133668260Z [inf]  RPC failover success
-2026-02-05T14:06:57.234574587Z [inf]  RPC failover success
-2026-02-05T14:06:57.756161919Z [inf]  RPC failover success
-2026-02-05T14:06:57.756174419Z [inf]  RPC failover success
-2026-02-05T14:06:57.756181299Z [inf]  RPC failover success
-2026-02-05T14:06:57.756187389Z [inf]  RPC failover success
-2026-02-05T14:06:57.756194939Z [inf]  RPC failover success
-2026-02-05T14:06:57.756202089Z [inf]  RPC failover success
-2026-02-05T14:06:57.756208099Z [inf]  RPC failover success
-2026-02-05T14:06:57.756219009Z [inf]  RPC failover success
-2026-02-05T14:06:57.759605405Z [inf]  RPC failover success
-2026-02-05T14:06:57.759617095Z [inf]  RPC failover success
-2026-02-05T14:06:57.759623725Z [inf]  RPC failover success
-2026-02-05T14:06:57.759630395Z [inf]  RPC failover success
-2026-02-05T14:06:57.759636794Z [inf]  RPC failover success
-2026-02-05T14:06:57.759644004Z [inf]  RPC failover success
-2026-02-05T14:06:57.759686784Z [inf]  RPC failover success
-2026-02-05T14:06:57.759690754Z [inf]  RPC failover success
-2026-02-05T14:06:57.781993195Z [inf]  RPC failover success
-2026-02-05T14:06:57.901223245Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T14:06:59.790370504Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:06:59.790380854Z [err]  GeckoTerminal API error after retries
-2026-02-05T14:06:59.790387033Z [err]  Error fetching trending tokens
-2026-02-05T14:06:59.790391563Z [inf]  Premium trending tokens fetch complete
-2026-02-05T14:06:59.790395663Z [inf]  [TokenJob] Got 91 trending tokens for Ethereum
-2026-02-05T14:06:59.828475874Z [inf]  Saved 91 trending tokens for eth to database and memory cache
-2026-02-05T14:06:59.837673839Z [inf]  [TokenJob] Saved 91 tokens for Ethereum to DB + cache
-2026-02-05T14:07:04.269678851Z [inf]  incoming request
-2026-02-05T14:07:04.269682201Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:04.269685261Z [inf]  request completed
-2026-02-05T14:07:05.315342033Z [inf]  incoming request
-2026-02-05T14:07:05.316224564Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:05.318759988Z [inf]  request completed
-2026-02-05T14:07:05.758597478Z [inf]  incoming request
-2026-02-05T14:07:05.758601458Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:05.758613048Z [inf]  request completed
-2026-02-05T14:07:06.185491941Z [inf]  incoming request
-2026-02-05T14:07:06.190360401Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:06.191634298Z [inf]  request completed
-2026-02-05T14:07:06.333736764Z [inf]  incoming request
-2026-02-05T14:07:06.333740514Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:06.335239068Z [inf]  request completed
-2026-02-05T14:07:08.173345143Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:07:08.687340025Z [inf]  incoming request
-2026-02-05T14:07:08.687344685Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:08.687350345Z [inf]  request completed
-2026-02-05T14:07:18.302170232Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:07:18.782408070Z [wrn]  RPC health degraded
-2026-02-05T14:07:22.149559223Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:22.389543208Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:22.939193286Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:22.939203036Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:24.829846901Z [inf]  incoming request
-2026-02-05T14:07:24.829849981Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:24.829853211Z [inf]  request completed
-2026-02-05T14:07:24.829856531Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:24.916278427Z [inf]  incoming request
-2026-02-05T14:07:24.923529293Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:24.923532303Z [inf]  request completed
-2026-02-05T14:07:25.135061460Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:25.361723882Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:25.769315043Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:25.902154965Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:07:26.814998000Z [inf]  incoming request
-2026-02-05T14:07:26.815000720Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:26.815004230Z [inf]  request completed
-2026-02-05T14:07:28.970287890Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:07:28.970291890Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T14:07:28.982516466Z [wrn]  All API liquidity sources failed
-2026-02-05T14:07:29.374429238Z [inf]  RPC failover success
-2026-02-05T14:07:29.374433768Z [inf]  RPC failover success
-2026-02-05T14:07:29.408577918Z [inf]  RPC failover success
-2026-02-05T14:07:29.408582218Z [inf]  RPC failover success
-2026-02-05T14:07:29.830803422Z [inf]  RPC failover success
-2026-02-05T14:07:29.830810042Z [inf]  RPC failover success
-2026-02-05T14:07:29.830815011Z [inf]  RPC failover success
-2026-02-05T14:07:29.830820511Z [inf]  RPC failover success
-2026-02-05T14:07:29.830828341Z [inf]  RPC failover success
-2026-02-05T14:07:29.830834261Z [inf]  RPC failover success
-2026-02-05T14:07:29.868461826Z [inf]  [TokenJob] Tokens for Solana are fresh, skipping API call
-2026-02-05T14:07:29.989972804Z [inf]  RPC failover success
-2026-02-05T14:07:29.989979484Z [inf]  RPC failover success
-2026-02-05T14:07:30.023038186Z [inf]  RPC failover success
-2026-02-05T14:07:30.023042386Z [inf]  RPC failover success
-2026-02-05T14:07:30.023047156Z [inf]  RPC failover success
-2026-02-05T14:07:30.023050996Z [inf]  RPC failover success
-2026-02-05T14:07:30.026054265Z [inf]  RPC failover success
-2026-02-05T14:07:30.038337350Z [inf]  RPC failover success
-2026-02-05T14:07:30.048296947Z [inf]  RPC failover success
-2026-02-05T14:07:30.066717659Z [inf]  RPC failover success
-2026-02-05T14:07:30.084779694Z [inf]  RPC failover success
-2026-02-05T14:07:30.169344530Z [inf]  RPC failover success
-2026-02-05T14:07:30.172690275Z [inf]  RPC failover success
-2026-02-05T14:07:30.172695875Z [inf]  RPC failover success
-2026-02-05T14:07:30.261552156Z [inf]  RPC failover success
-2026-02-05T14:07:30.825127494Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T14:07:38.183688997Z [inf]  incoming request
-2026-02-05T14:07:38.187503578Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:38.187506648Z [inf]  request completed
-2026-02-05T14:07:40.845230608Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:07:48.987730204Z [inf]  incoming request
-2026-02-05T14:07:48.989481816Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:48.991022021Z [inf]  request completed
-2026-02-05T14:07:49.234633981Z [inf]  incoming request
-2026-02-05T14:07:49.234653951Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:49.234658770Z [inf]  request completed
-2026-02-05T14:07:50.903434025Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:07:55.082369104Z [inf]  incoming request
-2026-02-05T14:07:55.082380804Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:55.089602170Z [inf]  request completed
-2026-02-05T14:07:58.473114853Z [inf]  incoming request
-2026-02-05T14:07:58.473126533Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:07:58.473131363Z [inf]  request completed
-2026-02-05T14:07:59.893701656Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
-2026-02-05T14:07:59.893707116Z [inf]  Fetching premium trending tokens
-2026-02-05T14:08:00.174224119Z [inf]  WS addresses discovered
-2026-02-05T14:08:01.016509362Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:08:01.127810084Z [inf]  Processed DexScreener trending candidates
-2026-02-05T14:08:01.418680212Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T14:08:01.794286593Z [wrn]  All API liquidity sources failed
-2026-02-05T14:08:01.817952003Z [inf]  Skipping low liquidity token
-2026-02-05T14:08:01.855206792Z [inf]  RPC failover success
-2026-02-05T14:08:01.862759694Z [inf]  RPC failover success
-2026-02-05T14:08:01.893523801Z [inf]  RPC failover success
-2026-02-05T14:08:01.893533630Z [inf]  RPC failover success
-2026-02-05T14:08:01.895116944Z [inf]  RPC failover success
-2026-02-05T14:08:01.905821974Z [inf]  RPC failover success
-2026-02-05T14:08:01.912973971Z [inf]  RPC failover success
-2026-02-05T14:08:02.148683563Z [inf]  RPC failover success
-2026-02-05T14:08:02.182251060Z [inf]  RPC failover success
-2026-02-05T14:08:02.220042454Z [inf]  RPC failover success
-2026-02-05T14:08:02.362756795Z [inf]  RPC failover success
-2026-02-05T14:08:02.389457782Z [inf]  RPC failover success
-2026-02-05T14:08:02.998566268Z [wrn]  RPC endpoint failed
-2026-02-05T14:08:02.998571868Z [wrn]  RPC endpoint failed
-2026-02-05T14:08:03.015050920Z [wrn]  RPC endpoint failed
-2026-02-05T14:08:03.069914589Z [inf]  RPC failover success
-2026-02-05T14:08:03.071590933Z [inf]  RPC failover success
-2026-02-05T14:08:03.105454607Z [wrn]  RPC endpoint failed
-2026-02-05T14:08:03.123473572Z [inf]  RPC failover success
-2026-02-05T14:08:03.181046004Z [inf]  RPC failover success
-2026-02-05T14:08:03.308679460Z [wrn]  RPC circuit breaker opened
-2026-02-05T14:08:03.388627452Z [inf]  RPC failover success
-2026-02-05T14:08:03.436783781Z [inf]  RPC failover success
-2026-02-05T14:08:03.436786921Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T14:08:03.460536298Z [inf]  RPC failover success
-2026-02-05T14:08:04.885453109Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:08:06.200457532Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:08:06.942013525Z [inf]  incoming request
-2026-02-05T14:08:06.942016955Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:06.942020725Z [inf]  request completed
-2026-02-05T14:08:08.028559054Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:08:10.920800155Z [inf]  incoming request
-2026-02-05T14:08:10.920804545Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:10.920808815Z [inf]  request completed
-2026-02-05T14:08:10.920813385Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:10.920818735Z [inf]  incoming request
-2026-02-05T14:08:10.920823255Z [inf]  request completed
-2026-02-05T14:08:10.920827935Z [inf]  incoming request
-2026-02-05T14:08:10.920832285Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:10.920837094Z [inf]  request completed
-2026-02-05T14:08:10.930816923Z [inf]  incoming request
-2026-02-05T14:08:10.932952361Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:10.932955421Z [inf]  request completed
-2026-02-05T14:08:11.981591688Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:08:11.981595118Z [err]  GeckoTerminal API error after retries
-2026-02-05T14:08:11.981598528Z [err]  Error fetching trending tokens
-2026-02-05T14:08:11.981603068Z [inf]  Premium trending tokens fetch complete
-2026-02-05T14:08:11.981606838Z [inf]  [TokenJob] Got 70 trending tokens for Base
-2026-02-05T14:08:11.981610718Z [inf]  Saved 70 trending tokens for base to database and memory cache
-2026-02-05T14:08:11.981613938Z [inf]  [TokenJob] Saved 70 tokens for Base to DB + cache
-2026-02-05T14:08:13.464691846Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:08:16.542028649Z [inf]  incoming request
-2026-02-05T14:08:16.542805591Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:16.542811141Z [inf]  request completed
-2026-02-05T14:08:18.396683253Z [inf]  incoming request
-2026-02-05T14:08:18.398094689Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:18.402608573Z [inf]  request completed
-2026-02-05T14:08:18.561124593Z [inf]  incoming request
-2026-02-05T14:08:18.561128783Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:18.561131943Z [inf]  request completed
-2026-02-05T14:08:18.913378676Z [wrn]  RPC health degraded
-2026-02-05T14:08:23.545283253Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:08:26.886002834Z [inf]  incoming request
-2026-02-05T14:08:26.886012654Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:26.886017864Z [inf]  request completed
-2026-02-05T14:08:27.457006291Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:08:28.243145043Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:08:28.567688428Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:08:28.986108285Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:08:28.986113135Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:08:29.017581514Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:08:29.357133685Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:08:33.929638550Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:08:34.000348548Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T14:08:34.123585700Z [wrn]  All API liquidity sources failed
-2026-02-05T14:08:34.401083297Z [inf]  RPC failover success
-2026-02-05T14:08:34.409189114Z [inf]  RPC failover success
-2026-02-05T14:08:34.450682900Z [inf]  RPC failover success
-2026-02-05T14:08:34.450686190Z [inf]  RPC failover success
-2026-02-05T14:08:34.450688970Z [inf]  RPC failover success
-2026-02-05T14:08:34.450691870Z [inf]  RPC failover success
-2026-02-05T14:08:34.450694470Z [inf]  RPC failover success
-2026-02-05T14:08:34.600509240Z [inf]  RPC failover success
-2026-02-05T14:08:34.974275103Z [inf]  RPC failover success
-2026-02-05T14:08:34.974280103Z [inf]  RPC failover success
-2026-02-05T14:08:34.974283883Z [inf]  RPC failover success
-2026-02-05T14:08:34.974288493Z [inf]  RPC failover success
-2026-02-05T14:08:34.974293973Z [inf]  RPC failover success
-2026-02-05T14:08:34.974305913Z [inf]  RPC failover success
-2026-02-05T14:08:34.974308093Z [inf]  RPC failover success
-2026-02-05T14:08:34.974317193Z [inf]  RPC failover success
-2026-02-05T14:08:34.974348242Z [inf]  RPC failover success
-2026-02-05T14:08:34.974352602Z [inf]  RPC failover success
-2026-02-05T14:08:34.974358212Z [inf]  RPC failover success
-2026-02-05T14:08:34.974363342Z [inf]  RPC failover success
-2026-02-05T14:08:34.974367962Z [inf]  RPC failover success
-2026-02-05T14:08:34.974372592Z [inf]  RPC failover success
-2026-02-05T14:08:34.974377832Z [inf]  RPC failover success
-2026-02-05T14:08:34.974382272Z [inf]  RPC failover success
-2026-02-05T14:08:34.975960736Z [inf]  RPC failover success
-2026-02-05T14:08:34.975964296Z [inf]  RPC failover success
-2026-02-05T14:08:34.975968286Z [inf]  RPC failover success
-2026-02-05T14:08:34.975973176Z [inf]  RPC failover success
-2026-02-05T14:08:34.996138190Z [inf]  RPC failover success
-2026-02-05T14:08:35.125757876Z [inf]  RPC failover success
-2026-02-05T14:08:35.199470443Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T14:08:38.553528885Z [inf]  incoming request
-2026-02-05T14:08:38.553531965Z [inf]  request completed
-2026-02-05T14:08:38.553535855Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:41.985889539Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
-2026-02-05T14:08:41.985895099Z [inf]  Fetching premium trending tokens
-2026-02-05T14:08:42.068019511Z [inf]  incoming request
-2026-02-05T14:08:42.069153859Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:42.073035979Z [inf]  request completed
-2026-02-05T14:08:42.154171711Z [inf]  WS addresses discovered
-2026-02-05T14:08:43.322177855Z [inf]  Processed DexScreener trending candidates
-2026-02-05T14:08:43.322182575Z [err]  Error fetching trending tokens
-2026-02-05T14:08:43.322186705Z [inf]  Premium trending tokens fetch complete
-2026-02-05T14:08:43.322189745Z [inf]  [TokenJob] Got 76 trending tokens for BSC
-2026-02-05T14:08:43.360537634Z [inf]  Saved 76 trending tokens for bsc to database and memory cache
-2026-02-05T14:08:43.373993136Z [inf]  [TokenJob] Saved 76 tokens for BSC to DB + cache
-2026-02-05T14:08:43.377721978Z [inf]  [TokenJob] Refreshed 4 primary chains in 114.7s
-2026-02-05T14:08:45.255043151Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:08:47.110238490Z [inf]  [SocialJob] Checking Zora coin status for 288 casts...
-2026-02-05T14:08:50.086462926Z [inf]  incoming request
-2026-02-05T14:08:50.086466906Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:50.088051530Z [inf]  request completed
-2026-02-05T14:08:51.080219142Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:51.080231402Z [inf]  request completed
-2026-02-05T14:08:51.080253502Z [inf]  incoming request
-2026-02-05T14:08:52.559638639Z [inf]  incoming request
-2026-02-05T14:08:52.559641429Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:52.559643879Z [inf]  request completed
-2026-02-05T14:08:53.080291224Z [inf]  request completed
-2026-02-05T14:08:53.080321164Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:53.080324534Z [inf]  request completed
-2026-02-05T14:08:53.080328454Z [inf]  incoming request
-2026-02-05T14:08:53.080331814Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:08:53.080340004Z [inf]  incoming request
-2026-02-05T14:08:55.348012956Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:08:55.441177735Z [inf]  📊 Position P/L check
-2026-02-05T14:09:03.136069745Z [inf]  incoming request
-2026-02-05T14:09:03.136073035Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:09:03.136076025Z [inf]  request completed
-2026-02-05T14:09:05.438378129Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:09:05.652409425Z [inf]  [SocialRepo] Cleaned up 121 old casts (cap: 1000)
-2026-02-05T14:09:06.068024752Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T14:09:06.068030532Z [wrn]  All API liquidity sources failed
-2026-02-05T14:09:06.068033142Z [inf]  Timer finished: get_trending_casts_trending
-2026-02-05T14:09:06.081468495Z [inf]  SocialRepo: Updated cache with 500 merged casts
-2026-02-05T14:09:06.081471455Z [inf]  SocialRepo: Saved 288 trending casts to database
-2026-02-05T14:09:06.081477895Z [inf]  Timer finished: save_trending_casts
-2026-02-05T14:09:06.081481045Z [inf]  [SocialJob] Casts refreshed: 288 saved
-2026-02-05T14:09:06.081483985Z [inf]  [SocialJob] 🚀 Triggering OGP Prefetch for top 50 casts...
-2026-02-05T14:09:06.288539852Z [inf]  RPC failover success
-2026-02-05T14:09:06.300485830Z [inf]  RPC failover success
-2026-02-05T14:09:06.301517660Z [inf]  RPC failover success
-2026-02-05T14:09:06.336794540Z [inf]  RPC failover success
-2026-02-05T14:09:06.336805050Z [inf]  RPC failover success
-2026-02-05T14:09:06.336810230Z [inf]  RPC failover success
-2026-02-05T14:09:06.336814670Z [inf]  RPC failover success
-2026-02-05T14:09:06.438980737Z [inf]  RPC failover success
-2026-02-05T14:09:06.617701424Z [inf]  RPC failover success
-2026-02-05T14:09:06.678826139Z [inf]  RPC failover success
-2026-02-05T14:09:07.024902177Z [inf]  RPC failover success
-2026-02-05T14:09:07.024906107Z [inf]  RPC failover success
-2026-02-05T14:09:07.024909827Z [inf]  RPC failover success
-2026-02-05T14:09:07.024913377Z [inf]  RPC failover success
-2026-02-05T14:09:07.024917167Z [inf]  RPC failover success
-2026-02-05T14:09:07.024920517Z [inf]  RPC failover success
-2026-02-05T14:09:07.024924167Z [inf]  RPC failover success
-2026-02-05T14:09:07.024928167Z [inf]  RPC failover success
-2026-02-05T14:09:07.026607770Z [inf]  RPC failover success
-2026-02-05T14:09:07.026613470Z [inf]  RPC failover success
-2026-02-05T14:09:07.026619990Z [inf]  RPC failover success
-2026-02-05T14:09:07.026627360Z [inf]  RPC failover success
-2026-02-05T14:09:07.026633840Z [inf]  RPC failover success
-2026-02-05T14:09:07.026640060Z [inf]  RPC failover success
-2026-02-05T14:09:07.026646270Z [inf]  RPC failover success
-2026-02-05T14:09:07.026651780Z [inf]  RPC failover success
-2026-02-05T14:09:07.027233464Z [inf]  RPC failover success
-2026-02-05T14:09:07.079030895Z [inf]  RPC failover success
-2026-02-05T14:09:07.185063783Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T14:09:07.233451669Z [inf]  📊 Position P/L check
-2026-02-05T14:09:27.230409854Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:09:27.230413044Z [inf]  📊 Position P/L check
-2026-02-05T14:09:27.230417543Z [wrn]  RPC health degraded
-2026-02-05T14:09:27.230421113Z [inf]  incoming request
-2026-02-05T14:09:27.230424323Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:09:27.230427163Z [inf]  request completed
-2026-02-05T14:09:27.230430693Z [inf]  incoming request
-2026-02-05T14:09:27.231774929Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:09:27.231781429Z [inf]  request completed
-2026-02-05T14:09:27.489910987Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:09:27.601386809Z [inf]  📊 Position P/L check
-2026-02-05T14:09:28.210278877Z [inf]  incoming request
-2026-02-05T14:09:28.210282637Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:09:28.210286607Z [inf]  request completed
-2026-02-05T14:09:30.257982449Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:09:32.079692425Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T14:09:32.692297936Z [inf]  incoming request
-2026-02-05T14:09:32.723122293Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:09:32.724735157Z [inf]  request completed
-2026-02-05T14:09:32.728004224Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:09:32.729919784Z [inf]  incoming request
-2026-02-05T14:09:32.729924294Z [inf]  request completed
-2026-02-05T14:09:34.272905074Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T14:37:53.000000000Z [inf]  Starting Container
+2026-02-05T14:37:54.617137795Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
+2026-02-05T14:37:54.664466907Z [inf]  Zora SDK initialized with API Key
+2026-02-05T14:37:54.763928315Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
+2026-02-05T14:37:54.980597954Z [err]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
+2026-02-05T14:37:54.980607564Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
+2026-02-05T14:37:54.980610794Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
+2026-02-05T14:37:54.980614024Z [err]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
+2026-02-05T14:37:54.980617413Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
+2026-02-05T14:37:54.987906481Z [inf]  Build SHA
+2026-02-05T14:37:54.987911001Z [inf]  Serving static files from:
+2026-02-05T14:37:54.987914481Z [inf]  Initializing services...
+2026-02-05T14:37:55.058039139Z [inf]  Database connection successful
+2026-02-05T14:37:55.058042429Z [inf]  [DataRetention] Checking retention policies...
+2026-02-05T14:37:55.063950187Z [inf]  [DataRetention] Starting cleanup job...
+2026-02-05T14:37:55.063955197Z [inf]  Redis initialized
+2026-02-05T14:37:55.063958827Z [inf]  Starting server on port 8080...
+2026-02-05T14:37:55.109098924Z [inf]  [Prisma] DB connection is healthy
+2026-02-05T14:37:55.117634102Z [inf]  Server listening at http://0.0.0.0:8080
+2026-02-05T14:37:55.118583436Z [inf]  Server listening
+2026-02-05T14:37:55.118585946Z [inf]  RPC health monitor started
+2026-02-05T14:37:55.122100721Z [inf]  RPC benchmark sampling started
+2026-02-05T14:37:55.137909638Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
+2026-02-05T14:37:55.137913878Z [inf]  [TokenJob] Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
+2026-02-05T14:37:55.137919647Z [inf]  [TokenJob] Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
+2026-02-05T14:37:55.137924807Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
+2026-02-05T14:37:55.137929127Z [inf]  Background jobs started
+2026-02-05T14:37:55.137932837Z [inf]  Initializing auto trade service...
+2026-02-05T14:37:55.137936907Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
+2026-02-05T14:37:55.137940757Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook enabled)
+2026-02-05T14:37:55.137946907Z [inf]  Auto trade service started
+2026-02-05T14:37:55.137950297Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
+2026-02-05T14:37:55.137954437Z [inf]  Position monitor started
+2026-02-05T14:37:55.137959257Z [inf]  Token Alert Service started
+2026-02-05T14:37:55.138566562Z [inf]  Token alert service started
+2026-02-05T14:37:55.138569252Z [inf]  [ChatWorker] Started polling for AI tasks (interval: 3000ms)
+2026-02-05T14:37:55.138571992Z [inf]  Chat worker started
+2026-02-05T14:37:55.138575022Z [inf]  Starting Global Zora Alpha Detector (API Polling)
+2026-02-05T14:37:55.138578962Z [inf]  🎉 All services initialized!
+2026-02-05T14:37:55.190222433Z [err]  [DataRetention] No cleanup handler for table: SuggestionEvent
+2026-02-05T14:37:55.191734162Z [inf]  [DataRetention] Cleanup job completed.
+2026-02-05T14:38:00.135039207Z [inf]  [MarketJob] Running startup staleness check...
+2026-02-05T14:38:00.137012743Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T14:38:00.138723391Z [inf]  [MarketJob] Overview is fresh, skipping API call
+2026-02-05T14:38:00.145320143Z [inf]  [MarketJob] Protocols are fresh, skipping API call
+2026-02-05T14:38:00.145323853Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-05T14:38:00.163004627Z [err]  [Job] Real hot users file not found: 
+2026-02-05T14:38:00.163007517Z [inf]  [Job] ✅ Got 650 quality users from database
+2026-02-05T14:38:00.163010267Z [inf]  [SocialJob] fetchCastsFromUsers starting with 650 FIDs, target: 1000
+2026-02-05T14:38:00.538833235Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T14:38:00.579083737Z [wrn]  All API liquidity sources failed
+2026-02-05T14:38:00.601238648Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-05T14:38:01.504444019Z [inf]  RPC failover success
+2026-02-05T14:38:01.543962097Z [inf]  RPC failover success
+2026-02-05T14:38:01.565748701Z [inf]  RPC failover success
+2026-02-05T14:38:02.071385290Z [wrn]  RPC endpoint failed
+2026-02-05T14:38:02.082227992Z [wrn]  RPC endpoint failed
+2026-02-05T14:38:02.082231132Z [wrn]  RPC endpoint failed
+2026-02-05T14:38:02.085073131Z [wrn]  RPC endpoint failed
+2026-02-05T14:38:02.139439032Z [inf]  RPC failover success
+2026-02-05T14:38:02.147560393Z [inf]  RPC failover success
+2026-02-05T14:38:02.209286692Z [inf]  RPC failover success
+2026-02-05T14:38:02.271688715Z [inf]  RPC failover success
+2026-02-05T14:38:02.357006703Z [inf]  RPC failover success
+2026-02-05T14:38:02.357009823Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T14:38:02.538562343Z [inf]  RPC failover success
+2026-02-05T14:38:10.250221793Z [inf]  incoming request
+2026-02-05T14:38:10.258001897Z [err]  [Webhook] Invalid CDP signature
+2026-02-05T14:38:10.259527356Z [inf]  request completed
+2026-02-05T14:38:10.259542786Z [inf]  incoming request
+2026-02-05T14:38:10.261827290Z [err]  [Webhook] Invalid CDP signature
+2026-02-05T14:38:10.261831500Z [inf]  request completed
+2026-02-05T14:38:12.538908040Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T14:38:32.532325536Z [inf]  request completed
+2026-02-05T14:38:32.532335826Z [inf]  [Preheat] Enqueue
+2026-02-05T14:38:32.532342556Z [inf]  [Preheat] Start
+2026-02-05T14:38:32.532347276Z [inf]  RPC failover success
+2026-02-05T14:38:32.532792264Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T14:38:32.532797454Z [inf]  incoming request
+2026-02-05T14:38:32.532804783Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xe85a59c628f7d27878aceb4bf3b35733630083a9 type=unknown network=base-mainnet tx=n/a
+2026-02-05T14:38:32.532809773Z [inf]  [Webhook] CDP payload raw: {"event_name":"TokenCreated","contract_address":"0xe85a59c628f7d27878aceb4bf3b35733630083a9","network":"base-mainnet","parameters":{"tokenAddress":"0x1111111111111111111111111111111111111111"}}
+2026-02-05T14:38:32.533912015Z [inf]  RPC failover success
+2026-02-05T14:38:32.533915805Z [inf]  RPC failover success
+2026-02-05T14:38:32.533919295Z [inf]  RPC failover success
+2026-02-05T14:38:32.533922755Z [inf]  RPC failover success
+2026-02-05T14:38:32.533926375Z [inf]  RPC failover success
+2026-02-05T14:38:32.533930745Z [inf]  RPC failover success
+2026-02-05T14:38:32.533934104Z [inf]  RPC failover success
+2026-02-05T14:38:32.535858731Z [inf]  RPC failover success
+2026-02-05T14:38:32.535863961Z [inf]  RPC failover success
+2026-02-05T14:38:32.535866841Z [inf]  RPC failover success
+2026-02-05T14:38:32.535869881Z [inf]  RPC failover success
+2026-02-05T14:38:32.535873141Z [inf]  RPC failover success
+2026-02-05T14:38:32.535876111Z [inf]  RPC failover success
+2026-02-05T14:38:32.535878761Z [inf]  RPC failover success
+2026-02-05T14:38:32.539187297Z [inf]  RPC failover success
+2026-02-05T14:38:32.539191207Z [inf]  RPC failover success
+2026-02-05T14:38:32.539195167Z [inf]  RPC failover success
+2026-02-05T14:38:32.539199207Z [inf]  RPC failover success
+2026-02-05T14:38:32.539202537Z [inf]  RPC failover success
+2026-02-05T14:38:32.539207987Z [inf]  RPC failover success
+2026-02-05T14:38:32.539212977Z [inf]  RPC failover success
+2026-02-05T14:38:32.541816339Z [inf]  RPC failover success
+2026-02-05T14:38:32.541819179Z [inf]  RPC failover success
+2026-02-05T14:38:32.541821979Z [inf]  RPC failover success
+2026-02-05T14:38:32.541824459Z [inf]  RPC failover success
+2026-02-05T14:38:32.541827709Z [inf]  RPC failover success
+2026-02-05T14:38:32.541830799Z [inf]  RPC failover success
+2026-02-05T14:38:32.541833809Z [inf]  RPC failover success
+2026-02-05T14:38:32.542835161Z [inf]  RPC failover success
+2026-02-05T14:38:32.542841011Z [inf]  RPC failover success
+2026-02-05T14:38:32.542845251Z [inf]  [TokenJob] Starting initial token refresh...
+2026-02-05T14:38:32.542849131Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
+2026-02-05T14:38:32.542852991Z [inf]  Fetching premium trending tokens
+2026-02-05T14:38:32.542856851Z [inf]  RPC failover success
+2026-02-05T14:38:32.542860071Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T14:38:32.542863911Z [inf]  WS addresses discovered
+2026-02-05T14:38:32.542867191Z [inf]  [Preheat] Enqueue
+2026-02-05T14:38:32.543968333Z [inf]  [Preheat] Start
+2026-02-05T14:38:32.543973703Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T14:38:32.543977283Z [inf]  incoming request
+2026-02-05T14:38:32.543980623Z [err]  [Webhook] Invalid CDP signature
+2026-02-05T14:38:32.543983793Z [inf]  request completed
+2026-02-05T14:38:32.543987083Z [inf]  Processed DexScreener trending candidates
+2026-02-05T14:38:32.543990393Z [inf]  [Preheat] Enqueue
+2026-02-05T14:38:32.543993713Z [inf]  [Preheat] Start
+2026-02-05T14:38:32.544960676Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T14:38:32.544963636Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T14:38:32.544966236Z [inf]  [Preheat] Enqueue
+2026-02-05T14:38:32.544968666Z [inf]  [Preheat] Start
+2026-02-05T14:38:32.544971876Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T14:38:32.544974726Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T14:38:32.544976996Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T14:38:32.994892527Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T14:38:33.296642901Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T14:38:33.410258625Z [wrn]  All API liquidity sources failed
+2026-02-05T14:38:33.897180531Z [inf]  RPC failover success
+2026-02-05T14:38:33.902571952Z [inf]  RPC failover success
+2026-02-05T14:38:34.045974873Z [inf]  RPC failover success
+2026-02-05T14:38:34.045980583Z [inf]  RPC failover success
+2026-02-05T14:38:34.045986023Z [inf]  RPC failover success
+2026-02-05T14:38:34.045989883Z [inf]  RPC failover success
+2026-02-05T14:38:34.111168855Z [inf]  RPC failover success
+2026-02-05T14:38:34.116926334Z [inf]  RPC failover success
+2026-02-05T14:38:34.181616730Z [inf]  RPC failover success
+2026-02-05T14:38:34.183494276Z [inf]  RPC failover success
+2026-02-05T14:38:34.201959733Z [inf]  RPC failover success
+2026-02-05T14:38:34.206685040Z [inf]  RPC failover success
+2026-02-05T14:38:34.212569298Z [inf]  RPC failover success
+2026-02-05T14:38:34.282338046Z [inf]  RPC failover success
+2026-02-05T14:38:34.488898614Z [inf]  RPC failover success
+2026-02-05T14:38:34.488901724Z [inf]  RPC failover success
+2026-02-05T14:38:34.494595913Z [inf]  RPC failover success
+2026-02-05T14:38:34.496648328Z [inf]  RPC failover success
+2026-02-05T14:38:34.501784251Z [inf]  RPC failover success
+2026-02-05T14:38:34.501789191Z [inf]  RPC failover success
+2026-02-05T14:38:34.502677635Z [inf]  RPC failover success
+2026-02-05T14:38:34.534215579Z [inf]  RPC failover success
+2026-02-05T14:38:34.544587354Z [inf]  RPC failover success
+2026-02-05T14:38:34.544590624Z [inf]  RPC failover success
+2026-02-05T14:38:34.544593194Z [inf]  RPC failover success
+2026-02-05T14:38:34.554595273Z [inf]  RPC failover success
+2026-02-05T14:38:34.607423313Z [inf]  RPC failover success
+2026-02-05T14:38:34.669175760Z [inf]  RPC failover success
+2026-02-05T14:38:34.883713760Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T14:38:36.428424952Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T14:38:36.428430342Z [err]  GeckoTerminal API error after retries
+2026-02-05T14:38:36.428434022Z [err]  Error fetching trending tokens
+2026-02-05T14:38:36.428437812Z [inf]  Premium trending tokens fetch complete
+2026-02-05T14:38:36.428441222Z [inf]  [TokenJob] Got 92 trending tokens for Ethereum
+2026-02-05T14:38:36.473173950Z [inf]  Saved 92 trending tokens for eth to database and memory cache
+2026-02-05T14:38:36.480994974Z [inf]  [TokenJob] Saved 92 tokens for Ethereum to DB + cache
+2026-02-05T14:38:37.162954369Z [inf]  [Preheat] Enqueue
+2026-02-05T14:38:37.162959139Z [inf]  [Preheat] Start
+2026-02-05T14:38:37.162962669Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T14:38:43.628140607Z [inf]  incoming request
+2026-02-05T14:38:43.628142907Z [err]  [Webhook] Invalid CDP signature
+2026-02-05T14:38:43.628145827Z [inf]  request completed
+2026-02-05T14:38:43.630094703Z [inf]  incoming request
+2026-02-05T14:38:43.630100943Z [inf]  request completed
+2026-02-05T14:38:43.630198232Z [err]  [Webhook] Invalid CDP signature
+2026-02-05T14:38:43.903877866Z [inf]  incoming request
+2026-02-05T14:38:43.905302597Z [err]  [Webhook] Invalid CDP signature
+2026-02-05T14:38:43.906431168Z [inf]  request completed
+2026-02-05T14:38:44.095337252Z [inf]  incoming request
+2026-02-05T14:38:44.095342752Z [err]  [Webhook] Invalid CDP signature
+2026-02-05T14:38:44.095346792Z [inf]  request completed
