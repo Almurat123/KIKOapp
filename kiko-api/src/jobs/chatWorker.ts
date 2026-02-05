@@ -369,7 +369,7 @@ export class ChatWorker {
         }
         const cacheStatus = cacheInfo.length > 0 ? `\n\n═══════════════════════════════════════\n🗄️ CACHED DATA AVAILABLE - DO NOT RE-FETCH\n═══════════════════════════════════════\n${cacheInfo.join('\n')}\n═══════════════════════════════════════\n` : '';
 
-        return `[CLIENT_CONTEXT]\n${serialized}${cacheStatus}\n\n⚡ CRITICAL OPTIMIZATION RULES:\n1. The above context contains CACHED DATA that is already available\n2. DO NOT call get_wallet_info - balance data is present above\n3. DO NOT call get_token_info if token data appears in conversation\n4. Use cached data directly and proceed immediately with user's request\n5. Only call tools when you need NEW information not available in cache\n6. When you see [TOKEN_CONTEXT ✅ FROM CACHE] or [USER_BALANCE_CONTEXT ✅ CACHED], that data is ready to use`;
+        return `[CLIENT_CONTEXT]\n${serialized}${cacheStatus}\n\n⚡ CRITICAL OPTIMIZATION RULES:\n1. The above context contains CACHED DATA that is already available\n2. DO NOT call get_wallet_info for the CURRENT chain (${payload.chainId ?? 'unknown'}) when balance data is present above\n3. If the user asks about a DIFFERENT chain, you MAY call get_wallet_info for that chain\n4. DO NOT call get_token_info if token data appears in conversation\n5. Use cached data directly and proceed immediately with user's request\n6. Only call tools when you need NEW information not available in cache\n7. When you see [TOKEN_CONTEXT ✅ FROM CACHE] or [USER_BALANCE_CONTEXT ✅ CACHED], that data is ready to use`;
     }
 
     private seedToolCacheFromContext(cache: Map<string, any>, task: AITask) {

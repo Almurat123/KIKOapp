@@ -8,6 +8,7 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
+import { getPreheatStatus } from './preheatService.js';
 import { MainSwapService } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
@@ -228,6 +229,7 @@ export async function handleSwapDetected(
     swap: DecodedSwap,
     chainId: number
 ): Promise<void> {
+    const detectedAt = Date.now();
     // 🛑 SHUTDOWN CHECK (Risk #2 Mitigation)
     if (isServiceShuttingDown) {
         logger.warn(LogCode.SYS_SHUTDOWN, 'Service shutting down, rejecting new swap webhook', { wallet: targetWallet });
@@ -240,7 +242,9 @@ export async function handleSwapDetected(
         tokenOut: swap.tokenOut,
         amountIn: swap.amountIn,
         amountOut: swap.amountOut,
-        chainId
+        chainId,
+        txHash: swap.txHash,
+        detectedAt
     });
 
     // Check for duplicate swap
@@ -300,12 +304,12 @@ export async function handleSwapDetected(
         await handleTargetSell(targetWallet, swap, chainId);
     } else if (isBuy) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
-        await handleTargetBuy(targetWallet, swap, chainId);
+        await handleTargetBuy(targetWallet, swap, chainId, { detectedAt });
     } else if (isTokenToToken) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
         await Promise.all([
             handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', { error: e.message })),
-            handleTargetBuy(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
+            handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
         ]);
     } else {
         // logger.throttled(LogCode.WTC_TX_SKIPPED, 'Cash-to-Cash or ignored swap type detected', { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut });
@@ -318,7 +322,8 @@ export async function handleSwapDetected(
 async function handleTargetBuy(
     targetWallet: string,
     swap: DecodedSwap,
-    chainId: number
+    chainId: number,
+    context?: { detectedAt?: number }
 ): Promise<void> {
     // Find all configs watching this wallet
     // NOTE: Solana addresses are case-sensitive (Base58), only lowercase EVM addresses
@@ -326,6 +331,19 @@ async function handleTargetBuy(
 
     // I will fix this logic now too: `const tokenToBuy = swap.tokenOut`.
     const tokenToBuy = swap.tokenOut;
+    const detectedAt = context?.detectedAt ?? Date.now();
+    const preheat = getPreheatStatus(chainId, tokenToBuy);
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target buy start', {
+        targetWallet,
+        token: tokenToBuy,
+        chainId,
+        txHash: swap.txHash,
+        detectedAt,
+        elapsedMs: Date.now() - detectedAt,
+        preheat: preheat
+            ? { status: preheat.status, reason: preheat.reason, updatedAt: preheat.updatedAt, ageMs: Date.now() - preheat.updatedAt }
+            : null
+    });
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
 
@@ -1242,7 +1260,12 @@ async function processSingleUserBuy(
 
                 try {
                     // Step 1: Try with 100% amount, user's base slippage (default 15%)
-                    logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${baseSlippage / 100}% slippage`, { userId: effectiveConfig.userId, eth: baseAmount.toFixed(6) });
+                    logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${baseSlippage / 100}% slippage`, {
+                        userId: effectiveConfig.userId,
+                        eth: baseAmount.toFixed(6),
+                        timingMs: Date.now() - detectedAt,
+                        preheatStatus: preheat?.status || null
+                    });
                     const result1 = await MainSwapService.executeSwap({
                         userId: effectiveConfig.user.privyDid,
                         walletAddress: effectiveConfig.user.walletAddress,
@@ -1258,6 +1281,13 @@ async function processSingleUserBuy(
                     });
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
+                    logger.info(LogCode.EXE_TX_BROADCAST, '[CopyTradeTiming] buy step 1 success', {
+                        userId: effectiveConfig.userId,
+                        token: tokenToBuy,
+                        txHash,
+                        timingMs: Date.now() - detectedAt,
+                        preheatStatus: preheat?.status || null
+                    });
                 } catch (buyErr1: any) {
                     logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
 
