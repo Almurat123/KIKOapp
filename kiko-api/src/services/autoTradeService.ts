@@ -1251,6 +1251,8 @@ async function processSingleUserBuy(
 
                 // === BUY WITH RETRY LOGIC (Hardened) ===
                 const baseAmount = usdAmount / nativePrice;
+                const timingDetectedAt = Date.now();
+                const timingPreheat = getPreheatStatus(chainId, tokenToBuy);
                 // Use universal global slippage
                 const baseSlippage = effectiveConfig.maxSlippageBps;
                 const copyTradeFeeBpsOverride =
@@ -1263,8 +1265,8 @@ async function processSingleUserBuy(
                     logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${baseSlippage / 100}% slippage`, {
                         userId: effectiveConfig.userId,
                         eth: baseAmount.toFixed(6),
-                        timingMs: Date.now() - detectedAt,
-                        preheatStatus: preheat?.status || null
+                        timingMs: Date.now() - timingDetectedAt,
+                        preheatStatus: timingPreheat?.status || null
                     });
                     const result1 = await MainSwapService.executeSwap({
                         userId: effectiveConfig.user.privyDid,
@@ -1285,8 +1287,8 @@ async function processSingleUserBuy(
                         userId: effectiveConfig.userId,
                         token: tokenToBuy,
                         txHash,
-                        timingMs: Date.now() - detectedAt,
-                        preheatStatus: preheat?.status || null
+                        timingMs: Date.now() - timingDetectedAt,
+                        preheatStatus: timingPreheat?.status || null
                     });
                 } catch (buyErr1: any) {
                     logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });

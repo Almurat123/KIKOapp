@@ -11,7 +11,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { callRpc as unifiedCallRpc, fetchJson } from '../config/unifiedApiService.js';
-import { getRpcUrlsArrayWithStrategy } from '../config/apiEndpoints.js';
+import { getRpcEndpointsWithStrategy, RpcEndpointConfig } from '../config/apiEndpoints.js';
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 
 const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default; override for faster benchmarks
@@ -38,6 +38,76 @@ interface EndpointHealth {
 
 const endpointHealth = new Map<string, EndpointHealth>();
 
+function getOrCreateUsage(url: string): EndpointUsage {
+    if (!endpointUsage.has(url)) {
+        endpointUsage.set(url, {
+            url,
+            inFlight: 0,
+            lastSecondStart: Date.now(),
+            secondCount: 0,
+            lastMinuteStart: Date.now(),
+            minuteCount: 0,
+            lastUsedAt: 0
+        });
+    }
+    return endpointUsage.get(url)!;
+}
+
+function recordUsageStart(url: string): void {
+    const usage = getOrCreateUsage(url);
+    const now = Date.now();
+    if (now - usage.lastSecondStart >= 1000) {
+        usage.lastSecondStart = now;
+        usage.secondCount = 0;
+    }
+    if (now - usage.lastMinuteStart >= 60000) {
+        usage.lastMinuteStart = now;
+        usage.minuteCount = 0;
+    }
+    usage.secondCount += 1;
+    usage.minuteCount += 1;
+    usage.inFlight += 1;
+    usage.lastUsedAt = now;
+}
+
+function recordUsageEnd(url: string): void {
+    const usage = getOrCreateUsage(url);
+    usage.inFlight = Math.max(0, usage.inFlight - 1);
+}
+
+function checkEndpointCapacity(endpoint: RpcEndpointConfig, importance: RpcImportance): { ok: boolean; reason?: string } {
+    const limits = endpoint.limits;
+    if (!limits) return { ok: true };
+    const usage = getOrCreateUsage(endpoint.url);
+    const now = Date.now();
+
+    if (now - usage.lastSecondStart >= 1000) {
+        usage.lastSecondStart = now;
+        usage.secondCount = 0;
+    }
+    if (now - usage.lastMinuteStart >= 60000) {
+        usage.lastMinuteStart = now;
+        usage.minuteCount = 0;
+    }
+
+    if (limits.maxInFlight && usage.inFlight >= limits.maxInFlight) {
+        return { ok: false, reason: 'maxInFlight' };
+    }
+    if (limits.rps && usage.secondCount >= limits.rps) {
+        if (importance === 'critical' && endpoint.type === 'premium') {
+            return { ok: true };
+        }
+        return { ok: false, reason: 'rps' };
+    }
+    if (limits.rpm && usage.minuteCount >= limits.rpm) {
+        if (importance === 'critical' && endpoint.type === 'premium') {
+            return { ok: true };
+        }
+        return { ok: false, reason: 'rpm' };
+    }
+    return { ok: true };
+}
+
 // Chain ID to chain name mapping
 const CHAIN_ID_TO_NAME: Record<number, string> = {
     1: 'eth',
@@ -54,6 +124,23 @@ const CHAIN_NAME_TO_ID: Record<string, number> = Object.entries(CHAIN_ID_TO_NAME
     acc[name] = Number(id);
     return acc;
 }, {} as Record<string, number>);
+
+const CHAIN_PRIMARY_ENV: Record<string, string> = {
+    eth: 'ETH_RPC_URL',
+    base: 'BASE_RPC_URL',
+    bsc: 'BSC_RPC_URL',
+    polygon: 'POLYGON_RPC_URL',
+    arbitrum: 'ARBITRUM_RPC_URL',
+    optimism: 'OPTIMISM_RPC_URL',
+    solana: 'SOLANA_RPC_URL',
+};
+
+function getPrimaryRpcUrl(chainSlug: string): string | undefined {
+    const key = CHAIN_PRIMARY_ENV[chainSlug];
+    if (!key) return undefined;
+    const value = (process.env as Record<string, string | undefined>)[key];
+    return value || undefined;
+}
 
 interface RpcRequest {
     jsonrpc: string;
@@ -72,6 +159,20 @@ interface RpcResponse<T = any> {
     };
 }
 
+type RpcImportance = 'normal' | 'critical';
+
+interface EndpointUsage {
+    url: string;
+    inFlight: number;
+    lastSecondStart: number;
+    secondCount: number;
+    lastMinuteStart: number;
+    minuteCount: number;
+    lastUsedAt: number;
+}
+
+const endpointUsage = new Map<string, EndpointUsage>();
+
 /**
  * Make an RPC call with automatic failover
  */
@@ -79,9 +180,9 @@ export async function callRpc<T = any>(
     chainIdOrName: number | string,
     method: string,
     params: any[] = [],
-    options: { strategy?: 'fast' | 'cheap' } = {}
+    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance } = {}
 ): Promise<T> {
-    let endpoints: string[] = [];
+    let endpoints: RpcEndpointConfig[] = [];
     let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
     let chainId: number;
 
@@ -107,12 +208,12 @@ export async function callRpc<T = any>(
         const config = getChainConfig(chainId);
         chainName = config.name;
         const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
-        endpoints = options.strategy
-            ? getRpcUrlsArrayWithStrategy(chainSlug, options.strategy)
-            : config.rpcUrls;
+        const strategy = options.strategy || 'cheap';
+        const primaryUrl = getPrimaryRpcUrl(chainSlug);
+        endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
 
-        if (options.strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
-            const upgraded = getRpcUrlsArrayWithStrategy(chainSlug, 'fast');
+        if (strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
+            const upgraded = getRpcEndpointsWithStrategy(chainSlug, 'fast', primaryUrl);
             if (upgraded.length > 0) {
                 endpoints = upgraded;
                 logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
@@ -139,26 +240,36 @@ export async function callRpc<T = any>(
     let lastError: Error | null = null;
 
     // Sort endpoints by health and priority
-    const sortedEndpoints = sortEndpointsByHealth(endpoints);
+    const sortedEndpoints = sortEndpointsByScore(endpoints, options.importance || 'normal');
 
     // Try each endpoint with circuit breaker check
     for (let i = 0; i < sortedEndpoints.length; i++) {
         const endpoint = sortedEndpoints[i];
-        if (!endpoint) continue;
+        if (!endpoint?.url) continue;
 
         // Check circuit breaker
-        if (isCircuitOpen(endpoint)) {
-            logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, { endpoint: maskEndpoint(endpoint) });
+        if (isCircuitOpen(endpoint.url)) {
+            logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, { endpoint: maskEndpoint(endpoint.url) });
+            continue;
+        }
+
+        const capacity = checkEndpointCapacity(endpoint, options.importance || 'normal');
+        if (!capacity.ok) {
+            logger.debug(LogCode.API_FETCH_FAILED, `RPC capacity limited, skipping endpoint`, {
+                endpoint: maskEndpoint(endpoint.url),
+                reason: capacity.reason
+            });
             continue;
         }
 
         const startTime = Date.now();
         try {
-            recordAttempt(endpoint);
+            recordUsageStart(endpoint.url);
+            recordAttempt(endpoint.url);
 
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
-            const response = await fetch(endpoint, {
+            const response = await fetch(endpoint.url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -186,7 +297,7 @@ export async function callRpc<T = any>(
 
             // Success! Record health metrics
             const responseTime = Date.now() - startTime;
-            recordSuccess(endpoint, responseTime);
+            recordSuccess(endpoint.url, responseTime);
 
             // ✅ 缓存写入 - 成功后写入缓存
             if (isCacheable(method)) {
@@ -221,7 +332,7 @@ export async function callRpc<T = any>(
                 throw error;
             }
 
-            recordFailure(endpoint);
+            recordFailure(endpoint.url);
 
             // Only log first 2 failures to reduce noise
             if (i < 2) {
@@ -240,6 +351,8 @@ export async function callRpc<T = any>(
                 await new Promise(resolve => setTimeout(resolve, 50));
                 continue;
             }
+        } finally {
+            recordUsageEnd(endpoint.url);
         }
     }
 
@@ -372,26 +485,49 @@ async function runBenchmarkSample(chainId: number, tokenAddress: string): Promis
     }
 }
 
-function sortEndpointsByHealth(endpoints: string[]): string[] {
+function sortEndpointsByScore(endpoints: RpcEndpointConfig[], importance: RpcImportance): RpcEndpointConfig[] {
+    const now = Date.now();
     return endpoints.slice().sort((a, b) => {
-        const healthA = getOrCreateHealth(a);
-        const healthB = getOrCreateHealth(b);
-
-        // Prioritize endpoints with circuit closed
-        if (healthA.circuitOpen && !healthB.circuitOpen) return 1;
-        if (!healthA.circuitOpen && healthB.circuitOpen) return -1;
-
-        // Then by success rate
-        const successRateA = healthA.totalAttempts > 0 ? healthA.successCount / healthA.totalAttempts : 0.5;
-        const successRateB = healthB.totalAttempts > 0 ? healthB.successCount / healthB.totalAttempts : 0.5;
-
-        if (successRateA !== successRateB) {
-            return successRateB - successRateA;
-        }
-
-        // Then by average response time (lower is better)
-        return healthA.avgResponseTime - healthB.avgResponseTime;
+        const scoreA = scoreEndpoint(a, importance, now);
+        const scoreB = scoreEndpoint(b, importance, now);
+        return scoreB - scoreA;
     });
+}
+
+function scoreEndpoint(endpoint: RpcEndpointConfig, importance: RpcImportance, now: number): number {
+    const health = getOrCreateHealth(endpoint.url);
+    const usage = getOrCreateUsage(endpoint.url);
+
+    // Base score from success rate and response time
+    const successRate = health.totalAttempts > 0 ? health.successCount / health.totalAttempts : 0.7;
+    const latencyScore = health.avgResponseTime > 0 ? Math.max(0, 1000 - health.avgResponseTime) / 1000 : 0.5;
+    let score = successRate * 10 + latencyScore * 2;
+
+    // Penalize circuit open
+    if (health.circuitOpen) score -= 5;
+
+    // Type preference by importance
+    if (importance === 'critical') {
+        if (endpoint.type === 'premium') score += 2;
+        if (endpoint.type === 'public') score += 0.5;
+    } else {
+        if (endpoint.type === 'public') score += 2;
+        if (endpoint.type === 'premium') score -= 0.5;
+    }
+
+    // Capacity pressure
+    const limits = endpoint.limits;
+    if (limits?.maxInFlight && usage.inFlight >= limits.maxInFlight) score -= 2;
+    if (limits?.rps && usage.secondCount >= limits.rps) score -= 1.5;
+    if (limits?.rpm && usage.minuteCount >= limits.rpm) score -= 1.5;
+
+    // Slight penalty for very recent usage to spread load
+    if (now - usage.lastUsedAt < 50) score -= 0.2;
+
+    // Optional weight
+    if (endpoint.weight) score += endpoint.weight;
+
+    return score;
 }
 
 function maskEndpoint(url: string): string {
@@ -399,12 +535,12 @@ function maskEndpoint(url: string): string {
     return url.replace(/[a-zA-Z0-9]{32,}/g, '***');
 }
 
-function shouldUpgradeToFast(endpoints: string[]): boolean {
+function shouldUpgradeToFast(endpoints: RpcEndpointConfig[]): boolean {
     if (endpoints.length === 0) return false;
     const top = endpoints.slice(0, 3);
     let badCount = 0;
-    for (const url of top) {
-        const health = getOrCreateHealth(url);
+    for (const endpoint of top) {
+        const health = getOrCreateHealth(endpoint.url);
         const attempts = health.totalAttempts;
         const successRate = attempts > 0 ? (health.successCount / attempts) * 100 : 100;
         const isBad = health.circuitOpen || (attempts >= 10 && successRate < 50);
@@ -543,7 +679,7 @@ export async function getTransactionByHash(
             { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }
         ]);
     } else {
-        return await callRpc(chainId, 'eth_getTransactionByHash', [txHash]);
+        return await callRpc(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast', importance: 'critical' });
     }
 }
 
@@ -554,7 +690,7 @@ export async function getTransactionReceipt(
     chainId: number,
     txHash: string
 ): Promise<any> {
-    return await callRpc(chainId, 'eth_getTransactionReceipt', [txHash]);
+    return await callRpc(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast', importance: 'critical' });
 }
 
 /**
@@ -656,9 +792,12 @@ export function getRpcEndpoints(chainId: number, strategy?: 'fast' | 'cheap'): s
     try {
         if (strategy) {
             const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
-            return getRpcUrlsArrayWithStrategy(chainSlug, strategy);
+            const primaryUrl = getPrimaryRpcUrl(chainSlug);
+            return getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl).map(e => e.url);
         }
-        return getChainConfig(chainId).rpcUrls;
+        const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
+        const primaryUrl = getPrimaryRpcUrl(chainSlug);
+        return getRpcEndpointsWithStrategy(chainSlug, 'cheap', primaryUrl).map(e => e.url);
     } catch {
         return [];
     }

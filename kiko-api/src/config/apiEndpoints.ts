@@ -21,6 +21,36 @@ export interface RpcEndpointConfig {
   priority: number; // Lower is higher priority (1 = first choice)
   requiresAuth: boolean;
   type: 'premium' | 'public' | 'fallback';
+  limits?: RpcEndpointLimits;
+  weight?: number; // Optional weight for selection (higher = preferred)
+}
+
+export interface RpcEndpointLimits {
+  rps?: number; // Requests per second
+  rpm?: number; // Requests per minute
+  maxInFlight?: number; // Max concurrent in-flight requests
+}
+
+const DEFAULT_PUBLIC_RPS = parseInt(process.env.RPC_PUBLIC_RPS || '5', 10);
+const DEFAULT_PUBLIC_RPM = parseInt(process.env.RPC_PUBLIC_RPM || '300', 10);
+const DEFAULT_PUBLIC_MAX_INFLIGHT = parseInt(process.env.RPC_PUBLIC_MAX_INFLIGHT || '50', 10);
+
+const DEFAULT_PREMIUM_RPS = parseInt(process.env.RPC_PREMIUM_RPS || '50', 10);
+const DEFAULT_PREMIUM_RPM = parseInt(process.env.RPC_PREMIUM_RPM || '3000', 10);
+const DEFAULT_PREMIUM_MAX_INFLIGHT = parseInt(process.env.RPC_PREMIUM_MAX_INFLIGHT || '150', 10);
+
+const DEFAULT_FALLBACK_RPS = parseInt(process.env.RPC_FALLBACK_RPS || '2', 10);
+const DEFAULT_FALLBACK_RPM = parseInt(process.env.RPC_FALLBACK_RPM || '120', 10);
+const DEFAULT_FALLBACK_MAX_INFLIGHT = parseInt(process.env.RPC_FALLBACK_MAX_INFLIGHT || '25', 10);
+
+function getDefaultLimits(type: RpcEndpointConfig['type']): RpcEndpointLimits {
+  if (type === 'premium') {
+    return { rps: DEFAULT_PREMIUM_RPS, rpm: DEFAULT_PREMIUM_RPM, maxInFlight: DEFAULT_PREMIUM_MAX_INFLIGHT };
+  }
+  if (type === 'fallback') {
+    return { rps: DEFAULT_FALLBACK_RPS, rpm: DEFAULT_FALLBACK_RPM, maxInFlight: DEFAULT_FALLBACK_MAX_INFLIGHT };
+  }
+  return { rps: DEFAULT_PUBLIC_RPS, rpm: DEFAULT_PUBLIC_RPM, maxInFlight: DEFAULT_PUBLIC_MAX_INFLIGHT };
 }
 
 /**
@@ -52,7 +82,8 @@ export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndp
       url: ep.url,
       priority: index + 1,
       requiresAuth: false,
-      type: 'public'
+      type: 'public',
+      limits: getDefaultLimits('public')
     });
   });
 
@@ -69,7 +100,8 @@ export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndp
       url: primaryUrl,
       priority: basePriority + 1,
       requiresAuth: true,
-      type: 'premium'
+      type: 'premium',
+      limits: getDefaultLimits('premium')
     });
   }
 
@@ -82,7 +114,8 @@ export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndp
         url: alchemyUrl,
         priority: basePriority + 2,
         requiresAuth: true,
-        type: 'premium'
+        type: 'premium',
+        limits: getDefaultLimits('premium')
       });
     }
   }
@@ -94,7 +127,8 @@ export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndp
       url: `https://rpc.ankr.com/${chainSlug}/${env.apiKeys.ankr}`,
       priority: basePriority + 3,
       requiresAuth: true,
-      type: 'premium'
+      type: 'premium',
+      limits: getDefaultLimits('premium')
     });
   }
 
@@ -151,7 +185,8 @@ function getFastOverride(chainSlug: string): RpcEndpointConfig[] {
     url,
     priority: idx + 1,
     requiresAuth: true,
-    type: 'premium'
+    type: 'premium',
+    limits: getDefaultLimits('premium')
   }));
 }
 
@@ -161,7 +196,7 @@ function getBasePreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
 
   const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
     if (!url) return;
-    endpoints.push({ name, url, priority: priority++, requiresAuth, type });
+    endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
   };
 
   // Preferred order (most stable)
@@ -202,7 +237,7 @@ function getBaseCheapEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
 
   const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
     if (!url) return;
-    endpoints.push({ name, url, priority: priority++, requiresAuth, type });
+    endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
   };
 
   // Cheap-first order: stable public endpoints -> premium fallbacks

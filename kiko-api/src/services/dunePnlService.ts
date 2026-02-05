@@ -6,6 +6,7 @@
 import { DuneClient, QueryParameter } from '@duneanalytics/client-sdk';
 import * as dotenv from 'dotenv';
 import { env } from '../config/env.js';
+import { CHAINS } from '../config/chainConfig.js';
 
 dotenv.config();
 
@@ -34,6 +35,28 @@ const CHAIN_MAP: Record<string, string> = {
     '43114': 'avalanche_c'
 };
 
+const CHAIN_ID_MAP: Record<string, number> = {
+    'ethereum': 1,
+    'eth': 1,
+    '1': 1,
+    'base': 8453,
+    '8453': 8453,
+    'bnb': 56,
+    'bsc': 56,
+    '56': 56,
+    'polygon': 137,
+    'matic': 137,
+    '137': 137,
+    'arbitrum': 42161,
+    '42161': 42161,
+    'optimism': 10,
+    'op': 10,
+    '10': 10,
+    'avalanche_c': 43114,
+    'avalanche': 43114,
+    '43114': 43114
+};
+
 export interface DunePnlResult {
     tokenAddress: string;
     tokenSymbol?: string;
@@ -49,6 +72,34 @@ const QUOTE_TOKENS = new Set([
     'wBNB', 'bnb', 'eth', 'weth', 'usdt', 'usdc', 'dai', 'fdusd', 'busd', 'usde',
     'SOL', 'WSOL', 'USDC.e', 'USDT.e', 'sol', 'wsol'
 ]);
+
+function getExcludedTokenAddresses(chain: string): Set<string> {
+    const key = chain.toLowerCase();
+    const chainId = CHAIN_ID_MAP[key];
+    if (!chainId || !CHAINS[chainId]) return new Set();
+    const config = CHAINS[chainId];
+    const addresses = [config.wrappedNativeAddress, ...(config.stablecoins || [])]
+        .filter(Boolean)
+        .map(addr => addr.toLowerCase());
+    return new Set(addresses);
+}
+
+function isQuoteToken(tokenSymbol?: string, tokenAddress?: string, chain?: string): boolean {
+    if (tokenSymbol && QUOTE_TOKENS.has(tokenSymbol)) return true;
+    if (!tokenAddress || !chain) return false;
+    const excluded = getExcludedTokenAddresses(chain);
+    return excluded.has(tokenAddress.toLowerCase());
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timeoutId: NodeJS.Timeout;
+    const timeoutPromise = new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+    }) as Promise<T>;
+}
 
 export interface DuneWalletPnlSummary {
     walletAddress: string;
@@ -100,10 +151,14 @@ export async function getWalletPnlFromDune(
         ];
 
         // Execute fresh query (no caching)
-        const response = await client.runQuery({
-            queryId: EVM_PNL_QUERY_ID,
-            query_parameters: params
-        });
+        const response = await withTimeout(
+            client.runQuery({
+                queryId: EVM_PNL_QUERY_ID,
+                query_parameters: params
+            }),
+            20_000,
+            'Dune PNL query'
+        );
 
         const executionTime = Date.now() - startTime;
         console.log(`[Dune PNL] Query ${EVM_PNL_QUERY_ID} completed in ${executionTime}ms`);
@@ -146,6 +201,8 @@ export async function getWalletPnlFromDune(
             };
         });
 
+        const filteredTokens = tokens.filter(t => !isQuoteToken(t.tokenSymbol, t.tokenAddress, duneChain));
+
         // Calculate summary stats
         // LOGIC CHANGE: Asymmetric PNL
         // 1. ALL Losses are real (whether USDT or Meme).
@@ -159,12 +216,9 @@ export async function getWalletPnlFromDune(
         let totalLoss = 0;
         let profitableCount = 0;
 
-        for (const t of tokens) {
+        for (const t of filteredTokens) {
             totalBought += t.boughtUsd;
             totalSold += t.soldUsd;
-
-            // Check if it's a quote token (only matters for profits)
-            const isQuote = t.tokenSymbol && QUOTE_TOKENS.has(t.tokenSymbol);
 
             if (t.pnlUsd < 0) {
                 // LOSSES: Always count them. 
@@ -172,24 +226,17 @@ export async function getWalletPnlFromDune(
                 totalPnl += t.pnlUsd;
                 totalLoss += t.pnlUsd;
             } else if (t.pnlUsd > 0) {
-                // PROFITS: Only count if NOT a quote token.
-                // Selling WBNB for profit is just retrieving principal (in this user's context).
-                if (!isQuote) {
-                    totalPnl += t.pnlUsd;
-                    totalProfit += t.pnlUsd;
-                    if (t.pnlUsd > 0.01) profitableCount++;
-                } else {
-                    // It's a quote token profit (e.g. Sold WBNB), ignore for Net PNL
-                    // But maybe track it separately if needed, for now ignore.
-                }
+                totalPnl += t.pnlUsd;
+                totalProfit += t.pnlUsd;
+                if (t.pnlUsd > 0.01) profitableCount++;
             }
         }
 
-        const tradesCount = tokens.filter(t => t.soldUsd > 0).length;
+        const tradesCount = filteredTokens.filter(t => t.soldUsd > 0).length;
         const finalWinRate = tradesCount > 0 ? (profitableCount / tradesCount) * 100 : 0;
 
         // Sort: Absolute PNL descending
-        tokens.sort((a, b) => Math.abs(b.pnlUsd) - Math.abs(a.pnlUsd));
+        filteredTokens.sort((a, b) => Math.abs(b.pnlUsd) - Math.abs(a.pnlUsd));
 
         console.log(`[Dune PNL] ✅ Processed. Net Trader PNL: $${totalPnl.toFixed(2)} (Reflects User Reality)`);
 
@@ -209,7 +256,7 @@ export async function getWalletPnlFromDune(
             totalTrades: tradesCount,
             profitableTrades: profitableCount,
             winRate: finalWinRate,
-            tokens: tokens.slice(0, 50),
+            tokens: filteredTokens.slice(0, 50),
             queryExecutionTimeMs: executionTime
         };
 

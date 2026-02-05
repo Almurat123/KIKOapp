@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { CHAINS } from '../config/chainConfig.js';
 
 interface TokenPosition {
     symbol: string;
@@ -184,7 +185,41 @@ async function prefetchDexScreenerPrices(chain: string, tokenAddresses: string[]
         }
     }
 }
-const EXCLUDED_SYMBOLS = new Set(['ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'WBNB', 'BNB', 'SOL', 'WSOL', 'BUSD']);
+const EXCLUDED_SYMBOLS = new Set(['ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'WBNB', 'BNB', 'SOL', 'WSOL', 'BUSD', 'USDC.E', 'USDT.E', 'WMATIC']);
+
+const CHAIN_ID_MAP: Record<string, number> = {
+    eth: 1,
+    ethereum: 1,
+    base: 8453,
+    bsc: 56,
+    bnb: 56,
+    polygon: 137,
+    matic: 137,
+    arbitrum: 42161,
+    optimism: 10,
+    op: 10,
+    solana: 900,
+    sol: 900,
+};
+
+function getExcludedTokenAddresses(chain: string): Set<string> {
+    const chainId = CHAIN_ID_MAP[chain.toLowerCase()];
+    if (!chainId || !CHAINS[chainId]) return new Set();
+    const config = CHAINS[chainId];
+    const addresses = [config.wrappedNativeAddress, ...(config.stablecoins || [])]
+        .filter(Boolean)
+        .map(addr => addr.toLowerCase());
+    return new Set(addresses);
+}
+
+function isExcludedTransfer(chain: string, transfer: any): boolean {
+    const symbol = transfer?.asset ? String(transfer.asset).toUpperCase() : '';
+    if (symbol && EXCLUDED_SYMBOLS.has(symbol)) return true;
+    const addr = transfer?.rawContract?.address ? String(transfer.rawContract.address).toLowerCase() : '';
+    if (!addr) return false;
+    const excluded = getExcludedTokenAddresses(chain);
+    return excluded.has(addr);
+}
 
 /**
  * Calculate Wallet PNL and Win Rate using custom logic and Alchemy history
@@ -259,8 +294,8 @@ export async function calculateWalletPnlManual(
         for (const { group } of groupedTxs) {
             if (candidates.length >= priceLookupBudget) break;
 
-            const baseTransfers = group.filter(t => EXCLUDED_SYMBOLS.has(t.asset?.toUpperCase() || ''));
-            const targetTransfers = group.filter(t => !EXCLUDED_SYMBOLS.has(t.asset?.toUpperCase() || ''));
+            const baseTransfers = group.filter(t => isExcludedTransfer(chain, t));
+            const targetTransfers = group.filter(t => !isExcludedTransfer(chain, t));
             if (targetTransfers.length === 0) continue;
 
             const normalizedWallet = walletAddress.toLowerCase();
@@ -321,8 +356,8 @@ export async function calculateWalletPnlManual(
         const timestamp = group[0].metadata?.blockTimestamp ? new Date(group[0].metadata.blockTimestamp) : new Date();
 
         // Find "Base" transfers (ETH, BNB, Stables) and "Target" transfers
-        const baseTransfers = group.filter(t => EXCLUDED_SYMBOLS.has(t.asset?.toUpperCase() || ''));
-        const targetTransfers = group.filter(t => !EXCLUDED_SYMBOLS.has(t.asset?.toUpperCase() || ''));
+        const baseTransfers = group.filter(t => isExcludedTransfer(chain, t));
+        const targetTransfers = group.filter(t => !isExcludedTransfer(chain, t));
 
         if (targetTransfers.length === 0) continue;
 

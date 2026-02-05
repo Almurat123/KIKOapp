@@ -951,7 +951,7 @@ export class SwapExecutor {
                         from: tx.from,
                         data: inputData,
                         value: tx.value
-                    }, 'latest']);
+                    }, 'latest'], { strategy: 'fast', importance: 'critical' });
                 } catch (callErr: any) {
                     if (callErr.message) {
                         revertReason = callErr.message
@@ -1018,9 +1018,9 @@ export class SwapExecutor {
 
                 if (!maxFeePerGas && !maxPriorityFeePerGas && !gasPrice) {
                     try {
-                        const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false]);
+                        const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['latest', false], { strategy: 'fast', importance: 'critical' });
                         const baseFeePerGas = block?.baseFeePerGas ? BigInt(block.baseFeePerGas) : null;
-                        const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', []);
+                        const priorityHex = await callRpc<string>(chainId, 'eth_maxPriorityFeePerGas', [], { strategy: 'fast', importance: 'critical' });
                         const priorityFee = priorityHex ? BigInt(priorityHex) : null;
                         if (priorityFee) maxPriorityFeePerGas = priorityFee;
                         if (baseFeePerGas && priorityFee) maxFeePerGas = baseFeePerGas * 2n + priorityFee;
@@ -1121,7 +1121,7 @@ export class SwapExecutor {
                         from: tx.from,
                         data: inputData,
                         value: tx.value
-                    }, 'latest']);
+                    }, 'latest'], { strategy: 'fast', importance: 'critical' });
                 } catch (callErr: any) {
                     // RPC Error message usually contains the revert string
                     // Example: "execution reverted: TransferHelper: TRANSFER_FROM_FAILED"
