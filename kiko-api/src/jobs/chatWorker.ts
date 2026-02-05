@@ -76,7 +76,6 @@ const THINKING_SKILL_ID_ALLOWLIST = new Set<string>([
 import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
 import type { IntentType, UserContext } from '../services/ai/types.js';
 import { parseIntent } from '../services/ai/intentParser.js';
-import { getFilteredTools } from '../services/ai/toolPreRouter.js';
 import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.js';
 import { getTokenDetails as getDexTokenDetails } from '../services/dexscreener.js';
 import { ragClient } from '../services/ragClient.js';
@@ -914,10 +913,9 @@ export class ChatWorker {
             lastResultByKey: new Map(),
         };
 
-        // Base tool filtering (keyword/category based).
-        // We will further narrow this set once we know the user's high-level intent (skills gating).
+        // Base tool list is the full registry; skills gating will narrow it by intent.
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
-        const baseToolDefs = getFilteredTools(lastUserMessage);
+        const baseToolDefs = toolRegistry.getAllDefinitions();
         let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
         console.log(`[ChatWorker] Base filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
         const balanceContextAvailable = !!this.buildWalletInfoFromContext(task);
@@ -1052,7 +1050,7 @@ export class ChatWorker {
                         allowedToolNames.add(name);
                     }
                 }
-                // Always keep `external_web_search` as a safe fallback (consistent with ToolPreRouter).
+                // Always keep `external_web_search` as a safe fallback.
                 allowedToolNames.add('external_web_search');
 
                 if (matchedSkills.length > 0 && allowedToolNames.size > 0) {
@@ -3363,7 +3361,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         // Parse intent from user message
         this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Checking wallet' });
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
-        const baseToolDefs = getFilteredTools(lastUserMessage);
+        const baseToolDefs = toolRegistry.getAllDefinitions();
         let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
         logger.debug(LogCode.AI_TOOL_FILTERED, 'Grok: base tool list prepared', { count: toolDefinitions.length });
         const parsedIntent = await parseIntent(lastUserMessage, {
@@ -3406,7 +3404,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 allowedToolNames.add(name);
             }
         }
-        // Always keep `external_web_search` as a safe fallback (consistent with ToolPreRouter).
+        // Always keep `external_web_search` as a safe fallback.
         allowedToolNames.add('external_web_search');
 
         if (matchedSkills.length > 0 && allowedToolNames.size > 0) {

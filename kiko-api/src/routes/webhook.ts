@@ -210,7 +210,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const payload = request.body as any;
-        console.log(`[Webhook] CDP payload: ${JSON.stringify(payload).slice(0, 800)}`);
+        const payloadEventName = payload?.data?.eventName || payload?.event?.eventName || payload?.eventName;
+        const payloadContract = payload?.data?.contractAddress || payload?.event?.contractAddress || payload?.contractAddress;
+        console.log(`[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'} ${JSON.stringify(payload).slice(0, 600)}`);
 
         const evmNetwork = payload?.event?.network;
         const solNetwork = payload?.event?.event?.network || payload?.event?.network;
@@ -478,6 +480,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
      * Coinbase CDP webhooks (onchain activity)
      */
     fastify.post('/cdp', { config: { rawBody: true } }, async (request, reply) => {
+        const signature = request.headers['x-hook0-signature'] as string | undefined;
+        // If not a CDP webhook, ignore silently (likely Alchemy misrouted)
+        if (!signature) {
+            return reply.send({ success: true, ignored: true });
+        }
+
         const authHeader = env.security.cdpWebhookAuthHeader;
         const authValue = env.security.cdpWebhookAuthValue;
         if (authHeader && authValue) {
@@ -493,12 +501,6 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             ? cdpSecretRaw.split(',').map(s => s.trim()).filter(Boolean)
             : [];
         if (cdpSecrets.length > 0) {
-            const signature = request.headers['x-hook0-signature'] as string | undefined;
-            if (!signature) {
-                console.warn('[Webhook] Missing CDP signature');
-                return reply.status(401).send({ error: 'Missing signature' });
-            }
-
             const rawBody = (request as any).rawBody;
             if (!rawBody) {
                 console.error('[Webhook] rawBody missing for CDP webhook');
