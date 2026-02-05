@@ -7,6 +7,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { requireAuth } from '../middleware/auth.js';
 import * as chatRepo from '../repositories/chatRepository.js';
 import { trackChatMessage } from '../services/userActivityService.js';
+import { chatWS } from '../services/chatWebSocket.js';
 import prisma from '../db/prisma.js';
 import { redact } from '../utils/sanitizer.js';
 import { sanitizedErrorResponse } from '../utils/securityUtils.js';
@@ -413,6 +414,21 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     }
                 );
 
+                // Immediately mark task as running and notify frontend to show Thinking
+                const runningTask = await chatRepo.updateTaskStatus(task.id, 'running');
+                chatWS.broadcastToUser(userId, {
+                    type: 'task_status',
+                    sessionId,
+                    data: {
+                        taskId: runningTask.id,
+                        status: 'running',
+                        iteration: 1,
+                        maxIterations: 10,
+                        message: 'Thinking',
+                        taskType: 'text'
+                    }
+                });
+
                 // Update session model if different
                 if (model && model !== session.model) {
                     await chatRepo.updateSession(sessionId, { model });
@@ -430,7 +446,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     success: true,
                     userMessage,
                     assistantMessage,
-                    task,
+                    task: runningTask,
                 });
             } catch (error: any) {
                 fastify.log.error('Error sending message:', error);

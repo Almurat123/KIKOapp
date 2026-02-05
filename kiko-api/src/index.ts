@@ -343,16 +343,6 @@ async function start() {
         }
 
         logger.info(LogCode.SYS_STARTUP, '🎉 All services initialized!');
-        const cdpSecretRaw = process.env.COINBASE_CDP_WEBHOOK_SECRET || '';
-        if (cdpSecretRaw) {
-            const count = cdpSecretRaw.split(',').map(s => s.trim()).filter(Boolean).length;
-            logger.info(LogCode.SYS_STARTUP, '[CDP] Webhook secret loaded', {
-                secretCount: count,
-                totalLength: cdpSecretRaw.length
-            });
-        } else {
-            logger.warn(LogCode.SYS_STARTUP, '[CDP] Webhook secret missing');
-        }
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, 'Error starting server', { error: error.message || error });
         process.exit(1);

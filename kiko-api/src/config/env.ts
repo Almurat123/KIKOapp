@@ -121,9 +121,6 @@ export interface EnvConfig {
     security: {
         alchemyWebhookSecret?: string; // Secret for verifying Alchemy webhooks
         internalWebhookSecret?: string; // Secret for verifying internal Go service requests
-        coinbaseCdpWebhookSecret?: string; // Secret for verifying Coinbase CDP webhooks
-        cdpWebhookAuthHeader?: string; // Optional custom header name for CDP webhook auth
-        cdpWebhookAuthValue?: string; // Optional custom header value for CDP webhook auth
     };
     aiModel: string; // AI Model for analysis
     logLevel?: string; // Log level (debug, info, warn, error)
@@ -332,12 +329,7 @@ function validateEnv(): EnvConfig {
         },
         security: {
             alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,
-            internalWebhookSecret: [process.env.INTERNAL_WEBHOOK_SECRET, process.env.COINBASE_CDP_WEBHOOK_SECRET]
-                .filter(Boolean)
-                .join(','),
-            coinbaseCdpWebhookSecret: process.env.COINBASE_CDP_WEBHOOK_SECRET,
-            cdpWebhookAuthHeader: process.env.CDP_WEBHOOK_AUTH_HEADER,
-            cdpWebhookAuthValue: process.env.CDP_WEBHOOK_AUTH_VALUE,
+            internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET,
         },
         aiModel: process.env.AI_MODEL || 'grok-4-1-fast-reasoning',
         logLevel: process.env.LOG_LEVEL || 'info',

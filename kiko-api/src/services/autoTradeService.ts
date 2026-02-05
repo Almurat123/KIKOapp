@@ -8,7 +8,6 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
-import { getPreheatStatus } from './preheatService.js';
 import { MainSwapService } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
@@ -332,25 +331,13 @@ async function handleTargetBuy(
     // I will fix this logic now too: `const tokenToBuy = swap.tokenOut`.
     const tokenToBuy = swap.tokenOut;
     const detectedAt = context?.detectedAt ?? Date.now();
-    const preheat = getPreheatStatus(chainId, tokenToBuy);
     logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target buy start', {
         targetWallet,
         token: tokenToBuy,
         chainId,
         txHash: swap.txHash,
         detectedAt,
-        elapsedMs: Date.now() - detectedAt,
-        preheat: preheat
-            ? {
-                status: preheat.status,
-                reason: preheat.reason,
-                updatedAt: preheat.updatedAt,
-                ageMs: Date.now() - preheat.updatedAt,
-                firstSeenAt: preheat.firstSeenAt,
-                sinceFirstSeenMs: preheat.firstSeenAt ? Date.now() - preheat.firstSeenAt : null,
-                attempts: preheat.attempts ?? null
-            }
-            : null
+        elapsedMs: Date.now() - detectedAt
     });
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
@@ -543,7 +530,7 @@ async function processBuyWithInfo(
                 targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraInfo.price;
             }
         } else {
-            // ETH / WETH - use preheated native price cache (fast & reliable)
+            // ETH / WETH - use cached native price (fast & reliable)
             const nativePrice = await getNativeTokenPriceUsd(chainId);
             if (!nativePrice || nativePrice <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch native token price, cannot calculate trade value', {
@@ -1260,7 +1247,6 @@ async function processSingleUserBuy(
                 // === BUY WITH RETRY LOGIC (Hardened) ===
                 const baseAmount = usdAmount / nativePrice;
                 const timingDetectedAt = Date.now();
-                const timingPreheat = getPreheatStatus(chainId, tokenToBuy);
                 // Use universal global slippage
                 const baseSlippage = effectiveConfig.maxSlippageBps;
                 const copyTradeFeeBpsOverride =
@@ -1273,8 +1259,7 @@ async function processSingleUserBuy(
                     logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${baseSlippage / 100}% slippage`, {
                         userId: effectiveConfig.userId,
                         eth: baseAmount.toFixed(6),
-                        timingMs: Date.now() - timingDetectedAt,
-                        preheatStatus: timingPreheat?.status || null
+                        timingMs: Date.now() - timingDetectedAt
                     });
                     const result1 = await MainSwapService.executeSwap({
                         userId: effectiveConfig.user.privyDid,
@@ -1295,8 +1280,7 @@ async function processSingleUserBuy(
                         userId: effectiveConfig.userId,
                         token: tokenToBuy,
                         txHash,
-                        timingMs: Date.now() - timingDetectedAt,
-                        preheatStatus: timingPreheat?.status || null
+                        timingMs: Date.now() - timingDetectedAt
                     });
                 } catch (buyErr1: any) {
                     logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
