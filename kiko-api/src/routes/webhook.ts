@@ -210,8 +210,22 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const payload = request.body as any;
-        const payloadEventName = payload?.data?.eventName || payload?.event?.eventName || payload?.eventName;
-        const payloadContract = payload?.data?.contractAddress || payload?.event?.contractAddress || payload?.contractAddress;
+        const payloadEventName = (
+            payload?.data?.eventName ||
+            payload?.data?.event_name ||
+            payload?.event?.eventName ||
+            payload?.event?.event_name ||
+            payload?.eventName ||
+            payload?.event_name
+        );
+        const payloadContract = (
+            payload?.data?.contractAddress ||
+            payload?.data?.contract_address ||
+            payload?.event?.contractAddress ||
+            payload?.event?.contract_address ||
+            payload?.contractAddress ||
+            payload?.contract_address
+        );
         console.log(`[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'} ${JSON.stringify(payload).slice(0, 600)}`);
 
         const evmNetwork = payload?.event?.network;
