@@ -356,9 +356,18 @@ export function handleCdpWebhookPayload(payload: any) {
         ''
     ).toString();
 
-    if (!type && !eventName) return;
-    if (type && !type.toLowerCase().includes('onchain')) return;
+    const debug = (process.env.CDP_DEBUG_PREHEAT || '').toLowerCase() === 'true';
+
+    if (!type && !eventName) {
+        if (debug) console.log('[Preheat] Skip: missing type and eventName');
+        return;
+    }
+    if (type && !type.toLowerCase().includes('onchain')) {
+        if (debug) console.log('[Preheat] Skip: non-onchain type', { type });
+        return;
+    }
     if (eventName && !preheatConfig.eventNames.includes(eventName.toLowerCase())) {
+        if (debug) console.log('[Preheat] Skip: eventName not allowlisted', { eventName });
         return;
     }
 
@@ -370,7 +379,10 @@ export function handleCdpWebhookPayload(payload: any) {
         data?.network ||
         payload?.network
     );
-    if (!chainId) return;
+    if (!chainId) {
+        if (debug) console.log('[Preheat] Skip: unknown chainId', { network: data?.network || payload?.network });
+        return;
+    }
 
     const factoryAddress = normalizeAddress(
         data?.contractAddress ||
@@ -381,11 +393,24 @@ export function handleCdpWebhookPayload(payload: any) {
 
     const allowlist = preheatConfig.factoryAllowlist[chainId] || [];
     if (allowlist.length > 0 && factoryAddress && !allowlist.includes(factoryAddress)) {
+        if (debug) console.log('[Preheat] Skip: factory not allowlisted', { factoryAddress, chainId });
         return;
     }
 
     const tokenAddress = extractTokenAddressFromPayload(data, factoryAddress);
-    if (!tokenAddress) return;
+    if (!tokenAddress) {
+        if (debug) console.log('[Preheat] Skip: tokenAddress not found', { factoryAddress, eventName });
+        return;
+    }
+
+    if (debug) {
+        console.log('[Preheat] Enqueue', {
+            chainId,
+            tokenAddress,
+            factoryAddress,
+            eventName
+        });
+    }
 
     enqueuePreheat({
         chainId,

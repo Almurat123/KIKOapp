@@ -520,9 +520,39 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const payload = request.body as any;
-        const payloadEventName = payload?.data?.eventName || payload?.event?.eventName || payload?.eventName;
-        const payloadContract = payload?.data?.contractAddress || payload?.event?.contractAddress || payload?.contractAddress;
-        console.log(`[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'}`);
+        const payloadEventName =
+            payload?.data?.eventName ||
+            payload?.data?.event_name ||
+            payload?.event?.eventName ||
+            payload?.event?.event_name ||
+            payload?.eventName ||
+            payload?.event_name;
+        const payloadContract =
+            payload?.data?.contractAddress ||
+            payload?.data?.contract_address ||
+            payload?.event?.contractAddress ||
+            payload?.event?.contract_address ||
+            payload?.contractAddress ||
+            payload?.contract_address;
+        const payloadType = payload?.type || payload?.event?.type || payload?.data?.type;
+        const payloadNetwork =
+            payload?.data?.network ||
+            payload?.event?.network ||
+            payload?.network ||
+            payload?.data?.networkId ||
+            payload?.event?.networkId ||
+            payload?.networkId;
+        const payloadTx =
+            payload?.data?.transactionHash ||
+            payload?.data?.transaction_hash ||
+            payload?.event?.transactionHash ||
+            payload?.event?.transaction_hash ||
+            payload?.transactionHash ||
+            payload?.transaction_hash;
+
+        console.log(
+            `[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'} type=${payloadType || 'unknown'} network=${payloadNetwork || 'unknown'} tx=${payloadTx || 'n/a'}`
+        );
         if ((process.env.CDP_DEBUG_PAYLOAD || '').toLowerCase() === 'true') {
             const safe = JSON.stringify(payload);
             console.log(`[Webhook] CDP payload raw: ${safe.slice(0, 2000)}`);

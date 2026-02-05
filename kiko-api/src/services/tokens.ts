@@ -38,6 +38,15 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
         'USDT': '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
         'ARB': '0x912CE59144191C1204E64559FE8253a0e49E6548',
     },
+    // Polygon (chainId: 137)
+    137: {
+        'MATIC': '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        'WMATIC': '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
+        'USDC': '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359', // Native USDC
+        'USDC.e': '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+        'USDT': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+        'DAI': '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063',
+    },
 };
 
 /**

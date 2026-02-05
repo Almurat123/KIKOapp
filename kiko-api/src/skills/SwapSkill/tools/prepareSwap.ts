@@ -91,12 +91,12 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
             const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
 
             // Get user's wallet address for quote (required by 0x API)
-            let userWalletAddress: string | undefined;
+            let userWalletAddress: string | undefined = context?.walletAddress || context?.userAddress;
             try {
                 const userId = context?.userId;
                 if (userId && accessToken) {
                     const { getEmbeddedWalletAddress } = await import('../../../services/privyWallet.js');
-                    userWalletAddress = await getEmbeddedWalletAddress(userId) || undefined;
+                    userWalletAddress = (await getEmbeddedWalletAddress(userId)) || userWalletAddress;
                     console.log('[PrepareSwapTransaction] User wallet address:', userWalletAddress?.slice(0, 10) + '...');
                 }
             } catch (err) {

@@ -1615,15 +1615,7 @@ async function getNativePrices(): Promise<Record<string, number>> {
     'solana': 'So11111111111111111111111111111111111111112'
   };
 
-  const prices: Record<string, number> = {
-    'eth': 3400,
-    'base': 3400,
-    'arbitrum': 3400,
-    'optimism': 3400,
-    'polygon': 0.13,
-    'bsc': 650,
-    'solana': 250
-  };
+  const prices: Record<string, number> = {};
 
   const dexPromise = (async () => {
     try {

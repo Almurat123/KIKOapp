@@ -1015,6 +1015,11 @@ export async function getTokenPriceUSD(
       return 1.0;
     }
 
+    // Polygon native USDC (0x3c499...) should also be treated as $1
+    if (chainId === 137 && tokenAddress.toLowerCase() === '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359') {
+      return 1.0;
+    }
+
     // Handle native token - use wrapped native token address (WETH, WBNB, etc.)
     let actualTokenAddress = tokenAddress;
     const lowerToken = tokenAddress?.toLowerCase() || '';
