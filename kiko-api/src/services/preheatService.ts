@@ -103,6 +103,14 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
 
     if (!token || token === weth) return;
 
+    logger.info(LogCode.SYS_INFO, '[Preheat] Start', {
+        chainId: event.chainId,
+        token,
+        factory: event.factoryAddress,
+        eventName: event.eventName,
+        attempt
+    });
+
     // 1) Try WETH pair first (most Clanker pools)
     let pools = await findV4Pools(token, weth, event.chainId, { strategy: 'cheap' });
     let pool = pools[0];

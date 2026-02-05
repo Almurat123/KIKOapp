@@ -1686,6 +1686,7 @@ export async function getPortfolio(
       'arbitrum': 'arb-mainnet',
       'optimism': 'opt-mainnet',
       'polygon': 'polygon-mainnet',
+      'matic': 'polygon-mainnet', // Add alias
       'matic-mainnet': 'polygon-mainnet',
       'bsc': 'bnb-mainnet',
       'solana': 'solana-mainnet',
@@ -1747,6 +1748,7 @@ export async function getPortfolio(
 
     // 1. Fetch EVM Portfolio
     if (evmNetworks.length > 0) {
+      // Use generic alchemy endpoint for Portfolio API
       const url = `https://api.g.alchemy.com/data/v1/${apiKey}/assets/tokens/balances/by-address`;
       const body = {
         addresses: [{ address, networks: evmNetworks }],

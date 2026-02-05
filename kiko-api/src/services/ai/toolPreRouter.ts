@@ -19,10 +19,17 @@ interface ToolCategory {
  * Tool categories ordered by specificity (most specific first)
  */
 const TOOL_CATEGORIES: ToolCategory[] = [
+    // CROSS CHAIN / BRIDGE - Specific cross-chain intent
+    {
+        keywords: /\b(bridge|cross[\s-]?chain|x[\s-]?chain|wormhole|layerzero|跨链|桥接|lifi|li\.fi)\b/i,
+        tools: ['get_cross_chain_quote', 'prepare_cross_chain_tx', 'get_wallet_info', 'get_token_info', 'check_token_risk'],
+        priority: 105
+    },
+
     // TRADING - Most specific
     {
         keywords: /\b(swap|buy|sell|trade|exchange|convert|购买|卖出|兑换)\b/i,
-        tools: ['prepare_swap_transaction', 'check_token_risk', 'get_wallet_info', 'get_token_info', 'create_copy_trade_config'],
+        tools: ['prepare_swap_transaction', 'get_cross_chain_quote', 'prepare_cross_chain_tx', 'check_token_risk', 'get_wallet_info', 'get_token_info', 'create_copy_trade_config'],
         priority: 100
     },
 

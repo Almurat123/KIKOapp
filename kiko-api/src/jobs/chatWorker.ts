@@ -1959,7 +1959,7 @@ Rule: If a token is marked "not present", you must say the balance is unknown or
                             missing,
                             resolvedBalances,
                         });
-                        balanceSystemRule = `BALANCE_CONTEXT_RULE: Balance context is already provided for this request. Do NOT call get_wallet_info unless the user explicitly asks for a refresh. Do NOT ask to check balances or say you will check them. Use [REQUESTED_TOKEN_BALANCE] or [USER_BALANCE_CONTEXT] as authoritative and proceed.`;
+                        balanceSystemRule = `BALANCE_CONTEXT_RULE: Balance context is provided for the CURRENT connected chain. You MAY call get_wallet_info if you need to check a DIFFERENT chain or address. For the current chain, use [REQUESTED_TOKEN_BALANCE] or [USER_BALANCE_CONTEXT] as authoritative. Do NOT ask for permission to check balances.`;
                     }
                 } else if (task.toolContext?.walletAddress) {
                     const unavailableBlock = `\n\n[USER_BALANCE_CONTEXT]
@@ -2104,16 +2104,9 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                 console.log(`[ChatWorker] Applied system injection: ${(task as any).systemInjection}`);
             }
 
-            if (balanceContextAvailable && !balanceRefreshRequested) {
-                const beforeCount = toolDefinitions.length;
-                toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'get_wallet_info');
-                if (toolDefinitions.length !== beforeCount) {
-                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: removed get_wallet_info tool (balance context present)', {
-                        before: beforeCount,
-                        after: toolDefinitions.length,
-                    });
-                }
-            }
+            // [REMOVED] Do not filter get_wallet_info. 
+            // We want the AI to be able to check other chains even if current chain context is present.
+            // if (balanceContextAvailable && !balanceRefreshRequested) { ... }
             if (tokenContextAvailable) {
                 const beforeCount = toolDefinitions.length;
                 toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'get_token_info');
