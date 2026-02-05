@@ -37,9 +37,7 @@ const CHAIN_SLUG_TO_ID: Record<string, number> = {
     'arbitrum': 42161,
     'optimism': 10,
     'polygon': 137,
-    'avalanche': 43114,
-    'fantom': 250,
-    'solana': 900,
+    'solana': 900
 };
 
 /**

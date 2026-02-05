@@ -32,6 +32,18 @@ const preheatInflight = new Set<string>();
 const preheatStatus = new Map<string, PreheatStatus>();
 let activeWorkers = 0;
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timeoutId: NodeJS.Timeout;
+    const timeoutPromise = new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new Error(`${label} timed out after ${ms}ms`));
+        }, ms);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+    }) as Promise<T>;
+}
+
 function buildKey(chainId: number, tokenAddress: string): string {
     return `${chainId}:${tokenAddress.toLowerCase()}`;
 }
@@ -130,88 +142,117 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
         return;
     }
 
-    // 1) Try WETH pair first (most Clanker pools)
-    let pools = await findV4Pools(token, weth, event.chainId, { strategy: 'cheap' });
-    let pool = pools[0];
-
-    // 2) Fallback to stable pairs for discovery (no gate check)
-    if (!pool && chainConfig.stablecoins?.length) {
-        for (const stable of chainConfig.stablecoins) {
-            pools = await findV4Pools(token, stable, event.chainId, { strategy: 'cheap' });
-            pool = pools[0];
-            if (pool) break;
-        }
-    }
-
-    if (!pool) {
-        if (attempt < preheatConfig.maxAttempts) {
-            scheduleRetry(event, attempt);
-        } else {
-            preheatStatus.set(buildKey(event.chainId, token), {
-                status: 'no_pool',
-                updatedAt: Date.now()
-            });
-        }
-        return;
-    }
-
-    const hook = pool.poolKey.hooks;
-    const isClanker = isClankerHook(event.chainId, hook);
-    const poolStatus: PreheatStatus = {
-        status: 'unknown',
-        poolHook: hook,
-        updatedAt: Date.now()
-    };
-
-    // Gate check only when WETH pool exists (to avoid ERC20 approvals)
-    if (normalizeAddress(pool.poolKey.currency0) === weth || normalizeAddress(pool.poolKey.currency1) === weth) {
-        const zeroForOne = normalizeAddress(pool.poolKey.currency0) === weth;
-        const amountInWei = ethers.parseEther(preheatConfig.amountInEth);
-        const deadline = Math.floor(Date.now() / 1000) + 60;
-
-        const tx = buildV4SwapTransaction(
-            event.chainId,
-            pool.poolKey,
-            zeroForOne,
-            amountInWei,
-            0n,
-            preheatConfig.callerAddress,
-            deadline,
-            true,
-            false
+    try {
+        // 1) Try WETH pair first (most Clanker pools)
+        let pools = await withTimeout(
+            findV4Pools(token, weth, event.chainId, { strategy: 'cheap' }),
+            5000,
+            'findV4Pools(WETH)'
         );
+        let pool = pools[0];
 
-        try {
-            await callRpc<string>(event.chainId, 'eth_call', [{
-                from: preheatConfig.callerAddress,
-                to: tx.to,
-                data: tx.data,
-                value: ethers.toQuantity(amountInWei)
-            }, 'latest'], { strategy: 'cheap' });
-
-            poolStatus.status = 'open';
-        } catch (err: any) {
-            const reason = extractRevertReason(err?.message);
-            if (reason && (reason.toLowerCase().includes('not open') || reason.toLowerCase().includes('chill bro'))) {
-                poolStatus.status = 'closed';
-                poolStatus.reason = reason;
-            } else {
-                poolStatus.status = 'unknown';
-                poolStatus.reason = reason || err?.message?.slice(0, 120);
+        // 2) Fallback to stable pairs for discovery (no gate check)
+        if (!pool && chainConfig.stablecoins?.length) {
+            for (const stable of chainConfig.stablecoins) {
+                pools = await withTimeout(
+                    findV4Pools(token, stable, event.chainId, { strategy: 'cheap' }),
+                    5000,
+                    'findV4Pools(stable)'
+                );
+                pool = pools[0];
+                if (pool) break;
             }
         }
+
+        if (!pool) {
+            if (attempt < preheatConfig.maxAttempts) {
+                logger.info(LogCode.SYS_INFO, '[Preheat] No pool yet, retry scheduled', {
+                    chainId: event.chainId,
+                    token,
+                    attempt
+                });
+                scheduleRetry(event, attempt);
+            } else {
+                preheatStatus.set(buildKey(event.chainId, token), {
+                    status: 'no_pool',
+                    updatedAt: Date.now()
+                });
+                logger.info(LogCode.SYS_INFO, '[Preheat] No pool found (max attempts)', {
+                    chainId: event.chainId,
+                    token
+                });
+            }
+            return;
+        }
+
+        const hook = pool.poolKey.hooks;
+        const isClanker = isClankerHook(event.chainId, hook);
+        const poolStatus: PreheatStatus = {
+            status: 'unknown',
+            poolHook: hook,
+            updatedAt: Date.now()
+        };
+
+        // Gate check only when WETH pool exists (to avoid ERC20 approvals)
+        if (normalizeAddress(pool.poolKey.currency0) === weth || normalizeAddress(pool.poolKey.currency1) === weth) {
+            const zeroForOne = normalizeAddress(pool.poolKey.currency0) === weth;
+            const amountInWei = ethers.parseEther(preheatConfig.amountInEth);
+            const deadline = Math.floor(Date.now() / 1000) + 60;
+
+            const tx = buildV4SwapTransaction(
+                event.chainId,
+                pool.poolKey,
+                zeroForOne,
+                amountInWei,
+                0n,
+                preheatConfig.callerAddress,
+                deadline,
+                true,
+                false
+            );
+
+            try {
+                await withTimeout(
+                    callRpc<string>(event.chainId, 'eth_call', [{
+                        from: preheatConfig.callerAddress,
+                        to: tx.to,
+                        data: tx.data,
+                        value: ethers.toQuantity(amountInWei)
+                    }, 'latest'], { strategy: 'cheap' }),
+                    5000,
+                    'eth_call(preheat)'
+                );
+
+                poolStatus.status = 'open';
+            } catch (err: any) {
+                const reason = extractRevertReason(err?.message);
+                if (reason && (reason.toLowerCase().includes('not open') || reason.toLowerCase().includes('chill bro'))) {
+                    poolStatus.status = 'closed';
+                    poolStatus.reason = reason;
+                } else {
+                    poolStatus.status = 'unknown';
+                    poolStatus.reason = reason || err?.message?.slice(0, 120);
+                }
+            }
+        }
+
+        preheatStatus.set(buildKey(event.chainId, token), poolStatus);
+
+        logger.info(LogCode.API_FETCH_SUCCESS, '[Preheat] V4 pool warmed', {
+            token,
+            chainId: event.chainId,
+            hook: pool.poolKey.hooks,
+            clanker: isClanker,
+            status: poolStatus.status,
+            reason: poolStatus.reason?.slice(0, 64)
+        });
+    } catch (err: any) {
+        logger.warn(LogCode.API_FETCH_FAILED, '[Preheat] Error', {
+            chainId: event.chainId,
+            token: event.tokenAddress,
+            error: err?.message?.slice(0, 160)
+        });
     }
-
-    preheatStatus.set(buildKey(event.chainId, token), poolStatus);
-
-    logger.info(LogCode.API_FETCH_SUCCESS, '[Preheat] V4 pool warmed', {
-        token,
-        chainId: event.chainId,
-        hook: pool.poolKey.hooks,
-        clanker: isClanker,
-        status: poolStatus.status,
-        reason: poolStatus.reason?.slice(0, 64)
-    });
 }
 
 export function getPreheatStatus(chainId: number, tokenAddress: string): PreheatStatus | null {

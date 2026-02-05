@@ -488,8 +488,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             }
         }
 
-        const cdpSecret = env.security.coinbaseCdpWebhookSecret;
-        if (cdpSecret) {
+        const cdpSecretRaw = env.security.coinbaseCdpWebhookSecret;
+        const cdpSecrets = cdpSecretRaw
+            ? cdpSecretRaw.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
+        if (cdpSecrets.length > 0) {
             const signature = request.headers['x-hook0-signature'] as string | undefined;
             if (!signature) {
                 console.warn('[Webhook] Missing CDP signature');
@@ -502,7 +505,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 return reply.status(500).send({ error: 'Internal server error' });
             }
 
-            const isValid = verifyCdpSignature(signature, rawBody.toString(), request.headers, cdpSecret);
+            const isValid = cdpSecrets.some(secret =>
+                verifyCdpSignature(signature, rawBody.toString(), request.headers, secret)
+            );
             if (!isValid) {
                 console.warn('[Webhook] Invalid CDP signature');
                 return reply.status(401).send({ error: 'Invalid signature' });
