@@ -483,6 +483,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const signature = request.headers['x-hook0-signature'] as string | undefined;
         // If not a CDP webhook, ignore silently (likely Alchemy misrouted)
         if (!signature) {
+            console.warn('[Webhook] CDP missing signature', {
+                ip: request.ip,
+                ua: request.headers['user-agent'],
+                ct: request.headers['content-type']
+            });
             return reply.send({ success: true, ignored: true });
         }
 
@@ -507,6 +512,10 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const payload = request.body as any;
+        const payloadEventName = payload?.data?.eventName || payload?.event?.eventName || payload?.eventName;
+        const payloadContract = payload?.data?.contractAddress || payload?.event?.contractAddress || payload?.contractAddress;
+        console.log(`[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'}`);
+
         reply.send({ success: true });
 
         setImmediate(() => {

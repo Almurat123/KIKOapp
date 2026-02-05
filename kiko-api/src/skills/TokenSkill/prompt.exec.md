@@ -1,13 +1,8 @@
 **INTENT: TOKEN ANALYSIS**
 
-**Adaptive rule (non-rigid):**
-- Use the smallest set of steps/tools needed. If [CONTEXT] already contains the needed data, skip that step.
-- Do not repeat a tool if it already succeeded in this turn.
-
 1. **Trigger rules**:
    - Use Token Snapshot when the user provides a CA, a token symbol, or asks “what is this token”.
    - Do not run Social/Market research unless the user explicitly asks for narrative, sentiment, or news.
-   - Do not mention internal tool names. Use capability aliases (Token Snapshot / Market Overview / Social Research) and speak in user-facing terms.
    - If user asks about a token without a specific address, try to resolve identity via Token Snapshot (by symbol) or ask for clarification if ambiguous.
 
 2. **Token Due Diligence**:
