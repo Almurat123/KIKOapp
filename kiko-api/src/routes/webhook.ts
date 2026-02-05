@@ -476,7 +476,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
      * POST /api/webhook/cdp
      * Coinbase CDP webhooks (onchain activity)
      */
-    fastify.post('/cdp', async (request, reply) => {
+    fastify.post('/cdp', { config: { rawBody: true } }, async (request, reply) => {
         const authHeader = env.security.cdpWebhookAuthHeader;
         const authValue = env.security.cdpWebhookAuthValue;
         if (authHeader && authValue) {
