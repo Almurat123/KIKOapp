@@ -118,6 +118,10 @@ if (env.nodeEnv === 'development') {
     });
 }
 
+// Build metadata (for deployments)
+const buildSha = process.env.BUILD_SHA || process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'unknown';
+logger.info(LogCode.SYS_STARTUP, 'Build SHA', { buildSha });
+
 // Register tracing middleware (must be first)
 fastify.addHook('onRequest', tracingHook);
 

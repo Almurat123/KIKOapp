@@ -183,7 +183,7 @@ USER_QUERY_END
             }
 
             if (config.showQuoteBeforeSwap && !config.fastSwapMode) {
-                parts.push(`- Price Simulation: ENABLED. 🚨 CRITICAL RULE: You MUST call simulate_swap FIRST before ANY swap execution. DO NOT call prepare_swap_transaction until you have called simulate_swap and outputted the result to the user. This is a HARD REQUIREMENT.`);
+                parts.push(`- Price Simulation: ENABLED. 🚨 CRITICAL RULE: You MUST call simulate_swap ONCE before the first swap execution for a given pair+amount. After the user confirms, DO NOT re-run simulate_swap or fetch ad-hoc prices; call prepare_swap_transaction directly using the confirmed parameters.`);
             }
 
             if (config.defaultSwapAmount) {
@@ -202,7 +202,7 @@ USER_QUERY_END
             }
 
             if (config.priceDeviationCheck) {
-                parts.push(`- Price deviation check: Enabled. Warn and halt if deviation is excessive.`);
+                parts.push(`- Price deviation check: Enabled. Use the latest simulate_swap result for deviation checks; do not perform extra price lookups after user confirmation.`);
             }
 
             if (config.copyTradeAIMode && config.copyTradeAIMode !== 'disabled') {

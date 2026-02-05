@@ -332,7 +332,7 @@ function validateEnv(): EnvConfig {
         },
         security: {
             alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,
-            internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET,
+            internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET || process.env.COINBASE_CDP_WEBHOOK_SECRET,
             coinbaseCdpWebhookSecret: process.env.COINBASE_CDP_WEBHOOK_SECRET,
             cdpWebhookAuthHeader: process.env.CDP_WEBHOOK_AUTH_HEADER,
             cdpWebhookAuthValue: process.env.CDP_WEBHOOK_AUTH_VALUE,

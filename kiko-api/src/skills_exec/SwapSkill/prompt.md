@@ -19,10 +19,10 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
      - All other tokens: do not guess; ask for the contract address to avoid fakes.
 
 4. **Safety verification (mandatory gates)**
-   - Fast flow:
-     1) Token Snapshot (identity + liquidity/FDV).
-     2) Trade Preparation check for expected out / price impact when needed.
-     3) Proceed only if execution risk is acceptable for the user’s settings.
+    - Fast flow:
+       1) Token Snapshot (identity + liquidity/FDV).
+       2) If price simulation is enabled, run it ONCE and present the result.
+       3) After user confirms, proceed directly to execution (do NOT re-simulate or recompute prices).
    - Risk Scan:
      - Only if the user asks for safety, or settings require it.
      - If the token is confirmed as a launchpad token, skip Risk Scan unless the user explicitly asks for a risk check.
