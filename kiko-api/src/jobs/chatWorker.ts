@@ -276,6 +276,41 @@ export class ChatWorker {
         return map;
     }
 
+    private buildToolFallbackMessage(toolResults: any[]): string | null {
+        for (const res of toolResults) {
+            const content = res?.content;
+            if (!content) continue;
+            if (typeof content === 'string' && content.startsWith('Error:')) {
+                return content;
+            }
+            try {
+                const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+                if (!parsed || typeof parsed !== 'object') continue;
+
+                if (parsed.error) {
+                    return `⚠️ ${parsed.error}`;
+                }
+
+                const expected = parsed.expected_out_human || parsed.expected_out;
+                if (expected) {
+                    const impact = parsed.price_impact || (parsed.price_impact_pct !== undefined ? `${parsed.price_impact_pct}%` : undefined);
+                    const lines = [
+                        'Simulation result:',
+                        `- Expected receive: ${expected}`,
+                        impact ? `- Price impact: ${impact}` : undefined,
+                        parsed.warning ? `- Warning: ${parsed.warning}` : undefined,
+                        'Reply "confirm" to proceed.'
+                    ].filter(Boolean) as string[];
+                    return lines.join('\n');
+                }
+            } catch {
+                continue;
+            }
+        }
+
+        return null;
+    }
+
     private buildWalletInfoFromContext(task: AITask): any | null {
         const ctx = task.toolContext;
         if (!ctx) return null;
@@ -383,15 +418,28 @@ export class ChatWorker {
         if (!entries || entries.length === 0) return entries;
         const nativeSymbols = new Set(['ETH', 'MATIC', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
         const isEvm = chainId !== 900 && chainId !== undefined;
+        const scamKeywordPattern = /(t\.me|telegram|airdrop|reward|claim|visit|free|bonus|giveaway|promo|http|https|\.com|\.io)/i;
+        const dustThreshold = 1e-6;
         return entries.filter((token) => {
             const symbol = String(token.symbol || '').toUpperCase();
+            const rawSymbol = String(token.symbol || '');
             if (nativeSymbols.has(symbol)) return true;
             const addr = token.contractAddress || '';
             if (!addr) return false;
             if (isEvm) {
-                return /^0x[0-9a-fA-F]{40}$/.test(addr);
+                if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return false;
+            } else if (addr.length < 32) {
+                return false;
             }
-            return addr.length >= 32; // allow Solana base58 mints
+            if (!rawSymbol || rawSymbol.startsWith('0x')) return false;
+            if (scamKeywordPattern.test(rawSymbol)) return false;
+
+            const balanceNum = Number(token.balance);
+            if (Number.isFinite(balanceNum) && balanceNum > 0 && balanceNum < dustThreshold) {
+                return false;
+            }
+
+            return true;
         });
     }
 
@@ -903,6 +951,7 @@ export class ChatWorker {
         let chunkIndex = 0;
         let lastUsage: any = null;  // Track usage for DB persistence
         let allCitations: any[] = [];  // Track citations for DB persistence
+        let lastToolResults: any[] = [];
         const citationUrlSet = new Set<string>();
 
         // CRITICAL: Broadcast message_start so frontend creates the message BEFORE chunks arrive
@@ -2411,6 +2460,26 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                 }
             }
 
+            if (streamError && lastToolResults.length > 0) {
+                const fallback = this.buildToolFallbackMessage(lastToolResults);
+                if (fallback) {
+                    totalContent = (totalContent || '') + (totalContent ? '\n\n' : '') + fallback;
+                    iterContent += fallback;
+                    const fallbackChunk = {
+                        index: chunkIndex++,
+                        type: 'content' as const,
+                        content: fallback,
+                        delta: fallback,
+                        messageId: assistantMessageId
+                    };
+                    this.ws.broadcastToUser(userId!, {
+                        type: 'chunk',
+                        sessionId: task.sessionId,
+                        data: fallbackChunk
+                    });
+                }
+            }
+
             // CRITICAL: Detect empty output from DeepSeek
             // This occurs when the model fails to generate any content or tool calls
             // Common causes: ambiguous prompts, context too long, or model confusion
@@ -2496,6 +2565,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     toolTrace,
                     execState
                 );
+                lastToolResults = toolResults;
                 allCitations.push(...toolCitations);  // Merge into tracking array
                 for (const res of toolResults) {
                     history.push(res);
