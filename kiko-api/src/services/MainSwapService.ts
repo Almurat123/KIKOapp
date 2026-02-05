@@ -448,6 +448,19 @@ export class MainSwapService {
           };
         }
         // 直接交易失败，fallback 到 0x/Kyber
+        if (directResult.error?.startsWith('clanker_gate:') || directResult.error === 'clanker_force_v4_failed') {
+          logger.warn(LogCode.SYS_INFO, trace(`Direct swap blocked by clanker gate: ${directResult.error}`), {
+            error: directResult.error
+          });
+          return {
+            success: false,
+            error: directResult.error,
+            metadata: {
+              provider: directResult.provider,
+              mode: request.mode
+            }
+          };
+        }
         logger.warn(LogCode.SYS_INFO, trace(`Direct swap failed, falling back to 0x/Kyber: ${directResult.error || 'unknown'}`), {
           error: directResult.error
         });

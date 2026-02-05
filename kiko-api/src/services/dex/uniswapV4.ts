@@ -14,6 +14,7 @@ import { ethers } from 'ethers';
 import { callRpc } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
+import { CLANKER_HOOKS_BY_CHAIN } from './v4Hooks.js';
 
 // StateView ABI
 const V4_STATE_VIEW_ABI = [
@@ -31,14 +32,7 @@ export const V4_STATE_VIEW: Record<number, string> = {
 
 const stateViewInterface = new ethers.Interface(V4_STATE_VIEW_ABI);
 
-// Clanker Hook 地址 (Base)
-// [Ref]: https://clanker.gitbook.io/clanker-documentation/references/core-contracts/v4
-const CLANKER_HOOKS_BASE = [
-    '0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC', // ClankerHookStaticFeeV2 v4.1.0 (主要)
-    '0xd60D6B218116cFd801E28F78d011a203D2b068Cc', // ClankerHookDynamicFeeV2 v4.1.0
-    '0x34a45c6B61876d739400Bd71228CbcbD4F53E8cC', // ClankerHookDynamicFee v4.0.0
-    '0xDd5EeaFf7BD481AD55Db083062b13a3cdf0A68CC', // ClankerHookStaticFee v4.0.0
-];
+const CLANKER_HOOKS_BASE = CLANKER_HOOKS_BY_CHAIN[8453] || [];
 
 // Zora Creator Coin Hooks (Base)
 const ZORA_HOOKS_BASE = [
@@ -115,7 +109,8 @@ export function computePoolId(poolKey: V4PoolKey): string {
  */
 export async function getV4PoolInfo(
     poolKey: V4PoolKey,
-    chainId: number
+    chainId: number,
+    options?: { strategy?: 'fast' | 'cheap' }
 ): Promise<V4PoolInfo | null> {
     const stateView = V4_STATE_VIEW[chainId];
     if (!stateView) return null;
@@ -128,7 +123,7 @@ export async function getV4PoolInfo(
         const slot0Result = await callRpc<string>(chainId, 'eth_call', [{
             to: stateView,
             data: slot0Data
-        }, 'latest']);
+        }, 'latest'], options);
 
         if (!slot0Result || slot0Result === '0x' || slot0Result.length < 66) {
             return null;
@@ -151,7 +146,7 @@ export async function getV4PoolInfo(
         const liquidityResult = await callRpc<string>(chainId, 'eth_call', [{
             to: stateView,
             data: liquidityData
-        }, 'latest']);
+        }, 'latest'], options);
 
         const liquidity = liquidityResult && liquidityResult !== '0x'
             ? BigInt(liquidityResult)
@@ -178,7 +173,8 @@ export async function getV4PoolInfo(
 export async function findV4Pools(
     tokenA: string,
     tokenB: string,
-    chainId: number
+    chainId: number,
+    options?: { strategy?: 'fast' | 'cheap' }
 ): Promise<V4PoolInfo[]> {
     const configs = V4_CONFIGS[chainId];
     if (!configs) return [];
@@ -216,7 +212,7 @@ export async function findV4Pools(
 
     const promise = (async () => {
         const results = await Promise.all(
-            poolKeys.map(poolKey => getV4PoolInfo(poolKey, chainId).catch(() => null))
+            poolKeys.map(poolKey => getV4PoolInfo(poolKey, chainId, options).catch(() => null))
         );
 
         const pools = results.filter((pool): pool is V4PoolInfo =>

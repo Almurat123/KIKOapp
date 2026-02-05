@@ -27,6 +27,8 @@ import { get as getDbCache } from '../../cache/dbCache.js';
 import { V2_ROUTER_ABI, V3_FEE_TIERS } from './types.js';
 import { buildAerodromeSwapTransaction, getAerodromeQuote } from './aerodrome.js';
 import { getChainConfig } from '../../config/chainConfig.js';
+import { buildClankerHookData, isClankerHook } from './v4Hooks.js';
+import { extractRevertReason } from '../../utils/evm.js';
 
 // 常用代币地址
 const WETH_ADDRESSES: Record<number, string> = {
@@ -353,10 +355,20 @@ export async function executeDirectSwap(params: {
 
         const amountInWei = ethers.parseEther(amountIn);
 
+        let forceV4 = false;
+        if (isV4SwapSupported(chainId)) {
+            try {
+                const v4Pools = await findV4Pools(poolTokenIn, poolTokenOut, chainId);
+                forceV4 = v4Pools.some(p => isClankerHook(chainId, p.poolKey.hooks));
+            } catch {
+                forceV4 = false;
+            }
+        }
+
         if (V4_FAST_PATH && isV4SwapSupported(chainId)) {
             const fastStart = Date.now();
             const [v4Best, referenceQuote] = await Promise.all([
-                getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId),
+                getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, params.walletAddress),
                 getReferenceExpectedOutput(normalizedTokenIn, normalizedTokenOut, amountInWei, chainId, params.slippageBps, params.walletAddress)
             ]);
 
@@ -365,6 +377,18 @@ export async function executeDirectSwap(params: {
                 referenceQuote: referenceQuote.toString().slice(0, 15),
                 durationMs: Date.now() - fastStart
             });
+
+            if (forceV4 && v4Best.pool) {
+                const normalizedParams = {
+                    ...params,
+                    tokenIn: normalizedTokenIn,
+                    tokenOut: normalizedTokenOut
+                };
+                logger.info(LogCode.SYS_INFO, '[DirectSwap] V4 fast path forced (clanker)', {
+                    amountOut: v4Best.amountOut.toString().slice(0, 15)
+                });
+                return finish(await executeV4Swap(normalizedParams, v4Best.pool));
+            }
 
             if (v4Best.pool && v4Best.amountOut > 0n && referenceQuote > 0n) {
                 const deviationBps = Math.min(Math.max(REFERENCE_DEVIATION_BPS, 0), 5000);
@@ -387,6 +411,9 @@ export async function executeDirectSwap(params: {
                     : referenceQuote <= 0n ? 'reference_quote_unavailable'
                         : 'v4_quote_not_reasonable'
             });
+            if (forceV4) {
+                return finish({ success: false, error: 'clanker_force_v4_failed', provider: 'uniswap-v4' });
+            }
         }
 
         const poolStart = Date.now();
@@ -433,6 +460,7 @@ export async function executeDirectSwap(params: {
         const strategies = CHAIN_STRATEGIES[chainId] || CHAIN_STRATEGIES[1];
 
         for (const strategy of strategies) {
+            if (forceV4 && strategy.kind !== 'v4') continue;
             if (strategy.kind === 'infinity') {
                 if (chainId !== 56) continue;
                 const infinityQuote = await getInfinityBestQuoteOut(poolTokenIn, poolTokenOut, amountInWei, chainId);
@@ -444,9 +472,15 @@ export async function executeDirectSwap(params: {
 
             if (strategy.kind === 'v4') {
                 if (!isV4SwapSupported(chainId)) continue;
-                const v4Best = await getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId);
+                const v4Best = await getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, params.walletAddress);
+                if (forceV4 && v4Best.pool) {
+                    return finish(await executeV4Swap(normalizedParams, v4Best.pool));
+                }
                 if (v4Best.pool && v4Best.amountOut >= minReasonable) {
                     return finish(await executeV4Swap(normalizedParams, v4Best.pool));
+                }
+                if (forceV4) {
+                    return finish({ success: false, error: 'clanker_force_v4_failed', provider: 'uniswap-v4' });
                 }
                 continue;
             }
@@ -951,14 +985,21 @@ async function callV4QuoterExactOut(
     poolKey: V4PoolKey,
     zeroForOne: boolean,
     amountInWei: bigint,
-    chainId: number
+    chainId: number,
+    payee?: string,
+    gasPriceWei?: bigint
 ): Promise<bigint> {
     const quoter = getV4QuoterAddress(chainId);
     if (!quoter) return 0n;
     const MAX_UINT128 = (1n << 128n) - 1n;
     if (amountInWei <= 0n || amountInWei > MAX_UINT128) return 0n;
 
-    const cacheKey = `${chainId}:${poolKey.currency0.toLowerCase()}:${poolKey.currency1.toLowerCase()}:${poolKey.fee}:${poolKey.tickSpacing}:${poolKey.hooks.toLowerCase()}:${zeroForOne ? '1' : '0'}:${amountInWei.toString()}`;
+    const isClanker = isClankerHook(chainId, poolKey.hooks);
+    if (isClanker && !payee) return 0n;
+
+    const payeeKey = isClanker && payee ? payee.toLowerCase() : 'nopayee';
+    const gasKey = isClanker && gasPriceWei ? gasPriceWei.toString() : 'nogas';
+    const cacheKey = `${chainId}:${poolKey.currency0.toLowerCase()}:${poolKey.currency1.toLowerCase()}:${poolKey.fee}:${poolKey.tickSpacing}:${poolKey.hooks.toLowerCase()}:${zeroForOne ? '1' : '0'}:${amountInWei.toString()}:${payeeKey}:${gasKey}`;
     const cached = v4QuoterCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < V4_QUOTER_CACHE_TTL_MS) {
         return cached.value;
@@ -967,6 +1008,8 @@ async function callV4QuoterExactOut(
     const iface = new ethers.Interface([
         'function quoteExactInputSingle((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) external returns (uint256 amountOut,uint256 gasEstimate)'
     ]);
+
+    const hookData = isClanker && payee ? buildClankerHookData(payee) : '0x';
 
     const data = iface.encodeFunctionData('quoteExactInputSingle', [
         {
@@ -978,7 +1021,7 @@ async function callV4QuoterExactOut(
         },
         zeroForOne,
         amountInWei,
-        '0x'
+        hookData
     ]);
 
     const chainConfig = getChainConfig(chainId);
@@ -986,6 +1029,11 @@ async function callV4QuoterExactOut(
     for (const endpoint of endpoints) {
         if (!endpoint) continue;
         try {
+            const callParams: Record<string, any> = { to: quoter, data };
+            if (gasPriceWei && gasPriceWei > 0n) {
+                callParams.gasPrice = ethers.toQuantity(gasPriceWei);
+            }
+
             const response = await withTimeout(fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -993,7 +1041,7 @@ async function callV4QuoterExactOut(
                     jsonrpc: '2.0',
                     id: Date.now(),
                     method: 'eth_call',
-                    params: [{ to: quoter, data }, 'latest']
+                    params: [callParams, 'latest']
                 })
             }).then(res => res.json()), V4_QUOTER_TIMEOUT_MS);
 
@@ -1026,7 +1074,8 @@ async function getV4BestPoolQuote(
     tokenIn: string,
     tokenOut: string,
     amountInWei: bigint,
-    chainId: number
+    chainId: number,
+    payee?: string
 ): Promise<{ pool: PoolInfo | null; amountOut: bigint }> {
     const pools = await findV4Pools(tokenIn, tokenOut, chainId);
     if (!pools.length) return { pool: null, amountOut: 0n };
@@ -1076,7 +1125,7 @@ async function getV4BestPoolQuote(
             outWei = reserve0 > newReserve0 ? reserve0 - newReserve0 : 0n;
         }
 
-        const quoterOut = await callV4QuoterExactOut(pool.poolKey, zeroForOne, amountInWei, chainId);
+        const quoterOut = await callV4QuoterExactOut(pool.poolKey, zeroForOne, amountInWei, chainId, payee);
         const finalOut = quoterOut > 0n ? quoterOut : outWei;
 
         if (finalOut > bestOut) {
@@ -1133,7 +1182,7 @@ async function getReferenceExpectedOutput(
         const weth = WETH_ADDRESSES[chainId];
         const poolTokenIn = tokenIn.toLowerCase() === ETH_ADDRESS && weth ? weth : tokenIn;
         const poolTokenOut = tokenOut.toLowerCase() === ETH_ADDRESS && weth ? weth : tokenOut;
-        const v4Best = await getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId);
+        const v4Best = await getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, recipient);
         if (v4Best.amountOut > 0n) return v4Best.amountOut;
         return 0n;
     }
@@ -1395,10 +1444,18 @@ async function executeV4Swap(
         });
     }
 
-    quoterOutWei = await callV4QuoterExactOut(poolKey, zeroForOne, amountInWei, chainId);
+    let gasPriceWei: bigint | undefined;
+    try {
+        const gasPriceHex = await callRpc<string>(chainId, 'eth_gasPrice', []);
+        gasPriceWei = gasPriceHex ? BigInt(gasPriceHex) : undefined;
+    } catch {
+        gasPriceWei = undefined;
+    }
+
+    quoterOutWei = await callV4QuoterExactOut(poolKey, zeroForOne, amountInWei, chainId, params.walletAddress, gasPriceWei);
     let baseOutWei = quoterOutWei > 0n ? quoterOutWei : spotOutWei;
     if (baseOutWei <= 0n) {
-        const fallbackBest = await getV4BestPoolQuote(normalizedIn!, normalizedOut!, amountInWei, chainId);
+        const fallbackBest = await getV4BestPoolQuote(normalizedIn!, normalizedOut!, amountInWei, chainId, params.walletAddress);
         baseOutWei = fallbackBest.amountOut;
     }
     if (baseOutWei <= 0n) {
@@ -1439,6 +1496,15 @@ async function executeV4Swap(
             value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
         }, 'latest']);
     } catch (err: any) {
+        const reason = extractRevertReason(err?.message);
+        if (reason && (reason.toLowerCase().includes('not open') || reason.toLowerCase().includes('chill bro'))) {
+            logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 clanker gate', {
+                reason,
+                wallet: params.walletAddress,
+                hook: poolKey.hooks
+            });
+            return { success: false, error: `clanker_gate:${reason}`, provider: 'uniswap-v4' };
+        }
         logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 pre-simulation failed', {
             error: err?.message?.slice(0, 160)
         });

@@ -1,0 +1,24 @@
+{
+    "id": "cross_chain_swap",
+    "name": "Cross Chain Swap",
+    "description": "Transfer and swap tokens across different blockchains (EVM, Solana, etc.)",
+    "intents": [
+        "TRADING"
+    ],
+    "tools": [
+        "get_cross_chain_quote",
+        "prepare_cross_chain_tx"
+    ],
+    "examples": {
+        "en": [
+            "cross-chain 1 ETH from Ethereum to Solana USDC",
+            "bridge 100 USDC from Base to Polygon",
+            "swap my PEPE on Base to SOL on Solana"
+        ],
+        "zh": [
+            "把 Ethereum 上的 1 ETH 跨链换成 Solana 上的 USDC",
+            "将 100 USDC 从 Base 跨链到 Polygon",
+            "把我在 Base 上的 PEPE 换成 Solana 上的 SOL"
+        ]
+    }
+}

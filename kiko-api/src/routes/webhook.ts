@@ -10,6 +10,7 @@ import { normalizeAddress } from '../utils/address.js';
 import { parseSwapTransaction } from '../services/txDecoder.js';
 import { env } from '../config/env.js';
 import crypto from 'node:crypto';
+import { handleCdpWebhookPayload } from '../services/preheatService.js';
 
 interface ProcessTxBody {
     wallet: string;
@@ -470,5 +471,99 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }); // End setImmediate
     });
 
-    // Coinbase CDP webhook removed (not suitable for copytrade address tracking).
+    // Coinbase CDP webhook (preheat only; not used for copytrade address tracking).
+    /**
+     * POST /api/webhook/cdp
+     * Coinbase CDP webhooks (onchain activity)
+     */
+    fastify.post('/cdp', async (request, reply) => {
+        const authHeader = env.security.cdpWebhookAuthHeader;
+        const authValue = env.security.cdpWebhookAuthValue;
+        if (authHeader && authValue) {
+            const provided = request.headers[authHeader.toLowerCase()] as string | undefined;
+            if (!provided || provided !== authValue) {
+                console.warn('[Webhook] Invalid CDP auth header');
+                return reply.status(401).send({ error: 'Invalid auth header' });
+            }
+        }
+
+        const cdpSecret = env.security.coinbaseCdpWebhookSecret;
+        if (cdpSecret) {
+            const signature = request.headers['x-hook0-signature'] as string | undefined;
+            if (!signature) {
+                console.warn('[Webhook] Missing CDP signature');
+                return reply.status(401).send({ error: 'Missing signature' });
+            }
+
+            const rawBody = (request as any).rawBody;
+            if (!rawBody) {
+                console.error('[Webhook] rawBody missing for CDP webhook');
+                return reply.status(500).send({ error: 'Internal server error' });
+            }
+
+            const isValid = verifyCdpSignature(signature, rawBody.toString(), request.headers, cdpSecret);
+            if (!isValid) {
+                console.warn('[Webhook] Invalid CDP signature');
+                return reply.status(401).send({ error: 'Invalid signature' });
+            }
+        }
+
+        const payload = request.body as any;
+        reply.send({ success: true });
+
+        setImmediate(() => {
+            try {
+                handleCdpWebhookPayload(payload);
+            } catch (err: any) {
+                console.error('[Webhook] Error processing CDP webhook:', err?.message || err);
+            }
+        });
+    });
+}
+
+function verifyCdpSignature(
+    signatureHeader: string,
+    rawBody: string,
+    headers: Record<string, any>,
+    secret: string
+): boolean {
+    const parts = signatureHeader.split(',').map(p => p.trim());
+    const map: Record<string, string> = {};
+    for (const part of parts) {
+        const [k, v] = part.split('=');
+        if (k && v) map[k] = v;
+    }
+
+    const timestampRaw = map['t'];
+    const signature = map['v1'];
+    const signedHeaderNames = map['h'] || '';
+
+    if (!timestampRaw || !signature) return false;
+
+    let timestamp = Number(timestampRaw);
+    if (!Number.isFinite(timestamp)) return false;
+    // Support ms timestamps
+    if (timestamp > 1e12) timestamp = Math.floor(timestamp / 1000);
+
+    const maxAgeSec = Number(process.env.CDP_WEBHOOK_MAX_AGE_SEC || '300');
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (Math.abs(nowSec - timestamp) > maxAgeSec) {
+        return false;
+    }
+
+    const headerNames = signedHeaderNames.length
+        ? signedHeaderNames.split(' ').map(h => h.trim()).filter(Boolean)
+        : [];
+    const headerValues = headerNames
+        .map(name => String(headers[name] ?? headers[name.toLowerCase()] ?? ''))
+        .join('.');
+
+    const signedPayload = `${timestampRaw}.${signedHeaderNames}.${headerValues}.${rawBody}`;
+    const computed = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
+
+    try {
+        return crypto.timingSafeEqual(Buffer.from(computed, 'hex'), Buffer.from(signature, 'hex'));
+    } catch {
+        return false;
+    }
 }

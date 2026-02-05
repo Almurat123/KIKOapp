@@ -93,24 +93,24 @@ export async function getEmbeddedWalletInfo(userId: string): Promise<{ address: 
             };
         } catch (error: any) {
             lastError = error;
-            
+
             if (attempt < maxRetries - 1) {
                 const delayMs = 500 * Math.pow(2, attempt); // 500ms, 1s, 2s
-                logger.warn(LogCode.SYS_INFO, `Privy wallet fetch failed, retrying in ${delayMs}ms`, { 
-                    userId, 
-                    attempt: attempt + 1, 
+                logger.warn(LogCode.SYS_INFO, `Privy wallet fetch failed, retrying in ${delayMs}ms`, {
+                    userId,
+                    attempt: attempt + 1,
                     maxRetries,
-                    error: error.message 
+                    error: error.message
                 });
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
         }
     }
 
-    logger.error(LogCode.SYS_ERROR, 'Error getting user wallet from Privy after retries', { 
-        userId, 
+    logger.error(LogCode.SYS_ERROR, 'Error getting user wallet from Privy after retries', {
+        userId,
         attempts: maxRetries,
-        error: lastError?.message 
+        error: lastError?.message
     });
     throw new AppError(500, 'Failed to get user wallet', 'WALLET_ERROR');
 }
@@ -129,12 +129,6 @@ export async function getEmbeddedWalletAddress(userId: string): Promise<string |
  * Get user's Solana embedded wallet address
  */
 export async function getSolanaEmbeddedWalletAddress(userId: string): Promise<string | null> {
-    // SIMULATION MODE: Return dummy wallet for test user
-    if (process.env.SIMULATION_MODE === 'true' && userId.includes('test-user-simulation-123')) {
-        logger.info(LogCode.SYS_INFO, '🧪 SIMULATION: Returning mock Solana wallet address', { userId });
-        return 'MockSolanaWalletAddress111111111111111111111';
-    }
-
     const client = getPrivyClient();
 
     try {

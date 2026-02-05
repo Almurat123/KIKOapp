@@ -1,4 +1,5 @@
 import { toolRegistry } from './registry.js';
+import { GetCrossChainQuoteTool, PrepareCrossChainTxTool } from '../skills/CrossChainSkill/index.js';
 import { GetTokenInfoTool } from '../skills/TokenSkill/index.js';
 import { GetTrendingTokensTool } from '../skills/TokenSkill/index.js';
 import { ExternalWebSearchTool } from '../skills/MarketSkill/index.js';
@@ -101,6 +102,10 @@ toolRegistry.register(SetTokenAlertTool);
 toolRegistry.register(ListTokenAlertsTool);
 toolRegistry.register(RemoveTokenAlertTool);
 
+// Cross Chain Tools
+toolRegistry.register(GetCrossChainQuoteTool);
+toolRegistry.register(PrepareCrossChainTxTool);
+
 
 // Tool Exports
 export * from './registry.js';
@@ -113,3 +118,4 @@ export * from '../skills/SocialSkill/index.js';
 export * from '../skills/ZoraSkill/index.js';
 export * from '../skills/CopyTradeSkill/index.js';
 export * from '../skills/PolymarketSkill/index.js';
+export * from '../skills/CrossChainSkill/index.js';

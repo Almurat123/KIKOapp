@@ -36,7 +36,7 @@ const getCoinbaseCdpApiKeySecret = (): string => {
 
 // Generate JWT Bearer Token for Coinbase CDP API
 // According to: https://docs.cdp.coinbase.com/api-reference/v2/authentication
-async function generateCdpJwt(
+export async function generateCdpJwt(
   apiKeyId: string,
   apiKeySecret: string,
   requestMethod: string,
