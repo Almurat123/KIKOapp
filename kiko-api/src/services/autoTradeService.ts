@@ -341,7 +341,15 @@ async function handleTargetBuy(
         detectedAt,
         elapsedMs: Date.now() - detectedAt,
         preheat: preheat
-            ? { status: preheat.status, reason: preheat.reason, updatedAt: preheat.updatedAt, ageMs: Date.now() - preheat.updatedAt }
+            ? {
+                status: preheat.status,
+                reason: preheat.reason,
+                updatedAt: preheat.updatedAt,
+                ageMs: Date.now() - preheat.updatedAt,
+                firstSeenAt: preheat.firstSeenAt,
+                sinceFirstSeenMs: preheat.firstSeenAt ? Date.now() - preheat.firstSeenAt : null,
+                attempts: preheat.attempts ?? null
+            }
             : null
     });
 

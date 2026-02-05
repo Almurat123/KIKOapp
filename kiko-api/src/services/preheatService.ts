@@ -17,6 +17,7 @@ export interface PreheatEvent {
     eventName?: string;
     txHash?: string;
     blockNumber?: number | string;
+    detectedAt?: number;
 }
 
 interface PreheatStatus {
@@ -24,12 +25,16 @@ interface PreheatStatus {
     reason?: string;
     poolHook?: string;
     updatedAt: number;
+    firstSeenAt?: number;
+    lastAttemptAt?: number;
+    attempts?: number;
 }
 
 const preheatConfig = getPreheatConfig();
 const preheatQueue: Array<{ event: PreheatEvent; attempt: number }> = [];
 const preheatInflight = new Set<string>();
 const preheatStatus = new Map<string, PreheatStatus>();
+const preheatFirstSeen = new Map<string, number>();
 let activeWorkers = 0;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -64,7 +69,11 @@ export function enqueuePreheat(event: PreheatEvent, attempt = 0) {
     if (!preheatConfig.enabled) return;
     if (!preheatConfig.chainIds.includes(event.chainId)) return;
 
-    const key = buildKey(event.chainId, event.tokenAddress);
+    const normalizedToken = normalizeAddress(event.tokenAddress) || event.tokenAddress;
+    const key = buildKey(event.chainId, normalizedToken);
+    if (!preheatFirstSeen.has(key)) {
+        preheatFirstSeen.set(key, event.detectedAt || Date.now());
+    }
     const cached = preheatStatus.get(key);
     if (cached && isCacheFresh(cached)) return;
     if (preheatInflight.has(key)) return;
@@ -74,7 +83,9 @@ export function enqueuePreheat(event: PreheatEvent, attempt = 0) {
         token: event.tokenAddress,
         factory: event.factoryAddress,
         eventName: event.eventName,
-        attempt
+        attempt,
+        sinceFirstSeenMs: Date.now() - (preheatFirstSeen.get(key) || Date.now()),
+        queueDepth: preheatQueue.length
     });
 
     preheatQueue.push({ event, attempt });
@@ -107,12 +118,14 @@ function processQueue() {
 }
 
 async function runPreheat(event: PreheatEvent, attempt: number) {
+    const key = buildKey(event.chainId, normalizeAddress(event.tokenAddress) || event.tokenAddress);
     logger.info(LogCode.SYS_INFO, '[Preheat] Start', {
         chainId: event.chainId,
         token: event.tokenAddress,
         factory: event.factoryAddress,
         eventName: event.eventName,
-        attempt
+        attempt,
+        sinceFirstSeenMs: Date.now() - (preheatFirstSeen.get(key) || Date.now())
     });
 
     const chainConfig = CHAINS[event.chainId];
@@ -125,6 +138,7 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
 
     const token = normalizeAddress(event.tokenAddress);
     const weth = normalizeAddress(chainConfig.wrappedNativeAddress);
+    const keyNormalized = buildKey(event.chainId, token);
 
     if (!token) {
         logger.warn(LogCode.SYS_INFO, '[Preheat] Skip (empty token)', {
@@ -169,17 +183,22 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
                 logger.info(LogCode.SYS_INFO, '[Preheat] No pool yet, retry scheduled', {
                     chainId: event.chainId,
                     token,
-                    attempt
+                    attempt,
+                    sinceFirstSeenMs: Date.now() - (preheatFirstSeen.get(key) || Date.now())
                 });
                 scheduleRetry(event, attempt);
             } else {
-                preheatStatus.set(buildKey(event.chainId, token), {
+                preheatStatus.set(keyNormalized, {
                     status: 'no_pool',
-                    updatedAt: Date.now()
+                    updatedAt: Date.now(),
+                    firstSeenAt: preheatFirstSeen.get(key),
+                    lastAttemptAt: Date.now(),
+                    attempts: attempt + 1
                 });
                 logger.info(LogCode.SYS_INFO, '[Preheat] No pool found (max attempts)', {
                     chainId: event.chainId,
-                    token
+                    token,
+                    sinceFirstSeenMs: Date.now() - (preheatFirstSeen.get(key) || Date.now())
                 });
             }
             return;
@@ -187,10 +206,26 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
 
         const hook = pool.poolKey.hooks;
         const isClanker = isClankerHook(event.chainId, hook);
+        logger.info(LogCode.SYS_INFO, '[Preheat] Pool found', {
+            chainId: event.chainId,
+            token,
+            poolId: pool.poolId,
+            hook,
+            fee: pool.poolKey.fee,
+            tickSpacing: pool.poolKey.tickSpacing,
+            currency0: pool.poolKey.currency0,
+            currency1: pool.poolKey.currency1,
+            clanker: isClanker,
+            attempt,
+            sinceFirstSeenMs: Date.now() - (preheatFirstSeen.get(key) || Date.now())
+        });
         const poolStatus: PreheatStatus = {
             status: 'unknown',
             poolHook: hook,
-            updatedAt: Date.now()
+            updatedAt: Date.now(),
+            firstSeenAt: preheatFirstSeen.get(key),
+            lastAttemptAt: Date.now(),
+            attempts: attempt + 1
         };
 
         // Gate check only when WETH pool exists (to avoid ERC20 approvals)
@@ -236,7 +271,7 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
             }
         }
 
-        preheatStatus.set(buildKey(event.chainId, token), poolStatus);
+        preheatStatus.set(keyNormalized, poolStatus);
 
         logger.info(LogCode.API_FETCH_SUCCESS, '[Preheat] V4 pool warmed', {
             token,
@@ -244,7 +279,9 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
             hook: pool.poolKey.hooks,
             clanker: isClanker,
             status: poolStatus.status,
-            reason: poolStatus.reason?.slice(0, 64)
+            reason: poolStatus.reason?.slice(0, 64),
+            sinceFirstSeenMs: Date.now() - (preheatFirstSeen.get(key) || Date.now()),
+            attempts: attempt + 1
         });
     } catch (err: any) {
         logger.warn(LogCode.API_FETCH_FAILED, '[Preheat] Error', {
@@ -341,6 +378,28 @@ function parseChainId(raw?: string | number): number | null {
     return null;
 }
 
+function parseTimestampMs(raw?: any): number | null {
+    if (!raw) return null;
+    if (typeof raw === 'number') {
+        if (raw > 1e12) return raw;
+        if (raw > 1e9) return raw * 1000;
+        return raw;
+    }
+    if (typeof raw === 'string') {
+        if (raw.startsWith('0x')) {
+            const num = Number(BigInt(raw));
+            return Number.isFinite(num) ? (num > 1e12 ? num : num * 1000) : null;
+        }
+        const asNum = Number(raw);
+        if (Number.isFinite(asNum)) {
+            return asNum > 1e12 ? asNum : asNum * 1000;
+        }
+        const parsed = Date.parse(raw);
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    return null;
+}
+
 export function handleCdpWebhookPayload(payload: any) {
     if (!preheatConfig.enabled) return;
 
@@ -403,12 +462,20 @@ export function handleCdpWebhookPayload(payload: any) {
         return;
     }
 
+    const detectedAt =
+        parseTimestampMs(data?.timestamp) ||
+        parseTimestampMs(payload?.timestamp) ||
+        parseTimestampMs(data?.blockTimestamp) ||
+        parseTimestampMs(payload?.blockTimestamp) ||
+        Date.now();
+
     if (debug) {
         console.log('[Preheat] Enqueue', {
             chainId,
             tokenAddress,
             factoryAddress,
-            eventName
+            eventName,
+            detectedAt
         });
     }
 
@@ -418,6 +485,7 @@ export function handleCdpWebhookPayload(payload: any) {
         factoryAddress,
         eventName,
         txHash: data?.transactionHash || payload?.transactionHash,
-        blockNumber: data?.blockNumber || payload?.blockNumber
+        blockNumber: data?.blockNumber || payload?.blockNumber,
+        detectedAt
     });
 }

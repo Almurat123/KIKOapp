@@ -140,6 +140,55 @@ export class ChatWorker {
         }
     }
 
+    private isConfirmationMessage(message: string): boolean {
+        const normalized = message.trim().toLowerCase();
+        if (!normalized) return false;
+        const compact = normalized.replace(/[\s._-]+/g, '');
+        const keywords = [
+            'confirm', 'confirmed', 'proceed', 'yes', 'y', 'ok', 'okay',
+            '继续', '确认', '执行', '下单', '成交', '好的', '可以'
+        ];
+        return keywords.some(k => compact === k || compact.includes(k) || normalized === k || normalized.includes(k));
+    }
+
+    private parseArgsFromKey(argsKey: string): { name: string; args: any } | null {
+        const idx = argsKey.indexOf(':');
+        if (idx <= 0) return null;
+        const name = argsKey.slice(0, idx);
+        const raw = argsKey.slice(idx + 1);
+        try {
+            return { name, args: JSON.parse(raw) };
+        } catch {
+            return null;
+        }
+    }
+
+    private findRecentSimulateSwap(
+        sessionMessages: any[],
+        windowMs: number
+    ): { token_in: string; token_out: string; amount_in: string; chain_id: number } | null {
+        const sorted = [...sessionMessages].sort((a, b) => (a.message_index || a.messageIndex || 0) - (b.message_index || b.messageIndex || 0));
+        const now = Date.now();
+        for (let i = sorted.length - 1; i >= 0; i -= 1) {
+            const msg = sorted[i];
+            if (msg.role !== 'assistant') continue;
+            const toolCalls = msg.data?.toolTrace?.toolCalls || [];
+            const createdAt = msg.created_at || msg.createdAt || msg.created || msg.createdAtMs;
+            const createdMs = createdAt ? new Date(createdAt).getTime() : null;
+            if (createdMs && now - createdMs > windowMs) continue;
+            for (let j = toolCalls.length - 1; j >= 0; j -= 1) {
+                const entry = toolCalls[j];
+                if (entry.tool !== 'simulate_swap' || entry.status !== 'success') continue;
+                const parsed = this.parseArgsFromKey(entry.argsKey || '');
+                if (!parsed?.args) continue;
+                const { token_in, token_out, amount_in, chain_id } = parsed.args;
+                if (!token_in || !token_out || !amount_in || !chain_id) continue;
+                return { token_in, token_out, amount_in, chain_id };
+            }
+        }
+        return null;
+    }
+
     private buildIntentHints(decision: any): UserContext['intentHints'] | undefined {
         if (!decision) return undefined;
         const labels = Array.isArray(decision.labels) ? decision.labels.map((l: any) => l.label) : [];
@@ -395,25 +444,13 @@ export class ChatWorker {
             });
         }
 
-        const cacheInfo = [];
-        if (payload.balance) {
-            const entries = this.parseBalanceEntries(payload.balance);
-            cacheInfo.push(`✅ Wallet Balance: ${entries?.length || 0} tokens cached`);
-        }
-        if (payload.nativeBalance) {
-            cacheInfo.push(`✅ Native Balance: ${payload.nativeBalance}`);
-        }
-        if (payload.toolConfig) {
-            cacheInfo.push(`✅ User Settings: Available`);
-        }
-        const cacheStatus = cacheInfo.length > 0 ? `\n\n═══════════════════════════════════════\n🗄️ CACHED DATA AVAILABLE - DO NOT RE-FETCH\n═══════════════════════════════════════\n${cacheInfo.join('\n')}\n═══════════════════════════════════════\n` : '';
-
-        return `[CLIENT_CONTEXT]\n${serialized}${cacheStatus}\n\n⚡ CRITICAL OPTIMIZATION RULES:\n1. The above context contains CACHED DATA that is already available\n2. DO NOT call get_wallet_info for the CURRENT chain (${payload.chainId ?? 'unknown'}) when balance data is present above\n3. If the user asks about a DIFFERENT chain, you MAY call get_wallet_info for that chain\n4. DO NOT call get_token_info if token data appears in conversation\n5. Use cached data directly and proceed immediately with user's request\n6. Only call tools when you need NEW information not available in cache\n7. When you see [TOKEN_CONTEXT ✅ FROM CACHE] or [USER_BALANCE_CONTEXT ✅ CACHED], that data is ready to use`;
+        return `[CLIENT_CONTEXT]\n${serialized}`;
     }
 
     private filterBalanceEntriesForAi(
         entries: Array<{ symbol: string; balance: string; decimals?: number; contractAddress?: string }> | undefined,
-        chainId?: number
+        chainId?: number,
+        allowContracts: Set<string> = new Set()
     ) {
         if (!entries || entries.length === 0) return entries;
         const nativeSymbols = new Set(['ETH', 'MATIC', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
@@ -424,6 +461,7 @@ export class ChatWorker {
             const symbol = String(token.symbol || '').toUpperCase();
             const rawSymbol = String(token.symbol || '');
             if (nativeSymbols.has(symbol)) return true;
+            if (this.isStableSymbolForChain(chainId, symbol)) return true;
             const addr = token.contractAddress || '';
             if (!addr) return false;
             if (isEvm) {
@@ -431,6 +469,8 @@ export class ChatWorker {
             } else if (addr.length < 32) {
                 return false;
             }
+            const addrLower = addr.toLowerCase();
+            if (allowContracts.size > 0 && !allowContracts.has(addrLower)) return false;
             if (!rawSymbol || rawSymbol.startsWith('0x')) return false;
             if (scamKeywordPattern.test(rawSymbol)) return false;
 
@@ -441,6 +481,19 @@ export class ChatWorker {
 
             return true;
         });
+    }
+
+    private isStableSymbolForChain(chainId: number | undefined, symbol: string): boolean {
+        const stableSymbols = new Set(['USDC', 'USDT', 'DAI', 'USDBC']);
+        if (!stableSymbols.has(symbol)) return false;
+        if (!chainId) return true;
+        const stableChains = new Set([1, 10, 56, 137, 42161, 8453]);
+        return stableChains.has(chainId) || chainId === 900;
+    }
+
+    private isNativeSymbol(symbol: string): boolean {
+        const nativeSymbols = new Set(['ETH', 'MATIC', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
+        return nativeSymbols.has(symbol.toUpperCase());
     }
 
     private seedToolCacheFromContext(cache: Map<string, any>, task: AITask) {
@@ -1079,6 +1132,33 @@ export class ChatWorker {
                 chainId: task.toolContext?.chainId,
                 isWalletConnected: !!task.toolContext?.walletAddress,
             });
+
+            const confirmedSwap = this.isConfirmationMessage(lastUserMessage)
+                ? this.findRecentSimulateSwap(sessionMessages, 2 * 60 * 1000)
+                : null;
+            if (confirmedSwap) {
+                const chainMatches = !task.toolContext?.chainId || task.toolContext.chainId === confirmedSwap.chain_id;
+                if (chainMatches) {
+                    parsedIntent.highLevel.type = 'TRADING';
+                    parsedIntent.highLevel.confidence = 1;
+                    parsedIntent.detailed.action = 'swap';
+                    parsedIntent.detailed.token_in = confirmedSwap.token_in;
+                    parsedIntent.detailed.token_out = confirmedSwap.token_out;
+                    parsedIntent.detailed.amount = confirmedSwap.amount_in;
+                    parsedIntent.detailed.chain_id = confirmedSwap.chain_id;
+                    parsedIntent.decision = {
+                        primary: 'TRADING',
+                        confidence: 1,
+                        labels: [{ label: 'TRADING', confidence: 1 }],
+                        evidence: [],
+                        routing: { stage: 'rule', reason: 'confirmation_followup' },
+                        hardRule: { label: 'TRADING', reason: 'user_confirmation_after_simulation' },
+                        signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
+                        slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
+                    };
+                    (task as any).systemInjection = `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}. Do NOT call simulate_swap again or use web search.`;
+                }
+            }
             if (iteration === 1) {
                 await this.recordIntentTrace(task, sessionMessages, parsedIntent, lastUserMessage);
             }
@@ -1911,7 +1991,6 @@ export class ChatWorker {
             let finalMessages = [...transformedHistory];
             const lastUserIndex = finalMessages.map(m => m.role).lastIndexOf('user');
 
-            let balanceSystemRule: string | null = null;
             let balanceContextBlock = '';
             let tokenContextAvailable = false;
             let launchpadContextAvailable = false;
@@ -1921,6 +2000,20 @@ export class ChatWorker {
                 // Add token info to context if detected
                 let tokenContextBlock = '';
                 let launchpadContextBlock = '';
+                const requestedAddressSet = new Set<string>();
+                if (parsedIntent?.contractAddress) {
+                    requestedAddressSet.add(String(parsedIntent.contractAddress).toLowerCase());
+                }
+                const tokenIn = parsedIntent?.detailed?.token_in;
+                const tokenOut = parsedIntent?.detailed?.token_out;
+                const isAddressLike = (value?: string) => {
+                    if (!value) return false;
+                    const v = value.toLowerCase();
+                    return v.startsWith('0x') || v.length >= 32;
+                };
+                if (isAddressLike(String(tokenIn || ''))) requestedAddressSet.add(String(tokenIn).toLowerCase());
+                if (isAddressLike(String(tokenOut || ''))) requestedAddressSet.add(String(tokenOut).toLowerCase());
+
                 if (tokenInfo) {
                     const cacheStatus = toolResultsCache.has(`get_token_info:${this.stableStringify({ address: parsedIntent.contractAddress, chainId: detectedChainId || task.toolContext?.chainId })}`) ? '✅ FROM CACHE' : '🔄 FRESHLY FETCHED';
                     tokenContextBlock = `\n\n[TOKEN_CONTEXT] ${cacheStatus}
@@ -1962,11 +2055,12 @@ Detected Contract Address: ${parsedIntent.contractAddress}
                 let tokensInPortfolio: string[] = [];
                 if (toolResultsCache.has(balanceKey)) {
                     const balanceData = toolResultsCache.get(balanceKey);
-                    const tokenCount = balanceData?.tokens?.length || 0;
+                    const filteredTokens = this.filterBalanceEntriesForAi(balanceData?.tokens || [], task.toolContext?.chainId, requestedAddressSet) || [];
+                    const tokenCount = filteredTokens.length || 0;
                     console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_wallet_info (${tokenCount} tokens cached)`);
 
                     // CRITICAL FIX: Show symbol, balance AND contract address so LLM knows both
-                    const portfolioLines = balanceData.tokens ? balanceData.tokens.map((t: any) => {
+                    const portfolioLines = filteredTokens.length > 0 ? filteredTokens.map((t: any) => {
                         const symbol = t.symbol || 'Unknown';
                         const balance = t.balance || '0';
                         const contract = t.contractAddress || t.contract;
@@ -1981,15 +2075,13 @@ Detected Contract Address: ${parsedIntent.contractAddress}
 User Wallet: ${task.toolContext?.walletAddress}
 Chain ID: ${task.toolContext?.chainId}
 Total Assets: ${tokenCount} tokens
-${balanceData.tokens ? `Portfolio Assets:\n${balanceData.tokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
+${filteredTokens.length > 0 ? `Portfolio Assets:\n${filteredTokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
 
 IMPORTANT: This balance data is ALREADY AVAILABLE from cache. DO NOT call get_wallet_info again.
 `;
                     tokensInPortfolio = balanceData.tokens?.map((t: any) => (t.contractAddress || t.contract)?.toLowerCase()) || [];
 
                     const requestedTokens = new Set<string>();
-                    const tokenIn = parsedIntent?.detailed?.token_in;
-                    const tokenOut = parsedIntent?.detailed?.token_out;
                     if (tokenIn) requestedTokens.add(String(tokenIn));
                     if (tokenOut) requestedTokens.add(String(tokenOut));
                     if (tokenInfo?.address) requestedTokens.add(String(tokenInfo.address));
@@ -2001,6 +2093,13 @@ IMPORTANT: This balance data is ALREADY AVAILABLE from cache. DO NOT call get_wa
                         const resolvedBalances: Record<string, string> = {};
                         for (const request of requestedTokens) {
                             const requestLower = request.toLowerCase();
+                            const requestIsAddress = isAddressLike(request);
+                            const requestSymbol = requestIsAddress ? '' : request.toUpperCase();
+                            if (!requestIsAddress && !this.isStableSymbolForChain(task.toolContext?.chainId, requestSymbol) && !this.isNativeSymbol(requestSymbol)) {
+                                requestedLines.push(`- ${request}: hidden (unverified token; provide contract address)`);
+                                missing.push(request);
+                                continue;
+                            }
                             const match = balanceData.tokens.find((t: any) => {
                                 const symbol = t.symbol ? String(t.symbol).toLowerCase() : '';
                                 const contract = (t.contractAddress || t.contract) ? String(t.contractAddress || t.contract).toLowerCase() : '';
@@ -2029,7 +2128,6 @@ Rule: If a token is marked "not present", you must say the balance is unknown or
                             missing,
                             resolvedBalances,
                         });
-                        balanceSystemRule = `BALANCE_CONTEXT_RULE: Balance context is provided for the CURRENT connected chain. You MAY call get_wallet_info if you need to check a DIFFERENT chain or address. For the current chain, use [REQUESTED_TOKEN_BALANCE] or [USER_BALANCE_CONTEXT] as authoritative. Do NOT ask for permission to check balances.`;
                     }
                 } else if (task.toolContext?.walletAddress) {
                     const unavailableBlock = `\n\n[USER_BALANCE_CONTEXT]
@@ -2038,6 +2136,7 @@ Status: unavailable (balance data not available from cache).`;
                     tokenContextBlock += unavailableBlock;
                     balanceContextBlock += unavailableBlock;
                 }
+
 
                 // Check if detected token is missing from portfolio and add it directly
                 // This runs regardless of cache state to ensure we always check for new tokens
@@ -2163,16 +2262,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                     bytes: balanceContextBlock.length,
                 });
             }
-            if (balanceSystemRule) {
-                messages.push({ role: 'system', content: balanceSystemRule });
-                logger.info(LogCode.AI_API_CALL, 'ChatWorker: balance system rule injected');
-            }
-
-            // If we have a system injection (e.g. fallback guidance), add it as a system message
-            if ((task as any).systemInjection) {
-                messages.push({ role: 'system', content: (task as any).systemInjection });
-                console.log(`[ChatWorker] Applied system injection: ${(task as any).systemInjection}`);
-            }
+            // No additional guidance injected; only context is provided.
 
             // [REMOVED] Do not filter get_wallet_info. 
             // We want the AI to be able to check other chains even if current chain context is present.

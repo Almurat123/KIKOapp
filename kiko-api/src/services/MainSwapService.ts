@@ -34,6 +34,7 @@ import { ethers } from 'ethers';
 import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
+import { getPreheatStatus } from './preheatService.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -419,7 +420,20 @@ export class MainSwapService {
     }
 
     if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && isBuyWithNative) {
-      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (BUY with native)'));
+      const preheat = getPreheatStatus(request.chainId, request.tokenOut);
+      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (BUY with native)'), {
+        preheat: preheat
+          ? {
+            status: preheat.status,
+            reason: preheat.reason,
+            updatedAt: preheat.updatedAt,
+            ageMs: Date.now() - preheat.updatedAt,
+            firstSeenAt: preheat.firstSeenAt,
+            sinceFirstSeenMs: preheat.firstSeenAt ? Date.now() - preheat.firstSeenAt : null,
+            attempts: preheat.attempts ?? null
+          }
+          : null
+      });
       try {
         const directResult = await executeDirectSwap({
           userId: request.userId,

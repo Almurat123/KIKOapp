@@ -1395,6 +1395,15 @@ async function executeV4Swap(
 
     const v4Pool = v4Pools[0];
     const poolKey = v4Pool.poolKey;
+    logger.info(LogCode.SYS_INFO, '[DirectSwap] Using V4 pool', {
+        chainId,
+        poolId: v4Pool.poolId,
+        hook: poolKey.hooks,
+        fee: poolKey.fee,
+        tickSpacing: poolKey.tickSpacing,
+        currency0: poolKey.currency0,
+        currency1: poolKey.currency1
+    });
 
     // 确定方向 - 使用规范化后的 WETH 地址比较
     const zeroForOne = poolKey.currency0.toLowerCase() === normalizedIn!.toLowerCase();
