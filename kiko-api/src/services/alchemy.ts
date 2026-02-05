@@ -1748,7 +1748,7 @@ export async function getPortfolio(
         includeNativeTokens: true
       };
 
-      let response: Response | null = null;
+      let response: any | null = null;
       try {
         response = await fetchJson<any>({
           url,
@@ -1765,8 +1765,8 @@ export async function getPortfolio(
         logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API timeout', { error: e.message });
       }
 
-      if (response && response.ok) {
-        const json = await response.json();
+      if (response && response.data && Array.isArray(response.data.tokens)) {
+        const json = response;
 
         if (json.data && Array.isArray(json.data.tokens)) {
           const networkGroups: Record<string, any[]> = {};
@@ -1898,8 +1898,8 @@ export async function getPortfolio(
             }
           }
         }
-      } else if (response) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API error', { status: response.status });
+      } else if (response?.error) {
+        logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API error', { error: response.error });
       }
     }
 
@@ -1914,7 +1914,7 @@ export async function getPortfolio(
           withPrices: true,
           includeNativeTokens: true
         };
-        let response: Response | null = null;
+        let response: any | null = null;
         try {
           response = await fetchJson<any>({
             url,
@@ -1930,8 +1930,8 @@ export async function getPortfolio(
         } catch (e: any) {
           logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio Solana timeout', { error: e.message });
         }
-        if (response && response.ok) {
-          const json = await response.json();
+        if (response && response.data && Array.isArray(response.data.tokens)) {
+          const json = response;
           if (json.data && Array.isArray(json.data.tokens)) {
             let ethBalance = '0';
             let ethBalanceFormatted = 0;

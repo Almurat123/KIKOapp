@@ -57,6 +57,10 @@ class Registry implements SkillRegistry {
         console.log(`[SkillRegistry:${this.label}] Loading skills from ${this.baseDir}...`);
 
         const skillsDir = this.baseDir;
+        if (!fs.existsSync(skillsDir)) {
+            console.warn(`[SkillRegistry:${this.label}] Skills dir not found, skipping: ${skillsDir}`);
+            return;
+        }
         const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
 
         for (const entry of entries) {

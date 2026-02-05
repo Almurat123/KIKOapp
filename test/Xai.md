@@ -1,1018 +1,542 @@
-2026-02-05T13:04:44.039927278Z [inf]  RPC failover success
-2026-02-05T13:04:44.039934176Z [inf]  RPC failover success
-2026-02-05T13:04:44.049601066Z [inf]  RPC failover success
-2026-02-05T13:04:44.049612410Z [inf]  RPC failover success
-2026-02-05T13:04:44.049617380Z [inf]  RPC failover success
-2026-02-05T13:04:44.049620940Z [inf]  RPC failover success
-2026-02-05T13:04:44.049624758Z [inf]  RPC failover success
-2026-02-05T13:04:44.049628055Z [inf]  RPC failover success
-2026-02-05T13:04:44.049631881Z [inf]  RPC failover success
-2026-02-05T13:04:44.085770567Z [inf]  RPC failover success
-2026-02-05T13:04:44.094862188Z [inf]  RPC failover success
-2026-02-05T13:04:44.272368349Z [inf]  RPC failover success
-2026-02-05T13:04:44.393430770Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:04:44.495924001Z [inf]  📊 Position P/L check
-2026-02-05T13:04:50.731287115Z [inf]  incoming request
-2026-02-05T13:04:50.731291543Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:04:50.739824439Z [inf]  request completed
-2026-02-05T13:04:50.756763180Z [inf]  incoming request
-2026-02-05T13:04:50.756768915Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:04:50.756773633Z [inf]  request completed
-2026-02-05T13:04:52.389315862Z [inf]  incoming request
-2026-02-05T13:04:52.389321730Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:04:52.389325492Z [inf]  request completed
-2026-02-05T13:04:54.351763003Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:04:55.442610662Z [inf]  incoming request
-2026-02-05T13:04:55.442616495Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:04:55.442620665Z [inf]  request completed
-2026-02-05T13:04:56.590365837Z [inf]  incoming request
-2026-02-05T13:04:56.590370180Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:04:56.590374436Z [inf]  request completed
-2026-02-05T13:04:58.687473016Z [inf]  incoming request
-2026-02-05T13:04:58.687476509Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:04:58.687480607Z [inf]  request completed
-2026-02-05T13:05:00.617119889Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
-2026-02-05T13:05:00.667818026Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
-2026-02-05T13:05:00.667824923Z [inf]  Timer finished: recalc_heat_scores
-2026-02-05T13:05:00.667828463Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
-2026-02-05T13:05:00.667831169Z [inf]  Fetching premium trending tokens
-2026-02-05T13:05:01.023314625Z [inf]  WS addresses discovered
-2026-02-05T13:05:01.926299260Z [inf]  Processed DexScreener trending candidates
-2026-02-05T13:05:04.537667130Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:05:05.139816168Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:05:06.160359903Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:05:08.167848907Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:05:12.241741332Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:05:12.241744465Z [err]  GeckoTerminal API error after retries
-2026-02-05T13:05:12.241882061Z [err]  Error fetching trending tokens
-2026-02-05T13:05:12.241890784Z [inf]  Premium trending tokens fetch complete
-2026-02-05T13:05:12.241894641Z [inf]  [TokenJob] Got 93 trending tokens for Ethereum
-2026-02-05T13:05:12.241900692Z [inf]  Saved 93 trending tokens for eth to database and memory cache
-2026-02-05T13:05:12.252040467Z [inf]  [TokenJob] Saved 93 tokens for Ethereum to DB + cache
-2026-02-05T13:05:14.629328705Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:05:14.925464863Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:05:15.141092292Z [wrn]  All API liquidity sources failed
-2026-02-05T13:05:15.226647017Z [inf]  RPC failover success
-2026-02-05T13:05:15.291685979Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-05T13:05:15.473207169Z [inf]  incoming request
-2026-02-05T13:05:15.482666237Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:05:15.482671720Z [inf]  request completed
-2026-02-05T13:05:15.670229518Z [inf]  RPC failover success
-2026-02-05T13:05:15.670232890Z [inf]  RPC failover success
-2026-02-05T13:05:15.670236113Z [inf]  RPC failover success
-2026-02-05T13:05:15.680413156Z [inf]  RPC failover success
-2026-02-05T13:05:15.680418266Z [inf]  RPC failover success
-2026-02-05T13:05:15.680423189Z [inf]  RPC failover success
-2026-02-05T13:05:15.680427525Z [inf]  RPC failover success
-2026-02-05T13:05:15.689920120Z [inf]  RPC failover success
-2026-02-05T13:05:15.689926989Z [inf]  RPC failover success
-2026-02-05T13:05:15.689930851Z [inf]  RPC failover success
-2026-02-05T13:05:15.689934047Z [inf]  RPC failover success
-2026-02-05T13:05:15.699224646Z [inf]  RPC failover success
-2026-02-05T13:05:15.967841754Z [inf]  RPC failover success
-2026-02-05T13:05:15.967845073Z [inf]  RPC failover success
-2026-02-05T13:05:15.967848789Z [inf]  RPC failover success
-2026-02-05T13:05:15.967852132Z [inf]  RPC failover success
-2026-02-05T13:05:15.967855668Z [inf]  RPC failover success
-2026-02-05T13:05:16.195551500Z [inf]  RPC failover success
-2026-02-05T13:05:16.195557921Z [inf]  RPC failover success
-2026-02-05T13:05:16.195563873Z [inf]  RPC failover success
-2026-02-05T13:05:16.195570286Z [inf]  RPC failover success
-2026-02-05T13:05:16.195576744Z [inf]  RPC failover success
-2026-02-05T13:05:16.195582892Z [inf]  RPC failover success
-2026-02-05T13:05:16.195588576Z [inf]  RPC failover success
-2026-02-05T13:05:16.254212484Z [inf]  RPC failover success
-2026-02-05T13:05:16.353833246Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:05:16.353838335Z [inf]  RPC failover success
-2026-02-05T13:05:16.372375360Z [inf]  RPC failover success
-2026-02-05T13:05:16.631818016Z [inf]  incoming request
-2026-02-05T13:05:16.631821207Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:05:16.631824817Z [inf]  request completed
-2026-02-05T13:05:26.378329949Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:05:31.454396159Z [inf]  incoming request
-2026-02-05T13:05:31.454402445Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:05:31.463768403Z [inf]  request completed
-2026-02-05T13:05:32.905631037Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:05:33.015738772Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:05:33.234672440Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:05:33.282347022Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:05:33.605330859Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:05:33.754323712Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:05:33.894285469Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:05:35.366709505Z [inf]  incoming request
-2026-02-05T13:05:35.366714590Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:05:35.366719533Z [inf]  request completed
-2026-02-05T13:05:36.371168765Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:05:37.168754050Z [inf]  incoming request
-2026-02-05T13:05:37.177163852Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:05:37.177167787Z [inf]  request completed
-2026-02-05T13:05:40.846151846Z [inf]  incoming request
-2026-02-05T13:05:40.846155789Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:05:40.846159160Z [inf]  request completed
-2026-02-05T13:05:42.325496664Z [inf]  [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
-2026-02-05T13:05:42.325500453Z [inf]  Fetching premium trending tokens
-2026-02-05T13:05:42.486096758Z [inf]  WS addresses discovered
-2026-02-05T13:05:43.294836286Z [inf]  Processed DexScreener trending candidates
-2026-02-05T13:05:43.294842553Z [inf]  Premium trending tokens fetch complete
-2026-02-05T13:05:43.294846578Z [inf]  [TokenJob] Got 100 trending tokens for Solana
-2026-02-05T13:05:43.357236612Z [inf]  Saved 100 trending tokens for solana to database and memory cache
-2026-02-05T13:05:43.408660904Z [inf]  [TokenJob] Saved 100 tokens for Solana to DB + cache
-2026-02-05T13:05:46.545522105Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:05:46.979735789Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:05:47.147055243Z [wrn]  All API liquidity sources failed
-2026-02-05T13:05:47.918469211Z [inf]  RPC failover success
-2026-02-05T13:05:47.918474982Z [inf]  RPC failover success
-2026-02-05T13:05:47.918479008Z [inf]  RPC failover success
-2026-02-05T13:05:47.918482014Z [inf]  RPC failover success
-2026-02-05T13:05:47.918485045Z [inf]  RPC failover success
-2026-02-05T13:05:47.918488537Z [inf]  RPC failover success
-2026-02-05T13:05:47.918491431Z [inf]  RPC failover success
-2026-02-05T13:05:47.918494349Z [inf]  RPC failover success
-2026-02-05T13:05:47.945956916Z [inf]  RPC failover success
-2026-02-05T13:05:47.963886648Z [inf]  RPC failover success
-2026-02-05T13:05:48.637473161Z [inf]  RPC failover success
-2026-02-05T13:05:48.637476466Z [inf]  RPC failover success
-2026-02-05T13:05:48.637479730Z [inf]  RPC failover success
-2026-02-05T13:05:48.637483251Z [inf]  RPC failover success
-2026-02-05T13:05:48.672605973Z [inf]  RPC failover success
-2026-02-05T13:05:48.710025032Z [inf]  RPC failover success
-2026-02-05T13:05:48.718849682Z [inf]  RPC failover success
-2026-02-05T13:05:48.718855272Z [inf]  RPC failover success
-2026-02-05T13:05:48.745860046Z [inf]  RPC failover success
-2026-02-05T13:05:48.755560805Z [inf]  RPC failover success
-2026-02-05T13:05:48.755563985Z [inf]  RPC failover success
-2026-02-05T13:05:48.844185161Z [inf]  RPC failover success
-2026-02-05T13:05:49.045468305Z [inf]  RPC failover success
-2026-02-05T13:05:49.131723045Z [wrn]  RPC endpoint failed
-2026-02-05T13:05:49.413601365Z [inf]  incoming request
-2026-02-05T13:05:49.413605388Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:05:49.413609840Z [inf]  request completed
-2026-02-05T13:05:49.423044407Z [inf]  RPC failover success
-2026-02-05T13:05:49.708920880Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:05:51.567236938Z [inf]  incoming request
-2026-02-05T13:05:51.567242500Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:05:51.567246290Z [inf]  request completed
-2026-02-05T13:05:59.762310314Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:06:01.342085869Z [inf]  incoming request
-2026-02-05T13:06:01.342088696Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:01.342092203Z [inf]  request completed
-2026-02-05T13:06:04.000948380Z [inf]  incoming request
-2026-02-05T13:06:04.000954054Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:04.000959206Z [inf]  request completed
-2026-02-05T13:06:10.152596112Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:06:13.368794651Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
-2026-02-05T13:06:13.368805517Z [inf]  Fetching premium trending tokens
-2026-02-05T13:06:13.677473634Z [inf]  WS addresses discovered
-2026-02-05T13:06:14.628041915Z [inf]  Processed DexScreener trending candidates
-2026-02-05T13:06:14.914158287Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:06:16.003284806Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:06:17.197048629Z [inf]  incoming request
-2026-02-05T13:06:17.197053111Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:17.197058306Z [inf]  request completed
-2026-02-05T13:06:17.206329514Z [inf]  incoming request
-2026-02-05T13:06:17.206335467Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:17.206338884Z [inf]  request completed
-2026-02-05T13:06:17.958655602Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:06:20.286102277Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:06:20.671123528Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:06:20.746046909Z [wrn]  All API liquidity sources failed
-2026-02-05T13:06:21.298937204Z [inf]  incoming request
-2026-02-05T13:06:21.298942501Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:21.298946179Z [inf]  request completed
-2026-02-05T13:06:21.327770235Z [inf]  RPC failover success
-2026-02-05T13:06:21.337354127Z [inf]  RPC failover success
-2026-02-05T13:06:21.337363076Z [inf]  RPC failover success
-2026-02-05T13:06:21.337369220Z [inf]  RPC failover success
-2026-02-05T13:06:21.346378695Z [inf]  RPC failover success
-2026-02-05T13:06:21.355897913Z [inf]  RPC failover success
-2026-02-05T13:06:21.355903429Z [inf]  RPC failover success
-2026-02-05T13:06:21.434486026Z [inf]  RPC failover success
-2026-02-05T13:06:21.581671068Z [inf]  RPC failover success
-2026-02-05T13:06:21.581675656Z [inf]  RPC failover success
-2026-02-05T13:06:21.581680244Z [inf]  RPC failover success
-2026-02-05T13:06:21.592496718Z [inf]  RPC failover success
-2026-02-05T13:06:21.878642264Z [inf]  RPC failover success
-2026-02-05T13:06:21.878645389Z [inf]  RPC failover success
-2026-02-05T13:06:21.878649948Z [inf]  RPC failover success
-2026-02-05T13:06:21.878653906Z [inf]  RPC failover success
-2026-02-05T13:06:21.879330086Z [inf]  RPC failover success
-2026-02-05T13:06:21.879335198Z [inf]  RPC failover success
-2026-02-05T13:06:21.879338953Z [inf]  RPC failover success
-2026-02-05T13:06:21.879342404Z [inf]  RPC failover success
-2026-02-05T13:06:21.965037522Z [wrn]  RPC endpoint failed
-2026-02-05T13:06:21.974474408Z [wrn]  RPC endpoint failed
-2026-02-05T13:06:21.974479752Z [wrn]  RPC endpoint failed
-2026-02-05T13:06:21.983590908Z [wrn]  RPC endpoint failed
-2026-02-05T13:06:21.993275147Z [wrn]  RPC circuit breaker opened
-2026-02-05T13:06:21.993279050Z [wrn]  RPC endpoint failed
-2026-02-05T13:06:22.013484853Z [inf]  RPC failover success
-2026-02-05T13:06:22.022877366Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:06:22.022880202Z [err]  GeckoTerminal API error after retries
-2026-02-05T13:06:22.022883259Z [err]  Error fetching trending tokens
-2026-02-05T13:06:22.022886266Z [inf]  Premium trending tokens fetch complete
-2026-02-05T13:06:22.022889499Z [inf]  [TokenJob] Got 69 trending tokens for Base
-2026-02-05T13:06:22.022892763Z [inf]  RPC failover success
-2026-02-05T13:06:22.022895987Z [inf]  RPC failover success
-2026-02-05T13:06:22.022898903Z [inf]  RPC failover success
-2026-02-05T13:06:22.022901938Z [inf]  RPC failover success
-2026-02-05T13:06:22.032444935Z [inf]  RPC failover success
-2026-02-05T13:06:22.032451099Z [inf]  Saved 69 trending tokens for base to database and memory cache
-2026-02-05T13:06:22.032454967Z [inf]  [TokenJob] Saved 69 tokens for Base to DB + cache
-2026-02-05T13:06:22.178328316Z [inf]  RPC failover success
-2026-02-05T13:06:22.178331276Z [inf]  RPC failover success
-2026-02-05T13:06:22.178334634Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:06:22.178338806Z [inf]  RPC failover success
-2026-02-05T13:06:24.412545636Z [wrn]  RPC health degraded
-2026-02-05T13:06:29.372493671Z [inf]  incoming request
-2026-02-05T13:06:29.381596852Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:29.381600902Z [inf]  request completed
-2026-02-05T13:06:30.962914340Z [inf]  incoming request
-2026-02-05T13:06:30.962920623Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:30.962924140Z [inf]  request completed
-2026-02-05T13:06:32.168925887Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:06:34.643974989Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:06:34.718020248Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:06:34.784870669Z [inf]  incoming request
-2026-02-05T13:06:34.784875092Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:34.784878615Z [inf]  request completed
-2026-02-05T13:06:34.784882191Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:06:34.784886210Z [inf]  incoming request
-2026-02-05T13:06:34.784889339Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:34.784892973Z [inf]  request completed
-2026-02-05T13:06:34.817305482Z [inf]  incoming request
-2026-02-05T13:06:34.827145399Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:34.827150037Z [inf]  request completed
-2026-02-05T13:06:35.009043549Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:06:35.261933635Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:06:35.386795414Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:06:35.520277435Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:06:35.692116314Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:06:39.336603340Z [inf]  incoming request
-2026-02-05T13:06:39.336606138Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:39.336608978Z [inf]  request completed
-2026-02-05T13:06:40.987005955Z [inf]  incoming request
-2026-02-05T13:06:40.997070032Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:40.997074604Z [inf]  request completed
-2026-02-05T13:06:42.305260742Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:06:42.745249726Z [inf]  incoming request
-2026-02-05T13:06:42.745252999Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:42.745256881Z [inf]  request completed
-2026-02-05T13:06:48.955503604Z [inf]  incoming request
-2026-02-05T13:06:48.955506910Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:48.955509803Z [inf]  request completed
-2026-02-05T13:06:50.616727874Z [inf]  incoming request
-2026-02-05T13:06:50.616731079Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:06:50.616734037Z [inf]  request completed
-2026-02-05T13:06:52.069937757Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
-2026-02-05T13:06:52.069944069Z [inf]  Fetching premium trending tokens
-2026-02-05T13:06:52.449567762Z [inf]  WS addresses discovered
-2026-02-05T13:06:52.458115083Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:06:52.854475075Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:06:52.937950127Z [wrn]  All API liquidity sources failed
-2026-02-05T13:06:53.549566383Z [inf]  RPC failover success
-2026-02-05T13:06:53.549570534Z [inf]  RPC failover success
-2026-02-05T13:06:53.549573696Z [inf]  RPC failover success
-2026-02-05T13:06:53.549576668Z [inf]  RPC failover success
-2026-02-05T13:06:53.549580063Z [inf]  RPC failover success
-2026-02-05T13:06:53.559604127Z [inf]  RPC failover success
-2026-02-05T13:06:53.559608275Z [inf]  Processed DexScreener trending candidates
-2026-02-05T13:06:53.559611781Z [err]  Error fetching trending tokens
-2026-02-05T13:06:53.559614939Z [inf]  Premium trending tokens fetch complete
-2026-02-05T13:06:53.559618121Z [inf]  [TokenJob] Got 74 trending tokens for BSC
-2026-02-05T13:06:53.559621910Z [inf]  RPC failover success
-2026-02-05T13:06:53.559625604Z [inf]  RPC failover success
-2026-02-05T13:06:53.568679283Z [inf]  RPC failover success
-2026-02-05T13:06:53.568685177Z [inf]  RPC failover success
-2026-02-05T13:06:53.588082382Z [inf]  RPC failover success
-2026-02-05T13:06:53.588088384Z [inf]  RPC failover success
-2026-02-05T13:06:53.597098548Z [inf]  Saved 74 trending tokens for bsc to database and memory cache
-2026-02-05T13:06:53.597101889Z [inf]  RPC failover success
-2026-02-05T13:06:53.597105019Z [inf]  RPC failover success
-2026-02-05T13:06:53.597108231Z [inf]  [TokenJob] Saved 74 tokens for BSC to DB + cache
-2026-02-05T13:06:53.597111636Z [inf]  RPC failover success
-2026-02-05T13:06:53.597114873Z [inf]  [TokenJob] Refreshed 4 primary chains in 113.0s
-2026-02-05T13:06:53.640545321Z [inf]  RPC failover success
-2026-02-05T13:06:53.731395498Z [inf]  RPC failover success
-2026-02-05T13:06:53.731399754Z [inf]  RPC failover success
-2026-02-05T13:06:53.731404312Z [inf]  RPC failover success
-2026-02-05T13:06:53.731407388Z [inf]  RPC failover success
-2026-02-05T13:06:53.731410954Z [inf]  RPC failover success
-2026-02-05T13:06:53.731414500Z [inf]  RPC failover success
-2026-02-05T13:06:53.731417712Z [inf]  RPC failover success
-2026-02-05T13:06:53.731420914Z [inf]  RPC failover success
-2026-02-05T13:06:53.740372730Z [inf]  RPC failover success
-2026-02-05T13:06:53.740378456Z [inf]  RPC failover success
-2026-02-05T13:06:53.740382030Z [inf]  RPC failover success
-2026-02-05T13:06:53.740385116Z [inf]  RPC failover success
-2026-02-05T13:06:53.740388245Z [inf]  RPC failover success
-2026-02-05T13:06:53.740391686Z [inf]  RPC failover success
-2026-02-05T13:06:53.740395172Z [inf]  RPC failover success
-2026-02-05T13:06:53.740398622Z [inf]  RPC failover success
-2026-02-05T13:06:53.750116698Z [inf]  RPC failover success
-2026-02-05T13:06:53.750121105Z [inf]  RPC failover success
-2026-02-05T13:06:53.750124770Z [inf]  RPC failover success
-2026-02-05T13:06:53.750128156Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:06:53.750131639Z [inf]  RPC failover success
-2026-02-05T13:07:13.730131719Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:07:13.730134924Z [inf]  incoming request
-2026-02-05T13:07:13.730138020Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:13.730140821Z [inf]  request completed
-2026-02-05T13:07:13.793200261Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:07:14.761940712Z [inf]  incoming request
-2026-02-05T13:07:14.761945711Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:14.761951622Z [inf]  request completed
-2026-02-05T13:07:24.012077850Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:07:24.410237846Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:07:24.445801744Z [wrn]  RPC health degraded
-2026-02-05T13:07:24.445827184Z [wrn]  All API liquidity sources failed
-2026-02-05T13:07:24.746125263Z [inf]  RPC failover success
-2026-02-05T13:07:24.755461427Z [inf]  RPC failover success
-2026-02-05T13:07:24.755466211Z [inf]  RPC failover success
-2026-02-05T13:07:24.764619965Z [inf]  RPC failover success
-2026-02-05T13:07:24.764626517Z [inf]  RPC failover success
-2026-02-05T13:07:24.764631197Z [inf]  RPC failover success
-2026-02-05T13:07:24.764635480Z [inf]  RPC failover success
-2026-02-05T13:07:24.776022994Z [inf]  RPC failover success
-2026-02-05T13:07:24.776027260Z [inf]  RPC failover success
-2026-02-05T13:07:24.776031680Z [inf]  RPC failover success
-2026-02-05T13:07:24.793617373Z [inf]  RPC failover success
-2026-02-05T13:07:24.804444552Z [inf]  RPC failover success
-2026-02-05T13:07:24.844713844Z [inf]  RPC failover success
-2026-02-05T13:07:24.844719326Z [inf]  RPC failover success
-2026-02-05T13:07:24.844723667Z [inf]  RPC failover success
-2026-02-05T13:07:24.844728036Z [inf]  RPC failover success
-2026-02-05T13:07:25.218843142Z [inf]  RPC failover success
-2026-02-05T13:07:25.218846269Z [inf]  RPC failover success
-2026-02-05T13:07:25.218849457Z [inf]  RPC failover success
-2026-02-05T13:07:25.218852550Z [inf]  RPC failover success
-2026-02-05T13:07:25.218855357Z [inf]  RPC failover success
-2026-02-05T13:07:25.218858388Z [inf]  RPC failover success
-2026-02-05T13:07:25.218861233Z [inf]  RPC failover success
-2026-02-05T13:07:25.218864309Z [inf]  RPC failover success
-2026-02-05T13:07:25.227968200Z [inf]  RPC failover success
-2026-02-05T13:07:25.227973437Z [inf]  RPC failover success
-2026-02-05T13:07:25.227977095Z [inf]  RPC failover success
-2026-02-05T13:07:25.228077757Z [inf]  RPC failover success
-2026-02-05T13:07:25.255214190Z [inf]  RPC failover success
-2026-02-05T13:07:25.357103825Z [inf]  RPC failover success
-2026-02-05T13:07:25.357108751Z [inf]  RPC failover success
-2026-02-05T13:07:25.357112622Z [inf]  RPC failover success
-2026-02-05T13:07:25.511484491Z [inf]  RPC failover success
-2026-02-05T13:07:25.799836853Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:07:27.095916056Z [inf]  incoming request
-2026-02-05T13:07:27.095921121Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:27.095926125Z [inf]  request completed
-2026-02-05T13:07:30.690083750Z [inf]  incoming request
-2026-02-05T13:07:30.690086840Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:30.690089791Z [inf]  request completed
-2026-02-05T13:07:36.025254496Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:07:36.173822394Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:07:38.248177073Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:07:38.248185138Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:07:38.902093731Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:07:39.083881135Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:07:39.193241947Z [inf]  incoming request
-2026-02-05T13:07:39.193244886Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:39.193248370Z [inf]  request completed
-2026-02-05T13:07:41.707682927Z [inf]  incoming request
-2026-02-05T13:07:41.707689379Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:41.707694789Z [inf]  request completed
-2026-02-05T13:07:44.886558576Z [inf]  incoming request
-2026-02-05T13:07:44.886561779Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:44.886564570Z [inf]  request completed
-2026-02-05T13:07:46.199703299Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:07:49.656826725Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:49.656835825Z [inf]  request completed
-2026-02-05T13:07:49.656924670Z [inf]  incoming request
-2026-02-05T13:07:50.669186784Z [inf]  incoming request
-2026-02-05T13:07:50.669190453Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:50.669193585Z [inf]  request completed
-2026-02-05T13:07:52.348254546Z [inf]  incoming request
-2026-02-05T13:07:52.348260354Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:07:52.348263923Z [inf]  request completed
-2026-02-05T13:07:56.282601888Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:07:56.578121328Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:07:56.726670045Z [wrn]  All API liquidity sources failed
-2026-02-05T13:07:56.858602178Z [inf]  RPC failover success
-2026-02-05T13:07:56.858607730Z [inf]  RPC failover success
-2026-02-05T13:07:56.858613262Z [inf]  RPC failover success
-2026-02-05T13:07:56.858619373Z [inf]  RPC failover success
-2026-02-05T13:07:56.858624514Z [inf]  RPC failover success
-2026-02-05T13:07:56.858630922Z [inf]  RPC failover success
-2026-02-05T13:07:56.858636414Z [inf]  RPC failover success
-2026-02-05T13:07:56.858641435Z [inf]  RPC failover success
-2026-02-05T13:07:56.869477268Z [inf]  RPC failover success
-2026-02-05T13:07:56.869481252Z [inf]  RPC failover success
-2026-02-05T13:07:56.869484474Z [inf]  RPC failover success
-2026-02-05T13:07:57.177950299Z [inf]  RPC failover success
-2026-02-05T13:07:57.177955149Z [inf]  RPC failover success
-2026-02-05T13:07:57.177958547Z [inf]  RPC failover success
-2026-02-05T13:07:57.177961975Z [inf]  RPC failover success
-2026-02-05T13:07:57.177964926Z [inf]  RPC failover success
-2026-02-05T13:07:57.340303748Z [inf]  RPC failover success
-2026-02-05T13:07:57.340309839Z [inf]  RPC failover success
-2026-02-05T13:07:57.340314229Z [inf]  RPC failover success
-2026-02-05T13:07:57.340318136Z [inf]  RPC failover success
-2026-02-05T13:07:57.340323059Z [inf]  RPC failover success
-2026-02-05T13:07:57.349461431Z [inf]  RPC failover success
-2026-02-05T13:07:57.349466415Z [inf]  RPC failover success
-2026-02-05T13:07:57.349471948Z [inf]  RPC failover success
-2026-02-05T13:07:57.349475406Z [inf]  RPC failover success
-2026-02-05T13:07:57.349479380Z [inf]  RPC failover success
-2026-02-05T13:07:57.358893743Z [inf]  RPC failover success
-2026-02-05T13:07:57.367477837Z [inf]  RPC failover success
-2026-02-05T13:07:57.376161963Z [inf]  RPC failover success
-2026-02-05T13:07:57.395665308Z [inf]  RPC failover success
-2026-02-05T13:07:57.395671453Z [inf]  RPC failover success
-2026-02-05T13:07:57.395675182Z [inf]  RPC failover success
-2026-02-05T13:07:57.395678199Z [inf]  RPC failover success
-2026-02-05T13:07:57.443426868Z [inf]  RPC failover success
-2026-02-05T13:07:57.461228606Z [inf]  RPC failover success
-2026-02-05T13:07:57.461231960Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:07:57.461234767Z [inf]  RPC failover success
-2026-02-05T13:08:07.437161335Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:08:14.760998278Z [inf]  incoming request
-2026-02-05T13:08:14.761001943Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:08:14.761005138Z [inf]  request completed
-2026-02-05T13:08:17.510119832Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:08:20.870494642Z [inf]  incoming request
-2026-02-05T13:08:20.870498901Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:08:20.870502524Z [inf]  request completed
-2026-02-05T13:08:24.497288168Z [wrn]  RPC health degraded
-2026-02-05T13:08:24.993540146Z [inf]  incoming request
-2026-02-05T13:08:24.993546691Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:08:24.993550875Z [inf]  request completed
-2026-02-05T13:08:27.015987625Z [inf]  incoming request
-2026-02-05T13:08:27.016521890Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:08:27.016528834Z [inf]  request completed
-2026-02-05T13:08:27.601368549Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:08:28.024174122Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:08:28.111977138Z [wrn]  All API liquidity sources failed
-2026-02-05T13:08:28.454120947Z [inf]  RPC failover success
-2026-02-05T13:08:28.454124816Z [inf]  RPC failover success
-2026-02-05T13:08:28.454153135Z [wrn]  RPC endpoint failed
-2026-02-05T13:08:28.454156728Z [inf]  RPC failover success
-2026-02-05T13:08:28.546094610Z [inf]  RPC failover success
-2026-02-05T13:08:28.546098354Z [inf]  RPC failover success
-2026-02-05T13:08:28.598506615Z [inf]  RPC failover success
-2026-02-05T13:08:28.598509639Z [inf]  RPC failover success
-2026-02-05T13:08:28.699638768Z [inf]  RPC failover success
-2026-02-05T13:08:28.839412305Z [inf]  RPC failover success
-2026-02-05T13:08:28.943088662Z [inf]  RPC failover success
-2026-02-05T13:08:28.943092019Z [inf]  RPC failover success
-2026-02-05T13:08:28.943095310Z [inf]  RPC failover success
-2026-02-05T13:08:28.943098560Z [inf]  RPC failover success
-2026-02-05T13:08:28.943102277Z [inf]  RPC failover success
-2026-02-05T13:08:28.943106411Z [inf]  RPC failover success
-2026-02-05T13:08:28.943109780Z [inf]  RPC failover success
-2026-02-05T13:08:28.943112787Z [inf]  RPC failover success
-2026-02-05T13:08:28.951859610Z [inf]  RPC failover success
-2026-02-05T13:08:28.951864177Z [inf]  RPC failover success
-2026-02-05T13:08:28.951869577Z [inf]  RPC failover success
-2026-02-05T13:08:28.951874343Z [inf]  RPC failover success
-2026-02-05T13:08:28.951879262Z [inf]  RPC failover success
-2026-02-05T13:08:28.951883542Z [inf]  RPC failover success
-2026-02-05T13:08:28.995118593Z [inf]  RPC failover success
-2026-02-05T13:08:29.003333344Z [inf]  RPC failover success
-2026-02-05T13:08:29.011568272Z [inf]  RPC failover success
-2026-02-05T13:08:29.472897588Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:08:30.658355564Z [inf]  incoming request
-2026-02-05T13:08:30.658359767Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:08:30.658364359Z [inf]  request completed
-2026-02-05T13:08:30.658368712Z [inf]  incoming request
-2026-02-05T13:08:30.658373215Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:08:30.658377632Z [inf]  request completed
-2026-02-05T13:08:39.268608883Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:08:40.143493559Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:42.345018323Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:42.508286574Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:42.695712382Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:42.956613597Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:43.029098040Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:43.288041759Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:43.435452636Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:43.582483613Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:43.777073414Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:44.527991445Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:44.624572092Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:08:49.363180232Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:08:49.439405628Z [inf]  📊 Position P/L check
-2026-02-05T13:09:09.447141111Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:09:09.447145954Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:09:09.447150902Z [wrn]  All API liquidity sources failed
-2026-02-05T13:09:09.447156342Z [inf]  RPC failover success
-2026-02-05T13:09:09.447161187Z [inf]  RPC failover success
-2026-02-05T13:09:09.447165967Z [inf]  RPC failover success
-2026-02-05T13:09:09.447170569Z [inf]  RPC failover success
-2026-02-05T13:09:09.447175612Z [inf]  RPC failover success
-2026-02-05T13:09:09.447180809Z [inf]  RPC failover success
-2026-02-05T13:09:09.454858545Z [inf]  RPC failover success
-2026-02-05T13:09:09.454862025Z [inf]  RPC failover success
-2026-02-05T13:09:09.454865310Z [inf]  RPC failover success
-2026-02-05T13:09:09.454868440Z [inf]  RPC failover success
-2026-02-05T13:09:09.454872103Z [inf]  RPC failover success
-2026-02-05T13:09:09.454875158Z [inf]  RPC failover success
-2026-02-05T13:09:09.454878236Z [inf]  RPC failover success
-2026-02-05T13:09:09.454881297Z [inf]  RPC failover success
-2026-02-05T13:09:09.628529938Z [inf]  RPC failover success
-2026-02-05T13:09:09.628533334Z [inf]  RPC failover success
-2026-02-05T13:09:09.628536881Z [inf]  RPC failover success
-2026-02-05T13:09:09.628539713Z [inf]  RPC failover success
-2026-02-05T13:09:09.628542703Z [inf]  RPC failover success
-2026-02-05T13:09:09.628545503Z [inf]  RPC failover success
-2026-02-05T13:09:09.628548705Z [inf]  RPC failover success
-2026-02-05T13:09:09.628551456Z [inf]  RPC failover success
-2026-02-05T13:09:09.628571871Z [inf]  RPC failover success
-2026-02-05T13:09:09.628577088Z [inf]  RPC failover success
-2026-02-05T13:09:09.628580285Z [inf]  RPC failover success
-2026-02-05T13:09:09.628583342Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:09:09.628586411Z [inf]  📊 Position P/L check
-2026-02-05T13:09:09.628589710Z [inf]  incoming request
-2026-02-05T13:09:09.628592624Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:09.628595546Z [inf]  request completed
-2026-02-05T13:09:09.628620428Z [inf]  incoming request
-2026-02-05T13:09:09.628623473Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:09.628626363Z [inf]  request completed
-2026-02-05T13:09:10.916017961Z [inf]  incoming request
-2026-02-05T13:09:10.916026335Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:10.916031912Z [inf]  request completed
-2026-02-05T13:09:11.003227887Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:09:11.086537805Z [inf]  📊 Position P/L check
-2026-02-05T13:09:12.671014744Z [inf]  incoming request
-2026-02-05T13:09:12.671021679Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:12.679927453Z [inf]  request completed
-2026-02-05T13:09:14.572876394Z [inf]  incoming request
-2026-02-05T13:09:14.572881415Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:14.572885978Z [inf]  request completed
-2026-02-05T13:09:16.884356014Z [inf]  incoming request
-2026-02-05T13:09:16.884361642Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:16.884365747Z [inf]  request completed
-2026-02-05T13:09:20.816122161Z [inf]  incoming request
-2026-02-05T13:09:20.816125060Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:20.816128004Z [inf]  request completed
-2026-02-05T13:09:21.114182304Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:09:21.172773056Z [inf]  📊 Position P/L check
-2026-02-05T13:09:22.767315868Z [inf]  incoming request
-2026-02-05T13:09:22.767320702Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:22.767324317Z [inf]  request completed
-2026-02-05T13:09:24.798506554Z [inf]  incoming request
-2026-02-05T13:09:24.798512184Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:24.798517525Z [inf]  request completed
-2026-02-05T13:09:26.589853516Z [inf]  incoming request
-2026-02-05T13:09:26.589857088Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:26.589860677Z [inf]  request completed
-2026-02-05T13:09:31.176424023Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:09:31.577480752Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:09:31.703545097Z [wrn]  All API liquidity sources failed
-2026-02-05T13:09:32.011156251Z [inf]  RPC failover success
-2026-02-05T13:09:32.011161257Z [inf]  RPC failover success
-2026-02-05T13:09:32.011166023Z [inf]  RPC failover success
-2026-02-05T13:09:32.175987799Z [inf]  RPC failover success
-2026-02-05T13:09:32.370587140Z [inf]  RPC failover success
-2026-02-05T13:09:32.370592735Z [inf]  RPC failover success
-2026-02-05T13:09:32.439024028Z [inf]  RPC failover success
-2026-02-05T13:09:32.516373734Z [inf]  RPC failover success
-2026-02-05T13:09:32.666739794Z [inf]  RPC failover success
-2026-02-05T13:09:32.666743201Z [inf]  RPC failover success
-2026-02-05T13:09:32.666747316Z [inf]  RPC failover success
-2026-02-05T13:09:32.666750508Z [inf]  RPC failover success
-2026-02-05T13:09:32.666753895Z [inf]  RPC failover success
-2026-02-05T13:09:32.666757356Z [inf]  RPC failover success
-2026-02-05T13:09:32.666760330Z [inf]  RPC failover success
-2026-02-05T13:09:32.666763522Z [inf]  RPC failover success
-2026-02-05T13:09:32.675602501Z [inf]  RPC failover success
-2026-02-05T13:09:32.675605989Z [inf]  RPC failover success
-2026-02-05T13:09:32.675610830Z [inf]  RPC failover success
-2026-02-05T13:09:32.675614664Z [inf]  RPC failover success
-2026-02-05T13:09:32.715499461Z [inf]  RPC failover success
-2026-02-05T13:09:32.746381755Z [inf]  RPC failover success
-2026-02-05T13:09:32.790325128Z [inf]  RPC failover success
-2026-02-05T13:09:32.799894388Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:09:32.815405795Z [inf]  incoming request
-2026-02-05T13:09:32.815409861Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:32.815413049Z [inf]  request completed
-2026-02-05T13:09:32.910815358Z [inf]  📊 Position P/L check
-2026-02-05T13:09:34.678166186Z [inf]  incoming request
-2026-02-05T13:09:34.678171789Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:34.678175237Z [inf]  request completed
-2026-02-05T13:09:36.778839322Z [inf]  incoming request
-2026-02-05T13:09:36.787001473Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:09:36.787006099Z [inf]  request completed
-2026-02-05T13:09:42.914506129Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:09:43.004970562Z [inf]  📊 Position P/L check
-2026-02-05T13:09:45.267487961Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:09:45.375086745Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:09:45.501002651Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:09:45.939085488Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:09:46.445368652Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:09:46.445589051Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:09:53.022793838Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:10:00.822585812Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
-2026-02-05T13:10:00.883200294Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
-2026-02-05T13:10:00.883207626Z [inf]  Fetching premium trending tokens
-2026-02-05T13:10:00.890470310Z [inf]  SocialRepo: Recalculated heat scores for 999 casts
-2026-02-05T13:10:00.890475342Z [inf]  Timer finished: recalc_heat_scores
-2026-02-05T13:10:01.148274249Z [inf]  WS addresses discovered
-2026-02-05T13:10:02.102265066Z [inf]  Processed DexScreener trending candidates
-2026-02-05T13:10:03.108424286Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:10:03.566606365Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:10:03.627564810Z [wrn]  All API liquidity sources failed
-2026-02-05T13:10:04.142920294Z [inf]  RPC failover success
-2026-02-05T13:10:04.142923533Z [inf]  RPC failover success
-2026-02-05T13:10:04.142926557Z [inf]  RPC failover success
-2026-02-05T13:10:04.151220530Z [inf]  RPC failover success
-2026-02-05T13:10:04.277923690Z [inf]  RPC failover success
-2026-02-05T13:10:04.285298602Z [inf]  RPC failover success
-2026-02-05T13:10:04.285303813Z [inf]  RPC failover success
-2026-02-05T13:10:04.285307250Z [inf]  RPC failover success
-2026-02-05T13:10:04.405895086Z [inf]  RPC failover success
-2026-02-05T13:10:04.405898988Z [inf]  RPC failover success
-2026-02-05T13:10:04.405902108Z [inf]  RPC failover success
-2026-02-05T13:10:04.405905431Z [inf]  RPC failover success
-2026-02-05T13:10:04.405908520Z [inf]  RPC failover success
-2026-02-05T13:10:04.405911979Z [inf]  RPC failover success
-2026-02-05T13:10:04.405915040Z [inf]  RPC failover success
-2026-02-05T13:10:04.405917988Z [inf]  RPC failover success
-2026-02-05T13:10:04.413265602Z [inf]  RPC failover success
-2026-02-05T13:10:04.413271824Z [inf]  RPC failover success
-2026-02-05T13:10:04.413275442Z [inf]  RPC failover success
-2026-02-05T13:10:04.413278975Z [inf]  RPC failover success
-2026-02-05T13:10:04.413282552Z [inf]  RPC failover success
-2026-02-05T13:10:04.413286082Z [inf]  RPC failover success
-2026-02-05T13:10:04.413289402Z [inf]  RPC failover success
-2026-02-05T13:10:04.413292545Z [inf]  RPC failover success
-2026-02-05T13:10:04.420876977Z [inf]  RPC failover success
-2026-02-05T13:10:04.420883280Z [inf]  RPC failover success
-2026-02-05T13:10:04.420887501Z [inf]  RPC failover success
-2026-02-05T13:10:04.420891164Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:10:04.443098106Z [inf]  RPC failover success
-2026-02-05T13:10:04.803921325Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:05.873239637Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:07.896656892Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:11.870582032Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:11.870586471Z [err]  GeckoTerminal API error after retries
-2026-02-05T13:10:11.870590774Z [err]  Error fetching trending tokens
-2026-02-05T13:10:11.870594922Z [inf]  Premium trending tokens fetch complete
-2026-02-05T13:10:11.870599570Z [inf]  [TokenJob] Got 92 trending tokens for Ethereum
-2026-02-05T13:10:11.958684101Z [inf]  Saved 92 trending tokens for eth to database and memory cache
-2026-02-05T13:10:12.031034409Z [inf]  [TokenJob] Saved 92 tokens for Ethereum to DB + cache
-2026-02-05T13:10:14.459285746Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:10:34.423378053Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:10:34.423382872Z [inf]  incoming request
-2026-02-05T13:10:34.423386718Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_iqo3w0thrz00vatw","createdAt":"2026-02-05T13:10:27.907Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed","toAddress":"0x4409921ae43a39a11d90f7b7f96cfd0b8093d9fc","blockNum":"0x27d1cf0","hash":"0x617e325a613a5adcb125e233f9050feb7fef13e1b4d26f984bd2622643365df5","value":0.0006,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x221b262dd8000","decimals":18},"blockTimestamp":"0x698496c3"}],"source":"chainlake-kafka"}}
-2026-02-05T13:10:34.423987900Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_iqo3w0thrz00vatw","createdAt":"2026-02-05T13:10:27.907Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed","toAddress":"0x4409921ae43a39a11d90f7b7f96cfd0b8093d9fc","blockNum":"0x27d1cf0","hash":"0x617e325a613a5adcb125e233f9050feb7fef13e1b4d26f984bd2622643365df5","value":0.0006,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x221b262dd8000","decimals":18},"blockTimestamp":"0x698496c3"}],"source":"chainlake-kafka"}}
-2026-02-05T13:10:34.423994092Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-05T13:10:34.423997930Z [inf]  request completed
-2026-02-05T13:10:34.424001616Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x617e32
-2026-02-05T13:10:34.433148050Z [inf]  [Profile] fetchTransaction
-2026-02-05T13:10:34.433152979Z [inf]  incoming request
-2026-02-05T13:10:34.433156492Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_mnkw9e6tncpk4w4t","createdAt":"2026-02-05T13:10:27.965Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x498581ff718922c3f8e6a244956af099b2652b2b","toAddress":"0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed","blockNum":"0x27d1cf0","hash":"0x617e325a613a5adcb125e233f9050feb7fef13e1b4d26f984bd2622643365df5","value":117020.91723944785,"asset":"Dave","category":"token","rawContract":{"rawValue":"0x0000000000000000000000000000000000000000000018c7b77561e2da6e313d","address":"0x852df602530532fb356adf25fbf0f6511b764b0
-2026-02-05T13:10:34.433159835Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_mnkw9e6tncpk4w4t","createdAt":"2026-02-05T13:10:27.965Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x498581ff718922c3f8e6a244956af099b2652b2b","toAddress":"0x2cd32fb42748774fafde72d8607f16ccc5f5c0ed","blockNum":"0x27d1cf0","hash":"0x617e325a613a5adcb125e233f9050feb7fef13e1b4d26f984bd2622643365df5","value":117020.91723944785,"asset":"Dave","category":"token","rawContract":{"rawValue":"0x0000000000000000000000000000000000000000000018c7b77561e2da6e313d","address":"0x852df602530532fb356adf25fbf0f6511b764b07","decimals":18},"log":{"address":"0x852df602530532fb356adf25fbf0f6511b764b07","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000498581ff718922c3f8e6a244956af099b2652b2b","0x0000000000000000000000002cd32fb42748774fafde72d8607f16ccc5f5c0ed"],"data":"0x0000000000000000000000000000000000000000000018c7b77561e2da6e313d","blockHash":"0x6583c09315b2c91a919d6855d35892f2a385e307f7d3e8e56b5571edeb9cd936","blockNumber":"0x27d1cf0","blockTimestamp":"0x698496c3","transactionHash":"0x617e325a613a5adcb125e233f9050feb7fef13e1b4d26f984bd2622643365df5","transactionIndex":"0x9d","logIndex":"0x2b5","removed":false},"blockTimestamp":"0x698496c3"}],"source":"chainlake-kafka"}}
-2026-02-05T13:10:34.442019770Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-05T13:10:34.442025063Z [inf]  request completed
-2026-02-05T13:10:34.442028678Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x617e32
-2026-02-05T13:10:34.442032097Z [inf]  [Profile] fetchTransaction
-2026-02-05T13:10:34.442035520Z [inf]  [Profile] fetchReceipt
-2026-02-05T13:10:34.442038917Z [inf]  Swap successfully decoded from logs
-2026-02-05T13:10:34.442042067Z [inf]  [Profile] parseSwapTransaction
-2026-02-05T13:10:34.442045022Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0x2cd32fb4: {
-2026-02-05T13:10:34.442047990Z [inf]    tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-2026-02-05T13:10:34.442050911Z [inf]    tokenOut: '0x852df602530532fb356adf25fbf0f6511b764b07',
-2026-02-05T13:10:34.442054105Z [inf]    dex: 'Uniswap v4'
-2026-02-05T13:10:34.465155290Z [inf]  }
-2026-02-05T13:10:34.465161914Z [inf]  Swap detected on target wallet
-2026-02-05T13:10:34.465165832Z [inf]  Target is buying - triggering copy trade
-2026-02-05T13:10:34.465169623Z [inf]  [CopyTradeTiming] target buy start
-2026-02-05T13:10:34.465172888Z [inf]  [Profile] fetchReceipt
-2026-02-05T13:10:34.465176411Z [inf]  Swap successfully decoded from logs
-2026-02-05T13:10:34.475969357Z [inf]  [Profile] parseSwapTransaction
-2026-02-05T13:10:34.475972364Z [inf]  [Webhook] ✅ Swap detected for tracked wallet 0x2cd32fb4: {
-2026-02-05T13:10:34.475976239Z [inf]    tokenIn: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-2026-02-05T13:10:34.475979091Z [inf]    tokenOut: '0x852df602530532fb356adf25fbf0f6511b764b07',
-2026-02-05T13:10:34.475982025Z [inf]    dex: 'Uniswap v4'
-2026-02-05T13:10:34.475984542Z [inf]  }
-2026-02-05T13:10:34.475987152Z [inf]  Swap detected on target wallet
-2026-02-05T13:10:34.475989651Z [wrn]  All API liquidity sources failed
-2026-02-05T13:10:34.475992622Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:10:34.475995459Z [inf]  Timer finished: launchpad_det_0x852df602530532fb356adf25fbf0f6511b764b07
-2026-02-05T13:10:34.485771954Z [inf]  RPC failover success
-2026-02-05T13:10:34.485777828Z [inf]  RPC failover success
-2026-02-05T13:10:34.485782202Z [inf]  RPC failover success
-2026-02-05T13:10:34.485787184Z [inf]  RPC failover success
-2026-02-05T13:10:34.485790557Z [inf]  RPC failover success
-2026-02-05T13:10:34.485794321Z [inf]  RPC failover success
-2026-02-05T13:10:34.485797529Z [inf]  RPC failover success
-2026-02-05T13:10:34.495323324Z [inf]  RPC failover success
-2026-02-05T13:10:34.495340425Z [inf]  RPC failover success
-2026-02-05T13:10:34.495347980Z [inf]  RPC failover success
-2026-02-05T13:10:34.495349378Z [inf]  RPC failover success
-2026-02-05T13:10:34.495353027Z [inf]  RPC failover success
-2026-02-05T13:10:34.495356129Z [inf]  RPC failover success
-2026-02-05T13:10:34.495357598Z [inf]  RPC failover success
-2026-02-05T13:10:34.504735723Z [inf]  RPC failover success
-2026-02-05T13:10:34.504741524Z [inf]  RPC failover success
-2026-02-05T13:10:34.504745396Z [inf]  RPC failover success
-2026-02-05T13:10:34.504748585Z [inf]  RPC failover success
-2026-02-05T13:10:34.504751668Z [inf]  RPC failover success
-2026-02-05T13:10:34.504754886Z [inf]  RPC failover success
-2026-02-05T13:10:34.504757987Z [inf]  RPC failover success
-2026-02-05T13:10:34.514377391Z [inf]  RPC failover success
-2026-02-05T13:10:34.514385930Z [inf]  RPC failover success
-2026-02-05T13:10:34.514390470Z [inf]  RPC failover success
-2026-02-05T13:10:34.514394086Z [inf]  RPC failover success
-2026-02-05T13:10:34.514397911Z [inf]  RPC failover success
-2026-02-05T13:10:34.514401817Z [inf]  RPC failover success
-2026-02-05T13:10:34.514405323Z [inf]  RPC failover success
-2026-02-05T13:10:34.524125051Z [inf]  RPC failover success
-2026-02-05T13:10:34.524132148Z [inf]  RPC failover success
-2026-02-05T13:10:34.524136737Z [inf]  RPC failover success
-2026-02-05T13:10:34.524140295Z [inf]  RPC failover success
-2026-02-05T13:10:34.524143849Z [inf]  RPC failover success
-2026-02-05T13:10:34.524147267Z [inf]  RPC failover success
-2026-02-05T13:10:34.524150795Z [inf]  RPC failover success
-2026-02-05T13:10:34.533648323Z [inf]  RPC failover success
-2026-02-05T13:10:34.533654337Z [inf]  RPC failover success
-2026-02-05T13:10:34.533658625Z [inf]  RPC failover success
-2026-02-05T13:10:34.533661999Z [inf]  RPC failover success
-2026-02-05T13:10:34.533665276Z [inf]  RPC failover success
-2026-02-05T13:10:34.533669108Z [inf]  RPC failover success
-2026-02-05T13:10:34.533672424Z [inf]  RPC failover success
-2026-02-05T13:10:34.542154266Z [inf]  RPC failover success
-2026-02-05T13:10:34.542161805Z [inf]  RPC failover success
-2026-02-05T13:10:34.542165886Z [inf]  RPC failover success
-2026-02-05T13:10:34.542169092Z [inf]  RPC failover success
-2026-02-05T13:10:34.542172440Z [inf]  RPC failover success
-2026-02-05T13:10:34.542175811Z [inf]  RPC failover success
-2026-02-05T13:10:34.542179159Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:10:34.553109602Z [inf]  📦 Processing batch 1/1
-2026-02-05T13:10:34.553116319Z [inf]  Created PENDING position lock
-2026-02-05T13:10:34.553121695Z [inf]  Buy Step 1: 100% amount, 10% slippage
-2026-02-05T13:10:34.553122665Z [inf]  🔥 Warming up 1 user settings
-2026-02-05T13:10:34.553126357Z [inf]  [MainSwapService][1770297029815_76j3kk] Starting unified swap execution
-2026-02-05T13:10:34.553130666Z [inf]  🔍 Batch filter complete (PARALLEL)
-2026-02-05T13:10:34.553134430Z [inf]  📊 Mass Copy Trade Analysis
-2026-02-05T13:10:34.563091492Z [inf]  Timer finished: launchpad_det_ETH
-2026-02-05T13:10:34.563098318Z [inf]  [MainSwapService][1770297029815_76j3kk] Executing EVM swap
-2026-02-05T13:10:34.563104215Z [inf]  [MainSwapService][1770297029815_76j3kk] FastSwapMode enabled - attempting direct swap (BUY with native)
-2026-02-05T13:10:34.563108759Z [inf]  [DirectSwap] Starting direct swap
-2026-02-05T13:10:34.563112998Z [inf]  [PlatformFee] Fees ENABLED: { context: 'copyTrade', bps: 100, evmRecipient: '0xc5377e6329' }
-2026-02-05T13:10:34.563117873Z [inf]  [Kyber] GET routes {
-2026-02-05T13:10:34.563122618Z [inf]    routesUrl: 'https://aggregator-api.kyberswap.com/base/api/v1/routes?tokenIn=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee&tokenOut=0x852df602530532fb356adf25fbf0f6511b764b07&amountIn=486312669612199&saveGas=true&gasInclude=true&clientId=kiko-app&origin=0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B&feeReceiver=0xc5377e6329770Be29Ef938d8aCC11f22398D7E54&feeAmount=100&isInBps=true&chargeFeeBy=currency_in'
-2026-02-05T13:10:34.570572707Z [inf]  }
-2026-02-05T13:10:34.570579215Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:10:34.570584405Z [inf]  0x API price received successfully
-2026-02-05T13:10:34.570588164Z [wrn]  [DirectSwap] Reference quote timeout
-2026-02-05T13:10:34.570592328Z [inf]  RPC failover success
-2026-02-05T13:10:34.570596237Z [inf]  [Kyber] routes response {
-2026-02-05T13:10:34.570599427Z [inf]    status: 200,
-2026-02-05T13:10:34.570603030Z [inf]    hasData: true,
-2026-02-05T13:10:34.570606392Z [inf]    keys: [ 'code', 'message', 'data', 'requestId' ]
-2026-02-05T13:10:34.570609461Z [inf]  }
-2026-02-05T13:10:34.570613224Z [inf]  [Kyber] Building route/build request body: {
-2026-02-05T13:10:34.570616364Z [inf]    hasRouteSummary: true,
-2026-02-05T13:10:34.570619777Z [inf]    routeSummaryKeys: [
-2026-02-05T13:10:34.570623949Z [inf]      'tokenIn',
-2026-02-05T13:10:34.570627146Z [inf]      'amountIn',
-2026-02-05T13:10:34.578670361Z [inf]      'amountInUsd',
-2026-02-05T13:10:34.578673973Z [inf]      'tokenOut',
-2026-02-05T13:10:34.578677666Z [inf]      'amountOut',
-2026-02-05T13:10:34.578681066Z [inf]      'amountOutUsd',
-2026-02-05T13:10:34.578685497Z [inf]      'gas',
-2026-02-05T13:10:34.578689064Z [inf]      'gasPrice'
-2026-02-05T13:10:34.578693817Z [inf]    ],
-2026-02-05T13:10:34.578697276Z [inf]    sender: '0xFB64Ce8d',
-2026-02-05T13:10:34.578700730Z [inf]    recipient: '0xFB64Ce8d',
-2026-02-05T13:10:34.578704187Z [inf]    slippageTolerance: 1500,
-2026-02-05T13:10:34.578707676Z [inf]    slippageToleranceType: 'number',
-2026-02-05T13:10:34.578712428Z [inf]    deadline: 1770297632,
-2026-02-05T13:10:34.578715696Z [inf]    deadlineType: 'number',
-2026-02-05T13:10:34.578719017Z [inf]    allBodyKeys: [
-2026-02-05T13:10:34.578722271Z [inf]      'routeSummary',
-2026-02-05T13:10:34.578725831Z [inf]      'sender',
-2026-02-05T13:10:34.578729234Z [inf]      'recipient',
-2026-02-05T13:10:34.578732325Z [inf]      'origin',
-2026-02-05T13:10:34.578736630Z [inf]      'slippageTolerance',
-2026-02-05T13:10:34.578739779Z [inf]      'deadline'
-2026-02-05T13:10:34.578743025Z [inf]    ]
-2026-02-05T13:10:34.578746322Z [inf]  }
-2026-02-05T13:10:34.578749125Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:34.578752485Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:34.578755506Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:34.587370449Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:34.587377786Z [wrn]  [DirectSwap] Gecko reference failed
-2026-02-05T13:10:34.587381744Z [wrn]  [DirectSwap] No reference quote available
-2026-02-05T13:10:34.587385296Z [inf]  [DirectSwap] V4 fast path quote check
-2026-02-05T13:10:34.587388966Z [inf]  [DirectSwap] V4 fast path forced (clanker)
-2026-02-05T13:10:34.943492066Z [inf]  incoming request
-2026-02-05T13:10:34.943496002Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:10:34.943499680Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:34.943503400Z [inf]  [Preheat] Start
-2026-02-05T13:10:34.943506917Z [inf]  request completed
-2026-02-05T13:10:34.968622444Z [inf]  RPC failover success
-2026-02-05T13:10:35.077524994Z [inf]  RPC failover success
-2026-02-05T13:10:35.077528013Z [wrn]  RPC endpoint failed
-2026-02-05T13:10:35.180494710Z [inf]  RPC failover success
-2026-02-05T13:10:35.213221730Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:10:35.221542801Z [inf]  RPC failover success
-2026-02-05T13:10:35.221545766Z [inf]  RPC failover success
-2026-02-05T13:10:35.221548860Z [inf]  RPC failover success
-2026-02-05T13:10:35.221551763Z [inf]  RPC failover success
-2026-02-05T13:10:35.221554713Z [inf]  RPC failover success
-2026-02-05T13:10:35.221557710Z [inf]  RPC failover success
-2026-02-05T13:10:35.221560622Z [inf]  RPC failover success
-2026-02-05T13:10:35.229889654Z [inf]  RPC failover success
-2026-02-05T13:10:35.229893016Z [inf]  RPC failover success
-2026-02-05T13:10:35.229896348Z [inf]  RPC failover success
-2026-02-05T13:10:35.229899460Z [inf]  RPC failover success
-2026-02-05T13:10:35.229902656Z [inf]  RPC failover success
-2026-02-05T13:10:35.229905696Z [inf]  RPC failover success
-2026-02-05T13:10:35.229908739Z [inf]  RPC failover success
-2026-02-05T13:10:35.238454680Z [inf]  RPC failover success
-2026-02-05T13:10:35.238459278Z [wrn]  RPC endpoint failed
-2026-02-05T13:10:35.327115089Z [inf]  RPC failover success
-2026-02-05T13:10:35.327119261Z [inf]  RPC failover success
-2026-02-05T13:10:35.327122780Z [inf]  RPC failover success
-2026-02-05T13:10:35.327125880Z [inf]  RPC failover success
-2026-02-05T13:10:35.327129346Z [inf]  RPC failover success
-2026-02-05T13:10:35.327132587Z [inf]  RPC failover success
-2026-02-05T13:10:35.327135622Z [inf]  RPC failover success
-2026-02-05T13:10:35.335319167Z [inf]  RPC failover success
-2026-02-05T13:10:35.335325336Z [inf]  RPC failover success
-2026-02-05T13:10:35.335329026Z [inf]  RPC failover success
-2026-02-05T13:10:35.335332547Z [inf]  RPC failover success
-2026-02-05T13:10:35.335335889Z [inf]  RPC failover success
-2026-02-05T13:10:35.335340403Z [inf]  RPC failover success
-2026-02-05T13:10:35.335343473Z [inf]  RPC failover success
-2026-02-05T13:10:35.343672758Z [inf]  RPC failover success
-2026-02-05T13:10:35.343679191Z [inf]  RPC failover success
-2026-02-05T13:10:35.343684487Z [inf]  [DirectSwap] V4 minAmountOut calculated
-2026-02-05T13:10:35.352448528Z [inf]  RPC failover success
-2026-02-05T13:10:35.352452438Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:35.352456535Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:35.352460475Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:35.352465182Z [inf]  RPC failover success
-2026-02-05T13:10:35.488478033Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T13:10:35.659472803Z [inf]  RPC failover success
-2026-02-05T13:10:35.668464028Z [inf]  RPC failover success
-2026-02-05T13:10:35.668467522Z [inf]  RPC failover success
-2026-02-05T13:10:35.668470430Z [wrn]  All API liquidity sources failed
-2026-02-05T13:10:35.668473376Z [inf]  RPC failover success
-2026-02-05T13:10:35.668476559Z [inf]  RPC failover success
-2026-02-05T13:10:35.668480102Z [inf]  RPC failover success
-2026-02-05T13:10:35.668483276Z [inf]  RPC failover success
-2026-02-05T13:10:35.668486176Z [inf]  RPC failover success
-2026-02-05T13:10:35.677214928Z [inf]  RPC failover success
-2026-02-05T13:10:35.677220048Z [inf]  RPC failover success
-2026-02-05T13:10:35.677223512Z [inf]  RPC failover success
-2026-02-05T13:10:35.677228070Z [inf]  RPC failover success
-2026-02-05T13:10:35.677231369Z [inf]  RPC failover success
-2026-02-05T13:10:35.740355159Z [inf]  RPC failover success
-2026-02-05T13:10:35.740365319Z [inf]  [DirectSwap] V4 gas estimated
-2026-02-05T13:10:35.820303230Z [inf]  RPC failover success
-2026-02-05T13:10:35.820308414Z [inf]  RPC failover success
-2026-02-05T13:10:35.892473011Z [inf]  [sendTransaction] ValueHex: 0x1ba4c7dec08a7
-2026-02-05T13:10:35.892477376Z [inf]  [sendTransaction] Data length: 2506
-2026-02-05T13:10:35.892481828Z [inf]  [sendTransaction] Data (full): 0x3593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000698497f700000000000000000000000000000000000000000000000000000000000000020b100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000400000000000000000000000006ff5693b99212da76ad316178a184ab56d299b4380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000360000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000003060b0f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000001e00000000000000000000000000000000000000000000000000000000000000260000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000000200000000000000000000000004200000000000000000000000000000000000006000000000000000000000000852df602530532fb356adf25fbf0f6511b764b07000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000c8000000000000000000000000b429d62f8f3bffb98cdb9569533ea23bf0ba28cc00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000001ba4c7dec08a700000000000000000000000000000000000000000000116d519164dc2d6666660000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040000000000000000000000000852df602530532fb356adf25fbf0f6511b764b0700000000000000000000000000000000000000000000116d519164dc2d666666
-2026-02-05T13:10:35.892487146Z [inf]  RPC failover success
-2026-02-05T13:10:35.892494085Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:35.892499916Z [inf]  [Preheat] Start
-2026-02-05T13:10:35.892504404Z [inf]  [sendTransaction] ========== PRIVY TX PARAMS ==========
-2026-02-05T13:10:35.892505047Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:35.892513290Z [inf]  [sendTransaction] From: 0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B
-2026-02-05T13:10:35.892518451Z [inf]  [sendTransaction] To: 0x6ff5693b99212da76ad316178a184ab56d299b43
-2026-02-05T13:10:35.892524977Z [inf]  [sendTransaction] Value: 486312669612199
-2026-02-05T13:10:35.899905788Z [inf]  [sendTransaction] ChainId: 8453
-2026-02-05T13:10:35.899910699Z [inf]  [sendTransaction] Gas: 1285638
-2026-02-05T13:10:35.899914650Z [inf]  [sendTransaction] MaxFeePerGas: undefined
-2026-02-05T13:10:35.899917871Z [inf]  [sendTransaction] MaxPriorityFeePerGas: undefined
-2026-02-05T13:10:35.899921304Z [inf]  [sendTransaction] Full TX object: {
-2026-02-05T13:10:35.899924734Z [inf]    to: '0x6ff5693b99212da76ad316178a184ab56d299b43',
-2026-02-05T13:10:35.899928002Z [inf]    data: '0x3593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000698497f700000000000000000000000000000000000000000000000000000000000000020b100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000400000000000000000000000006ff5693b99212da76ad316178a184ab56d299b4380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000360000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000003060b0f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000001e00000000000000000000000000000000000000000000000000000000000000260000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000000200000000000000000000000004200000000000000000000000000000000000006000000000000000000000000852df602530532fb356adf25fbf0f6511b764b07000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000c8000000000000000000000000b429d62f8f3bffb98cdb9569533ea23bf0ba28cc00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000001ba4c7dec08a700000000000000000000000000000000000000000000116d519164dc2d6666660000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000004200000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040000000000000000000000000852df602530532fb356adf25fbf0f6511b764b0700000000000000000000000000000000000000000000116d519164dc2d666666',
-2026-02-05T13:10:35.907487575Z [inf]    value: '486312669612199',
-2026-02-05T13:10:35.907492648Z [inf]    chainId: 8453,
-2026-02-05T13:10:35.907496256Z [inf]    gas: '1285638'
-2026-02-05T13:10:35.907500855Z [inf]  }
-2026-02-05T13:10:35.907505842Z [inf]  [sendTransaction] ===========================================
-2026-02-05T13:10:35.943330363Z [inf]  RPC failover success
-2026-02-05T13:10:36.004435020Z [inf]  RPC failover success
-2026-02-05T13:10:36.869297097Z [inf]  RPC failover success
-2026-02-05T13:10:36.869300499Z [inf]  incoming request
-2026-02-05T13:10:36.869303844Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:10:36.869307090Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:36.869310197Z [inf]  [Preheat] Start
-2026-02-05T13:10:36.869313228Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:36.869316146Z [inf]  request completed
-2026-02-05T13:10:36.899326165Z [wrn]  RPC endpoint failed
-2026-02-05T13:10:36.899331923Z [wrn]  RPC endpoint failed
-2026-02-05T13:10:36.899335517Z [wrn]  RPC circuit breaker opened
-2026-02-05T13:10:36.899338691Z [wrn]  RPC endpoint failed
-2026-02-05T13:10:36.899341948Z [wrn]  RPC circuit breaker opened
-2026-02-05T13:10:36.908187799Z [wrn]  RPC circuit breaker opened
-2026-02-05T13:10:36.908194286Z [wrn]  RPC endpoint failed
-2026-02-05T13:10:36.916538776Z [inf]  RPC failover success
-2026-02-05T13:10:36.958381834Z [inf]  RPC failover success
-2026-02-05T13:10:36.958385090Z [inf]  RPC failover success
-2026-02-05T13:10:36.958388216Z [inf]  RPC failover success
-2026-02-05T13:10:36.958391465Z [inf]  RPC failover success
-2026-02-05T13:10:36.958394342Z [inf]  RPC failover success
-2026-02-05T13:10:36.982433903Z [inf]  RPC failover success
-2026-02-05T13:10:36.990945951Z [inf]  Ethereum transaction sent via Privy
-2026-02-05T13:10:37.224805153Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T13:10:37.387028937Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:37.387032365Z [inf]  [Preheat] Start
-2026-02-05T13:10:37.387036070Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:37.387039411Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:37.387042408Z [inf]  [Preheat] Start
-2026-02-05T13:10:37.387047483Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:38.005465055Z [inf]  [DirectSwap] V4 swap executed
-2026-02-05T13:10:38.005469098Z [inf]  [DirectSwap] Finished
-2026-02-05T13:10:38.005472757Z [inf]  [MainSwapService][1770297029815_76j3kk] Direct swap successful
-2026-02-05T13:10:38.005476786Z [inf]  [CopyTradeTiming] buy step 1 success
-2026-02-05T13:10:38.005480054Z [inf]  Copy trade completed and position created
-2026-02-05T13:10:38.005483227Z [inf]  [Warpcast] Sending DM to FID 877398: "🚀 Bought $Dave @ $1.00
-2026-02-05T13:10:38.014464876Z [inf]  
-2026-02-05T13:10:38.014467935Z [inf]  🟢 **BOUGHT $Dave**
-2026-02-05T13:10:38.014471261Z [inf]  💰 **..."
-2026-02-05T13:10:38.397505144Z [inf]  incoming request
-2026-02-05T13:10:38.397509665Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_7fin20pplkc30hxo","createdAt":"2026-02-05T13:10:37.911Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","toAddress":"0x6ff5693b99212da76ad316178a184ab56d299b43","blockNum":"0x27d1cf5","hash":"0xf59a0024fe1bef2a2648d5c7ec7b65abbd778313e0d9281c9152cf71a4ceea26","value":0.000486312669612199,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x1ba4c7dec08a7","decimals":18},"blockTimestamp":"0x698496cd"}],"source":"chainlake-kafka"}}
-2026-02-05T13:10:38.397514614Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_7fin20pplkc30hxo","createdAt":"2026-02-05T13:10:37.911Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","toAddress":"0x6ff5693b99212da76ad316178a184ab56d299b43","blockNum":"0x27d1cf5","hash":"0xf59a0024fe1bef2a2648d5c7ec7b65abbd778313e0d9281c9152cf71a4ceea26","value":0.000486312669612199,"asset":"ETH","category":"external","rawContract":{"rawValue":"0x1ba4c7dec08a7","decimals":18},"blockTimestamp":"0x698496cd"}],"source":"chainlake-kafka"}}
-2026-02-05T13:10:38.397519454Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-05T13:10:38.397524347Z [inf]  request completed
-2026-02-05T13:10:38.397549620Z [inf]  [Webhook] ⚠️ Ignoring tx 0xf59a00: No matched tracked wallets in [0xfb64, 0x6ff5]
-2026-02-05T13:10:38.490956926Z [inf]  incoming request
-2026-02-05T13:10:38.491467099Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_vkcsbr8mo1yq032t","createdAt":"2026-02-05T13:10:37.983Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x498581ff718922c3f8e6a244956af099b2652b2b","toAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","blockNum":"0x27d1cf5","hash":"0xf59a0024fe1bef2a2648d5c7ec7b65abbd778313e0d9281c9152cf71a4ceea26","value":95659.60204373846,"asset":"Dave","category":"token","rawContract":{"rawValue":"0x000000000000000000000000000000000000000000001441b7a8b07ca5c06af7","address":"0x852df602530532fb356adf25fbf0f6511b764b07
-2026-02-05T13:10:38.491473336Z [inf]  [Webhook] Incoming Alchemy (BASE_MAINNET): {"webhookId":"wh_lb0gbaogh5ek413o","id":"whevt_vkcsbr8mo1yq032t","createdAt":"2026-02-05T13:10:37.983Z","type":"ADDRESS_ACTIVITY","event":{"network":"BASE_MAINNET","activity":[{"fromAddress":"0x498581ff718922c3f8e6a244956af099b2652b2b","toAddress":"0xfb64ce8d64cec808a8acb977d3ee7be1169f1a2b","blockNum":"0x27d1cf5","hash":"0xf59a0024fe1bef2a2648d5c7ec7b65abbd778313e0d9281c9152cf71a4ceea26","value":95659.60204373846,"asset":"Dave","category":"token","rawContract":{"rawValue":"0x000000000000000000000000000000000000000000001441b7a8b07ca5c06af7","address":"0x852df602530532fb356adf25fbf0f6511b764b07","decimals":18},"log":{"address":"0x852df602530532fb356adf25fbf0f6511b764b07","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x000000000000000000000000498581ff718922c3f8e6a244956af099b2652b2b","0x000000000000000000000000fb64ce8d64cec808a8acb977d3ee7be1169f1a2b"],"data":"0x000000000000000000000000000000000000000000001441b7a8b07ca5c06af7","blockHash":"0x0eeac86462bc190cf576fdb301b11ced6aba6b09002171f7577c97a324841d71","blockNumber":"0x27d1cf5","blockTimestamp":"0x698496cd","transactionHash":"0xf59a0024fe1bef2a2648d5c7ec7b65abbd778313e0d9281c9152cf71a4ceea26","transactionIndex":"0x103","logIndex":"0x26c","removed":false},"blockTimestamp":"0x698496cd"}],"source":"chainlake-kafka"}}
-2026-02-05T13:10:38.499299054Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-05T13:10:38.499302300Z [inf]  request completed
-2026-02-05T13:10:38.499305342Z [inf]  [Webhook] ⚠️ Ignoring tx 0xf59a00: No matched tracked wallets in [0x4985, 0xfb64]
-2026-02-05T13:10:38.499308506Z [inf]  [Warpcast] DM sent successfully. Daily usage: 2/50000
-2026-02-05T13:10:38.499311797Z [inf]  ✅ Smart batch execution complete
-2026-02-05T13:10:39.203057247Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:39.203060730Z [inf]  [Preheat] Start
-2026-02-05T13:10:39.203064238Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:39.210452459Z [inf]  incoming request
-2026-02-05T13:10:39.210456549Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:10:39.210460173Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:39.210463389Z [inf]  [Preheat] Start
-2026-02-05T13:10:39.210466488Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:39.210469697Z [inf]  request completed
-2026-02-05T13:10:39.517441077Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:39.517444197Z [err]  GeckoTerminal API error after retries
-2026-02-05T13:10:39.517447589Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T13:10:39.517450732Z [err]  GeckoTerminal API error after retries
-2026-02-05T13:10:39.517453776Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:39.517457075Z [inf]  [Preheat] Start
-2026-02-05T13:10:39.525208420Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:40.493359376Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:40.493362294Z [inf]  [Preheat] Start
-2026-02-05T13:10:40.493365274Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:40.957222277Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:40.957228019Z [inf]  [Preheat] Start
-2026-02-05T13:10:40.957231956Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:41.924474504Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:41.924478244Z [inf]  [Preheat] Start
-2026-02-05T13:10:41.924483508Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:42.107050994Z [inf]  [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
-2026-02-05T13:10:42.107054940Z [inf]  Fetching premium trending tokens
-2026-02-05T13:10:42.359786746Z [inf]  WS addresses discovered
-2026-02-05T13:10:42.638657860Z [inf]  incoming request
-2026-02-05T13:10:42.638670970Z [inf]  [Webhook] CDP payload: event=unknown contract=unknown
-2026-02-05T13:10:42.638675229Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:42.638680519Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:42.638680830Z [inf]  [Preheat] Start
-2026-02-05T13:10:42.638687947Z [inf]  request completed
-2026-02-05T13:10:43.103453239Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:43.103457069Z [inf]  [Preheat] Start
-2026-02-05T13:10:43.103460352Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:43.526563127Z [inf]  Processed DexScreener trending candidates
-2026-02-05T13:10:43.526571697Z [inf]  Premium trending tokens fetch complete
-2026-02-05T13:10:43.526577966Z [inf]  [TokenJob] Got 100 trending tokens for Solana
-2026-02-05T13:10:43.572330142Z [inf]  Saved 100 trending tokens for solana to database and memory cache
-2026-02-05T13:10:43.572334398Z [inf]  [TokenJob] Saved 100 tokens for Solana to DB + cache
-2026-02-05T13:10:43.993475812Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:43.993480769Z [inf]  [Preheat] Start
-2026-02-05T13:10:43.993485285Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:44.572242298Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:44.572245225Z [inf]  [Preheat] Start
-2026-02-05T13:10:44.572248784Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:47.353060319Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T13:10:47.414358242Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:47.414365241Z [inf]  [Preheat] Start
-2026-02-05T13:10:47.414369859Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:47.570782951Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:10:47.570786137Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:47.570789141Z [inf]  [Preheat] Start
-2026-02-05T13:10:47.570792293Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:47.685648671Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:10:47.685650330Z [inf]  0x API price received successfully
-2026-02-05T13:10:48.008407567Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:10:48.135165655Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:10:48.398325021Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:10:48.885708527Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:48.885711897Z [inf]  [Preheat] Start
-2026-02-05T13:10:48.885715164Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T13:10:49.298513989Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:10:49.689628727Z [inf]  Alpha Detector: Checking new coin
-2026-02-05T13:10:50.946483586Z [inf]  [Preheat] Enqueue
-2026-02-05T13:10:50.946491007Z [inf]  [Preheat] Start
-2026-02-05T13:10:50.946495350Z [inf]  [Preheat] No pool yet, retry scheduled
+[api] [verifyAccess] Checking access: {
+[api]   userId: 'did:privy:cmj0a3j3f005fl20c4xkl7195',
+[api]   userIdLength: 35,
+[api]   userIdPrefix: 'did:privy:cmj0a3j3f0',
+[api]   requestedAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E'
+[api] }
+[api] {"level":30,"time":1770297620382,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-6","res":{"statusCode":200},"responseTime":1057.384583003819,"msg":"request completed"}
+[api] [verifyAccess] ✅ Access granted
+[api] {"level":30,"time":1770297620392,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2","res":{"statusCode":200},"responseTime":1088.6311249956489,"msg":"request completed"}
+[api] [2026-02-05T13:20:21.639Z] [WARN] [API-5004][TID:04229de4-ef6c-4935-98ce-d944adfe7468] GeckoTerminal 429 triggered backoff | DATA: {"backoffMs":60000}
+[api] [2026-02-05T13:20:23.360Z] [ERROR] [API-5002][TID:cc6580c0-27d6-416d-8823-1e10dfaccc8a] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:20:25.315Z] [INFO] [API-5001][TID:cc6580c0-27d6-416d-8823-1e10dfaccc8a] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297625316,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-7","res":{"statusCode":200},"responseTime":5990.730374999344,"msg":"request completed"}
+[api] {"level":30,"time":1770297625343,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-8","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625344,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-8","res":{"statusCode":204},"responseTime":1.3452920019626617,"msg":"request completed"}
+[api] {"level":30,"time":1770297625346,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-9","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625689,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-a","req":{"method":"OPTIONS","url":"/api/chat/moderation/log","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625690,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-a","res":{"statusCode":204},"responseTime":0.6218330040574074,"msg":"request completed"}
+[api] {"level":30,"time":1770297625691,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-b","req":{"method":"POST","url":"/api/chat/moderation/log","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625697,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-c","req":{"method":"OPTIONS","url":"/api/chat/sessions","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625698,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-c","res":{"statusCode":204},"responseTime":0.7294159978628159,"msg":"request completed"}
+[api] [ModerationLog] Received backend request: channel=frontend_local, userId=did:privy:cmj0a3j3f005fl20c4xkl7195, content=what's my balance ?...
+[api] {"level":30,"time":1770297625703,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-d","req":{"method":"POST","url":"/api/chat/sessions","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625706,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-b","res":{"statusCode":200},"responseTime":14.807042002677917,"msg":"request completed"}
+[api] {"level":30,"time":1770297625707,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-e","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625715,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-d","res":{"statusCode":200},"responseTime":12.13366699963808,"msg":"request completed"}
+[api] {"level":30,"time":1770297625717,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-f","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625717,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-f","res":{"statusCode":204},"responseTime":0.22862499952316284,"msg":"request completed"}
+[api] {"level":30,"time":1770297625718,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-g","req":{"method":"GET","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625728,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-g","res":{"statusCode":200},"responseTime":9.166790999472141,"msg":"request completed"}
+[api] {"level":30,"time":1770297625730,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-h","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n/messages","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297625731,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-h","res":{"statusCode":204},"responseTime":0.44929100573062897,"msg":"request completed"}
+[api] {"level":30,"time":1770297625732,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-i","req":{"method":"POST","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n/messages","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] [2026-02-05T13:20:26.078Z] [ERROR] [API-5002][TID:1293bf85-6944-449d-b320-c534a415cb3e] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:20:26.078Z] [INFO] [API-5001][TID:1293bf85-6944-449d-b320-c534a415cb3e] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297626080,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-9","res":{"statusCode":200},"responseTime":733.2545420005918,"msg":"request completed"}
+[api] [2026-02-05T13:20:26.556Z] [WARN] [API-5004][TID:04229de4-ef6c-4935-98ce-d944adfe7468] GeckoTerminal 429 triggered backoff | DATA: {"backoffMs":60000}
+[api] [2026-02-05T13:20:26.558Z] [ERROR] [API-5002][TID:04229de4-ef6c-4935-98ce-d944adfe7468] GeckoTerminal API error after retries | DATA: {"endpoint":"/networks/eth/trending_pools?page=6&include=base_token&duration=5m","error":"Rate limit hit, backing off for 60000ms"}
+[api] [2026-02-05T13:20:26.558Z] [ERROR] [API-5002][TID:04229de4-ef6c-4935-98ce-d944adfe7468] Error fetching trending tokens | DATA: {"network":"eth","error":"Rate limit hit, backing off for 60000ms"}
+[api] [2026-02-05T13:20:26.558Z] [INFO] [API-5001][TID:04229de4-ef6c-4935-98ce-d944adfe7468][25634ms] Premium trending tokens fetch complete | DATA: {"count":91,"chain":"ethereum","source":"WebSocket","wsOriginal":183}
+[api] [TokenJob] Got 91 trending tokens for Ethereum
+[api] Saved 91 trending tokens for eth to database and memory cache
+[api] [TokenJob] Saved 91 tokens for Ethereum to DB + cache
+[api] [2026-02-05T13:20:27.075Z] [ERROR] [API-5002][TID:a9521e0e-9502-45eb-ba8d-dea14992623b] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:20:27.076Z] [INFO] [API-5001][TID:a9521e0e-9502-45eb-ba8d-dea14992623b] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297627091,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-i","res":{"statusCode":200},"responseTime":1358.7402079999447,"msg":"request completed"}
+[api] {"level":30,"time":1770297627098,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-j","req":{"method":"OPTIONS","url":"/api/billing/usage-summary","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297627098,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-j","res":{"statusCode":204},"responseTime":0.5546249970793724,"msg":"request completed"}
+[api] {"level":30,"time":1770297627100,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-k","req":{"method":"GET","url":"/api/billing/usage-summary","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297627106,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-k","res":{"statusCode":200},"responseTime":5.389334000647068,"msg":"request completed"}
+[api] {"level":30,"time":1770297627114,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-l","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] [2026-02-05T13:20:27.188Z] [ERROR] [API-5002][TID:777f74eb-0173-4c9d-ad3a-2000fec548ba] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:20:27.188Z] [INFO] [API-5001][TID:777f74eb-0173-4c9d-ad3a-2000fec548ba] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297627189,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-e","res":{"statusCode":200},"responseTime":1482.2907090038061,"msg":"request completed"}
+[api] [2026-02-05T13:20:27.955Z] [ERROR] [API-5002][TID:83a9ffe4-66a8-408f-b4fd-2aa98c68906e] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:20:27.955Z] [INFO] [API-5001][TID:83a9ffe4-66a8-408f-b4fd-2aa98c68906e] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297627956,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-l","res":{"statusCode":200},"responseTime":842.0012089982629,"msg":"request completed"}
+[api] [2026-02-05T13:20:27.976Z] [INFO] [WS-8004][1ms] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:27.977Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:27.977Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[python] INFO:moderation.router:Moderating input: what's my balance ?...
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:20:29.868Z] [INFO] [SYS-1001] No open positions to monitor
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+[python] INFO:     127.0.0.1:65458 - "POST /moderation/input HTTP/1.1" 200 OK
+[api] [2026-02-05T13:20:29.990Z] [INFO] [SYS-1007] Moderation Input check result | DATA: {"safe":true,"action":"allow","userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"}
+[api] [2026-02-05T13:20:29.994Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_start","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start"}
+[api] [ChatWorker] Sent message_start for cml9hhy8f002b12ozy05229vn
+[api] [2026-02-05T13:20:29.995Z] [INFO] [AI-6007] ChatWorker: seeded get_wallet_info from client context | DATA: {"chainId":137,"tokenCount":7,"hasNativeBalance":true}
+[api] [ChatWorker] Base filtered to 46 tools for message: "what's my balance ?..."
+[api] [ChatWorker] 🔍 RAG check for: "what's my balance ?..."
+[api] [ChatWorker] 🎯 RAG: Match found! Query looks informational.
+[api] [2026-02-05T13:20:29.996Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] {"level":30,"time":1770297630035,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-m","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9dkamt000232jec8sw6js1","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297630036,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-m","res":{"statusCode":204},"responseTime":0.3679580017924309,"msg":"request completed"}
+[api] {"level":30,"time":1770297630037,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-n","req":{"method":"DELETE","url":"/api/chat/sessions/cml9dkamt000232jec8sw6js1","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297630046,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-n","res":{"statusCode":200},"responseTime":8.653834000229836,"msg":"request completed"}
+[api] {"level":30,"time":1770297630484,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-o","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9bq2d90002mz4fucdke2xh","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297630485,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-o","res":{"statusCode":204},"responseTime":0.4754580035805702,"msg":"request completed"}
+[api] {"level":30,"time":1770297630486,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-p","req":{"method":"DELETE","url":"/api/chat/sessions/cml9bq2d90002mz4fucdke2xh","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297630495,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-p","res":{"statusCode":200},"responseTime":8.117416001856327,"msg":"request completed"}
+[api] {"level":30,"time":1770297630893,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-q","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml98mej2008mzjzoqbooi9m0","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297630894,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-q","res":{"statusCode":204},"responseTime":0.5082499980926514,"msg":"request completed"}
+[api] {"level":30,"time":1770297630895,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-r","req":{"method":"DELETE","url":"/api/chat/sessions/cml98mej2008mzjzoqbooi9m0","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297630905,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-r","res":{"statusCode":200},"responseTime":9.541832998394966,"msg":"request completed"}
+[api] {"level":30,"time":1770297631320,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-s","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml97pwml00022bcgma56c1sj","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297631321,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-s","res":{"statusCode":204},"responseTime":0.5361670032143593,"msg":"request completed"}
+[api] {"level":30,"time":1770297631323,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-t","req":{"method":"DELETE","url":"/api/chat/sessions/cml97pwml00022bcgma56c1sj","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297631331,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-t","res":{"statusCode":200},"responseTime":8.003541998565197,"msg":"request completed"}
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+[python] ERROR:rag.router:Query failed: Collection expecting embedding with dimension of 384, got 1536
+[python] INFO:     127.0.0.1:65487 - "POST /rag/query HTTP/1.1" 500 Internal Server Error
+[api] [2026-02-05T13:20:31.661Z] [ERROR] [API-5002] api failed after 1 attempts | DATA: {"error":"HTTP 500: {\"detail\":\"Collection expecting embedding with dimension of 384, got 1536\"}","url":"http://localhost:8000/rag/query"}
+[api] [2026-02-05T13:20:31.661Z] [WARN] [API-5002] RAGClient: Query failed (skipping RAG) | DATA: {"error":"HTTP 500: {\"detail\":\"Collection expecting embedding with dimension of 384, got 1536\"}"}
+[api] [ChatWorker] ℹ️ RAG: No relevant knowledge found in local base.
+[api] [ChatWorker] DeepSeek iteration 1/10 for task cml9hhz9i004x12ozqannecpw
+[api] [2026-02-05T13:20:31.662Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:31.663Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:31.671Z] [INFO] [AI-6001][7ms] Timer finished: intent_parsing_2f2c3cff | DATA: {"userAddress":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","intent":"wallet_balance","highLevelIntent":"MARKET_ANALYSIS","hasAI":false,"confidence":0.95,"routingStage":"rule","hardRule":"MARKET_ANALYSIS","slotsComplete":false,"labels":[{"label":"MARKET_ANALYSIS","confidence":0.95},{"label":"PREDICTION_MARKETS","confidence":0.1414213562373095},{"label":"GENERAL_CHAT","confidence":0.1414213562373095}],"timerLabel":"intent_parsing_2f2c3cff"}
+[api] [2026-02-05T13:20:31.674Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:31.674Z] [INFO] [AI-6009] DeepSeek: routed to mode | DATA: {"taskId":"cml9hhz9i004x12ozqannecpw","sessionId":"cml9hhy7h002512ozllri310n","model":"deepseek-chat","intent":"MARKET_ANALYSIS","routingMode":"thinking","hardRule":{"label":"MARKET_ANALYSIS","reason":"question intent"},"confidence":0.95}
+[api] [ChatWorker] Skill-gated to 26 tools for intent=MARKET_ANALYSIS skills=polymarket_prediction, token_analysis, wallet_portfolio, welcome_onboarding
+[api] [2026-02-05T13:20:31.675Z] [INFO] [AI-6010] DeepSeek: skills attached | DATA: {"taskId":"cml9hhz9i004x12ozqannecpw","sessionId":"cml9hhy7h002512ozllri310n","model":"deepseek-chat","intent":"MARKET_ANALYSIS","routingMode":"thinking","skillVersion":"clean","skills":["polymarket_prediction","token_analysis","wallet_portfolio","welcome_onboarding"],"toolCount":26}
+[api] [2026-02-05T13:20:31.675Z] [INFO] [AI-6007] ChatWorker: early pre-fetch used client context | DATA: {"tool":"get_wallet_info"}
+[api] [ChatWorker] User Settings: {
+[api]   fastSwapMode: false,
+[api]   swapMethod: 'allowance_trade',
+[api]   toolConfig: [
+[api]     'userRole',
+[api]     'defaultSwapAmount',
+[api]     'defaultSwapUnit',
+[api]     'checkTokenBeforeSwap',
+[api]     'showQuoteBeforeSwap',
+[api]     'swapMethod',
+[api]     'slippageMode',
+[api]     'customSlippage',
+[api]     'mevProtection',
+[api]     'priceDeviationCheck',
+[api]     'fastSwapMode',
+[api]     'copyTradeTokenCooldownMinutes',
+[api]     'minMarketCapUsd',
+[api]     'minLiquidityUsd',
+[api]     'minTargetValueUsd',
+[api]     'id',
+[api]     'userId',
+[api]     'quickSwapMode',
+[api]     'copyTradeAIMode',
+[api]     'updatedAt',
+[api]     'createdAt',
+[api]     'zoraNotificationThreshold'
+[api]   ],
+[api]   walletConnected: true,
+[api]   chainId: 137
+[api] }
+[api] [ChatWorker] Waiting for early pre-fetch to complete
+[api] [2026-02-05T13:20:31.676Z] [INFO] [AI-6003] Timer finished: prompt_gen_MARKET_ANALYSIS_deepseek | DATA: {"model":"deepseek","intent":"MARKET_ANALYSIS","length":2676,"timerLabel":"prompt_gen_MARKET_ANALYSIS_deepseek"}
+[api] [ChatWorker] ⚡ [CACHE HIT]: get_wallet_info (7 tokens cached)
+[api] [ChatWorker] No tokenInfo available
+[api] [2026-02-05T13:20:31.677Z] [INFO] [WS-8004][1ms] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [ChatWorker] Enriched user prompt with context for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
+[api] [2026-02-05T13:20:31.677Z] [INFO] [AI-6007] ChatWorker: client context injected | DATA: {"hasBalance":true,"hasNativeBalance":true,"hasPageContext":false,"hasToolConfig":true,"contextBytes":1175}
+[api] [2026-02-05T13:20:31.677Z] [INFO] [AI-6007] ChatWorker: client balance snapshot summary | DATA: {"tokenCount":7,"sample":[{"symbol":"MATIC","balance":"20.6044348920309"},{"symbol":"USDC","balance":"0.0"},{"symbol":"0x2791bca1f2de4661ed88a30c99a7a9449aa84174","balance":"0.0"},{"symbol":"USDT","balance":"0.0"},{"symbol":"0xc2132d05d31c914a87c6611c10748aeb04b58e8f","balance":"0.0"}],"spotlight":[{"symbol":"USDC","balance":"0.0"}]}
+[api] [ChatWorker] Added client context to system prompt
+[api] [ChatWorker] Broadcasting Thinking status for cml9hhy8f002b12ozy05229vn. Message order: message_start → launchpad_card → Thinking → content_chunks
+[api] [2026-02-05T13:20:31.678Z] [INFO] [WS-8004][1ms] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:32.042Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"jvcbs","creator":"0x85818abe7e22bd004a1b71a6d613e34b10645c92"}
+[api] [2026-02-05T13:20:32.431Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"hazefox","creator":"0xc8301bba763d0025024f8d05163559da24198d8a"}
+[api] [2026-02-05T13:20:32.811Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"gfqn","creator":"0x884f22fe408929e794efb87a9dc8f24314c75c85"}
+[api] [2026-02-05T13:20:33.177Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"fesy","creator":"0x7418ea14a8dcd76a82bf70dfc4c959dfbc450359"}
+[api] [2026-02-05T13:20:33.535Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"qesy","creator":"0xb5b4412e6bd2158cd6ed4d07ead6252464279f67"}
+[api] [2026-02-05T13:20:33.883Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"yosrc","creator":"0x8f8d38af41ce935b652e6708e77a71bb4358f292"}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:20:39.874Z] [INFO] [SYS-1001] No open positions to monitor
+[api] [2026-02-05T13:20:42.594Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"usage","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage"}
+[python] INFO:moderation.router:Moderating output: Based on your connected wallet, here's your curren...
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+[python] INFO:     127.0.0.1:49217 - "POST /moderation/output HTTP/1.1" 200 OK
+[api] [2026-02-05T13:20:44.118Z] [INFO] [SYS-1007] Moderation Output check result | DATA: {"safe":true,"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"}
+[api] [ChatWorker] Broadcasting message_complete for cml9hhy8f002b12ozy05229vn
+[api] [2026-02-05T13:20:44.130Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_complete","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete"}
+[api] [2026-02-05T13:20:44.133Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:44.133Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_complete","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete"}
+[api] {"level":30,"time":1770297644139,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-u","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297644139,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-u","res":{"statusCode":204},"responseTime":0.32545799762010574,"msg":"request completed"}
+[api] {"level":30,"time":1770297644140,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-v","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297644140,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-v","res":{"statusCode":204},"responseTime":0.170415997505188,"msg":"request completed"}
+[api] {"level":30,"time":1770297644141,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-w","req":{"method":"GET","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297644142,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-x","req":{"method":"GET","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297644148,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-w","res":{"statusCode":200},"responseTime":6.3540419936180115,"msg":"request completed"}
+[api] {"level":30,"time":1770297644149,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-x","res":{"statusCode":200},"responseTime":6.444624997675419,"msg":"request completed"}
+[api] {"level":30,"time":1770297648179,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-y","req":{"method":"OPTIONS","url":"/api/chat/moderation/log","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297648180,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-y","res":{"statusCode":204},"responseTime":0.5538340061903,"msg":"request completed"}
+[api] {"level":30,"time":1770297648180,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-z","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n/messages","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297648180,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-z","res":{"statusCode":204},"responseTime":0.3133329972624779,"msg":"request completed"}
+[api] {"level":30,"time":1770297648181,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-10","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297648181,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-10","res":{"statusCode":204},"responseTime":0.2647920027375221,"msg":"request completed"}
+[api] {"level":30,"time":1770297648181,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-11","req":{"method":"POST","url":"/api/chat/moderation/log","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297648183,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-12","req":{"method":"POST","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n/messages","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297648184,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-13","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] [ModerationLog] Received backend request: channel=frontend_local, userId=did:privy:cmj0a3j3f005fl20c4xkl7195, content=I don't have used ?...
+[api] {"level":30,"time":1770297648192,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-11","res":{"statusCode":200},"responseTime":10.756499998271465,"msg":"request completed"}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:20:49.883Z] [INFO] [SYS-1001] No open positions to monitor
+[api] [2026-02-05T13:20:50.549Z] [ERROR] [API-5002][TID:24556e28-b01b-4e48-8654-5f4367d9dac4] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:20:50.575Z] [ERROR] [API-5002][TID:a945e99c-d644-4a9e-a3a4-5f3199ffced8] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:20:52.626Z] [INFO] [API-5001][TID:a945e99c-d644-4a9e-a3a4-5f3199ffced8] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297652632,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-12","res":{"statusCode":200},"responseTime":4448.993249997497,"msg":"request completed"}
+[api] {"level":30,"time":1770297652637,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-14","req":{"method":"OPTIONS","url":"/api/billing/usage-summary","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297652637,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-14","res":{"statusCode":204},"responseTime":0.337290994822979,"msg":"request completed"}
+[api] {"level":30,"time":1770297652638,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-15","req":{"method":"GET","url":"/api/billing/usage-summary","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297652646,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-15","res":{"statusCode":200},"responseTime":6.98912500590086,"msg":"request completed"}
+[api] {"level":30,"time":1770297652652,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-16","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] [2026-02-05T13:20:52.677Z] [INFO] [API-5001][TID:24556e28-b01b-4e48-8654-5f4367d9dac4] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297652678,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-13","res":{"statusCode":200},"responseTime":4493.079667001963,"msg":"request completed"}
+[api] [2026-02-05T13:20:53.403Z] [ERROR] [API-5002][TID:485d0e29-af09-452e-976c-4f1e6996f21a] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:20:53.404Z] [INFO] [API-5001][TID:485d0e29-af09-452e-976c-4f1e6996f21a] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297653405,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-16","res":{"statusCode":200},"responseTime":753.6083749979734,"msg":"request completed"}
+[api] [2026-02-05T13:20:54.637Z] [WARN] [SYS-1006] RPC health degraded | DATA: {"endpoints":[{"url":"https://solana-rpc.publicnode.com","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0},{"url":"https://solana.drpc.org","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0},{"url":"https://api.mainnet-beta.solana.com","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0},{"url":"https://solana-mainnet.g.alchemy.com/v2/Cmrwi0FonoT_sPwZhJXou","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0},{"url":"https://mainnet.helius-rpc.com/?api-key=2dff82b2-9157-4896-9438-646ab1b0c89b","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0}]}
+[api] [2026-02-05T13:20:55.010Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:55.010Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:55.011Z] [INFO] [WS-8004][1ms] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[python] INFO:moderation.router:Moderating input: I don't have used ?...
+[api] [TokenJob] Fetching trending tokens for Solana via DexScreener Premium...
+[api] [2026-02-05T13:20:56.639Z] [INFO] [API-5001][TID:04229de4-ef6c-4935-98ce-d944adfe7468] Fetching premium trending tokens | DATA: {"chain":"solana","limit":100}
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+[python] INFO:     127.0.0.1:49334 - "POST /moderation/input HTTP/1.1" 200 OK
+[api] [2026-02-05T13:20:57.205Z] [INFO] [SYS-1007] Moderation Input check result | DATA: {"safe":true,"action":"allow","userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"}
+[api] [2026-02-05T13:20:57.206Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_start","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start"}
+[api] [ChatWorker] Sent message_start for cml9hifkd005612oz8u7u8t9h
+[api] [2026-02-05T13:20:57.206Z] [INFO] [AI-6007] ChatWorker: seeded get_wallet_info from client context | DATA: {"chainId":137,"tokenCount":7,"hasNativeBalance":true}
+[api] [ChatWorker] Base filtered to 46 tools for message: "I don't have used ?..."
+[api] [ChatWorker] 🔍 RAG check for: "I don't have used ?..."
+[api] [ChatWorker] ⏭️ RAG: Skipped (Query doesn't match informational patterns).
+[api] [ChatWorker] DeepSeek iteration 1/10 for task cml9hiiz7005812ozb7b83wsi
+[api] [2026-02-05T13:20:57.206Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:57.207Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:57.208Z] [INFO] [AI-6001][1ms] Timer finished: intent_parsing_9d597557 | DATA: {"userAddress":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","intent":"token_info","highLevelIntent":"MARKET_ANALYSIS","hasAI":false,"confidence":0.95,"routingStage":"rule","hardRule":"MARKET_ANALYSIS","slotsComplete":false,"labels":[{"label":"MARKET_ANALYSIS","confidence":0.95},{"label":"SOCIAL_SENSING","confidence":0.08944271909999159},{"label":"TRADING","confidence":0}],"timerLabel":"intent_parsing_9d597557"}
+[api] [2026-02-05T13:20:57.212Z] [INFO] [AI-6001] Intent follow-up recorded | DATA: {"previousIntent":"MARKET_ANALYSIS","nextIntent":"MARKET_ANALYSIS","sessionId":"cml9hhy7h002512ozllri310n"}
+[api] [2026-02-05T13:20:57.212Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:57.212Z] [INFO] [AI-6009] DeepSeek: routed to mode | DATA: {"taskId":"cml9hiiz7005812ozb7b83wsi","sessionId":"cml9hhy7h002512ozllri310n","model":"deepseek-chat","intent":"MARKET_ANALYSIS","routingMode":"thinking","hardRule":{"label":"MARKET_ANALYSIS","reason":"question intent"},"confidence":0.95}
+[api] [ChatWorker] Skill-gated to 26 tools for intent=MARKET_ANALYSIS skills=polymarket_prediction, token_analysis, wallet_portfolio, welcome_onboarding
+[api] [2026-02-05T13:20:57.212Z] [INFO] [AI-6010] DeepSeek: skills attached | DATA: {"taskId":"cml9hiiz7005812ozb7b83wsi","sessionId":"cml9hhy7h002512ozllri310n","model":"deepseek-chat","intent":"MARKET_ANALYSIS","routingMode":"thinking","skillVersion":"clean","skills":["polymarket_prediction","token_analysis","wallet_portfolio","welcome_onboarding"],"toolCount":26}
+[api] [ChatWorker] User Settings: {
+[api]   fastSwapMode: false,
+[api]   swapMethod: 'allowance_trade',
+[api]   toolConfig: [
+[api]     'userRole',
+[api]     'defaultSwapAmount',
+[api]     'defaultSwapUnit',
+[api]     'checkTokenBeforeSwap',
+[api]     'showQuoteBeforeSwap',
+[api]     'swapMethod',
+[api]     'slippageMode',
+[api]     'customSlippage',
+[api]     'mevProtection',
+[api]     'priceDeviationCheck',
+[api]     'fastSwapMode',
+[api]     'copyTradeTokenCooldownMinutes',
+[api]     'minMarketCapUsd',
+[api]     'minLiquidityUsd',
+[api]     'minTargetValueUsd',
+[api]     'id',
+[api]     'userId',
+[api]     'quickSwapMode',
+[api]     'copyTradeAIMode',
+[api]     'updatedAt',
+[api]     'createdAt',
+[api]     'zoraNotificationThreshold'
+[api]   ],
+[api]   walletConnected: true,
+[api]   chainId: 137
+[api] }
+[api] [ChatWorker] Waiting for early pre-fetch to complete
+[api] [2026-02-05T13:20:57.213Z] [INFO] [AI-6003] Timer finished: prompt_gen_MARKET_ANALYSIS_deepseek | DATA: {"model":"deepseek","intent":"MARKET_ANALYSIS","length":2676,"timerLabel":"prompt_gen_MARKET_ANALYSIS_deepseek"}
+[api] [ChatWorker] ⚡ [CACHE HIT]: get_wallet_info (7 tokens cached)
+[api] [ChatWorker] No tokenInfo available
+[api] [2026-02-05T13:20:57.213Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [ChatWorker] Enriched user prompt with context for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
+[api] [2026-02-05T13:20:57.213Z] [INFO] [AI-6007] ChatWorker: client context injected | DATA: {"hasBalance":true,"hasNativeBalance":true,"hasPageContext":false,"hasToolConfig":true,"contextBytes":1163}
+[api] [2026-02-05T13:20:57.213Z] [INFO] [AI-6007] ChatWorker: client balance snapshot summary | DATA: {"tokenCount":7,"sample":[{"symbol":"MATIC","balance":"20.6044348920309"},{"symbol":"USDC","balance":"0"},{"symbol":"0x2791bca1f2de4661ed88a30c99a7a9449aa84174","balance":"0"},{"symbol":"USDT","balance":"0"},{"symbol":"0xc2132d05d31c914a87c6611c10748aeb04b58e8f","balance":"0"}],"spotlight":[{"symbol":"USDC","balance":"0"}]}
+[api] [ChatWorker] Added client context to system prompt
+[api] [ChatWorker] Broadcasting Thinking status for cml9hifkd005612oz8u7u8t9h. Message order: message_start → launchpad_card → Thinking → content_chunks
+[api] [2026-02-05T13:20:57.213Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:20:58.186Z] [INFO] [WTC-2002][TID:04229de4-ef6c-4935-98ce-d944adfe7468] WS addresses discovered | DATA: {"wsCount":286,"chain":"solana"}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:20:59.891Z] [INFO] [SYS-1001] No open positions to monitor
+[api] [2026-02-05T13:21:04.554Z] [INFO] [API-5001][TID:04229de4-ef6c-4935-98ce-d944adfe7468] Processed DexScreener trending candidates | DATA: {"candidates":128,"limit":200}
+[api] [2026-02-05T13:21:04.554Z] [INFO] [API-5001][TID:04229de4-ef6c-4935-98ce-d944adfe7468][7915ms] Premium trending tokens fetch complete | DATA: {"count":100,"chain":"solana","source":"WebSocket","wsOriginal":286}
+[api] [TokenJob] Got 100 trending tokens for Solana
+[api] Saved 100 trending tokens for solana to database and memory cache
+[api] [TokenJob] Saved 100 tokens for Solana to DB + cache
+[api] [2026-02-05T13:21:04.952Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"usage","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage"}
+[python] INFO:moderation.router:Moderating output: I'm not sure I understand your question completely...
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+[python] INFO:     127.0.0.1:49420 - "POST /moderation/output HTTP/1.1" 200 OK
+[api] [2026-02-05T13:21:06.878Z] [INFO] [SYS-1007] Moderation Output check result | DATA: {"safe":true,"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"}
+[api] [ChatWorker] Broadcasting message_complete for cml9hifkd005612oz8u7u8t9h
+[api] [2026-02-05T13:21:06.890Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_complete","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete"}
+[api] [2026-02-05T13:21:06.891Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:21:06.891Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_complete","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete"}
+[api] {"level":30,"time":1770297666903,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-17","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297666903,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-17","res":{"statusCode":204},"responseTime":0.24774999916553497,"msg":"request completed"}
+[api] {"level":30,"time":1770297666904,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-18","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297666904,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-18","res":{"statusCode":204},"responseTime":0.07450000196695328,"msg":"request completed"}
+[api] {"level":30,"time":1770297666907,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-19","req":{"method":"GET","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297666908,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1a","req":{"method":"GET","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297666911,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-19","res":{"statusCode":200},"responseTime":4.229125000536442,"msg":"request completed"}
+[api] {"level":30,"time":1770297666911,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1a","res":{"statusCode":200},"responseTime":3.5984579995274544,"msg":"request completed"}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:21:09.903Z] [INFO] [SYS-1001] No open positions to monitor
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:21:19.911Z] [INFO] [SYS-1001] No open positions to monitor
+[api] {"level":30,"time":1770297686824,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1b","req":{"method":"OPTIONS","url":"/api/chat/moderation/log","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297686825,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1b","res":{"statusCode":204},"responseTime":0.6020839959383011,"msg":"request completed"}
+[api] {"level":30,"time":1770297686825,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1c","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n/messages","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297686825,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1c","res":{"statusCode":204},"responseTime":0.30766700208187103,"msg":"request completed"}
+[api] {"level":30,"time":1770297686826,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1d","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297686826,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1d","res":{"statusCode":204},"responseTime":0.14374999701976776,"msg":"request completed"}
+[api] {"level":30,"time":1770297686826,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1e","req":{"method":"POST","url":"/api/chat/moderation/log","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297686828,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1f","req":{"method":"POST","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n/messages","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] [ModerationLog] Received backend request: channel=frontend_local, userId=did:privy:cmj0a3j3f005fl20c4xkl7195, content=usdc...
+[api] {"level":30,"time":1770297686829,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1g","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297686831,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1e","res":{"statusCode":200},"responseTime":4.737250000238419,"msg":"request completed"}
+[api] [verifyAccess] Checking access: {
+[api]   userId: 'did:privy:cmj0a3j3f005fl20c4xkl7195',
+[api]   userIdLength: 35,
+[api]   userIdPrefix: 'did:privy:cmj0a3j3f0',
+[api]   requestedAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E'
+[api] }
+[api] [verifyAccess] ✅ Access granted
+[api] [2026-02-05T13:21:29.610Z] [ERROR] [API-5002][TID:7972283c-669e-4164-ba0c-8409b0792c69] Alchemy Portfolio EVM API error | DATA: {}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:21:29.921Z] [INFO] [SYS-1001] No open positions to monitor
+[api] [2026-02-05T13:21:29.986Z] [ERROR] [API-5002][TID:41a7579f-03b7-4852-ba39-ae8a19dea72b] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:21:31.317Z] [INFO] [API-5001][TID:41a7579f-03b7-4852-ba39-ae8a19dea72b] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297691325,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1f","res":{"statusCode":200},"responseTime":4497.370249994099,"msg":"request completed"}
+[api] {"level":30,"time":1770297691332,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1h","req":{"method":"OPTIONS","url":"/api/billing/usage-summary","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297691333,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1h","res":{"statusCode":204},"responseTime":0.3897080048918724,"msg":"request completed"}
+[api] {"level":30,"time":1770297691336,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1i","req":{"method":"GET","url":"/api/billing/usage-summary","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297691343,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1i","res":{"statusCode":200},"responseTime":6.801582999527454,"msg":"request completed"}
+[api] {"level":30,"time":1770297691356,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1j","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] [2026-02-05T13:21:31.577Z] [INFO] [API-5001][TID:7972283c-669e-4164-ba0c-8409b0792c69] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297691579,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1g","res":{"statusCode":200},"responseTime":4749.633999995887,"msg":"request completed"}
+[api] {"level":30,"time":1770297691582,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1k","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297691583,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1k","res":{"statusCode":204},"responseTime":0.4077500030398369,"msg":"request completed"}
+[api] {"level":30,"time":1770297691585,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1l","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] [2026-02-05T13:21:32.197Z] [ERROR] [API-5002][TID:6f00cd55-f1a1-4f5d-92ec-0610999b3606] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:21:32.197Z] [INFO] [API-5001][TID:6f00cd55-f1a1-4f5d-92ec-0610999b3606] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297692198,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1j","res":{"statusCode":200},"responseTime":841.338707998395,"msg":"request completed"}
+[api] {"level":30,"time":1770297692203,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1m","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] [2026-02-05T13:21:32.428Z] [ERROR] [API-5002][TID:9e02a196-643b-474a-83a8-3fc2da587deb] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:21:32.429Z] [INFO] [API-5001][TID:9e02a196-643b-474a-83a8-3fc2da587deb] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297692429,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1l","res":{"statusCode":200},"responseTime":844.1652079969645,"msg":"request completed"}
+[api] [2026-02-05T13:21:33.016Z] [ERROR] [API-5002][TID:ea205a7a-224a-4f72-9e70-2f11e3f2b415] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:21:33.017Z] [INFO] [API-5001][TID:ea205a7a-224a-4f72-9e70-2f11e3f2b415] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297693017,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1m","res":{"statusCode":200},"responseTime":813.4228340014815,"msg":"request completed"}
+[api] [2026-02-05T13:21:34.048Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:21:34.048Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:21:34.048Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[python] INFO:moderation.router:Moderating input: usdc...
+[api] [DBLock] Cleaning expired/stale lock {
+[api]   key: 'lock:tokenJob:refresh:base',
+[api]   expiresAt: '2026-02-05T13:19:37.755Z',
+[api]   ageMs: 356867,
+[api]   isExpired: true,
+[api]   isVeryStale: false
+[api] }
+[api] [DBLock] Acquired lock after cleaning stale entry { key: 'lock:tokenJob:refresh:base' }
+[api] [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+[api] [2026-02-05T13:21:34.632Z] [INFO] [API-5001][TID:04229de4-ef6c-4935-98ce-d944adfe7468] Fetching premium trending tokens | DATA: {"chain":"base","limit":100}
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+[python] INFO:     127.0.0.1:49647 - "POST /moderation/input HTTP/1.1" 200 OK
+[api] [2026-02-05T13:21:35.143Z] [INFO] [SYS-1007] Moderation Input check result | DATA: {"safe":true,"action":"allow","userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"}
+[api] [2026-02-05T13:21:35.144Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_start","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start"}
+[api] [ChatWorker] Sent message_start for cml9hj9dt008a12ozx95papmp
+[api] [2026-02-05T13:21:35.144Z] [INFO] [AI-6007] ChatWorker: seeded get_wallet_info from client context | DATA: {"chainId":137,"tokenCount":8,"hasNativeBalance":true}
+[api] [ChatWorker] Base filtered to 46 tools for message: "usdc..."
+[api] [ChatWorker] 🔍 RAG check for: "usdc..."
+[api] [ChatWorker] ⏭️ RAG: Skipped (Query doesn't match informational patterns).
+[api] [ChatWorker] DeepSeek iteration 1/10 for task cml9hjctz008c12ozpwj1yd09
+[api] [2026-02-05T13:21:35.144Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:21:35.147Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:21:35.579Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"tvkip","creator":"0xe75118aa306f589d6fe385fc978f272eebef0582"}
+[api] [2026-02-05T13:21:36.019Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"mist_moon85","creator":"0x839b1cc92b77d0f8c52e244f73002ba4a249dfc8"}
+[api] [2026-02-05T13:21:36.244Z] [INFO] [WTC-2002][TID:04229de4-ef6c-4935-98ce-d944adfe7468] WS addresses discovered | DATA: {"wsCount":181,"chain":"base"}
+[api] [2026-02-05T13:21:36.449Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"xofyo","creator":"0x91484040a1075a958caf43fdfae7b251f96bd952"}
+[api] [2026-02-05T13:21:37.048Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"wlxmc","creator":"0x0b8122d70a8d902846d205be463d85634d0d9855"}
+[api] [2026-02-05T13:21:37.413Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"rvpln","creator":"0x4348d823be5fa527900916e39a4f3836a6b68dbf"}
+[api] [2026-02-05T13:21:37.936Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"fqoym","creator":"0x675f436b5e5e8124aac762e78e73f8cfd6ea09ba"}
+[api] [2026-02-05T13:21:38.337Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"dcrso","creator":"0x8889b295071410ca22279894bc341aee38607ba1"}
+[api] [2026-02-05T13:21:38.720Z] [INFO] [SYS-1007] Alpha Detector: Checking new coin | DATA: {"symbol":"kgrsj","creator":"0xd9c3548e3b2efec05653b9ecbf4eef698a94f696"}
+[api] [2026-02-05T13:21:39.596Z] [INFO] [API-5001][TID:04229de4-ef6c-4935-98ce-d944adfe7468] Processed DexScreener trending candidates | DATA: {"candidates":41,"limit":200}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:21:39.929Z] [INFO] [SYS-1001] No open positions to monitor
+[api] [2026-02-05T13:21:40.333Z] [INFO] [AI-6001][5186ms] Timer finished: intent_parsing_2f7fe254 | DATA: {"userAddress":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","intent":"token_info","highLevelIntent":"MARKET_ANALYSIS","hasAI":true,"confidence":0.75,"routingStage":"llm","slotsComplete":false,"labels":[{"label":"MARKET_ANALYSIS","confidence":0.75},{"label":"GENERAL_CHAT","confidence":0.3},{"label":"TRADING","confidence":0.23094010767585035}],"timerLabel":"intent_parsing_2f7fe254"}
+[api] [2026-02-05T13:21:40.339Z] [INFO] [AI-6001] Intent follow-up recorded | DATA: {"previousIntent":"MARKET_ANALYSIS","nextIntent":"MARKET_ANALYSIS","sessionId":"cml9hhy7h002512ozllri310n"}
+[api] [2026-02-05T13:21:40.339Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:21:40.340Z] [INFO] [AI-6009] DeepSeek: routed to mode | DATA: {"taskId":"cml9hjctz008c12ozpwj1yd09","sessionId":"cml9hhy7h002512ozllri310n","model":"deepseek-chat","intent":"MARKET_ANALYSIS","routingMode":"thinking","confidence":0.75}
+[api] [ChatWorker] Skill-gated to 26 tools for intent=MARKET_ANALYSIS skills=polymarket_prediction, token_analysis, wallet_portfolio, welcome_onboarding
+[api] [2026-02-05T13:21:40.340Z] [INFO] [AI-6010] DeepSeek: skills attached | DATA: {"taskId":"cml9hjctz008c12ozpwj1yd09","sessionId":"cml9hhy7h002512ozllri310n","model":"deepseek-chat","intent":"MARKET_ANALYSIS","routingMode":"thinking","skillVersion":"clean","skills":["polymarket_prediction","token_analysis","wallet_portfolio","welcome_onboarding"],"toolCount":26}
+[api] [ChatWorker] User Settings: {
+[api]   fastSwapMode: false,
+[api]   swapMethod: 'allowance_trade',
+[api]   toolConfig: [
+[api]     'userRole',
+[api]     'defaultSwapAmount',
+[api]     'defaultSwapUnit',
+[api]     'checkTokenBeforeSwap',
+[api]     'showQuoteBeforeSwap',
+[api]     'swapMethod',
+[api]     'slippageMode',
+[api]     'customSlippage',
+[api]     'mevProtection',
+[api]     'priceDeviationCheck',
+[api]     'fastSwapMode',
+[api]     'copyTradeTokenCooldownMinutes',
+[api]     'minMarketCapUsd',
+[api]     'minLiquidityUsd',
+[api]     'minTargetValueUsd',
+[api]     'id',
+[api]     'userId',
+[api]     'quickSwapMode',
+[api]     'copyTradeAIMode',
+[api]     'updatedAt',
+[api]     'createdAt',
+[api]     'zoraNotificationThreshold'
+[api]   ],
+[api]   walletConnected: true,
+[api]   chainId: 137
+[api] }
+[api] [ChatWorker] Waiting for early pre-fetch to complete
+[api] [2026-02-05T13:21:40.344Z] [INFO] [AI-6003] Timer finished: prompt_gen_MARKET_ANALYSIS_deepseek | DATA: {"model":"deepseek","intent":"MARKET_ANALYSIS","length":2676,"timerLabel":"prompt_gen_MARKET_ANALYSIS_deepseek"}
+[api] [ChatWorker] ⚡ [CACHE HIT]: get_wallet_info (8 tokens cached)
+[api] [ChatWorker] No tokenInfo available
+[api] [2026-02-05T13:21:40.345Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [ChatWorker] Enriched user prompt with context for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
+[api] [2026-02-05T13:21:40.345Z] [INFO] [AI-6007] ChatWorker: client context injected | DATA: {"hasBalance":true,"hasNativeBalance":true,"hasPageContext":false,"hasToolConfig":true,"contextBytes":1218}
+[api] [2026-02-05T13:21:40.345Z] [INFO] [AI-6007] ChatWorker: client balance snapshot summary | DATA: {"tokenCount":8,"sample":[{"symbol":"MATIC","balance":"20.6044348920309"},{"symbol":"USDC","balance":"0"},{"symbol":"0x2791bca1f2de4661ed88a30c99a7a9449aa84174","balance":"0"},{"symbol":"USDT","balance":"0"},{"symbol":"0xc2132d05d31c914a87c6611c10748aeb04b58e8f","balance":"0"}],"spotlight":[{"symbol":"USDC","balance":"0"}]}
+[api] [ChatWorker] Added client context to system prompt
+[api] [ChatWorker] Broadcasting Thinking status for cml9hj9dt008a12ozx95papmp. Message order: message_start → launchpad_card → Thinking → content_chunks
+[api] [2026-02-05T13:21:40.345Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:21:43.391Z] [WARN] [API-5004][TID:04229de4-ef6c-4935-98ce-d944adfe7468] GeckoTerminal 429 triggered backoff | DATA: {"backoffMs":60000}
+[api] [2026-02-05T13:21:44.634Z] [WARN] [API-5004][TID:04229de4-ef6c-4935-98ce-d944adfe7468] GeckoTerminal 429 triggered backoff | DATA: {"backoffMs":60000}
+[api] [2026-02-05T13:21:46.879Z] [WARN] [API-5004][TID:04229de4-ef6c-4935-98ce-d944adfe7468] GeckoTerminal 429 triggered backoff | DATA: {"backoffMs":60000}
+[api] [2026-02-05T13:21:48.139Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"usage","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage"}
+[python] INFO:moderation.router:Moderating output: I see you mentioned "USDC" - you currently have 0 ...
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+[python] INFO:     127.0.0.1:49752 - "POST /moderation/output HTTP/1.1" 200 OK
+[api] [2026-02-05T13:21:49.266Z] [INFO] [SYS-1007] Moderation Output check result | DATA: {"safe":true,"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195"}
+[api] [ChatWorker] Broadcasting message_complete for cml9hj9dt008a12ozx95papmp
+[api] [2026-02-05T13:21:49.276Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_complete","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete"}
+[api] [2026-02-05T13:21:49.279Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"task_status","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status"}
+[api] [2026-02-05T13:21:49.279Z] [INFO] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | DATA: {"userId":"did:privy:cmj0a3j3f005fl20c4xkl7195","eventType":"message_complete","connectionCount":1,"timerLabel":"ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete"}
+[api] {"level":30,"time":1770297709291,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1n","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297709291,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1n","res":{"statusCode":204},"responseTime":0.41625000536441803,"msg":"request completed"}
+[api] {"level":30,"time":1770297709292,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1o","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297709292,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1o","res":{"statusCode":204},"responseTime":0.11329200118780136,"msg":"request completed"}
+[api] {"level":30,"time":1770297709294,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1p","req":{"method":"GET","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297709295,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1q","req":{"method":"GET","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297709303,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1q","res":{"statusCode":200},"responseTime":7.855750001966953,"msg":"request completed"}
+[api] {"level":30,"time":1770297709304,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1p","res":{"statusCode":200},"responseTime":9.998709000647068,"msg":"request completed"}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:21:49.936Z] [INFO] [SYS-1001] No open positions to monitor
+[api] [2026-02-05T13:21:52.384Z] [ERROR] [API-5002][TID:04229de4-ef6c-4935-98ce-d944adfe7468] Error fetching trending tokens | DATA: {"network":"base","error":"GeckoTerminal backoff active (55s remaining)"}
+[api] [2026-02-05T13:21:52.385Z] [INFO] [API-5001][TID:04229de4-ef6c-4935-98ce-d944adfe7468][17753ms] Premium trending tokens fetch complete | DATA: {"count":70,"chain":"base","source":"WebSocket","wsOriginal":181}
+[api] [TokenJob] Got 70 trending tokens for Base
+[api] Saved 70 trending tokens for base to database and memory cache
+[api] [TokenJob] Saved 70 tokens for Base to DB + cache
+[api] {"level":30,"time":1770297713583,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1r","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/transactions?chain=polygon&limit=25","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713584,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1r","res":{"statusCode":204},"responseTime":0.5237499997019768,"msg":"request completed"}
+[api] {"level":30,"time":1770297713584,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1s","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/transactions?chain=polygon&limit=25","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713584,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1s","res":{"statusCode":204},"responseTime":0.2251249998807907,"msg":"request completed"}
+[api] {"level":30,"time":1770297713585,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1t","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/all-balances?solanaAddress=BgNm4YDzxb3sMppsticzEN47fCp6k8NwrmofsB9nuXZg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713585,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1t","res":{"statusCode":204},"responseTime":0.24295900017023087,"msg":"request completed"}
+[api] {"level":30,"time":1770297713585,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1u","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/all-balances?solanaAddress=BgNm4YDzxb3sMppsticzEN47fCp6k8NwrmofsB9nuXZg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713585,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1u","res":{"statusCode":204},"responseTime":0.2088339999318123,"msg":"request completed"}
+[api] {"level":30,"time":1770297713586,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1v","req":{"method":"OPTIONS","url":"/api/polymarket/trading/history","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713587,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1v","res":{"statusCode":204},"responseTime":0.1962909996509552,"msg":"request completed"}
+[api] {"level":30,"time":1770297713587,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1w","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/transactions?chain=polygon&limit=25","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713589,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1x","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/transactions?chain=polygon&limit=25","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713590,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1y","req":{"method":"OPTIONS","url":"/api/polymarket/trading/positions","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49789},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713590,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1y","res":{"statusCode":204},"responseTime":0.2715829983353615,"msg":"request completed"}
+[api] {"level":30,"time":1770297713590,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1z","req":{"method":"OPTIONS","url":"/api/polymarket/trading/orders","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49790},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713590,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1z","res":{"statusCode":204},"responseTime":0.047999992966651917,"msg":"request completed"}
+[api] {"level":30,"time":1770297713590,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-20","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/all-balances?solanaAddress=BgNm4YDzxb3sMppsticzEN47fCp6k8NwrmofsB9nuXZg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713591,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-21","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/all-balances?solanaAddress=BgNm4YDzxb3sMppsticzEN47fCp6k8NwrmofsB9nuXZg","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713604,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-22","req":{"method":"GET","url":"/api/polymarket/trading/history","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49789},"msg":"incoming request"}
+[api] {"level":30,"time":1770297713605,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-23","req":{"method":"GET","url":"/api/polymarket/trading/positions","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49790},"msg":"incoming request"}
+[api] [2026-02-05T13:21:53.613Z] [INFO] [SYS-1007][TID:d2a5f9f6-1cde-482e-a9f7-1fe8969e566f] PrivyWallet Authorization Key config | DATA: {"keyFormat":"wallet-auth","keyLength":196,"keyIdConfigured":true,"keyId":"crdgro3bw0..."}
+[api] [2026-02-05T13:21:54.641Z] [WARN] [SYS-1006] RPC health degraded | DATA: {"endpoints":[{"url":"https://solana-rpc.publicnode.com","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0},{"url":"https://solana.drpc.org","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0},{"url":"https://api.mainnet-beta.solana.com","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0},{"url":"https://solana-mainnet.g.alchemy.com/v2/Cmrwi0FonoT_sPwZhJXou","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0},{"url":"https://mainnet.helius-rpc.com/?api-key=2dff82b2-9157-4896-9438-646ab1b0c89b","successRate":0,"avgResponseTime":0,"circuitOpen":false,"consecutiveFailures":0}]}
+[api] [2026-02-05T13:21:55.284Z] [WARN] [API-5002][TID:6abba5e3-9785-4e02-ad2a-26bef94847ac] Scan API failed, falling back to direct Alchemy | DATA: {"error":"Cannot read properties of undefined (reading 'toISOString')"}
+[api] [2026-02-05T13:21:55.328Z] [WARN] [API-5002][TID:1fd629d9-3dd3-402d-9fee-6e8cbc098353] Scan API failed, falling back to direct Alchemy | DATA: {"error":"Cannot read properties of undefined (reading 'toISOString')"}
+[api] {"level":30,"time":1770297715851,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-22","res":{"statusCode":200},"responseTime":2246.7502499967813,"msg":"request completed"}
+[api] {"level":30,"time":1770297715853,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-24","req":{"method":"GET","url":"/api/polymarket/trading/orders","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49789},"msg":"incoming request"}
+[api] {"level":30,"time":1770297715946,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-23","res":{"statusCode":200},"responseTime":2340.9542500004172,"msg":"request completed"}
+[api] [2026-02-05T13:21:56.603Z] [INFO] [API-5001][TID:1fd629d9-3dd3-402d-9fee-6e8cbc098353] Wallet transactions filtered and ready | DATA: {"count":19}
+[api] [WalletRoutes] Returning 19 transactions for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
+[api] {"level":30,"time":1770297716604,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1x","res":{"statusCode":200},"responseTime":3015.0458749979734,"msg":"request completed"}
+[api] [2026-02-05T13:21:56.607Z] [INFO] [API-5001][TID:6abba5e3-9785-4e02-ad2a-26bef94847ac] Wallet transactions filtered and ready | DATA: {"count":19}
+[api] [WalletRoutes] Returning 19 transactions for 0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E
+[api] {"level":30,"time":1770297716607,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-1w","res":{"statusCode":200},"responseTime":3019.978749997914,"msg":"request completed"}
+[api] {"level":30,"time":1770297717047,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-20","res":{"statusCode":200},"responseTime":3456.569625005126,"msg":"request completed"}
+[api] {"level":30,"time":1770297717047,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-21","res":{"statusCode":200},"responseTime":3456.1422090008855,"msg":"request completed"}
+[api] [2026-02-05T13:21:57.179Z] [ERROR] [API-5002][TID:2a6ae423-d161-44ed-b369-163861dc54b8] clob.polymarket.com failed after 1 attempts | DATA: {"error":"HTTP 405: ","url":"https://clob.polymarket.com/orders?maker_address=0xa386bc9d8"}
+[api] [2026-02-05T13:21:57.179Z] [ERROR] [API-5002][TID:2a6ae423-d161-44ed-b369-163861dc54b8] Failed to fetch Polymarket open orders | DATA: {"wallet":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","error":"HTTP 405: "}
+[api] {"level":30,"time":1770297717180,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-24","res":{"statusCode":200},"responseTime":1326.707000002265,"msg":"request completed"}
+[api] [PositionMonitor] 🔄 Running position check...
+[api] [2026-02-05T13:21:59.945Z] [INFO] [SYS-1001] No open positions to monitor
+[api] {"level":30,"time":1770297721995,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-25","req":{"method":"OPTIONS","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49790},"msg":"incoming request"}
+[api] {"level":30,"time":1770297721996,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-25","res":{"statusCode":204},"responseTime":0.7717090025544167,"msg":"request completed"}
+[api] {"level":30,"time":1770297721996,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-26","req":{"method":"OPTIONS","url":"/api/copy-trade/configs","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297721997,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-26","res":{"statusCode":204},"responseTime":0.24141599982976913,"msg":"request completed"}
+[api] {"level":30,"time":1770297721997,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-27","req":{"method":"OPTIONS","url":"/api/polymarket/copy/configs","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297721997,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-27","res":{"statusCode":204},"responseTime":0.17333299666643143,"msg":"request completed"}
+[api] {"level":30,"time":1770297721997,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-28","req":{"method":"OPTIONS","url":"/api/copy-trade/configs","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297721997,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-28","res":{"statusCode":204},"responseTime":0.15629100054502487,"msg":"request completed"}
+[api] {"level":30,"time":1770297721998,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-29","req":{"method":"OPTIONS","url":"/api/polymarket/copy/configs","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297721998,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-29","res":{"statusCode":204},"responseTime":0.14083300530910492,"msg":"request completed"}
+[api] {"level":30,"time":1770297721998,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2a","req":{"method":"OPTIONS","url":"/api/copy-trade/positions","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49789},"msg":"incoming request"}
+[api] {"level":30,"time":1770297721998,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2a","res":{"statusCode":204},"responseTime":0.13716699928045273,"msg":"request completed"}
+[api] {"level":30,"time":1770297721998,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2b","req":{"method":"OPTIONS","url":"/api/copy-trade/positions","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49790},"msg":"incoming request"}
+[api] {"level":30,"time":1770297721999,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2b","res":{"statusCode":204},"responseTime":0.14445800334215164,"msg":"request completed"}
+[api] {"level":30,"time":1770297721999,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2c","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297721999,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2c","res":{"statusCode":204},"responseTime":0.14150000363588333,"msg":"request completed"}
+[api] {"level":30,"time":1770297721999,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2d","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] {"level":30,"time":1770297722000,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2d","res":{"statusCode":204},"responseTime":0.171875,"msg":"request completed"}
+[api] {"level":30,"time":1770297722000,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2e","req":{"method":"GET","url":"/api/chat/sessions/cml9hhy7h002512ozllri310n","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65324},"msg":"incoming request"}
+[api] {"level":30,"time":1770297722001,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2f","req":{"method":"GET","url":"/api/copy-trade/configs","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297722002,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2g","req":{"method":"GET","url":"/api/polymarket/copy/configs","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49789},"msg":"incoming request"}
+[api] {"level":30,"time":1770297722003,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2h","req":{"method":"GET","url":"/api/copy-trade/configs","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49790},"msg":"incoming request"}
+[api] {"level":30,"time":1770297722003,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2i","req":{"method":"GET","url":"/api/polymarket/copy/configs","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] [CopyTrade] GET /configs - Fetching configs for user did:privy:cmj0a3j3f005fl20c4xkl7195
+[api] [CopyTrade] GET /configs - Fetching configs for user did:privy:cmj0a3j3f005fl20c4xkl7195
+[api] {"level":30,"time":1770297722006,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2j","req":{"method":"GET","url":"/api/copy-trade/positions","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] [CopyTrade] GET /positions - Fetching positions for did:privy:cmj0a3j3f005fl20c4xkl7195
+[api] {"level":30,"time":1770297722009,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2f","res":{"statusCode":200},"responseTime":7.4010839983820915,"msg":"request completed"}
+[api] {"level":30,"time":1770297722010,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2k","req":{"method":"GET","url":"/api/copy-trade/positions","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297722011,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2i","res":{"statusCode":200},"responseTime":7.320000000298023,"msg":"request completed"}
+[api] [CopyTrade] GET /positions - Fetching positions for did:privy:cmj0a3j3f005fl20c4xkl7195
+[api] {"level":30,"time":1770297722011,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2l","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65323},"msg":"incoming request"}
+[api] {"level":30,"time":1770297722016,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2k","res":{"statusCode":200},"responseTime":6.138167001307011,"msg":"request completed"}
+[api] {"level":30,"time":1770297722017,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2g","res":{"statusCode":200},"responseTime":14.396333001554012,"msg":"request completed"}
+[api] {"level":30,"time":1770297722017,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2h","res":{"statusCode":200},"responseTime":14.065083995461464,"msg":"request completed"}
+[api] {"level":30,"time":1770297722018,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2m","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65321},"msg":"incoming request"}
+[api] {"level":30,"time":1770297722024,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2j","res":{"statusCode":200},"responseTime":17.836416997015476,"msg":"request completed"}
+[api] {"level":30,"time":1770297722024,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2e","res":{"statusCode":200},"responseTime":24.061667002737522,"msg":"request completed"}
+[api] [2026-02-05T13:22:04.827Z] [ERROR] [API-5002][TID:044d21d8-941d-47a4-ac3d-d0205f169e5d] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:22:04.874Z] [ERROR] [API-5002][TID:a28bc5ab-f6e5-4449-bea8-575dfaf86691] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:22:06.981Z] [INFO] [API-5001][TID:044d21d8-941d-47a4-ac3d-d0205f169e5d] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297726982,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2l","res":{"statusCode":200},"responseTime":4970.587457999587,"msg":"request completed"}
+[api] {"level":30,"time":1770297726985,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2n","req":{"method":"OPTIONS","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49789},"msg":"incoming request"}
+[api] {"level":30,"time":1770297726986,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2n","res":{"statusCode":204},"responseTime":0.34720899909734726,"msg":"request completed"}
+[api] {"level":30,"time":1770297726986,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2o","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":49790},"msg":"incoming request"}
+[api] [2026-02-05T13:22:07.082Z] [INFO] [API-5001][TID:a28bc5ab-f6e5-4449-bea8-575dfaf86691] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297727083,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2m","res":{"statusCode":200},"responseTime":5065.515583001077,"msg":"request completed"}
+[api] {"level":30,"time":1770297727091,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2p","req":{"method":"GET","url":"/api/wallets/0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E/balance?chain=polygon","hostname":"localhost:3001","remoteAddress":"127.0.0.1","remotePort":65417},"msg":"incoming request"}
+[api] [2026-02-05T13:22:08.336Z] [ERROR] [API-5002][TID:42c1a3dc-aa07-49fd-bc2a-e489bc8b8ee4] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:22:08.336Z] [INFO] [API-5001][TID:42c1a3dc-aa07-49fd-bc2a-e489bc8b8ee4] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297728337,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2o","res":{"statusCode":200},"responseTime":1350.5292920023203,"msg":"request completed"}
+[api] [2026-02-05T13:22:08.594Z] [ERROR] [API-5002][TID:df21bfc5-b14e-4f51-9342-b8434392e74f] Alchemy Portfolio EVM API error | DATA: {}
+[api] [2026-02-05T13:22:08.595Z] [INFO] [API-5001][TID:df21bfc5-b14e-4f51-9342-b8434392e74f] Fallback stablecoin balances fetched via RPC | DATA: {"chain":"polygon","address":"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E","tokenCount":3}
+[api] {"level":30,"time":1770297728595,"pid":75153,"hostname":"almuratdeMacBook-Pro.local","reqId":"req-2p","res":{"statusCode":200},"responseTime":1504.5077499970794,"msg":"request completed"}
