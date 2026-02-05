@@ -486,16 +486,6 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return reply.send({ success: true, ignored: true });
         }
 
-        const authHeader = env.security.cdpWebhookAuthHeader;
-        const authValue = env.security.cdpWebhookAuthValue;
-        if (authHeader && authValue) {
-            const provided = request.headers[authHeader.toLowerCase()] as string | undefined;
-            if (!provided || provided !== authValue) {
-                console.warn('[Webhook] Invalid CDP auth header');
-                return reply.status(401).send({ error: 'Invalid auth header' });
-            }
-        }
-
         const cdpSecretRaw = env.security.coinbaseCdpWebhookSecret;
         const cdpSecrets = cdpSecretRaw
             ? cdpSecretRaw.split(',').map(s => s.trim()).filter(Boolean)

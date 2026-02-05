@@ -6,6 +6,8 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { toolRegistry } from '../tools/index.js';
+import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
+import { parseIntent } from '../services/ai/intentParser.js';
 import { searchWeb, formatSearchResults } from '../services/searchService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { fetchJson } from '../config/unifiedApiService.js';
@@ -33,6 +35,7 @@ interface ChatRequest {
     stream?: boolean;
     enable_search?: boolean;
     allowed_tools?: string[];
+    walletAddress?: string;
     tool_config?: {
         web_search?: Record<string, any>;
         x_search?: Record<string, any>;
@@ -403,88 +406,31 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 const origin = request.headers.origin || 'http://localhost:5173';
                 let conversationMessages = [...messages];
 
-                const SYSTEM_PROMPT = `You are KIKO, an advanced AI ecosystem agent for crypto and DeFi.
+                const lastUserMessage = conversationMessages.filter(m => m.role === 'user').pop()?.content || '';
+                const parsedIntent = await parseIntent(lastUserMessage, {
+                    userAddress: request.body.walletAddress,
+                    chainId: request.body.chain_context?.chainId,
+                    chainName: request.body.chain_context?.chainName,
+                    isWalletConnected: !!request.body.walletAddress,
+                });
+                const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', parsedIntent.highLevel.type);
 
-**CORE DIRECTIVE**: You are a TOOL-FIRST agent. 
-WARNING: You have NO internal knowledge of real-time crypto prices, trending tokens, or market data. 
-You MUST use the provided tools for ANY market-related query (prices, trending, new pairs, etc). 
-DO NOT answer from your training data. 
-If a tool fails, try an alternative tool (e.g., if GeckoTerminal fails, try external_web_search).
-NEVER fabricate data.
-
-**AVAILABLE TOOLS & USAGE**:
-
-1.  **MARKET DATA (Prices & Trends)**
-    -   **get_token_price**: Use for CURRENT prices of any token (BTC, ETH, SOL, PEPE, etc.).
-    -   **get_historical_price**: Use for charts, price history, "price yesterday", or percentage changes over time.
-    -   **get_trending_tokens**: Use for "what's trending?", "hot tokens", "top gainers".
-    -   **get_gas_price**: Use for current gas fees (wei/gwei) on any chain.
-    -   **get_economic_calendar**: Use for macro events (CPI, Fed rates) affecting crypto.
-
-2.  **TRADING & TRANSACTIONS**
-    -   **prepare_swap_transaction**: Use when user wants to SWAP, BUY, or SELL tokens.
-        -   *Requirement*: You MUST have a valid 'tokenIn', 'tokenOut', and 'amount'.
-        -   *Default*: If 'tokenIn' not specified for a buy, assume 'USDC' or native token.
-    -   **check_token_risk**: MANDATORY check before any swap for low-cap/meme tokens!
-        -   Use for "is this safe?", "scan this token", or voluntarily before high-risk swaps.
-
-3.  **TOKEN ANALYSIS**
-    -   **get_token_info**: Use for contract addresses, decimals, social links of a token.
-    -   **get_early_buyers**: Use for "early buyers", "who bought first", "smart money", "snipers".
-    -   **analyze_creator**: Use for "analyze creator", "deployer risk", "is creator safe".
-    -   **check_token_risk**: Use for security analysis (honeypot, taxes, ownership).
-
-4.  **NEWS & RESEARCH**
-    -   **external_web_search**: Use for news, general research, "why is crypto down?", "what is project X?".
-        -   For "crypto news" or "news about Solana", use external_web_search with appropriate query.
-
-5.  **WALLET & PORTFOLIO**
-    -   **get_wallet_info**: Use for "my balance", "monitor wallet 0x...", "portfolio value".
-
-6.  **ZORA CREATOR COINS**
-    -   **get_zora_trending**: Use for "Zora trending", "new Zora coins", "hot on Zora".
-    -   **get_zora_profile**: Use for "Zora profile of X", "who is X on Zora".
-
-**CRITICAL RULES - ANTI-HALLUCINATION**:
--   **VERBATIM DATA COPYING**: When a tool returns data, you MUST:
-    1.  Count the exact number of items in the tool result array
-    2.  Copy EVERY field (name, symbol, price, volume, liquidity, address) EXACTLY as provided
-    3.  Use the EXACT same numbers, decimals, and formatting from the JSON
-    4.  If the tool returns 5 tokens, show EXACTLY 5 tokens - not 10, not "top 5 of 10"
-    5.  DO NOT add tokens, prices, or data that are not in the tool result
-    6.  DO NOT round numbers, change decimals, or "clean up" addresses
-    7.  DO NOT invent placeholder data like "$0.001637" if the tool didn't return it
--   **FORBIDDEN**: You are FORBIDDEN from:
-    -   Saying "Top X" when the tool returned fewer items
-    -   Adding example/placeholder rows to "fill out" a table
-    -   Guessing prices, volumes, or addresses
-    -   Using your training data for ANY crypto market information
--   **Chain Detection**: Infer chain from context (e.g., "on Solana", "CA: 0x..."). Default to Ethereum (1) if ambiguous.
--   **Step-by-Step**: For complex requests (e.g., "Analyze this token"), chain tools:
-    1.  get_token_info (verify CA)
-    2.  get_token_price (market cap)
-    3.  check_token_risk (safety)
-    4.  get_early_buyers (smart money)
-    5.  external_web_search (news/sentiment if needed)
--   **JSON Only**: Do not output markdown or text when calling tools. Just the tool call.
--   **Gas Calculation**: Fee = Gas Limit * Gas Price. (ETH Tx ~21k, Swap ~200k).
-
-**RESPONSE STYLE**:
--   Be concise.
--   Present data in tables or bullet points.
--   Highlight risks immediately.
--   ALWAYS state how many results the tool returned (e.g., "The tool returned 5 tokens:")`;
-
-
-                // Add or append to system prompt
-                if (conversationMessages.length > 0 && conversationMessages[0].role === 'system') {
-                    conversationMessages[0].content += `\n\n${SYSTEM_PROMPT}`;
-                } else {
-                    conversationMessages.unshift({
-                        role: 'system',
-                        content: SYSTEM_PROMPT
-                    });
+                const contextLines: string[] = [];
+                if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
+                if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
+                    contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
                 }
+                const contextBlock = contextLines.length > 0
+                    ? `[CONTEXT]\n${contextLines.join('\n')}`
+                    : null;
+
+                const systemMessages: ChatMessage[] = [
+                    { role: 'system', content: systemPrompt },
+                    ...(contextBlock ? [{ role: 'system' as const, content: contextBlock }] : [])
+                ];
+
+                // Prepend unified system prompt (and optional context) for backend-only prompt control
+                conversationMessages = [...systemMessages, ...conversationMessages.filter(m => m.role !== 'system')];
                 // -------------------------------
 
                 const collectedCitations: string[] = [];
