@@ -450,8 +450,23 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                         success?: boolean;
                         error?: string;
                         message?: string;
-                        data?: { txHash?: string; amountOut?: string };
+                        data?: { txHash?: string; amountOut?: string; tradeId?: string };
                     };
+
+                    let swapRecord: any = null;
+                    if (response.ok && result.success && (result.data?.tradeId || result.data?.txHash)) {
+                        try {
+                            const { prisma } = await import('../../../db/prisma.js');
+                            swapRecord = await prisma.swapHistory.findFirst({
+                                where: result.data?.tradeId
+                                    ? { id: result.data.tradeId }
+                                    : { txHash: result.data?.txHash },
+                                orderBy: { createdAt: 'desc' }
+                            });
+                        } catch (dbError) {
+                            console.warn('[PrepareSwapTransaction] Failed to load swap record:', (dbError as Error).message);
+                        }
+                    }
 
                     // ⚡ STEP 3: Update transaction message with final result
                     const finalStatus = response.ok && result.success ? 'success' : 'failed';
@@ -460,7 +475,9 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                         ...messageData,
                         status: finalStatus,
                         txHash: result.data?.txHash,
-                        amountOut: result.data?.amountOut || messageData.amountOut,
+                        amountOut: result.data?.amountOut || swapRecord?.tokenOutAmount || messageData.amountOut,
+                        tokenInSymbol: swapRecord?.tokenInSymbol || messageData.tokenInSymbol,
+                        tokenOutSymbol: swapRecord?.tokenOutSymbol || messageData.tokenOutSymbol,
                         error: result.error,
                         errorMessage: result.error,
                         completedAt: Date.now(),
@@ -625,6 +642,9 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                                         ...currentData,
                                         status: 'success',
                                         txHash: recentSwap.txHash,
+                                        amountOut: recentSwap.tokenOutAmount || currentData.amountOut,
+                                        tokenInSymbol: recentSwap.tokenInSymbol || currentData.tokenInSymbol,
+                                        tokenOutSymbol: recentSwap.tokenOutSymbol || currentData.tokenOutSymbol,
                                         completedAt: Date.now(),
                                         message: `✅ Swap completed! Transaction: ${recentSwap.txHash.slice(0, 10)}...`,
                                         isLoading: false

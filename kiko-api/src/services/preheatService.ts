@@ -198,6 +198,16 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
                     lpFee: 0
                 };
             }
+            if (!matchedPoolKey) {
+                logger.warn(LogCode.SYS_INFO, '[Preheat] PoolId not matched to config', {
+                    chainId: event.chainId,
+                    token,
+                    pairedToken: paired,
+                    poolId: payloadPoolId,
+                    poolHook: payloadHook,
+                    attempt
+                });
+            }
         }
 
         // 1) Try WETH pair first (most Clanker pools)

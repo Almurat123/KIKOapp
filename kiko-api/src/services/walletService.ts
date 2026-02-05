@@ -21,19 +21,38 @@ export const walletService = {
             const balance = results[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
 
             // Filter spam/low-value tokens
-            // Keep: stablecoins, tokens with price, tokens with meaningful value
-            const TRUSTED_SYMBOLS = new Set(['USDC', 'USDT', 'DAI', 'USDBC', 'ETH', 'WETH', 'BTC', 'WBTC']);
-            const MIN_VALUE_USD = 0.01; // Minimum $0.01 to include
+            // Keep: trusted tokens with meaningful value, drop common scam patterns
+            const TRUSTED_SYMBOLS = new Set([
+                'USDC', 'USDT', 'DAI', 'USDBC',
+                'ETH', 'WETH', 'BTC', 'WBTC',
+                'MATIC', 'WMATIC'
+            ]);
+            const MIN_VALUE_USD = 1; // Minimum $1 to include
+            const SPAM_PATTERNS = [
+                't.me',
+                'telegram',
+                'reward',
+                'airdrop',
+                'claim',
+                'visit',
+                'bonus',
+                'promo'
+            ];
+            const hasSpamText = (value: string) => {
+                const lower = value.toLowerCase();
+                return SPAM_PATTERNS.some(pattern => lower.includes(pattern));
+            };
 
             if (balance.tokens && balance.tokens.length > 0) {
                 balance.tokens = balance.tokens.filter((t: any) => {
                     const symbol = (t.symbol || '').toUpperCase();
+                    const name = (t.name || '').toString();
+                    const symbolRaw = (t.symbol || '').toString();
+                    if (hasSpamText(symbolRaw) || hasSpamText(name)) return false;
                     // Always keep trusted stablecoins
                     if (TRUSTED_SYMBOLS.has(symbol)) return true;
                     // Keep tokens with meaningful USD value
                     if (t.valueUsd && t.valueUsd >= MIN_VALUE_USD) return true;
-                    // Keep tokens with price and non-zero balance
-                    if (t.price && parseFloat(t.tokenBalance || '0') > 0) return true;
                     // Filter out: no price = likely scam/unknown
                     return false;
                 });

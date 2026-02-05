@@ -772,7 +772,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       };
 
       // Better decoding logic strictly for ABI strings
-      const abiDecodeString = (hex: string) => {
+      const abiDecodeString = (hex?: string) => {
         if (!hex || hex === '0x' || hex.length < 130) return '';
         try {
           // Skip offset (32 bytes) + length (32 bytes)
