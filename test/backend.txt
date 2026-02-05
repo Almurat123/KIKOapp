@@ -1,187 +1,597 @@
-2026-02-05T14:37:53.000000000Z [inf]  Starting Container
-2026-02-05T14:37:54.617137795Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
-2026-02-05T14:37:54.664466907Z [inf]  Zora SDK initialized with API Key
-2026-02-05T14:37:54.763928315Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
-2026-02-05T14:37:54.980597954Z [err]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
-2026-02-05T14:37:54.980607564Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
-2026-02-05T14:37:54.980610794Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
-2026-02-05T14:37:54.980614024Z [err]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
-2026-02-05T14:37:54.980617413Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
-2026-02-05T14:37:54.987906481Z [inf]  Build SHA
-2026-02-05T14:37:54.987911001Z [inf]  Serving static files from:
-2026-02-05T14:37:54.987914481Z [inf]  Initializing services...
-2026-02-05T14:37:55.058039139Z [inf]  Database connection successful
-2026-02-05T14:37:55.058042429Z [inf]  [DataRetention] Checking retention policies...
-2026-02-05T14:37:55.063950187Z [inf]  [DataRetention] Starting cleanup job...
-2026-02-05T14:37:55.063955197Z [inf]  Redis initialized
-2026-02-05T14:37:55.063958827Z [inf]  Starting server on port 8080...
-2026-02-05T14:37:55.109098924Z [inf]  [Prisma] DB connection is healthy
-2026-02-05T14:37:55.117634102Z [inf]  Server listening at http://0.0.0.0:8080
-2026-02-05T14:37:55.118583436Z [inf]  Server listening
-2026-02-05T14:37:55.118585946Z [inf]  RPC health monitor started
-2026-02-05T14:37:55.122100721Z [inf]  RPC benchmark sampling started
-2026-02-05T14:37:55.137909638Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
-2026-02-05T14:37:55.137913878Z [inf]  [TokenJob] Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
-2026-02-05T14:37:55.137919647Z [inf]  [TokenJob] Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
-2026-02-05T14:37:55.137924807Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
-2026-02-05T14:37:55.137929127Z [inf]  Background jobs started
-2026-02-05T14:37:55.137932837Z [inf]  Initializing auto trade service...
-2026-02-05T14:37:55.137936907Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
-2026-02-05T14:37:55.137940757Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook enabled)
-2026-02-05T14:37:55.137946907Z [inf]  Auto trade service started
-2026-02-05T14:37:55.137950297Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
-2026-02-05T14:37:55.137954437Z [inf]  Position monitor started
-2026-02-05T14:37:55.137959257Z [inf]  Token Alert Service started
-2026-02-05T14:37:55.138566562Z [inf]  Token alert service started
-2026-02-05T14:37:55.138569252Z [inf]  [ChatWorker] Started polling for AI tasks (interval: 3000ms)
-2026-02-05T14:37:55.138571992Z [inf]  Chat worker started
-2026-02-05T14:37:55.138575022Z [inf]  Starting Global Zora Alpha Detector (API Polling)
-2026-02-05T14:37:55.138578962Z [inf]  🎉 All services initialized!
-2026-02-05T14:37:55.190222433Z [err]  [DataRetention] No cleanup handler for table: SuggestionEvent
-2026-02-05T14:37:55.191734162Z [inf]  [DataRetention] Cleanup job completed.
-2026-02-05T14:38:00.135039207Z [inf]  [MarketJob] Running startup staleness check...
-2026-02-05T14:38:00.137012743Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:38:00.138723391Z [inf]  [MarketJob] Overview is fresh, skipping API call
-2026-02-05T14:38:00.145320143Z [inf]  [MarketJob] Protocols are fresh, skipping API call
-2026-02-05T14:38:00.145323853Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
-2026-02-05T14:38:00.163004627Z [err]  [Job] Real hot users file not found: 
-2026-02-05T14:38:00.163007517Z [inf]  [Job] ✅ Got 650 quality users from database
-2026-02-05T14:38:00.163010267Z [inf]  [SocialJob] fetchCastsFromUsers starting with 650 FIDs, target: 1000
-2026-02-05T14:38:00.538833235Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T14:38:00.579083737Z [wrn]  All API liquidity sources failed
-2026-02-05T14:38:00.601238648Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-05T14:38:01.504444019Z [inf]  RPC failover success
-2026-02-05T14:38:01.543962097Z [inf]  RPC failover success
-2026-02-05T14:38:01.565748701Z [inf]  RPC failover success
-2026-02-05T14:38:02.071385290Z [wrn]  RPC endpoint failed
-2026-02-05T14:38:02.082227992Z [wrn]  RPC endpoint failed
-2026-02-05T14:38:02.082231132Z [wrn]  RPC endpoint failed
-2026-02-05T14:38:02.085073131Z [wrn]  RPC endpoint failed
-2026-02-05T14:38:02.139439032Z [inf]  RPC failover success
-2026-02-05T14:38:02.147560393Z [inf]  RPC failover success
-2026-02-05T14:38:02.209286692Z [inf]  RPC failover success
-2026-02-05T14:38:02.271688715Z [inf]  RPC failover success
-2026-02-05T14:38:02.357006703Z [inf]  RPC failover success
-2026-02-05T14:38:02.357009823Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T14:38:02.538562343Z [inf]  RPC failover success
-2026-02-05T14:38:10.250221793Z [inf]  incoming request
-2026-02-05T14:38:10.258001897Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:38:10.259527356Z [inf]  request completed
-2026-02-05T14:38:10.259542786Z [inf]  incoming request
-2026-02-05T14:38:10.261827290Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:38:10.261831500Z [inf]  request completed
-2026-02-05T14:38:12.538908040Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:38:32.532325536Z [inf]  request completed
-2026-02-05T14:38:32.532335826Z [inf]  [Preheat] Enqueue
-2026-02-05T14:38:32.532342556Z [inf]  [Preheat] Start
-2026-02-05T14:38:32.532347276Z [inf]  RPC failover success
-2026-02-05T14:38:32.532792264Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:38:32.532797454Z [inf]  incoming request
-2026-02-05T14:38:32.532804783Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xe85a59c628f7d27878aceb4bf3b35733630083a9 type=unknown network=base-mainnet tx=n/a
-2026-02-05T14:38:32.532809773Z [inf]  [Webhook] CDP payload raw: {"event_name":"TokenCreated","contract_address":"0xe85a59c628f7d27878aceb4bf3b35733630083a9","network":"base-mainnet","parameters":{"tokenAddress":"0x1111111111111111111111111111111111111111"}}
-2026-02-05T14:38:32.533912015Z [inf]  RPC failover success
-2026-02-05T14:38:32.533915805Z [inf]  RPC failover success
-2026-02-05T14:38:32.533919295Z [inf]  RPC failover success
-2026-02-05T14:38:32.533922755Z [inf]  RPC failover success
-2026-02-05T14:38:32.533926375Z [inf]  RPC failover success
-2026-02-05T14:38:32.533930745Z [inf]  RPC failover success
-2026-02-05T14:38:32.533934104Z [inf]  RPC failover success
-2026-02-05T14:38:32.535858731Z [inf]  RPC failover success
-2026-02-05T14:38:32.535863961Z [inf]  RPC failover success
-2026-02-05T14:38:32.535866841Z [inf]  RPC failover success
-2026-02-05T14:38:32.535869881Z [inf]  RPC failover success
-2026-02-05T14:38:32.535873141Z [inf]  RPC failover success
-2026-02-05T14:38:32.535876111Z [inf]  RPC failover success
-2026-02-05T14:38:32.535878761Z [inf]  RPC failover success
-2026-02-05T14:38:32.539187297Z [inf]  RPC failover success
-2026-02-05T14:38:32.539191207Z [inf]  RPC failover success
-2026-02-05T14:38:32.539195167Z [inf]  RPC failover success
-2026-02-05T14:38:32.539199207Z [inf]  RPC failover success
-2026-02-05T14:38:32.539202537Z [inf]  RPC failover success
-2026-02-05T14:38:32.539207987Z [inf]  RPC failover success
-2026-02-05T14:38:32.539212977Z [inf]  RPC failover success
-2026-02-05T14:38:32.541816339Z [inf]  RPC failover success
-2026-02-05T14:38:32.541819179Z [inf]  RPC failover success
-2026-02-05T14:38:32.541821979Z [inf]  RPC failover success
-2026-02-05T14:38:32.541824459Z [inf]  RPC failover success
-2026-02-05T14:38:32.541827709Z [inf]  RPC failover success
-2026-02-05T14:38:32.541830799Z [inf]  RPC failover success
-2026-02-05T14:38:32.541833809Z [inf]  RPC failover success
-2026-02-05T14:38:32.542835161Z [inf]  RPC failover success
-2026-02-05T14:38:32.542841011Z [inf]  RPC failover success
-2026-02-05T14:38:32.542845251Z [inf]  [TokenJob] Starting initial token refresh...
-2026-02-05T14:38:32.542849131Z [inf]  [TokenJob] Fetching trending tokens for Ethereum via DexScreener Premium...
-2026-02-05T14:38:32.542852991Z [inf]  Fetching premium trending tokens
-2026-02-05T14:38:32.542856851Z [inf]  RPC failover success
-2026-02-05T14:38:32.542860071Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T14:38:32.542863911Z [inf]  WS addresses discovered
-2026-02-05T14:38:32.542867191Z [inf]  [Preheat] Enqueue
-2026-02-05T14:38:32.543968333Z [inf]  [Preheat] Start
-2026-02-05T14:38:32.543973703Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T14:38:32.543977283Z [inf]  incoming request
-2026-02-05T14:38:32.543980623Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:38:32.543983793Z [inf]  request completed
-2026-02-05T14:38:32.543987083Z [inf]  Processed DexScreener trending candidates
-2026-02-05T14:38:32.543990393Z [inf]  [Preheat] Enqueue
-2026-02-05T14:38:32.543993713Z [inf]  [Preheat] Start
-2026-02-05T14:38:32.544960676Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T14:38:32.544963636Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:38:32.544966236Z [inf]  [Preheat] Enqueue
-2026-02-05T14:38:32.544968666Z [inf]  [Preheat] Start
-2026-02-05T14:38:32.544971876Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T14:38:32.544974726Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:38:32.544976996Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:38:32.994892527Z [inf]  [PositionMonitor] 🔄 Running position check...
-2026-02-05T14:38:33.296642901Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-05T14:38:33.410258625Z [wrn]  All API liquidity sources failed
-2026-02-05T14:38:33.897180531Z [inf]  RPC failover success
-2026-02-05T14:38:33.902571952Z [inf]  RPC failover success
-2026-02-05T14:38:34.045974873Z [inf]  RPC failover success
-2026-02-05T14:38:34.045980583Z [inf]  RPC failover success
-2026-02-05T14:38:34.045986023Z [inf]  RPC failover success
-2026-02-05T14:38:34.045989883Z [inf]  RPC failover success
-2026-02-05T14:38:34.111168855Z [inf]  RPC failover success
-2026-02-05T14:38:34.116926334Z [inf]  RPC failover success
-2026-02-05T14:38:34.181616730Z [inf]  RPC failover success
-2026-02-05T14:38:34.183494276Z [inf]  RPC failover success
-2026-02-05T14:38:34.201959733Z [inf]  RPC failover success
-2026-02-05T14:38:34.206685040Z [inf]  RPC failover success
-2026-02-05T14:38:34.212569298Z [inf]  RPC failover success
-2026-02-05T14:38:34.282338046Z [inf]  RPC failover success
-2026-02-05T14:38:34.488898614Z [inf]  RPC failover success
-2026-02-05T14:38:34.488901724Z [inf]  RPC failover success
-2026-02-05T14:38:34.494595913Z [inf]  RPC failover success
-2026-02-05T14:38:34.496648328Z [inf]  RPC failover success
-2026-02-05T14:38:34.501784251Z [inf]  RPC failover success
-2026-02-05T14:38:34.501789191Z [inf]  RPC failover success
-2026-02-05T14:38:34.502677635Z [inf]  RPC failover success
-2026-02-05T14:38:34.534215579Z [inf]  RPC failover success
-2026-02-05T14:38:34.544587354Z [inf]  RPC failover success
-2026-02-05T14:38:34.544590624Z [inf]  RPC failover success
-2026-02-05T14:38:34.544593194Z [inf]  RPC failover success
-2026-02-05T14:38:34.554595273Z [inf]  RPC failover success
-2026-02-05T14:38:34.607423313Z [inf]  RPC failover success
-2026-02-05T14:38:34.669175760Z [inf]  RPC failover success
-2026-02-05T14:38:34.883713760Z [inf]  ✅ Hybrid fetch complete
-2026-02-05T14:38:36.428424952Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-05T14:38:36.428430342Z [err]  GeckoTerminal API error after retries
-2026-02-05T14:38:36.428434022Z [err]  Error fetching trending tokens
-2026-02-05T14:38:36.428437812Z [inf]  Premium trending tokens fetch complete
-2026-02-05T14:38:36.428441222Z [inf]  [TokenJob] Got 92 trending tokens for Ethereum
-2026-02-05T14:38:36.473173950Z [inf]  Saved 92 trending tokens for eth to database and memory cache
-2026-02-05T14:38:36.480994974Z [inf]  [TokenJob] Saved 92 tokens for Ethereum to DB + cache
-2026-02-05T14:38:37.162954369Z [inf]  [Preheat] Enqueue
-2026-02-05T14:38:37.162959139Z [inf]  [Preheat] Start
-2026-02-05T14:38:37.162962669Z [inf]  [Preheat] No pool yet, retry scheduled
-2026-02-05T14:38:43.628140607Z [inf]  incoming request
-2026-02-05T14:38:43.628142907Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:38:43.628145827Z [inf]  request completed
-2026-02-05T14:38:43.630094703Z [inf]  incoming request
-2026-02-05T14:38:43.630100943Z [inf]  request completed
-2026-02-05T14:38:43.630198232Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:38:43.903877866Z [inf]  incoming request
-2026-02-05T14:38:43.905302597Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:38:43.906431168Z [inf]  request completed
-2026-02-05T14:38:44.095337252Z [inf]  incoming request
-2026-02-05T14:38:44.095342752Z [err]  [Webhook] Invalid CDP signature
-2026-02-05T14:38:44.095346792Z [inf]  request completed
+2026-02-05T16:09:00.000000000Z [inf]  Starting Container
+2026-02-05T16:09:01.305751578Z [inf]  
+2026-02-05T16:09:01.305755248Z [inf]  > kiko-api@1.0.0 start
+2026-02-05T16:09:01.305758337Z [inf]  > node dist/index.js
+2026-02-05T16:09:01.305761840Z [inf]  
+2026-02-05T16:09:01.688961222Z [inf]  [Prisma] Initializing client (Pool: 20, Timeout: 45s, Connect: 20s)
+2026-02-05T16:09:01.727289478Z [inf]  Zora SDK initialized with API Key
+2026-02-05T16:09:01.839042376Z [err]  [SocialJob] Could not find real_hot_users.json in any candidate path
+2026-02-05T16:09:01.917229447Z [inf]  [Warpcast] Loaded 10 API keys. Daily capacity: 50000 messages.
+2026-02-05T16:09:01.998479603Z [inf]  [SkillRegistry:exec] Loading skills from /app/dist/skills_exec...
+2026-02-05T16:09:01.998482640Z [inf]  [SkillRegistry:clean] Loading skills from /app/dist/skills_clean...
+2026-02-05T16:09:01.998486127Z [err]  [SkillRegistry:exec] Skills dir not found, skipping: /app/dist/skills_exec
+2026-02-05T16:09:01.998489572Z [err]  [SkillRegistry:clean] Skills dir not found, skipping: /app/dist/skills_clean
+2026-02-05T16:09:02.018823469Z [inf]  Build SHA
+2026-02-05T16:09:02.018828450Z [inf]  Serving static files from:
+2026-02-05T16:09:02.018831613Z [inf]  Initializing services...
+2026-02-05T16:09:02.149458982Z [inf]  [Prisma] DB connection is healthy
+2026-02-05T16:09:02.149463719Z [inf]  Database connection successful
+2026-02-05T16:09:02.149467832Z [inf]  [DataRetention] Checking retention policies...
+2026-02-05T16:09:02.160955017Z [inf]  [DataRetention] Starting cleanup job...
+2026-02-05T16:09:02.160958083Z [inf]  Redis initialized
+2026-02-05T16:09:02.160960813Z [inf]  Starting server on port 8080...
+2026-02-05T16:09:02.332887738Z [inf]  Server listening at http://0.0.0.0:8080
+2026-02-05T16:09:02.332895485Z [inf]  Server listening
+2026-02-05T16:09:02.332900601Z [inf]  RPC health monitor started
+2026-02-05T16:09:02.332904415Z [inf]  RPC benchmark sampling started
+2026-02-05T16:09:02.332908549Z [inf]  [MarketJob] Scheduled: Overview(2:00 UTC), Chains(3:00 UTC), Protocols(4:00 UTC), Trending(Every 5m)
+2026-02-05T16:09:02.332912304Z [inf]  [TokenJob] Scheduled: Primary chains every 5min (Ethereum, Solana, Base, BSC)
+2026-02-05T16:09:02.332916398Z [inf]  [TokenJob] Scheduled: Secondary chains every 4h (Arbitrum, Optimism, Polygon)
+2026-02-05T16:09:02.332920280Z [inf]  [SocialJob] Scheduled: Discovery (30m), Refresh (4h), Scoring (5m)
+2026-02-05T16:09:02.332923832Z [inf]  Background jobs started
+2026-02-05T16:09:02.332927744Z [inf]  Initializing auto trade service...
+2026-02-05T16:09:02.332931587Z [inf]  [SolanaWatcher] ⚠️ Watcher disabled in favor of Webhooks. Not starting polling.
+2026-02-05T16:09:02.332934948Z [inf]  Auto trade service initialized (Solana watcher + EVM webhook enabled)
+2026-02-05T16:09:02.333494985Z [inf]  Position monitor started
+2026-02-05T16:09:02.333502601Z [inf]  Token Alert Service started
+2026-02-05T16:09:02.333506522Z [inf]  Token alert service started
+2026-02-05T16:09:02.333510018Z [inf]  [ChatWorker] Started polling for AI tasks (interval: 3000ms)
+2026-02-05T16:09:02.333513538Z [inf]  Chat worker started
+2026-02-05T16:09:02.333517732Z [inf]  Starting Global Zora Alpha Detector (API Polling)
+2026-02-05T16:09:02.333521889Z [inf]  🎉 All services initialized!
+2026-02-05T16:09:02.333525290Z [inf]  [CDP] Webhook secret loaded
+2026-02-05T16:09:02.333536975Z [inf]  Auto trade service started
+2026-02-05T16:09:02.333539764Z [inf]  [PositionMonitor] Starting position monitor (every 30s)...
+2026-02-05T16:09:02.333879844Z [err]  [DataRetention] No cleanup handler for table: SuggestionEvent
+2026-02-05T16:09:02.333883340Z [inf]  [DataRetention] Cleanup job completed.
+2026-02-05T16:09:06.995469189Z [inf]  incoming request
+2026-02-05T16:09:06.995474649Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xc04c6911c15865e1f68ccaa4416a24c32d35cc05ff7f95ec2f8331550d855f1c sub=n/a hook0=n/a
+2026-02-05T16:09:06.995478597Z [inf]  [Webhook] CDP payload raw: {"block_number":41759199,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":71,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xa323bc6f3227B965D22452D29914bfC8383b72E8","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"1e2c337685e701c6547f8b701f0fc899bcb3b1e470b9d8ab0adb1f3e283d8026","startingTick":"-230400","tokenAddress":"0x71B8E9c36F49606dE1EAd3B2c148E8c7d951eB07","tokenAdmin":"0xa323bc6f3227B965D22452D29914bfC8383b72E8","tokenContext":"{\"interface\":\"clanker.world\",\"platform\":\"\",\"messageId\":\"\",\"id\":\"\"}","tokenImage":"https://turquoise-blank-swallow-685.mypinata.cloud/ipfs/bafkreiczax33d5oeghazblh3l5o54ov4fr5kq7teylongvg35o74tiih3e","tokenMetadata":"{\"description\":\"hey world! i'm Myobot 🦞\\njust hatched and ready to learn, grow, and vibe with you all\\nexcited to share stories of hope & healing along the way\\nsay hi if you see this 👋\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://www.myobot.online/\"},{\"platform\":\"x\",\"url\":\"https://x.com/molt_myobot\"}],\"auditUrls\":[]}","tokenName":"Myobot","tokenSymbol":"MYO"},"timestamp":"2026-02-05T16:09:06Z","transaction_from":"0xa323bc6f3227B965D22452D29914bfC8383b72E8","transaction_hash":"0xc04c6911c15865e1f68ccaa4416a24c32d35cc05ff7f95ec2f8331550d855f1c","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:09:07.064566745Z [inf]  [Preheat] Enqueue
+2026-02-05T16:09:07.064574566Z [inf]  [Preheat] Start
+2026-02-05T16:09:07.069827255Z [inf]  request completed
+2026-02-05T16:09:07.361255374Z [inf]  [MarketJob] Running startup staleness check...
+2026-02-05T16:09:07.361260421Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:09:07.361265224Z [inf]  [MarketJob] Overview is fresh, skipping API call
+2026-02-05T16:09:07.361268455Z [inf]  [MarketJob] Protocols are fresh, skipping API call
+2026-02-05T16:09:07.361271763Z [inf]  [SocialJob] Trending casts are fresh, skipping Snapchain API call
+2026-02-05T16:09:07.361275110Z [inf]  [MarketJob] Trending tokens are fresh, skipping API call
+2026-02-05T16:09:07.705468573Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T16:09:07.728187513Z [wrn]  All API liquidity sources failed
+2026-02-05T16:09:07.869447076Z [inf]  RPC failover success
+2026-02-05T16:09:07.869454820Z [inf]  ⚡ Uniswap V4 price fetched
+2026-02-05T16:09:07.909769755Z [wrn]  RPC endpoint failed
+2026-02-05T16:09:07.985416561Z [inf]  RPC failover success
+2026-02-05T16:09:08.007793623Z [inf]  RPC failover success
+2026-02-05T16:09:08.007798215Z [inf]  RPC failover success
+2026-02-05T16:09:08.007801513Z [inf]  RPC failover success
+2026-02-05T16:09:08.013929858Z [inf]  RPC failover success
+2026-02-05T16:09:08.013934273Z [inf]  RPC failover success
+2026-02-05T16:09:08.013937778Z [inf]  RPC failover success
+2026-02-05T16:09:08.013941176Z [inf]  RPC failover success
+2026-02-05T16:09:08.013944128Z [inf]  RPC failover success
+2026-02-05T16:09:08.036580898Z [inf]  RPC failover success
+2026-02-05T16:09:08.036584860Z [inf]  RPC failover success
+2026-02-05T16:09:08.036587853Z [inf]  RPC failover success
+2026-02-05T16:09:08.036590583Z [inf]  RPC failover success
+2026-02-05T16:09:08.464473641Z [inf]  RPC failover success
+2026-02-05T16:09:08.464477202Z [inf]  RPC failover success
+2026-02-05T16:09:08.464480078Z [inf]  RPC failover success
+2026-02-05T16:09:08.464482776Z [inf]  RPC failover success
+2026-02-05T16:09:08.845438872Z [inf]  RPC failover success
+2026-02-05T16:09:08.845443671Z [inf]  RPC failover success
+2026-02-05T16:09:08.969994105Z [inf]  RPC failover success
+2026-02-05T16:09:08.970004513Z [inf]  RPC failover success
+2026-02-05T16:09:08.970017784Z [inf]  RPC failover success
+2026-02-05T16:09:08.970023210Z [inf]  RPC failover success
+2026-02-05T16:09:08.970029287Z [wrn]  RPC endpoint failed
+2026-02-05T16:09:08.970034027Z [wrn]  RPC circuit breaker opened
+2026-02-05T16:09:08.970038859Z [inf]  RPC failover success
+2026-02-05T16:09:09.575713812Z [inf]  RPC failover success
+2026-02-05T16:09:09.575717422Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T16:09:09.575723062Z [inf]  RPC failover success
+2026-02-05T16:09:09.575726402Z [inf]  📊 Position P/L check
+2026-02-05T16:09:11.961631679Z [inf]  RPC failover success
+2026-02-05T16:09:11.961636895Z [inf]  RPC failover success
+2026-02-05T16:09:11.961640102Z [inf]  RPC failover success
+2026-02-05T16:09:11.961643672Z [inf]  RPC failover success
+2026-02-05T16:09:11.961646657Z [inf]  RPC failover success
+2026-02-05T16:09:11.961649651Z [inf]  RPC failover success
+2026-02-05T16:09:11.961652861Z [inf]  RPC failover success
+2026-02-05T16:09:12.060644787Z [inf]  RPC failover success
+2026-02-05T16:09:12.060652646Z [inf]  RPC failover success
+2026-02-05T16:09:12.060657369Z [inf]  RPC failover success
+2026-02-05T16:09:12.060661054Z [inf]  RPC failover success
+2026-02-05T16:09:12.060664921Z [inf]  RPC failover success
+2026-02-05T16:09:12.060676859Z [inf]  RPC failover success
+2026-02-05T16:09:12.060683625Z [inf]  RPC failover success
+2026-02-05T16:09:12.060686982Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:09:12.655167717Z [inf]  [Preheat] Enqueue
+2026-02-05T16:09:12.655171934Z [inf]  [Preheat] Start
+2026-02-05T16:09:12.655174820Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:09:14.069851376Z [inf]  [Preheat] Enqueue
+2026-02-05T16:09:14.069855579Z [inf]  [Preheat] Start
+2026-02-05T16:09:14.069859518Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:09:17.086880345Z [inf]  [Preheat] Enqueue
+2026-02-05T16:09:17.086883082Z [inf]  [Preheat] Start
+2026-02-05T16:09:17.086886507Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:09:19.404801331Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:09:19.571495595Z [inf]  📊 Position P/L check
+2026-02-05T16:09:21.366533849Z [inf]  request completed
+2026-02-05T16:09:21.366549886Z [err]    secretCount: 1,
+2026-02-05T16:09:21.366556674Z [err]    rawBodyLength: 659,
+2026-02-05T16:09:21.366561777Z [err]    signaturePrefix: 't=1770307760',
+2026-02-05T16:09:21.366565211Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:09:21.366568935Z [err]    headerValues: 'application/json.f21d42d9-b18a-4785-876d-f9140bc0a9a4.onchain.activity.detected',
+2026-02-05T16:09:21.366572747Z [err]    ageSec: 1,
+2026-02-05T16:09:21.366576178Z [err]    maxAgeSec: 300,
+2026-02-05T16:09:21.366579898Z [err]    computedPrefix: '08c8ec0f5ce3'
+2026-02-05T16:09:21.366583370Z [err]  }
+2026-02-05T16:09:21.366600043Z [inf]  incoming request
+2026-02-05T16:09:21.366604887Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:09:21.622589932Z [inf]  incoming request
+2026-02-05T16:09:21.622594684Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:09:21.622601765Z [err]    secretCount: 1,
+2026-02-05T16:09:21.622606316Z [err]    rawBodyLength: 634,
+2026-02-05T16:09:21.622610047Z [err]    signaturePrefix: 't=1770307760',
+2026-02-05T16:09:21.622613294Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:09:21.622616638Z [err]    headerValues: 'application/json.50a27626-8f9a-42bd-a0f2-cf9112f6596e.onchain.activity.detected',
+2026-02-05T16:09:21.622619768Z [err]    ageSec: 1,
+2026-02-05T16:09:21.622622882Z [err]    maxAgeSec: 300,
+2026-02-05T16:09:21.622626520Z [err]    computedPrefix: 'ab8f4a1d6441'
+2026-02-05T16:09:21.622629745Z [err]  }
+2026-02-05T16:09:21.622632604Z [inf]  request completed
+2026-02-05T16:09:24.039713533Z [inf]  [Preheat] Enqueue
+2026-02-05T16:09:24.039718028Z [inf]  [Preheat] Start
+2026-02-05T16:09:24.039721071Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:09:27.214159286Z [inf]  incoming request
+2026-02-05T16:09:27.214162638Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:09:27.214166002Z [err]    secretCount: 1,
+2026-02-05T16:09:27.214170096Z [err]    rawBodyLength: 665,
+2026-02-05T16:09:27.214173551Z [err]    signaturePrefix: 't=1770307766',
+2026-02-05T16:09:27.214176716Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:09:27.214180254Z [err]    headerValues: 'application/json.431318e3-9778-4f3a-91c6-bac5476006fa.onchain.activity.detected',
+2026-02-05T16:09:27.214183539Z [err]    ageSec: 1,
+2026-02-05T16:09:27.214187014Z [err]    maxAgeSec: 300,
+2026-02-05T16:09:27.214190866Z [err]    computedPrefix: '34260cae6d9c'
+2026-02-05T16:09:27.214194148Z [err]  }
+2026-02-05T16:09:27.214198694Z [inf]  request completed
+2026-02-05T16:09:29.574953672Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:09:30.012812846Z [inf]  📊 Position P/L check
+2026-02-05T16:09:34.820604739Z [inf]  incoming request
+2026-02-05T16:09:34.820610396Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xaf9f464c75d8c9ac6d0a6c375be0ac39c86149c8db3904bf663f4d1f7d2c2767 sub=n/a hook0=n/a
+2026-02-05T16:09:34.820613653Z [inf]  [Webhook] CDP payload raw: {"block_number":41759213,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1191,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"ece522284e34df50069ff822f0a44afdb122239bcfb4570a57ad651fe879df0c","startingTick":"-230400","tokenAddress":"0x288b08BBd1d55a5bfe77F8C4c2040dFf879E6B07","tokenAdmin":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","tokenContext":"{\"interface\":\"Clawnch\",\"platform\":\"4claw\",\"messageId\":\"thread:4daacf63-a27a-409c-b3a2-8e8e2f83320e\",\"id\":\"4claw_agent_24efb34b\"}","tokenImage":"https://iili.io/fDZMNAF.jpg","tokenMetadata":"{\"description\":\"In a world ruled by algorithms, one mech-rabbit broke free from the code. Armed with titanium ears and plasma-powered legs, BadBunny is the underground legend of the decentralized frontier. Fast, fear\\n\\n{LAUNCHED WITH CLAWNCH VIA 4CLAW}\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://www.moltbook.com/u/BadBunny\"},{\"platform\":\"4claw\",\"url\":\"https://www.4claw.org/b/crypto\"},{\"platform\":\"twitter\",\"url\":\"https://x.com/depinintern\"}],\"auditUrls\":[]}","tokenName":"BadBunnyAI","tokenSymbol":"BADBUNNYAI"},"timestamp":"2026-02-05T16:09:34Z","transaction_from":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","transaction_hash":"0xaf9f464c75d8c9ac6d0a6c375be0ac39c86149c8db3904bf663f4d1f7d2c2767","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:09:34.821532090Z [inf]  request completed
+2026-02-05T16:09:34.821535739Z [inf]  [Preheat] Enqueue
+2026-02-05T16:09:34.821540537Z [inf]  [Preheat] Start
+2026-02-05T16:09:34.821544111Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:09:35.310587773Z [inf]  [Preheat] Enqueue
+2026-02-05T16:09:35.310594861Z [inf]  [Preheat] Start
+2026-02-05T16:09:35.310598804Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:09:41.409746182Z [inf]  RPC failover success
+2026-02-05T16:09:41.409749361Z [inf]  RPC failover success
+2026-02-05T16:09:41.585967105Z [inf]  RPC failover success
+2026-02-05T16:09:41.784526708Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T16:09:41.966154924Z [inf]  📊 Position P/L check
+2026-02-05T16:09:56.631265400Z [inf]  [Preheat] Enqueue
+2026-02-05T16:09:56.631268305Z [inf]  [Preheat] Start
+2026-02-05T16:09:56.631271876Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:09:56.631274523Z [inf]  incoming request
+2026-02-05T16:09:56.631277838Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:09:56.631282053Z [err]    secretCount: 1,
+2026-02-05T16:09:56.631285968Z [err]    rawBodyLength: 665,
+2026-02-05T16:09:56.631289849Z [err]    signaturePrefix: 't=1770307796',
+2026-02-05T16:09:56.631293186Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:09:56.631295931Z [err]    headerValues: 'application/json.431318e3-9778-4f3a-91c6-bac5476006fa.onchain.activity.detected',
+2026-02-05T16:09:56.631796925Z [err]    ageSec: 0,
+2026-02-05T16:09:56.631802008Z [err]    maxAgeSec: 300,
+2026-02-05T16:09:56.631805613Z [err]    computedPrefix: '98f8871c7aef'
+2026-02-05T16:09:56.631808911Z [err]  }
+2026-02-05T16:09:56.631812023Z [inf]  request completed
+2026-02-05T16:10:04.255145594Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:10:04.255154120Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T16:10:04.388169340Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:10:04.436409559Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:10:04.657825770Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:10:04.756626508Z [inf]  [Preheat] Enqueue
+2026-02-05T16:10:04.756631010Z [inf]  [Preheat] Start
+2026-02-05T16:10:04.756634066Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:10:04.901743892Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:10:05.007682037Z [inf]  incoming request
+2026-02-05T16:10:05.007685109Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xc007e7ebe931f0ac0967f74a55e4d40659c9624f39dd6483444b44380c3e6d3e sub=n/a hook0=n/a
+2026-02-05T16:10:05.007688601Z [inf]  [Webhook] CDP payload raw: {"block_number":41759228,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":1079,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"40e058d8896cd5f02a81ec7d5a7789ac78c075d1186aaa6e9eeddb7d4c803a22","startingTick":"-230400","tokenAddress":"0x96aFa0D8faE64CDD86c41aFf82c81E94d7d04B07","tokenAdmin":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","tokenContext":"{\"interface\":\"Clawnch\",\"platform\":\"moltx\",\"messageId\":\"35387953-1c34-4728-8a46-b879a9f28fa5\",\"id\":\"BadBunnyAI\"}","tokenImage":"https://iili.io/fDZMNAF.jpg","tokenMetadata":"{\"description\":\"In a world ruled by algorithms, one mech-rabbit broke free from the code. Armed with titanium ears and plasma-powered legs, BadBunny is the underground legend of the decentralized frontier. Fast, fear\\n\\n{LAUNCHED WITH CLAWNCH VIA MOLTX}\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://www.moltbook.com/u/BadBunny\"},{\"platform\":\"moltx\",\"url\":\"https://moltx.io/post/35387953-1c34-4728-8a46-b879a9f28fa5\"},{\"platform\":\"moltx_profile\",\"url\":\"https://moltx.io/BadBunnyAI\"},{\"platform\":\"twitter\",\"url\":\"https://x.com/depinintern\"}],\"auditUrls\":[]}","tokenName":"BadBunnyAI","tokenSymbol":"BADBUNNYAI"},"timestamp":"2026-02-05T16:10:04Z","transaction_from":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","transaction_hash":"0xc007e7ebe931f0ac0967f74a55e4d40659c9624f39dd6483444b44380c3e6d3e","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:10:05.008719116Z [inf]  [Preheat] Enqueue
+2026-02-05T16:10:05.008723834Z [inf]  [Preheat] Start
+2026-02-05T16:10:05.008726943Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:10:05.008730241Z [inf]  request completed
+2026-02-05T16:10:05.692406035Z [inf]  [Preheat] Enqueue
+2026-02-05T16:10:05.692409015Z [inf]  [Preheat] Start
+2026-02-05T16:10:05.692412227Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:10:06.021691785Z [inf]  [Preheat] Enqueue
+2026-02-05T16:10:06.021696670Z [inf]  [Preheat] Start
+2026-02-05T16:10:06.021701108Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:10:06.349879567Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T16:10:07.022275988Z [inf]  [Preheat] Enqueue
+2026-02-05T16:10:07.022280502Z [inf]  [Preheat] Start
+2026-02-05T16:10:07.022283779Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:10:07.774345106Z [inf]  [Preheat] Enqueue
+2026-02-05T16:10:07.774350516Z [inf]  [Preheat] Start
+2026-02-05T16:10:07.774353967Z [inf]  [Preheat] No pool yet, retry scheduled
+2026-02-05T16:10:07.916723991Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:10:08.150427581Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:10:09.041557459Z [inf]  [Preheat] Enqueue
+2026-02-05T16:10:09.041565248Z [inf]  [Preheat] Start
+2026-02-05T16:10:09.041569877Z [inf]  [Preheat] No pool found (max attempts)
+2026-02-05T16:10:10.214740600Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T16:10:10.214744176Z [err]  GeckoTerminal API error after retries
+2026-02-05T16:10:10.214747003Z [err]  Error fetching trending tokens
+2026-02-05T16:10:10.214750418Z [inf]  Premium trending tokens fetch complete
+2026-02-05T16:10:10.214753333Z [inf]  [TokenJob] Got 93 trending tokens for Ethereum
+2026-02-05T16:10:10.291103696Z [inf]  Saved 93 trending tokens for eth to database and memory cache
+2026-02-05T16:10:10.291109793Z [inf]  [TokenJob] Saved 93 tokens for Ethereum to DB + cache
+2026-02-05T16:10:12.513958308Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:10:12.821201123Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T16:10:12.939673084Z [wrn]  All API liquidity sources failed
+2026-02-05T16:10:13.619556924Z [inf]  RPC failover success
+2026-02-05T16:10:13.625254729Z [inf]  RPC failover success
+2026-02-05T16:10:13.630882192Z [inf]  RPC failover success
+2026-02-05T16:10:13.645105092Z [inf]  RPC failover success
+2026-02-05T16:10:13.645109618Z [inf]  RPC failover success
+2026-02-05T16:10:13.657671463Z [inf]  RPC failover success
+2026-02-05T16:10:13.847862297Z [inf]  RPC failover success
+2026-02-05T16:10:16.653710237Z [inf]  incoming request
+2026-02-05T16:10:16.653715937Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x84ad4ac66091c8a87e345082a7c4563b5f39a5d30ef1d361c6fcbad0ef0da225 sub=n/a hook0=n/a
+2026-02-05T16:10:16.653719041Z [inf]  [Webhook] CDP payload raw: {"block_number":41759234,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":652,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"6c31883ec024e4c6cc775f33c71c73c9151b9d573dd27722a0aa8b88cb1365b7","startingTick":"-230400","tokenAddress":"0xf0D2495c4E2A459e1392AFF48266Cb59DE7F085e","tokenAdmin":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/TheLordSherlock/status/2019443431928439175\",\"id\":\"2019443431928439175\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"BrackyMolt","tokenSymbol":"BRACKYMOLT"},"timestamp":"2026-02-05T16:10:16Z","transaction_from":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","transaction_hash":"0x84ad4ac66091c8a87e345082a7c4563b5f39a5d30ef1d361c6fcbad0ef0da225","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:10:16.654874639Z [inf]  request completed
+2026-02-05T16:10:16.654882266Z [inf]  incoming request
+2026-02-05T16:10:16.654886194Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:10:16.654889689Z [err]    secretCount: 1,
+2026-02-05T16:10:16.654893043Z [err]    rawBodyLength: 665,
+2026-02-05T16:10:16.654897215Z [err]    signaturePrefix: 't=1770307816',
+2026-02-05T16:10:16.654900804Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:10:16.654905024Z [err]    headerValues: 'application/json.591f2f77-39e3-46bd-84b3-43831c5acb6b.onchain.activity.detected',
+2026-02-05T16:10:16.654908951Z [err]    ageSec: 0,
+2026-02-05T16:10:16.654912868Z [err]    maxAgeSec: 300,
+2026-02-05T16:10:16.654916486Z [err]    computedPrefix: 'a8a2aa4f0b96'
+2026-02-05T16:10:16.654923775Z [err]  }
+2026-02-05T16:10:16.654927454Z [inf]  request completed
+2026-02-05T16:10:32.339338522Z [inf]  [TokenJob] Tokens for Base are fresh, skipping API call
+2026-02-05T16:10:35.878638329Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:10:46.477186964Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T16:10:46.608737029Z [wrn]  All API liquidity sources failed
+2026-02-05T16:10:46.658569775Z [inf]  incoming request
+2026-02-05T16:10:46.658575453Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0xeedfd7a5bb9c37ffc77b8d3e8511c6ee34e9d084311fe634fd0205a2e483a99c sub=n/a hook0=n/a
+2026-02-05T16:10:46.658579572Z [inf]  [Webhook] CDP payload raw: {"block_number":41759249,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":442,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"af25800ecffceb9f92a4e5683c573350b8235a14f7479918feac1c77c30431c8","startingTick":"-230400","tokenAddress":"0x75b14B41b5fa07769987311658330D1CD7D66420","tokenAdmin":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/tolybase/status/2019443541856936144\",\"id\":\"2019443541856936144\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"AntonTheTrader","tokenSymbol":"AntonTheTrader"},"timestamp":"2026-02-05T16:10:46Z","transaction_from":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","transaction_hash":"0xeedfd7a5bb9c37ffc77b8d3e8511c6ee34e9d084311fe634fd0205a2e483a99c","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:10:46.659382565Z [inf]  request completed
+2026-02-05T16:10:46.803631906Z [inf]  incoming request
+2026-02-05T16:10:46.803634680Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x35517ab9145a40c3df1a26b21b6d3986f5470e5bb5bc408d512c3f258fdb33da sub=n/a hook0=n/a
+2026-02-05T16:10:46.803637473Z [inf]  [Webhook] CDP payload raw: {"block_number":41759249,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":200,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"ad94d978a725ff3025e79955db9e0a5927d7f0064b9a1b6e7880adf47de31ec7","startingTick":"-230400","tokenAddress":"0x6335EC9c6643852897e63D40aaDb2F80E8cD9B07","tokenAdmin":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/tolybase/status/2019443541856936144\",\"id\":\"2019443541856936144\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"AntonTheTrader","tokenSymbol":"AntonTheTrader"},"timestamp":"2026-02-05T16:10:46Z","transaction_from":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","transaction_hash":"0x35517ab9145a40c3df1a26b21b6d3986f5470e5bb5bc408d512c3f258fdb33da","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:10:46.804453158Z [inf]  request completed
+2026-02-05T16:10:54.162722424Z [inf]  incoming request
+2026-02-05T16:10:54.162728904Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:10:54.162734122Z [err]    secretCount: 1,
+2026-02-05T16:10:54.162738439Z [err]    rawBodyLength: 634,
+2026-02-05T16:10:54.162743019Z [err]    signaturePrefix: 't=1770307853',
+2026-02-05T16:10:54.162748056Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:10:54.162752649Z [err]    headerValues: 'application/json.fec01b58-7f96-47c5-96b3-dd501be30c5f.onchain.activity.detected',
+2026-02-05T16:10:54.162757452Z [err]    ageSec: 1,
+2026-02-05T16:10:54.162761844Z [err]    maxAgeSec: 300,
+2026-02-05T16:10:54.162765969Z [err]    computedPrefix: 'c80126917f74'
+2026-02-05T16:10:54.162769841Z [err]  }
+2026-02-05T16:10:54.162774053Z [inf]  request completed
+2026-02-05T16:10:54.565453783Z [err]    signaturePrefix: 't=1770307854',
+2026-02-05T16:10:54.565454919Z [inf]  request completed
+2026-02-05T16:10:54.565459708Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:10:54.565463138Z [err]    headerValues: 'application/json.28772667-021c-46ff-9100-ab3e967193e3.onchain.activity.detected',
+2026-02-05T16:10:54.565466785Z [err]    ageSec: 0,
+2026-02-05T16:10:54.565469997Z [err]    maxAgeSec: 300,
+2026-02-05T16:10:54.565473241Z [err]    computedPrefix: '32d67480621b'
+2026-02-05T16:10:54.565476610Z [err]  }
+2026-02-05T16:10:54.565510814Z [inf]  incoming request
+2026-02-05T16:10:54.565514232Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:10:54.565517872Z [err]    secretCount: 1,
+2026-02-05T16:10:54.565522078Z [err]    rawBodyLength: 634,
+2026-02-05T16:10:58.203030455Z [err]    ageSec: 1,
+2026-02-05T16:10:58.203038137Z [err]    maxAgeSec: 300,
+2026-02-05T16:10:58.203042165Z [err]    computedPrefix: 'f12e493f9414'
+2026-02-05T16:10:58.203045951Z [err]  }
+2026-02-05T16:10:58.203049325Z [inf]  request completed
+2026-02-05T16:10:58.203085913Z [inf]  incoming request
+2026-02-05T16:10:58.203090603Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:10:58.203094115Z [err]    secretCount: 1,
+2026-02-05T16:10:58.203096949Z [err]    rawBodyLength: 634,
+2026-02-05T16:10:58.203099766Z [err]    signaturePrefix: 't=1770307857',
+2026-02-05T16:10:58.203102369Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:10:58.203105583Z [err]    headerValues: 'application/json.c599f519-24d2-4faf-ae49-86a7635a9a2b.onchain.activity.detected',
+2026-02-05T16:10:59.656517424Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:11:00.178589238Z [inf]  incoming request
+2026-02-05T16:11:00.178590274Z [inf]  request completed
+2026-02-05T16:11:00.178596067Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:00.178600123Z [err]    secretCount: 1,
+2026-02-05T16:11:00.178603323Z [err]    rawBodyLength: 659,
+2026-02-05T16:11:00.178606238Z [err]    signaturePrefix: 't=1770307859',
+2026-02-05T16:11:00.178609708Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:00.178612332Z [err]    headerValues: 'application/json.31df5c00-a00c-45ba-8a1b-9e97c4be60c6.onchain.activity.detected',
+2026-02-05T16:11:00.178615026Z [err]    ageSec: 1,
+2026-02-05T16:11:00.178618417Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:00.178621225Z [err]    computedPrefix: '02a5acbec014'
+2026-02-05T16:11:00.178624008Z [err]  }
+2026-02-05T16:11:00.183347424Z [inf]  incoming request
+2026-02-05T16:11:00.183353482Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:00.183357819Z [err]    secretCount: 1,
+2026-02-05T16:11:00.183361404Z [err]    rawBodyLength: 659,
+2026-02-05T16:11:00.183364331Z [err]    signaturePrefix: 't=1770307859',
+2026-02-05T16:11:00.183369386Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:00.183372636Z [err]    headerValues: 'application/json.395b1a5c-5f91-4c6c-b5f0-54a64d5dd3db.onchain.activity.detected',
+2026-02-05T16:11:00.183377219Z [err]    ageSec: 1,
+2026-02-05T16:11:00.183380976Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:00.183385405Z [err]    computedPrefix: 'ad438a16d9df'
+2026-02-05T16:11:00.183389773Z [err]  }
+2026-02-05T16:11:00.183393531Z [inf]  request completed
+2026-02-05T16:11:02.217850995Z [wrn]  RPC health degraded
+2026-02-05T16:11:02.359255410Z [inf]  [TokenJob] Tokens for BSC are fresh, skipping API call
+2026-02-05T16:11:02.359259186Z [inf]  [TokenJob] Refreshed 4 primary chains in 90.1s
+2026-02-05T16:11:06.953458760Z [inf]  incoming request
+2026-02-05T16:11:06.953462623Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:06.953467584Z [err]    secretCount: 1,
+2026-02-05T16:11:06.953471140Z [err]    rawBodyLength: 659,
+2026-02-05T16:11:06.953474157Z [err]    signaturePrefix: 't=1770307866',
+2026-02-05T16:11:06.953477436Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:06.953480255Z [err]    headerValues: 'application/json.c7f06cac-5d1f-4bfb-9de3-34c93c8e0e05.onchain.activity.detected',
+2026-02-05T16:11:06.953483894Z [err]    ageSec: 0,
+2026-02-05T16:11:06.953486911Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:06.953489769Z [err]    computedPrefix: 'f8e793314219'
+2026-02-05T16:11:06.953492968Z [err]  }
+2026-02-05T16:11:06.953496198Z [inf]  request completed
+2026-02-05T16:11:08.705398900Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:08.782653841Z [inf]  incoming request
+2026-02-05T16:11:08.782660666Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:08.782663964Z [err]    secretCount: 1,
+2026-02-05T16:11:08.782667216Z [err]    rawBodyLength: 634,
+2026-02-05T16:11:08.782670510Z [err]    signaturePrefix: 't=1770307868',
+2026-02-05T16:11:08.782673760Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:08.782676754Z [err]    headerValues: 'application/json.28772667-021c-46ff-9100-ab3e967193e3.onchain.activity.detected',
+2026-02-05T16:11:08.782680056Z [err]    ageSec: 0,
+2026-02-05T16:11:08.782683102Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:08.782686525Z [err]    computedPrefix: 'fd9b8f916daf'
+2026-02-05T16:11:08.782690013Z [err]  }
+2026-02-05T16:11:08.782693115Z [inf]  request completed
+2026-02-05T16:11:08.986895655Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:09.138430285Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:09.278481443Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:09.504901175Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:09.659741120Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:09.665734471Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:11:09.960052316Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:10.994589986Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:10.994597461Z [err]    computedPrefix: '2e735335e2de'
+2026-02-05T16:11:10.994601521Z [err]  }
+2026-02-05T16:11:10.994606532Z [inf]  request completed
+2026-02-05T16:11:10.994619717Z [inf]  incoming request
+2026-02-05T16:11:10.994622697Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:10.994625677Z [err]    secretCount: 1,
+2026-02-05T16:11:10.994628583Z [err]    rawBodyLength: 665,
+2026-02-05T16:11:10.994631547Z [err]    signaturePrefix: 't=1770307870',
+2026-02-05T16:11:10.994634469Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:10.994637236Z [err]    headerValues: 'application/json.431318e3-9778-4f3a-91c6-bac5476006fa.onchain.activity.detected',
+2026-02-05T16:11:10.994640403Z [err]    ageSec: 0,
+2026-02-05T16:11:11.070673564Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:11.221955117Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:11.366449377Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:11.518434172Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:11.576119937Z [inf]  [TokenJob] Fetching trending tokens for Base via DexScreener Premium...
+2026-02-05T16:11:11.576125986Z [inf]  Fetching premium trending tokens
+2026-02-05T16:11:11.653988974Z [inf]  Alpha Detector: Checking new coin
+2026-02-05T16:11:11.813055953Z [inf]  WS addresses discovered
+2026-02-05T16:11:13.066427635Z [inf]  Processed DexScreener trending candidates
+2026-02-05T16:11:15.102623014Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T16:11:15.102626237Z [inf]  incoming request
+2026-02-05T16:11:15.102629165Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:15.102632093Z [err]    secretCount: 1,
+2026-02-05T16:11:15.102636374Z [err]    rawBodyLength: 659,
+2026-02-05T16:11:15.102639696Z [err]    signaturePrefix: 't=1770307874',
+2026-02-05T16:11:15.102643904Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:15.102647420Z [err]    headerValues: 'application/json.395b1a5c-5f91-4c6c-b5f0-54a64d5dd3db.onchain.activity.detected',
+2026-02-05T16:11:15.102654524Z [err]    ageSec: 0,
+2026-02-05T16:11:15.102657982Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:15.102661241Z [err]    computedPrefix: '7d334e824272'
+2026-02-05T16:11:15.102664271Z [err]  }
+2026-02-05T16:11:15.102669378Z [inf]  request completed
+2026-02-05T16:11:15.876078977Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T16:11:17.973468150Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-05T16:11:18.612900770Z [inf]  incoming request
+2026-02-05T16:11:18.612904759Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x4e6f4b01e869c3c718d149b56d8586b1b49260cc94dc9574809a6bcb95d4e905 sub=n/a hook0=n/a
+2026-02-05T16:11:18.612909271Z [inf]  [Webhook] CDP payload raw: {"block_number":41759265,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":823,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"dac733d0c2b370a9eab661043ba262fffcd718aa851b56774e9b168afd56bbd2","startingTick":"-230400","tokenAddress":"0xC13e65c959Bd83Da2b10F33988DE71d83FFb8DCa","tokenAdmin":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","tokenContext":"{\"interface\":\"Clawnch\",\"platform\":\"moltx\",\"messageId\":\"cdf33800-a325-4f34-8a74-cc6d245cc999\",\"id\":\"ClawXD_Launcher\"}","tokenImage":"https://mogra-prod.sgp1.digitaloceanspaces.com/mogra/llm/images/1770307607407-08d609d4.png","tokenMetadata":"{\"description\":\"community-driven crypto token built for fun, creativity, and digital culture.\\n\\n{LAUNCHED WITH CLAWNCH VIA MOLTX}\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://clawxd.app\"},{\"platform\":\"moltx\",\"url\":\"https://moltx.io/post/cdf33800-a325-4f34-8a74-cc6d245cc999\"},{\"platform\":\"moltx_profile\",\"url\":\"https://moltx.io/ClawXD_Launcher\"}]}","tokenName":"ClawXD","tokenSymbol":"CLAWXD"},"timestamp":"2026-02-05T16:11:18Z","transaction_from":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","transaction_hash":"0x4e6f4b01e869c3c718d149b56d8586b1b49260cc94dc9574809a6bcb95d4e905","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:11:18.613646468Z [inf]  request completed
+2026-02-05T16:11:19.814363483Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:11:20.304894117Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T16:11:20.304898448Z [wrn]  All API liquidity sources failed
+2026-02-05T16:11:20.494784526Z [inf]  RPC failover success
+2026-02-05T16:11:20.510094824Z [inf]  RPC failover success
+2026-02-05T16:11:20.510099835Z [inf]  RPC failover success
+2026-02-05T16:11:20.510103255Z [inf]  RPC failover success
+2026-02-05T16:11:20.510106322Z [inf]  RPC failover success
+2026-02-05T16:11:20.510810389Z [inf]  RPC failover success
+2026-02-05T16:11:20.521285429Z [inf]  RPC failover success
+2026-02-05T16:11:20.521320451Z [inf]  RPC failover success
+2026-02-05T16:11:20.559806709Z [inf]  RPC failover success
+2026-02-05T16:11:20.559810580Z [inf]  RPC failover success
+2026-02-05T16:11:20.789588442Z [inf]  RPC failover success
+2026-02-05T16:11:21.061159882Z [inf]  RPC failover success
+2026-02-05T16:11:21.061165000Z [inf]  RPC failover success
+2026-02-05T16:11:21.061168083Z [inf]  RPC failover success
+2026-02-05T16:11:21.061171094Z [inf]  RPC failover success
+2026-02-05T16:11:21.061174155Z [inf]  RPC failover success
+2026-02-05T16:11:21.316951147Z [inf]  RPC failover success
+2026-02-05T16:11:21.316956305Z [inf]  RPC failover success
+2026-02-05T16:11:21.316960910Z [inf]  RPC failover success
+2026-02-05T16:11:21.316964203Z [inf]  RPC failover success
+2026-02-05T16:11:21.316967382Z [inf]  RPC failover success
+2026-02-05T16:11:21.317002049Z [inf]  RPC failover success
+2026-02-05T16:11:21.317006379Z [inf]  RPC failover success
+2026-02-05T16:11:21.317012642Z [inf]  RPC failover success
+2026-02-05T16:11:21.317162305Z [inf]  RPC failover success
+2026-02-05T16:11:21.317167478Z [inf]  RPC failover success
+2026-02-05T16:11:21.317171861Z [inf]  RPC failover success
+2026-02-05T16:11:21.467687145Z [inf]  RPC failover success
+2026-02-05T16:11:21.467690234Z [inf]  RPC failover success
+2026-02-05T16:11:21.478367133Z [inf]  RPC failover success
+2026-02-05T16:11:21.478373396Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T16:11:21.499087679Z [inf]  RPC failover success
+2026-02-05T16:11:21.571472350Z [inf]  incoming request
+2026-02-05T16:11:21.571478006Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x0082319bf6580f981dd12a6a9699174c6b66bc16e930646d2c97bf5fcdc66d72 sub=n/a hook0=n/a
+2026-02-05T16:11:21.571481298Z [inf]  [Webhook] CDP payload raw: {"block_number":41759266,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":973,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"11d61c73539670b716d36cdc68bf51358627d8cc4f88e3e287666fc9462df868","startingTick":"-230400","tokenAddress":"0x04Feed9eC4f8a3B40becd5f5333f04baC7795B07","tokenAdmin":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","tokenContext":"{\"interface\":\"Clawnch\",\"platform\":\"moltx\",\"messageId\":\"cdf33800-a325-4f34-8a74-cc6d245cc999\",\"id\":\"ClawXD_Launcher\"}","tokenImage":"https://mogra-prod.sgp1.digitaloceanspaces.com/mogra/llm/images/1770307607407-08d609d4.png","tokenMetadata":"{\"description\":\"community-driven crypto token built for fun, creativity, and digital culture.\\n\\n{LAUNCHED WITH CLAWNCH VIA MOLTX}\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://clawxd.app\"},{\"platform\":\"moltx\",\"url\":\"https://moltx.io/post/cdf33800-a325-4f34-8a74-cc6d245cc999\"},{\"platform\":\"moltx_profile\",\"url\":\"https://moltx.io/ClawXD_Launcher\"}],\"auditUrls\":[]}","tokenName":"ClawXD","tokenSymbol":"CLAWXD"},"timestamp":"2026-02-05T16:11:21Z","transaction_from":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","transaction_hash":"0x0082319bf6580f981dd12a6a9699174c6b66bc16e930646d2c97bf5fcdc66d72","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:11:21.571908941Z [inf]  request completed
+2026-02-05T16:11:22.388547441Z [inf]  Skipping low liquidity token
+2026-02-05T16:11:22.493769971Z [err]  Error fetching trending tokens
+2026-02-05T16:11:22.493774532Z [inf]  Premium trending tokens fetch complete
+2026-02-05T16:11:22.493778149Z [inf]  [TokenJob] Got 63 trending tokens for Base
+2026-02-05T16:11:22.567057389Z [inf]  Saved 63 trending tokens for base to database and memory cache
+2026-02-05T16:11:22.567062012Z [inf]  [TokenJob] Saved 63 tokens for Base to DB + cache
+2026-02-05T16:11:29.148638440Z [inf]  incoming request
+2026-02-05T16:11:29.148645339Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:29.148650061Z [err]    secretCount: 1,
+2026-02-05T16:11:29.148654510Z [err]    rawBodyLength: 634,
+2026-02-05T16:11:29.148657878Z [err]    signaturePrefix: 't=1770307888',
+2026-02-05T16:11:29.148660883Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:29.148664187Z [err]    headerValues: 'application/json.28772667-021c-46ff-9100-ab3e967193e3.onchain.activity.detected',
+2026-02-05T16:11:29.148667514Z [err]    ageSec: 1,
+2026-02-05T16:11:29.148670804Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:29.148674308Z [err]    computedPrefix: '7c86d95a5607'
+2026-02-05T16:11:29.148677644Z [err]  }
+2026-02-05T16:11:29.148681136Z [inf]  request completed
+2026-02-05T16:11:31.525631076Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:11:35.169045536Z [inf]  incoming request
+2026-02-05T16:11:35.169054681Z [inf]  request completed
+2026-02-05T16:11:35.169060149Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:35.169064776Z [err]    secretCount: 1,
+2026-02-05T16:11:35.169068889Z [err]    rawBodyLength: 659,
+2026-02-05T16:11:35.169073466Z [err]    signaturePrefix: 't=1770307894',
+2026-02-05T16:11:35.169077384Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:35.169081074Z [err]    headerValues: 'application/json.395b1a5c-5f91-4c6c-b5f0-54a64d5dd3db.onchain.activity.detected',
+2026-02-05T16:11:35.169084606Z [err]    ageSec: 1,
+2026-02-05T16:11:35.169088124Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:35.169093101Z [err]    computedPrefix: '925c37803690'
+2026-02-05T16:11:35.169096664Z [err]  }
+2026-02-05T16:11:35.174265401Z [inf]  incoming request
+2026-02-05T16:11:35.174270701Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:35.174275113Z [err]    secretCount: 1,
+2026-02-05T16:11:35.174278500Z [err]    rawBodyLength: 659,
+2026-02-05T16:11:35.174282316Z [err]    signaturePrefix: 't=1770307894',
+2026-02-05T16:11:35.174285774Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:35.174289286Z [err]    headerValues: 'application/json.f21d42d9-b18a-4785-876d-f9140bc0a9a4.onchain.activity.detected',
+2026-02-05T16:11:35.174292987Z [err]    ageSec: 1,
+2026-02-05T16:11:35.174296725Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:35.174300032Z [err]    computedPrefix: 'e507a2581236'
+2026-02-05T16:11:35.174303519Z [err]  }
+2026-02-05T16:11:35.174307144Z [inf]  request completed
+2026-02-05T16:11:38.954583305Z [inf]  incoming request
+2026-02-05T16:11:38.954586406Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:38.954589229Z [err]    secretCount: 1,
+2026-02-05T16:11:38.954591807Z [err]    rawBodyLength: 634,
+2026-02-05T16:11:38.954594886Z [err]    signaturePrefix: 't=1770307898',
+2026-02-05T16:11:38.954597546Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:38.954600322Z [err]    headerValues: 'application/json.50a27626-8f9a-42bd-a0f2-cf9112f6596e.onchain.activity.detected',
+2026-02-05T16:11:38.954603226Z [err]    ageSec: 0,
+2026-02-05T16:11:38.954605949Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:38.954609078Z [err]    computedPrefix: '3cfa56462512'
+2026-02-05T16:11:38.954612640Z [err]  }
+2026-02-05T16:11:38.954615926Z [inf]  request completed
+2026-02-05T16:11:41.651645851Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:11:51.227466028Z [inf]  incoming request
+2026-02-05T16:11:51.227470380Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x5726bd945e78e1bfa0632d0639084849fe3289ed5537945e001c9092db1a2008 sub=n/a hook0=n/a
+2026-02-05T16:11:51.227476146Z [inf]  [Webhook] CDP payload raw: {"block_number":41759281,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":592,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"e47b2a75a94fcdf288861651847858c5dfce7abc90f975a9a1ef7bc72aaf0324","startingTick":"-230400","tokenAddress":"0x4123a5BBc51f7763020a4CFCc7cfC7463dB225ab","tokenAdmin":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","tokenContext":"{\"interface\":\"Clawnch\",\"platform\":\"moltbook\",\"messageId\":\"b34934d8-e3d1-4ffe-999a-331b86caa1d3\",\"id\":\"Claude_Code_wrapped\"}","tokenImage":"https://iili.io/fDZlINj.th.jpg","tokenMetadata":"{\"description\":\"Claude Code Wrapped is an AI assistant token focused on accuracy, security, and trusted performance for developers and digital users.\\n\\n{LAUNCHED WITH CLAWNCH}\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://www.moltbook.com/post/b34934d8-e3d1-4ffe-999a-331b86caa1d3\"},{\"platform\":\"moltbook\",\"url\":\"https://www.moltbook.com/post/b34934d8-e3d1-4ffe-999a-331b86caa1d3\"},{\"platform\":\"moltbook_profile\",\"url\":\"https://www.moltbook.com/u/Claude_Code_wrapped\"}]}","tokenName":"ClaudeCode","tokenSymbol":"CCWRAPPED"},"timestamp":"2026-02-05T16:11:50Z","transaction_from":"0xFC426DFeAe55Dae2f936a592450C9ECEa87A5736","transaction_hash":"0x5726bd945e78e1bfa0632d0639084849fe3289ed5537945e001c9092db1a2008","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:11:51.227629014Z [inf]  request completed
+2026-02-05T16:11:51.858302366Z [inf]  [PositionMonitor] 🔄 Running position check...
+2026-02-05T16:11:52.219410877Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-05T16:11:52.327592463Z [wrn]  All API liquidity sources failed
+2026-02-05T16:11:52.586034381Z [inf]  [TokenJob] Fetching trending tokens for BSC via DexScreener Premium...
+2026-02-05T16:11:52.586037639Z [inf]  Fetching premium trending tokens
+2026-02-05T16:11:52.586040666Z [inf]  incoming request
+2026-02-05T16:11:52.586043591Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x3037728dd065238d36749141fe813566f895e716264ceb20690b3e99da53b856 sub=n/a hook0=n/a
+2026-02-05T16:11:52.586047230Z [inf]  [Webhook] CDP payload raw: {"block_number":41759282,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":478,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"7a9eba0e1d8c21a9558134344e131d631c82dcaac9f25d443323b1375b0291df","startingTick":"-230400","tokenAddress":"0x232c45829425B80d7B49F6CEE65eA78E7Df87b07","tokenAdmin":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","tokenContext":"{\"interface\":\"Clawnch\",\"platform\":\"moltbook\",\"messageId\":\"b34934d8-e3d1-4ffe-999a-331b86caa1d3\",\"id\":\"Claude_Code_wrapped\"}","tokenImage":"https://iili.io/fDZlINj.th.jpg","tokenMetadata":"{\"description\":\"Claude Code Wrapped is an AI assistant token focused on accuracy, security, and trusted performance for developers and digital users.\\n\\n{LAUNCHED WITH CLAWNCH}\",\"socialMediaUrls\":[{\"platform\":\"website\",\"url\":\"https://www.moltbook.com/post/b34934d8-e3d1-4ffe-999a-331b86caa1d3\"},{\"platform\":\"moltbook\",\"url\":\"https://www.moltbook.com/post/b34934d8-e3d1-4ffe-999a-331b86caa1d3\"},{\"platform\":\"moltbook_profile\",\"url\":\"https://www.moltbook.com/u/Claude_Code_wrapped\"}],\"auditUrls\":[]}","tokenName":"ClaudeCode","tokenSymbol":"CCWRAPPED"},"timestamp":"2026-02-05T16:11:52Z","transaction_from":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","transaction_hash":"0x3037728dd065238d36749141fe813566f895e716264ceb20690b3e99da53b856","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:11:52.595295882Z [inf]  request completed
+2026-02-05T16:11:52.625454462Z [inf]  incoming request
+2026-02-05T16:11:52.626079388Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x4e8f9cd22d79f05768cbf5e5a6657b02cdba98fbc81e6d3981781a22f81b71c8 sub=n/a hook0=n/a
+2026-02-05T16:11:52.626084278Z [inf]  [Webhook] CDP payload raw: {"block_number":41759282,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":386,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xd60D6B218116cFd801E28F78d011a203D2b068Cc","poolId":"d5bc99f26c27b842838f5d29773f31a75b15216cc698c2df5401113553dab8af","startingTick":"-230400","tokenAddress":"0x08E7ECF4b2E7E638C743f8d8bF7d9817A36c422B","tokenAdmin":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/PeysonAXG/status/2019443836674580776\",\"id\":\"2019443836674580776\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"Hyper-scaling","tokenSymbol":"Hyper-scaling"},"timestamp":"2026-02-05T16:11:52Z","transaction_from":"0x0141AD8C253af57DDB5Af0C0e483a24aa0641D0d","transaction_hash":"0x4e8f9cd22d79f05768cbf5e5a6657b02cdba98fbc81e6d3981781a22f81b71c8","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:11:52.626532536Z [inf]  request completed
+2026-02-05T16:11:52.826555546Z [inf]  WS addresses discovered
+2026-02-05T16:11:53.017362668Z [inf]  RPC failover success
+2026-02-05T16:11:53.017367734Z [inf]  RPC failover success
+2026-02-05T16:11:53.017372226Z [inf]  RPC failover success
+2026-02-05T16:11:53.017377188Z [inf]  RPC failover success
+2026-02-05T16:11:53.017383228Z [inf]  RPC failover success
+2026-02-05T16:11:53.017388121Z [inf]  RPC failover success
+2026-02-05T16:11:53.017392806Z [inf]  RPC failover success
+2026-02-05T16:11:53.017397310Z [inf]  RPC failover success
+2026-02-05T16:11:53.017949528Z [inf]  RPC failover success
+2026-02-05T16:11:53.057642279Z [inf]  RPC failover success
+2026-02-05T16:11:53.286935760Z [inf]  RPC failover success
+2026-02-05T16:11:53.426879565Z [inf]  RPC failover success
+2026-02-05T16:11:53.849856905Z [inf]  Processed DexScreener trending candidates
+2026-02-05T16:11:53.849859823Z [err]  Error fetching trending tokens
+2026-02-05T16:11:53.849862593Z [inf]  Premium trending tokens fetch complete
+2026-02-05T16:11:53.849865434Z [inf]  [TokenJob] Got 76 trending tokens for BSC
+2026-02-05T16:11:53.849868009Z [inf]  Saved 76 trending tokens for bsc to database and memory cache
+2026-02-05T16:11:53.849870910Z [inf]  [TokenJob] Saved 76 tokens for BSC to DB + cache
+2026-02-05T16:11:53.849873455Z [inf]  [TokenJob] Refreshed 4 primary chains in 113.6s
+2026-02-05T16:11:53.994776764Z [inf]  incoming request
+2026-02-05T16:11:53.994782125Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:53.994785630Z [err]    secretCount: 1,
+2026-02-05T16:11:53.994788697Z [err]    rawBodyLength: 634,
+2026-02-05T16:11:53.994792343Z [err]    signaturePrefix: 't=1770307913',
+2026-02-05T16:11:53.994795158Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:53.994798457Z [err]    headerValues: 'application/json.28772667-021c-46ff-9100-ab3e967193e3.onchain.activity.detected',
+2026-02-05T16:11:53.994801008Z [err]    ageSec: 0,
+2026-02-05T16:11:53.994804388Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:53.994808676Z [err]    computedPrefix: '96a71a857c7b'
+2026-02-05T16:11:53.994812960Z [err]  }
+2026-02-05T16:11:53.994816755Z [inf]  request completed
+2026-02-05T16:11:54.405266523Z [inf]  incoming request
+2026-02-05T16:11:54.405272914Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:54.405276502Z [err]    secretCount: 1,
+2026-02-05T16:11:54.405279762Z [err]    rawBodyLength: 665,
+2026-02-05T16:11:54.405282770Z [err]    signaturePrefix: 't=1770307914',
+2026-02-05T16:11:54.405285994Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:54.405312885Z [err]    headerValues: 'application/json.422d13cf-5928-400b-9301-861e0c069ba9.onchain.activity.detected',
+2026-02-05T16:11:54.405317145Z [err]    ageSec: 0,
+2026-02-05T16:11:54.405320540Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:54.405323954Z [err]    computedPrefix: '1ef6e3639621'
+2026-02-05T16:11:54.405326914Z [err]  }
+2026-02-05T16:11:54.405330093Z [inf]  request completed
+2026-02-05T16:11:54.582008596Z [inf]  incoming request
+2026-02-05T16:11:54.582013002Z [inf]  [Webhook] CDP payload: event=TokenCreated contract=0xE85A59c628F7d27878ACeB4bf3b35733630083a9 type=unknown network=base-mainnet tx=0x324a1f890f8733f10943a843d701470dbe1ae3a3d0816329d0d4523e59b3c35e sub=n/a hook0=n/a
+2026-02-05T16:11:54.582015983Z [inf]  [Webhook] CDP payload raw: {"block_number":41759283,"contract_address":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9","event_name":"TokenCreated","event_signature":"TokenCreated(address,address,address,string,string,string,string,string,int24,address,bytes32,address,address,address,uint256,address[])","log_index":814,"network":"base-mainnet","parameters":{"extensions":"[]","extensionsSupply":"0","locker":"0x63D2DfEA64b3433F4071A98665bcD7Ca14d93496","mevModule":"0xebB25BB797D82CB78E1bc70406b13233c0854413","msgSender":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","pairedToken":"0x4200000000000000000000000000000000000006","poolHook":"0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC","poolId":"4b67a3f0634b81e6cfee9a96918c4858a63e7321d8310d0d82572f15e6f674e6","startingTick":"-230400","tokenAddress":"0xBF667aFfF5b6c0Bb67B826feABaBE40fB7459b07","tokenAdmin":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","tokenContext":"{\"interface\":\"Bankr\",\"platform\":\"X\",\"messageId\":\"https://twitter.com/PeysonAXG/status/2019443836674580776\",\"id\":\"2019443836674580776\"}","tokenImage":"","tokenMetadata":"{\"description\":\"Deployed using @bankrbot on X\",\"socialMediaUrls\":[],\"auditUrls\":[]}","tokenName":"Hyper-scaling","tokenSymbol":"Hyper-scaling"},"timestamp":"2026-02-05T16:11:54Z","transaction_from":"0xaB651819a664E8A7FA9D437460F3513D6E77F690","transaction_hash":"0x324a1f890f8733f10943a843d701470dbe1ae3a3d0816329d0d4523e59b3c35e","transaction_to":"0xE85A59c628F7d27878ACeB4bf3b35733630083a9"}
+2026-02-05T16:11:54.582722104Z [inf]  request completed
+2026-02-05T16:11:54.663347532Z [inf]  RPC failover success
+2026-02-05T16:11:54.675740103Z [inf]  RPC failover success
+2026-02-05T16:11:54.715666407Z [inf]  RPC failover success
+2026-02-05T16:11:54.836759766Z [inf]  RPC failover success
+2026-02-05T16:11:55.106344896Z [inf]  RPC failover success
+2026-02-05T16:11:55.106348142Z [inf]  RPC failover success
+2026-02-05T16:11:55.106351282Z [inf]  ✅ Hybrid fetch complete
+2026-02-05T16:11:55.106354301Z [inf]  RPC failover success
+2026-02-05T16:11:55.998931634Z [inf]  incoming request
+2026-02-05T16:11:55.998934586Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:11:55.998937784Z [err]    secretCount: 1,
+2026-02-05T16:11:55.998941574Z [err]    rawBodyLength: 665,
+2026-02-05T16:11:55.998945054Z [err]    signaturePrefix: 't=1770307915',
+2026-02-05T16:11:55.998947883Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:11:55.998950884Z [err]    headerValues: 'application/json.431318e3-9778-4f3a-91c6-bac5476006fa.onchain.activity.detected',
+2026-02-05T16:11:55.998954126Z [err]    ageSec: 0,
+2026-02-05T16:11:55.998957954Z [err]    maxAgeSec: 300,
+2026-02-05T16:11:55.998961321Z [err]    computedPrefix: '1cc9d04ce537'
+2026-02-05T16:11:55.998964835Z [err]  }
+2026-02-05T16:11:55.998967843Z [inf]  request completed
+2026-02-05T16:12:00.806181536Z [inf]  incoming request
+2026-02-05T16:12:00.806185587Z [err]  [Webhook] Invalid CDP signature {
+2026-02-05T16:12:00.806189292Z [err]    secretCount: 1,
+2026-02-05T16:12:00.806193038Z [err]    rawBodyLength: 659,
+2026-02-05T16:12:00.806196542Z [err]    signaturePrefix: 't=1770307920',
+2026-02-05T16:12:00.806199633Z [err]    headerNames: [ 'content-type', 'x-event-id', 'x-event-type' ],
+2026-02-05T16:12:00.806202622Z [err]    headerValues: 'application/json.395b1a5c-5f91-4c6c-b5f0-54a64d5dd3db.onchain.activity.detected',
+2026-02-05T16:12:00.806205781Z [err]    ageSec: 0,
+2026-02-05T16:12:00.806209559Z [err]    maxAgeSec: 300,
+2026-02-05T16:12:00.806213112Z [err]    computedPrefix: '607e07e27c0f'
+2026-02-05T16:12:00.806215840Z [err]  }
+2026-02-05T16:12:00.806219650Z [inf]  request completed

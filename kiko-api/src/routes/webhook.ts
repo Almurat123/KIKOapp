@@ -490,6 +490,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     fastify.post('/cdp', { config: { rawBody: true } }, async (request, reply) => {
         const signature = request.headers['x-hook0-signature'] as string | undefined;
         const internalSecret = env.security.internalWebhookSecret;
+        const allowUnsigned = (process.env.CDP_ALLOW_UNSIGNED || '').toLowerCase() === 'true';
+        const cdpAuthHeader = env.security.cdpWebhookAuthHeader;
+        const cdpAuthValue = env.security.cdpWebhookAuthValue;
+        const authHeaderValue =
+            cdpAuthHeader ? (request.headers[cdpAuthHeader.toLowerCase()] as string | undefined) : undefined;
         const internalHeader = (request.headers['x-internal-secret'] as string | undefined) || '';
         const splitList = (raw?: string) =>
             (raw || '')
@@ -501,15 +506,18 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const secretList = splitList(internalSecret);
         const headerList = splitList(internalHeader);
         const isInternalBypass = secretList.length > 0 && headerList.some(h => secretList.includes(h));
+        const isAuthBypass = Boolean(cdpAuthHeader && cdpAuthValue && authHeaderValue === cdpAuthValue);
+        const isBypass = isInternalBypass || isAuthBypass;
         // If not a CDP webhook, ignore silently (likely Alchemy misrouted)
-        if (!signature && !isInternalBypass) {
+        if (!signature && !isBypass && !allowUnsigned) {
             console.warn('[Webhook] CDP bypass check failed', {
                 hasInternalSecret: secretList.length > 0,
                 headerPresent: headerList.length > 0,
                 headerMatch: secretList.length > 0 && headerList.some(h => secretList.includes(h)),
                 headerCount: headerList.length,
                 secretCount: secretList.length,
-                headerPreview: headerList.length > 0 ? headerList.map(mask).join(',') : undefined
+                headerPreview: headerList.length > 0 ? headerList.map(mask).join(',') : undefined,
+                allowUnsigned
             });
             console.warn('[Webhook] CDP missing signature', {
                 ip: request.ip,
@@ -523,7 +531,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const cdpSecrets = cdpSecretRaw
             ? cdpSecretRaw.split(',').map(s => s.trim()).filter(Boolean)
             : [];
-        if (cdpSecrets.length > 0 && !isInternalBypass) {
+        if (cdpSecrets.length > 0 && !isBypass) {
             const rawBody = (request as any).rawBody;
             if (!rawBody) {
                 console.error('[Webhook] rawBody missing for CDP webhook');
@@ -534,7 +542,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             const isValid = cdpSecrets.some(secret =>
                 verifyCdpSignature(signatureValue, rawBody.toString(), request.headers, secret)
             );
-            if (!isValid) {
+            if (!isValid && !allowUnsigned) {
                 const parts = signatureValue.split(',').map(p => p.trim());
                 const map: Record<string, string> = {};
                 for (const part of parts) {
@@ -570,9 +578,16 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     headerValues,
                     ageSec,
                     maxAgeSec,
-                    computedPrefix
+                    computedPrefix,
+                    allowUnsigned
                 });
                 return reply.status(401).send({ error: 'Invalid signature' });
+            }
+            if (!isValid && allowUnsigned) {
+                console.warn('[Webhook] CDP signature invalid, but allowUnsigned=true', {
+                    secretCount: cdpSecrets.length,
+                    rawBodyLength: rawBody.length
+                });
             }
         }
 

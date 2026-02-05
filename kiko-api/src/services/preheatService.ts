@@ -3,7 +3,7 @@ import { getPreheatConfig } from '../config/preheat.js';
 import { CHAINS } from '../config/chainConfig.js';
 import { normalizeAddress } from '../utils/address.js';
 import { buildV4SwapTransaction } from './dex/uniswapV4Swap.js';
-import { findV4Pools } from './dex/uniswapV4.js';
+import { findV4Pools, getV4PoolInfo, matchV4PoolKeyById, V4PoolKey } from './dex/uniswapV4.js';
 import { callRpc } from './rpcManager.js';
 import { isClankerHook } from './dex/v4Hooks.js';
 import { extractRevertReason } from '../utils/evm.js';
@@ -18,6 +18,10 @@ export interface PreheatEvent {
     txHash?: string;
     blockNumber?: number | string;
     detectedAt?: number;
+    poolId?: string;
+    poolHook?: string;
+    pairedToken?: string;
+    startingTick?: number | string;
 }
 
 interface PreheatStatus {
@@ -124,6 +128,8 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
         token: event.tokenAddress,
         factory: event.factoryAddress,
         eventName: event.eventName,
+        poolId: event.poolId,
+        poolHook: event.poolHook,
         attempt,
         sinceFirstSeenMs: Date.now() - (preheatFirstSeen.get(key) || Date.now())
     });
@@ -157,13 +163,53 @@ async function runPreheat(event: PreheatEvent, attempt: number) {
     }
 
     try {
+        // 0) Try to resolve poolId directly from payload (fast path)
+        let pool: any = null;
+        const payloadPoolId = event.poolId ? event.poolId.toLowerCase() : null;
+        const payloadHook = event.poolHook ? event.poolHook.toLowerCase() : null;
+        const paired = normalizeAddress(event.pairedToken || '') || weth;
+        let matchedPoolKey: V4PoolKey | null = null;
+
+        if (payloadPoolId && paired) {
+            matchedPoolKey = matchV4PoolKeyById(event.chainId, payloadPoolId, token, paired, payloadHook);
+            if (matchedPoolKey) {
+                logger.info(LogCode.SYS_INFO, '[Preheat] PoolId matched config', {
+                    chainId: event.chainId,
+                    token,
+                    pairedToken: paired,
+                    poolId: payloadPoolId,
+                    hook: matchedPoolKey.hooks,
+                    fee: matchedPoolKey.fee,
+                    tickSpacing: matchedPoolKey.tickSpacing,
+                    attempt
+                });
+                const info = await withTimeout(
+                    getV4PoolInfo(matchedPoolKey, event.chainId, { strategy: 'cheap' }),
+                    3000,
+                    'getV4PoolInfo(payload)'
+                ).catch(() => null);
+                pool = info || {
+                    poolId: payloadPoolId,
+                    poolKey: matchedPoolKey,
+                    sqrtPriceX96: '0',
+                    tick: 0,
+                    liquidity: '0',
+                    protocolFee: 0,
+                    lpFee: 0
+                };
+            }
+        }
+
         // 1) Try WETH pair first (most Clanker pools)
-        let pools = await withTimeout(
-            findV4Pools(token, weth, event.chainId, { strategy: 'cheap' }),
-            5000,
-            'findV4Pools(WETH)'
-        );
-        let pool = pools[0];
+        let pools: any[] = [];
+        if (!pool) {
+            pools = await withTimeout(
+                findV4Pools(token, weth, event.chainId, { strategy: 'cheap' }),
+                5000,
+                'findV4Pools(WETH)'
+            );
+            pool = pools[0];
+        }
 
         // 2) Fallback to stable pairs for discovery (no gate check)
         if (!pool && chainConfig.stablecoins?.length) {
@@ -462,6 +508,35 @@ export function handleCdpWebhookPayload(payload: any) {
         return;
     }
 
+    const poolId =
+        data?.poolId ||
+        data?.pool_id ||
+        data?.parameters?.poolId ||
+        data?.parameters?.pool_id ||
+        payload?.poolId ||
+        payload?.pool_id;
+    const poolHook =
+        data?.poolHook ||
+        data?.pool_hook ||
+        data?.parameters?.poolHook ||
+        data?.parameters?.pool_hook ||
+        payload?.poolHook ||
+        payload?.pool_hook;
+    const pairedToken =
+        data?.pairedToken ||
+        data?.paired_token ||
+        data?.parameters?.pairedToken ||
+        data?.parameters?.paired_token ||
+        payload?.pairedToken ||
+        payload?.paired_token;
+    const startingTick =
+        data?.startingTick ||
+        data?.starting_tick ||
+        data?.parameters?.startingTick ||
+        data?.parameters?.starting_tick ||
+        payload?.startingTick ||
+        payload?.starting_tick;
+
     const detectedAt =
         parseTimestampMs(data?.timestamp) ||
         parseTimestampMs(payload?.timestamp) ||
@@ -486,6 +561,10 @@ export function handleCdpWebhookPayload(payload: any) {
         eventName,
         txHash: data?.transactionHash || payload?.transactionHash,
         blockNumber: data?.blockNumber || payload?.blockNumber,
-        detectedAt
+        detectedAt,
+        poolId: typeof poolId === 'string' ? poolId : undefined,
+        poolHook: typeof poolHook === 'string' ? poolHook : undefined,
+        pairedToken: typeof pairedToken === 'string' ? pairedToken : undefined,
+        startingTick
     });
 }

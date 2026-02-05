@@ -618,8 +618,37 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                                 });
 
                                 if (recentSwap && recentSwap.txHash) {
-                                    // Transaction was recorded! Return success
+                                    // Transaction was recorded! Update card and return success
                                     console.log(`[PrepareSwapTransaction] ✅ Found transaction after ${Math.round((Date.now() - startTime) / 1000)}s (${pollCount} polls):`, recentSwap.txHash);
+                                    const currentData = transactionMessage.data || {};
+                                    const completionData = {
+                                        ...currentData,
+                                        status: 'success',
+                                        txHash: recentSwap.txHash,
+                                        completedAt: Date.now(),
+                                        message: `✅ Swap completed! Transaction: ${recentSwap.txHash.slice(0, 10)}...`,
+                                        isLoading: false
+                                    };
+                                    isFinalized = true;
+                                    if (pendingTimer) {
+                                        clearTimeout(pendingTimer);
+                                        pendingTimer = null;
+                                    }
+                                    await updateMessage(transactionMessage.id, {
+                                        data: completionData,
+                                        status: 'complete'
+                                    });
+                                    chatWS.broadcast(userId, {
+                                        type: 'client_action',
+                                        sessionId,
+                                        data: {
+                                            targetMessageId: transactionMessage.id,
+                                            action: {
+                                                type: 'show_transaction_status_card',
+                                                data: completionData
+                                            }
+                                        }
+                                    });
                                     return {
                                         success: true,
                                         mode: 'executed',

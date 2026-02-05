@@ -301,6 +301,41 @@ export class SwapExecutor {
             if (needsApproval) {
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Approval required, auto-executing', { token: actualTokenIn, spender: best.allowanceTarget, amount: amountInBase });
 
+                // Update transaction card: approval started
+                try {
+                    const messageId = (params as any).messageId;
+                    if (messageId) {
+                        const { getMessage, updateMessage } = await import('../../repositories/chatRepository.js');
+                        const { chatWS } = await import('../../services/chatWebSocket.js');
+                        const currentMessage = await getMessage(messageId);
+                        if (currentMessage) {
+                            const currentData = typeof currentMessage.data === 'object' && currentMessage.data
+                                ? currentMessage.data
+                                : {};
+                            const updatedData = {
+                                ...currentData,
+                                status: 'approving',
+                                message: '⏳ Approving token...',
+                                isLoading: true
+                            };
+                            await updateMessage(messageId, { data: updatedData });
+                            chatWS.broadcast(userId, {
+                                type: 'client_action',
+                                sessionId: currentMessage.sessionId,
+                                data: {
+                                    targetMessageId: messageId,
+                                    action: {
+                                        type: 'show_transaction_status_card',
+                                        data: updatedData
+                                    }
+                                }
+                            });
+                        }
+                    }
+                } catch (wsError) {
+                    console.warn('[SwapExecutor] Failed to update approval status card:', wsError);
+                }
+
                 // Auto-execute approval for instant swaps
                 const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
                 const approvalData = iface.encodeFunctionData('approve', [best.allowanceTarget, ethers.MaxUint256]);
@@ -328,6 +363,42 @@ export class SwapExecutor {
                         txHash: approveTxHash,
                         blockNumber: receipt.blockNumber
                     });
+
+                    // Update transaction card: approval confirmed
+                    try {
+                        const messageId = (params as any).messageId;
+                        if (messageId) {
+                            const { getMessage, updateMessage } = await import('../../repositories/chatRepository.js');
+                            const { chatWS } = await import('../../services/chatWebSocket.js');
+                            const currentMessage = await getMessage(messageId);
+                            if (currentMessage) {
+                                const currentData = typeof currentMessage.data === 'object' && currentMessage.data
+                                    ? currentMessage.data
+                                    : {};
+                                const updatedData = {
+                                    ...currentData,
+                                    status: 'approval_confirmed',
+                                    approvalTxHash: approveTxHash,
+                                    message: '✅ Approval confirmed. Executing swap...',
+                                    isLoading: true
+                                };
+                                await updateMessage(messageId, { data: updatedData });
+                                chatWS.broadcast(userId, {
+                                    type: 'client_action',
+                                    sessionId: currentMessage.sessionId,
+                                    data: {
+                                        targetMessageId: messageId,
+                                        action: {
+                                            type: 'show_transaction_status_card',
+                                            data: updatedData
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    } catch (wsError) {
+                        console.warn('[SwapExecutor] Failed to update approval confirmed card:', wsError);
+                    }
 
                     // Wait for state propagation across RPC nodes (2 seconds)
                     // This ensures 0x API backend sees the approval before we fetch a fresh quote

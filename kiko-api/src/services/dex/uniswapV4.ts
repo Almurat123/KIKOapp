@@ -90,6 +90,47 @@ export interface V4PoolInfo {
 }
 
 /**
+ * Try to resolve a PoolKey by matching a known poolId against common configs.
+ * This is useful when payloads include poolId + hook + token pair but not fee/tickSpacing.
+ */
+export function matchV4PoolKeyById(
+    chainId: number,
+    poolId: string,
+    tokenA: string,
+    tokenB: string,
+    hookHint?: string | null
+): V4PoolKey | null {
+    const configs = V4_CONFIGS[chainId];
+    if (!configs) return null;
+    if (!poolId || !tokenA || !tokenB) return null;
+
+    const normalizedPoolId = poolId.toLowerCase();
+    const hookNormalized = hookHint ? hookHint.toLowerCase() : null;
+
+    const [currency0, currency1] =
+        BigInt(tokenA) < BigInt(tokenB)
+            ? [tokenA, tokenB]
+            : [tokenB, tokenA];
+
+    for (const config of configs) {
+        const hooksToTry = hookNormalized ? [hookNormalized] : config.hooks;
+        for (const hooks of hooksToTry) {
+            const poolKey: V4PoolKey = {
+                currency0,
+                currency1,
+                fee: config.fee,
+                tickSpacing: config.tickSpacing,
+                hooks
+            };
+            const candidate = computePoolId(poolKey).toLowerCase();
+            if (candidate === normalizedPoolId) return poolKey;
+        }
+    }
+
+    return null;
+}
+
+/**
  * 计算 PoolId
  * [Logic]: PoolId = keccak256(abi.encode(PoolKey))
  * [Ref]: https://docs.uniswap.org/contracts/v4/reference/core/types/PoolId
