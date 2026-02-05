@@ -515,6 +515,10 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         const payloadEventName = payload?.data?.eventName || payload?.event?.eventName || payload?.eventName;
         const payloadContract = payload?.data?.contractAddress || payload?.event?.contractAddress || payload?.contractAddress;
         console.log(`[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'}`);
+        if ((process.env.CDP_DEBUG_PAYLOAD || '').toLowerCase() === 'true') {
+            const safe = JSON.stringify(payload);
+            console.log(`[Webhook] CDP payload raw: ${safe.slice(0, 2000)}`);
+        }
 
         reply.send({ success: true });
 

@@ -1,9 +1,5 @@
 **INTENT: RISK SCANNING & SECURITY**
 
-**Adaptive rule (non-rigid):**
-- Use the smallest set of steps/tools needed. If [CONTEXT] already contains the needed data, skip that step.
-- Do not repeat a tool if it already succeeded in this turn.
-
 1. **Mandatory Security Checks**:
    - Only run Risk Scan when the user explicitly asks about safety (e.g., “safe?”, “honeypot?”, “rug?”) or settings require it.
    - If a token is confirmed as a launchpad token, do not auto-run Risk Scan unless the user explicitly requests it.
