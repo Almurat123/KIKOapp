@@ -8,6 +8,7 @@ import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import * as unifiedApiService from '../config/unifiedApiService.js';
+import { callRpc } from './rpcManager.js';
 
 const HELIUS_API_KEY = env.apiKeys.helius || process.env.HELIUS_API_KEY || '';
 const HELIUS_BASE_URL = 'https://api.helius.xyz';
@@ -130,25 +131,17 @@ export async function getFungibleTokenBalances(
 
     try {
         do {
-            const json = await unifiedApiService.fetchJson<any>({
-                url: `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`,
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    jsonrpc: '2.0',
-                    id: 1,
-                    method: 'getAssetsByOwner',
-                    params: {
-                        ownerAddress: address,
-                        page,
-                        limit: perPage,
-                        options: { showFungible: true, showNativeBalance: true },
-                    },
-                }),
-                timeout: 30000,
-                endpointName: 'helius-rpc'
-            });
-            const result = json?.result;
+            const result = await callRpc<any>(
+                'solana',
+                'getAssetsByOwner',
+                {
+                    ownerAddress: address,
+                    page,
+                    limit: perPage,
+                    options: { showFungible: true, showNativeBalance: true },
+                },
+                { strategy: 'fast', importance: 'critical' }
+            );
             if (!result || !Array.isArray(result.items)) break;
 
             total = typeof result.total === 'number' ? result.total : total;
@@ -328,21 +321,8 @@ export async function getTokenLargestAccounts(mint: string): Promise<any[]> {
     }
 
     try {
-        const HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-        const data = await unifiedApiService.fetchJson<any>({
-            url: HELIUS_RPC_URL,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'getTokenLargestAccounts',
-                params: [mint]
-            }),
-            timeout: 10000,
-            endpointName: 'helius-rpc'
-        });
-        return data.result?.value || [];
+        const data = await callRpc<any>('solana', 'getTokenLargestAccounts', [mint], { strategy: 'cheap' });
+        return data?.value || [];
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching largest token accounts from Helius', { error: error.message, mint });
         return [];
@@ -357,35 +337,19 @@ export async function getAccountOwnersBatch(accountAddresses: string[]): Promise
     if (!HELIUS_API_KEY || accountAddresses.length === 0) return {};
 
     try {
-        const HELIUS_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-
-        // Batch requests for each account
-        const batchRequests = accountAddresses.map((addr, idx) => ({
-            jsonrpc: '2.0',
-            id: idx + 1,
-            method: 'getAccountInfo',
-            params: [addr, { encoding: 'jsonParsed' }]
-        }));
-
-        const data = await unifiedApiService.fetchJson<any>({
-            url: HELIUS_RPC_URL,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(batchRequests),
-            timeout: 10000,
-            endpointName: 'helius-rpc'
-        });
-        logger.debug(LogCode.API_FETCH_SUCCESS, 'Helius account owners batch received', {
-            count: Array.isArray(data) ? data.length : 'N/A',
-            isArray: Array.isArray(data)
-        });
         const results: Record<string, string> = {};
-
-        if (Array.isArray(data)) {
-            data.forEach((res, idx) => {
-                const owner = res.result?.value?.data?.parsed?.info?.owner;
+        const chunkSize = 20;
+        for (let i = 0; i < accountAddresses.length; i += chunkSize) {
+            const batch = accountAddresses.slice(i, i + chunkSize);
+            const responses = await Promise.all(batch.map(addr =>
+                callRpc<any>('solana', 'getAccountInfo', [addr, { encoding: 'jsonParsed' }], { strategy: 'cheap' })
+                    .then(res => ({ addr, res }))
+                    .catch(() => ({ addr, res: null }))
+            ));
+            responses.forEach(({ addr, res }) => {
+                const owner = res?.value?.data?.parsed?.info?.owner;
                 if (owner) {
-                    results[accountAddresses[idx]] = owner;
+                    results[addr] = owner;
                 }
             });
         }
@@ -413,24 +377,15 @@ export async function getAssetBatch(ids: string[]): Promise<HeliusAsset[]> {
     if (!HELIUS_API_KEY || ids.length === 0) return [];
 
     try {
-        const json = await unifiedApiService.fetchJson<any>({
-            url: `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'getAssetBatch',
-                params: {
-                    ids: ids.slice(0, 1000) // DAS API supports up to 1000 IDs
-                },
-            }),
-            timeout: 15000,
-            endpointName: 'helius-rpc'
-        });
+        const result = await callRpc<any>(
+            'solana',
+            'getAssetBatch',
+            { ids: ids.slice(0, 1000) },
+            { strategy: 'fast', importance: 'critical' }
+        );
 
-        if (json?.result && Array.isArray(json.result)) {
-            return json.result.map((item: any) => ({
+        if (result && Array.isArray(result)) {
+            return result.map((item: any) => ({
                 id: item.id,
                 symbol: item.content?.metadata?.symbol || 'UNKNOWN',
                 name: item.content?.metadata?.name || 'Unknown Asset',

@@ -1,7 +1,7 @@
 import { prisma } from '../../../db/prisma.js';
 import { logger } from '../../../utils/logger.js';
 import { LogCode } from '../../../config/logRegistry.js';
-import type { Tool } from '../../../tools/registry.js';
+import type { Tool } from '../../../tooling/registry.js';
 
 /**
  * Tool to set a price or market cap alert for a token

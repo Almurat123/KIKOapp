@@ -1484,11 +1484,9 @@ async function handleSolanaQuote(
         // This prevents "Insufficient funds" errors from Jupiter/Raydium
         if (userAddress && typeof userAddress === 'string' && userAddress.length > 0) {
             try {
-                const { Connection, PublicKey } = await import('@solana/web3.js');
-                const connection = new Connection(
-                    process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-                    'confirmed'
-                );
+                const { PublicKey } = await import('@solana/web3.js');
+                const { getSolanaConnection } = await import('../services/rpcManager.js');
+                const connection = getSolanaConnection('fast', 'critical');
 
                 const userPubkey = new PublicKey(userAddress);
                 let onChainBalance = 0n;

@@ -13,6 +13,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { callRpc as unifiedCallRpc, fetchJson } from '../config/unifiedApiService.js';
 import { getRpcEndpointsWithStrategy, RpcEndpointConfig } from '../config/apiEndpoints.js';
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
+import { Connection } from '@solana/web3.js';
 
 const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default; override for faster benchmarks
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
@@ -179,7 +180,7 @@ const endpointUsage = new Map<string, EndpointUsage>();
 export async function callRpc<T = any>(
     chainIdOrName: number | string,
     method: string,
-    params: any[] = [],
+    params: any = [],
     options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance } = {}
 ): Promise<T> {
     let endpoints: RpcEndpointConfig[] = [];
@@ -211,11 +212,12 @@ export async function callRpc<T = any>(
         const strategy = options.strategy || 'cheap';
         const primaryUrl = getPrimaryRpcUrl(chainSlug);
         endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
+        endpoints = filterEndpointsByMethod(endpoints, method);
 
         if (strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
             const upgraded = getRpcEndpointsWithStrategy(chainSlug, 'fast', primaryUrl);
             if (upgraded.length > 0) {
-                endpoints = upgraded;
+                endpoints = filterEndpointsByMethod(upgraded, method);
                 logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
                     chain: chainName
                 });
@@ -366,6 +368,308 @@ export async function callRpc<T = any>(
     throw new Error(
         `All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`
     );
+}
+
+/**
+ * Make an RPC call against a custom endpoint list (non-chain RPCs like Flashbots)
+ */
+export async function callRpcCustom<T = any>(
+    endpoints: RpcEndpointConfig[],
+    method: string,
+    params: any = [],
+    options: { importance?: RpcImportance } = {}
+): Promise<T> {
+    if (!endpoints || endpoints.length === 0) {
+        throw new Error('No RPC endpoints provided');
+    }
+
+    const normalized = endpoints.map((ep, idx) => ({
+        name: ep.name || `Custom-${idx + 1}`,
+        url: ep.url,
+        priority: ep.priority ?? idx + 1,
+        requiresAuth: ep.requiresAuth ?? false,
+        type: ep.type ?? 'premium',
+        limits: ep.limits,
+        weight: ep.weight,
+        capabilities: ep.capabilities
+    })) as RpcEndpointConfig[];
+
+    const filtered = filterEndpointsByMethod(normalized, method);
+    if (filtered.length === 0) {
+        throw new Error(`No RPC endpoints support method ${method}`);
+    }
+
+    const request: RpcRequest = {
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method,
+        params,
+    };
+
+    let lastError: Error | null = null;
+    const sortedEndpoints = sortEndpointsByScore(filtered, options.importance || 'normal');
+
+    for (let i = 0; i < sortedEndpoints.length; i++) {
+        const endpoint = sortedEndpoints[i];
+        if (!endpoint?.url) continue;
+
+        if (isCircuitOpen(endpoint.url)) {
+            logger.debug(LogCode.API_FETCH_FAILED, 'RPC circuit open, skipping endpoint', { endpoint: maskEndpoint(endpoint.url) });
+            continue;
+        }
+
+        const capacity = checkEndpointCapacity(endpoint, options.importance || 'normal');
+        if (!capacity.ok) {
+            logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
+                endpoint: maskEndpoint(endpoint.url),
+                reason: capacity.reason
+            });
+            continue;
+        }
+
+        const startTime = Date.now();
+        try {
+            recordUsageStart(endpoint.url);
+            recordAttempt(endpoint.url);
+
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+            const response = await fetch(endpoint.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept-Encoding': 'gzip',
+                    'Connection': 'keep-alive',
+                },
+                body: JSON.stringify(request),
+                signal: controller.signal,
+                keepalive: true,
+            }).finally(() => clearTimeout(timeout));
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json() as RpcResponse<T>;
+
+            if (data.error) {
+                throw new Error(`RPC Error: ${data.error.message}`);
+            }
+
+            if (data.result === undefined) {
+                throw new Error('RPC returned undefined result');
+            }
+
+            const responseTime = Date.now() - startTime;
+            recordSuccess(endpoint.url, responseTime);
+
+            if (i > 0) {
+                logger.info(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
+                    endpoint: i + 1,
+                    total: sortedEndpoints.length,
+                    responseTime
+                });
+            }
+
+            return data.result;
+        } catch (error: any) {
+            lastError = error;
+
+            const isContractError = error.message?.includes('execution reverted') ||
+                error.message?.includes('revert') ||
+                error.message?.includes('invalid opcode') ||
+                error.message?.includes('out of gas');
+
+            if (isContractError) {
+                throw error;
+            }
+
+            recordFailure(endpoint.url);
+
+            if (i < 2) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
+                    endpoint: i + 1,
+                    total: sortedEndpoints.length,
+                    error: error.message,
+                    duration: Date.now() - startTime
+                });
+            }
+
+            if (i < sortedEndpoints.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+                continue;
+            }
+        } finally {
+            recordUsageEnd(endpoint.url);
+        }
+    }
+
+    logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
+        totalEndpoints: sortedEndpoints.length,
+        lastError: lastError?.message
+    });
+
+    throw new Error(`All RPC endpoints failed. Last error: ${lastError?.message || 'Unknown'}`);
+}
+
+/**
+ * Call RPC and return raw response (used when revert data is needed)
+ */
+export async function callRpcRaw<T = any>(
+    chainIdOrName: number | string,
+    method: string,
+    params: any = [],
+    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance } = {}
+): Promise<RpcResponse<T>> {
+    let endpoints: RpcEndpointConfig[] = [];
+    let chainName = typeof chainIdOrName === 'string' ? chainIdOrName : `Chain ${chainIdOrName}`;
+    let chainId: number;
+
+    // Resolve Chain ID
+    if (typeof chainIdOrName === 'number') {
+        chainId = chainIdOrName;
+    } else {
+        const id = CHAIN_NAME_TO_ID[chainIdOrName.toLowerCase()];
+        if (!id) throw new Error(`Unsupported chain name: ${chainIdOrName}`);
+        chainId = id;
+    }
+
+    try {
+        const config = getChainConfig(chainId);
+        chainName = config.name;
+        const chainSlug = CHAIN_ID_TO_NAME[chainId] || 'eth';
+        const strategy = options.strategy || 'cheap';
+        const primaryUrl = getPrimaryRpcUrl(chainSlug);
+        endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
+        endpoints = filterEndpointsByMethod(endpoints, method);
+
+        if (strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
+            const upgraded = getRpcEndpointsWithStrategy(chainSlug, 'fast', primaryUrl);
+            if (upgraded.length > 0) {
+                endpoints = filterEndpointsByMethod(upgraded, method);
+                logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
+                    chain: chainName
+                });
+            }
+        }
+    } catch (e) {
+        throw new Error(`Unsupported chain ID: ${chainId}`);
+    }
+
+    if (!endpoints || endpoints.length === 0) {
+        throw new Error(`No RPC endpoints configured for ${chainName}`);
+    }
+
+    const request: RpcRequest = {
+        jsonrpc: '2.0',
+        id: Date.now(),
+        method,
+        params,
+    };
+
+    let lastError: Error | null = null;
+    const sortedEndpoints = sortEndpointsByScore(endpoints, options.importance || 'normal');
+
+    for (let i = 0; i < sortedEndpoints.length; i++) {
+        const endpoint = sortedEndpoints[i];
+        if (!endpoint?.url) continue;
+
+        if (isCircuitOpen(endpoint.url)) {
+            logger.debug(LogCode.API_FETCH_FAILED, 'RPC circuit open, skipping endpoint', { endpoint: maskEndpoint(endpoint.url) });
+            continue;
+        }
+
+        const capacity = checkEndpointCapacity(endpoint, options.importance || 'normal');
+        if (!capacity.ok) {
+            logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
+                endpoint: maskEndpoint(endpoint.url),
+                reason: capacity.reason
+            });
+            continue;
+        }
+
+        const startTime = Date.now();
+        try {
+            recordUsageStart(endpoint.url);
+            recordAttempt(endpoint.url);
+
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+            const response = await fetch(endpoint.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept-Encoding': 'gzip',
+                    'Connection': 'keep-alive',
+                },
+                body: JSON.stringify(request),
+                signal: controller.signal,
+                keepalive: true,
+            }).finally(() => clearTimeout(timeout));
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json() as RpcResponse<T>;
+            const responseTime = Date.now() - startTime;
+            recordSuccess(endpoint.url, responseTime);
+
+            if (i > 0) {
+                logger.info(LogCode.API_FETCH_SUCCESS, 'RPC failover success', {
+                    chain: chainName,
+                    endpoint: i + 1,
+                    total: sortedEndpoints.length,
+                    responseTime
+                });
+            }
+
+            return data;
+        } catch (error: any) {
+            lastError = error;
+
+            const isContractError = error.message?.includes('execution reverted') ||
+                error.message?.includes('revert') ||
+                error.message?.includes('invalid opcode') ||
+                error.message?.includes('out of gas');
+
+            if (isContractError) {
+                throw error;
+            }
+
+            recordFailure(endpoint.url);
+
+            if (i < 2) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
+                    chain: chainName,
+                    endpoint: i + 1,
+                    total: sortedEndpoints.length,
+                    error: error.message,
+                    duration: Date.now() - startTime
+                });
+            }
+
+            if (i < sortedEndpoints.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+                continue;
+            }
+        } finally {
+            recordUsageEnd(endpoint.url);
+        }
+    }
+
+    logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
+        chain: chainName,
+        totalEndpoints: sortedEndpoints.length,
+        lastError: lastError?.message
+    });
+
+    throw new Error(`All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`);
+}
+
+function filterEndpointsByMethod(endpoints: RpcEndpointConfig[], method: string): RpcEndpointConfig[] {
+    const matches = endpoints.filter(endpoint => endpoint.capabilities?.methods?.includes(method));
+    return matches.length > 0 ? matches : endpoints;
 }
 
 /**
@@ -807,6 +1111,8 @@ export function getRpcEndpoints(chainId: number, strategy?: 'fast' | 'cheap'): s
 // Key: chainId, Value: { provider: JsonRpcProvider, url: string, timestamp: number }
 const providerCache = new Map<number, { provider: ethers.JsonRpcProvider, url: string, timestamp: number }>();
 const PROVIDER_CACHE_TTL = 60000; // Refresh provider mapping every 1 minute
+const SOLANA_CONN_CACHE = new Map<string, { connection: Connection; timestamp: number }>();
+const SOLANA_CONN_CACHE_TTL = 60000;
 
 /**
  * Get an ethers.js Provider instance for a chain
@@ -845,6 +1151,43 @@ export function getEthersProvider(chainId: number): ethers.JsonRpcProvider {
     });
 
     return provider;
+}
+
+/**
+ * Get a Solana Connection instance using rpcManager selection
+ */
+export function getSolanaConnection(
+    strategy: 'fast' | 'cheap' = 'cheap',
+    importance: RpcImportance = 'normal'
+): Connection {
+    const chainSlug = 'solana';
+    const primaryUrl = getPrimaryRpcUrl(chainSlug);
+    let endpoints = getRpcEndpointsWithStrategy(chainSlug, strategy, primaryUrl);
+
+    if (strategy === 'cheap' && shouldUpgradeToFast(endpoints)) {
+        const upgraded = getRpcEndpointsWithStrategy(chainSlug, 'fast', primaryUrl);
+        if (upgraded.length > 0) {
+            endpoints = upgraded;
+        }
+    }
+
+    if (!endpoints || endpoints.length === 0) {
+        throw new Error('No RPC endpoints configured for Solana');
+    }
+
+    const sorted = sortEndpointsByScore(endpoints, importance);
+    const chosen = sorted.find(ep => !isCircuitOpen(ep.url)) || sorted[0];
+    const url = chosen.url;
+    const now = Date.now();
+    const cached = SOLANA_CONN_CACHE.get(url);
+
+    if (cached && now - cached.timestamp < SOLANA_CONN_CACHE_TTL) {
+        return cached.connection;
+    }
+
+    const connection = new Connection(url, 'confirmed');
+    SOLANA_CONN_CACHE.set(url, { connection, timestamp: now });
+    return connection;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
 import { addAddressToWebhook, removeAddressFromWebhook } from '../../../services/alchemyWebhookService.js';
 import { normalizeAddress, isSolanaAddress } from '../../../utils/address.js';

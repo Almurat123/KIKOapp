@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import { searchWeb, formatSearchResults } from '../../../services/searchService.js';
 
 export const ExternalWebSearchTool: Tool = {

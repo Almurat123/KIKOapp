@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import * as coinbase from '../../../services/coinbase.js';
 import { fetchJson } from '../../../config/unifiedApiService.js';
 

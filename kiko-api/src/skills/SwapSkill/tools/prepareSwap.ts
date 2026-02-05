@@ -1,4 +1,4 @@
-import { Tool, ToolContext } from '../../../tools/registry.js';
+import { Tool, ToolContext } from '../../../tooling/registry.js';
 import { TradeContext, getTradeContext } from '../../../services/TradeContext.js';
 import { getTokenData } from '../../../services/UnifiedDataLayer.js';
 import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';

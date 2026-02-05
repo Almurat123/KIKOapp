@@ -9,12 +9,8 @@
 import { ethers } from 'ethers';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-
-// Flashbots Protect RPC endpoint
-const FLASHBOTS_PROTECT_RPC = 'https://rpc.flashbots.net';
-
-// Alternative: Flashbots Protect Fast (prioritizes speed over MEV protection)
-const FLASHBOTS_PROTECT_FAST_RPC = 'https://rpc.flashbots.net/fast';
+import { callRpcCustom } from '../rpcManager.js';
+import { getFlashbotsEndpoints } from '../../config/apiEndpoints.js';
 
 export interface FlashbotsConfig {
     useFlashbots: boolean;
@@ -62,39 +58,23 @@ export async function sendViaFlashbots(
     }
 
     try {
-        const rpcUrl = config.preferFast ? FLASHBOTS_PROTECT_FAST_RPC : FLASHBOTS_PROTECT_RPC;
+        const endpoints = getFlashbotsEndpoints();
+        const fast = endpoints.find(ep => ep.name.toLowerCase().includes('fast'));
+        const standard = endpoints.find(ep => !ep.name.toLowerCase().includes('fast'));
+        const ordered = config.preferFast
+            ? [fast, standard].filter(Boolean) as typeof endpoints
+            : [standard, fast].filter(Boolean) as typeof endpoints;
 
         logger.info(LogCode.API_FETCH_SUCCESS, '🔒 Sending via Flashbots Protect', {
-            mode: config.preferFast ? 'fast' : 'standard',
-            rpcUrl
+            mode: config.preferFast ? 'fast' : 'standard'
         });
 
-        // Send raw transaction to Flashbots RPC
-        const response = await fetch(rpcUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'eth_sendRawTransaction',
-                params: [signedTx]
-            })
-        });
-
-        const result = await response.json();
-
-        if (result.error) {
-            logger.warn(LogCode.API_FETCH_FAILED, 'Flashbots submission failed', {
-                error: result.error.message
-            });
-            return {
-                success: false,
-                error: result.error.message,
-                usedFlashbots: true
-            };
-        }
-
-        const txHash = result.result;
+        const txHash = await callRpcCustom<string>(
+            ordered.length > 0 ? ordered : endpoints,
+            'eth_sendRawTransaction',
+            [signedTx],
+            { importance: 'critical' }
+        );
 
         logger.info(LogCode.API_FETCH_SUCCESS, '✅ Flashbots transaction submitted', {
             txHash,
@@ -193,17 +173,13 @@ export function shouldUseMevProtection(
  */
 export async function getBundleStatus(bundleHash: string): Promise<any> {
     try {
-        const response = await fetch(FLASHBOTS_PROTECT_RPC, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'flashbots_getBundleStats',
-                params: [{ bundleHash }]
-            })
-        });
-        return await response.json();
+        const endpoints = getFlashbotsEndpoints();
+        return await callRpcCustom<any>(
+            endpoints,
+            'flashbots_getBundleStats',
+            [{ bundleHash }],
+            { importance: 'normal' }
+        );
     } catch {
         return null;
     }

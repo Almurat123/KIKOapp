@@ -567,11 +567,7 @@ export async function getSolanaTokenBalance(walletAddress: string, mintAddress: 
  */
 export async function resolveENSName(address: string): Promise<string | null> {
   try {
-    const apiKey = getAlchemyApiKey();
-    if (!apiKey) return null;
-    const { JsonRpcProvider } = await import('ethers');
-    const url = `https://eth-mainnet.g.alchemy.com/v2/${apiKey}`;
-    const provider = new JsonRpcProvider(url);
+    const provider = rpcManager.getEthersProvider(1);
     return await provider.lookupAddress(address);
   } catch (error: any) {
     return null;
@@ -587,12 +583,7 @@ export async function resolveENSAddress(ensName: string): Promise<string | null>
     // Only process ENS names (ending with .eth)
     if (!ensName.endsWith('.eth')) return null;
 
-    const apiKey = getAlchemyApiKey();
-    if (!apiKey) return null;
-
-    const { JsonRpcProvider } = await import('ethers');
-    const url = `https://eth-mainnet.g.alchemy.com/v2/${apiKey}`;
-    const provider = new JsonRpcProvider(url);
+    const provider = rpcManager.getEthersProvider(1);
     const address = await provider.resolveName(ensName);
     logger.info(LogCode.API_FETCH_SUCCESS, 'ENS name resolved to address', { ensName, address });
     return address;

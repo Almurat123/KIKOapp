@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import * as etherscan from '../../../services/etherscan.js';
 import * as infuraGas from '../../../services/infuraGas.js';
 

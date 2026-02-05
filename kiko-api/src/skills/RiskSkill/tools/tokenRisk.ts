@@ -1,9 +1,9 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import { env } from '../../../config/env.js';
 import { get, set } from '../../../cache/redis.js';
 import { getContractSourceCode, getSolscanVerification, getSourcifyData } from '../../../services/etherscan.js';
 import { scanContract, SecurityFinding } from '../../../services/contractScanner.js';
-import { JsonRpcProvider } from 'ethers';
+import { callRpc, callRpcCustom } from '../../../services/rpcManager.js';
 import fs from 'fs';
 import path from 'path';
 import { fetchJson } from '../../../config/unifiedApiService.js';
@@ -178,18 +178,24 @@ function augmentWithOfflineSignals(address: string, chain: string, warnings: str
  * Online quick bytecode scan (if RPC available)
  */
 async function augmentWithOnlineSignals(address: string, chain: string, warnings: string[], riskScore: number) {
-    const rpc = RPC_MAP[chain.toLowerCase()];
-    if (!rpc) return { warnings, riskScore };
+    const chainKey = chain.toLowerCase();
+    const chainId = CHAIN_IDS[chainKey];
+    if (!chainId || chainId === 'solana') return { warnings, riskScore };
+    const rpc = RPC_MAP[chainKey];
     try {
-        // Add 10 second timeout for RPC calls
-        const provider = new JsonRpcProvider(rpc);
+        const call = rpc
+            ? async <T>(method: string, params: any[]) =>
+                callRpcCustom<T>([{
+                    name: 'SecurityRPC',
+                    url: rpc,
+                    priority: 1,
+                    requiresAuth: true,
+                    type: 'premium'
+                }], method, params, { importance: 'critical' })
+            : async <T>(method: string, params: any[]) =>
+                callRpc<T>(chainId as number, method, params, { strategy: 'fast', importance: 'critical' });
 
-        // Wrap in promise with timeout
-        const codePromise = provider.getCode(address);
-        const timeoutPromise = new Promise<string>((_, reject) =>
-            setTimeout(() => reject(new Error('RPC timeout')), 10000)
-        );
-        const code = await Promise.race([codePromise, timeoutPromise]) as string;
+        const code = await call<string>('eth_getCode', [address, 'latest']);
         if (!code || code === '0x') return { warnings, riskScore };
 
         // Fix: Extract selectors using PUSH4 opcode (0x63) for accurate detection
@@ -213,9 +219,8 @@ async function augmentWithOnlineSignals(address: string, chain: string, warnings
         const storageVals: string[] = [];
         for (let i = 0; i < 3; i++) {
             try {
-                // ethers v6: getStorage(address, slot)
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const val = await (provider as any).getStorage(address, i);
+                const slot = `0x${i.toString(16)}`;
+                const val = await call<string>('eth_getStorageAt', [address, slot, 'latest']);
                 storageVals.push(val);
             } catch {
                 break;
@@ -1049,6 +1054,5 @@ function getChainName(chainId: number): string {
     const map: Record<number, string> = { 1: 'eth', 56: 'bsc', 8453: 'base', 137: 'polygon', 42161: 'arbitrum', 10: 'optimism', 43114: 'avalanche', 250: 'fantom', 900: 'solana' };
     return map[chainId] || 'eth';
 }
-
 
 

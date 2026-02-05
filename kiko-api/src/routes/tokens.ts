@@ -13,6 +13,7 @@ import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime } from '.
 import { getSupportedChains, refreshSingleChain } from '../jobs/tokenDataJob.js';
 import { env } from '../config/env.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { callRpc } from '../services/rpcManager.js';
 import { AppError, handleExternalApiError } from '../middleware/errorHandler.js';
 import { sanitizeString, validateNetwork, validateAddress, validateLimit, validateTimeframe } from '../utils/validation.js';
 import { detectLaunchpadToken } from '../services/ai/launchpadDetector.js';
@@ -721,26 +722,8 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       }
 
       const chainIdNum = parseInt(chainId, 10);
-      const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY;
-
-      if (!ALCHEMY_API_KEY) {
-        return reply.status(500).send({
-          success: false,
-          error: 'Server configuration error: RPC key missing',
-        });
-      }
-
-      const rpcMap: Record<number, string> = {
-        1: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-        8453: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-        42161: `https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-        56: `https://bsc-dataseed.bnbchain.org`,
-        137: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-        10: `https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
-      };
-
-      const rpcUrl = rpcMap[chainIdNum];
-      if (!rpcUrl) {
+      const supportedChains = new Set([1, 8453, 42161, 56, 137, 10]);
+      if (!supportedChains.has(chainIdNum)) {
         return reply.status(400).send({
           success: false,
           error: 'Unsupported chain',
@@ -772,15 +755,10 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         },
       ];
 
-      const rpcResponse = await fetchJson({
-        url: rpcUrl,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(calls),
-      });
-
-      // Result is an array of responses
-      const results = Array.isArray(rpcResponse) ? rpcResponse : [rpcResponse];
+      const results = await Promise.all(calls.map(async call => {
+        const result = await callRpc<string>(chainIdNum, call.method, call.params, { strategy: 'cheap' });
+        return { id: call.id, result };
+      }));
 
       // Helper to decode RPC string result
       const decodeString = (hex: string) => {
@@ -804,14 +782,14 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         } catch { return ''; }
       };
 
-      const decodeDecimals = (hex: string) => {
+      const decodeDecimals = (hex?: string) => {
         if (!hex || hex === '0x') return 18;
         return parseInt(hex, 16);
       };
 
-      const nameHex = results.find(r => r.id === 1)?.result;
-      const symbolHex = results.find(r => r.id === 2)?.result;
-      const decimalsHex = results.find(r => r.id === 3)?.result;
+      const nameHex = results.find(r => r.id === 1)?.result ?? '0x';
+      const symbolHex = results.find(r => r.id === 2)?.result ?? '0x';
+      const decimalsHex = results.find(r => r.id === 3)?.result ?? '0x';
 
       const name = abiDecodeString(nameHex) || 'Unknown';
       const symbol = abiDecodeString(symbolHex) || 'UNKNOWN';

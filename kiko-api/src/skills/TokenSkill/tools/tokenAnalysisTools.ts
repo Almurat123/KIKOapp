@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import * as tokenAnalysis from '../../../services/tokenAnalysis.js';
 import * as creatorAnalysis from '../../../services/creatorAnalysis.js';
 

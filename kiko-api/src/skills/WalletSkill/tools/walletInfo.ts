@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import * as alchemy from '../../../services/alchemy.js';
 import * as quicknode from '../../../services/quicknode.js';
 import * as coinbaseCdp from '../../../services/coinbaseCdp.js';

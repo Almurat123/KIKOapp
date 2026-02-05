@@ -6,6 +6,7 @@
 
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { callRpc } from './rpcManager.js';
 
 interface JupiterQuoteResponse {
     data: {
@@ -92,22 +93,10 @@ export async function getSolanaTokenInfo(tokenAddress: string): Promise<{
         // Try to get supply from Solana RPC
         let marketCap = 0;
         try {
-            const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-            const response = await fetch(rpcUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    jsonrpc: '2.0',
-                    id: 1,
-                    method: 'getTokenSupply',
-                    params: [tokenAddress]
-                })
-            });
-
-            const data = await response.json();
-            if (data.result && data.result.value) {
-                const supply = Number(data.result.value.amount);
-                const decimals = data.result.value.decimals;
+            const data = await callRpc<any>('solana', 'getTokenSupply', [tokenAddress], { strategy: 'cheap' });
+            if (data?.value) {
+                const supply = Number(data.value.amount);
+                const decimals = data.value.decimals;
                 const totalSupply = supply / Math.pow(10, decimals);
                 marketCap = totalSupply * price;
             }

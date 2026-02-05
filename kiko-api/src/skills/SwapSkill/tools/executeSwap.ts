@@ -4,7 +4,7 @@
  * No more AI iterations needed!
  */
 
-import { Tool, ToolContext } from '../../../tools/registry.js';
+import { Tool, ToolContext } from '../../../tooling/registry.js';
 import { SwapStateManager } from '../../../services/SwapStateManager.js';
 import { getTradeContext } from '../../../services/TradeContext.js';
 import { logger } from '../../../utils/logger.js';

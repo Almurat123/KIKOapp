@@ -5,18 +5,19 @@
  */
 
 import { zoraService } from '../zoraService.js';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { fetchJson } from '../../config/unifiedApiService.js';
+import { getSolanaConnection } from '../rpcManager.js';
 
 const LAUNCHPAD_AUTH_PDA = 'WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh';
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 
 async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
     try {
-        const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+        const connection = getSolanaConnection('cheap', 'normal');
         const mint = new PublicKey(mintAddress);
         const [pda] = PublicKey.findProgramAddressSync(
             [Buffer.from('metadata'), METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer()],

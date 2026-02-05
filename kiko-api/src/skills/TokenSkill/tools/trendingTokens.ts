@@ -1,10 +1,10 @@
-import { Tool, ToolContext } from '../../../tools/registry.js';
-import * as dexScreener from '../../../services/dexscreener.js';
+import { Tool, ToolContext } from '../../../tooling/registry.js';
+import { getTrendingTokens as getCachedTrendingTokens } from '../../../repositories/tokenRepository.js';
 
 export const GetTrendingTokensTool: Tool = {
     definition: {
         name: 'get_trending_tokens',
-        description: 'Get currently trending/hot cryptocurrency tokens by trading activity. ONLY use this tool when the user explicitly asks about: trending tokens, hot coins, what tokens are pumping, market movers, top gainers, or specific chain activity. Do NOT use this for general news, world events, or non-crypto topics. For news about the crypto industry (regulations, hacks, company updates), use external_web_search instead.',
+        description: 'Get currently trending/hot cryptocurrency tokens from KiKo cached token database (24h aggregates). ONLY use this tool when the user explicitly asks about: trending tokens, hot coins, what tokens are pumping, market movers, top gainers, or specific chain activity. Do NOT use this for general news, world events, or non-crypto topics. For news about the crypto industry (regulations, hacks, company updates), use external_web_search instead.',
         parameters: {
             type: 'object',
             properties: {
@@ -17,12 +17,6 @@ export const GetTrendingTokensTool: Tool = {
                     type: 'number',
                     description: 'Number of results to return (default 10, max 20)',
                     default: 10
-                },
-                duration: {
-                    type: 'string',
-                    description: 'Timeframe for trending calculation. Default is "5m" (captures latest "right now" trends). Use "1h", "6h", or "24h" only if explicitly requested.',
-                    enum: ['5m', '1h', '6h', '24h'],
-                    default: '5m'
                 }
             },
             required: ['chain']
@@ -32,12 +26,10 @@ export const GetTrendingTokensTool: Tool = {
         try {
             const chain = args.chain || 'eth';
             const limit = Math.min(args.limit || 10, 20); // Cap at 20 for this heavy operation
-            const duration = (args.duration || '5m') as '5m' | '1h' | '6h' | '24h';
+            console.log(`[GetTrendingTokens] Fetching trending tokens for ${chain} from cached database...`);
 
-            console.log(`[GetTrendingTokens] Fetching trending tokens for ${chain} (${duration}) from DexScreener (Enhanced Algorithm)...`);
-
-            // Use Enhanced DexScreener Search + Scoring
-            const tokens = await dexScreener.getTrendingTokensByChain(chain, limit, duration);
+            // Use cached token page data (DB + memory cache)
+            const tokens = await getCachedTrendingTokens(chain, limit);
 
             if (!tokens || tokens.length === 0) {
                 return { message: `No trending tokens found for ${chain} at the moment.` };
@@ -60,7 +52,7 @@ export const GetTrendingTokensTool: Tool = {
                 }
 
                 // Format volume - use K, M, or B suffix
-                const volume = parseFloat(t.volume24h || '0'); // Note: this field now contains volume for the requested duration
+                const volume = parseFloat(t.volume24h || '0');
                 let formattedVolume = '$0';
                 if (volume >= 1_000_000_000) {
                     formattedVolume = `$${(volume / 1_000_000_000).toFixed(2)}B`;
@@ -92,8 +84,8 @@ export const GetTrendingTokensTool: Tool = {
                     symbol: t.symbol,
                     address: t.address,
                     price: formattedPrice,
-                    [`volume${duration}`]: formattedVolume, // Dynamic key for volume (e.g., volume5m, volume24h)
-                    [`change${duration}`]: `${parseFloat(t.priceChange24h || '0').toFixed(2)}%`, // Dynamic key for price change
+                    volume24h: formattedVolume,
+                    change24h: `${parseFloat(t.priceChange24h || '0').toFixed(2)}%`,
                     liquidity: formattedLiquidity,
                     // score: score // Optional to return score
                 };

@@ -40,9 +40,6 @@ const CTF_ABI = [
     'function isApprovedForAll(address owner, address operator) view returns (bool)'
 ];
 
-// Polygon RPC endpoint
-const POLYGON_RPC = process.env.POLYGON_RPC_URL || '';
-
 import { getEthersProvider } from './rpcManager.js';
 
 /**

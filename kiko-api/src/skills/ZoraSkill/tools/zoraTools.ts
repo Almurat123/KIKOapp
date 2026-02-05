@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import { zoraService } from '../../../services/zoraService.js';
 import { prisma } from '../../../db/prisma.js';
 

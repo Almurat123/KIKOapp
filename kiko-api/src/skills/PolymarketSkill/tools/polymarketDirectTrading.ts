@@ -3,7 +3,7 @@
  * Tools for AI to help users place direct orders on Polymarket
  */
 
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
 import { createOrDeriveCredentials, getPolymarketWallet } from '../../../services/polymarketCredService.js';
 import { checkTradingReadiness, getRequiredApprovals } from '../../../services/polymarketApprovalService.js';

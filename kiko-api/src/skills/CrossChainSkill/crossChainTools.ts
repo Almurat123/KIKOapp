@@ -1,4 +1,4 @@
-import { Tool } from '../../tools/registry.js';
+import { Tool } from '../../tooling/registry.js';
 import axios from 'axios';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';

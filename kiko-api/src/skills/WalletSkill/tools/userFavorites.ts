@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import { getUserFavorites } from '../../../repositories/favoriteRepository.js';
 import * as geckoTerminal from '../../../services/geckoTerminal.js';
 import * as dexscreener from '../../../services/dexscreener.js';

@@ -3,7 +3,7 @@
  * 
  * Provides AI access to Polymarket prediction market data.
  */
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import {
     getTrendingEvents,
     getTrendingMarkets,

@@ -204,25 +204,11 @@ export function getChainSlug(chainId: number): { dexScreener: string; geckoTermi
 // ============================================================================
 // Provider Singleton Cache
 // ============================================================================
-import { ethers } from 'ethers';
-
-const providerCache = new Map<number, ethers.JsonRpcProvider>();
+import { getEthersProvider } from '../services/rpcManager.js';
 
 /**
- * Get a cached JsonRpcProvider for the given chain ID.
- * Creates a new provider on first access using the PRIMARY RPC.
- * TODO: Integrate RpcManager for true fallback support at the provider level if needed.
+ * Get an ethers provider via rpcManager (统一调度)
  */
-export function getProvider(chainId: number): ethers.JsonRpcProvider {
-    if (!providerCache.has(chainId)) {
-        const config = getChainConfig(chainId);
-        // ✅ 使用 staticNetwork 避免额外的 eth_chainId 调用
-        // 性能提升: 1162ms → 335ms (71% 提升)
-        // 参考: https://docs.ethers.org/v6/api/providers/#JsonRpcProvider
-        const provider = new ethers.JsonRpcProvider(config.rpcUrls[0], chainId, {
-            staticNetwork: true  // 避免网络检测开销
-        });
-        providerCache.set(chainId, provider);
-    }
-    return providerCache.get(chainId)!;
+export function getProvider(chainId: number) {
+    return getEthersProvider(chainId);
 }

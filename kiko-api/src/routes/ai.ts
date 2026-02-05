@@ -5,7 +5,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { toolRegistry } from '../tools/index.js';
+import { toolRegistry } from '../tooling/index.js';
 import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
 import { parseIntent } from '../services/ai/intentParser.js';
 import { skillRegistryExec } from '../skills/registry.js';

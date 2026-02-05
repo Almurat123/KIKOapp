@@ -343,31 +343,25 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     if (chainId === 900) {
                         try {
                             // Solana Logic
-                            const { getSolanaConnection, SOLANA_CONFIG } = await import('../config/solanaConfig.js');
+                            const { getSolanaConnection } = await import('../services/rpcManager.js');
                             const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
 
                             let tx: any = null;
-                            const rpcsToTry = [
-                                undefined, // Primary (from .env)
-                                SOLANA_CONFIG.RPC_URLS.PUBLIC,
-                                SOLANA_CONFIG.RPC_URLS.BACKUP_1,
-                                SOLANA_CONFIG.RPC_URLS.BACKUP_2
-                            ];
-
-                            for (const rpcUrl of rpcsToTry) {
+                            const strategies: Array<'fast' | 'cheap'> = ['fast', 'cheap'];
+                            for (const strategy of strategies) {
                                 try {
-                                    const connection = getSolanaConnection(rpcUrl);
+                                    const connection = getSolanaConnection(strategy, 'critical');
                                     tx = await connection.getParsedTransaction(txHash, {
                                         maxSupportedTransactionVersion: 0,
                                         commitment: 'confirmed'
                                     });
                                     if (tx) {
-                                        if (rpcUrl) console.log(`[Webhook] ✅ Successfully fetched Solana tx via fallback RPC: ${rpcUrl}`);
+                                        console.log(`[Webhook] ✅ Successfully fetched Solana tx via rpcManager (${strategy})`);
                                         break;
                                     }
                                 } catch (err: any) {
                                     const isSslError = err.message?.includes('SSL') || err.cause?.message?.includes('SSL');
-                                    console.warn(`[Webhook] Solana fetch failed ${rpcUrl ? 'via ' + rpcUrl : 'via primary'}: ${err.message}${isSslError ? ' (SSL Error)' : ''}`);
+                                    console.warn(`[Webhook] Solana fetch failed via rpcManager (${strategy}): ${err.message}${isSslError ? ' (SSL Error)' : ''}`);
                                     if (!isSslError && !err.message?.includes('fetch failed')) {
                                         // If it's not a connection/SSL error, it might be a 404 or something else where retrying won't help as much
                                         // but we try others anyway

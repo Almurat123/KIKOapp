@@ -5,7 +5,7 @@
  * This ensures the LLM always knows exactly what tools are available and their schemas.
  */
 
-import { toolRegistry } from '../../tools/registry.js';
+import { toolRegistry } from '../../tooling/registry.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 

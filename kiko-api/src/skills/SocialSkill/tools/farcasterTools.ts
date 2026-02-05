@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import { getTrendingCasts, searchCasts, hybridSearchCasts } from '../../../repositories/socialRepository.js';
 import { getUserDataByFid, getCastsByFid, farcasterToUnixTimestamp } from '../../../services/snapchainService.js';
 // Removed axios dependency to use native fetch

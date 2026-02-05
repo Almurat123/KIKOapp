@@ -17,7 +17,7 @@ import { findTokenPools, PoolInfo } from './poolInfo.js';
 import { calculatePriceFromSqrtX96, findV4Pools, V4PoolKey } from './uniswapV4.js';
 import { buildV4SwapTransaction, isV4SwapSupported } from './uniswapV4Swap.js';
 import { calculateV3TVL } from './v3Math.js';
-import { callRpc } from '../rpcManager.js';
+import { callRpc, callRpcRaw } from '../rpcManager.js';
 import { sendTransaction } from '../privyWallet.js';
 import { getZeroExPrice } from '../zeroEx.js';
 import { getKyberQuote } from '../kyberAggregator.js';
@@ -1024,47 +1024,36 @@ async function callV4QuoterExactOut(
         hookData
     ]);
 
-    const chainConfig = getChainConfig(chainId);
-    const endpoints = chainConfig.rpcUrls || [];
-    for (const endpoint of endpoints) {
-        if (!endpoint) continue;
-        try {
-            const callParams: Record<string, any> = { to: quoter, data };
-            if (gasPriceWei && gasPriceWei > 0n) {
-                callParams.gasPrice = ethers.toQuantity(gasPriceWei);
-            }
+    const callParams: Record<string, any> = { to: quoter, data };
+    if (gasPriceWei && gasPriceWei > 0n) {
+        callParams.gasPrice = ethers.toQuantity(gasPriceWei);
+    }
 
-            const response = await withTimeout(fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    jsonrpc: '2.0',
-                    id: Date.now(),
-                    method: 'eth_call',
-                    params: [callParams, 'latest']
-                })
-            }).then(res => res.json()), V4_QUOTER_TIMEOUT_MS);
+    try {
+        const response = await withTimeout(
+            callRpcRaw<any>(chainId, 'eth_call', [callParams, 'latest'], { strategy: 'fast', importance: 'critical' }),
+            V4_QUOTER_TIMEOUT_MS
+        );
 
-            if (response?.result) {
-                const decoded = iface.decodeFunctionResult('quoteExactInputSingle', response.result);
-                const amountOut = BigInt(decoded[0].toString());
+        if (response?.result) {
+            const decoded = iface.decodeFunctionResult('quoteExactInputSingle', response.result);
+            const amountOut = BigInt(decoded[0].toString());
+            v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
+            return amountOut;
+        }
+
+        const errorData = (response as any)?.error?.data?.data
+            || (response as any)?.error?.data
+            || (response as any)?.error?.message?.data;
+        if (typeof errorData === 'string' && errorData.startsWith('0x')) {
+            const amountOut = decodeV4QuoterRevert(errorData);
+            if (amountOut && amountOut > 0n) {
                 v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
                 return amountOut;
             }
-
-            const errorData = response?.error?.data?.data
-                || response?.error?.data
-                || response?.error?.message?.data;
-            if (typeof errorData === 'string' && errorData.startsWith('0x')) {
-                const amountOut = decodeV4QuoterRevert(errorData);
-                if (amountOut && amountOut > 0n) {
-                    v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
-                    return amountOut;
-                }
-            }
-        } catch {
-            continue;
         }
+    } catch {
+        // fall through
     }
 
     return 0n;

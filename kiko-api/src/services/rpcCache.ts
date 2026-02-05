@@ -82,7 +82,7 @@ const NON_CACHEABLE_METHODS = new Set([
  * 生成缓存键
  * [Logic]: 基于 chainId + method + params 的唯一标识
  */
-export function buildCacheKey(chainId: number | string, method: string, params: any[]): string {
+export function buildCacheKey(chainId: number | string, method: string, params: any): string {
     const normalizedChain = typeof chainId === 'string' ? chainId : chainId.toString();
 
     // 对 params 进行稳定的序列化

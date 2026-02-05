@@ -4,6 +4,7 @@
  * Keep only type re-exports for compatibility if any legacy imports remain.
  */
 
+import type { Intent } from './intentTypes';
 export type { Intent, IntentType } from './intentTypes';
 
 /*
@@ -78,6 +79,8 @@ export interface Intent {
     slippageBps?: number;
   };
 }
+
+*/
 
 const INTENT_SYSTEM_PROMPT = `You are an AI assistant that helps users interact with Web3 DeFi protocols. Your job is to understand user intent and convert it to structured JSON.
 
@@ -426,6 +429,4 @@ export function getIntentDescription(intent: Intent): string {
       return 'Unknown intent';
   }
 }
-
-*/
 

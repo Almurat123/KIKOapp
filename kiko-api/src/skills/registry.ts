@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Skill, SkillMetadata, SkillRegistry } from './types.js';
-import { toolRegistry } from '../tools/registry.js';
+import { toolRegistry } from '../tooling/registry.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -126,7 +126,6 @@ class Registry implements SkillRegistry {
 
             this.register(skill);
             console.log(`[SkillRegistry:${this.label}] Loaded skill: ${metadata.id}`);
-
         } catch (error) {
             console.error(`[SkillRegistry:${this.label}] Failed to load skill from ${dir}:`, error);
         }
@@ -207,9 +206,10 @@ class Registry implements SkillRegistry {
     }
 }
 
-const skillsDir = path.resolve(__dirname);
+const execSkillsDir = path.resolve(__dirname, '../skills_exec');
+const cleanSkillsDir = path.resolve(__dirname, '../skills_clean');
 
-export const skillRegistryExec = new Registry(skillsDir, 'exec', 'exec');
-export const skillRegistryClean = new Registry(skillsDir, 'clean', 'clean');
+export const skillRegistryExec = new Registry(execSkillsDir, 'exec', 'exec');
+export const skillRegistryClean = new Registry(cleanSkillsDir, 'clean', 'clean');
 // Legacy fallback (kept for backward compatibility).
 export const skillRegistry = skillRegistryExec;

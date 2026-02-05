@@ -93,7 +93,7 @@ fastify.register(helmet, {
                 "https://auth.privy.io",
                 "https://api.gopluslabs.io",
                 "https://*.alchemy.com",
-                "https://*.helius-rpc.com"
+                HELIUS_CONNECT_SRC
             ],
             frameAncestors: ["'none'"],
             upgradeInsecureRequests: [],
@@ -158,6 +158,7 @@ fastify.addHook('preHandler', async (request, reply) => {
 });
 
 import fastifyStatic from '@fastify/static';
+import { HELIUS_CONNECT_SRC } from './config/apiEndpoints.js';
 import path from 'path';
 import fs from 'fs';
 

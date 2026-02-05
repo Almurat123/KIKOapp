@@ -23,6 +23,7 @@ export interface RpcEndpointConfig {
   type: 'premium' | 'public' | 'fallback';
   limits?: RpcEndpointLimits;
   weight?: number; // Optional weight for selection (higher = preferred)
+  capabilities?: RpcEndpointCapabilities; // Optional method capability hints
 }
 
 export interface RpcEndpointLimits {
@@ -30,6 +31,13 @@ export interface RpcEndpointLimits {
   rpm?: number; // Requests per minute
   maxInFlight?: number; // Max concurrent in-flight requests
 }
+
+export interface RpcEndpointCapabilities {
+  // Methods that require this endpoint (e.g., Helius DAS)
+  methods?: string[];
+}
+
+export const HELIUS_CONNECT_SRC = 'https://*.helius-rpc.com';
 
 const DEFAULT_PUBLIC_RPS = parseInt(process.env.RPC_PUBLIC_RPS || '5', 10);
 const DEFAULT_PUBLIC_RPM = parseInt(process.env.RPC_PUBLIC_RPM || '300', 10);
@@ -66,6 +74,9 @@ function getDefaultLimits(type: RpcEndpointConfig['type']): RpcEndpointLimits {
 export function getRpcEndpoints(chainSlug: string, primaryUrl?: string): RpcEndpointConfig[] {
   if (chainSlug === 'base') {
     return getBasePreferredEndpoints(primaryUrl);
+  }
+  if (chainSlug === 'solana') {
+    return getSolanaEndpoints(primaryUrl);
   }
 
   const endpoints: RpcEndpointConfig[] = [];
@@ -270,6 +281,82 @@ function getBaseCheapEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
   });
 }
 
+function getSolanaEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
+  const endpoints: RpcEndpointConfig[] = [];
+  let priority = 1;
+
+  const push = (
+    name: string,
+    url?: string,
+    requiresAuth = false,
+    type: 'premium' | 'public' | 'fallback' = 'public',
+    capabilities?: RpcEndpointCapabilities
+  ) => {
+    if (!url) return;
+    endpoints.push({
+      name,
+      url,
+      priority: priority++,
+      requiresAuth,
+      type,
+      limits: getDefaultLimits(type),
+      capabilities
+    });
+  };
+
+  // Public endpoints first (cheap strategy)
+  push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
+  push('DRPC', 'https://solana.drpc.org', false, 'public');
+  push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
+
+  // Premium / authenticated endpoints
+  if (env.apiKeys.alchemy) {
+    push('Alchemy', `https://solana-mainnet.g.alchemy.com/v2/${env.apiKeys.alchemy}`, true, 'premium');
+  }
+  if (env.apiKeys.helius) {
+    push(
+      'Helius',
+      `https://mainnet.helius-rpc.com/?api-key=${env.apiKeys.helius}`,
+      true,
+      'premium',
+      { methods: ['getAssetsByOwner', 'getAssetBatch'] }
+    );
+  }
+
+  if (primaryUrl) {
+    push('Primary', primaryUrl, true, 'premium');
+  }
+
+  const seen = new Set<string>();
+  return endpoints.filter(ep => {
+    if (seen.has(ep.url)) return false;
+    seen.add(ep.url);
+    return true;
+  });
+}
+
+export function getFlashbotsEndpoints(): RpcEndpointConfig[] {
+  const limits = getDefaultLimits('premium');
+  return [
+    {
+      name: 'Flashbots Protect',
+      url: 'https://rpc.flashbots.net',
+      priority: 1,
+      requiresAuth: false,
+      type: 'premium',
+      limits
+    },
+    {
+      name: 'Flashbots Protect Fast',
+      url: 'https://rpc.flashbots.net/fast',
+      priority: 2,
+      requiresAuth: false,
+      type: 'premium',
+      limits
+    }
+  ];
+}
+
 /**
  * 获取经过验证的免费 RPC 节点
  * 基于 2026-02-02 生产环境测试结果
@@ -313,6 +400,13 @@ function getVerifiedFreeEndpoints(chainSlug: string): { name: string; url: strin
     'optimism': [
       { name: 'PublicNode', url: 'https://optimism-rpc.publicnode.com' },
       { name: 'DRPC', url: 'https://optimism.drpc.org' },
+    ],
+
+    // Solana: Public endpoints
+    'solana': [
+      { name: 'PublicNode', url: 'https://solana-rpc.publicnode.com' },
+      { name: 'DRPC', url: 'https://solana.drpc.org' },
+      { name: 'Solana Official', url: 'https://api.mainnet-beta.solana.com' },
     ],
   };
 

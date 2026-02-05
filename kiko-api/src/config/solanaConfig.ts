@@ -1,30 +1,8 @@
-import { Connection } from '@solana/web3.js';
+import { getSolanaConnection as getManagedSolanaConnection } from '../services/rpcManager.js';
 
 export const SOLANA_CONFIG = {
     // Chain ID for Solana (internal mapping, not on-chain ID)
     CHAIN_ID: 900,
-
-    // RPC Endpoints - Prioritized for reliability
-    RPC_URLS: {
-        // Primary: Alchemy (from env) - Most reliable for production
-        ALCHEMY: process.env.ALCHEMY_API_KEY
-            ? `https://solana-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
-            : undefined,
-        // Secondary: Helius (from env)
-        HELIUS: process.env.HELIUS_API_KEY
-            ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
-            : undefined,
-        // MAINNET uses first available: Alchemy -> Helius -> Env -> Public
-        MAINNET: process.env.ALCHEMY_API_KEY
-            ? `https://solana-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
-            : (process.env.HELIUS_API_KEY
-                ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
-                : (process.env.SOLANA_RPC_URL || 'https://solana-rpc.publicnode.com')),
-        // Public fallbacks (no auth required)
-        PUBLIC: 'https://solana-rpc.publicnode.com',
-        BACKUP_1: 'https://solana.drpc.org',
-        BACKUP_2: 'https://api.mainnet-beta.solana.com'
-    },
 
     // Jupiter Aggregator API
     // Official API URL: https://api.jup.ag
@@ -52,6 +30,9 @@ export const SOLANA_CONFIG = {
 /**
  * Get a fresh Solana Connection
  */
-export function getSolanaConnection(url?: string): Connection {
-    return new Connection(url || SOLANA_CONFIG.RPC_URLS.MAINNET, 'confirmed');
+export function getSolanaConnection(
+    strategy: 'fast' | 'cheap' = 'cheap',
+    importance: 'normal' | 'critical' = 'normal'
+) {
+    return getManagedSolanaConnection(strategy, importance);
 }

@@ -3,7 +3,7 @@
  * Tools for AI to create and manage Polymarket copy trade configurations
  */
 
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import prisma from '../../../db/prisma.js';
 import { getWalletPositions, getWalletStats } from '../../../services/polymarketDataService.js';
 

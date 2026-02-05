@@ -1,5 +1,5 @@
 
-import { CHAIN_IDS } from '../tools/registry.js';
+import { CHAIN_IDS } from '../tooling/registry.js';
 
 // Known Mixer / High Risk Funding Sources (Simplified for demo)
 const RISK_FUNDING_SOURCES = new Set([

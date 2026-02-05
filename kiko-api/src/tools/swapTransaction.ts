@@ -1,4 +1,6 @@
-import { Tool, ToolContext } from './registry.js';
+export * from '../skills/SwapSkill/tools/prepareSwap.js';
+
+/* Legacy implementation retained only for history. Use skills/SwapSkill/tools/prepareSwap.ts
 import { normalizeTokenAddress, resolveTokenAddress } from '../services/tokens.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import { buildSignedHeaders } from '../utils/requestSigningClient.js';
@@ -385,3 +387,4 @@ This parameter is ignored as all swaps execute automatically via allowance_trade
         }
     }
 };
+*/

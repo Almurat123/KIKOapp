@@ -6,7 +6,7 @@
 
 import * as chatRepo from '../repositories/chatRepository.js';
 import { AITask } from '../repositories/chatRepository.js';
-import { toolRegistry } from '../tools/index.js';
+import { toolRegistry } from '../tooling/index.js';
 import { moderationClient } from '../services/moderationClient.js';
 import { searchWeb } from '../services/searchService.js';
 import { chatWS } from '../services/chatWebSocket.js';

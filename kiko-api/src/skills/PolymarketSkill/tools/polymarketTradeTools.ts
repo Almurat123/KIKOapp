@@ -1,4 +1,4 @@
-import { Tool } from '../../../tools/registry.js';
+import { Tool } from '../../../tooling/registry.js';
 import { getTradesByAssetId } from '../../../services/polymarketTradeService.js';
 import { getEventDetails } from '../../../services/polymarket.js';
 
