@@ -535,10 +535,42 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 verifyCdpSignature(signatureValue, rawBody.toString(), request.headers, secret)
             );
             if (!isValid) {
+                const parts = signatureValue.split(',').map(p => p.trim());
+                const map: Record<string, string> = {};
+                for (const part of parts) {
+                    const [k, v] = part.split('=');
+                    if (k && v) map[k] = v;
+                }
+                const timestampRaw = map['t'] || '';
+                const signedHeaderNames = map['h'] || '';
+                const headerNames = signedHeaderNames.length
+                    ? signedHeaderNames.split(' ').map(h => h.trim()).filter(Boolean)
+                    : [];
+                const headerValues = headerNames
+                    .map(name => String(request.headers[name] ?? request.headers[name.toLowerCase()] ?? ''))
+                    .join('.');
+                const nowSec = Math.floor(Date.now() / 1000);
+                const maxAgeSec = Number(process.env.CDP_WEBHOOK_MAX_AGE_SEC || '300');
+                const tsNum = Number(timestampRaw);
+                const tsSec = Number.isFinite(tsNum) ? (tsNum > 1e12 ? Math.floor(tsNum / 1000) : tsNum) : undefined;
+                const ageSec = tsSec ? Math.abs(nowSec - tsSec) : undefined;
+                let computedPrefix: string | undefined;
+                try {
+                    const signedPayload = `${timestampRaw}.${signedHeaderNames}.${headerValues}.${rawBody.toString()}`;
+                    const computed = crypto.createHmac('sha256', cdpSecrets[0]).update(signedPayload).digest('hex');
+                    computedPrefix = computed.slice(0, 12);
+                } catch {
+                    computedPrefix = undefined;
+                }
                 console.warn('[Webhook] Invalid CDP signature', {
                     secretCount: cdpSecrets.length,
                     rawBodyLength: rawBody.length,
-                    signaturePrefix: signatureValue.slice(0, 12)
+                    signaturePrefix: signatureValue.slice(0, 12),
+                    headerNames,
+                    headerValues,
+                    ageSec,
+                    maxAgeSec,
+                    computedPrefix
                 });
                 return reply.status(401).send({ error: 'Invalid signature' });
             }
@@ -575,8 +607,15 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             payload?.transactionHash ||
             payload?.transaction_hash;
 
+        const payloadSubId =
+            payload?.data?.subscriptionId ||
+            payload?.data?.subscription_id ||
+            payload?.subscriptionId ||
+            payload?.subscription_id ||
+            payload?.id;
+        const hook0Id = String(request.headers['x-hook0-id'] || '');
         console.log(
-            `[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'} type=${payloadType || 'unknown'} network=${payloadNetwork || 'unknown'} tx=${payloadTx || 'n/a'}`
+            `[Webhook] CDP payload: event=${payloadEventName || 'unknown'} contract=${payloadContract || 'unknown'} type=${payloadType || 'unknown'} network=${payloadNetwork || 'unknown'} tx=${payloadTx || 'n/a'} sub=${payloadSubId || 'n/a'} hook0=${hook0Id || 'n/a'}`
         );
         if ((process.env.CDP_DEBUG_PAYLOAD || '').toLowerCase() === 'true') {
             const safe = JSON.stringify(payload);
