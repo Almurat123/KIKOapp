@@ -6,10 +6,12 @@
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
 import {
+    claimTxProcessingLockDistributed,
     fetchTransaction,
     fetchTransactionReceipt,
     isTxProcessedDistributed,
-    markTxAsProcessedDistributed
+    markTxAsProcessedDistributed,
+    releaseTxProcessingLockDistributed
 } from '../services/watcherService.js';
 import { normalizeAddress } from '../utils/address.js';
 import { parseSwapTransaction } from '../services/txDecoder.js';
@@ -39,6 +41,39 @@ const NETWORK_TO_CHAIN_ID: Record<string, number> = {
 
 const IS_PRODUCTION = env.nodeEnv === 'production' || env.nodeEnv === 'prod';
 let lastMissingAlchemySecretWarnAt = 0;
+
+function parseAlchemyNetworkFromRawBody(rawBody: string): string | undefined {
+    try {
+        const payload = JSON.parse(rawBody);
+        const evmNetwork = payload?.event?.network;
+        const solNetwork = payload?.event?.event?.network || payload?.event?.network;
+        return evmNetwork || solNetwork || payload?.network;
+    } catch {
+        return undefined;
+    }
+}
+
+function selectAlchemySecretsForNetwork(rawNetwork?: string): string[] {
+    const network = String(rawNetwork || '').toUpperCase();
+    const secrets: string[] = [];
+
+    if (!network) {
+        if (env.security.alchemyWebhookSecretBase) secrets.push(env.security.alchemyWebhookSecretBase);
+        if (env.security.alchemyWebhookSecretBsc) secrets.push(env.security.alchemyWebhookSecretBsc);
+        if (env.security.alchemyWebhookSecretSol) secrets.push(env.security.alchemyWebhookSecretSol);
+    } else if (network.includes('BASE')) {
+        if (env.security.alchemyWebhookSecretBase) secrets.push(env.security.alchemyWebhookSecretBase);
+    } else if (network.includes('BSC') || network.includes('BNB')) {
+        if (env.security.alchemyWebhookSecretBsc) secrets.push(env.security.alchemyWebhookSecretBsc);
+    } else if (network.includes('SOL')) {
+        if (env.security.alchemyWebhookSecretSol) secrets.push(env.security.alchemyWebhookSecretSol);
+    }
+
+    // Legacy/global fallback for compatibility
+    if (env.security.alchemyWebhookSecret) secrets.push(env.security.alchemyWebhookSecret);
+
+    return [...new Set(secrets.filter(Boolean))];
+}
 
 function safeSecretEquals(provided: unknown, expected: string): boolean {
     if (typeof provided !== 'string') return false;
@@ -85,7 +120,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
         console.log(`[Webhook] Processing tx from Go service: wallet=${wallet.slice(0, 10)}, tx=${txHash.slice(0, 16)}, chain=${chainId}`);
 
+        let txLockValue: string | null = null;
         try {
+            txLockValue = await claimTxProcessingLockDistributed(txHash, chainId);
+            if (!txLockValue) {
+                return reply.send({ success: true, skipped: true, reason: 'already_processing_or_processed' });
+            }
             if (await isTxProcessedDistributed(txHash, chainId)) {
                 return reply.send({ success: true, skipped: true, reason: 'already_processed_cache' });
             }
@@ -156,6 +196,10 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         } catch (error: any) {
             console.error(`[Webhook] Error processing tx:`, error);
             return reply.status(500).send({ error: 'Failed to process transaction' });
+        } finally {
+            if (txLockValue) {
+                await releaseTxProcessingLockDistributed(txHash, chainId, txLockValue);
+            }
         }
     });
 
@@ -217,12 +261,27 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
      */
     fastify.post('/alchemy', async (request, reply) => {
         // 1. Signature Verification for Alchemy
-        const alchemySecret = env.security.alchemyWebhookSecret;
-        if (!alchemySecret) {
+        const content = (request as any).rawBody;
+        if (!content) {
+            console.error('[Webhook] rawBody is missing despite being enabled for /alchemy');
+            return reply.status(500).send({ error: 'Internal server error' });
+        }
+
+        const parsedNetwork = parseAlchemyNetworkFromRawBody(content);
+        const alchemySecrets = selectAlchemySecretsForNetwork(parsedNetwork);
+
+        if (alchemySecrets.length === 0) {
             const now = Date.now();
-            if (IS_PRODUCTION && now - lastMissingAlchemySecretWarnAt > 60_000) {
+            if (IS_PRODUCTION && !env.security.allowUnsignedAlchemyWebhook) {
+                if (now - lastMissingAlchemySecretWarnAt > 60_000) {
+                    lastMissingAlchemySecretWarnAt = now;
+                    console.error('[Webhook] Alchemy webhook signing key missing in production; rejecting /alchemy webhook requests');
+                }
+                return reply.status(503).send({ error: 'Alchemy webhook secret not configured' });
+            }
+            if (now - lastMissingAlchemySecretWarnAt > 60_000) {
                 lastMissingAlchemySecretWarnAt = now;
-                console.warn('[Webhook] ALCHEMY_WEBHOOK_SECRET missing in production; accepting unsigned /alchemy webhook requests');
+                console.warn('[Webhook] Alchemy webhook signing key missing; accepting unsigned /alchemy webhook requests');
             }
         } else {
             const signature = request.headers['x-alchemy-signature'] as string;
@@ -231,19 +290,18 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 return reply.status(401).send({ error: 'Missing signature' });
             }
 
-            // CRITICAL: Use rawBody for signature verification to ensure exact byte-match
-            const hmac = crypto.createHmac('sha256', alchemySecret);
-            const content = (request as any).rawBody;
-
-            if (!content) {
-                console.error(`[Webhook] rawBody is missing despite being enabled for /alchemy`);
-                return reply.status(500).send({ error: 'Internal server error' });
+            let signatureValid = false;
+            for (const secret of alchemySecrets) {
+                const hmac = crypto.createHmac('sha256', secret);
+                hmac.update(content);
+                const digest = hmac.digest('hex');
+                if (safeSecretEquals(signature, digest)) {
+                    signatureValid = true;
+                    break;
+                }
             }
 
-            hmac.update(content);
-            const digest = hmac.digest('hex');
-
-            if (!safeSecretEquals(signature, digest)) {
+            if (!signatureValid) {
                 console.warn(`[Webhook] Invalid Alchemy signature. Got ${signature?.slice?.(0, 12) || 'unknown'}...`);
                 return reply.status(401).send({ error: 'Invalid signature' });
             }
@@ -307,6 +365,23 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                 if (eventData?.activity) {
                     items = Array.isArray(eventData.activity) ? eventData.activity : [eventData.activity];
+                    const byTxHash = new Map<string, any>();
+                    for (const activity of items) {
+                        const hash = String(activity?.hash || '').toLowerCase();
+                        if (!hash) continue;
+                        const prev = byTxHash.get(hash);
+                        if (!prev) {
+                            byTxHash.set(hash, activity);
+                            continue;
+                        }
+                        const prevScore = Number(!!prev?.rawContract?.address) + Number(!!prev?.fromAddress) + Number(!!prev?.toAddress);
+                        const currScore = Number(!!activity?.rawContract?.address) + Number(!!activity?.fromAddress) + Number(!!activity?.toAddress);
+                        if (currScore >= prevScore) byTxHash.set(hash, activity);
+                    }
+                    if (byTxHash.size > 0 && byTxHash.size !== items.length) {
+                        console.log(`[Webhook] Deduped EVM activities from ${items.length} to ${byTxHash.size}`);
+                        items = Array.from(byTxHash.values());
+                    }
                     console.log(`[Webhook] Processing as EVM activity (${items.length} items)`);
                 } else if (eventData?.transaction) {
                     items = Array.isArray(eventData.transaction) ? eventData.transaction : [eventData.transaction];
@@ -351,29 +426,35 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
                         return;
                     }
-
-                    const trackedWallets = await prisma.trackedWallet.findMany({
-                        where: {
-                            address: { in: candidates, mode: 'insensitive' },
-                            chainId,
-                        }
-                    });
-
-                    if (trackedWallets.length === 0) {
-                        console.log(
-                            `[Webhook] Ignore tx ${txHash.slice(0, 12)}: no tracked wallets (from/to ${candidates.map(c => c.slice(0, 6)).join(', ')})`
-                        );
+                    const txLockValue = await claimTxProcessingLockDistributed(txHash, chainId);
+                    if (!txLockValue) {
+                        console.log(`[Webhook] Tx already in-flight: ${txHash.slice(0, 16)}`);
                         return;
                     }
 
-                    console.log(`[Webhook] 🎯 Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
+                    try {
+                        const trackedWallets = await prisma.trackedWallet.findMany({
+                            where: {
+                                address: { in: candidates, mode: 'insensitive' },
+                                chainId,
+                            }
+                        });
 
-                    // Branch by chain type: Solana vs EVM
-                    if (chainId === 900) {
-                        try {
-                            // Solana Logic
-                            const { getSolanaConnection } = await import('../services/rpcManager.js');
-                            const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
+                        if (trackedWallets.length === 0) {
+                            console.log(
+                                `[Webhook] Ignore tx ${txHash.slice(0, 12)}: no tracked wallets (from/to ${candidates.map(c => c.slice(0, 6)).join(', ')})`
+                            );
+                            return;
+                        }
+
+                        console.log(`[Webhook] 🎯 Found ${trackedWallets.length} tracked wallets for tx ${txHash.slice(0, 8)}`);
+
+                        // Branch by chain type: Solana vs EVM
+                        if (chainId === 900) {
+                            try {
+                                // Solana Logic
+                                const { getSolanaConnection } = await import('../services/rpcManager.js');
+                                const { decodeSolanaSwap } = await import('../services/solanaDecoder.js');
 
                             let tx: any = null;
                             const strategies: Array<'fast' | 'cheap'> = ['fast', 'cheap'];
@@ -424,48 +505,48 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                                     // console.log(`[Webhook] Solana tx ${txHash.slice(0, 8)} was not a swap for tracked wallet`);
                                 }
                             }));
-                        } catch (err) {
-                            console.error(`[Webhook] Error fetching Solana tx details:`, err);
-                        }
-                        return;
-                    }
-
-                    // EVM Logic (Base, BSC, etc.)
-                    const fetchWithRetry = async () => {
-                        const maxAttempts = 3;
-                        let tx: any = null;
-                        let receipt: any = null;
-                        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                            [tx, receipt] = await Promise.all([
-                                fetchTransaction(txHash, chainId),
-                                fetchTransactionReceipt(txHash, chainId),
-                            ]);
-                            if (tx && receipt) break;
-                            if (attempt < maxAttempts) {
-                                await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+                            } catch (err) {
+                                console.error(`[Webhook] Error fetching Solana tx details:`, err);
                             }
+                            return;
                         }
-                        return { tx, receipt, attempts: maxAttempts };
-                    };
 
-                    const { tx, receipt, attempts } = await fetchWithRetry();
+                        // EVM Logic (Base, BSC, etc.)
+                        const fetchWithRetry = async () => {
+                            const maxAttempts = 3;
+                            let tx: any = null;
+                            let receipt: any = null;
+                            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                                [tx, receipt] = await Promise.all([
+                                    fetchTransaction(txHash, chainId),
+                                    fetchTransactionReceipt(txHash, chainId),
+                                ]);
+                                if (tx && receipt) break;
+                                if (attempt < maxAttempts) {
+                                    await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+                                }
+                            }
+                            return { tx, receipt, attempts: maxAttempts };
+                        };
 
-                    if (!tx || !receipt) {
-                        console.warn(`[Webhook] Could not fetch tx/receipt after retries: ${txHash.slice(0, 16)}`, {
-                            txMissing: !tx,
-                            receiptMissing: !receipt,
-                            attempts
-                        });
-                        return;
-                    }
+                        const { tx, receipt, attempts } = await fetchWithRetry();
 
-                    // Mark as processed only after tx/receipt fetch succeeded
-                    await markTxAsProcessedDistributed(txHash, chainId);
+                        if (!tx || !receipt) {
+                            console.warn(`[Webhook] Could not fetch tx/receipt after retries: ${txHash.slice(0, 16)}`, {
+                                txMissing: !tx,
+                                receiptMissing: !receipt,
+                                attempts
+                            });
+                            return;
+                        }
 
-                    // Trigger copy trade for EACH matched tracked wallet
-                    const { handleSwapDetected } = await import('../services/autoTradeService.js');
+                        // Mark as processed only after tx/receipt fetch succeeded
+                        await markTxAsProcessedDistributed(txHash, chainId);
 
-                    await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
+                        // Trigger copy trade for EACH matched tracked wallet
+                        const { handleSwapDetected } = await import('../services/autoTradeService.js');
+
+                        await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
                         const trackedTarget = walletRecord.address;
 
                         // Parse as swap - IMPORTANT: Use trackedTarget as the identity for decoding
@@ -501,7 +582,10 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                         const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                         enqueueCopyTradeTask(trackedTarget, swap, chainId);
-                    }));
+                        }));
+                    } finally {
+                        await releaseTxProcessingLockDistributed(txHash, chainId, txLockValue);
+                    }
                 };
 
                 // Process items in parallel batches for speed without overload

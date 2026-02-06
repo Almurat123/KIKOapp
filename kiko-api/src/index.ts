@@ -239,7 +239,15 @@ async function start() {
             env: env.nodeEnv,
             port: env.port,
             database: env.databaseUrl ? 'configured' : 'missing',
-            privy: isPrivyConfigured() ? '✅ Configured' : '❌ Not Configured'
+            privy: isPrivyConfigured() ? '✅ Configured' : '❌ Not Configured',
+            webhookSecurity: {
+                alchemySecretConfigured: Boolean(env.security.alchemyWebhookSecret),
+                alchemySecretBaseConfigured: Boolean(env.security.alchemyWebhookSecretBase),
+                alchemySecretBscConfigured: Boolean(env.security.alchemyWebhookSecretBsc),
+                alchemySecretSolConfigured: Boolean(env.security.alchemyWebhookSecretSol),
+                internalSecretConfigured: Boolean(env.security.internalWebhookSecret),
+                allowUnsignedAlchemyWebhook: env.security.allowUnsignedAlchemyWebhook
+            }
         });
 
         // Test database connection

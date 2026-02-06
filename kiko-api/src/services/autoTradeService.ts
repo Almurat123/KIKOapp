@@ -2572,9 +2572,13 @@ export async function checkPositionsForExits(): Promise<void> {
                 const dexPrice = await getDexPrice(address, dexChainId);
 
                 if (dexPrice > 0) {
-                    const info = await getTokenInfo(address, chainId).catch(() => null);
                     tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, {
-                        ...(info || {}),
+                        symbol: 'UNKNOWN',
+                        name: 'Unknown Token',
+                        decimals: chainId === 900 ? 9 : 18,
+                        liquidity: 0,
+                        volume24h: 0,
+                        marketCap: 0,
                         price: dexPrice,
                         provider: chainId === 900 ? 'jupiter-dex' : '0x-dex'
                     });

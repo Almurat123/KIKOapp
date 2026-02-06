@@ -124,23 +124,27 @@ async function fetchTokenInfoFromAPIs(
     // ⚠️ Solana (chainId 900): Uses Jupiter API instead of RPC
     const isSolana = chainId === 900;
 
+    const shouldUseOnChainRpc = isSolana || fastMode || priority === 'high' || rpcStrategy === 'fast';
     if (verbose) {
-        logger.debug(LogCode.API_FETCH_SUCCESS, isSolana ? '📡 Jupiter API Strategy (Solana)' : '🚀 Hybrid Strategy (EVM): RPC + API', {
+        logger.debug(LogCode.API_FETCH_SUCCESS, isSolana ? '📡 Jupiter API Strategy (Solana)' : '🚀 Hybrid Strategy (EVM): adaptive RPC + API', {
             token: tokenAddress,
-            chainId
+            chainId,
+            onChainRpcEnabled: shouldUseOnChainRpc
         });
     }
 
-    // 🚀 PARALLEL EXECUTION: RPC/Jupiter (price) + API (liquidity) + Metadata
-    const rpcPromise = isSolana
-        ? (async () => {
-            const { getSolanaTokenInfo } = await import('./solanaOnChainPriceService.js');
-            return getSolanaTokenInfo(tokenAddress);
-        })()
-        : (async () => {
-            const { getOnChainPrice } = await import('./onChainPriceService.js');
-            return getOnChainPrice(tokenAddress, chainId, { rpcStrategy });
-        })();
+    // 🚀 PARALLEL EXECUTION: (optional) RPC/Jupiter + API (liquidity) + Metadata
+    const rpcPromise = shouldUseOnChainRpc
+        ? (isSolana
+            ? (async () => {
+                const { getSolanaTokenInfo } = await import('./solanaOnChainPriceService.js');
+                return getSolanaTokenInfo(tokenAddress);
+            })()
+            : (async () => {
+                const { getOnChainPrice } = await import('./onChainPriceService.js');
+                return getOnChainPrice(tokenAddress, chainId, { rpcStrategy });
+            })())
+        : Promise.resolve(null);
 
     const liquidityPromise = getLiquidityData(tokenAddress, chainId, priority);
 

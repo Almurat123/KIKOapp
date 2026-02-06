@@ -34,6 +34,7 @@ import { ethers } from 'ethers';
 import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
+import { callRpc } from './rpcManager.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -648,11 +649,32 @@ export class MainSwapService {
           const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
           const approvalData = iface.encodeFunctionData('approve', [targetSpender, ethers.MaxUint256]);
 
+          // Use a deterministic nonce when possible to avoid post-buy nonce conflicts.
+          let nextNonce: string | undefined;
+          try {
+            if (executionResult.txHash) {
+              const buyTx = await callRpc<any>(request.chainId, 'eth_getTransactionByHash', [executionResult.txHash], {
+                strategy: 'fast',
+                importance: 'critical'
+              });
+              const buyNonceHex = buyTx?.nonce as string | undefined;
+              if (buyNonceHex) {
+                const buyNonce = BigInt(buyNonceHex);
+                nextNonce = (buyNonce + 1n).toString();
+              }
+            }
+          } catch (nonceErr: any) {
+            logger.warn(LogCode.SYS_INFO, trace('Post-Buy nonce prefetch failed, fallback to pending nonce'), {
+              error: nonceErr?.message?.slice?.(0, 120)
+            });
+          }
+
           const approveTxHash = await sendTransaction(request.userId, request.accessToken || '', {
             to: request.tokenOut,
             data: approvalData,
             value: '0',
-            chainId: request.chainId
+            chainId: request.chainId,
+            nonce: nextNonce
           });
 
           logger.info(LogCode.EXE_TX_CONFIRMED, trace('Post-Buy Pre-Approval Sent'), {

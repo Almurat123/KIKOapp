@@ -121,8 +121,12 @@ export interface EnvConfig {
         tiers: Array<{ minBalance: number; dailyLimit: number }>;
     };
     security: {
-        alchemyWebhookSecret?: string; // Secret for verifying Alchemy webhooks
+        alchemyWebhookSecret?: string; // Legacy global secret for verifying Alchemy webhooks
+        alchemyWebhookSecretBase?: string; // Base-specific webhook signing key
+        alchemyWebhookSecretBsc?: string; // BSC-specific webhook signing key
+        alchemyWebhookSecretSol?: string; // Solana-specific webhook signing key
         internalWebhookSecret?: string; // Secret for verifying internal Go service requests
+        allowUnsignedAlchemyWebhook: boolean; // Allow unsigned Alchemy webhooks when secret missing
     };
     aiModel: string; // AI Model for analysis
     logLevel?: string; // Log level (debug, info, warn, error)
@@ -164,14 +168,30 @@ function validateEnv(): EnvConfig {
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
     const alchemyWebhookSecret = process.env.ALCHEMY_WEBHOOK_SECRET;
+    const alchemyWebhookSecretBase = process.env.ALCHEMY_WEBHOOK_SECRET_BASE;
+    const alchemyWebhookSecretBsc = process.env.ALCHEMY_WEBHOOK_SECRET_BSC;
+    const alchemyWebhookSecretSol = process.env.ALCHEMY_WEBHOOK_SECRET_SOL;
+    const allowUnsignedAlchemyWebhook =
+        (process.env.ALCHEMY_WEBHOOK_ALLOW_UNSIGNED || '').toLowerCase() === 'true' ||
+        (process.env.ALCHEMY_WEBHOOK_ALLOW_UNSIGNED || '') === '1';
     const internalWebhookSecret = process.env.INTERNAL_WEBHOOK_SECRET;
 
     if (isProduction && !internalWebhookSecret) {
         throw new Error('Missing required webhook security env var in production: INTERNAL_WEBHOOK_SECRET');
     }
 
-    if (isProduction && !alchemyWebhookSecret) {
-        console.warn('[Env] ALCHEMY_WEBHOOK_SECRET is missing in production. /api/webhook/alchemy will return 503 until configured.');
+    const hasAlchemyWebhookSecret =
+        Boolean(alchemyWebhookSecret) ||
+        Boolean(alchemyWebhookSecretBase) ||
+        Boolean(alchemyWebhookSecretBsc) ||
+        Boolean(alchemyWebhookSecretSol);
+
+    if (isProduction && !hasAlchemyWebhookSecret) {
+        if (allowUnsignedAlchemyWebhook) {
+            console.warn('[Env] Alchemy webhook signing key is missing in production. Unsigned /api/webhook/alchemy requests are ALLOWED by ALCHEMY_WEBHOOK_ALLOW_UNSIGNED=true.');
+        } else {
+            console.warn('[Env] Alchemy webhook signing key is missing in production. /api/webhook/alchemy will return 503 until configured.');
+        }
     }
 
     const usageLimitsEnabled =
@@ -344,7 +364,11 @@ function validateEnv(): EnvConfig {
         },
         security: {
             alchemyWebhookSecret,
+            alchemyWebhookSecretBase,
+            alchemyWebhookSecretBsc,
+            alchemyWebhookSecretSol,
             internalWebhookSecret,
+            allowUnsignedAlchemyWebhook,
         },
         aiModel: process.env.AI_MODEL || 'grok-4-1-fast-reasoning',
         logLevel: process.env.LOG_LEVEL || 'info',

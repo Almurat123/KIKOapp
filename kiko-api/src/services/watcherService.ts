@@ -9,7 +9,8 @@ import { LogCode } from '../config/logRegistry.js';
 import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
 import { callRpc as rpcCall } from './rpcManager.js';
 import { fetchJson } from '../config/unifiedApiService.js';
-import { get as cacheGet, set as cacheSet } from '../cache/redis.js';
+import { get as cacheGet, set as cacheSet, acquireLock, releaseLock } from '../cache/redis.js';
+import { randomUUID } from 'node:crypto';
 
 const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
 
@@ -28,9 +29,14 @@ const lastProcessedBlock: Map<string, number> = new Map();
 // Track processed transactions to avoid duplicates (in-memory cache for current session)
 const processedTxs: Set<string> = new Set();
 const PROCESSED_TX_TTL_SECONDS = Number(process.env.COPYTRADE_PROCESSED_TX_TTL_SEC || 24 * 60 * 60);
+const TX_INFLIGHT_LOCK_TTL_SECONDS = Number(process.env.COPYTRADE_TX_INFLIGHT_TTL_SEC || 45);
 
 function txProcessedCacheKey(txHash: string, chainId: number): string {
     return `copytrade:processed:${chainId}:${txHash.toLowerCase()}`;
+}
+
+function txInflightLockKey(txHash: string, chainId: number): string {
+    return `copytrade:inflight:${chainId}:${txHash.toLowerCase()}`;
 }
 
 /**
@@ -65,6 +71,27 @@ export async function markTxAsProcessedDistributed(txHash: string, chainId: numb
     await cacheSet(txProcessedCacheKey(txHash, chainId), '1', PROCESSED_TX_TTL_SECONDS).catch(() => { });
 }
 
+export async function claimTxProcessingLockDistributed(txHash: string, chainId: number): Promise<string | null> {
+    if (await isTxProcessedDistributed(txHash, chainId)) return null;
+    const key = txInflightLockKey(txHash, chainId);
+    const lockValue = randomUUID();
+    const acquired = await acquireLock(key, TX_INFLIGHT_LOCK_TTL_SECONDS, lockValue).catch(() => false);
+    if (!acquired) return null;
+
+    // Double-check after acquiring lock to avoid race with a just-finished processor.
+    if (await isTxProcessedDistributed(txHash, chainId)) {
+        await releaseLock(key, lockValue).catch(() => { });
+        return null;
+    }
+    return lockValue;
+}
+
+export async function releaseTxProcessingLockDistributed(txHash: string, chainId: number, lockValue: string): Promise<void> {
+    if (!lockValue) return;
+    const key = txInflightLockKey(txHash, chainId);
+    await releaseLock(key, lockValue).catch(() => { });
+}
+
 // Track startup time - only process transactions after this
 const STARTUP_TIME = Date.now();
 
@@ -94,7 +121,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 export async function fetchTransaction(txHash: string, chainId: number): Promise<any | null> {
     const start = Date.now();
     try {
-        const result = await rpcCall(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast' });
+        const result = await rpcCall(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast', importance: 'critical' });
         if (PROFILE) {
             logger.info(LogCode.SYS_INFO, '[Profile] fetchTransaction', {
                 chainId,
@@ -115,7 +142,7 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
 export async function fetchTransactionReceipt(txHash: string, chainId: number): Promise<any | null> {
     const start = Date.now();
     try {
-        const result = await rpcCall(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast' });
+        const result = await rpcCall(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast', importance: 'critical' });
         if (PROFILE) {
             logger.info(LogCode.SYS_INFO, '[Profile] fetchReceipt', {
                 chainId,

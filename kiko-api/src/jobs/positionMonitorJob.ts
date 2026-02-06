@@ -8,7 +8,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
 // Check interval (ms)
-const CHECK_INTERVAL = 10000; // 10 seconds (optimized for mirror sell retries)
+const CHECK_INTERVAL = 30000; // 30 seconds
 
 let isRunning = false;
 let checkTimer: NodeJS.Timeout | null = null;

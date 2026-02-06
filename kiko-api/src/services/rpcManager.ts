@@ -15,7 +15,9 @@ import { getRpcEndpointsWithStrategy, RpcEndpointConfig } from '../config/apiEnd
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
 import { Connection } from '@solana/web3.js';
 
-const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default; override for faster benchmarks
+const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default
+const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
+const RPC_TIMEOUT_CRITICAL_MS = Number(process.env.RPC_TIMEOUT_CRITICAL_MS || '1500');
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Open circuit after 5 consecutive failures (more tolerant)
 const CIRCUIT_BREAKER_RESET_TIME = 30000; // Try again after 30s
@@ -38,6 +40,16 @@ interface EndpointHealth {
 }
 
 const endpointHealth = new Map<string, EndpointHealth>();
+const allRpcFailedLogGate = new Map<string, number>();
+const ALL_RPC_FAILED_LOG_COOLDOWN_MS = Number(process.env.RPC_ALL_FAILED_LOG_COOLDOWN_MS || 5000);
+
+function shouldLogAllRpcFailed(key: string): boolean {
+    const now = Date.now();
+    const last = allRpcFailedLogGate.get(key) || 0;
+    if (now - last < ALL_RPC_FAILED_LOG_COOLDOWN_MS) return false;
+    allRpcFailedLogGate.set(key, now);
+    return true;
+}
 
 function getOrCreateUsage(url: string): EndpointUsage {
     if (!endpointUsage.has(url)) {
@@ -162,6 +174,24 @@ interface RpcResponse<T = any> {
 
 type RpcImportance = 'normal' | 'critical';
 
+function resolveRpcTimeoutMs(
+    method: string,
+    options: { strategy?: 'fast' | 'cheap'; importance?: RpcImportance }
+): number {
+    const effectiveImportance: RpcImportance =
+        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+
+    if (effectiveImportance === 'critical') {
+        if (method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt') {
+            return Math.min(RPC_TIMEOUT_CRITICAL_MS, RPC_TIMEOUT_FAST_MS);
+        }
+        return RPC_TIMEOUT_CRITICAL_MS;
+    }
+
+    if (options.strategy === 'fast') return RPC_TIMEOUT_FAST_MS;
+    return RPC_TIMEOUT_MS;
+}
+
 interface EndpointUsage {
     url: string;
     inFlight: number;
@@ -240,9 +270,12 @@ export async function callRpc<T = any>(
     };
 
     let lastError: Error | null = null;
+    const effectiveImportance: RpcImportance =
+        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+    const requestTimeoutMs = resolveRpcTimeoutMs(method, options);
 
     // Sort endpoints by health and priority
-    const sortedEndpoints = sortEndpointsByScore(endpoints, options.importance || 'normal');
+    const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
 
     // Try each endpoint with circuit breaker check
     for (let i = 0; i < sortedEndpoints.length; i++) {
@@ -255,7 +288,7 @@ export async function callRpc<T = any>(
             continue;
         }
 
-        const capacity = checkEndpointCapacity(endpoint, options.importance || 'normal');
+        const capacity = checkEndpointCapacity(endpoint, effectiveImportance);
         if (!capacity.ok) {
             logger.debug(LogCode.API_FETCH_FAILED, `RPC capacity limited, skipping endpoint`, {
                 endpoint: maskEndpoint(endpoint.url),
@@ -270,7 +303,7 @@ export async function callRpc<T = any>(
             recordAttempt(endpoint.url);
 
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+            const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
             const response = await fetch(endpoint.url, {
                 method: 'POST',
                 headers: {
@@ -359,11 +392,20 @@ export async function callRpc<T = any>(
     }
 
     // All endpoints failed
-    logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
-        chain: chainName,
-        totalEndpoints: sortedEndpoints.length,
-        lastError: lastError?.message
-    });
+    const failedLogKey = `${chainName}:${method}`;
+    if (shouldLogAllRpcFailed(failedLogKey)) {
+        logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
+            chain: chainName,
+            method,
+            totalEndpoints: sortedEndpoints.length,
+            lastError: lastError?.message
+        });
+    } else {
+        logger.debug(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed (suppressed)', {
+            chain: chainName,
+            method
+        });
+    }
 
     throw new Error(
         `All RPC endpoints failed for ${chainName}. Last error: ${lastError?.message || 'Unknown'}`
@@ -407,7 +449,9 @@ export async function callRpcCustom<T = any>(
     };
 
     let lastError: Error | null = null;
-    const sortedEndpoints = sortEndpointsByScore(filtered, options.importance || 'normal');
+    const effectiveImportance: RpcImportance = options.importance || 'normal';
+    const requestTimeoutMs = resolveRpcTimeoutMs(method, { strategy: 'fast', importance: effectiveImportance });
+    const sortedEndpoints = sortEndpointsByScore(filtered, effectiveImportance);
 
     for (let i = 0; i < sortedEndpoints.length; i++) {
         const endpoint = sortedEndpoints[i];
@@ -418,7 +462,7 @@ export async function callRpcCustom<T = any>(
             continue;
         }
 
-        const capacity = checkEndpointCapacity(endpoint, options.importance || 'normal');
+        const capacity = checkEndpointCapacity(endpoint, effectiveImportance);
         if (!capacity.ok) {
             logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
                 endpoint: maskEndpoint(endpoint.url),
@@ -433,7 +477,7 @@ export async function callRpcCustom<T = any>(
             recordAttempt(endpoint.url);
 
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+            const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
             const response = await fetch(endpoint.url, {
                 method: 'POST',
                 headers: {
@@ -504,10 +548,18 @@ export async function callRpcCustom<T = any>(
         }
     }
 
-    logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
-        totalEndpoints: sortedEndpoints.length,
-        lastError: lastError?.message
-    });
+    const failedLogKey = `custom:${method}`;
+    if (shouldLogAllRpcFailed(failedLogKey)) {
+        logger.error(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed', {
+            method,
+            totalEndpoints: sortedEndpoints.length,
+            lastError: lastError?.message
+        });
+    } else {
+        logger.debug(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed (suppressed)', {
+            method
+        });
+    }
 
     throw new Error(`All RPC endpoints failed. Last error: ${lastError?.message || 'Unknown'}`);
 }
@@ -568,7 +620,10 @@ export async function callRpcRaw<T = any>(
     };
 
     let lastError: Error | null = null;
-    const sortedEndpoints = sortEndpointsByScore(endpoints, options.importance || 'normal');
+    const effectiveImportance: RpcImportance =
+        options.importance || (options.strategy === 'fast' ? 'critical' : 'normal');
+    const requestTimeoutMs = resolveRpcTimeoutMs(method, options);
+    const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
 
     for (let i = 0; i < sortedEndpoints.length; i++) {
         const endpoint = sortedEndpoints[i];
@@ -579,7 +634,7 @@ export async function callRpcRaw<T = any>(
             continue;
         }
 
-        const capacity = checkEndpointCapacity(endpoint, options.importance || 'normal');
+        const capacity = checkEndpointCapacity(endpoint, effectiveImportance);
         if (!capacity.ok) {
             logger.debug(LogCode.API_FETCH_FAILED, 'RPC capacity limited, skipping endpoint', {
                 endpoint: maskEndpoint(endpoint.url),
@@ -594,7 +649,7 @@ export async function callRpcRaw<T = any>(
             recordAttempt(endpoint.url);
 
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+            const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
             const response = await fetch(endpoint.url, {
                 method: 'POST',
                 headers: {
