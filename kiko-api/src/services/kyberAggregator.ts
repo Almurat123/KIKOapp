@@ -38,7 +38,8 @@ export async function getKyberQuote(
     slippageBps: number,
     recipient: string,
     feeContext?: FeeContext | 'copy_trade' | 'launchpad',
-    isSell?: boolean
+    isSell?: boolean,
+    signal?: AbortSignal
 ) {
     const chainName = CHAIN_NAME_MAP[chainId];
     if (!chainName) {
@@ -85,7 +86,8 @@ export async function getKyberQuote(
             'x-client-id': CLIENT_ID,
         },
         requestTimeout: 20000,
-        retry: { retries: 1 }
+        retry: { retries: 1 },
+        signal
     });
 
     if (!routesJson) {
@@ -168,7 +170,8 @@ export async function getKyberQuote(
                 },
                 body: JSON.stringify(buildBody),
                 requestTimeout: 20000,
-                retry: { retries: 1 }
+                retry: { retries: 1 },
+                signal
             });
     } catch (buildErr: any) {
         const errMsg = String(buildErr?.message || '');
@@ -191,7 +194,8 @@ export async function getKyberQuote(
                     },
                     body: JSON.stringify(minimalBody),
                     requestTimeout: 20000,
-                    retry: { retries: 1 }
+                    retry: { retries: 1 },
+                    signal
                 });
             } catch (retryErr: any) {
                 throw retryErr;

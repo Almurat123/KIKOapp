@@ -517,10 +517,6 @@ export async function sendTransaction(
                     });
                 }
 
-                // Add a small delay after sending to allow nonce propagation/indexing
-                // This helps when sending multiple transactions in rapid succession
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
                 return response.hash;
             } catch (error: any) {
                 const errorMessage = error.message || '';

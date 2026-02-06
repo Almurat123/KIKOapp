@@ -14,7 +14,7 @@ import { ethers } from 'ethers';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { findTokenPools, getV2PoolInfo, getV3PoolInfo, PoolInfo } from './poolInfo.js';
-import { calculatePriceFromSqrtX96, findV4Pools, getV4PoolInfo, V4PoolKey } from './uniswapV4.js';
+import { calculatePriceFromSqrtX96, findV4Pools, getV4PoolInfo, V4PoolInfo, V4PoolKey } from './uniswapV4.js';
 import { buildV4SwapTransaction, isV4SwapSupported } from './uniswapV4Swap.js';
 import { calculateV3TVL } from './v3Math.js';
 import { callRpc, callRpcRaw } from '../rpcManager.js';
@@ -354,6 +354,27 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
     });
 }
 
+async function withAbortableTimeout<T>(
+    runner: (signal: AbortSignal) => Promise<T>,
+    ms: number
+): Promise<T> {
+    const controller = new AbortController();
+    let timer: NodeJS.Timeout | null = null;
+    try {
+        return await Promise.race([
+            runner(controller.signal),
+            new Promise<T>((_, reject) => {
+                timer = setTimeout(() => {
+                    controller.abort();
+                    reject(new Error(`timeout_${ms}ms`));
+                }, ms);
+            })
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
+
 function trimAmountToDecimals(amount: string, decimals: number): string {
     const normalized = String(amount || '0').trim();
     if (!normalized.includes('.')) return normalized;
@@ -619,10 +640,11 @@ export async function executeDirectSwap(params: {
         };
 
         let forceV4 = false;
+        let preloadedV4Pools: V4PoolInfo[] | null = null;
         if (isV4SwapSupported(chainId)) {
             try {
-                const v4Pools = await findV4Pools(poolTokenIn, poolTokenOut, chainId);
-                forceV4 = v4Pools.some(p => isClankerHook(chainId, p.poolKey.hooks));
+                preloadedV4Pools = await findV4Pools(poolTokenIn, poolTokenOut, chainId);
+                forceV4 = preloadedV4Pools.some(p => isClankerHook(chainId, p.poolKey.hooks));
             } catch {
                 forceV4 = false;
             }
@@ -636,15 +658,26 @@ export async function executeDirectSwap(params: {
                 hintSourceRouter: params.hint?.sourceRouter,
                 hintSourceTx: params.hint?.sourceTxHash
             });
-            const v4Best = await getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, params.walletAddress, params.hint);
-            if (v4Best.pool && v4Best.amountOut > 0n) {
+            const v4Best = await getV4BestPoolQuote(
+                poolTokenIn,
+                poolTokenOut,
+                amountInWei,
+                chainId,
+                params.walletAddress,
+                params.hint,
+                { preloadedPools: preloadedV4Pools || undefined }
+            );
+            if (v4Best.pool && (v4Best.amountOut > 0n || forceV4)) {
                 logger.info(LogCode.SYS_INFO, '[DirectSwap] Bypass strategy selected', {
                     strategy: 'v4',
                     amountOut: v4Best.amountOut.toString(),
                     poolId: v4Best.pool.poolAddress,
-                    fee: v4Best.pool.fee
+                    fee: v4Best.pool.fee,
+                    reason: v4Best.amountOut > 0n ? 'quoted' : 'force_v4_clanker'
                 });
-                return finish(await executeV4Swap(normalizedParams, v4Best.pool));
+                return finish(await executeV4Swap(normalizedParams, v4Best.pool, {
+                    allowZeroQuoteMinOut: v4Best.amountOut <= 0n && forceV4
+                }));
             }
             logger.info(LogCode.SYS_INFO, '[DirectSwap] Early v4 bypass unavailable, continue fallback flow', {
                 chainId
@@ -654,7 +687,15 @@ export async function executeDirectSwap(params: {
         if (!bypassReferenceGate && V4_FAST_PATH && isV4SwapSupported(chainId)) {
             const fastStart = Date.now();
             const [v4Best, referenceQuote] = await Promise.all([
-                getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, params.walletAddress, params.hint),
+                getV4BestPoolQuote(
+                    poolTokenIn,
+                    poolTokenOut,
+                    amountInWei,
+                    chainId,
+                    params.walletAddress,
+                    params.hint,
+                    { preloadedPools: preloadedV4Pools || undefined }
+                ),
                 getReferenceExpectedOutput(normalizedTokenIn, normalizedTokenOut, amountInWei, chainId, params.slippageBps, params.walletAddress)
             ]);
             cachedReferenceQuote = referenceQuote;
@@ -756,15 +797,26 @@ export async function executeDirectSwap(params: {
             });
 
             if (preferredStrategy.kind === 'v4' && isV4SwapSupported(chainId)) {
-                const v4Best = await getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, params.walletAddress, params.hint);
-                if (v4Best.pool && v4Best.amountOut > 0n) {
+                const v4Best = await getV4BestPoolQuote(
+                    poolTokenIn,
+                    poolTokenOut,
+                    amountInWei,
+                    chainId,
+                    params.walletAddress,
+                    params.hint,
+                    { preloadedPools: preloadedV4Pools || undefined }
+                );
+                if (v4Best.pool && (v4Best.amountOut > 0n || forceV4)) {
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Bypass strategy selected', {
                         strategy: 'v4',
                         amountOut: v4Best.amountOut.toString(),
                         poolId: v4Best.pool.poolAddress,
-                        fee: v4Best.pool.fee
+                        fee: v4Best.pool.fee,
+                        reason: v4Best.amountOut > 0n ? 'quoted' : 'force_v4_clanker'
                     });
-                    return finish(await executeV4Swap(normalizedParams, v4Best.pool));
+                    return finish(await executeV4Swap(normalizedParams, v4Best.pool, {
+                        allowZeroQuoteMinOut: v4Best.amountOut <= 0n && forceV4
+                    }));
                 }
             } else if (preferredStrategy.kind === 'v3') {
                 const v3Dex = preferredStrategy.dex === 'pancake' ? 'pancake' : 'uniswap';
@@ -940,7 +992,15 @@ export async function executeDirectSwap(params: {
 
             if (strategy.kind === 'v4') {
                 if (!isV4SwapSupported(chainId)) continue;
-                const v4Best = await getV4BestPoolQuote(poolTokenIn, poolTokenOut, amountInWei, chainId, params.walletAddress, params.hint);
+                const v4Best = await getV4BestPoolQuote(
+                    poolTokenIn,
+                    poolTokenOut,
+                    amountInWei,
+                    chainId,
+                    params.walletAddress,
+                    params.hint,
+                    { preloadedPools: preloadedV4Pools || undefined }
+                );
                 if (forceV4 && v4Best.pool) {
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy selected', {
                         strategy: 'v4',
@@ -2053,9 +2113,12 @@ async function getV4BestPoolQuote(
     amountInWei: bigint,
     chainId: number,
     payee?: string,
-    hint?: DirectSwapHint
+    hint?: DirectSwapHint,
+    options?: {
+        preloadedPools?: V4PoolInfo[];
+    }
 ): Promise<{ pool: SelectedV4Pool | null; amountOut: bigint }> {
-    const pools = await findV4Pools(tokenIn, tokenOut, chainId);
+    const pools = options?.preloadedPools || await findV4Pools(tokenIn, tokenOut, chainId);
     const hintedPool = pools.length === 0
         ? await resolveHintedV4PoolFromSourceTx(tokenIn, tokenOut, chainId, hint)
         : null;
@@ -2338,20 +2401,41 @@ async function getReferenceExpectedOutput(
 
     let ref0x = 0n;
     let refKyber = 0n;
-    try {
-        const [zeroExRes, kyberRes] = await Promise.all([
-            withTimeout(get0xExpectedOutput(tokenIn, tokenOut, amountInWei, chainId), REFERENCE_QUOTE_TIMEOUT_MS),
-            withTimeout(
-                getKyberQuote(tokenIn, tokenOut, amountInWei.toString(), chainId, slippageBps, recipient, 'copyTrade')
-                    .then(res => res?.amountOut ? BigInt(res.amountOut) : 0n),
-                REFERENCE_QUOTE_TIMEOUT_MS
-            )
-        ]);
-        ref0x = zeroExRes;
-        refKyber = kyberRes;
-    } catch (err: any) {
-        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Reference quote timeout', {
-            error: err?.message?.slice(0, 80)
+    const [zeroExResult, kyberResult] = await Promise.allSettled([
+        withAbortableTimeout(
+            (signal) => get0xExpectedOutput(tokenIn, tokenOut, amountInWei, chainId, signal),
+            REFERENCE_QUOTE_TIMEOUT_MS
+        ),
+        withAbortableTimeout(
+            async (signal) => {
+                const res = await getKyberQuote(
+                    tokenIn,
+                    tokenOut,
+                    amountInWei.toString(),
+                    chainId,
+                    slippageBps,
+                    recipient,
+                    'copyTrade',
+                    undefined,
+                    signal
+                );
+                return res?.amountOut ? BigInt(res.amountOut) : 0n;
+            },
+            REFERENCE_QUOTE_TIMEOUT_MS
+        )
+    ]);
+    if (zeroExResult.status === 'fulfilled') {
+        ref0x = zeroExResult.value;
+    } else {
+        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] 0x reference quote failed', {
+            error: String(zeroExResult.reason?.message || zeroExResult.reason || '').slice(0, 80)
+        });
+    }
+    if (kyberResult.status === 'fulfilled') {
+        refKyber = kyberResult.value;
+    } else {
+        logger.warn(LogCode.API_FETCH_FAILED, '[DirectSwap] Kyber reference quote failed', {
+            error: String(kyberResult.reason?.message || kyberResult.reason || '').slice(0, 80)
         });
     }
 
@@ -3197,10 +3281,11 @@ async function get0xExpectedOutput(
     tokenIn: string,
     tokenOut: string,
     amountInWei: bigint,
-    chainId: number
+    chainId: number,
+    signal?: AbortSignal
 ): Promise<bigint> {
     try {
-        const price = await getZeroExPrice(tokenIn, tokenOut, amountInWei.toString(), chainId);
+        const price = await getZeroExPrice(tokenIn, tokenOut, amountInWei.toString(), chainId, signal);
         if (price?.buyAmount) {
             logger.debug(LogCode.API_FETCH_SUCCESS, '[DirectSwap] 0x price fetched', {
                 expectedOut: price.buyAmount.slice(0, 15)

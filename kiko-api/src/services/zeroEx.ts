@@ -286,7 +286,8 @@ export async function getZeroExPrice(
   sellToken: string,
   buyToken: string,
   sellAmount: string,
-  chainId: number
+  chainId: number,
+  signal?: AbortSignal
 ): Promise<ZeroExPrice | null> {
   try {
     // Get the appropriate base URL for the chain
@@ -322,7 +323,8 @@ export async function getZeroExPrice(
       url,
       method: 'GET',
       headers,
-      timeout: 10000
+      timeout: 10000,
+      signal
     });
 
     // Check if liquidity is available

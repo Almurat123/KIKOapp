@@ -143,7 +143,16 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
   let lastError: any = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const externalSignal = fetchOptions.signal as AbortSignal | undefined;
     const controller = new AbortController();
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+      }
+    }
     const timeout = setTimeout(() => controller.abort(), requestTimeout);
 
     try {
@@ -157,6 +166,9 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
       });
 
       clearTimeout(timeout);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
 
       // Handle 429 Rate Limit specifically
       if (response.status === 429) {
@@ -181,13 +193,17 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
 
     } catch (error: any) {
       clearTimeout(timeout);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
       lastError = error;
 
       // Don't retry if max retries reached or if it's a 4xx error (except 429)
       const isRateLimit = error.message.includes('429');
       const isClientError = error.message.match(/HTTP 4\d\d/) && !isRateLimit;
+      const isAbort = error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('aborted');
 
-      if (attempt >= maxRetries || (isClientError && !isRateLimit)) {
+      if (attempt >= maxRetries || (isClientError && !isRateLimit) || isAbort) {
         break;
       }
 
