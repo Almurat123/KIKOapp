@@ -53,6 +53,12 @@ function parseAlchemyNetworkFromRawBody(rawBody: string): string | undefined {
     }
 }
 
+function extractAlchemyNetwork(payload: any): string | undefined {
+    const evmNetwork = payload?.event?.network;
+    const solNetwork = payload?.event?.event?.network || payload?.event?.network;
+    return evmNetwork || solNetwork || payload?.network;
+}
+
 function selectAlchemySecretsForNetwork(rawNetwork?: string): string[] {
     const network = String(rawNetwork || '').toUpperCase();
     const secrets: string[] = [];
@@ -259,15 +265,13 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
      * POST /api/webhook/alchemy
      * Direct endpoint for Alchemy Address Activity webhooks
      */
-    fastify.post('/alchemy', async (request, reply) => {
+    fastify.post('/alchemy', { config: { rawBody: true } }, async (request, reply) => {
         // 1. Signature Verification for Alchemy
         const content = (request as any).rawBody;
-        if (!content) {
-            console.error('[Webhook] rawBody is missing despite being enabled for /alchemy');
-            return reply.status(500).send({ error: 'Internal server error' });
-        }
-
-        const parsedNetwork = parseAlchemyNetworkFromRawBody(content);
+        const payloadForNetwork = request.body as any;
+        const parsedNetwork = content
+            ? parseAlchemyNetworkFromRawBody(content)
+            : extractAlchemyNetwork(payloadForNetwork);
         const alchemySecrets = selectAlchemySecretsForNetwork(parsedNetwork);
 
         if (alchemySecrets.length === 0) {
@@ -289,16 +293,27 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 console.warn(`[Webhook] Missing Alchemy signature from ${request.ip}`);
                 return reply.status(401).send({ error: 'Missing signature' });
             }
+            if (!content) {
+                if (IS_PRODUCTION && !env.security.allowUnsignedAlchemyWebhook) {
+                    console.error('[Webhook] rawBody missing on /alchemy while signature verification is required');
+                    return reply.status(503).send({ error: 'Webhook raw body unavailable for signature verification' });
+                }
+                console.warn('[Webhook] rawBody missing on /alchemy; skipping signature verification due to unsigned mode');
+            }
 
             let signatureValid = false;
-            for (const secret of alchemySecrets) {
-                const hmac = crypto.createHmac('sha256', secret);
-                hmac.update(content);
-                const digest = hmac.digest('hex');
-                if (safeSecretEquals(signature, digest)) {
-                    signatureValid = true;
-                    break;
+            if (content) {
+                for (const secret of alchemySecrets) {
+                    const hmac = crypto.createHmac('sha256', secret);
+                    hmac.update(content);
+                    const digest = hmac.digest('hex');
+                    if (safeSecretEquals(signature, digest)) {
+                        signatureValid = true;
+                        break;
+                    }
                 }
+            } else {
+                signatureValid = env.security.allowUnsignedAlchemyWebhook;
             }
 
             if (!signatureValid) {
@@ -308,9 +323,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const payload = request.body as any;
-        const evmNetwork = payload?.event?.network;
-        const solNetwork = payload?.event?.event?.network || payload?.event?.network;
-        const rawNetwork = evmNetwork || solNetwork || payload?.network || 'unknown';
+        const rawNetwork = extractAlchemyNetwork(payload) || 'unknown';
         const sampleActivity = payload?.event?.activity?.[0] || payload?.event?.activity;
         const sampleTx = payload?.event?.event?.transaction?.[0] || payload?.event?.event?.transaction;
         const sampleHash = sampleActivity?.hash || sampleTx?.signature || 'n/a';

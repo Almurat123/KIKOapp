@@ -637,7 +637,7 @@ export async function getPostsForRefresh(limit: number = 200, maxAgeDays: number
         // Use raw query to prioritize posts that are BOTH popular AND stale
         // Score = likes * seconds_since_update
         const posts = await prisma.$queryRaw<{ hash: string, fid: number }[]>`
-            SELECT hash, fid 
+            SELECT cast_hash AS hash, fid 
             FROM trending_casts
             WHERE timestamp > ${cutoff}
             AND (stats_last_updated_at < ${statsCutoff} OR stats_last_updated_at IS NULL)
