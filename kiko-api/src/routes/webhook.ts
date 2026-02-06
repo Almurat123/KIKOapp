@@ -38,6 +38,7 @@ const NETWORK_TO_CHAIN_ID: Record<string, number> = {
 };
 
 const IS_PRODUCTION = env.nodeEnv === 'production' || env.nodeEnv === 'prod';
+let lastMissingAlchemySecretWarnAt = 0;
 
 function safeSecretEquals(provided: unknown, expected: string): boolean {
     if (typeof provided !== 'string') return false;
@@ -218,11 +219,11 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         // 1. Signature Verification for Alchemy
         const alchemySecret = env.security.alchemyWebhookSecret;
         if (!alchemySecret) {
-            if (IS_PRODUCTION) {
-                console.error('[Webhook] ALCHEMY_WEBHOOK_SECRET is required in production');
-                return reply.status(503).send({ error: 'Webhook is not configured securely' });
+            const now = Date.now();
+            if (IS_PRODUCTION && now - lastMissingAlchemySecretWarnAt > 60_000) {
+                lastMissingAlchemySecretWarnAt = now;
+                console.warn('[Webhook] ALCHEMY_WEBHOOK_SECRET missing in production; accepting unsigned /alchemy webhook requests');
             }
-            console.warn('[Webhook] ALCHEMY_WEBHOOK_SECRET is missing (development mode only)');
         } else {
             const signature = request.headers['x-alchemy-signature'] as string;
             if (!signature) {
