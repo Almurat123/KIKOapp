@@ -842,6 +842,16 @@ export async function parseSwapTransaction(
         if (v4Swap) {
             v4Swap.router = tx.to;
             v4Swap.txHash = tx.hash;
+            // Normalize wrapped native to native for display and downstream direction checks.
+            const NATIVE_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+            const chainConfig = getChainConfig(chainId);
+            const WRAPPED_NATIVE = chainConfig.wrappedNativeAddress;
+            if (v4Swap.tokenIn.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
+                v4Swap.tokenIn = NATIVE_ADDRESS;
+            }
+            if (v4Swap.tokenOut.toLowerCase() === WRAPPED_NATIVE.toLowerCase()) {
+                v4Swap.tokenOut = NATIVE_ADDRESS;
+            }
             if (PROFILE) {
                 logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
                     tx: tx.hash?.slice(0, 12),

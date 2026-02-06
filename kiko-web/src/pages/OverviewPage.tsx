@@ -35,6 +35,18 @@ function formatNumber(value: number): string {
   return value.toFixed(0);
 }
 
+function formatRelativeTime(date?: string | Date): string {
+  if (!date) return '';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const diff = Date.now() - d.getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return d.toLocaleDateString();
+}
+
 const generateTrend = (currentValue: number, points: number = 30): number[] => {
   const trend = [];
   let current = currentValue;
@@ -54,7 +66,7 @@ const macroIndicatorsDefault = [
     icon: Gauge,
     color: "#eab308",
     value: "74",
-    unit: "/ 100",
+    unit: "100",
     status: "Greed",
     statusColor: "#16c784",
     statusBg: "rgba(22, 199, 132, 0.1)",
@@ -70,7 +82,7 @@ const macroIndicatorsDefault = [
     icon: Coins,
     color: "#3861fb",
     value: "35",
-    unit: "/ 100",
+    unit: "100",
     status: "Bitcoin Season",
     statusColor: "#eab308",
     statusBg: "rgba(234, 179, 8, 0.1)",
@@ -118,7 +130,7 @@ const macroIndicatorsDefault = [
     icon: Zap,
     color: "#f59e0b",
     value: "45.2",
-    unit: "/ 100",
+    unit: "100",
     status: "Moderate",
     statusColor: "#f59e0b",
     statusBg: "rgba(245, 158, 11, 0.1)",
@@ -150,7 +162,7 @@ const macroIndicatorsDefault = [
     icon: AlertTriangle,
     color: "#ea3943",
     value: "35.8",
-    unit: "/ 100",
+    unit: "100",
     status: "Moderate",
     statusColor: "#f59e0b",
     statusBg: "rgba(245, 158, 11, 0.1)",
@@ -193,18 +205,8 @@ export const OverviewPage: React.FC = () => {
   const [gainers, setGainers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
 
   const mountedRef = useRef(true);
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   // Load data on mount - simplified, no visibility check
   useEffect(() => {
@@ -220,7 +222,7 @@ export const OverviewPage: React.FC = () => {
 
   // Cache configuration
   const CACHE_KEY = 'kiko_market_overview_cache_v3';
-  const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
+  const CACHE_DURATION = 10 * 1000; // Reduced to 10 seconds to respond to user refresh faster
 
   // Load from cache
   const loadFromCache = () => {
@@ -342,25 +344,25 @@ export const OverviewPage: React.FC = () => {
     {
       label: "Global Market Cap",
       value: formatCurrency(marketData.globalMarketCap),
-      change: "+1.2%",
-      isUp: true
+      change: marketData.mcapChange24h !== undefined ? `${marketData.mcapChange24h > 0 ? '+' : ''}${marketData.mcapChange24h.toFixed(1)}%` : "N/A",
+      isUp: marketData.mcapChange24h !== undefined ? marketData.mcapChange24h >= 0 : true
     },
     {
       label: "24h Volume",
       value: formatCurrency(marketData.volume24h),
-      change: "-5.4%",
-      isUp: false
+      change: "Live",
+      isUp: true
     },
     {
-      label: "Total Active Users",
+      label: "Active Wallets (24h)",
       value: marketData.activeUsers ? formatNumber(marketData.activeUsers) : "N/A",
-      change: "+0.1%",
+      change: "Active",
       isUp: true
     },
     {
       label: "ETH Gas",
       value: marketData.ethGasPrice || "N/A",
-      change: "Low",
+      change: marketData.ethGasPrice ? "Live" : "N/A",
       isUp: true,
       color: "#eab308"
     },
@@ -374,7 +376,7 @@ export const OverviewPage: React.FC = () => {
       icon: Gauge,
       color: "#eab308",
       value: marketData.fearGreedIndex.toString(),
-      unit: "/ 100",
+      unit: "100",
       status: marketData.fearGreedClassification,
       statusColor: marketData.fearGreedIndex > 50 ? "#16c784" : "#ea3943",
       statusBg: marketData.fearGreedIndex > 50
@@ -394,7 +396,7 @@ export const OverviewPage: React.FC = () => {
       icon: Coins,
       color: "#3861fb",
       value: marketData.altcoinSeasonIndex?.toFixed(0) || "35",
-      unit: "/ 100",
+      unit: "100",
       status: (marketData.altcoinSeasonIndex || 0) > 75 ? "Alt Season" : (marketData.altcoinSeasonIndex || 0) < 25 ? "Bitcoin Season" : "Neutral",
       statusColor: (marketData.altcoinSeasonIndex || 0) > 75 ? "#16c784" : (marketData.altcoinSeasonIndex || 0) < 25 ? "#eab308" : "#5B8DEF",
       statusBg: (marketData.altcoinSeasonIndex || 0) > 75
@@ -442,7 +444,7 @@ export const OverviewPage: React.FC = () => {
           : "Market dominance is balanced.",
       rangeValue: marketData.bitcoinDominance,
       rangeLabels: ["Low", "Avg", "High"],
-      trend: generateTrend(marketData.bitcoinDominance)
+      trend: marketData.btcDomChange24h !== undefined ? (marketData.btcDomChange24h >= 0 ? 'up' : 'down') : generateTrend(marketData.bitcoinDominance)
     },
     {
       id: 4,
@@ -472,7 +474,7 @@ export const OverviewPage: React.FC = () => {
       icon: Zap,
       color: "#f59e0b",
       value: (marketData.gasLevel !== undefined && marketData.gasLevel !== null) ? marketData.gasLevel.toFixed(1) : "N/A",
-      unit: "/ 100",
+      unit: "100",
       status: marketData.gasLevelStatus || "Unknown",
       statusColor: (marketData.gasLevel !== undefined && marketData.gasLevel !== null)
         ? (marketData.gasLevel < 30 ? "#16c784" : marketData.gasLevel < 60 ? "#f59e0b" : marketData.gasLevel < 80 ? "#ea3943" : "#dc2626")
@@ -522,7 +524,7 @@ export const OverviewPage: React.FC = () => {
       icon: AlertTriangle,
       color: "#ea3943",
       value: marketData.liquidityStressIndex ? marketData.liquidityStressIndex.toFixed(1) : "N/A",
-      unit: "/ 100",
+      unit: "100",
       status: marketData.liquidityStressStatus || "Unknown",
       statusColor: marketData.liquidityStressIndex
         ? (marketData.liquidityStressIndex < 30 ? "#16c784" : marketData.liquidityStressIndex < 60 ? "#f59e0b" : marketData.liquidityStressIndex < 80 ? "#ea3943" : "#dc2626")
@@ -822,187 +824,76 @@ export const OverviewPage: React.FC = () => {
             <h3 className={styles.macroTitle}>
               <Scale size={20} color="#5B8DEF" /> Macro Market Indicators
             </h3>
+            {marketData?.updatedAt && (
+              <div className={styles.lastUpdated}>
+                Last Updated: {formatRelativeTime(marketData.updatedAt)}
+              </div>
+            )}
           </div>
 
-          {/* Desktop Table View */}
-          {!isMobile ? (
-            <div className={styles.tableContainer}>
-              <table className={styles.table}>
-                <thead className={styles.thead}>
-                  <tr>
-                    <th className={`${styles.th} ${styles.thFirst}`}>Indicator</th>
-                    <th className={`${styles.th} ${styles.colValue}`}>Current Value</th>
-                    <th className={`${styles.th} ${styles.colStatus}`}>Status & Position</th>
-                    <th className={`${styles.th} ${styles.thLast} ${styles.colTrend}`}>7D Trend</th>
-                  </tr>
-                </thead>
-                <tbody className={styles.tbody}>
-                  {macroIndicators.map((item) => {
-                    const Icon = item.icon;
-                    const getRangeGradient = () => {
-                      if (item.rangeValue > 75) {
-                        return 'linear-gradient(to right, #f59e0b, #10b981)';
-                      } else if (item.rangeValue < 25) {
-                        return 'linear-gradient(to right, #e74c3c, #f59e0b)';
-                      } else {
-                        return '#5B8DEF';
-                      }
-                    };
-
-                    return (
-                      <tr
-                        key={item.id}
-                        className={styles.tr}
-                      >
-                        <td className={`${styles.td} ${styles.tdFirst}`}>
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                          }}>
-                            <div className={styles.iconWrapper} style={{ color: item.color }}>
-                              <Icon size={16} />
-                            </div>
-                            <div className={styles.flexMinWidth}>
-                              <div className={styles.indicatorName}>
-                                {item.name}
-                              </div>
-                              <div className={styles.indicatorDesc}>
-                                {item.description}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className={`${styles.td} ${styles.colValue}`}>
-                          <div className={styles.valueWrapper}>
-                            <span className={styles.value}>
-                              {item.value}
-                            </span>
-                            {item.unit && (
-                              <span className={styles.unit}>
-                                {item.unit}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className={`${styles.td} ${styles.colStatus}`}>
-                          <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px',
-                            width: '100%',
-                          }}>
-                            {/* Status */}
-                            <div>
-                              <span className={styles.statusBadge} style={{
-                                border: `1px solid ${item.statusBorder}`,
-                                color: item.statusColor,
-                                background: item.statusBg,
-                              }}>
-                                {item.status}
-                              </span>
-                            </div>
-                            {/* Position */}
-                            <div style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '3px',
-                              width: '100%',
-                            }}>
-                              <div className={styles.rangeLabels}>
-                                <span>{item.rangeLabels[0]}</span>
-                                <span>{item.rangeLabels[2]}</span>
-                              </div>
-                              <div className={styles.progressBarContainer}>
-                                <div
-                                  className={styles.progressBar}
-                                  style={{
-                                    width: `${item.rangeValue}%`,
-                                    background: getRangeGradient(),
-                                  }}
-                                ></div>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className={`${styles.td} ${styles.tdLast} ${styles.colTrend}`}>
-                          <div style={{
-                            display: 'flex',
-                            justifyContent: 'flex-end',
-                          }}>
-                            <Sparkline
-                              data={item.trend}
-                              isUp={item.trend[item.trend.length - 1] > item.trend[0]}
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            /* Mobile Card View */
-            <div className={styles.mobileCardContainer}>
-              {macroIndicators.map((item) => {
-                return (
-                  <div
-                    key={item.id}
-                    className={styles.mobileCard}
-                  >
-                    <div className={styles.mobileCardHeader}>
-                      <div className={styles.mobileCardContent}>
-                        <div className={styles.mobileCardTitleRow}>
-                          <div className={styles.indicatorName}>
-                            {item.name}
-                          </div>
-                          <div className={styles.valueWrapper}>
-                            <span className={styles.value}>
-                              {item.value}
-                            </span>
-                            {item.unit && (
-                              <span className={styles.unit}>
-                                / {item.unit}
-                              </span>
-                            )}
-                          </div>
+          {/* Unified Card View (Grid on Desktop) */}
+          <div className={styles.mobileCardContainer}>
+            {macroIndicators.map((item) => {
+              return (
+                <div
+                  key={item.id}
+                  className={styles.mobileCard}
+                >
+                  <div className={styles.mobileCardHeader}>
+                    <div className={styles.mobileCardContent}>
+                      <div className={styles.mobileCardTitleRow}>
+                        <div className={styles.indicatorName}>
+                          {item.name}
                         </div>
-                        <div className={styles.indicatorDesc}>
-                          {item.description}
+                        <div className={styles.valueWrapper}>
+                          <span className={styles.value}>
+                            {item.value}
+                          </span>
+                          {item.unit && (
+                            <span className={styles.unit}>
+                              / {item.unit}
+                            </span>
+                          )}
                         </div>
                       </div>
-                    </div>
-
-                    <div className={styles.flexColumnGap}>
-                      <div className={styles.statusRow}>
-                        <span className={styles.statusBadge}>
-                          {item.status}
-                        </span>
-                      </div>
-
-                      <div className={styles.flexColumnGap4}>
-                        <div className={styles.progressBarContainer}>
-                          <div
-                            className={styles.progressBar}
-                            style={{
-                              left: `${item.rangeValue}%`,
-                              backgroundColor: '#f59e0b',
-                              boxShadow: '0 0 10px rgba(245, 158, 11, 0.5)'
-                            }}
-                          ></div>
-                        </div>
-                        <div className={styles.rangeLabels}>
-                          <span>{item.rangeLabels[0]}</span>
-                          <span>{item.rangeLabels[2]}</span>
-                        </div>
+                      <div className={styles.indicatorDesc}>
+                        {item.description}
                       </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
+
+                  <div className={styles.flexColumnGap}>
+                    <div className={styles.statusRow}>
+                      <span className={styles.statusBadge} style={{
+                        color: item.statusColor,
+                        borderColor: item.statusBorder,
+                        background: item.statusBg
+                      }}>
+                        {item.status}
+                      </span>
+                    </div>
+
+                    <div className={styles.flexColumnGap4}>
+                      <div className={styles.progressBarContainer}>
+                        <div
+                          className={styles.progressBar}
+                          style={{
+                            left: `${item.rangeValue}%`,
+                            backgroundColor: item.statusColor || '#f59e0b',
+                            boxShadow: `0 0 10px ${item.statusColor || 'rgba(245, 158, 11, 0.5)'}`
+                          }}
+                        ></div>
+                      </div>
+                      <div className={styles.rangeLabels}>
+                        <span>{item.rangeLabels[0]}</span>
+                        <span>{item.rangeLabels[2]}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </PageContainer>

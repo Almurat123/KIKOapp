@@ -13,6 +13,8 @@ export enum LogCode {
     SYS_REDIS_CONNECTED = 'SYS-1005',
     SYS_ERROR = 'SYS-1006',
     SYS_INFO = 'SYS-1007',
+    SYS_AGG_REPORT = 'SYS-1008',
+    JOB_HEARTBEAT = 'SYS-1009',
 
     // --- Watcher & Detection (2xxx) ---
     WTC_SCAN_STARTED = 'WTC-2001',
@@ -20,6 +22,7 @@ export enum LogCode {
     WTC_TX_SKIPPED = 'WTC-2003', // e.g., old tx or already processed
     WTC_CACHE_INIT = 'WTC-2004',
     WTC_RPC_ERROR = 'WTC-2005',
+    CTRADE_ERROR = 'WTC-2006',
 
     // --- Decoding & Analysis (3xxx) ---
     DEC_SUCCESS = 'DEC-3001',

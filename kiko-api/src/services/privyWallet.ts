@@ -11,6 +11,9 @@ import { AppError } from '../middleware/errorHandler.js';
 import { redact } from '../utils/sanitizer.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { acquireLock, releaseLock } from '../cache/redis.js';
+import { randomUUID } from 'node:crypto';
+import { callRpc } from './rpcManager.js';
 
 // Initialize Privy client
 const PRIVY_APP_ID = process.env.VITE_PRIVY_APP_ID || process.env.PRIVY_APP_ID || '';
@@ -158,10 +161,138 @@ export interface TransactionRequest {
     data: string;
     value?: string;
     gas?: string;
+    nonce?: string;
     gasPrice?: string;
     maxFeePerGas?: string;
     maxPriorityFeePerGas?: string;
+    executionProfile?: 'default' | 'base-sniper' | 'bsc-sniper';
     chainId: number;
+}
+
+interface TxExecutionProfile {
+    name: string;
+    stallMs: number;
+    pollMs: number;
+    maxReplacements: number;
+    replacementBumpBps: number;
+    minPriorityFeeWei?: bigint;
+}
+
+const CHAIN_EXECUTION_PROFILES: Record<number, TxExecutionProfile> = {
+    8453: {
+        name: 'base-sniper',
+        stallMs: 350,
+        pollMs: 120,
+        maxReplacements: 1,
+        replacementBumpBps: 1200,
+        minPriorityFeeWei: 30_000_000n // 0.03 gwei
+    },
+    56: {
+        name: 'bsc-sniper',
+        stallMs: 280,
+        pollMs: 100,
+        maxReplacements: 1,
+        replacementBumpBps: 1500
+    }
+};
+
+const DEFAULT_EXECUTION_PROFILE: TxExecutionProfile = {
+    name: 'default',
+    stallMs: 1200,
+    pollMs: 200,
+    maxReplacements: 0,
+    replacementBumpBps: 1000
+};
+
+function toHexQuantity(value?: string | bigint): `0x${string}` | undefined {
+    if (value === undefined || value === null) return undefined;
+    const normalized = typeof value === 'bigint' ? value : BigInt(value);
+    return `0x${normalized.toString(16)}`;
+}
+
+function bumpByBps(value: bigint, bps: number): bigint {
+    return (value * BigInt(10000 + Math.max(0, bps))) / 10000n;
+}
+
+function getExecutionProfile(chainId: number, requested?: TransactionRequest['executionProfile']): TxExecutionProfile {
+    if (requested === 'base-sniper') return CHAIN_EXECUTION_PROFILES[8453];
+    if (requested === 'bsc-sniper') return CHAIN_EXECUTION_PROFILES[56];
+    return CHAIN_EXECUTION_PROFILES[chainId] || DEFAULT_EXECUTION_PROFILE;
+}
+
+async function waitForReceiptFast(
+    chainId: number,
+    txHash: string,
+    timeoutMs: number,
+    pollMs: number
+): Promise<boolean> {
+    const endAt = Date.now() + timeoutMs;
+    while (Date.now() < endAt) {
+        try {
+            const receipt = await callRpc<any>(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast', importance: 'critical' });
+            if (receipt?.blockNumber) return true;
+        } catch {
+            // ignore and keep polling in short window
+        }
+        await new Promise(resolve => setTimeout(resolve, pollMs));
+    }
+    return false;
+}
+
+function summarizeTxError(error: any): string {
+    const msg = String(error?.message || error || '').toLowerCase();
+    if (msg.includes('nonce too low') || msg.includes('already been used')) return 'nonce_conflict';
+    if (msg.includes('replacement transaction underpriced')) return 'replacement_underpriced';
+    if (msg.includes('insufficient funds')) return 'insufficient_funds';
+    if (msg.includes('429') || msg.includes('too many requests')) return 'rate_limited';
+    if (msg.includes('timeout') || msg.includes('fetch failed') || msg.includes('socket')) return 'network_timeout';
+    return 'unknown';
+}
+
+async function getPendingNonce(chainId: number, address: string): Promise<bigint | null> {
+    try {
+        const nonceHex = await callRpc<string>(chainId, 'eth_getTransactionCount', [address, 'pending'], { strategy: 'fast', importance: 'critical' });
+        return nonceHex ? BigInt(nonceHex) : null;
+    } catch {
+        return null;
+    }
+}
+
+async function buildDynamicFees(
+    tx: TransactionRequest,
+    profile: TxExecutionProfile
+): Promise<{ gasPrice?: bigint; maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint }> {
+    let gasPrice = tx.gasPrice ? BigInt(tx.gasPrice) : undefined;
+    let maxFeePerGas = tx.maxFeePerGas ? BigInt(tx.maxFeePerGas) : undefined;
+    let maxPriorityFeePerGas = tx.maxPriorityFeePerGas ? BigInt(tx.maxPriorityFeePerGas) : undefined;
+    if (gasPrice || (maxFeePerGas && maxPriorityFeePerGas)) {
+        return { gasPrice, maxFeePerGas, maxPriorityFeePerGas };
+    }
+
+    try {
+        const [latestBlock, priorityHex, gasPriceHex] = await Promise.all([
+            callRpc<any>(tx.chainId, 'eth_getBlockByNumber', ['latest', false], { strategy: 'fast', importance: 'critical' }).catch(() => null),
+            callRpc<string>(tx.chainId, 'eth_maxPriorityFeePerGas', [], { strategy: 'fast', importance: 'critical' }).catch(() => '0x0'),
+            callRpc<string>(tx.chainId, 'eth_gasPrice', [], { strategy: 'fast', importance: 'critical' }).catch(() => '0x0')
+        ]);
+
+        const priority = priorityHex ? BigInt(priorityHex) : 0n;
+        const baseFee = latestBlock?.baseFeePerGas ? BigInt(latestBlock.baseFeePerGas) : null;
+        const networkGasPrice = gasPriceHex ? BigInt(gasPriceHex) : 0n;
+        const minPriority = profile.minPriorityFeeWei || 0n;
+
+        if (baseFee !== null) {
+            const tip = priority > minPriority ? priority : minPriority;
+            if (!maxPriorityFeePerGas || maxPriorityFeePerGas <= 0n) maxPriorityFeePerGas = tip;
+            if (!maxFeePerGas || maxFeePerGas <= 0n) maxFeePerGas = baseFee * 2n + (maxPriorityFeePerGas || tip);
+        } else if (!gasPrice || gasPrice <= 0n) {
+            gasPrice = networkGasPrice > 0n ? networkGasPrice : undefined;
+        }
+    } catch {
+        // fallback to caller-provided values
+    }
+
+    return { gasPrice, maxFeePerGas, maxPriorityFeePerGas };
 }
 
 /**
@@ -173,6 +304,9 @@ export interface TransactionRequest {
  */
 // Queue to manage concurrent transactions per user to prevent nonce collisions
 const userTransactionLocks: Map<string, Promise<any>> = new Map();
+const DISTRIBUTED_TX_LOCK_TTL_SECONDS = 180;
+const DISTRIBUTED_TX_LOCK_WAIT_MS = 15_000;
+const DISTRIBUTED_TX_LOCK_RETRY_MS = 150;
 
 /**
  * Execute a function sequentially for a given user
@@ -192,6 +326,30 @@ async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T>
     return nextLock;
 }
 
+async function withDistributedUserLock<T>(
+    userId: string,
+    chainId: number,
+    fn: () => Promise<T>
+): Promise<T> {
+    const lockKey = `lock:privy:tx:${userId}:${chainId}`;
+    const lockValue = randomUUID();
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < DISTRIBUTED_TX_LOCK_WAIT_MS) {
+        const acquired = await acquireLock(lockKey, DISTRIBUTED_TX_LOCK_TTL_SECONDS, lockValue);
+        if (acquired) {
+            try {
+                return await fn();
+            } finally {
+                await releaseLock(lockKey, lockValue);
+            }
+        }
+        await new Promise(resolve => setTimeout(resolve, DISTRIBUTED_TX_LOCK_RETRY_MS));
+    }
+
+    throw new AppError(429, 'Transaction is already in progress for this wallet', 'TX_LOCK_BUSY');
+}
+
 export async function sendTransaction(
     userId: string,
     accessToken: string,
@@ -199,6 +357,7 @@ export async function sendTransaction(
 ): Promise<string> {
     // Wrap entire execution in a per-user lock
     return withUserLock(userId, async () => {
+        return withDistributedUserLock(userId, tx.chainId, async () => {
         // === SIMULATION MODE ===
         if (process.env.SIMULATION_MODE === 'true') {
             logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Skipping actual Privy send', {
@@ -213,6 +372,8 @@ export async function sendTransaction(
         const client = getPrivyClient();
         const MAX_RETRIES = 3;
         const RETRY_DELAY_MS = 2000;
+        const profile = getExecutionProfile(tx.chainId, tx.executionProfile);
+        const execId = randomUUID().slice(0, 8);
 
         // Get user's wallet info (both address and ID)
         const walletInfo = await getEmbeddedWalletInfo(userId);
@@ -220,28 +381,34 @@ export async function sendTransaction(
             throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
         }
 
-        // DEBUG: Log the full transaction parameters before sending
-        console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
-        console.log('[sendTransaction] From:', walletInfo.address);
-        console.log('[sendTransaction] To:', tx.to);
-        console.log('[sendTransaction] Value:', tx.value);
-        console.log('[sendTransaction] ValueHex:', tx.value ? `0x${BigInt(tx.value).toString(16)}` : 'undefined');
-        console.log('[sendTransaction] Data length:', tx.data?.length);
-        console.log('[sendTransaction] Data (full):', tx.data);
-        console.log('[sendTransaction] ChainId:', tx.chainId);
-        console.log('[sendTransaction] Gas:', tx.gas);
-        console.log('[sendTransaction] MaxFeePerGas:', tx.maxFeePerGas);
-        console.log('[sendTransaction] MaxPriorityFeePerGas:', tx.maxPriorityFeePerGas);
-        console.log('[sendTransaction] Full TX object:', tx);
-        console.log('[sendTransaction] ===========================================');
+        const pendingNonce = tx.nonce ? BigInt(tx.nonce) : await getPendingNonce(tx.chainId, walletInfo.address);
+        let nonce = pendingNonce ?? undefined;
+        let { gasPrice, maxFeePerGas, maxPriorityFeePerGas } = await buildDynamicFees(tx, profile);
+
+        logger.info(LogCode.EXE_TX_BROADCAST, '[PrivyTx] Prepared transaction', {
+            execId,
+            userId: userId.slice(0, 18),
+            chainId: tx.chainId,
+            profile: profile.name,
+            from: walletInfo.address.slice(0, 12),
+            to: tx.to.slice(0, 12),
+            nonce: nonce?.toString(),
+            gasLimit: tx.gas,
+            gasPrice: gasPrice?.toString(),
+            maxFeePerGas: maxFeePerGas?.toString(),
+            maxPriorityFeePerGas: maxPriorityFeePerGas?.toString()
+        });
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
+                const sendStart = Date.now();
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Sending Ethereum transaction via Privy', {
+                    execId,
                     attempt,
                     from: walletInfo.address?.slice(0, 10),
                     to: tx.to?.slice(0, 10),
                     chainId: tx.chainId,
+                    nonce: nonce?.toString()
                 });
 
                 // Use Privy's wallet API to send transaction
@@ -252,14 +419,103 @@ export async function sendTransaction(
                     transaction: {
                         to: tx.to as `0x${string}`,
                         data: tx.data as `0x${string}`,
-                        value: tx.value ? `0x${BigInt(tx.value).toString(16)}` : undefined,
-                        gasLimit: tx.gas ? `0x${BigInt(tx.gas).toString(16)}` : undefined,
-                        maxFeePerGas: tx.maxFeePerGas ? `0x${BigInt(tx.maxFeePerGas).toString(16)}` : undefined,
-                        maxPriorityFeePerGas: tx.maxPriorityFeePerGas ? `0x${BigInt(tx.maxPriorityFeePerGas).toString(16)}` : undefined,
+                        value: toHexQuantity(tx.value),
+                        gasLimit: toHexQuantity(tx.gas),
+                        nonce: nonce !== undefined ? toHexQuantity(nonce) : undefined,
+                        gasPrice: gasPrice !== undefined ? toHexQuantity(gasPrice) : undefined,
+                        maxFeePerGas: maxFeePerGas !== undefined ? toHexQuantity(maxFeePerGas) : undefined,
+                        maxPriorityFeePerGas: maxPriorityFeePerGas !== undefined ? toHexQuantity(maxPriorityFeePerGas) : undefined,
                     },
                 });
 
-                logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', { txHash: response.hash, chainId: tx.chainId });
+                logger.info(LogCode.EXE_TX_BROADCAST, '[PrivyTx] Ethereum tx broadcast', {
+                    execId,
+                    txHash: response.hash,
+                    chainId: tx.chainId,
+                    profile: profile.name,
+                    nonce: nonce?.toString(),
+                    sendMs: Date.now() - sendStart
+                });
+
+                if (profile.maxReplacements > 0 && nonce !== undefined) {
+                    let included = await waitForReceiptFast(tx.chainId, response.hash, profile.stallMs, profile.pollMs);
+                    if (included) {
+                        logger.info(LogCode.EXE_TX_BROADCAST, '[PrivyTx] Included in fast window', {
+                            execId,
+                            txHash: response.hash,
+                            chainId: tx.chainId,
+                            nonce: nonce.toString(),
+                            fastWindowMs: profile.stallMs
+                        });
+                        return response.hash;
+                    }
+
+                    for (let replacement = 1; replacement <= profile.maxReplacements; replacement++) {
+                        if (maxFeePerGas && maxPriorityFeePerGas) {
+                            maxFeePerGas = bumpByBps(maxFeePerGas, profile.replacementBumpBps);
+                            maxPriorityFeePerGas = bumpByBps(maxPriorityFeePerGas, profile.replacementBumpBps);
+                        } else if (gasPrice) {
+                            gasPrice = bumpByBps(gasPrice, profile.replacementBumpBps);
+                        }
+
+                        logger.warn(LogCode.EXE_TX_BROADCAST, '[PrivyTx] Replacing stalled tx', {
+                            execId,
+                            chainId: tx.chainId,
+                            nonce: nonce.toString(),
+                            replacement,
+                            gasPrice: gasPrice?.toString(),
+                            maxFeePerGas: maxFeePerGas?.toString(),
+                            maxPriorityFeePerGas: maxPriorityFeePerGas?.toString()
+                        });
+
+                        let replacementResp: { hash: string };
+                        try {
+                            replacementResp = await client.walletApi.ethereum.sendTransaction({
+                                walletId: walletInfo.id,
+                                caip2: `eip155:${tx.chainId}`,
+                                transaction: {
+                                    to: tx.to as `0x${string}`,
+                                    data: tx.data as `0x${string}`,
+                                    value: toHexQuantity(tx.value),
+                                    gasLimit: toHexQuantity(tx.gas),
+                                    nonce: toHexQuantity(nonce),
+                                    gasPrice: gasPrice !== undefined ? toHexQuantity(gasPrice) : undefined,
+                                    maxFeePerGas: maxFeePerGas !== undefined ? toHexQuantity(maxFeePerGas) : undefined,
+                                    maxPriorityFeePerGas: maxPriorityFeePerGas !== undefined ? toHexQuantity(maxPriorityFeePerGas) : undefined,
+                                },
+                            });
+                        } catch (replacementError: any) {
+                            logger.warn(LogCode.EXE_TX_BROADCAST, '[PrivyTx] Replacement send failed', {
+                                execId,
+                                chainId: tx.chainId,
+                                nonce: nonce.toString(),
+                                replacement,
+                                category: summarizeTxError(replacementError),
+                                error: String(replacementError?.message || replacementError).slice(0, 180)
+                            });
+                            continue;
+                        }
+
+                        included = await waitForReceiptFast(tx.chainId, replacementResp.hash, profile.stallMs, profile.pollMs);
+                        if (included) {
+                            logger.info(LogCode.EXE_TX_BROADCAST, '[PrivyTx] Replacement included', {
+                                execId,
+                                txHash: replacementResp.hash,
+                                chainId: tx.chainId,
+                                nonce: nonce.toString(),
+                                replacement
+                            });
+                            return replacementResp.hash;
+                        }
+                    }
+                    logger.warn(LogCode.EXE_TX_BROADCAST, '[PrivyTx] Fast window exceeded, returning last hash', {
+                        execId,
+                        chainId: tx.chainId,
+                        nonce: nonce.toString(),
+                        profile: profile.name,
+                        maxReplacements: profile.maxReplacements
+                    });
+                }
 
                 // Add a small delay after sending to allow nonce propagation/indexing
                 // This helps when sending multiple transactions in rapid succession
@@ -268,6 +524,7 @@ export async function sendTransaction(
                 return response.hash;
             } catch (error: any) {
                 const errorMessage = error.message || '';
+                const errorCategory = summarizeTxError(error);
                 const isNonceError = errorMessage.includes('nonce too low') ||
                     errorMessage.includes('nonce has already been used') ||
                     errorMessage.includes('replacement transaction underpriced');
@@ -279,12 +536,24 @@ export async function sendTransaction(
                 // Retry on nonce errors or transient network failures
                 if ((isNonceError || isNetworkError) && attempt < MAX_RETRIES) {
                     const reason = isNonceError ? 'Nonce error' : 'Network failure';
-                    logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${RETRY_DELAY_MS}ms...`);
+                    logger.warn(LogCode.EXE_TX_BROADCAST, `${reason} on attempt ${attempt}, retrying in ${RETRY_DELAY_MS}ms...`, {
+                        execId,
+                        chainId: tx.chainId,
+                        nonce: nonce?.toString(),
+                        category: errorCategory
+                    });
                     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
                     continue;
                 }
 
-                logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', { error: error.message, chainId: tx.chainId });
+                logger.error(LogCode.EXE_TX_REVERTED, 'Privy Ethereum transaction failed', {
+                    execId,
+                    error: error.message,
+                    chainId: tx.chainId,
+                    nonce: nonce?.toString(),
+                    category: errorCategory,
+                    profile: profile.name
+                });
 
                 // Handle specific Privy errors
                 if (error.code === 'insufficient_funds') {
@@ -304,6 +573,7 @@ export async function sendTransaction(
 
         // Should never reach here, but just in case
         throw new AppError(500, 'Transaction failed after max retries', 'TRANSACTION_FAILED');
+        });
     });
 }
 

@@ -15,13 +15,16 @@ import cron from 'node-cron';
 import { getMarketOverview as fetchMarketOverview, getTrendingTokens as fetchTrendingTokens } from '../services/coingecko.js';
 import { getChainsData as fetchChainsData, getProtocolsData as fetchProtocolsData, getDerivativesOpenInterest, getStablecoinsCirculating } from '../services/defillama.js';
 import { getVolatilityIndices } from '../services/deribit.js';
+import { fetchFearGreedIndex } from '../services/fearGreedApi.js';
 
 import { getGasLevel } from '../services/gasLevel.js';
 import { getEthGasPriceFormatted } from '../services/etherscan.js';
-import { saveMarketOverview, getMarketOverview, saveTrends, getLastUpdateTime as getMarketUpdateTime } from '../repositories/marketRepository.js';
-import { saveChainsData, getLastUpdateTime as getChainUpdateTime } from '../repositories/chainRepository.js';
+import { saveMarketOverview, getMarketOverview24hAgo, saveTrends, getLastUpdateTime as getMarketUpdateTime } from '../repositories/marketRepository.js';
+import { saveChainsData, getLastUpdateTime as getChainUpdateTime, getTotalActiveWallets } from '../repositories/chainRepository.js';
 import { saveProtocolsData, getLastUpdateTime as getProtocolUpdateTime } from '../repositories/protocolRepository.js';
 import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 /**
  * Calculate Altcoin Season Index (simplified)
@@ -46,7 +49,7 @@ export async function refreshMarketOverview(force = false): Promise<void> {
     if (!force) {
       const lastUpdate = await getMarketUpdateTime('overview');
       if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_24H_MS) {
-        console.log('[MarketJob] Overview is fresh, skipping API call');
+        logger.aggregate(LogCode.SYS_INFO, 'MarketOverview is fresh, skipping API call');
         return;
       }
     }
@@ -54,17 +57,18 @@ export async function refreshMarketOverview(force = false): Promise<void> {
     const etherscanGas = await getEthGasPriceFormatted(env.apiKeys.etherscan).catch(() => undefined);
 
     // 2. Fetch other market data, passing etherscanGas to getGasLevel
-    const [marketData, fearGreed, stablecoinsMcap, previousOverview, openInterest, gasLevel, volatility] = await Promise.all([
+    const [marketData, fearGreed, stablecoinsMcap, previousOverview, openInterest, gasLevel, totalActiveWallets, volatility] = await Promise.all([
       fetchMarketOverview(env.apiKeys.coingecko).catch(() => {
-        return { globalMarketCap: 0, volume24h: 0, bitcoinDominance: 0, activeUsers: undefined, ethGasPrice: undefined };
+        return { globalMarketCap: 0, volume24h: 0, bitcoinDominance: 0, activeUsers: 0, ethGasPrice: undefined, mcapChange24h: undefined };
       }),
-      Promise.resolve({ value: 50, classification: 'Neutral' }),
+      fetchFearGreedIndex().catch(() => ({ value: 50, classification: 'Neutral' })),
       getStablecoinsCirculating().catch(() => 0),
-      getMarketOverview().catch(() => null), // Get previous for change calculation
+      getMarketOverview24hAgo().catch(() => null), // Get ~24h old record for TRUE 24h change calculation
       getDerivativesOpenInterest().catch(() => 0),
       getGasLevel(etherscanGas).catch(() => {
         return { averageGasLevel: undefined, status: undefined, chains: [] };
       }),
+      getTotalActiveWallets().catch(() => 0),
       getVolatilityIndices().catch(() => {
         console.log('[MarketJob] Deribit volatility fetch failed, using defaults');
         return null;
@@ -106,21 +110,21 @@ export async function refreshMarketOverview(force = false): Promise<void> {
 
     // 3. Calculate 24h changes
     let btcDomChange24h: number | undefined;
-    let mcapChange24h: number | undefined;
+    let mcapChange24h: number | undefined = marketData.mcapChange24h; // Use API value if available (Official Source)
+
 
     if (previousOverview) {
       if (previousOverview.bitcoinDominance > 0) {
         btcDomChange24h = marketData.bitcoinDominance - previousOverview.bitcoinDominance;
       }
-      if (previousOverview.globalMarketCap > 0) {
-        mcapChange24h = ((marketData.globalMarketCap - previousOverview.globalMarketCap) / previousOverview.globalMarketCap) * 100;
-      }
+      // mcapChange24h is already set from API data at line 111. 
+      // Do NOT overwrite it with manual calculation.
     }
 
     await saveMarketOverview({
       globalMarketCap: marketData.globalMarketCap,
       volume24h: marketData.volume24h,
-      activeUsers: marketData.activeUsers,
+      activeUsers: Number(totalActiveWallets) > 0 ? Number(totalActiveWallets) : marketData.activeUsers, // Prefer chain wallets, fallback to CG
       ethGasPrice,
       fearGreedIndex: fearGreed.value,
       fearGreedClassification: fearGreed.classification,
@@ -138,9 +142,9 @@ export async function refreshMarketOverview(force = false): Promise<void> {
       mcapChange24h,
     });
 
-    console.log('[MarketJob] ✅ Overview refreshed successfully');
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Overview refreshed successfully');
   } catch (error) {
-    console.error('[MarketJob] ❌ Error in refreshMarketOverview:', error instanceof Error ? error.message : error);
+    logger.error(LogCode.SYS_ERROR, 'Error in refreshMarketOverview', { error: error instanceof Error ? error.message : error });
   }
 }
 
@@ -162,9 +166,9 @@ export async function refreshChainsData(force = false): Promise<void> {
     const chains = await fetchChainsData(convertedMetrics);
     await saveChainsData(chains);
 
-    console.log(`[MarketJob] ✅ Chains refreshed successfully: ${chains.length} chains`);
+    logger.info(LogCode.API_FETCH_SUCCESS, `Chains refreshed successfully: ${chains.length} chains`);
   } catch (error) {
-    console.error('[MarketJob] ❌ Error refreshing chains:', error instanceof Error ? error.message : error);
+    logger.error(LogCode.SYS_ERROR, 'Error refreshing chains', { error: error instanceof Error ? error.message : error });
   }
 }
 
@@ -174,16 +178,16 @@ export async function refreshProtocolsData(force = false): Promise<void> {
     if (!force) {
       const lastUpdate = await getProtocolUpdateTime();
       if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_24H_MS) {
-        console.log('[MarketJob] Protocols are fresh, skipping API call');
+        logger.aggregate(LogCode.SYS_INFO, 'Protocols are fresh, skipping API call');
         return;
       }
     }
     const protocols = await fetchProtocolsData();
     await saveProtocolsData(protocols);
 
-    console.log(`[MarketJob] ✅ Protocols refreshed successfully: ${protocols.length} protocols`);
+    logger.info(LogCode.API_FETCH_SUCCESS, `Protocols refreshed successfully: ${protocols.length} protocols`);
   } catch (error) {
-    console.error('[MarketJob] ❌ Error refreshing protocols:', error instanceof Error ? error.message : error);
+    logger.error(LogCode.SYS_ERROR, 'Error refreshing protocols', { error: error instanceof Error ? error.message : error });
   }
 }
 
@@ -196,7 +200,7 @@ export async function refreshTrendingTokens(force = false): Promise<void> {
     if (!force) {
       const lastUpdate = await getMarketUpdateTime('trending');
       if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_5M_MS) {
-        console.log('[MarketJob] Trending tokens are fresh, skipping API call');
+        logger.aggregate(LogCode.SYS_INFO, 'Trending tokens are fresh, skipping API call');
         return;
       }
     }
@@ -218,9 +222,9 @@ export async function refreshTrendingTokens(force = false): Promise<void> {
 
 
     await saveTrends(tokens);
-    console.log(`[MarketJob] Trending tokens refreshed: ${tokens.length} tokens`);
+    logger.info(LogCode.API_FETCH_SUCCESS, `Trending tokens refreshed: ${tokens.length} tokens`);
   } catch (error) {
-    console.error('[MarketJob] Error refreshing trending tokens:', error);
+    logger.error(LogCode.SYS_ERROR, 'Error refreshing trending tokens', { error });
   }
 }
 
@@ -229,7 +233,7 @@ export async function refreshTrendingTokens(force = false): Promise<void> {
  */
 export function startMarketDataJobs(): void {
   // Market overview: Every day at 2:00 AM
-  cron.schedule('0 2 * * *', () => refreshMarketOverview(), {
+  cron.schedule('0 2 * * *', () => refreshMarketOverview(true), {
     timezone: 'UTC',
   });
 

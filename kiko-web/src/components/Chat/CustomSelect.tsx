@@ -13,6 +13,7 @@ interface CustomSelectProps {
     options: Option[];
     placeholder?: string;
     className?: string;
+    triggerClassName?: string;
 }
 
 export const CustomSelect: React.FC<CustomSelectProps> = ({
@@ -20,7 +21,8 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     onChange,
     options,
     placeholder = 'Select...',
-    className
+    className,
+    triggerClassName
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -48,7 +50,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     return (
         <div className={`${styles.container} ${className || ''}`} ref={containerRef}>
             <div
-                className={`${styles.trigger} ${isOpen ? styles.triggerOpen : ''}`}
+                className={`${styles.trigger} ${isOpen ? styles.triggerOpen : ''} ${triggerClassName || ''}`}
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <span className={styles.value}>

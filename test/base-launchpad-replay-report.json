@@ -1,0 +1,396 @@
+{
+  "summary": {
+    "startedAt": "2026-02-06T08:14:25.400Z",
+    "finishedAt": "2026-02-06T08:20:15.874Z",
+    "durationMs": 350474,
+    "tokenCount": 20,
+    "launchpadDistribution": {
+      "unknown": 15,
+      "virtuals": 5
+    },
+    "tradeSampleCount": 10,
+    "replayCount": 10,
+    "directAttempted": 7,
+    "directSuccess": 6,
+    "directFailed": 1,
+    "notSwap": 0,
+    "notNativeBuy": 3,
+    "missing": 0,
+    "sniperCandidateCount": 0
+  },
+  "tokens": [
+    {
+      "address": "0xb695559b26bb2c9703ef1935c37aeae9526bab07",
+      "symbol": "MOLT",
+      "name": "Moltbook",
+      "poolAddress": "0x15f351bf1637b43d70631ba95fb9bbb1ff21761c29b034c1b380aecb922464dd",
+      "poolCreatedAt": "2026-01-28T17:21:07Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0x4200000000000000000000000000000000000006",
+      "symbol": "WETH",
+      "name": "Wrapped Ether",
+      "poolAddress": "0x6c561b446416e1a00e8e93e221854d6ea4171372",
+      "poolCreatedAt": "2023-11-18T05:59:09Z",
+      "launchpadProvider": "virtuals"
+    },
+    {
+      "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "poolAddress": "0xd0b53d9277642d899df5c87a3966a349a798f224",
+      "poolCreatedAt": "2024-03-23T12:55:07Z",
+      "launchpadProvider": "virtuals"
+    },
+    {
+      "address": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "symbol": "cbBTC",
+      "name": "Coinbase Wrapped BTC",
+      "poolAddress": "0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1",
+      "poolCreatedAt": "2024-09-12T13:53:26Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xa1f72459dfa10bad200ac160ecd78c6b77a747be",
+      "symbol": "CLAWNCH",
+      "name": "CLAWNCH",
+      "poolAddress": "0x03d3c21ea1daf51dd2898ebaf9342a93374877ba6ab34cc7ffe5b5d43ee46e0a",
+      "poolCreatedAt": "2026-01-31T03:13:57Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+      "symbol": "USDT",
+      "name": "Tether USD",
+      "poolAddress": "0xf13203ddbf2c9816a79b656a1a952521702715d92fea465b84ae2ed6e94a7f22",
+      "poolCreatedAt": "2025-05-03T11:29:17Z",
+      "launchpadProvider": "virtuals"
+    },
+    {
+      "address": "0xab6363da0c80cef3ae105bd6241e30872355d021",
+      "symbol": "ROLL",
+      "name": "Roll",
+      "poolAddress": "0x0a04e1c94584a6f91228da6c0dba6bf0fbe5c9fa20ec6df57490494994489333",
+      "poolCreatedAt": "2026-01-15T14:37:41Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0x0000000000000000000000000000000000000000",
+      "symbol": "ETH",
+      "name": "Ether",
+      "poolAddress": "0xf6e81e5d16a7274d273905e0068f9f607b840c20bec23b2e442976ee03b29d91",
+      "poolCreatedAt": "2025-09-03T06:58:03Z",
+      "launchpadProvider": "virtuals"
+    },
+    {
+      "address": "0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07",
+      "symbol": "CLAWD",
+      "name": "clawd.atg.eth",
+      "poolAddress": "0x9fd58e73d8047cb14ac540acd141d3fc1a41fb6252d674b730faf62fe24aa8ce",
+      "poolCreatedAt": "2026-01-26T21:48:55Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca",
+      "symbol": "USDbC",
+      "name": "USD Base Coin",
+      "poolAddress": "0x8f360baf899845441eccdc46525e26bb8860752a",
+      "poolCreatedAt": "2025-03-20T01:41:07Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xef5997c2cf2f6c138196f8a6203afc335206b3c1",
+      "symbol": "OWB",
+      "name": "OWB",
+      "poolAddress": "0x995985c9027e8a90c823a5e0a9112fea72d1f4dd",
+      "poolCreatedAt": "2025-10-06T10:46:31Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xf43eb8de897fbc7f2502483b2bef7bb9ea179229",
+      "symbol": "ZEN",
+      "name": "Horizen",
+      "poolAddress": "0x0392b12a1ceb0cd13af5ea448cf5586ea609852d",
+      "poolCreatedAt": "2025-07-23T13:35:47Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0x624e2e7fdc8903165f64891672267ab0fcb98831",
+      "symbol": "SOSO",
+      "name": "SoSoValue",
+      "poolAddress": "0x29183f918920a2aef0115a9c7374945589968aea",
+      "poolCreatedAt": "2025-11-24T03:01:21Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xc729777d0470f30612b1564fd96e8dd26f5814e3",
+      "symbol": "SAPIEN",
+      "name": "Sapien",
+      "poolAddress": "0x80cc08712aa61ce9dc7604f9ce7560a25094b862",
+      "poolCreatedAt": "2025-08-20T16:55:19Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf",
+      "symbol": "VVV",
+      "name": "Venice Token",
+      "poolAddress": "0x7ec6c9d993d9832aa654593f2dbc21303650bc6c",
+      "poolCreatedAt": "2025-01-29T23:33:20Z",
+      "launchpadProvider": "virtuals"
+    },
+    {
+      "address": "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
+      "symbol": "EURC",
+      "name": "EURC",
+      "poolAddress": "0xc5e51044eb7318950b1afb044fccfb25782c48c1",
+      "poolCreatedAt": "2024-11-03T01:26:52Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xb79dd08ea68a908a97220c76d19a6aa9cbde4376",
+      "symbol": "USD+",
+      "name": "USD+",
+      "poolAddress": "0x4d69971ccd4a636c403a3c1b00c85e99bb9b5606",
+      "poolCreatedAt": "2024-05-06T09:26:01Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0xa53887f7e7c1bf5010b8627f1c1ba94fe7a5d6e0",
+      "symbol": "RNBW",
+      "name": "Rainbow",
+      "poolAddress": "0xb8e3840b850cd5e2d8229e54a04c3a10b653d072870bbfb26847d237fc655a37",
+      "poolCreatedAt": "2026-02-05T16:00:49Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0x9cb41fd9dc6891bae8187029461bfaadf6cc0c69",
+      "symbol": "noice",
+      "name": "noice",
+      "poolAddress": "0xeff7f8fe083d7a446717b992bf84391253e54789",
+      "poolCreatedAt": "2025-05-21T17:47:59Z",
+      "launchpadProvider": "unknown"
+    },
+    {
+      "address": "0x9eadbe35f3ee3bf3e28180070c429298a1b02f93",
+      "symbol": "LMTS",
+      "name": "Limitless Official Token",
+      "poolAddress": "0x33645a0fe56fc3232ee69a48dfde494b5f8a305c",
+      "poolCreatedAt": "2025-12-17T14:37:31Z",
+      "launchpadProvider": "unknown"
+    }
+  ],
+  "tradeSamples": [
+    {
+      "tokenAddress": "0xb695559b26bb2c9703ef1935c37aeae9526bab07",
+      "poolAddress": "0x15f351bf1637b43d70631ba95fb9bbb1ff21761c29b034c1b380aecb922464dd",
+      "txHash": "0x45b1244af2d9ecfdb54672c7c540cd2c7be68249b48d0378724aaa091b99840b",
+      "txFromAddress": "0xc3b90bca0f2655c95ac68f1a4c7e676ed4ad0011",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:14:07Z"
+    },
+    {
+      "tokenAddress": "0xb695559b26bb2c9703ef1935c37aeae9526bab07",
+      "poolAddress": "0x15f351bf1637b43d70631ba95fb9bbb1ff21761c29b034c1b380aecb922464dd",
+      "txHash": "0xfc5f0107e6f9de8130b298cbf73b90a250acb69e04eadd285181d213f322d17f",
+      "txFromAddress": "0x8feaf98f34affca6a51d59ddcf84dae48ab054f0",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:10:03Z"
+    },
+    {
+      "tokenAddress": "0x4200000000000000000000000000000000000006",
+      "poolAddress": "0x6c561b446416e1a00e8e93e221854d6ea4171372",
+      "txHash": "0xaa4b5121dd6f54afc208f0c3014f318388ecc65dc58c84db92a4e7a0236e49a7",
+      "txFromAddress": "0x9ec58c9fb210f34f3db6f5ae3e13c398e0d9a494",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:17:23Z"
+    },
+    {
+      "tokenAddress": "0x4200000000000000000000000000000000000006",
+      "poolAddress": "0x6c561b446416e1a00e8e93e221854d6ea4171372",
+      "txHash": "0x21e8718682e20b7002c252dc2e067bb875ab27d000670f9d4c9b94d202b5c870",
+      "txFromAddress": "0x83681c14770b44361e21faf91d8325423365ea5c",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:16:41Z"
+    },
+    {
+      "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "poolAddress": "0xd0b53d9277642d899df5c87a3966a349a798f224",
+      "txHash": "0x31fd02039ccdefcb5aed658476e102a09aab2fcfbe0d328dbcf1ba6480fc5213",
+      "txFromAddress": "0x728a9543c15be0c6a2d69fd27c60075ce531ef18",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:17:47Z"
+    },
+    {
+      "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "poolAddress": "0xd0b53d9277642d899df5c87a3966a349a798f224",
+      "txHash": "0xe5230d3694229cd5eaf8271d53d95f4ee540eb936dd53081edfbdc9afad4b657",
+      "txFromAddress": "0xf2ffd2dfa9e31078d444d3b158dee0ee89877377",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:17:43Z"
+    },
+    {
+      "tokenAddress": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "poolAddress": "0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1",
+      "txHash": "0xa3b80037ada175e5761742df76bfc89c8c09dc3aa9b986e83fbaa3ec0110fc1f",
+      "txFromAddress": "0x2bd0d303861a9bef7a5a6596d8457c83b9d48b57",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:17:43Z"
+    },
+    {
+      "tokenAddress": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "poolAddress": "0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1",
+      "txHash": "0x4cb0dc35d6927541927c01fc60c754d093c1a9fb124841a6f34e0b1b5bb509f2",
+      "txFromAddress": "0x2bd0d303861a9bef7a5a6596d8457c83b9d48b57",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:17:43Z"
+    },
+    {
+      "tokenAddress": "0xa1f72459dfa10bad200ac160ecd78c6b77a747be",
+      "poolAddress": "0x03d3c21ea1daf51dd2898ebaf9342a93374877ba6ab34cc7ffe5b5d43ee46e0a",
+      "txHash": "0x7e808234e948d17f7ba01cb91c95d65e296a7918e60d9b0f9b81c94455e619a5",
+      "txFromAddress": "0xc0ffee5d1ba6baa6e4ff9f184ff64f5aabc5d2b6",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:17:43Z"
+    },
+    {
+      "tokenAddress": "0xa1f72459dfa10bad200ac160ecd78c6b77a747be",
+      "poolAddress": "0x03d3c21ea1daf51dd2898ebaf9342a93374877ba6ab34cc7ffe5b5d43ee46e0a",
+      "txHash": "0x9a8526e2b18edbdc16aa13abe1259601c854deeaf6d5047174658b77edca3f0d",
+      "txFromAddress": "0xe146a60c7701e9055e2c812f20ab5670c626b438",
+      "kind": "buy",
+      "blockTimestamp": "2026-02-06T08:15:51Z"
+    }
+  ],
+  "replayResults": [
+    {
+      "txHash": "0x45b1244af2d9ecfdb54672c7c540cd2c7be68249b48d0378724aaa091b99840b",
+      "tokenAddress": "0xb695559b26bb2c9703ef1935c37aeae9526bab07",
+      "status": "direct_failed",
+      "directAttempted": true,
+      "directSuccess": false,
+      "provider": "failed",
+      "error": "V4 pre-simulation failed",
+      "durationMs": 12679,
+      "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "tokenOut": "0xb695559b26bb2c9703ef1935c37aeae9526bab07",
+      "sourceDexName": "Uniswap v4",
+      "sourceRouter": "0xd8ba9d1a99fc21f0eca24e9b85737c28a194a4e2"
+    },
+    {
+      "txHash": "0xfc5f0107e6f9de8130b298cbf73b90a250acb69e04eadd285181d213f322d17f",
+      "tokenAddress": "0xb695559b26bb2c9703ef1935c37aeae9526bab07",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "durationMs": 6467,
+      "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "tokenOut": "0xb695559b26bb2c9703ef1935c37aeae9526bab07",
+      "sourceDexName": "Uniswap v4",
+      "sourceRouter": "0x6ff5693b99212da76ad316178a184ab56d299b43"
+    },
+    {
+      "txHash": "0xaa4b5121dd6f54afc208f0c3014f318388ecc65dc58c84db92a4e7a0236e49a7",
+      "tokenAddress": "0x4200000000000000000000000000000000000006",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "durationMs": 390,
+      "tokenIn": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "tokenOut": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sourceDexName": "Uniswap Universal Router (v4)",
+      "sourceRouter": "0x6ff5693b99212da76ad316178a184ab56d299b43"
+    },
+    {
+      "txHash": "0x21e8718682e20b7002c252dc2e067bb875ab27d000670f9d4c9b94d202b5c870",
+      "tokenAddress": "0x4200000000000000000000000000000000000006",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "durationMs": 1874,
+      "tokenIn": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "tokenOut": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sourceDexName": "V3 Pool",
+      "sourceRouter": "0x0bf485bd7ebb82e282f72e7d14822c680e3f7bec"
+    },
+    {
+      "txHash": "0x31fd02039ccdefcb5aed658476e102a09aab2fcfbe0d328dbcf1ba6480fc5213",
+      "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v3",
+      "durationMs": 18109,
+      "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "tokenOut": "0x9eadbe35f3ee3bf3e28180070c429298a1b02f93",
+      "sourceDexName": "Uniswap Universal Router (v4)",
+      "sourceRouter": "0x6ff5693b99212da76ad316178a184ab56d299b43"
+    },
+    {
+      "txHash": "0xe5230d3694229cd5eaf8271d53d95f4ee540eb936dd53081edfbdc9afad4b657",
+      "tokenAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v3",
+      "durationMs": 22334,
+      "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "tokenOut": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "sourceDexName": "Unknown DEX",
+      "sourceRouter": "0x6d463955399312f41f6e5d9216c5694d2de2b19e"
+    },
+    {
+      "txHash": "0xa3b80037ada175e5761742df76bfc89c8c09dc3aa9b986e83fbaa3ec0110fc1f",
+      "tokenAddress": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v3",
+      "durationMs": 24463,
+      "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "tokenOut": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "sourceDexName": "V3 Pool",
+      "sourceRouter": "0x83d55acdc72027ed339d267eebaf9a41e47490d5"
+    },
+    {
+      "txHash": "0x4cb0dc35d6927541927c01fc60c754d093c1a9fb124841a6f34e0b1b5bb509f2",
+      "tokenAddress": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v3",
+      "durationMs": 13573,
+      "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "tokenOut": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+      "sourceDexName": "V3 Pool",
+      "sourceRouter": "0x83d55acdc72027ed339d267eebaf9a41e47490d5"
+    },
+    {
+      "txHash": "0x7e808234e948d17f7ba01cb91c95d65e296a7918e60d9b0f9b81c94455e619a5",
+      "tokenAddress": "0xa1f72459dfa10bad200ac160ecd78c6b77a747be",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v3",
+      "durationMs": 11169,
+      "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "tokenOut": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sourceDexName": "Uniswap v4",
+      "sourceRouter": "0xcd73052ecb456608496f18c249509ba677f69aaa"
+    },
+    {
+      "txHash": "0x9a8526e2b18edbdc16aa13abe1259601c854deeaf6d5047174658b77edca3f0d",
+      "tokenAddress": "0xa1f72459dfa10bad200ac160ecd78c6b77a747be",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "durationMs": 4368,
+      "tokenIn": "0xa1f72459dfa10bad200ac160ecd78c6b77a747be",
+      "tokenOut": "0x4200000000000000000000000000000000000006",
+      "sourceDexName": "Uniswap v4",
+      "sourceRouter": "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789"
+    }
+  ],
+  "sniperCandidates": []
+}

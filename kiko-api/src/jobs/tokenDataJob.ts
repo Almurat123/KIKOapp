@@ -12,6 +12,8 @@ import { getTrendingTokensPremium } from '../services/dexscreener.js';
 import { saveTrendingTokens, getLastUpdateTime, getTrendingTokens as getStoredTrendingTokens } from '../repositories/tokenRepository.js';
 import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { validateTrendingTokenForListing } from '../services/trendingValidation.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 /**
  * Supported chains configuration
@@ -82,7 +84,7 @@ const refreshLocks = new Map<string, boolean>();
 async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = false): Promise<void> {
   // Check if a refresh is already in progress for this chain
   if (refreshLocks.get(chain.id)) {
-    console.log(`[TokenJob] Skipping refresh for ${chain.name} - update already in progress`);
+    logger.aggregate(LogCode.SYS_INFO, `Skipping refresh for ${chain.name} - update already in progress`);
     return;
   }
 
@@ -97,7 +99,7 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     // TTL slightly less than cron interval.
     hasDistributedLock = await acquireLock(lockKey, 240, lockValue);
     if (!hasDistributedLock) {
-      console.log(`[TokenJob] Skipping refresh for ${chain.name} - another instance holds the lock`);
+      logger.aggregate(LogCode.SYS_INFO, `Skipping refresh for ${chain.name} - another instance holds the lock`);
       return;
     }
 
@@ -107,12 +109,12 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     if (!force) {
       const lastUpdate = await getLastUpdateTime(chain.id);
       if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_5M_MS) {
-        console.log(`[TokenJob] Tokens for ${chain.name} are fresh, skipping API call`);
+        logger.aggregate(LogCode.SYS_INFO, `Tokens for ${chain.name} are fresh, skipping API call`);
         return;
       }
     }
 
-    console.log(`[TokenJob] Fetching trending tokens for ${chain.name} via DexScreener Premium...`);
+    logger.debug(LogCode.API_FETCH_SUCCESS, `Fetching trending tokens for ${chain.name} via DexScreener Premium...`);
 
     // Rate limiter for DexScreener
     const now = Date.now();
@@ -131,24 +133,24 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
 
 
     if (tokens.length === 0) {
-      console.warn(`[TokenJob] No tokens found for ${chain.name}`);
+      logger.warn(LogCode.API_FETCH_FAILED, `No tokens found for ${chain.name}`);
       return;
     }
 
-    console.log(`[TokenJob] Got ${tokens.length} trending tokens for ${chain.name}`);
+    logger.info(LogCode.API_FETCH_SUCCESS, `Got ${tokens.length} trending tokens for ${chain.name}`);
 
     // Zero-cost validation: delist non-positive liquidity and obvious malformed entries
     const beforeCount = tokens.length;
     tokens = tokens.filter((t) => validateTrendingTokenForListing(chain.id, t).ok);
     const removed = beforeCount - tokens.length;
     if (removed > 0) {
-      console.log(`[TokenJob] Filtered out ${removed} invalid tokens for ${chain.name}`);
+      logger.info(LogCode.API_FETCH_SUCCESS, `Filtered out ${removed} invalid tokens for ${chain.name}`);
     }
 
     // Guardrail: avoid replacing good data with a partial refresh (e.g. when rate-limited).
     const existing = await getStoredTrendingTokens(chain.id, TOKENS_PER_CHAIN);
     if (existing.length >= 70 && tokens.length < 50) {
-      console.warn(`[TokenJob] New list too small (${tokens.length}) for ${chain.name}; keeping existing (${existing.length})`);
+      logger.warn(LogCode.API_FETCH_FAILED, `New list too small (${tokens.length}) for ${chain.name}; keeping existing (${existing.length})`);
       return;
     }
 
@@ -164,10 +166,10 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     const redisCacheKey = `trending:live:${chain.id}:5m`;
     await set(redisCacheKey, JSON.stringify(cachedTokens), 600);
 
-    console.log(`[TokenJob] Saved ${cachedTokens.length} tokens for ${chain.name} to DB + cache`);
+    logger.info(LogCode.SYS_INFO, `Saved ${cachedTokens.length} tokens for ${chain.name} to DB + cache`);
 
   } catch (error) {
-    console.error(`[TokenJob] Error refreshing ${chain.name}:`, error instanceof Error ? error.message : error);
+    logger.error(LogCode.SYS_ERROR, `Error refreshing ${chain.name}`, { error: error instanceof Error ? error.message : error });
   } finally {
     if (hasDistributedLock) {
       await releaseLock(lockKey, lockValue);
@@ -195,7 +197,7 @@ async function refreshPrimaryChains(force = false): Promise<void> {
   }
 
   const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[TokenJob] Refreshed ${PRIMARY_CHAINS.length} primary chains in ${duration}s`);
+  logger.info(LogCode.SYS_INFO, `Refreshed ${PRIMARY_CHAINS.length} primary chains in ${duration}s`);
 }
 
 /**
@@ -216,7 +218,7 @@ async function refreshSecondaryChains(force = false): Promise<void> {
   }
 
   const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[TokenJob] Refreshed ${SECONDARY_CHAINS.length} secondary chains in ${duration}s`);
+  logger.info(LogCode.SYS_INFO, `Refreshed ${SECONDARY_CHAINS.length} secondary chains in ${duration}s`);
 }
 
 /**
@@ -225,7 +227,7 @@ async function refreshSecondaryChains(force = false): Promise<void> {
 export async function refreshSingleChain(chainId: string): Promise<boolean> {
   const chain = SUPPORTED_CHAINS.find(c => c.id === chainId);
   if (!chain) {
-    console.error(`[TokenJob] Unknown chain: ${chainId}`);
+    logger.error(LogCode.SYS_ERROR, `Unknown chain: ${chainId}`);
     return false;
   }
 
@@ -254,12 +256,12 @@ export function startTokenDataJobs(): void {
     timezone: 'UTC',
   });
 
-  console.log(`[TokenJob] Scheduled: Primary chains every ${PRIMARY_REFRESH_INTERVAL_MINUTES}min (${PRIMARY_CHAINS.map(c => c.name).join(', ')})`);
-  console.log(`[TokenJob] Scheduled: Secondary chains every ${SECONDARY_REFRESH_INTERVAL_HOURS}h (${SECONDARY_CHAINS.map(c => c.name).join(', ')})`);
+  logger.info(LogCode.SYS_INFO, `Scheduled: Primary chains every ${PRIMARY_REFRESH_INTERVAL_MINUTES}min (${PRIMARY_CHAINS.map(c => c.name).join(', ')})`);
+  logger.info(LogCode.SYS_INFO, `Scheduled: Secondary chains every ${SECONDARY_REFRESH_INTERVAL_HOURS}h (${SECONDARY_CHAINS.map(c => c.name).join(', ')})`);
 
   // Run initial refresh on startup (with delay for services to be ready)
   setTimeout(() => {
-    console.log('[TokenJob] Starting initial token refresh...');
+    logger.info(LogCode.SYS_INFO, 'Starting initial token refresh...');
     refreshPrimaryChains();  // Start with primary chains
     // Secondary chains will wait for their scheduled time
   }, 30000); // Wait 30 seconds for services to be ready

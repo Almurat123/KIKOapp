@@ -1,10 +1,9 @@
 import React from 'react';
-import { Play, Pause, Edit, Trash2, Eye, Target, Check } from 'lucide-react';
+import { Play, Pause, Edit, Trash2, Target, Check, Copy, Info } from 'lucide-react';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import type { TradingStrategy } from '../../hooks/useStrategies';
 import styles from './StrategyCard.module.css';
 import clsx from 'clsx';
-
 
 interface StrategyCardProps {
   strategy: TradingStrategy;
@@ -14,12 +13,11 @@ interface StrategyCardProps {
   variant?: 'card' | 'row';
 }
 
-// Helper to get chain info
 const getChainInfo = (chainId: number | undefined) => {
   switch (chainId) {
     case 8453: return { name: 'Base', icon: '/assets/tokens/base.png', color: '#0052FF' };
     case 1: return { name: 'Ethereum', icon: '/assets/tokens/eth.png', color: '#627EEA' };
-    case 900: return { name: 'Solana', icon: '/assets/tokens/sol.png', color: '#14F195' }; // Using generic ID for Sol
+    case 900: return { name: 'Solana', icon: '/assets/tokens/sol.png', color: '#14F195' };
     case 137: return { name: 'Polygon', icon: '/assets/tokens/polygon.png', color: '#8247E5' };
     default: return { name: 'Unknown', icon: '/assets/tokens/eth.png', color: '#627EEA' };
   }
@@ -38,338 +36,129 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const isCopyTrade = strategy.type === 'copy_trade';
   const isPolymarketCopy = strategy.type === 'polymarket_copy';
 
-  // Only render copy_trade and polymarket_copy strategies
-  if (!isCopyTrade && !isPolymarketCopy) {
-    console.warn('[StrategyCard] Attempted to render unsupported strategy:', strategy.type, strategy.id);
-    return null;
-  }
-
-  if (isCopyTrade) {
-    if (!strategy.copyTradeConfig || !strategy.copyTradeConfig.targetWallet ||
-      strategy.copyTradeConfig.targetWallet === '0x0000000000000000000000000000000000000000') {
-      console.warn('[StrategyCard] Invalid or missing copyTradeConfig:', strategy.id);
-      return null;
-    }
-  } else if (isPolymarketCopy) {
-    if (!strategy.polymarketCopyConfig || !strategy.polymarketCopyConfig.targetWallet ||
-      strategy.polymarketCopyConfig.targetWallet === '0x0000000000000000000000000000000000000000') {
-      console.warn('[StrategyCard] Invalid or missing polymarketCopyConfig:', strategy.id);
-      return null;
-    }
-  }
+  if (!isCopyTrade && !isPolymarketCopy) return null;
 
   const copyConfig = isCopyTrade ? strategy.copyTradeConfig : null;
   const polyConfig = isPolymarketCopy ? strategy.polymarketCopyConfig : null;
-  const targetWallet = isCopyTrade ? copyConfig!.targetWallet : polyConfig!.targetWallet;
-  const chainInfo = getChainInfo(strategy.chainId);
+  const targetWallet = isCopyTrade ? copyConfig?.targetWallet : polyConfig?.targetWallet;
 
+  if (!targetWallet) return null;
+
+  const chainInfo = getChainInfo(strategy.chainId);
   const isActive = strategy.status === 'active';
-  const status = (strategy.status || 'paused').toUpperCase() === 'PAUSED' ? 'PAUSED' :
-    (strategy.status || '').toUpperCase() === 'DELETED' ? 'DELETED' : 'ACTIVE';
+  const status = (strategy.status || 'paused').toUpperCase();
+  const isDeleted = status === 'DELETED';
   const executionCount = (strategy.executionHistory || []).length;
 
-  // --- ROW VARIANT (Single Line) ---
-  if (variant === 'row') {
-    return (
-      <div className={clsx(styles.cardRow, resolvedTheme)}>
-        {/* Identity */}
-        <div className={styles.rowIdentity}>
-          <div className={styles.rowIcon} style={{ borderColor: `${chainInfo.color}33`, background: `${chainInfo.color}11` }}>
-            <img src={chainInfo.icon} alt={chainInfo.name} style={{ width: '20px', height: '20px', borderRadius: '50%' }} />
+  const formatMoney = (val?: number) => val ? `$${val.toLocaleString()}` : '$0';
+
+  const renderActions = () => (
+    <div className={styles.footer}>
+      <button className={styles.actionBtn} onClick={() => onEdit(strategy)} disabled={isDeleted}>
+        <Edit size={14} />
+        <span>Edit</span>
+      </button>
+      <button className={styles.actionBtn} onClick={() => onToggleStatus(strategy.id)} disabled={isDeleted}>
+        {isActive ? <Pause size={14} /> : <Play size={14} />}
+        <span>{isActive ? 'Pause' : 'Resume'}</span>
+      </button>
+      <button className={clsx(styles.actionBtn, styles.deleteBtn)} onClick={() => onDelete(strategy.id)} disabled={isDeleted}>
+        <Trash2 size={14} />
+        <span>Delete</span>
+      </button>
+    </div>
+  );
+
+  return (
+    <div className={clsx(styles.strategyCard, styles[resolvedTheme], { [styles.rowVariant]: variant === 'row' })}>
+      <div className={styles.header}>
+        <div className={styles.headerLeft}>
+          <div className={styles.chainIconWrapper} style={{ borderColor: `${chainInfo.color}33`, background: `${chainInfo.color}11` }}>
+            <img src={chainInfo.icon} alt={chainInfo.name} className={styles.chainIcon} />
           </div>
-          <div>
-            <div className={styles.rowName}>
-              {isCopyTrade ? 'Copy Trading' : 'Polymarket Copy'}
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>on {chainInfo.name}</span>
-            </div>
-            <div style={{ marginTop: '4px', display: 'inline-block' }}>
-              {status === 'DELETED' ? (
-                <span className={styles.statusBadgeDeleted}>DELETED</span>
-              ) : (
-                <span className={status === 'ACTIVE' ? styles.statusBadgeActive : styles.statusBadgePaused}>
-                  {status}
-                </span>
-              )}
-            </div>
+          <div className={styles.titleColumn}>
+            <div className={styles.title}>{isCopyTrade ? 'Copy Trading' : 'Polymarket Copy'}</div>
+            <div className={styles.subtitle}>on {chainInfo.name}</div>
+          </div>
+        </div>
+        <div className={clsx(styles.statusBadge, {
+          [styles.statusActive]: isActive,
+          [styles.statusPaused]: !isActive && !isDeleted,
+          [styles.statusDeleted]: isDeleted
+        })}>
+          {status}
+        </div>
+      </div>
+
+      <div className={styles.content}>
+        <div className={styles.row}>
+          <div className={styles.label}>
+            <Target size={12} />
+            <span>TARGET</span>
+          </div>
+          <div className={styles.walletBadge} onClick={() => {
+            navigator.clipboard.writeText(targetWallet);
+            setIsWalletCopied(true);
+            setTimeout(() => setIsWalletCopied(false), 2000);
+          }}>
+            <span className={styles.fullAddress}>{targetWallet}</span>
+            {isWalletCopied ? <Check size={10} color="#4ade80" /> : <Copy size={12} style={{ opacity: 0.5 }} />}
           </div>
         </div>
 
-        {/* Configuration - Simplified for mobile */}
-        <div className={styles.rowConfig}>
-          {/* Target Wallet */}
-          <div className={styles.rowItem}>
-            <span className={styles.rowItemLabel}>Target</span>
-            <div
-              className={styles.walletAddress}
-              onClick={(e) => {
-                e.stopPropagation();
-                navigator.clipboard.writeText(targetWallet);
-                setIsWalletCopied(true);
-                setTimeout(() => setIsWalletCopied(false), 2000);
-              }}
-              style={{ cursor: 'pointer' }}
-            >
-              {isWalletCopied ? (
-                <div className={styles.iconWrapper}>
-                  <Check size={16} color="#4ade80" />
-                </div>
-              ) : null}
-              {targetWallet.slice(0, 6)}...{targetWallet.slice(-4)}
-            </div>
-          </div>
-
-          {isCopyTrade ? (
-            <>
-              <div className={styles.rowItem}>
-                <span className={styles.rowItemLabel}>Trigger</span>
-                <span className={styles.rowItemValue}>${copyConfig?.minTargetValueUsd || '0'}</span>
-              </div>
-              <div className={styles.rowItem}>
-                <span style={{ color: '#4ade80', fontWeight: 600, fontSize: '12px' }}>TP +{copyConfig?.takeProfitPct}%</span>
-                <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '12px', marginLeft: '8px' }}>SL -{copyConfig?.stopLossPct}%</span>
-              </div>
-              <div className={styles.rowItem}>
-                <span className={styles.rowItemLabel}>Buy</span>
-                <span className={styles.rowItemValue}>${copyConfig?.buyAmountUsd}</span>
-              </div>
-              <div className={styles.rowItem}>
-                <span className={styles.rowItemLabel}>Sell</span>
-                <span className={styles.rowItemValue}>{copyConfig?.mirrorSell ? 'Mirror' : 'None'}</span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className={styles.rowItem}>
-                <span className={styles.rowItemLabel}>Max Open</span>
-                <span className={styles.rowItemValue}>{polyConfig?.maxOpenBets || 0}</span>
-              </div>
-              <div className={styles.rowItem}>
-                <span className={styles.rowItemLabel}>Mirror Sell</span>
-                <span className={styles.rowItemValue}>{polyConfig?.mirrorSell ? 'Yes' : 'No'}</span>
-              </div>
-              <div className={styles.rowItem}>
-                <span className={styles.rowItemLabel}>Bet</span>
-                <span className={styles.rowItemValue}>${polyConfig?.betSizeUsd}</span>
-              </div>
-            </>
-          )}
-        </div>
+        <div className={styles.divider} />
 
         {isCopyTrade ? (
-          <div className={styles.rowActions}>
-            <button
-              onClick={() => onEdit(strategy)}
-              className={styles.rowBtn}
-              title="Edit"
-              disabled={status === 'DELETED'}
-            >
-              <div className={styles.iconWrapper}>
-                <Edit size={16} />
+          <div className={styles.mainGrid}>
+            <div className={styles.gridColumn}>
+              <div className={styles.gridItem}>
+                <div className={styles.label}>TRIGGER</div>
+                <div className={styles.value}>Tx {'>'} {formatMoney(copyConfig?.minTargetValueUsd ?? undefined)}</div>
               </div>
-            </button>
-
-            <button
-              onClick={() => onToggleStatus(strategy.id)}
-              className={styles.rowBtn}
-              title={isActive ? 'Pause' : 'Resume'}
-              disabled={status === 'DELETED'}
-            >
-              <div className={styles.iconWrapper}>
-                {isActive ? <Pause size={16} /> : <Play size={16} />}
+              <div className={styles.tpBox}>
+                <span className={styles.boxLabel}>TP</span>
+                <span className={styles.boxValue}>+{copyConfig?.takeProfitPct}%</span>
               </div>
-            </button>
-
-            <button
-              onClick={() => onDelete(strategy.id)}
-              className={clsx(styles.rowBtn, styles.rowBtnDelete)}
-              title="Delete"
-              disabled={status === 'DELETED'}
-            >
-              <div className={styles.iconWrapper}>
-                <Trash2 size={16} />
+            </div>
+            <div className={clsx(styles.gridColumn, styles.rightAlign)}>
+              <div className={styles.gridItem}>
+                <div className={styles.label}>BUY AMT</div>
+                <div className={styles.value}>{formatMoney(copyConfig?.buyAmountUsd)}</div>
               </div>
-            </button>
+              <div className={styles.slBox}>
+                <span className={styles.boxLabel}>SL</span>
+                <span className={styles.boxValue}>-{copyConfig?.stopLossPct}%</span>
+              </div>
+            </div>
           </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  // --- CARD VARIANT (Original) ---
-  return (
-    <div className={clsx(styles.card, styles.copyCard, resolvedTheme)}>
-      {/* Header: Title & Status */}
-      <div className={styles.strategyHeader}>
-        <div className={styles.strategyTitleSection}>
-          <div className={styles.uintaIcon} style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)', padding: 0, overflow: 'hidden' }}>
-            <img src={chainInfo.icon} alt={chainInfo.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-          <div>
-            <div className={styles.strategyName}>{isCopyTrade ? 'Copy Trading' : 'Polymarket Copy'}</div>
-            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontWeight: 500, marginTop: '2px' }}>on {chainInfo.name}</div>
-          </div>
-        </div>
-        {status === 'DELETED' ? (
-          <span className={styles.statusBadgeDeleted}>DELETED</span>
         ) : (
-          <span className={status === 'ACTIVE' ? styles.statusBadgeActive : styles.statusBadgePaused}>
-            {status}
-          </span>
+          <div className={styles.mainGrid}>
+            <div className={styles.gridColumn}>
+              <div className={styles.gridItem}>
+                <div className={styles.label}>BET SIZE</div>
+                <div className={styles.value}>{formatMoney(polyConfig?.betSizeUsd)}</div>
+              </div>
+              <div className={styles.gridItem}>
+                <div className={styles.label}>MIRROR SELL</div>
+                <div className={styles.value}>{polyConfig?.mirrorSell ? 'On' : 'Off'}</div>
+              </div>
+            </div>
+            <div className={clsx(styles.gridColumn, styles.rightAlign)}>
+              <div className={styles.gridItem}>
+                <div className={styles.label}>MAX OPEN</div>
+                <div className={styles.value}>{polyConfig?.maxOpenBets}</div>
+              </div>
+            </div>
+          </div>
         )}
-      </div>
 
-      {/* Core Configuration */}
-      <div className={styles.strategyContent}>
-
-        {/* IF Block: Monitor Conditions */}
-        <div className={styles.strategyBlock}>
-          {/* Item 1: Target Wallet (Vertical for better readability) */}
-          <div className={styles.strategyItemVertical}>
-            <div className={styles.strategyItemLabel}>
-              <div className={styles.iconWrapper}>
-                <Target size={16} />
-              </div>
-              <span>Target Wallet</span>
-            </div>
-            <div className={styles.strategyItemValueVertical}>
-              <div
-                className={styles.walletAddress}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(targetWallet);
-                  setIsWalletCopied(true);
-                  setTimeout(() => setIsWalletCopied(false), 2000);
-                }}
-                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                {isWalletCopied ? (
-                  <div className={styles.iconWrapper}>
-                    <Check size={16} color="var(--success-color)" />
-                  </div>
-                ) : null}
-                <span className={styles.walletAddressText}>{targetWallet}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className={styles.strategyDivider}></div>
-
-          {/* Item 2: Trigger Condition */}
-          <div className={styles.strategyItem}>
-            <div className={styles.strategyItemLabel}>
-              <div className={styles.iconWrapper}>
-                <Eye size={16} />
-              </div>
-              <span>Trigger</span>
-            </div>
-            <div className={styles.strategyItemValue}>
-              <div className={styles.triggerValue}>
-                {isCopyTrade ? (
-                  <>Tx Value {'>'} ${copyConfig?.minTargetValueUsd?.toLocaleString() || '0'}</>
-                ) : (
-                  <>Target opens a position</>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* THEN Block: Execution Logic */}
-        <div className={styles.strategyBlockThen}>
-          {isCopyTrade ? (
-            <>
-              <div className={styles.strategyItem}>
-                <div className={styles.slTpCapsule}>
-                  <div className={styles.capsuleItem}>
-                    <span className={styles.capsuleLabel}>TP</span>
-                    <span className={styles.capsuleValueGreen}>+{copyConfig?.takeProfitPct}%</span>
-                  </div>
-                  <div className={styles.capsuleDivider}></div>
-                  <div className={styles.capsuleItem}>
-                    <span className={styles.capsuleLabel}>SL</span>
-                    <span className={styles.capsuleValueRed}>-{copyConfig?.stopLossPct}%</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className={styles.strategyDivider}></div>
-
-              <div className={styles.strategyItem}>
-                <span className={styles.buyAmountLabel}>Buy Amount</span>
-                <span className={styles.buyAmountValue}>${copyConfig?.buyAmountUsd?.toLocaleString() || strategy.executionAmount}</span>
-              </div>
-
-              <div className={styles.strategyDivider}></div>
-
-              <div className={styles.strategyItem}>
-                <span className={styles.buyAmountLabel}>Mirror Sell Target</span>
-                <span className={styles.buyAmountValue}>{copyConfig?.mirrorSell ? 'YES' : 'NO'}</span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className={styles.strategyItem}>
-                <span className={styles.buyAmountLabel}>Mirror Sell</span>
-                <span className={styles.buyAmountValue}>{polyConfig?.mirrorSell ? 'Yes' : 'No'}</span>
-              </div>
-
-              <div className={styles.strategyDivider}></div>
-
-              <div className={styles.strategyItem}>
-                <span className={styles.buyAmountLabel}>Bet Size</span>
-                <span className={styles.buyAmountValue}>${polyConfig?.betSizeUsd?.toLocaleString() || strategy.executionAmount}</span>
-              </div>
-            </>
-          )}
-        </div>
-
-      </div>
-
-      {/* Footer: Info & Actions */}
-      <div className={styles.strategyFooter}>
-        <div className={styles.strategyCardFooter}>
-          <div className={styles.strategyItemValue}>
-            Executed {executionCount} trades
-          </div>
-          {isCopyTrade ? (
-            <div className={styles.strategyActions}>
-              <button
-                className={styles.strategyEditBtn}
-                onClick={() => onEdit(strategy)}
-                disabled={status === 'DELETED'}
-                title="Edit"
-              >
-                <div className={styles.iconWrapper}>
-                  <Edit size={16} />
-                </div>
-                <span>Edit</span>
-              </button>
-              <button
-                className={styles.strategyPauseBtn}
-                onClick={() => onToggleStatus(strategy.id)}
-                disabled={status === 'DELETED'}
-                title={status === 'PAUSED' ? 'Resume' : 'Pause'}
-              >
-                <div className={styles.iconWrapper}>
-                  {status === 'PAUSED' ? <Play size={16} /> : <Pause size={16} />}
-                </div>
-                <span>{status === 'PAUSED' ? 'Resume' : 'Pause'}</span>
-              </button>
-              <button
-                className={styles.strategyDeleteBtn}
-                onClick={() => onDelete(strategy.id)}
-                disabled={status === 'DELETED'}
-                title="Delete"
-              >
-                <div className={styles.iconWrapper}>
-                  <Trash2 size={16} />
-                </div>
-                <span>Delete</span>
-              </button>
-            </div>
-          ) : null}
+        <div className={styles.footerInfo}>
+          <Info size={10} />
+          <span>Executed {executionCount} trades</span>
         </div>
       </div>
+
+      {renderActions()}
     </div>
   );
 };

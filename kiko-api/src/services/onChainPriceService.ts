@@ -67,7 +67,7 @@ type QuoteToken = {
 // type: 'aerodrome' = uses Route struct, 'v2' = uses address[] path
 const DEX_ROUTERS: Record<number, { name: string; address: string; type: 'v2' | 'v3' | 'aerodrome' }[]> = {
     8453: [ // Base - Aerodrome is the largest DEX!
-        { name: 'Aerodrome', address: '0xcF77a3Ba9A5CA399B7c97c74D54e5b1Beb874E43', type: 'aerodrome' },
+        { name: 'Aerodrome', address: '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43', type: 'aerodrome' },
         { name: 'SushiSwap', address: '0x804b526e5bf4349819fe2db65349d0825870f8ee', type: 'v2' },
     ],
     1: [ // Ethereum

@@ -21,6 +21,7 @@ export async function getMarketOverview(apiKey?: string) {
             volume24h: globalData.total_volume.usd,
             bitcoinDominance: globalData.market_cap_percentage.btc,
             activeUsers: globalData.active_cryptocurrencies,
+            mcapChange24h: globalData.market_cap_change_percentage_24h_usd,
             ethGasPrice: undefined // CoinGecko doesn't provide gas price directly in global
         };
     } catch (error: any) {

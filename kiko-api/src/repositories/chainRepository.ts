@@ -139,3 +139,20 @@ export async function getLastUpdateTime(): Promise<Date | null> {
     return null;
   }
 }
+
+/**
+ * Get total active wallets across all chains
+ */
+export async function getTotalActiveWallets(): Promise<number> {
+  try {
+    const result = await prisma.chainMetric.aggregate({
+      _sum: {
+        activeWallets: true
+      }
+    });
+    return Number(result._sum.activeWallets || 0);
+  } catch (error) {
+    console.error('Error getting total active wallets:', error);
+    return 0;
+  }
+}

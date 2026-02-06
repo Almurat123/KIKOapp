@@ -5,7 +5,12 @@
 
 import { FastifyInstance } from 'fastify';
 import prisma from '../db/prisma.js';
-import { fetchTransaction, fetchTransactionReceipt, isTxProcessed, markTxAsProcessed } from '../services/watcherService.js';
+import {
+    fetchTransaction,
+    fetchTransactionReceipt,
+    isTxProcessedDistributed,
+    markTxAsProcessedDistributed
+} from '../services/watcherService.js';
 import { normalizeAddress } from '../utils/address.js';
 import { parseSwapTransaction } from '../services/txDecoder.js';
 import { env } from '../config/env.js';
@@ -32,6 +37,16 @@ const NETWORK_TO_CHAIN_ID: Record<string, number> = {
     'SOL': 900,                 // Short alias
 };
 
+const IS_PRODUCTION = env.nodeEnv === 'production' || env.nodeEnv === 'prod';
+
+function safeSecretEquals(provided: unknown, expected: string): boolean {
+    if (typeof provided !== 'string') return false;
+    const providedBuf = Buffer.from(provided);
+    const expectedBuf = Buffer.from(expected);
+    if (providedBuf.length !== expectedBuf.length) return false;
+    return crypto.timingSafeEqual(providedBuf, expectedBuf);
+}
+
 export default async function webhookRoutes(fastify: FastifyInstance) {
     /**
      * POST /api/webhook/process-tx
@@ -40,9 +55,15 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     fastify.post<{ Body: ProcessTxBody }>('/process-tx', async (request, reply) => {
         // 1. Verify internal secret if configured
         const internalSecret = env.security.internalWebhookSecret;
-        if (internalSecret) {
+        if (!internalSecret) {
+            if (IS_PRODUCTION) {
+                console.error('[Webhook] INTERNAL_WEBHOOK_SECRET is required in production');
+                return reply.status(503).send({ error: 'Webhook is not configured securely' });
+            }
+            console.warn('[Webhook] INTERNAL_WEBHOOK_SECRET is missing (development mode only)');
+        } else {
             const providedSecret = request.headers['x-internal-secret'];
-            if (providedSecret !== internalSecret) {
+            if (!safeSecretEquals(providedSecret, internalSecret)) {
                 console.warn(`[Webhook] Unauthorized access attempt to /process-tx from ${request.ip}`);
                 return reply.status(401).send({ error: 'Unauthorized' });
             }
@@ -64,12 +85,23 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         console.log(`[Webhook] Processing tx from Go service: wallet=${wallet.slice(0, 10)}, tx=${txHash.slice(0, 16)}, chain=${chainId}`);
 
         try {
+            if (await isTxProcessedDistributed(txHash, chainId)) {
+                return reply.send({ success: true, skipped: true, reason: 'already_processed_cache' });
+            }
+
             // Check if already processed
             const existingPosition = await prisma.position.findFirst({
-                where: { entryTxHash: txHash }
+                where: {
+                    chainId,
+                    OR: [
+                        { leaderTxHash: txHash },
+                        { entryTxHash: txHash }
+                    ]
+                }
             });
             if (existingPosition) {
                 console.log(`[Webhook] Tx already processed: ${txHash.slice(0, 16)}`);
+                await markTxAsProcessedDistributed(txHash, chainId);
                 return reply.send({ success: true, skipped: true, reason: 'already_processed' });
             }
 
@@ -103,6 +135,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
             if (!swap) {
                 console.log(`[Webhook] Not a swap tx: ${txHash.slice(0, 16)}`);
+                await markTxAsProcessedDistributed(txHash, chainId);
                 return reply.send({ success: true, skipped: true, reason: 'not_a_swap' });
             }
 
@@ -116,6 +149,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             // Enqueue copy trade for async execution
             const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
             enqueueCopyTradeTask(wallet, swap, chainId);
+            await markTxAsProcessedDistributed(txHash, chainId);
 
             return reply.send({ success: true, swap: { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut } });
         } catch (error: any) {
@@ -183,7 +217,13 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
     fastify.post('/alchemy', async (request, reply) => {
         // 1. Signature Verification for Alchemy
         const alchemySecret = env.security.alchemyWebhookSecret;
-        if (alchemySecret) {
+        if (!alchemySecret) {
+            if (IS_PRODUCTION) {
+                console.error('[Webhook] ALCHEMY_WEBHOOK_SECRET is required in production');
+                return reply.status(503).send({ error: 'Webhook is not configured securely' });
+            }
+            console.warn('[Webhook] ALCHEMY_WEBHOOK_SECRET is missing (development mode only)');
+        } else {
             const signature = request.headers['x-alchemy-signature'] as string;
             if (!signature) {
                 console.warn(`[Webhook] Missing Alchemy signature from ${request.ip}`);
@@ -202,8 +242,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             hmac.update(content);
             const digest = hmac.digest('hex');
 
-            if (signature !== digest) {
-                console.warn(`[Webhook] Invalid Alchemy signature. Expected ${digest}, got ${signature}`);
+            if (!safeSecretEquals(signature, digest)) {
+                console.warn(`[Webhook] Invalid Alchemy signature. Got ${signature?.slice?.(0, 12) || 'unknown'}...`);
                 return reply.status(401).send({ error: 'Invalid signature' });
             }
         }
@@ -306,7 +346,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     if (!txHash) return;
 
                     // FAST in-memory deduplication check (shared with watcher)
-                    if (isTxProcessed(txHash)) {
+                    if (await isTxProcessedDistributed(txHash, chainId)) {
                         console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
                         return;
                     }
@@ -361,6 +401,8 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                                 console.error(`[Webhook] ❌ Failed to fetch Solana tx details after trying all RPCs: ${txHash.slice(0, 16)}`);
                                 return;
                             }
+
+                            await markTxAsProcessedDistributed(txHash, chainId);
 
                             // Trigger copy trade for EACH matched tracked wallet
                             const { handleSwapDetected } = await import('../services/autoTradeService.js');
@@ -417,7 +459,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     }
 
                     // Mark as processed only after tx/receipt fetch succeeded
-                    markTxAsProcessed(txHash);
+                    await markTxAsProcessedDistributed(txHash, chainId);
 
                     // Trigger copy trade for EACH matched tracked wallet
                     const { handleSwapDetected } = await import('../services/autoTradeService.js');

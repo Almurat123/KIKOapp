@@ -9,7 +9,9 @@ import clsx from 'clsx';
 import styles from './CustomAISettingsModal.module.css';
 
 export interface CustomAISettings {
-    userRole: string;
+
+    // User Role removed
+
     // Swap fields
     defaultSwapAmount: number;
     defaultSwapUnit: string;
@@ -33,7 +35,7 @@ interface CustomAISettingsModalProps {
 }
 
 const DEFAULT_SETTINGS: CustomAISettings = {
-    userRole: 'default',
+    // userRole removed
     defaultSwapAmount: 100,
     defaultSwapUnit: 'native',
     checkTokenBeforeSwap: true,
@@ -49,14 +51,7 @@ const DEFAULT_SETTINGS: CustomAISettings = {
     fastSwapMode: false,
 };
 
-const USER_ROLE_OPTIONS = [
-    { value: 'default', label: 'Default' },
-    { value: 'beginner', label: 'Beginner' },
-    { value: 'trader', label: 'Trader' },
-    { value: 'developer', label: 'Developer' },
-];
-
-
+// USER_ROLE_OPTIONS removed
 
 const SWAP_UNIT_OPTIONS = [
     { value: 'native', label: 'Native Token' },
@@ -181,18 +176,7 @@ export const CustomAISettingsModal: React.FC<CustomAISettingsModalProps> = ({
             showCloseButton={false}
         >
             <div className={styles.container}>
-                {/* Personality Section */}
-                <div className={styles.section}>
-                    <div className={styles.sectionTitle}>User Role</div>
-
-                    <div className={styles.inputGroup}>
-                        <CustomSelect
-                            value={settings.userRole}
-                            onChange={val => setSettings(prev => ({ ...prev, userRole: val }))}
-                            options={USER_ROLE_OPTIONS}
-                        />
-                    </div>
-                </div>
+                {/* User Role Section Removed */}
 
                 {/* Fast Swap Section */}
                 <div className={styles.section}>

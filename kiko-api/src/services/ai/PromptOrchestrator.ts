@@ -154,15 +154,8 @@ USER_QUERY_END
 
             const config = ctx.toolConfig as any;
 
-            if (config.userRole && config.userRole !== 'default') {
-                const roleMap: Record<string, string> = {
-                    beginner: 'a beginner',
-                    trader: 'an experienced trader',
-                    developer: 'a developer'
-                };
-                const roleName = roleMap[config.userRole] || config.userRole;
-                parts.push(`- Role: The user is ${roleName}. Adjust explanation depth.`);
-            }
+            // User Role logic removed
+
 
             if (config.quickSwapMode) {
                 parts.push(`- Quick mode: Enabled. Prioritize speed and result-first responses.`);

@@ -49,7 +49,13 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         try {
             // Check if already processed
             const existingPosition = await prisma.position.findFirst({
-                where: { entryTxHash: txHash }
+                where: {
+                    chainId,
+                    OR: [
+                        { leaderTxHash: txHash },
+                        { entryTxHash: txHash }
+                    ]
+                }
             });
             if (existingPosition) {
                 console.log(`[Webhook] Tx already processed: ${txHash.slice(0, 16)}`);
@@ -180,7 +186,13 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                 // Check if already processed (DB fallback)
                 const existing = await prisma.position.findFirst({
-                    where: { entryTxHash: txHash }
+                    where: {
+                        chainId,
+                        OR: [
+                            { leaderTxHash: txHash },
+                            { entryTxHash: txHash }
+                        ]
+                    }
                 });
                 if (existing) {
                     console.log(`[Webhook] Tx already in DB: ${txHash.slice(0, 16)}`);

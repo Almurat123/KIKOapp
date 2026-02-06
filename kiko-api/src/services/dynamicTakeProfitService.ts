@@ -69,11 +69,41 @@ export class DynamicTakeProfitService {
             return { shouldSell: false, reason: 'Dynamic TP disabled', urgency: 'none' };
         }
 
-        // 1. 获取/初始化历史数据
+        // 0.5 参数合法性验证
+        // [Safety]: 防止 NaN, Infinity 或 <= 0 导致的计算错误和 DB 污染
+        if (!currentPrice || currentPrice <= 0 || isNaN(currentPrice)) {
+            logger.warn(LogCode.API_FETCH_FAILED, '[DynamicTP] Invalid currentPrice, skipping check', {
+                positionId: position.id,
+                token: position.tokenSymbol || position.tokenAddress,
+                currentPrice
+            });
+            return { shouldSell: false, reason: 'Invalid price data', urgency: 'none' };
+        }
+
+        // [Safety]: 防止 PnL 计算中的除以零错误
+        if (!position.entryPrice || position.entryPrice <= 0) {
+            logger.error(LogCode.SYS_ERROR, '[DynamicTP] Invalid entryPrice (<=0), skipping', {
+                positionId: position.id,
+                entryPrice: position.entryPrice
+            });
+            return { shouldSell: false, reason: 'Invalid entry price', urgency: 'none' };
+        }
+
+        // 1. 获取/初始化历史数据 (Safe Parsing)
         // Prisma 中 priceHistory 是 Json 类型，我们需要将其转换为 PricePoint 数组
         let priceHistory: PricePoint[] = [];
-        if (position.priceHistory && Array.isArray(position.priceHistory)) {
-            priceHistory = position.priceHistory as unknown as PricePoint[];
+        try {
+            if (position.priceHistory && Array.isArray(position.priceHistory)) {
+                // 过滤掉任何损坏的数据点
+                priceHistory = (position.priceHistory as unknown as PricePoint[])
+                    .filter(p => p && typeof p.timestamp === 'number' && typeof p.price === 'number');
+            }
+        } catch (err: any) {
+            logger.warn(LogCode.SYS_ERROR, '[DynamicTP] Corrupted priceHistory detected, resetting', {
+                positionId: position.id,
+                error: err.message
+            });
+            priceHistory = [];
         }
 
         // 2. 更新价格历史 (分钟级 OHLC 聚合桶)
@@ -116,6 +146,7 @@ export class DynamicTakeProfitService {
                 where: { id: position.id },
                 data: {
                     peakPrice: peakPrice,
+                    currentPrice: currentPrice, // 🟢 FIX: Update current price for observability
                     priceHistory: priceHistory as any
                 }
             }).catch(err => {
@@ -134,7 +165,14 @@ export class DynamicTakeProfitService {
 
         // 如果还没有达到激活盈利，且之前也没触发过，则直接返回
         if (currentPnL < minProfit) {
-            // 如果价格已经跌破 entry 但曾经激活过... 复杂逻辑先不考虑
+            // 🟢 FIX: Log INFO if PnL is high (> 50%) but below threshold, so user knows it's watching
+            if (currentPnL > 50) {
+                logger.info(LogCode.SYS_INFO, `[DynamicTP] Watching... PnL ${currentPnL.toFixed(1)}% < Activation ${minProfit}%`, {
+                    token: position.tokenSymbol || position.tokenAddress,
+                    peak: peakPrice.toFixed(8),
+                    current: currentPrice.toFixed(8)
+                });
+            }
             return { shouldSell: false, reason: `Not activated (PnL ${currentPnL.toFixed(1)}% < ${minProfit}%)`, urgency: 'none' };
         }
 

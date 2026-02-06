@@ -1,18 +1,23 @@
 import cron from 'node-cron';
 import { ethers } from 'ethers';
+import { randomUUID } from 'node:crypto';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getBillingTokenPriceUsd } from '../services/billing/priceService.js';
 import { getUtcDateString } from '../services/billing/billingService.js';
 import { sendTransaction } from '../services/privyWallet.js';
+import { acquireLock, releaseLock } from '../cache/redis.js';
 import {
     createBillingBlock,
     getDailyAggregates,
     getActiveBillingConsent,
+    getDailyBillingStatus,
     updateDailyBillingStatus,
     upsertDailyBilling
 } from '../repositories/billingRepository.js';
+
+const BILLING_LOCK_TTL_SECONDS = 6 * 60 * 60; // 6 hours
 
 function getYesterdayUtcDateString(): string {
     const now = new Date();
@@ -48,96 +53,114 @@ export async function runDailyBilling(targetDateUtc?: string): Promise<void> {
     }
 
     const dateUtc = targetDateUtc || getYesterdayUtcDateString();
-    const aggregates = await getDailyAggregates(dateUtc);
+    const lockKey = `lock:billing:daily:${dateUtc}`;
+    const lockValue = randomUUID();
+    const lockAcquired = await acquireLock(lockKey, BILLING_LOCK_TTL_SECONDS, lockValue);
 
-    if (aggregates.length === 0) {
+    if (!lockAcquired) {
+        logger.info(LogCode.SYS_INFO, 'Daily billing skipped: another instance is running', { dateUtc });
         return;
     }
 
-    let priceQuote;
     try {
-        priceQuote = await getBillingTokenPriceUsd();
-    } catch (error: any) {
-        logger.error(LogCode.API_FETCH_FAILED, 'Billing price fetch failed', { error: error?.message || error });
-        return;
-    }
+        const aggregates = await getDailyAggregates(dateUtc);
 
-    for (const row of aggregates) {
-        const totalUsd = Number(row.total_usd || 0);
-        if (totalUsd <= 0) continue;
-
-        const tokensDue = (totalUsd * env.billing.usdMultiplier) / priceQuote.priceUsd;
-        if (!Number.isFinite(tokensDue) || tokensDue <= 0) continue;
-
-        await upsertDailyBilling({
-            userId: row.user_id,
-            dateUtc,
-            totalUsd,
-            tokenPriceUsd: priceQuote.priceUsd,
-            tokensDue,
-            tokenAddress: env.billing.tokenAddress,
-            chainId: env.billing.chainId
-        });
-
-        const consent = await getActiveBillingConsent(row.user_id, env.billing.chainId);
-        if (!consent || consent.terms_version !== env.billing.termsVersion) {
-            await updateDailyBillingStatus({
-                userId: row.user_id,
-                dateUtc,
-                status: 'failed',
-                attempts: 0,
-                failureReason: 'BILLING_CONSENT_REQUIRED'
-            });
-            const todayUtc = getUtcDateString();
-            await createBillingBlock(row.user_id, todayUtc, 'BILLING_CONSENT_REQUIRED');
-            continue;
+        if (aggregates.length === 0) {
+            return;
         }
 
-        let attempts = 0;
-        let txHash: string | undefined;
-        let failureReason: string | undefined;
+        let priceQuote;
+        try {
+            priceQuote = await getBillingTokenPriceUsd();
+        } catch (error: any) {
+            logger.error(LogCode.API_FETCH_FAILED, 'Billing price fetch failed', { error: error?.message || error });
+            return;
+        }
 
-        for (let attempt = 1; attempt <= 3; attempt++) {
-            attempts = attempt;
-            try {
-                txHash = await chargeUser({
+        for (const row of aggregates) {
+            const totalUsd = Number(row.total_usd || 0);
+            if (totalUsd <= 0) continue;
+
+            const tokensDue = (totalUsd * env.billing.usdMultiplier) / priceQuote.priceUsd;
+            if (!Number.isFinite(tokensDue) || tokensDue <= 0) continue;
+
+            await upsertDailyBilling({
+                userId: row.user_id,
+                dateUtc,
+                totalUsd,
+                tokenPriceUsd: priceQuote.priceUsd,
+                tokensDue,
+                tokenAddress: env.billing.tokenAddress,
+                chainId: env.billing.chainId
+            });
+
+            const existingDaily = await getDailyBillingStatus(row.user_id, dateUtc);
+            if (existingDaily?.status === 'paid') {
+                continue;
+            }
+
+            const consent = await getActiveBillingConsent(row.user_id, env.billing.chainId);
+            if (!consent || consent.terms_version !== env.billing.termsVersion) {
+                await updateDailyBillingStatus({
                     userId: row.user_id,
-                    tokensDue
+                    dateUtc,
+                    status: 'failed',
+                    attempts: 0,
+                    failureReason: 'BILLING_CONSENT_REQUIRED'
                 });
-                break;
-            } catch (error: any) {
-                failureReason = error?.message || 'UNKNOWN_ERROR';
-                logger.warn(LogCode.EXE_TX_BROADCAST, 'Billing charge attempt failed', {
-                    userId: row.user_id,
-                    attempt,
-                    error: failureReason
-                });
-                if (attempt < 3) {
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                const todayUtc = getUtcDateString();
+                await createBillingBlock(row.user_id, todayUtc, 'BILLING_CONSENT_REQUIRED');
+                continue;
+            }
+
+            let attempts = 0;
+            let txHash: string | undefined;
+            let failureReason: string | undefined;
+
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                attempts = attempt;
+                try {
+                    txHash = await chargeUser({
+                        userId: row.user_id,
+                        tokensDue
+                    });
+                    break;
+                } catch (error: any) {
+                    failureReason = error?.message || 'UNKNOWN_ERROR';
+                    logger.warn(LogCode.EXE_TX_BROADCAST, 'Billing charge attempt failed', {
+                        userId: row.user_id,
+                        attempt,
+                        error: failureReason
+                    });
+                    if (attempt < 3) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
                 }
             }
-        }
 
-        if (txHash) {
-            await updateDailyBillingStatus({
-                userId: row.user_id,
-                dateUtc,
-                status: 'paid',
-                attempts,
-                txHash
-            });
-        } else {
-            await updateDailyBillingStatus({
-                userId: row.user_id,
-                dateUtc,
-                status: 'failed',
-                attempts,
-                failureReason
-            });
+            if (txHash) {
+                await updateDailyBillingStatus({
+                    userId: row.user_id,
+                    dateUtc,
+                    status: 'paid',
+                    attempts,
+                    txHash
+                });
+            } else {
+                await updateDailyBillingStatus({
+                    userId: row.user_id,
+                    dateUtc,
+                    status: 'failed',
+                    attempts,
+                    failureReason
+                });
 
-            const todayUtc = getUtcDateString();
-            await createBillingBlock(row.user_id, todayUtc, failureReason || 'BILLING_CHARGE_FAILED');
+                const todayUtc = getUtcDateString();
+                await createBillingBlock(row.user_id, todayUtc, failureReason || 'BILLING_CHARGE_FAILED');
+            }
         }
+    } finally {
+        await releaseLock(lockKey, lockValue);
     }
 }
 

@@ -16,10 +16,12 @@ interface OGPData {
     url?: string;
     type?: string;
     video?: string;
+    originalImage?: string;
 }
 
 export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
     const [data, setData] = useState<OGPData | null>(null);
+    const [imgSrc, setImgSrc] = useState<string | undefined>(undefined);
     const [loading, setLoading] = useState(true);
     const [isVisible, setIsVisible] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -55,6 +57,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                     const json = await res.json();
                     if (json.success && json.data) {
                         setData(json.data);
+                        setImgSrc(json.data.image);
                     }
                 }
             } catch (e) {
@@ -186,7 +189,8 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                 {/* X/Twitter 无法获取图片，不显示图片占位 */}
-                {data.image && !isX && (
+                {/* Image Display with Fallback Logic */}
+                {imgSrc && (
                     <div style={{
                         width: '100%',
                         height: '100px',
@@ -199,7 +203,7 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                         position: 'relative'
                     }}>
                         <img
-                            src={data.image}
+                            src={imgSrc}
                             alt={data.title}
                             loading="lazy"
                             style={{
@@ -209,8 +213,15 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                                 display: 'block'
                             }}
                             onError={(e) => {
-                                const parent = e.currentTarget.parentElement;
-                                if (parent) parent.style.display = 'none';
+                                // Fallback Strategy: Proxy -> Original -> Hide
+                                if (data.originalImage && imgSrc !== data.originalImage) {
+                                    /* [DANGER_ZONE_UNVERIFIED]: Exposes user IP to 3rd party */
+                                    setImgSrc(data.originalImage);
+                                } else {
+                                    // Final failure: Hide container
+                                    const parent = e.currentTarget.parentElement;
+                                    if (parent) parent.style.display = 'none';
+                                }
                             }}
                         />
                     </div>

@@ -1,0 +1,517 @@
+{
+  "summary": {
+    "startedAt": "2026-02-06T08:27:52.408Z",
+    "finishedAt": "2026-02-06T08:29:13.311Z",
+    "durationMs": 80903,
+    "poolUniverseCount": 69,
+    "newPoolCandidates": 69,
+    "oldPoolCandidates": 69,
+    "newSamples": 20,
+    "oldSamples": 20,
+    "totalSamples": 40,
+    "targetSamples": 40,
+    "reachedTarget": true
+  },
+  "samples": [
+    {
+      "bucket": "new",
+      "txHash": "0xe85cdd4b9e06993060a957454add790088e19a614ae26299a16e387979fb0a2a",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:28:55Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x1e0f94e235504fb79ebae6e2719629edf4c00b0255c976fad26b243c21b75852",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:28:33Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x01bca391165b7b7b0a0e8fc2f7b098395d9856734dca5c43896c4d2331c4a9ea",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:28:17Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0xab5ad31007e9af430fc2564103c50829b50dab1f92f161d4f84b705d8dbe84d1",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:28:09Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0xf7893fcede70c07caf9fc044cf5f41d6164056289b4e067a6390032300b320f4",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:28:09Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x8fc633cbff85b01502632d1d9e393aec63100ba1b0c54e107cc70def7c3b2000",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:27:57Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x32c863cdc9a517a0784256a74eca6b8138ea47bd06b031f3685c6c0990253b2a",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:27:45Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0xa1ccc3c52ec88e8d176a2ebdcc17251922a300479a78c33afe77830adfa30130",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:27:23Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x6182ada60d315aca22bb6367070793ce241591ddb50d6708dff02e3001644fba",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:27:07Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x70bf4457b6fe7857d1a6ccc40e16f71a973811240cfad6608d5443ed660c93c3",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:26:51Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x675e49670ba101d20a5df29be21a4e786134671126885659ad1ea9c75a7a54a1",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:26:33Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0xb15c8baf5429b54e53bcd4c8ba33eb9cd264f44f37be1495e28cf235340a5d5c",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:26:25Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x4ac8b02933cfbb3e5af97471a48079b3e736eb8b27b254ecec647e0ae7f5c77a",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:26:15Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0xe2f539edcf57bb87cb68c553c1010399272bb2bcc747754c97aca31207766910",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:25:59Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0xe840452d9dde57115ac8e32c8298fe9c113c13e81652dbb11cd6e2803e6fcf12",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:25:37Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0xd8b431c0c77f073da004599198509582a04dc83ec84a56b1612b827eefc0f873",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:25:15Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x5cdc2a0928f63dd6955ba47ae05bd40748e4b3838518d87a07322c3b223d6163",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:25:03Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x86d05dc876e1336c936b4dd2a3e21dfcc37da6606339db50e265b32a1d234571",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:24:49Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0xb7d3adebba05232741c58222f4d2a76211807a17f35e66e75f765986f517eb04",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:24:47Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "new",
+      "txHash": "0x7a45cdbf23825a30cbdf4c8993dd075e14005e3b5a56971e9219b85d4879c42e",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:24:31Z",
+      "tokenAddress": "0x56fc257ea6a3ba8d88f24d966d7a36a7e3850b07",
+      "poolAddress": "0x7c8b290817dea32c66a645bdd51645e09a634dbb911749d32bc241b7fcb649b9",
+      "poolCreatedAt": "2026-02-06T07:48:21.000Z",
+      "sourceApis": [
+        "gecko"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x1d711b73be1c7e7858cdc1face4cbae407bbafba504954af07f933212cf916aa",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:26:03Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x68c5cf6e7f7fef399f76e39935c3603cb927f3d40dbd9cb53e53f6ce382f131b",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:26:01Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0xfa7ca1555bc99a13a9df0eced416913bb51dd3997c8ba4b0a85f1ee02c869f48",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:26:01Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x4625c5a6cce19f1e37b68b018cecdae1e415e2b93b67153f6e093796680f92fb",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:25:53Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0xfcddf35bc06ca0d92de9d316d5d944815ed3126cb8d8f7c2ad2711e30f593b77",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:25:53Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x7a13e73f5534f6f65c92864dd877e755205d1ea880bc5134af81ab95e7005f08",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:21:09Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x2c5dd72eb48bfa970cc336dad230c4dfb5c8f39b590fc159daccb14cde580379",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:21:09Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x4549a0ec0a631ffe3747c4b400f38ced7f6f3a3509afb522e7ac835120d12caf",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:21:07Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x008b4328bbb1ce3b3472cc1b9f5e72adfc42d58d61c52b436ff0ae9f8bc81025",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:20:55Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x54a65a3744d0671dcf105dedb6ad50f4efe596af654759c56004e02742166f9a",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:20:53Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x34824c9eba38fa77dc49199f72c0320d9d446dfd33ba7e641f2f3546e1659811",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:20:53Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0xc2fde2915f368250d0a83f38f5cb0b0d2482c7f46d5a9097ace193bac3b4938a",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:20:53Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0xfbbf2a2ff89c9c1308cda6631c2f3b804796a57463684d859c378b06e41d5802",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:17:35Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0xee9bbd5691edf21538a26e2f8bded1b82d56b4570af739fe1d00a82af01a9f7e",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:08:47Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0xdbe4ba88c611fb5df7b8d78b967475000051361316d48e3d459ba146e6357074",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:08:47Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0xdc129b809b917a45e27e800f3358c694937e11f8413050b813b17046205a6742",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:08:45Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x717bb05e5729f7c4ee1a4594a5109c08fbcd356f73d456bdd6609e33da4a450f",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:08:41Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x0bb0e4b260a30e1ba30920760bd5b49847daa0e76fb75720d167ba6357b63f66",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:08:41Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x41ae779bf1db48057c9c716e0c3071d5d1b78f8e2e8cd0e1f2568e3513f53392",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:08:41Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    },
+    {
+      "bucket": "old",
+      "txHash": "0x49d62ad254f56f954728995931d2ff2f87c20e84d47be47a1afcb9a185d744fe",
+      "tradeKind": "buy",
+      "blockTimestamp": "2026-02-06T08:08:39Z",
+      "tokenAddress": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+      "poolAddress": "0x6cdcb1c4a4d1c3c6d054b27ac5b77e89eafb971d",
+      "poolCreatedAt": "2023-09-07T22:50:55.000Z",
+      "sourceApis": [
+        "gecko",
+        "dexscreener"
+      ]
+    }
+  ]
+}

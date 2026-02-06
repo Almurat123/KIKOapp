@@ -1,4 +1,5 @@
 import * as dbCache from './dbCache.js';
+import prisma from '../db/prisma.js';
 
 // NOTE: Redis is intentionally disabled in this deployment.
 // All cache operations are routed to PostgreSQL via dbCache.
@@ -24,48 +25,43 @@ export async function set(key: string, value: string, ttlSeconds?: number): Prom
 }
 
 export async function acquireLock(key: string, ttlSeconds: number, value: string): Promise<boolean> {
-    // Best-effort lock using DB cache (not strictly atomic).
-    const existing = await dbCache.getEntry(key);
-    if (existing) {
-        const now = Date.now();
-        const expiresAt = existing.expiresAt ? existing.expiresAt.getTime() : null;
-        const ageMs = now - existing.updatedAt.getTime();
+    try {
+        const safeTtl = Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? Math.floor(ttlSeconds) : 30;
+        const expiresAt = new Date(Date.now() + safeTtl * 1000);
 
-        // Check if lock has expired - if so, clean it up and acquire new lock
-        const isExpired = expiresAt && now > expiresAt;
-        const isVeryStale = !expiresAt && ageMs > (ttlSeconds + 60) * 1000;
+        const rows = await prisma.$queryRaw<Array<{ key: string }>>`
+            INSERT INTO "Cache" ("key", "value", "expiresAt", "createdAt", "updatedAt")
+            VALUES (${key}, ${value}, ${expiresAt}, NOW(), NOW())
+            ON CONFLICT ("key") DO UPDATE
+            SET "value" = EXCLUDED."value",
+                "expiresAt" = EXCLUDED."expiresAt",
+                "updatedAt" = NOW()
+            WHERE "Cache"."expiresAt" IS NULL OR "Cache"."expiresAt" < NOW()
+            RETURNING "key"
+        `;
 
-        if (isExpired || isVeryStale) {
-            console.warn('[DBLock] Cleaning expired/stale lock', {
-                key,
-                expiresAt: existing.expiresAt?.toISOString() || null,
-                ageMs,
-                isExpired,
-                isVeryStale
-            });
-            // Delete the stale lock and acquire new one
-            await dbCache.del(key);
-            await dbCache.set(key, value, ttlSeconds);
-            console.info('[DBLock] Acquired lock after cleaning stale entry', { key });
-            return true;
-        }
-
-        // Lock is still valid and held by someone else
-        console.warn('[DBLock] Lock already held (valid)', {
+        return rows.length > 0;
+    } catch (error: any) {
+        console.error('[DBLock] acquireLock failed', {
             key,
-            expiresAt: existing.expiresAt?.toISOString() || null,
-            ageMs
+            error: error?.message || String(error)
         });
         return false;
     }
-    await dbCache.set(key, value, ttlSeconds);
-    return true;
 }
 
 export async function releaseLock(key: string, value: string): Promise<void> {
-    const existing = await dbCache.get(key);
-    if (existing === value) {
-        await dbCache.del(key);
+    try {
+        await prisma.$executeRaw`
+            DELETE FROM "Cache"
+            WHERE "key" = ${key}
+              AND "value" = ${value}
+        `;
+    } catch (error: any) {
+        console.error('[DBLock] releaseLock failed', {
+            key,
+            error: error?.message || String(error)
+        });
     }
 }
 

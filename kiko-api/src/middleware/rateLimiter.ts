@@ -5,6 +5,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { redis } from '../cache/redis.js';
+import prisma from '../db/prisma.js';
 
 const WINDOW_SIZE_IN_SECONDS = 60;
 const MAX_REQUESTS_PER_WINDOW = 200; // Default: 200 requests per minute (generous)
@@ -14,11 +15,6 @@ export async function rateLimiterMiddleware(
     request: FastifyRequest,
     reply: FastifyReply
 ): Promise<void> {
-    // Skip rate limiting if Redis is not configured
-    if (!REDIS_ENABLED) {
-        return;
-    }
-
     // Skip rate limiting for specific paths or in dev if needed
     const isProduction = (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod');
     if (process.env.NODE_ENV === 'test' || (process.env.SKIP_RATE_LIMIT === 'true' && !isProduction)) {
@@ -27,12 +23,6 @@ export async function rateLimiterMiddleware(
 
     // Skip rate limiting for health checks and static assets
     if (request.url === '/health' || request.url === '/api/health' || request.url.startsWith('/assets/')) {
-        return;
-    }
-
-    // Skip if Redis client is not available or not connected
-    const redisAny = redis as any;
-    if (!redisAny || !redisAny.isOpen || !redisAny.isReady) {
         return;
     }
 
@@ -65,24 +55,52 @@ export async function rateLimiterMiddleware(
     const key = `ratelimit:${category}:${identifier}`;
 
     try {
-        // Use Redis INCR for atomic counting with timeout
+        let current = 0;
+        let ttl = WINDOW_SIZE_IN_SECONDS;
         const redisAny = redis as any;
-        const incrPromise = redisAny.incr(key);
-        const timeoutPromise = new Promise<number>((_, reject) =>
-            setTimeout(() => reject(new Error('Redis timeout')), 1000)
-        );
+        const canUseRedis = REDIS_ENABLED && !!redisAny && redisAny.isOpen && redisAny.isReady;
 
-        const current = await Promise.race([incrPromise, timeoutPromise]);
+        if (canUseRedis) {
+            // Use Redis INCR for atomic counting with timeout
+            const incrPromise = redisAny.incr(key);
+            const timeoutPromise = new Promise<number>((_, reject) =>
+                setTimeout(() => reject(new Error('Redis timeout')), 1000)
+            );
 
-        // On first request, set the expiration window
-        if (current === 1) {
-            await (redis as any).expire(key, WINDOW_SIZE_IN_SECONDS).catch(() => { });
+            current = await Promise.race([incrPromise, timeoutPromise]);
+
+            // On first request, set the expiration window
+            if (current === 1) {
+                await redisAny.expire(key, WINDOW_SIZE_IN_SECONDS).catch(() => { });
+            }
+            ttl = await redisAny.ttl(key).catch(() => WINDOW_SIZE_IN_SECONDS);
+            if (!Number.isFinite(ttl) || ttl <= 0) ttl = WINDOW_SIZE_IN_SECONDS;
+        } else {
+            // PostgreSQL fallback (atomic counter in Cache table)
+            const expiresAt = new Date(Date.now() + WINDOW_SIZE_IN_SECONDS * 1000);
+            const rows = await prisma.$queryRaw<Array<{ value: string; expiresAt: Date | null }>>`
+                INSERT INTO "Cache" ("key", "value", "expiresAt", "createdAt", "updatedAt")
+                VALUES (${key}, '1', ${expiresAt}, NOW(), NOW())
+                ON CONFLICT ("key") DO UPDATE
+                SET "value" = CASE
+                        WHEN "Cache"."expiresAt" IS NULL OR "Cache"."expiresAt" < NOW() THEN '1'
+                        ELSE (("Cache"."value")::bigint + 1)::text
+                    END,
+                    "expiresAt" = CASE
+                        WHEN "Cache"."expiresAt" IS NULL OR "Cache"."expiresAt" < NOW() THEN ${expiresAt}
+                        ELSE "Cache"."expiresAt"
+                    END,
+                    "updatedAt" = NOW()
+                RETURNING "value", "expiresAt"
+            `;
+
+            current = Number(rows[0]?.value || 0);
+            const expiresAtValue = rows[0]?.expiresAt ? new Date(rows[0].expiresAt).getTime() : Date.now() + WINDOW_SIZE_IN_SECONDS * 1000;
+            ttl = Math.max(1, Math.ceil((expiresAtValue - Date.now()) / 1000));
         }
 
         // Check if limit exceeded
         if (current > maxRequests) {
-            const ttl = await (redis as any).ttl(key).catch(() => WINDOW_SIZE_IN_SECONDS);
-
             reply.status(429).header('Retry-After', ttl).send({
                 success: false,
                 error: 'Too Many Requests',
@@ -98,9 +116,8 @@ export async function rateLimiterMiddleware(
         reply.header('X-RateLimit-Remaining', Math.max(0, maxRequests - current));
 
     } catch (error) {
-        // Fallback: If Redis is down, allow request but log warning
-        // This ensures a Redis outage doesn't take down the entire API
-        console.warn('[RateLimiter] Redis issue, skipping limit check:', (error as any).message);
+        // Fail-open: transient limiter backend issues should not take down API.
+        console.warn('[RateLimiter] Limiter backend issue, skipping limit check:', (error as any).message);
     }
 }
 

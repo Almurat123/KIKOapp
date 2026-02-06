@@ -50,6 +50,16 @@ export class ChatWebSocketService {
     private constructor() {
         // Periodically clean up old buffered messages
         setInterval(() => this.cleanupBuffers(), 30000);
+
+        // Fix 5: Cleanup session sequences (Memory Leak)
+        setInterval(() => {
+            // Check usage timestamp if we had one, for now just clear very old ones or rely on connection status?
+            // Since we don't track last access time for sequences, let's at least cap the map size
+            if (this.sessionSequences.size > 10000) {
+                logger.warn(LogCode.WS_ERROR, 'Session sequence map too large, purging old entries...');
+                this.sessionSequences.clear(); // Hard reset if too big to prevent OOM
+            }
+        }, 3600000); // Check every hour
     }
 
     public static getInstance(): ChatWebSocketService {

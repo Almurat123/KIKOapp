@@ -39,6 +39,7 @@ const DYNAMIC_FEE_FLAG = 0x800000;
 const CLANKER_HOOKS_DYNAMIC_BASE = [
     '0xd60d6b218116cfd801e28f78d011a203d2b068cc', // ClankerHookDynamicFeeV2 v4.1.0
     '0x34a45c6b61876d739400bd71228cbcbd4f53e8cc', // ClankerHookDynamicFee v4.0.0
+    '0x7debe6943acefe85c4ee81aadd736466e07528cc', // Clanker hook variant (dynamic fee)
 ];
 const CLANKER_HOOKS_STATIC_BASE = [
     '0xb429d62f8f3bffb98cdb9569533ea23bf0ba28cc', // ClankerHookStaticFeeV2 v4.1.0

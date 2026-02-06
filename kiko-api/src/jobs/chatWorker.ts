@@ -818,7 +818,13 @@ export class ChatWorker {
         const runLoop = async () => {
             if (!this.isRunning) return;
 
-            await this.processQueuedTasks();
+            try {
+                await this.processQueuedTasks();
+            } catch (error) {
+                console.error('[ChatWorker] runLoop crash:', error);
+                // In a real app we might use logger.error here, but console.error is safe fallback
+                // We swallow the error to ensure the loop continues scheduling
+            }
 
             if (this.isRunning) {
                 this.pollInterval = setTimeout(runLoop, pollConfig.interval);

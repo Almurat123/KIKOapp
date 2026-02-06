@@ -11,6 +11,9 @@ import { LogCode } from '../../config/logRegistry.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { fetchJson } from '../../config/unifiedApiService.js';
 import { getSolanaConnection } from '../rpcManager.js';
+import { findTokenPools } from '../dex/poolInfo.js';
+import { findV4Pools } from '../dex/uniswapV4.js';
+import { getTokenMetadata } from '../rpcService.js';
 
 const LAUNCHPAD_AUTH_PDA = 'WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh';
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
@@ -37,7 +40,7 @@ async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
 }
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'fourmeme' | 'pumpfun' | 'bonkfun';
+    provider: 'zora' | 'fourmeme' | 'pumpfun' | 'bonkfun' | 'virtuals';
     data: any;
     chainId: number;
 }
@@ -45,6 +48,7 @@ export interface LaunchpadResult {
 // Simple In-Memory Cache
 const DETECTION_CACHE = new Map<string, { result: LaunchpadResult | null, expiry: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const VIRTUAL_BASE_TOKEN = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
 
 
 /**
@@ -72,6 +76,45 @@ async function getFourMemeToken(address: string): Promise<any | null> {
         return null;
     } catch (error: any) {
         logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Four.meme fetch failed', { address, error: error.message, cause: error.cause });
+        return null;
+    }
+}
+
+async function getVirtualsToken(address: string): Promise<any | null> {
+    try {
+        if (address.toLowerCase() === VIRTUAL_BASE_TOKEN) {
+            return {
+                address,
+                symbol: 'VIRTUAL',
+                name: 'Virtual Protocol',
+                bridgeToken: VIRTUAL_BASE_TOKEN,
+                poolCount: 1
+            };
+        }
+
+        const [v4Pools, allPools] = await Promise.all([
+            findV4Pools(address, VIRTUAL_BASE_TOKEN, 8453).catch(() => []),
+            findTokenPools(address, VIRTUAL_BASE_TOKEN, 8453).catch(() => [])
+        ]);
+
+        const poolCount = (v4Pools?.length || 0) + (allPools?.length || 0);
+        if (poolCount <= 0) return null;
+
+        const meta = await getTokenMetadata(8453, address).catch(() => ({ symbol: undefined, name: undefined }));
+        return {
+            address,
+            symbol: meta?.symbol || 'UNKNOWN',
+            name: meta?.name || 'Unknown',
+            bridgeToken: VIRTUAL_BASE_TOKEN,
+            v4PoolCount: v4Pools.length,
+            dexPoolCount: allPools.length,
+            poolCount
+        };
+    } catch (error: any) {
+        logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Virtuals detection failed', {
+            address,
+            error: error?.message?.slice(0, 120)
+        });
         return null;
     }
 }
@@ -361,6 +404,20 @@ async function handleDetection(
                 }
             } catch (e) {
                 // Zora check failed, continue to other platforms
+            }
+        }
+
+        // Priority 1.5: Virtuals (Base only)
+        if (basePlatforms) {
+            try {
+                const virtualsResult = await getVirtualsToken(address);
+                if (virtualsResult) {
+                    const result: LaunchpadResult = { provider: 'virtuals', data: virtualsResult, chainId: 8453 };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // Virtuals check failed
             }
         }
 

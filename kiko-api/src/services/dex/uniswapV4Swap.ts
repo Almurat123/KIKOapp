@@ -63,7 +63,8 @@ export function encodeV4SwapExactIn(
     minAmountOut: bigint,
     recipient: string,
     // [Fix]: 不再通过这里处理 native 转换，调用方应处理 WRAP/UNWRAP
-    settleFromRouter: boolean = false
+    settleFromRouter: boolean = false,
+    hookData: string = '0x'
 ): { commands: string; inputs: string[] } {
     // Command: V4_SWAP
     const commands = ethers.solidityPacked(['uint8'], [Commands.V4_SWAP]);
@@ -89,7 +90,7 @@ export function encodeV4SwapExactIn(
             zeroForOne,
             amountIn,
             minAmountOut,
-            '0x' // hookData
+            hookData
         ]]
     );
 
@@ -142,7 +143,8 @@ export function buildV4SwapTransaction(
     recipient: string,
     deadline: number,
     isNativeIn: boolean = false,   // 输入是否是 Native ETH
-    isNativeOut: boolean = false   // 输出是否是 Native ETH
+    isNativeOut: boolean = false,  // 输出是否是 Native ETH
+    hookData: string = '0x'
 ): { to: string; data: string } {
     const router = UNIVERSAL_ROUTER_V4[chainId];
     if (!router) {
@@ -156,7 +158,8 @@ export function buildV4SwapTransaction(
         amountIn,
         minAmountOut,
         recipient,
-        isNativeIn
+        isNativeIn,
+        hookData
     );
 
     let finalCommands = v4Commands;

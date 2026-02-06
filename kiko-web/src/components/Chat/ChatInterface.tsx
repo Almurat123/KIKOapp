@@ -1595,6 +1595,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
         // 4. Clear input immediately
         setInput('');
+        // [Logic]: Explicitly close suggestions to prevent the box from persisting after message is sent.
+        // [Ref]: useSmartSuggestions defines closeSuggestions to set showSuggestions to false.
+        // [Risk]: If closeSuggestions is not available due to hook initialization race, this might fail silently.
+        if (closeSuggestions) closeSuggestions();
+
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
         }

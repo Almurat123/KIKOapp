@@ -50,7 +50,9 @@ export interface EnvConfig {
         coinbaseCdpKeySecret?: string; // Coinbase CDP API Key Secret
         paragraph?: string; // Paragraph API Key
         resendApiKey?: string; // Resend API Key for notifications
+        cmc?: string; // CoinMarketCap API Key
     };
+    appKey: string; // Internal App Key for frontend-backend authentication
     xai: {
         apiKey: string;
     };
@@ -129,6 +131,7 @@ export interface EnvConfig {
 function validateEnv(): EnvConfig {
     const port = parseInt(process.env.PORT || '3001', 10);
     const nodeEnv = process.env.NODE_ENV || 'development';
+    const isProduction = nodeEnv === 'production' || nodeEnv === 'prod';
     const databaseUrl = process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/kiko_db';
     const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
@@ -160,6 +163,17 @@ function validateEnv(): EnvConfig {
     const billingUsdMultiplier = parseFloat(process.env.BILLING_USD_MULTIPLIER || '3');
     const billingToolPricePerCall = parseFloat(process.env.BILLING_TOOL_PRICE_PER_CALL || '0.005');
     const billingTermsVersion = process.env.BILLING_TERMS_VERSION || 'billing-terms-v1';
+    const alchemyWebhookSecret = process.env.ALCHEMY_WEBHOOK_SECRET;
+    const internalWebhookSecret = process.env.INTERNAL_WEBHOOK_SECRET;
+
+    if (isProduction) {
+        const missingWebhookSecrets: string[] = [];
+        if (!alchemyWebhookSecret) missingWebhookSecrets.push('ALCHEMY_WEBHOOK_SECRET');
+        if (!internalWebhookSecret) missingWebhookSecrets.push('INTERNAL_WEBHOOK_SECRET');
+        if (missingWebhookSecrets.length > 0) {
+            throw new Error(`Missing required webhook security env vars in production: ${missingWebhookSecrets.join(', ')}`);
+        }
+    }
 
     const usageLimitsEnabled =
         (process.env.USAGE_LIMITS_ENABLED || '').toLowerCase() === 'true' ||
@@ -255,7 +269,9 @@ function validateEnv(): EnvConfig {
             coinbaseCdpKeySecret: process.env.COINBASE_CDP_API_KEY_SECRET,
             paragraph: process.env.PARAGRAPH_API_KEY,
             resendApiKey: process.env.RESEND_API_KEY,
+            cmc: process.env.CMC_PRO_API_KEY,
         },
+        appKey: process.env.KIKO_WEB_APP_KEY || '',
         xai: {
             apiKey: process.env.XAI_API_KEY || '',
         },
@@ -328,8 +344,8 @@ function validateEnv(): EnvConfig {
             tiers: usageTiers,
         },
         security: {
-            alchemyWebhookSecret: process.env.ALCHEMY_WEBHOOK_SECRET,
-            internalWebhookSecret: process.env.INTERNAL_WEBHOOK_SECRET,
+            alchemyWebhookSecret,
+            internalWebhookSecret,
         },
         aiModel: process.env.AI_MODEL || 'grok-4-1-fast-reasoning',
         logLevel: process.env.LOG_LEVEL || 'info',

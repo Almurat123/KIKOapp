@@ -10,7 +10,7 @@ import { useThemeContext } from '../../contexts/ThemeContext';
 import { preprocessMarkdown } from '../../utils/markdownUtils';
 // DEPRECATED: SwapCardChat removed from chat interface (kept in WalletPage)
 // import { SwapCardChat } from './SwapCardChat';
-import { StrategyCard } from '../Trade/StrategyCard';
+import { StrategyCard } from './StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
 import { LaunchpadCard } from '../Launchpad/LaunchpadCard';
 import { TransactionStatusCard } from './TransactionStatusCard';

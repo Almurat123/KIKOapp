@@ -354,6 +354,9 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 where: { privyDid: userId },
                 include: {
                     positions: {
+                        where: {
+                            status: { in: ['open', 'closing', 'closed'] }
+                        },
                         orderBy: { createdAt: 'desc' },
                     },
                 },

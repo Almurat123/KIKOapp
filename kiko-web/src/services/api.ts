@@ -118,6 +118,7 @@ export type MarketOverview = {
     stablecoinsMcap?: number;
     btcDomChange24h?: number;
     mcapChange24h?: number;
+    updatedAt?: string | Date;
 };
 
 export type ChainData = {
@@ -205,8 +206,8 @@ const pendingRequests = new Map<string, Promise<unknown>>();
 function getCacheTime(endpoint: string): number {
     // Chains data: NO CACHE - always fetch fresh data
     if (endpoint.includes('/market/chains')) return 0;
-    // Market data: 30 seconds
-    if (endpoint.includes('/market/')) return 30000;
+    // Market data: 5 seconds (Reduced from 30s to satisfy user refresh expectation)
+    if (endpoint.includes('/market/')) return 5000;
     // Token data: 60 seconds
     if (endpoint.includes('/tokens/')) return 60000;
     // Social data: 5 minutes

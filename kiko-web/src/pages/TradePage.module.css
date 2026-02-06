@@ -92,11 +92,11 @@
 }
 
 .statValueGreen {
-  color: #10b981;
+  color: #10b981 !important;
 }
 
 .statValueRed {
-  color: #ef4444;
+  color: #ef4444 !important;
 }
 
 .statSubtext {

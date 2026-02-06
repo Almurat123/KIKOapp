@@ -32,7 +32,6 @@ export const TradePage: React.FC = () => {
   const handleSaveStrategy = async (updates: any) => {
     if (editingStrategy) {
       await updateStrategy(editingStrategy.id, { copyTradeConfig: updates });
-      setEditingStrategy(null);
     }
   };
 

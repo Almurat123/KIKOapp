@@ -25,6 +25,7 @@ export interface MarketOverview {
   stablecoinsMcap?: number;
   btcDomChange24h?: number;
   mcapChange24h?: number;
+  updatedAt?: Date;
 }
 
 export interface TrendingTokenData {
@@ -125,6 +126,7 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
       stablecoinsMcap: row.stablecoinsMcap ? Number(row.stablecoinsMcap) : undefined,
       btcDomChange24h: row.btcDomChange24h ? Number(row.btcDomChange24h) : undefined,
       mcapChange24h: row.mcapChange24h ? Number(row.mcapChange24h) : undefined,
+      updatedAt: row.updatedAt,
     };
 
     // Update memory cache for future requests
@@ -134,6 +136,42 @@ export async function getMarketOverview(): Promise<MarketOverview | null> {
     return data;
   } catch (error) {
     console.error('Error getting market overview:', error);
+    return null;
+  }
+}
+
+/**
+ * Get market overview from approximately 24 hours ago
+ * Used for calculating 24h changes correctly
+ */
+export async function getMarketOverview24hAgo(): Promise<MarketOverview | null> {
+  try {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Find first record created before 24h ago
+    const row = await prisma.marketOverview.findFirst({
+      where: {
+        updatedAt: {
+          lte: oneDayAgo
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc' // Get the one closest to 24h ago (from the past side)
+      }
+    });
+
+    if (!row) return null;
+
+    return {
+      globalMarketCap: Number(row.globalMarketCap),
+      volume24h: Number(row.volume24h),
+      activeUsers: row.activeUsers ? Number(row.activeUsers) : undefined,
+      ethGasPrice: row.ethGasPrice ?? undefined,
+      fearGreedIndex: row.fearGreedIndex ?? 0,
+      fearGreedClassification: row.fearGreedClassification ?? '',
+      bitcoinDominance: Number(row.bitcoinDominance)
+    } as MarketOverview;
+  } catch (error) {
+    console.error('Error getting 24h old market overview:', error);
     return null;
   }
 }

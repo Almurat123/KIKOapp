@@ -75,7 +75,7 @@ export const V3_SWAP_ROUTERS: Record<number, RouterConfig> = {
 // Aerodrome Router (Base)
 export const AERODROME_ROUTER: RouterConfig = {
     name: 'Aerodrome',
-    address: '0xcF77a3Ba9A5CA399B7c97c74D54e5b1Beb874E43',
+    address: '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43',
     type: 'aerodrome',
     chainId: 8453
 };

@@ -40,6 +40,15 @@ import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapServic
  */
 export type SwapMode = 'fast-swap' | 'swap-card' | 'allowance' | 'copytrade' | 'launchpad';
 
+export interface DirectSwapHint {
+  sourceDexName?: string;
+  sourceRouter?: string;
+  sourceTxHash?: string;
+  preferredStrategy?: 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity' | 'zora-sdk' | 'virtual-bridge';
+  preferredDex?: 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
+  bypassReferencePrice?: boolean;
+}
+
 /**
  * Unified swap request accepted by MainSwapService
  */
@@ -76,7 +85,10 @@ export interface MainSwapRequest {
   };
 
   // Launchpad-specific
-  launchpadProvider?: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'clanker';
+  launchpadProvider?: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'clanker' | 'virtuals';
+
+  // Copytrade execution hint from target wallet decoded tx
+  directSwapHint?: DirectSwapHint;
 }
 
 /**
@@ -100,9 +112,29 @@ export interface MainSwapResult {
  * Launchpad token detection result
  */
 interface LaunchpadDetection {
-  provider: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'clanker';
+  provider: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'clanker' | 'virtuals';
   data: any;
   chainId: number;
+}
+
+function isCashLikeToken(token: string, chainId: number): boolean {
+  const normalized = String(token || '').trim().toLowerCase();
+  if (!normalized) return false;
+
+  if (isNativeToken(normalized, chainId)) return true;
+
+  const chainConfig = getChainConfig(chainId);
+  const cashAddresses = [
+    chainConfig.wrappedNativeAddress,
+    ...(chainConfig.stablecoins || [])
+  ]
+    .map((a) => String(a || '').toLowerCase())
+    .filter(Boolean);
+
+  if (cashAddresses.includes(normalized)) return true;
+
+  // Accept common symbols when callers pass symbol form instead of address.
+  return normalized === 'weth' || normalized === 'usdc' || normalized === 'usdt';
 }
 
 /**
@@ -305,6 +337,11 @@ export class MainSwapService {
           return await this.executeEvmSwap(request, feeContext, trace, ctx);
         }
 
+        case 'virtuals': {
+          logger.info(LogCode.SYS_INFO, trace('Virtuals token detected: routing to standard EVM swap with virtual bridge strategy support'));
+          return await this.executeEvmSwap(request, feeContext, trace, ctx);
+        }
+
         case 'fourmeme': {
           // BSC - Four.meme using TokenManager2
           // ⚡ Use TradeContext-aware data fetching (auto-caches)
@@ -394,23 +431,27 @@ export class MainSwapService {
     });
 
     // [Logic]: FastSwapMode 使用直接交易 (V3/V4)，跳过 0x/Kyber
-    // [Logic]: 只有买入 (ETH/Native → Token) 时使用 DirectSwap，因为 ETH 不需要 approve
-    // [Logic]: 卖出 (Token → ETH) 走 0x/Kyber，它们有完整的授权处理逻辑
-    const isBuyWithNative = isNativeToken(request.tokenIn, request.chainId);
+    // [Logic]: 买入方向判定基于 cash -> token（支持 ETH/WETH/USDC/USDT）
+    // [Logic]: cash -> cash（例如 ETH -> USDC）不应触发买入直连
+    const isCashIn = isCashLikeToken(request.tokenIn, request.chainId);
+    const isCashOut = isCashLikeToken(request.tokenOut, request.chainId);
+    const isBuyDirection = isCashIn && !isCashOut;
     const enforcedSlippageBps = request.mode === 'copytrade'
       ? Math.max(request.slippageBps ?? 1500, 1500)
       : (request.slippageBps ?? 50);
     const fastSwapEnabled = request.userSettings?.fastSwapMode === true;
-    if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || !isBuyWithNative) {
+    if (!fastSwapEnabled || !isDirectSwapSupported(request.chainId) || !isBuyDirection) {
       const reasons: string[] = [];
       if (!fastSwapEnabled) reasons.push('fastSwapMode=false');
       if (!isDirectSwapSupported(request.chainId)) reasons.push('chain_not_supported');
-      if (!isBuyWithNative) reasons.push('tokenIn_not_native');
+      if (!isBuyDirection) reasons.push('not_buy_direction');
       logger.debug(LogCode.SYS_INFO, trace('Direct swap not attempted'), {
         reasons,
         fastSwapEnabled,
         isDirectSwapSupported: isDirectSwapSupported(request.chainId),
-        isBuyWithNative,
+        isBuyDirection,
+        isCashIn,
+        isCashOut,
         chainId: request.chainId,
         tokenIn: request.tokenIn,
         tokenOut: request.tokenOut,
@@ -418,55 +459,101 @@ export class MainSwapService {
       });
     }
 
-    if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && isBuyWithNative) {
-      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (BUY with native)'));
+    if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && isBuyDirection) {
+      const DIRECT_SWAP_MAX_ATTEMPTS = 2; // first try + 1 retry
+      logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (buy direction)'), {
+        mode: request.mode,
+        chainId: request.chainId,
+        tokenIn: request.tokenIn,
+        tokenOut: request.tokenOut,
+        amountIn: request.amountIn,
+        slippageBps: enforcedSlippageBps,
+        maxAttempts: DIRECT_SWAP_MAX_ATTEMPTS
+      });
+      let lastDirectResult: Awaited<ReturnType<typeof executeDirectSwap>> | null = null;
+      let lastDirectError: any = null;
       try {
-        const directResult = await executeDirectSwap({
-          userId: request.userId,
-          accessToken: request.accessToken || '',
-          walletAddress: request.walletAddress,
+        for (let attempt = 1; attempt <= DIRECT_SWAP_MAX_ATTEMPTS; attempt++) {
+          const directResult = await executeDirectSwap({
+            userId: request.userId,
+            accessToken: request.accessToken || '',
+            walletAddress: request.walletAddress,
+            tokenIn: request.tokenIn,
+            tokenOut: request.tokenOut,
+            amountIn: request.amountIn,
+            chainId: request.chainId,
+            slippageBps: enforcedSlippageBps,
+            hint: request.directSwapHint
+          });
+          lastDirectResult = directResult;
+
+          if (directResult.success) {
+            logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap successful'), {
+              txHash: directResult.txHash,
+              provider: directResult.provider,
+              poolInfo: directResult.poolInfo,
+              attempt
+            });
+            return {
+              success: true,
+              txHash: directResult.txHash,
+              amountOut: directResult.amountOut,
+              metadata: {
+                provider: directResult.provider,
+                mode: request.mode
+              }
+            };
+          }
+
+          const isClankerBlocked = directResult.error?.startsWith('clanker_gate:')
+            || directResult.error === 'clanker_force_v4_failed';
+          if (isClankerBlocked) {
+            logger.warn(LogCode.SYS_INFO, trace(`Direct swap blocked by clanker gate: ${directResult.error}`), {
+              error: directResult.error,
+              attempt
+            });
+            return {
+              success: false,
+              error: directResult.error,
+              metadata: {
+                provider: directResult.provider,
+                mode: request.mode
+              }
+            };
+          }
+
+          if (attempt < DIRECT_SWAP_MAX_ATTEMPTS) {
+            logger.warn(LogCode.SYS_INFO, trace('Direct swap failed, retrying once'), {
+              attempt,
+              maxAttempts: DIRECT_SWAP_MAX_ATTEMPTS,
+              error: directResult.error,
+              directProvider: directResult.provider
+            });
+          }
+        }
+      } catch (directErr: any) {
+        lastDirectError = directErr;
+      }
+
+      if (lastDirectResult) {
+        logger.warn(LogCode.SYS_INFO, trace(`Direct swap failed, falling back to 0x/Kyber: ${lastDirectResult.error || 'unknown'}`), {
+          error: lastDirectResult.error,
+          directProvider: lastDirectResult.provider,
+          poolInfo: lastDirectResult.poolInfo,
+          chainId: request.chainId,
+          mode: request.mode,
           tokenIn: request.tokenIn,
           tokenOut: request.tokenOut,
-          amountIn: request.amountIn,
-          chainId: request.chainId,
-          slippageBps: enforcedSlippageBps
+          attempts: DIRECT_SWAP_MAX_ATTEMPTS
         });
-
-        if (directResult.success) {
-          logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap successful'), {
-            txHash: directResult.txHash,
-            provider: directResult.provider
-          });
-          return {
-            success: true,
-            txHash: directResult.txHash,
-            amountOut: directResult.amountOut,
-            metadata: {
-              provider: directResult.provider,
-              mode: request.mode
-            }
-          };
-        }
-        // 直接交易失败，fallback 到 0x/Kyber
-        if (directResult.error?.startsWith('clanker_gate:') || directResult.error === 'clanker_force_v4_failed') {
-          logger.warn(LogCode.SYS_INFO, trace(`Direct swap blocked by clanker gate: ${directResult.error}`), {
-            error: directResult.error
-          });
-          return {
-            success: false,
-            error: directResult.error,
-            metadata: {
-              provider: directResult.provider,
-              mode: request.mode
-            }
-          };
-        }
-        logger.warn(LogCode.SYS_INFO, trace(`Direct swap failed, falling back to 0x/Kyber: ${directResult.error || 'unknown'}`), {
-          error: directResult.error
-        });
-      } catch (directErr: any) {
+      } else if (lastDirectError) {
         logger.warn(LogCode.SYS_ERROR, trace('Direct swap error, falling back to 0x/Kyber'), {
-          error: directErr.message
+          error: lastDirectError.message,
+          chainId: request.chainId,
+          mode: request.mode,
+          tokenIn: request.tokenIn,
+          tokenOut: request.tokenOut,
+          attempts: DIRECT_SWAP_MAX_ATTEMPTS
         });
       }
     }
@@ -501,6 +588,14 @@ export class MainSwapService {
     if (!executionResult.success) {
       throw new Error(executionResult.error || 'EVM swap execution failed');
     }
+
+    logger.info(LogCode.EXE_TX_CONFIRMED, trace('Fallback swap execution succeeded'), {
+      method: executionResult.method,
+      txHash: executionResult.txHash,
+      amountOut: executionResult.amountOut,
+      chainId: request.chainId,
+      mode: request.mode
+    });
 
     const result = {
       success: true,

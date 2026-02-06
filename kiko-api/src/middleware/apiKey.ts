@@ -1,17 +1,13 @@
-/**
- * App Key Middleware
- * Validates X-App-Key header to ensure requests come from authorized clients
- */
-
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AppError } from './errorHandler.js';
+import { env } from '../config/env.js';
 
 // [Logic]: Load valid app keys from environment variables
 // [Ref]: Environment-based configuration pattern from env.ts
-// [Risk]: If KIKO_WEB_APP_KEY is not set, all requests will be rejected
+// [Risk]: If appKey is not set, all requests will be rejected
 const VALID_APP_KEYS = new Set([
-    process.env.KIKO_WEB_APP_KEY,      // Web frontend application
-    process.env.KIKO_MOBILE_APP_KEY,   // Mobile app (future)
+    env.appKey,                        // Web frontend application
+    (process.env as any).KIKO_MOBILE_APP_KEY,   // Mobile app (future)
 ].filter(Boolean));
 
 /**

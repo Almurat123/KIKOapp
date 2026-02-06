@@ -229,27 +229,33 @@ const PrivyConfigError: React.FC = () => {
   );
 };
 
+import { ErrorBoundary } from './components/ErrorBoundary';
+
 // Check if Privy App ID is configured
 if (!privyAppId || privyAppId === 'your-privy-app-id') {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <PrivyConfigError />
+      <ErrorBoundary>
+        <PrivyConfigError />
+      </ErrorBoundary>
     </React.StrictMode>
   );
 } else {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <ThemeProvider>
-        <ThemedPrivyProvider>
-          <AuthTokenBridge>
-            <QueryClientProvider client={queryClient}>
-              <ChainProvider>
-                <App />
-              </ChainProvider>
-            </QueryClientProvider>
-          </AuthTokenBridge>
-        </ThemedPrivyProvider>
-      </ThemeProvider>
+      <ErrorBoundary>
+        <ThemeProvider>
+          <ThemedPrivyProvider>
+            <AuthTokenBridge>
+              <QueryClientProvider client={queryClient}>
+                <ChainProvider>
+                  <App />
+                </ChainProvider>
+              </QueryClientProvider>
+            </AuthTokenBridge>
+          </ThemedPrivyProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
     </React.StrictMode>
   );
 }

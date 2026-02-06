@@ -27,7 +27,7 @@
     }
 }
 
-/* === GLOBAL METRICS GRID (2x2) === */
+/* === GLOBAL METRICS GRID (2x2 on mobile, 4x1 on desktop) === */
 .grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -36,6 +36,12 @@
     overflow: hidden;
     margin-bottom: 40px;
     background: #000000;
+}
+
+@media (min-width: 1024px) {
+    .grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
 }
 
 .card {
@@ -55,15 +61,25 @@
     background: rgba(39, 39, 42, 0.15);
 }
 
-/* Remove double borders */
-.card:nth-child(2),
-.card:nth-child(4) {
-    border-right: none;
+/* [Logic]: Adjust border removal logic for 2-column mobile and 4-column desktop. [Ref]: implementation_plan.md. [Risk]: May cause inconsistent borders if screen size is exactly at the breakpoint. */
+@media (max-width: 1023px) {
+    .card:nth-child(2n) {
+        border-right: none;
+    }
+
+    .card:nth-child(n+3) {
+        border-bottom: none;
+    }
 }
 
-.card:nth-child(3),
-.card:nth-child(4) {
-    border-bottom: none;
+@media (min-width: 1024px) {
+    .card:nth-child(4) {
+        border-right: none;
+    }
+
+    .card {
+        border-bottom: none;
+    }
 }
 
 .metricLabel {
@@ -289,7 +305,15 @@
     margin: 0;
 }
 
-/* Hide desktop table */
+.lastUpdated {
+    font-size: 10px;
+    color: #3f3f46;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* [Logic]: Restore desktop table visibility to NONE and use card grid instead. [Ref]: implementation_plan.md. [Risk]: Layout may shift. */
 .tableContainer,
 .table,
 .thead,
@@ -304,25 +328,30 @@
 .mobileCardContainer {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 20px;
+    gap: 16px;
     padding: 0;
+}
+
+@media (min-width: 1024px) {
+    .mobileCardContainer {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+    }
 }
 
 .mobileCard {
     background: #000000;
     border: 1px solid #1a1a1a;
-    border-radius: 24px;
-    padding: 20px;
+    border-radius: 28px;
+    padding: 24px;
     display: flex;
     flex-direction: column;
     gap: 16px;
+    transition: background 0.15s ease;
 }
 
-@media (min-width: 769px) {
-    .mobileCard {
-        padding: 32px;
-        gap: 28px;
-    }
+.mobileCard:hover {
+    background: rgba(39, 39, 42, 0.1);
 }
 
 .mobileCardHeader {
@@ -342,35 +371,37 @@
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
-    margin-bottom: 6px;
-}
-
-.iconWrapper,
-.iconWrapper40 {
-    display: none;
+    margin-bottom: 8px;
 }
 
 .indicatorName {
     font-weight: 700;
     font-style: italic;
     color: #ffffff;
-    font-size: 14px;
+    font-size: 16px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     line-height: 1.2;
 }
 
 .indicatorDesc {
-    font-size: 10px;
+    font-size: 11px;
     color: #52525b;
     font-weight: 400;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-top: 4px;
+    line-height: 1.4;
+}
+
+.valueWrapper {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
 }
 
 .value {
-    font-size: 32px;
+    font-size: 42px;
     font-weight: 700;
     font-style: italic;
     color: #ffffff;
@@ -379,37 +410,37 @@
 }
 
 .unit {
-    font-size: 11px;
+    font-size: 12px;
     color: #3f3f46;
     font-weight: 500;
-    margin-left: 2px;
+    margin-left: 4px;
+    text-transform: uppercase;
 }
 
 .statusRow {
-    margin-bottom: 8px;
+    margin-bottom: 4px;
 }
 
 .statusBadge {
     padding: 6px 12px;
-    border-radius: 8px;
+    border-radius: 12px;
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.1em;
     background: #111111;
-    border: 1px solid #333333;
-    color: #666666;
+    border: 1px solid #27272a;
+    color: #71717a;
 }
 
 .rangeLabels {
     display: flex;
     justify-content: space-between;
     font-size: 10px;
-    font-weight: 700;
+    font-weight: 800;
     color: #3f3f46;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 8px;
+    letter-spacing: 0.1em;
 }
 
 .progressBarContainer {
@@ -417,16 +448,19 @@
     width: 100%;
     background: #27272a;
     position: relative;
-    margin: 12px 0;
+    margin-top: 24px;
+    margin-bottom: 24px;
 }
 
 .progressBar {
     position: absolute;
-    height: 12px;
+    height: 10px;
     width: 2px;
     top: 50%;
     transform: translate(-50%, -50%);
-    transition: left 0.5s ease;
+    background: #f59e0b;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+    transition: left 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .flexColumnGap,
@@ -511,14 +545,25 @@
 }
 
 /* Unused table classes */
-.thFirst,
-.thLast,
-.tdFirst,
-.tdLast,
-.colValue,
-.colStatus,
+.colValue {
+    width: 15%;
+}
+
+.colStatus {
+    width: 45%;
+}
+
 .colTrend {
-    display: none;
+    width: 15%;
+    text-align: right;
+}
+
+.thFirst {
+    padding-left: 24px;
+}
+
+.thLast {
+    padding-right: 24px;
 }
 
 /* === LIGHT MODE OVERRIDES === */

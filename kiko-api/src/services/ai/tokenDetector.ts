@@ -22,7 +22,7 @@ export interface TokenInfo {
     marketCap?: number;
     volume24h?: number;
     launchpad?: {
-        provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'bonkfun';
+        provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'pumpfun' | 'bonkfun' | 'virtuals';
         data: any;
     };
 }
@@ -279,4 +279,3 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
         return null;
     }
 }
-

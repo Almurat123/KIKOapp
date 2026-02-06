@@ -1,630 +1,353 @@
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
+/* Strategy Card - Unified Refined Design for Trade Page */
+
+.strategyCard {
+  width: 100%;
+  max-width: 320px;
   border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #09090b;
   overflow: hidden;
   transition: all 0.2s ease;
-  box-shadow: var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
 }
 
-.card:hover {
-  border-color: var(--border-color);
-  box-shadow: var(--card-shadow);
+.strategyCard.rowVariant {
+  max-width: 100%;
+  margin-bottom: 12px;
+}
+
+.strategyCard:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: #0c0c0e;
   transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
-/* Copy Trading Card Specific Styles */
-.copyCard {
-  max-width: 320px;
-  width: 100%;
-  margin: 0 auto;
-}
-
-/* Header */
-.strategyHeader {
+/* Header Section */
+.header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 20px 12px 20px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.strategyTitleSection {
+.headerLeft {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.uintaIcon {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--bg-hover);
+.chainIconWrapper {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  flex-shrink: 0;
-}
-
-.strategyName {
-  color: var(--text-primary);
-  font-weight: 500;
-  font-size: 14px;
-  line-height: 1.2;
-}
-
-/* Status Badges */
-.strategyStatus {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
   border: 1px solid;
+  padding: 5px;
+}
+
+.chainIcon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.titleColumn {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.statusBadge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 9px;
+  font-weight: 800;
 }
 
 .statusActive {
-  background: rgba(34, 197, 94, 0.1);
+  background: rgba(74, 222, 128, 0.08);
   color: #4ade80;
-  border-color: rgba(34, 197, 94, 0.2);
+  border-color: rgba(74, 222, 128, 0.2);
 }
 
 .statusPaused {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(251, 146, 60, 0.08);
+  color: #fb923c;
+  border-color: rgba(251, 146, 60, 0.2);
+}
+
+.statusDeleted {
+  background: rgba(239, 68, 68, 0.08);
   color: #ef4444;
   border-color: rgba(239, 68, 68, 0.2);
 }
 
-.statusBadgeActive,
-.statusBadgePaused,
-.statusBadgeDeleted {
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.statusBadgeActive {
-  background: rgba(34, 197, 94, 0.15);
-  color: #4ade80;
-  border: 1px solid rgba(34, 197, 94, 0.2);
-}
-
-.statusBadgePaused {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.statusBadgeDeleted {
-  background: var(--bg-hover);
-  color: var(--text-tertiary);
-  border: 1px solid var(--border-color);
-}
-
-/* Content Blocks */
-.strategyContent {
-  padding: 12px;
+/* Content Body */
+.content {
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
 }
 
-.strategyBlock,
-.strategyBlockThen {
-  background: var(--bg-hover);
-  border-radius: 18px;
-  padding: 12px;
-  border: 1px solid #27272a;
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.25);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.walletBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  flex: 1;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.fullAddress {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.4;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Grid Layout */
+.mainGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 16px;
+}
+
+.gridColumn {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.strategyBlockThen {
-  background: var(--bg-hover);
+.rightAlign {
+  align-items: flex-end;
+  text-align: right;
 }
 
-.strategyItem {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.strategyItemVertical {
+.gridItem {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  width: 100%;
+  gap: 4px;
 }
 
-.strategyItemLabel {
+.value {
+  font-size: 15px;
+  color: #fff;
+  font-weight: 800;
+}
+
+/* TP/SL Box Style */
+.tpBox,
+.slBox {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-tertiary);
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.strategyItemValue {
-  text-align: right;
-  min-width: 0;
-  width: 100%;
-}
-
-.strategyItemValueVertical {
-  width: 100%;
-  display: flex;
-  justify-content: flex-start;
-}
-
-.walletAddress {
-  color: var(--text-primary);
-  font-family: monospace;
-  background: var(--bg-card);
   padding: 6px 10px;
   border-radius: 6px;
-  border: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  width: 100%;
-  max-width: 100%;
-  overflow: hidden;
-  gap: 8px;
+  border: 1px solid;
+  width: fit-content;
 }
 
-.walletAddressText {
-  font-size: 11px;
-  white-space: nowrap;
-  display: inline-block;
-  transform: scale(0.64);
-  transform-origin: left center;
-  flex: 1;
-  letter-spacing: 0.02em;
+.tpBox {
+  background: rgba(74, 222, 128, 0.05);
+  border-color: rgba(74, 222, 128, 0.15);
 }
 
-.triggerValue {
-  color: #60a5fa;
-  font-weight: 500;
-  font-size: 12px;
+.slBox {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.15);
 }
 
-.strategyDivider {
-  height: 1px;
-  background: var(--border-color);
-  width: 100%;
+.boxLabel {
+  font-size: 9px;
+  font-weight: 900;
+  opacity: 0.7;
 }
 
-.buyAmountLabel {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.buyAmountValue {
-  color: var(--text-primary);
-  font-weight: 700;
-  font-size: 14px;
-}
-
-/* SL/TP Capsule */
-.slTpCapsule {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--bg-card);
-  border-radius: 12px;
-  padding: 8px 0;
-  border: 1px solid var(--border-color);
-  width: 100%;
-}
-
-.capsuleItem {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex: 1;
-}
-
-.capsuleLabel {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  font-weight: 700;
-  letter-spacing: 0.05em;
-}
-
-.capsuleValueGreen {
-  font-size: 13px;
-  font-weight: 700;
+.tpBox .boxLabel {
   color: #4ade80;
 }
 
-.capsuleValueRed {
-  font-size: 13px;
-  font-weight: 700;
+.slBox .boxLabel {
   color: #ef4444;
 }
 
-.capsuleDivider {
-  width: 1px;
-  height: 20px;
-  background: var(--border-color);
+.boxValue {
+  font-size: 13px;
+  font-weight: 800;
 }
 
-/* Footer & Actions */
-.strategyFooter {
-  padding: 20px;
-  padding-top: 4px;
+.tpBox .boxValue {
+  color: #4ade80;
+}
+
+.slBox .boxValue {
+  color: #ef4444;
+}
+
+.footerInfo {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-}
-
-.strategyInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.strategyInfoItem {
+  align-items: center;
+  gap: 6px;
   font-size: 10px;
-  color: var(--text-tertiary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  color: rgba(255, 255, 255, 0.2);
+  margin-top: 4px;
 }
 
-.strategyInfoItem span {
-  color: var(--text-secondary);
+/* Footer Section */
+.footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  border-top: 1px solid rgba(255, 255, 255, 0.03);
 }
 
-.iconWrapper {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 16px !important;
-  height: 16px !important;
-  flex-shrink: 0 !important;
-  pointer-events: none;
-}
-
-.iconWrapper svg {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-  stroke: currentColor !important;
-}
-
-.strategyPauseBtn {
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
+.actionBtn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-}
-
-.strategyPauseBtn svg {
-  stroke: currentColor;
-  color: inherit;
-}
-
-.strategyPauseBtn:hover {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border-color: var(--accent-hover);
-}
-
-.strategyPauseBtn:active {
-  transform: scale(0.96);
-}
-
-.strategyCardFooter {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  gap: 16px;
-}
-
-.strategyItemValue {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  text-align: left;
-}
-
-.strategyActions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.strategyDeleteBtn {
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.strategyDeleteBtn svg {
-  stroke: currentColor;
-  color: inherit;
-}
-
-.strategyDeleteBtn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.3);
-}
-
-.strategyEditBtn {
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.strategyEditBtn svg {
-  stroke: currentColor;
-  color: inherit;
-}
-
-.strategyEditBtn:hover:not(:disabled) {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border-color: var(--accent-hover);
-}
-
-.strategyDeleteBtn:disabled,
-.strategyPauseBtn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  filter: grayscale(1);
-}
-
-/* =========================================
-   ROW VARIANT (Single-Line List Item)
-   ========================================= */
-
-.cardRow {
-  display: flex !important;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  /* Slightly smaller radius for rows */
-  width: 100%;
-  max-width: 100%;
-  /* Rows take full width */
-  margin: 0;
-  gap: 16px;
-  min-height: 64px;
-}
-
-.cardRow:hover {
-  border-color: var(--border-color);
-  background: var(--bg-hover);
-}
-
-/* col-1: Identity (Icon + Name + Status) */
-.rowIdentity {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  /* Takes available space */
-  min-width: 200px;
-}
-
-.rowIcon {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(59, 130, 246, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-  flex-shrink: 0;
-}
-
-.rowName {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-/* col-2: Config (Target + Trigger) */
-.rowConfig {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  flex: 2;
-}
-
-.rowItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.rowItemLabel {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
   font-size: 11px;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  font-weight: 500;
-}
-
-.rowItemValue {
-  font-size: 13px;
-  color: var(--text-primary);
-  font-weight: 500;
-  font-family: monospace;
-}
-
-/* col-3: Actions */
-.rowActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.rowBtn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  font-weight: 600;
+  padding: 12px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  border-right: 1px solid rgba(255, 255, 255, 0.03);
 }
 
-/* Ensure SVG icons are visible */
-.rowBtn svg {
-  width: 16px;
-  height: 16px;
-  display: block;
+.actionBtn:last-child {
+  border-right: none;
 }
 
-.rowBtn:hover {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border-color: var(--accent-color);
+.actionBtn:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: #fff;
 }
 
-.rowBtnDelete:hover {
-  background: rgba(239, 68, 68, 0.2);
+.deleteBtn:hover {
   color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.3);
 }
 
-/* Mobile adjustments for Row - Two Lines */
-@media (max-width: 768px) {
-  .cardRow {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    height: auto;
-    padding: 12px;
-  }
+.actionBtn:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
 
-  /* Line 1: Identity (left, flexible) */
-  .rowIdentity {
-    flex: 1 1 auto;
-    min-width: 0;
-    gap: 10px;
-    order: 1;
-    display: flex;
-    align-items: center;
-  }
+/* Light Mode Overrides */
+:global(.light) .strategyCard {
+  background: #ffffff;
+  border-color: #f1f1f4;
+}
 
-  .rowIcon {
-    width: 32px;
-    height: 32px;
-    flex-shrink: 0;
-  }
+:global(.light) .strategyCard:hover {
+  background: #f8f8fa;
+  border-color: #e4e4e7;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
 
-  .rowName {
-    font-size: 14px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+:global(.light) .header {
+  border-bottom-color: #f1f1f4;
+}
 
-  /* Line 1: Actions (right, fixed) */
-  .rowActions {
-    flex: 0 0 auto;
-    order: 2;
-    display: flex;
-    gap: 8px;
-  }
+:global(.light) .title {
+  color: #000000;
+}
 
-  .rowBtn {
-    width: 32px;
-    height: 32px;
-  }
+:global(.light) .subtitle {
+  color: #71717a;
+}
 
-  /* Line 2: Config (full width, forces new line) */
-  .rowConfig {
-    flex: 0 0 100%;
-    order: 3;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    padding-top: 10px;
-    margin-top: 2px;
-    border-top: 1px solid var(--border-color);
-  }
+:global(.light) .label {
+  color: #a1a1aa;
+}
 
-  .rowItem {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
+:global(.light) .walletBadge {
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+}
 
-  .rowItemLabel {
-    font-size: 10px;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    font-weight: 500;
-  }
+:global(.light) .fullAddress {
+  color: #18181b;
+}
 
-  .rowItemValue {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
+:global(.light) .divider {
+  background: #f1f1f4;
+}
+
+:global(.light) .value {
+  color: #000000;
+}
+
+:global(.light) .footer {
+  border-top-color: #f1f1f4;
+}
+
+:global(.light) .actionBtn {
+  color: #71717a;
+  border-right-color: #f1f1f4;
+}
+
+:global(.light) .actionBtn:hover {
+  background: #f4f4f5;
+  color: #000000;
+}
+
+:global(.light) .deleteBtn:hover {
+  color: #ef4444;
+}
+
+:global(.light) .footerInfo {
+  color: #a1a1aa;
 }

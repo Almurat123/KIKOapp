@@ -78,7 +78,8 @@ model WalletExport {
 model UserSettings {
   id                            String   @id @default(cuid())
   userId                        String   @unique
-  userRole                      String   @default("default")
+
+  // userRole removed
   defaultSwapAmount             Float    @default(100)
   defaultSwapUnit               String   @default("native")
   checkTokenBeforeSwap          Boolean  @default(true)
@@ -354,7 +355,7 @@ model Position {
   currentPrice      Float?
   peakPrice         Float?              // For dynamic TP
   priceHistory      Json?               @default("[]") // For ATR/Rapid decline
-  dynamicTPTriggered Boolean            @default(false)
+  dynamicTPTriggered Boolean?            @default(false)
   profitLossPct     Float?
   exitTxHash        String?
   exitReason        String?
@@ -384,6 +385,12 @@ model Position {
   @@index([configId])
   @@index([status])
   @@index([tokenAddress])
+  @@index([entryTxHash])
+  @@index([leaderTxHash])
+  @@index([userId, chainId, tokenAddress, status])
+  @@index([userId, chainId, tokenAddress, status, createdAt(sort: Desc)])
+  @@index([status, exitRetryCount, lastExitAttempt])
+  @@unique([userId, chainId, tokenAddress, leaderTxHash], map: "Position_user_chain_token_leaderTxHash_key")
 }
 
 model ChatSession {

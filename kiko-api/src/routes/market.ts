@@ -31,7 +31,7 @@ export async function marketRoutes(fastify: FastifyInstance) {
       return reply.send({
         success: true,
         data,
-        updatedAt: new Date().toISOString(),
+        updatedAt: data.updatedAt || new Date().toISOString(),
       });
     } catch (error) {
       throw error;

@@ -370,3 +370,23 @@ process.on('SIGINT', async () => {
 });
 
 start();
+
+// Global Error Handlers (Fix 7: Process Handlers)
+// Prevent silent failures for unhandled promises or sync exceptions
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error(LogCode.SYS_ERROR, 'Unhandled Rejection at:', {
+        promise,
+        reason: reason instanceof Error ? reason.message : reason
+    });
+    // In production, we might want to exit, but for now log and keep running
+    // process.exit(1);
+});
+
+process.on('uncaughtException', (error) => {
+    logger.error(LogCode.SYS_ERROR, 'Uncaught Exception:', {
+        error: error.message,
+        stack: error.stack
+    });
+    // Critical error - should restart process via PM2/Docker
+    process.exit(1);
+});

@@ -4,6 +4,8 @@
  */
 
 import { checkPositionsForExits } from '../services/autoTradeService.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 // Check interval (ms)
 const CHECK_INTERVAL = 10000; // 10 seconds (optimized for mirror sell retries)
@@ -18,10 +20,10 @@ async function runCheck(): Promise<void> {
     if (!isRunning) return;
 
     try {
-        console.log('[PositionMonitor] 🔄 Running position check...');
+        logger.aggregate(LogCode.JOB_HEARTBEAT, 'Running position check');
         await checkPositionsForExits();
     } catch (error) {
-        console.error('[PositionMonitor] Error checking positions:', error);
+        logger.error(LogCode.SYS_ERROR, 'Error checking positions', { error: error instanceof Error ? error.message : error });
     }
 
     // Schedule next check

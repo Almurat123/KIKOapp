@@ -338,7 +338,7 @@ export async function callRpc<T = any>(
 
             // Only log first 2 failures to reduce noise
             if (i < 2) {
-                logger.throttled(LogCode.API_FETCH_FAILED, `RPC endpoint failed`, {
+                logger.aggregate(LogCode.API_FETCH_FAILED, `RPC endpoint failed`, {
                     chain: chainName,
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
@@ -487,7 +487,7 @@ export async function callRpcCustom<T = any>(
             recordFailure(endpoint.url);
 
             if (i < 2) {
-                logger.throttled(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
+                logger.aggregate(LogCode.API_FETCH_FAILED, 'RPC endpoint failed', {
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
                     error: error.message,
@@ -733,7 +733,7 @@ function recordFailure(url: string): void {
     // Open circuit if threshold reached
     if (health.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
         health.circuitOpen = true;
-        logger.throttled(LogCode.API_FETCH_FAILED, 'RPC circuit breaker opened', {
+        logger.aggregate(LogCode.API_FETCH_FAILED, 'RPC circuit breaker opened', {
             endpoint: maskEndpoint(url),
             failures: health.consecutiveFailures
         });

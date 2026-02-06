@@ -6,7 +6,7 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export interface UserSettings {
-    userRole: string;
+    // userRole removed
     defaultSwapAmount: number;
     defaultSwapUnit: string;
     checkTokenBeforeSwap: boolean;

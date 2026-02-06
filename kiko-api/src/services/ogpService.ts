@@ -68,6 +68,7 @@ export interface OGPMetadata {
     type?: string;
     twitterCard?: string;
     video?: string;
+    originalImage?: string;
 }
 
 /**
@@ -75,6 +76,11 @@ export interface OGPMetadata {
  */
 function sanitizeMetadata(metadata: OGPMetadata, origin?: string): OGPMetadata {
     const PROXY_BASE_URL = origin || process.env.API_URL || '';
+
+    // [FIX]: Capture original image before any processing
+    if (metadata.image && !metadata.originalImage) {
+        metadata.originalImage = metadata.image;
+    }
 
     // 1. Skip generic X/Twitter placeholders
     if (metadata.image && (

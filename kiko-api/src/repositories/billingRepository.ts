@@ -1,4 +1,5 @@
 import prisma from '../db/prisma.js';
+import { Prisma } from '@prisma/client';
 
 export async function getDailyUsageCount(
     userId: string,
@@ -48,8 +49,8 @@ export async function insertUsageRecord(params: {
     usdCost: number;
     dateUtc: string;
     isFree: boolean;
-}): Promise<void> {
-    await prisma.$executeRaw`
+}, tx: Prisma.TransactionClient = prisma): Promise<void> {
+    await tx.$executeRaw`
         INSERT INTO billing_usage_ledger (
             id,
             assistant_message_id,
@@ -129,8 +130,8 @@ export async function upsertDailyBilling(params: {
     tokensDue: number;
     tokenAddress: string;
     chainId: number;
-}): Promise<void> {
-    await prisma.$executeRaw`
+}, tx: Prisma.TransactionClient = prisma): Promise<void> {
+    await tx.$executeRaw`
         INSERT INTO daily_billing (
             user_id,
             date_utc,
@@ -158,6 +159,26 @@ export async function upsertDailyBilling(params: {
             chain_id = EXCLUDED.chain_id,
             updated_at = NOW()
     `;
+}
+
+export async function getDailyBillingStatus(
+    userId: string,
+    dateUtc: string
+): Promise<{ status: string; txHash: string | null } | null> {
+    const rows = await prisma.$queryRaw<Array<{ status: string; tx_hash: string | null }>>`
+        SELECT status, tx_hash
+        FROM daily_billing
+        WHERE user_id = ${userId}
+          AND date_utc = ${dateUtc}::date
+        LIMIT 1
+    `;
+
+    const row = rows[0];
+    if (!row) return null;
+    return {
+        status: row.status,
+        txHash: row.tx_hash
+    };
 }
 
 export async function updateDailyBillingStatus(params: {

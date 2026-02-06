@@ -9,6 +9,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { parseSwapTransaction, DecodedSwap } from './txDecoder.js';
 import { callRpc as rpcCall } from './rpcManager.js';
 import { fetchJson } from '../config/unifiedApiService.js';
+import { get as cacheGet, set as cacheSet } from '../cache/redis.js';
 
 const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
 
@@ -26,6 +27,11 @@ const lastProcessedBlock: Map<string, number> = new Map();
 
 // Track processed transactions to avoid duplicates (in-memory cache for current session)
 const processedTxs: Set<string> = new Set();
+const PROCESSED_TX_TTL_SECONDS = Number(process.env.COPYTRADE_PROCESSED_TX_TTL_SEC || 24 * 60 * 60);
+
+function txProcessedCacheKey(txHash: string, chainId: number): string {
+    return `copytrade:processed:${chainId}:${txHash.toLowerCase()}`;
+}
 
 /**
  * Check if a transaction has already been processed
@@ -34,11 +40,29 @@ export function isTxProcessed(txHash: string): boolean {
     return processedTxs.has(txHash);
 }
 
+export async function isTxProcessedDistributed(txHash: string, chainId: number): Promise<boolean> {
+    if (processedTxs.has(txHash)) {
+        return true;
+    }
+
+    const cached = await cacheGet(txProcessedCacheKey(txHash, chainId));
+    if (cached) {
+        processedTxs.add(txHash);
+        return true;
+    }
+    return false;
+}
+
 /**
  * Mark a transaction as processed
  */
 export function markTxAsProcessed(txHash: string): void {
     processedTxs.add(txHash);
+}
+
+export async function markTxAsProcessedDistributed(txHash: string, chainId: number): Promise<void> {
+    processedTxs.add(txHash);
+    await cacheSet(txProcessedCacheKey(txHash, chainId), '1', PROCESSED_TX_TTL_SECONDS).catch(() => { });
 }
 
 // Track startup time - only process transactions after this
@@ -256,7 +280,7 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
         // logger.debug(LogCode.SYS_STARTUP, 'Checking transaction', { tx: txHash?.slice(0, 10), processed: processedTxs.has(txHash) });
 
         // Skip if already processed (in-memory cache)
-        if (processedTxs.has(txHash)) {
+        if (await isTxProcessedDistributed(txHash, chainId)) {
             continue;
         }
 
@@ -276,17 +300,23 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
         // If timestamp is unavailable, we rely on processedTxs cache and DB check to prevent duplicates
         if (txTimestamp > 0 && txTimestamp < STARTUP_TIME - 60000) { // 1 minute grace period
             logger.debug(LogCode.WTC_TX_SKIPPED, 'Skipping old transaction (before startup)', { tx: txHash.slice(0, 10) });
-            processedTxs.add(txHash);
+            await markTxAsProcessedDistributed(txHash, chainId);
             continue;
         }
 
         // Also check database to prevent processing if already has a Position for this tx
         const existingPosition = await prisma.position.findFirst({
-            where: { entryTxHash: txHash }
+            where: {
+                chainId,
+                OR: [
+                    { leaderTxHash: txHash },
+                    { entryTxHash: txHash }
+                ]
+            }
         });
         if (existingPosition) {
             logger.debug(LogCode.WTC_TX_SKIPPED, 'Skipping transaction with existing position', { tx: txHash.slice(0, 10) });
-            processedTxs.add(txHash);
+            await markTxAsProcessedDistributed(txHash, chainId);
             continue;
         }
 
@@ -338,7 +368,7 @@ async function checkWallet(wallet: { address: string; chainId: number }): Promis
         }
 
         // Mark as processed (NOW safe to cache as we finished trying)
-        processedTxs.add(txHash);
+        await markTxAsProcessedDistributed(txHash, chainId);
     }
 
     // Update last checked timestamp (composite key)

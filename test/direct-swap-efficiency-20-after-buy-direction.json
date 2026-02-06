@@ -1,0 +1,284 @@
+{
+  "startedAt": "2026-02-06T09:00:59.647Z",
+  "finishedAt": "2026-02-06T09:01:18.537Z",
+  "inputPath": "/Users/almurat/KiKo/test/base-samples-1000-mixed.json",
+  "outputPath": "/Users/almurat/KiKo/test/direct-swap-efficiency-20-after-buy-direction.json",
+  "config": {
+    "chainId": 8453,
+    "maxTx": 20,
+    "concurrency": 2,
+    "slippageBps": 1500,
+    "simulationMode": "true"
+  },
+  "elapsedMs": 18888,
+  "summary": {
+    "total": 20,
+    "attempted": 5,
+    "success": 5,
+    "failed": 0,
+    "successRatePct": 100,
+    "statusBreakdown": {
+      "ok": 5,
+      "missing": 0,
+      "not_swap": 1,
+      "not_native_buy": 14,
+      "direct_failed": 0
+    },
+    "latencyMs": {
+      "all": {
+        "avg": 1720.25,
+        "p50": 320,
+        "p95": 5817
+      },
+      "direct": {
+        "avg": 5010.6,
+        "p50": 4972,
+        "p95": 6261
+      },
+      "direct_success": {
+        "avg": 5010.6,
+        "p50": 4972,
+        "p95": 6261
+      }
+    },
+    "providerBreakdown": [
+      {
+        "provider": "uniswap-v4",
+        "count": 5
+      }
+    ],
+    "failReasons": []
+  },
+  "rows": [
+    {
+      "txHash": "0x7a8f467d00d233f9e081f04b0bcfeec0184106f24d1192536ab387c0f67c250f",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 1317,
+      "parseMs": 1,
+      "directMs": 0,
+      "totalMs": 1317
+    },
+    {
+      "txHash": "0xc406c4303926ef5e85670fbe90df2e104f98c9b6dab39442dcf6a417f7d07363",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 1031,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 1031
+    },
+    {
+      "txHash": "0x2d62f47635213288bbae14ff21c221235855edf592c2eae8502657439bbf1ce4",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "fetchMs": 1291,
+      "parseMs": 5,
+      "directMs": 6261,
+      "totalMs": 7557
+    },
+    {
+      "txHash": "0xeff5be200ee41fffcdea8f0530d1ff98bf38b6a4b768a81407805080c1d39733",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "fetchMs": 245,
+      "parseMs": 0,
+      "directMs": 4972,
+      "totalMs": 5217
+    },
+    {
+      "txHash": "0xa10f30b97d9bbdfeee271b7adbeccd45c4ee24ecde12008eab2b39891b08006f",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 258,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 258
+    },
+    {
+      "txHash": "0xb4f85382087d5e5f9475f8dbef988961e05ffaf7cd55cfb85778510c47d8c592",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 313,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 314
+    },
+    {
+      "txHash": "0x5c5ce2f27f69e7162cae7c655601b7cc38f473e4c538c40efa0c5d2e0ca43d58",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 278,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 279
+    },
+    {
+      "txHash": "0x9ae9d9dac1ffb6d34ba9a73c6eb083c472605fce6395281c4a1f468d202af92c",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 320,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 320
+    },
+    {
+      "txHash": "0x65e880a2bddc8956b0add0a9163690536d855f18f73e86ccc99b6c25a4baebe9",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 336,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 336
+    },
+    {
+      "txHash": "0x0c5fe693f8cea94a959b18ecc4bfa32538a4f3303beaf4101f3194d5e688983b",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 258,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 258
+    },
+    {
+      "txHash": "0x498094e4661112f5331fd859adf6bb2221513face7c63094a170453ae41517fe",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 261,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 261
+    },
+    {
+      "txHash": "0xd195e984b0164d397b654b1512e1ee852293ca9896fc7f71e8906b0af7762d3e",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 368,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 368
+    },
+    {
+      "txHash": "0x5a46679b68e5229b5fdcf080026c29458ab9a37cfd89f361033152f6f045763e",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "fetchMs": 362,
+      "parseMs": 0,
+      "directMs": 4250,
+      "totalMs": 4613
+    },
+    {
+      "txHash": "0x25aed7e3bb4e9b9b0b444b7c15c81852cd6e6dc31a1eec510289c414c3edbd84",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 267,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 267
+    },
+    {
+      "txHash": "0x25dd0c5eff386a7f8c61522f8d2e8d5124324e2099c4e153bb63d85dd7720b19",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "fetchMs": 337,
+      "parseMs": 1,
+      "directMs": 4017,
+      "totalMs": 4354
+    },
+    {
+      "txHash": "0x3fe8219d06311ee8b2056e58c67b0cbc21f8cfa54afa5c97c2266988c4aac542",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 254,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 255
+    },
+    {
+      "txHash": "0xc7d3056fdd1fd159ca82ccaf3d2a3a08a5f038e7f5c2718e5e0a665ae1d54763",
+      "bucket": "new",
+      "status": "not_swap",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 1075,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 1075
+    },
+    {
+      "txHash": "0xdc49fdc0d0cd99e299b0a435305679e8eb35dc2a8a46e30eddc7b222c3caa077",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 257,
+      "parseMs": 1,
+      "directMs": 0,
+      "totalMs": 258
+    },
+    {
+      "txHash": "0xf5b287e6babda1cb935f539561673385778596e2b6a121a385f76679bb61c68d",
+      "bucket": "new",
+      "status": "not_native_buy",
+      "directAttempted": false,
+      "directSuccess": false,
+      "fetchMs": 250,
+      "parseMs": 0,
+      "directMs": 0,
+      "totalMs": 250
+    },
+    {
+      "txHash": "0x33b2f59374ae6d3d4e341c285b66a3d632e7b991f3e00d4706c7d0621046079c",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "fetchMs": 263,
+      "parseMs": 0,
+      "directMs": 5553,
+      "totalMs": 5817
+    }
+  ]
+}

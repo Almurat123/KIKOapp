@@ -10,7 +10,7 @@ import { trackLogin } from '../services/userActivityService.js';
 
 // Types
 interface UserSettingsBody {
-    userRole?: string;
+    // userRole removed 
     defaultSwapAmount?: number;
     defaultSwapUnit?: string;
     checkTokenBeforeSwap?: boolean;
@@ -113,7 +113,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                 const settings = await prisma.userSettings.upsert({
                     where: { userId: user.privyDid },
                     update: {
-                        userRole: body.userRole,
+                        // userRole removed
                         defaultSwapAmount: body.defaultSwapAmount,
                         defaultSwapUnit: body.defaultSwapUnit,
                         checkTokenBeforeSwap: body.checkTokenBeforeSwap,
@@ -134,7 +134,7 @@ export async function registerUserRoutes(app: FastifyInstance) {
                     },
                     create: {
                         userId: user.privyDid,
-                        userRole: body.userRole || 'default',
+                        // userRole removed
                         defaultSwapAmount: body.defaultSwapAmount || 100,
                         defaultSwapUnit: body.defaultSwapUnit || 'native',
                         checkTokenBeforeSwap: body.checkTokenBeforeSwap ?? true,
