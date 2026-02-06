@@ -57,7 +57,15 @@ export class NotificationService {
         const { farcasterFid, type, data } = params;
 
         if (!farcasterFid) {
-            logger.debug(LogCode.API_NOTIFY_FAILED, 'No Farcaster FID provided, skipping notification', { userId: params.userId, type });
+            if (type === 'COPY_TRADE_SKIPPED' || type === 'TRADE_FAILURE') {
+                logger.warn(LogCode.API_NOTIFY_FAILED, 'No Farcaster FID provided, critical notification not sent', {
+                    userId: params.userId,
+                    type,
+                    skipReason: data.skipReason
+                });
+            } else {
+                logger.debug(LogCode.API_NOTIFY_FAILED, 'No Farcaster FID provided, skipping notification', { userId: params.userId, type });
+            }
             return false;
         }
 

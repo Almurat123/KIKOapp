@@ -48,6 +48,8 @@ export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
+const positionPriceFallbackCache = new Map<string, { tokenInfo: any; timestamp: number }>();
+const POSITION_PRICE_STALE_TTL_MS = 5 * 60 * 1000;
 
 // Per-user trade locks to prevent concurrent trade execution for same user
 const userTradeLocks = new Map<string, Promise<any>>();
@@ -117,6 +119,22 @@ let zombieCleanupInterval: NodeJS.Timeout | null = null;
 const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
+
+function getPositionPriceFallback(tokenKey: string): any | null {
+    const cached = positionPriceFallbackCache.get(tokenKey);
+    if (!cached) return null;
+    if (Date.now() - cached.timestamp > POSITION_PRICE_STALE_TTL_MS) {
+        positionPriceFallbackCache.delete(tokenKey);
+        return null;
+    }
+    return cached.tokenInfo;
+}
+
+function setPositionPriceFallback(tokenKey: string, tokenInfo: any): void {
+    const price = Number(tokenInfo?.price);
+    if (!Number.isFinite(price) || price <= 0) return;
+    positionPriceFallbackCache.set(tokenKey, { tokenInfo, timestamp: Date.now() });
+}
 
 /**
  * Cross-instance lock using PostgreSQL advisory locks.
@@ -812,21 +830,35 @@ async function processBuyWithInfo(
     // Send notifications to skipped users (async, non-blocking)
     setImmediate(() => {
         skippedUsers.forEach(({ config, reason }) => {
-            notificationService.sendNotification({
-                userId: config.userId,
-                farcasterFid: config.user?.farcasterFid,
-                type: 'COPY_TRADE_SKIPPED',
-                data: {
-                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
-                    tokenAddress: tokenToBuy,
-                    targetWallet: targetWallet,
-                    chainId: chainId,
-                    skipReason: reason,
-                    targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
-                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+            (async () => {
+                const notified = await notificationService.sendNotification({
+                    userId: config.userId,
+                    farcasterFid: config.user?.farcasterFid,
+                    type: 'COPY_TRADE_SKIPPED',
+                    data: {
+                        tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                        tokenAddress: tokenToBuy,
+                        targetWallet: targetWallet,
+                        chainId: chainId,
+                        skipReason: reason,
+                        targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                        marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                        liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                    }
+                });
+                if (!notified) {
+                    logger.warn(LogCode.API_NOTIFY_FAILED, 'Copy-trade batch skip notification not delivered', {
+                        userId: config.userId,
+                        reason,
+                        hasFid: Boolean(config.user?.farcasterFid)
+                    });
                 }
-            }).catch(() => { }); // Ignore notification errors
+            })().catch((err: any) => {
+                logger.warn(LogCode.API_NOTIFY_FAILED, 'Copy-trade batch skip notification error', {
+                    userId: config.userId,
+                    error: err?.message || String(err)
+                });
+            });
         });
     });
 
@@ -1251,9 +1283,17 @@ async function processSingleUserBuy(
                         tradeCostWei = ethers.parseEther(amountInNative.toFixed(18));
                     }
 
-                    if (nativeBalance < (tradeCostWei + gasBufferWei)) {
+                    if (nativeBalance === null) {
+                        // Fail-open by design: RPC outages should not be misreported as "insufficient funds".
+                        logger.warn(LogCode.API_FETCH_FAILED, 'Gas balance check unavailable, skipping gas buffer gate', {
+                            userId: config.userId,
+                            chainId,
+                            wallet: effectiveConfig.user.walletAddress
+                        });
+                    } else if (nativeBalance < (tradeCostWei + gasBufferWei)) {
                         const balanceEth = ethers.formatEther(nativeBalance);
                         const requiredEth = ethers.formatEther(tradeCostWei + gasBufferWei);
+                        const nativeSymbol = getChainConfig(chainId).nativeCurrency.symbol;
 
                         logger.throttled(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping trade: Insufficient gas buffer', {
                             userId: config.userId,
@@ -1263,7 +1303,7 @@ async function processSingleUserBuy(
                         });
 
                         // Send skip notification for insufficient gas
-                        await notificationService.sendNotification({
+                        const notified = await notificationService.sendNotification({
                             userId: config.userId,
                             farcasterFid: config.user.farcasterFid,
                             type: 'COPY_TRADE_SKIPPED',
@@ -1272,12 +1312,20 @@ async function processSingleUserBuy(
                                 tokenAddress: tokenToBuy,
                                 targetWallet: targetWallet,
                                 chainId: chainId,
-                                skipReason: `Insufficient gas. Balance: ${parseFloat(balanceEth).toFixed(4)} ETH, Required: ${parseFloat(requiredEth).toFixed(4)} ETH`,
+                                skipReason: `Insufficient gas. Balance: ${parseFloat(balanceEth).toFixed(4)} ${nativeSymbol}, Required: ${parseFloat(requiredEth).toFixed(4)} ${nativeSymbol}`,
                                 targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
                                 marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
                                 liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
                             }
                         });
+                        if (!notified) {
+                            logger.warn(LogCode.API_NOTIFY_FAILED, 'Copy-trade skip notification not delivered', {
+                                userId: config.userId,
+                                chainId,
+                                reason: 'insufficient_gas_buffer',
+                                hasFid: Boolean(config.user.farcasterFid)
+                            });
+                        }
 
                         return;
                     }
@@ -2566,13 +2614,14 @@ export async function checkPositionsForExits(): Promise<void> {
     for (let i = 0; i < tokenList.length; i += TOKEN_BATCH_SIZE) {
         const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
         await Promise.all(batch.map(async ({ address, chainId }) => {
+            const tokenKey = `${address.toLowerCase()}_${chainId}`;
             try {
                 // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
                 const dexPrice = await getDexPrice(address, dexChainId);
 
                 if (dexPrice > 0) {
-                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, {
+                    const resolved = {
                         symbol: 'UNKNOWN',
                         name: 'Unknown Token',
                         decimals: chainId === 900 ? 9 : 18,
@@ -2581,17 +2630,44 @@ export async function checkPositionsForExits(): Promise<void> {
                         marketCap: 0,
                         price: dexPrice,
                         provider: chainId === 900 ? 'jupiter-dex' : '0x-dex'
-                    });
+                    };
+                    tokenPriceMap.set(tokenKey, resolved);
+                    setPositionPriceFallback(tokenKey, resolved);
                     return;
                 }
 
                 // Fallback: full token info (RPC + GeckoTerminal)
                 const info = await getTokenInfo(address, chainId);
                 if (info && info.price) {
-                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
+                    tokenPriceMap.set(tokenKey, info);
+                    setPositionPriceFallback(tokenKey, info);
+                    return;
+                }
+
+                const stale = getPositionPriceFallback(tokenKey);
+                if (stale && stale.price > 0) {
+                    tokenPriceMap.set(tokenKey, {
+                        ...stale,
+                        provider: `${stale.provider || 'unknown'}-stale`
+                    });
+                    logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Using stale price fallback', {
+                        token: address,
+                        chainId
+                    });
                 }
             } catch (err) {
                 logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Failed to fetch price', { token: address, error: (err as Error).message });
+                const stale = getPositionPriceFallback(tokenKey);
+                if (stale && stale.price > 0) {
+                    tokenPriceMap.set(tokenKey, {
+                        ...stale,
+                        provider: `${stale.provider || 'unknown'}-stale`
+                    });
+                    logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Using stale price fallback after fetch error', {
+                        token: address,
+                        chainId
+                    });
+                }
             }
         }));
     }
@@ -2694,7 +2770,7 @@ export async function checkPositionsForExits(): Promise<void> {
 
                 if (!tokenInfo) {
                     // Price not available in batch - LOG THIS! Critical for debugging TP failures
-                    logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
+                    logger.throttled(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
                         token: position.tokenSymbol || position.tokenAddress,
                         chainId: position.chainId,
@@ -2707,7 +2783,7 @@ export async function checkPositionsForExits(): Promise<void> {
 
                 // [Safety]: Double check price validity (even if tokenInfo exists)
                 if (!currentPrice || currentPrice <= 0 || isNaN(currentPrice)) {
-                    logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Invalid price value', {
+                    logger.throttled(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Invalid price value', {
                         positionId: position.id,
                         token: position.tokenSymbol || undefined,
                         rawPrice: currentPrice
@@ -2871,13 +2947,13 @@ function getSlippageBps(userSettings: any): number {
     return Math.floor(userSettings.customSlippage * 100);
 }
 
-async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint> {
+async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint | null> {
     try {
         const raw = await rpcGetNativeBalance(walletAddress, chainId);
         return BigInt(raw);
     } catch (error) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch native balance for gas check', { wallet: walletAddress, chainId });
-        return 0n; // Fail open (don't block trade on RPC error, assume enough gas)
+        return null;
     }
 }
 
