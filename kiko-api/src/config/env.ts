@@ -166,13 +166,12 @@ function validateEnv(): EnvConfig {
     const alchemyWebhookSecret = process.env.ALCHEMY_WEBHOOK_SECRET;
     const internalWebhookSecret = process.env.INTERNAL_WEBHOOK_SECRET;
 
-    if (isProduction) {
-        const missingWebhookSecrets: string[] = [];
-        if (!alchemyWebhookSecret) missingWebhookSecrets.push('ALCHEMY_WEBHOOK_SECRET');
-        if (!internalWebhookSecret) missingWebhookSecrets.push('INTERNAL_WEBHOOK_SECRET');
-        if (missingWebhookSecrets.length > 0) {
-            throw new Error(`Missing required webhook security env vars in production: ${missingWebhookSecrets.join(', ')}`);
-        }
+    if (isProduction && !internalWebhookSecret) {
+        throw new Error('Missing required webhook security env var in production: INTERNAL_WEBHOOK_SECRET');
+    }
+
+    if (isProduction && !alchemyWebhookSecret) {
+        console.warn('[Env] ALCHEMY_WEBHOOK_SECRET is missing in production. /api/webhook/alchemy will return 503 until configured.');
     }
 
     const usageLimitsEnabled =
