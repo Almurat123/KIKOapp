@@ -239,6 +239,33 @@ function summarizeRpcError(err: any): {
     };
 }
 
+function isTransientRpcFailureForPreSim(errSummary: {
+    reason: string | null;
+    code?: string;
+    shortMessage: string;
+    dataPreview?: string;
+}): boolean {
+    const msg = String(errSummary.shortMessage || '').toLowerCase();
+    const code = String(errSummary.code || '').toLowerCase();
+    const reason = String(errSummary.reason || '').toLowerCase();
+    const data = String(errSummary.dataPreview || '').toLowerCase();
+
+    // If we have an explicit revert reason/data, treat as real revert instead of transport noise.
+    if (reason || (data && data !== '0x')) return false;
+
+    if (msg.includes('all rpc endpoints failed')) return true;
+    if (msg.includes('timeout_')) return true;
+    if (msg.includes('network')) return true;
+    if (msg.includes('fetch failed')) return true;
+    if (msg.includes('missing revert data')) return true;
+    if (msg.includes('socket hang up')) return true;
+    if (code === 'aborterror') return true;
+    if (code === 'ecconnreset') return true;
+    if (code === 'etimedout') return true;
+
+    return false;
+}
+
 function getNoPoolCacheKey(chainId: number, tokenIn: string, tokenOut: string): string {
     return `${chainId}:${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}`;
 }
@@ -2647,7 +2674,10 @@ async function executeV4Swap(
 
     let gasPriceWei: bigint | undefined;
     try {
-        const gasPriceHex = await callRpc<string>(chainId, 'eth_gasPrice', []);
+        const gasPriceHex = await callRpc<string>(chainId, 'eth_gasPrice', [], {
+            strategy: 'fast',
+            importance: 'critical'
+        });
         gasPriceWei = gasPriceHex ? BigInt(gasPriceHex) : undefined;
     } catch {
         gasPriceWei = undefined;
@@ -2699,7 +2729,10 @@ async function executeV4Swap(
             to: tx.to,
             data: tx.data,
             value: isNativeIn ? ethers.toQuantity(amountInWei) : '0x0'
-        }, 'latest']);
+        }, 'latest'], {
+            strategy: 'fast',
+            importance: 'critical'
+        });
     } catch (err: any) {
         const errSummary = summarizeRpcError(err);
         const reason = errSummary.reason;
@@ -2719,6 +2752,7 @@ async function executeV4Swap(
             errorCode: errSummary.code,
             revertReason: reason,
             errorData: errSummary.dataPreview,
+            transientRpcFailure: isTransientRpcFailureForPreSim(errSummary),
             poolId,
             hook: poolKey.hooks,
             minAmountOut: minAmountOut.toString(),
@@ -2726,7 +2760,18 @@ async function executeV4Swap(
             isNativeIn,
             isNativeOut
         });
-        return { success: false, error: 'V4 pre-simulation failed', provider: 'failed' };
+        if (isTransientRpcFailureForPreSim(errSummary)) {
+            logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 pre-simulation skipped due to transient RPC failure', {
+                poolId,
+                hook: poolKey.hooks,
+                tokenIn: normalizedIn,
+                tokenOut: normalizedOut,
+                error: errSummary.shortMessage,
+                errorCode: errSummary.code
+            });
+        } else {
+            return { success: false, error: 'V4 pre-simulation failed', provider: 'failed' };
+        }
     }
 
     // [Logic]: 动态估算 V4 swap gas（包含复杂 ERC20 transfer），并增加 buffer
