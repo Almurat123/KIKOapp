@@ -389,27 +389,3 @@ export async function getLatestChunkIndex(messageId: string): Promise<number> {
     });
     return chunk?.chunkIndex ?? -1;
 }
-
-export async function createModerationLog(
-    userId: string | null,
-    channel: string,
-    content: string,
-    result: any,
-    sessionId: string | null = null,
-    model: string | null = null
-): Promise<void> {
-    try {
-        await prisma.moderationLog.create({
-            data: {
-                userId,
-                sessionId,
-                model,
-                channel,
-                content: content.slice(0, 500), // Truncate for storage
-                result: result
-            }
-        });
-    } catch (error) {
-        console.error('Failed to log moderation event:', error);
-    }
-}

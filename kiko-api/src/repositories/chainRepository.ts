@@ -14,14 +14,19 @@ export async function saveChainsData(chains: ChainData[]): Promise<void> {
   try {
     await withRetry(async () => {
       for (const chain of chains) {
+        const tvl = Math.max(0, Number(chain.tvl || 0));
+        const tvlChange24h = Number(chain.tvlChange24h || 0);
+        const volume24h = chain.volume24h !== undefined && chain.volume24h !== null
+          ? Math.max(0, Number(chain.volume24h))
+          : undefined;
         await prisma.chainMetric.upsert({
           where: { name: chain.name },
           update: {
-            tvl: chain.tvl,
-            tvlChange24h: chain.tvlChange24h,
+            tvl,
+            tvlChange24h,
             logoUrl: chain.logoUrl,
             // Only update other fields if they have values
-            volume24h: chain.volume24h ?? undefined,
+            volume24h: volume24h ?? undefined,
             txns24h: chain.txns24h !== undefined ? BigInt(chain.txns24h) : undefined,
             activeWallets: chain.activeWallets !== undefined ? BigInt(chain.activeWallets) : undefined,
             poolsCount: chain.poolsCount ?? undefined,
@@ -32,10 +37,10 @@ export async function saveChainsData(chains: ChainData[]): Promise<void> {
           },
           create: {
             name: chain.name,
-            tvl: chain.tvl,
-            tvlChange24h: chain.tvlChange24h,
+            tvl,
+            tvlChange24h,
             logoUrl: chain.logoUrl,
-            volume24h: chain.volume24h ?? null,
+            volume24h: volume24h ?? null,
             txns24h: chain.txns24h !== undefined ? BigInt(chain.txns24h) : null,
             activeWallets: chain.activeWallets !== undefined ? BigInt(chain.activeWallets) : null,
             poolsCount: chain.poolsCount ?? null,

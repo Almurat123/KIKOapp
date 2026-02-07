@@ -17,18 +17,24 @@ export async function saveProtocolsData(protocols: ProtocolData[]): Promise<void
     for (let i = 0; i < protocols.length; i += chunkSize) {
       const chunk = protocols.slice(i, i + chunkSize);
 
-      await Promise.all(chunk.map(protocol =>
-        withRetry(() => prisma.protocolMetric.upsert({
+      await Promise.all(chunk.map(protocol => {
+        const tvl = protocol.tvl !== undefined && protocol.tvl !== null ? Math.max(0, Number(protocol.tvl)) : null;
+        const tvlChange1d = protocol.tvlChange1d !== undefined && protocol.tvlChange1d !== null ? Number(protocol.tvlChange1d) : null;
+        const tvlChange7d = protocol.tvlChange7d !== undefined && protocol.tvlChange7d !== null ? Number(protocol.tvlChange7d) : null;
+        const volume24h = protocol.volume24h !== undefined && protocol.volume24h !== null ? Math.max(0, Number(protocol.volume24h)) : null;
+        const mcapTvlRatio = protocol.mcapTvlRatio !== undefined && protocol.mcapTvlRatio !== null ? Number(protocol.mcapTvlRatio) : null;
+
+        return withRetry(() => prisma.protocolMetric.upsert({
           where: { name: protocol.name },
           update: {
             symbol: protocol.symbol,
             category: protocol.category,
-            tvl: protocol.tvl ? new Decimal(protocol.tvl) : null,
-            tvlChange1d: protocol.tvlChange1d ? new Decimal(protocol.tvlChange1d) : null,
-            tvlChange7d: protocol.tvlChange7d ? new Decimal(protocol.tvlChange7d) : null,
-            volume24h: protocol.volume24h ? new Decimal(protocol.volume24h) : null,
+            tvl: tvl !== null ? new Decimal(tvl) : null,
+            tvlChange1d: tvlChange1d !== null ? new Decimal(tvlChange1d) : null,
+            tvlChange7d: tvlChange7d !== null ? new Decimal(tvlChange7d) : null,
+            volume24h: volume24h !== null ? new Decimal(volume24h) : null,
             chains: protocol.chains,
-            mcapTvlRatio: protocol.mcapTvlRatio ? new Decimal(protocol.mcapTvlRatio) : null,
+            mcapTvlRatio: mcapTvlRatio !== null ? new Decimal(mcapTvlRatio) : null,
             logoUrl: protocol.logoUrl,
             updatedAt: new Date(),
           },
@@ -36,16 +42,16 @@ export async function saveProtocolsData(protocols: ProtocolData[]): Promise<void
             name: protocol.name,
             symbol: protocol.symbol,
             category: protocol.category,
-            tvl: protocol.tvl ? new Decimal(protocol.tvl) : null,
-            tvlChange1d: protocol.tvlChange1d ? new Decimal(protocol.tvlChange1d) : null,
-            tvlChange7d: protocol.tvlChange7d ? new Decimal(protocol.tvlChange7d) : null,
-            volume24h: protocol.volume24h ? new Decimal(protocol.volume24h) : null,
+            tvl: tvl !== null ? new Decimal(tvl) : null,
+            tvlChange1d: tvlChange1d !== null ? new Decimal(tvlChange1d) : null,
+            tvlChange7d: tvlChange7d !== null ? new Decimal(tvlChange7d) : null,
+            volume24h: volume24h !== null ? new Decimal(volume24h) : null,
             chains: protocol.chains,
-            mcapTvlRatio: protocol.mcapTvlRatio ? new Decimal(protocol.mcapTvlRatio) : null,
+            mcapTvlRatio: mcapTvlRatio !== null ? new Decimal(mcapTvlRatio) : null,
             logoUrl: protocol.logoUrl,
           },
-        }))
-      ));
+        }));
+      }));
 
       console.log(`Saved batch ${Math.floor(i / chunkSize) + 1}/${Math.ceil(protocols.length / chunkSize)}`);
     }

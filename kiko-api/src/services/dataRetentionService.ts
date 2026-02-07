@@ -9,7 +9,6 @@ interface DefaultPolicy {
 const DEFAULT_POLICIES: DefaultPolicy[] = [
     { tableName: 'ChatMessage', retentionDays: 30, description: 'AI chat history' },
     { tableName: 'MessageChunk', retentionDays: 3, description: 'Streaming chunks for messages' },
-    { tableName: 'ModerationLog', retentionDays: 60, description: 'Input/Output moderation logs' },
     { tableName: 'TrendingCast', retentionDays: 7, description: 'Farcaster trending casts' },
     { tableName: 'WalletTransaction', retentionDays: 90, description: 'Tracked wallet transaction history' },
     // Cache handled internally, JudgeDecision permanent
@@ -77,12 +76,6 @@ export async function runCleanup() {
                         where: { createdAt: { lt: cutoffDate } }
                     });
                     deletedCount = chunkResult.count;
-                    break;
-                case 'ModerationLog':
-                    const modResult = await prisma.moderationLog.deleteMany({
-                        where: { createdAt: { lt: cutoffDate } }
-                    });
-                    deletedCount = modResult.count;
                     break;
                 case 'TrendingCast':
                     // TrendingCast uses 'updatedAt' for recency usually, or we can use timestamp

@@ -8,6 +8,45 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum CopyTradeConfigStatus {
+  active
+  paused
+}
+
+enum PolymarketConfigStatus {
+  active
+  paused
+}
+
+enum PolymarketPositionStatus {
+  open
+  closed
+  failed
+}
+
+enum PolymarketActionStatus {
+  pending
+  success
+  failed
+  cancelled
+}
+
+enum PositionStatus {
+  pending
+  open
+  closing
+  closed
+  failed
+}
+
+enum SwapHistoryStatus {
+  pending
+  success
+  failed
+  confirmed
+  cancelled
+}
+
 model Chain {
   id          Int      @id
   name        String   @unique
@@ -76,8 +115,8 @@ model WalletExport {
 }
 
 model UserSettings {
-  id                            String   @id @default(cuid())
-  userId                        String   @unique
+  id     String @id @default(cuid())
+  userId String @unique
 
   // userRole removed
   defaultSwapAmount             Float    @default(100)
@@ -102,29 +141,29 @@ model UserSettings {
 }
 
 model CopyTradeConfig {
-  id                String              @id @default(cuid())
-  userId            String
-  targetWallet      String
-  chainId           Int                 @default(8453)
-  buyAmountUsd      Float
-  maxSlippageBps    Int                 @default(300)
-  minMarketCapUsd   Float?
-  minLiquidityUsd   Float?
-  minTargetValueUsd Float?
+  id                            String                @id @default(cuid())
+  userId                        String
+  targetWallet                  String
+  chainId                       Int                   @default(8453)
+  buyAmountUsd                  Float
+  maxSlippageBps                Int                   @default(300)
+  minMarketCapUsd               Float?
+  minLiquidityUsd               Float?
+  minTargetValueUsd             Float?
   copyTradeTokenCooldownMinutes Int?
-  disableTokenInfo  Boolean             @default(false)
-  takeProfitPct     Float?
-  stopLossPct       Float?
-  mirrorSell        Boolean             @default(true)
-  enableDynamicTP   Boolean             @default(false)
-  dynamicTPMinProfitPct Float           @default(100)
-  status            String              @default("active")
-  aiAnalysisMode    String              @default("disabled")
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  analyses          CopyTradeAnalysis[]
-  positions         Position[]
-  user              User                @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  disableTokenInfo              Boolean               @default(false)
+  takeProfitPct                 Float?
+  stopLossPct                   Float?
+  mirrorSell                    Boolean               @default(true)
+  enableDynamicTP               Boolean               @default(false)
+  dynamicTPMinProfitPct         Float                 @default(100)
+  status                        CopyTradeConfigStatus @default(active)
+  aiAnalysisMode                String                @default("disabled")
+  createdAt                     DateTime              @default(now())
+  updatedAt                     DateTime              @updatedAt
+  analyses                      CopyTradeAnalysis[]
+  positions                     Position[]
+  user                          User                  @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([targetWallet])
   @@index([userId])
@@ -159,16 +198,16 @@ model TrackedWallet {
 }
 
 model PolymarketCopyConfig {
-  id           String               @id @default(cuid())
+  id           String                 @id @default(cuid())
   userId       String
   targetWallet String
-  betSizeUsd   Float                @default(10)
-  maxOpenBets  Int                  @default(10)
-  status       String               @default("active")
-  mirrorSell   Boolean              @default(true)
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  user         User                 @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  betSizeUsd   Float                  @default(10)
+  maxOpenBets  Int                    @default(10)
+  status       PolymarketConfigStatus @default(active)
+  mirrorSell   Boolean                @default(true)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  user         User                   @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
   positions    PolymarketPosition[]
 
   @@index([targetWallet])
@@ -210,8 +249,8 @@ model BillingUsageLedger {
   completionTokens   Int      @default(0) @map("completion_tokens")
   totalTokens        Int      @default(0) @map("total_tokens")
   toolCallsCount     Int      @default(0) @map("tool_calls_count")
-  usdCost            Decimal  @default(0) @db.Decimal @map("usd_cost")
-  dateUtc            DateTime @db.Date @map("date_utc")
+  usdCost            Decimal  @default(0) @map("usd_cost") @db.Decimal
+  dateUtc            DateTime @map("date_utc") @db.Date
   isFree             Boolean  @default(false) @map("is_free")
   createdAt          DateTime @default(now()) @map("created_at")
   user               User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
@@ -224,10 +263,10 @@ model BillingUsageLedger {
 model DailyBilling {
   id            String    @id @default(uuid())
   userId        String    @map("user_id")
-  dateUtc       DateTime  @db.Date @map("date_utc")
-  totalUsd      Decimal   @default(0) @db.Decimal @map("total_usd")
-  tokenPriceUsd Decimal   @default(0) @db.Decimal @map("token_price_usd")
-  tokensDue     Decimal   @default(0) @db.Decimal @map("tokens_due")
+  dateUtc       DateTime  @map("date_utc") @db.Date
+  totalUsd      Decimal   @default(0) @map("total_usd") @db.Decimal
+  tokenPriceUsd Decimal   @default(0) @map("token_price_usd") @db.Decimal
+  tokensDue     Decimal   @default(0) @map("tokens_due") @db.Decimal
   tokenAddress  String    @map("token_address")
   chainId       Int       @map("chain_id")
   status        String    @default("pending")
@@ -247,7 +286,7 @@ model DailyBilling {
 model BillingBlock {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  dateUtc   DateTime @db.Date @map("date_utc")
+  dateUtc   DateTime @map("date_utc") @db.Date
   reason    String?
   createdAt DateTime @default(now()) @map("created_at")
   user      User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
@@ -278,7 +317,7 @@ model BillingConsent {
 }
 
 model PolymarketPosition {
-  id            String               @id @default(cuid())
+  id            String                   @id @default(cuid())
   userId        String
   configId      String
   marketSlug    String
@@ -291,13 +330,13 @@ model PolymarketPosition {
   costBasis     Float
   currentPrice  Float?
   profitLossPct Float?
-  status        String               @default("open")
+  status        PolymarketPositionStatus @default(open)
   exitReason    String?
-  createdAt     DateTime             @default(now())
+  createdAt     DateTime                 @default(now())
   closedAt      DateTime?
   resolvedAt    DateTime?
-  config        PolymarketCopyConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  user          User                 @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  config        PolymarketCopyConfig     @relation(fields: [configId], references: [id], onDelete: Cascade)
+  user          User                     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
@@ -320,10 +359,10 @@ model PolymarketApiCreds {
 }
 
 model PolymarketAction {
-  id          String   @id @default(cuid())
+  id          String                 @id @default(cuid())
   userId      String
   type        String
-  status      String
+  status      PolymarketActionStatus @default(pending)
   marketTitle String
   outcome     String
   assetId     String?
@@ -333,54 +372,56 @@ model PolymarketAction {
   price       Float?
   amount      Float?
   error       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  user        User                   @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
   @@index([createdAt])
 }
 
 model Position {
-  id                String          @id @default(cuid())
-  userId            String
-  configId          String
-  tokenAddress      String
-  tokenSymbol       String?
-  chainId           Int
-  entryPrice        Float
-  entryAmount       String
-  entryTxHash       String
-  entryUsdValue     Float
-  currentPrice      Float?
-  peakPrice         Float?              // For dynamic TP
-  priceHistory      Json?               @default("[]") // For ATR/Rapid decline
-  dynamicTPTriggered Boolean?            @default(false)
-  profitLossPct     Float?
-  exitTxHash        String?
-  exitReason        String?
-  status            String          @default("open")
-  createdAt         DateTime        @default(now())
-  closedAt          DateTime?
-  executionDelayMs  Int?
-  exitAmount        String?
-  exitPrice         Float?
-  exitUsdValue      Float?
-  holdDurationHours Float?
-  leaderBuyAmount   Float?
-  leaderBuyPrice    Float?
-  leaderBuyValueUsd Float?
-  leaderTxHash      String?
-  ourGasPriceGwei   Float?
-  ourGasUsed        String?
-  ourSlippageBps    Int?
-  realizedPnlPct    Float?
-  realizedPnlUsd    Float?
-  exitRetryCount    Int             @default(0)
-  lastExitAttempt   DateTime?
-  config            CopyTradeConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  user              User            @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  id                 String          @id @default(cuid())
+  userId             String
+  configId           String
+  tokenAddress       String
+  tokenSymbol        String?
+  chainId            Int
+  entryPrice         Float
+  entryAmount        String
+  entryTxHash        String
+  entryUsdValue      Float
+  currentPrice       Float?
+  peakPrice          Float? // For dynamic TP
+  priceHistory       Json?           @default("[]") // For ATR/Rapid decline
+  dynamicTPTriggered Boolean?        @default(false)
+  profitLossPct      Float?
+  exitTxHash         String?
+  exitReason         String?
+  status             PositionStatus  @default(open)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  closedAt           DateTime?
+  executionDelayMs   Int?
+  exitAmount         String?
+  exitPrice          Float?
+  exitUsdValue       Float?
+  holdDurationHours  Float?
+  leaderBuyAmount    Float?
+  leaderBuyPrice     Float?
+  leaderBuyValueUsd  Float?
+  leaderTxHash       String?
+  ourGasPriceGwei    Float?
+  ourGasUsed         String?
+  ourSlippageBps     Int?
+  realizedPnlPct     Float?
+  realizedPnlUsd     Float?
+  exitRetryCount     Int             @default(0)
+  lastExitAttempt    DateTime?
+  config             CopyTradeConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  user               User            @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
+  @@unique([userId, chainId, tokenAddress, leaderTxHash], map: "Position_user_chain_token_leaderTxHash_key")
   @@index([userId])
   @@index([configId])
   @@index([status])
@@ -390,7 +431,6 @@ model Position {
   @@index([userId, chainId, tokenAddress, status])
   @@index([userId, chainId, tokenAddress, status, createdAt(sort: Desc)])
   @@index([status, exitRetryCount, lastExitAttempt])
-  @@unique([userId, chainId, tokenAddress, leaderTxHash], map: "Position_user_chain_token_leaderTxHash_key")
 }
 
 model ChatSession {
@@ -484,21 +524,6 @@ model NewsArticle {
   updatedAt       DateTime  @updatedAt
 
   @@index([status])
-  @@index([createdAt])
-}
-
-model ModerationLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  sessionId String?
-  model     String?
-  channel   String
-  content   String
-  result    Json
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([sessionId])
   @@index([createdAt])
 }
 
@@ -651,32 +676,32 @@ model TrendingToken {
 }
 
 model TrendingCast {
-  hash                String   @id @map("cast_hash")
+  hash                String    @id @map("cast_hash")
   fid                 Int
-  authorUsername      String?  @map("author_username")
-  authorDisplayName   String?  @map("author_display_name")
-  authorAvatar        String?  @map("author_avatar")
-  authorVerified      Boolean  @default(false) @map("author_verified")
+  authorUsername      String?   @map("author_username")
+  authorDisplayName   String?   @map("author_display_name")
+  authorAvatar        String?   @map("author_avatar")
+  authorVerified      Boolean   @default(false) @map("author_verified")
   text                String
   timestamp           DateTime
-  embeds              Json?    @default("[]")
-  parentCastFid       Int?     @map("parent_cast_fid")
-  parentCastHash      String?  @map("parent_cast_hash")
-  likes               Int      @default(0) @map("stats_likes")
-  recasts             Int      @default(0) @map("stats_recasts")
-  replies             Int      @default(0) @map("stats_replies")
-  heatScore           Decimal? @map("heat_score") @db.Decimal(10, 2)
+  embeds              Json?     @default("[]")
+  parentCastFid       Int?      @map("parent_cast_fid")
+  parentCastHash      String?   @map("parent_cast_hash")
+  likes               Int       @default(0) @map("stats_likes")
+  recasts             Int       @default(0) @map("stats_recasts")
+  replies             Int       @default(0) @map("stats_replies")
+  heatScore           Decimal?  @map("heat_score") @db.Decimal(10, 2)
   rank                Int?
-  isBaseAppCoin       Boolean  @default(false) @map("is_base_app_coin")
-  baseAppCoinMetadata Json?    @map("base_app_coin_metadata")
-  coinValue           Decimal? @map("coin_value")
-  authorBio           String?  @map("author_bio")
-  mentions            Json?    @default("[]")
-  authorCreatorCoin   String?  @map("author_creator_coin")
-  authorTwitter       String?  @map("author_twitter")
+  isBaseAppCoin       Boolean   @default(false) @map("is_base_app_coin")
+  baseAppCoinMetadata Json?     @map("base_app_coin_metadata")
+  coinValue           Decimal?  @map("coin_value")
+  authorBio           String?   @map("author_bio")
+  mentions            Json?     @default("[]")
+  authorCreatorCoin   String?   @map("author_creator_coin")
+  authorTwitter       String?   @map("author_twitter")
   statsLastUpdatedAt  DateTime? @map("stats_last_updated_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
 
   @@index([statsLastUpdatedAt])
   @@index([timestamp])
@@ -775,10 +800,10 @@ model UserActivity {
 }
 
 model SwapHistory {
-  id              String    @id @default(cuid())
+  id              String            @id @default(cuid())
   userId          String
   chainId         Int
-  txHash          String?   @unique
+  txHash          String?           @unique
   tokenInAddress  String
   tokenInSymbol   String?
   tokenInAmount   String
@@ -788,13 +813,13 @@ model SwapHistory {
   tokenOutAmount  String?
   tokenOutUsd     Float?
   slippageBps     Int?
-  status          String    @default("pending")
+  status          SwapHistoryStatus @default(pending)
   failureReason   String?
-  source          String    @default("manual")
+  source          String            @default("manual")
   aiSessionId     String?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime          @default(now())
   confirmedAt     DateTime?
-  user            User      @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  user            User              @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
   @@index([chainId])

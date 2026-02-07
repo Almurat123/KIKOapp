@@ -64,7 +64,7 @@ async function getLiquidityData(
     tokenAddress: string,
     chainId: number,
     priority: ApiPriority = 'normal'
-): Promise<{ liquidity: number; volume24h: number; fdv?: number } | null> {
+): Promise<{ liquidity: number; volume24h: number; fdv?: number; priceUsd?: number } | null> {
     const chainSlug = getChainSlug(chainId);
     const dsSlug = chainSlug.dexScreener;
     // --- STEP 1: Try DexScreener (Primary) ---
@@ -89,7 +89,8 @@ async function getLiquidityData(
                 return {
                     liquidity: pair.liquidity?.usd || 0,
                     volume24h: pair.volume?.h24 || 0,
-                    fdv: pair.fdv || 0
+                    fdv: pair.fdv || 0,
+                    priceUsd: Number(pair.priceUsd || 0) || undefined
                 };
             }
         }
@@ -179,6 +180,12 @@ async function fetchTokenInfoFromAPIs(
     let name = meta?.name || 'Unknown Token';
     let decimals = meta?.decimals || 18;
     let provider = 'rpc+api';
+
+    // If RPC is unavailable but DexScreener has pair price, use it before full failure.
+    if ((price <= 0 || isNaN(price)) && liq?.priceUsd && liq.priceUsd > 0) {
+        price = liq.priceUsd;
+        provider = 'dexscreener-liquidity';
+    }
 
     // 🛡️ FALLBACK: If RPC price failed, try full API fetch as last resort
     if (price <= 0 || isNaN(price)) {

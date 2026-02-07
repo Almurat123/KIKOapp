@@ -766,16 +766,25 @@ export const CheckTokenRiskTool: Tool = {
                 }),
             ]);
 
-            if (!goplusData) {
-                throw new Error('Failed to fetch security data from GoPlus');
+            const hasGoPlus = !!goplusData;
+            if (!hasGoPlus) {
+                console.warn(`[CheckTokenRisk] GoPlus unavailable for ${address} on ${chain}, using degraded risk path`);
             }
 
-            // Analyze risks from GoPlus
-            const goplusAnalysis = analyzeRisks(goplusData);
+            // Analyze risks from GoPlus (or soft fallback when provider is down)
+            const goplusAnalysis = hasGoPlus
+                ? analyzeRisks(goplusData)
+                : {
+                    warnings: ['⚠️ GoPlus temporarily unavailable, risk score is estimated from local/offline signals only'],
+                    positives: [],
+                    isProxy: false,
+                    lpLocked: false,
+                    riskScore: 30
+                };
 
             // Creator Analysis (if creator address is available)
             let creatorProfile = null;
-            if (goplusData.creator_address) {
+            if (hasGoPlus && goplusData.creator_address) {
                 const { analyzeDeployer } = await import('../../../services/creatorAnalysis.js');
                 creatorProfile = await analyzeDeployer(goplusData.creator_address, chain);
             }
@@ -825,7 +834,7 @@ export const CheckTokenRiskTool: Tool = {
             mergedRiskScore = online.riskScore;
 
             // Determine final status
-            const isHoneypot = goplusData.is_honeypot === '1';
+            const isHoneypot = hasGoPlus ? goplusData.is_honeypot === '1' : false;
             let status: TokenSecurity['status'];
             if (isHoneypot || mergedRiskScore >= 70) {
                 status = 'Critical';
@@ -841,19 +850,19 @@ export const CheckTokenRiskTool: Tool = {
                 status,
                 riskScore: Math.min(100, mergedRiskScore),
                 isHoneypot,
-                buyTax: parseFloat(goplusData.buy_tax || '0') * 100,
-                sellTax: parseFloat(goplusData.sell_tax || '0') * 100,
+                buyTax: hasGoPlus ? parseFloat(goplusData.buy_tax || '0') * 100 : 0,
+                sellTax: hasGoPlus ? parseFloat(goplusData.sell_tax || '0') * 100 : 0,
                 warnings: finalWarnings,
                 positives: mergedPositives,
                 recommendation: generateRecommendation(mergedRiskScore, isHoneypot, finalWarnings),
                 details: {
-                    isOpenSource: goplusData.is_open_source === '1',
-                    hasRenouncedOwner: goplusData.owner_address === '0x0000000000000000000000000000000000000000',
-                    isMintable: goplusData.is_mintable === '1',
-                    canDisableTrade: goplusData.can_disable_trade === '1',
-                    isBlacklisted: goplusData.is_blacklisted === '1',
+                    isOpenSource: hasGoPlus ? goplusData.is_open_source === '1' : false,
+                    hasRenouncedOwner: hasGoPlus ? goplusData.owner_address === '0x0000000000000000000000000000000000000000' : false,
+                    isMintable: hasGoPlus ? goplusData.is_mintable === '1' : false,
+                    canDisableTrade: hasGoPlus ? goplusData.can_disable_trade === '1' : false,
+                    isBlacklisted: hasGoPlus ? goplusData.is_blacklisted === '1' : false,
                 },
-                source: 'GoPlus + KiKo Hybrid Scanner',
+                source: hasGoPlus ? 'GoPlus + KiKo Hybrid Scanner' : 'KiKo Hybrid Scanner (GoPlus degraded)',
                 offlineSignals: offline.offline,
                 localScan: localScanResult ? {
                     performed: true,
@@ -943,7 +952,8 @@ export async function checkTokenSecurity(address: string, chainId: number | stri
             performLocalScan(address, chainStr)
         ]);
 
-        if (!goplusData) {
+        const hasGoPlus = !!goplusData;
+        if (!hasGoPlus) {
             // For Solana, if both Rugcheck and GoPlus failed, return a basic "unknown" result
             if (isSolana) {
                 console.log(`[TokenRisk] No data available for Solana token ${address}`);
@@ -968,15 +978,23 @@ export async function checkTokenSecurity(address: string, chainId: number | stri
                     source: 'Unknown (no data)',
                 };
             }
-            return null;
+            console.warn(`[TokenRisk] GoPlus unavailable for ${address} on ${chainStr}, using degraded risk path`);
         }
 
         // Analyze risks
-        const goplusAnalysis = analyzeRisks(goplusData);
+        const goplusAnalysis = hasGoPlus
+            ? analyzeRisks(goplusData)
+            : {
+                warnings: ['⚠️ GoPlus temporarily unavailable, risk score is estimated from local/offline signals only'],
+                positives: [],
+                isProxy: false,
+                lpLocked: false,
+                riskScore: 30
+            };
 
         // Creator Analysis
         let creatorProfile = null;
-        if (goplusData.creator_address) {
+        if (hasGoPlus && goplusData.creator_address) {
             // Dynamic import to avoid circular dep if any
             const { analyzeDeployer } = await import('../../../services/creatorAnalysis.js');
             creatorProfile = await analyzeDeployer(goplusData.creator_address, chainStr);
@@ -1005,7 +1023,7 @@ export async function checkTokenSecurity(address: string, chainId: number | stri
         mergedRiskScore = online.riskScore;
         const finalWarnings = online.warnings;
 
-        const isHoneypot = goplusData.is_honeypot === '1';
+        const isHoneypot = hasGoPlus ? goplusData.is_honeypot === '1' : false;
         let status: TokenSecurity['status'];
         if (isHoneypot || mergedRiskScore >= 70) status = 'Critical';
         else if (mergedRiskScore >= 40) status = 'High Risk';
@@ -1016,21 +1034,21 @@ export async function checkTokenSecurity(address: string, chainId: number | stri
             status,
             riskScore: Math.min(100, mergedRiskScore),
             isHoneypot,
-            buyTax: parseFloat(goplusData.buy_tax || '0') * 100,
-            sellTax: parseFloat(goplusData.sell_tax || '0') * 100,
+            buyTax: hasGoPlus ? parseFloat(goplusData.buy_tax || '0') * 100 : 0,
+            sellTax: hasGoPlus ? parseFloat(goplusData.sell_tax || '0') * 100 : 0,
             warnings: finalWarnings,
             positives: mergedPositives,
             recommendation: generateRecommendation(mergedRiskScore, isHoneypot, finalWarnings),
             details: {
-                isOpenSource: goplusData.is_open_source === '1',
-                hasRenouncedOwner: goplusData.owner_address === '0x0000000000000000000000000000000000000000',
-                isMintable: goplusData.is_mintable === '1',
-                canDisableTrade: goplusData.can_disable_trade === '1',
-                isBlacklisted: goplusData.is_blacklisted === '1',
+                isOpenSource: hasGoPlus ? goplusData.is_open_source === '1' : false,
+                hasRenouncedOwner: hasGoPlus ? goplusData.owner_address === '0x0000000000000000000000000000000000000000' : false,
+                isMintable: hasGoPlus ? goplusData.is_mintable === '1' : false,
+                canDisableTrade: hasGoPlus ? goplusData.can_disable_trade === '1' : false,
+                isBlacklisted: hasGoPlus ? goplusData.is_blacklisted === '1' : false,
             },
             isProxy: goplusAnalysis.isProxy,
             lpLocked: goplusAnalysis.lpLocked,
-            source: 'GoPlus + KiKo Hybrid Scanner',
+            source: hasGoPlus ? 'GoPlus + KiKo Hybrid Scanner' : 'KiKo Hybrid Scanner (GoPlus degraded)',
             offlineSignals: offline.offline,
             localScan: localScanResult ? {
                 performed: true,
@@ -1054,5 +1072,4 @@ function getChainName(chainId: number): string {
     const map: Record<number, string> = { 1: 'eth', 56: 'bsc', 8453: 'base', 137: 'polygon', 42161: 'arbitrum', 10: 'optimism', 43114: 'avalanche', 250: 'fantom', 900: 'solana' };
     return map[chainId] || 'eth';
 }
-
 

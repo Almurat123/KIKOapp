@@ -153,7 +153,7 @@ export const ListPolymarketPositionsTool: Tool = {
             required: []
         }
     },
-    handler: async (args: { status?: string }, context) => {
+    handler: async (args: { status?: 'open' | 'closed' | 'all' }, context) => {
         const userId = context?.userId;
         if (!userId) {
             throw new Error('User authentication required');
@@ -167,7 +167,7 @@ export const ListPolymarketPositionsTool: Tool = {
             return { message: "User not found within system." };
         }
 
-        const statusFilter = args.status || 'open';
+        const statusFilter: 'open' | 'closed' | 'all' = args.status || 'open';
 
         const positions = await prisma.polymarketPosition.findMany({
             where: {

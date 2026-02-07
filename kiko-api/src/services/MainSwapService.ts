@@ -444,11 +444,38 @@ export class MainSwapService {
   ): Promise<MainSwapResult> {
     const normalizedTokenIn = this.normalizeEvmTokenInput(request.tokenIn, request.chainId);
     const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
+    const rawTokenIn = String(request.tokenIn || '').trim().toLowerCase();
     if (!isNativeToken(normalizedTokenIn, request.chainId) && !/^0x[0-9a-fA-F]{40}$/.test(normalizedTokenIn)) {
       throw new Error(`Invalid EVM tokenIn: ${request.tokenIn}`);
     }
     if (!isNativeToken(normalizedTokenOut, request.chainId) && !/^0x[0-9a-fA-F]{40}$/.test(normalizedTokenOut)) {
       throw new Error(`Invalid EVM tokenOut: ${request.tokenOut}`);
+    }
+
+    // Guard against intent/parser mismatch (e.g. user asked USDC, but tokenIn resolved to native ETH).
+    const expectsStableInput = rawTokenIn.includes('usdc') || rawTokenIn.includes('usdt') || rawTokenIn.includes('dai');
+    if (expectsStableInput && isNativeToken(normalizedTokenIn, request.chainId)) {
+      throw new Error('token_input_mismatch: requested stablecoin input but resolved to native token');
+    }
+
+    // Precheck native spendable balance before routing; fail fast with clear error instead of deep swap failure.
+    if (isNativeToken(normalizedTokenIn, request.chainId)) {
+      const amountInWei = ethers.parseUnits(request.amountIn, 18);
+      const chainCfg = getChainConfig(request.chainId);
+      const reserveWei = ethers.parseUnits(chainCfg.gasReserve || '0.003', 18);
+      const balanceHex = await callRpc<string>(
+        request.chainId,
+        'eth_getBalance',
+        [request.walletAddress, 'latest'],
+        { importance: 'critical', strategy: 'fast' }
+      );
+      const balanceWei = BigInt(balanceHex);
+      const requiredWei = amountInWei + reserveWei;
+      if (balanceWei < requiredWei) {
+        throw new Error(
+          `insufficient_native_balance_precheck: have=${ethers.formatEther(balanceWei)} required=${ethers.formatEther(requiredWei)}`
+        );
+      }
     }
 
     logger.info(LogCode.EXE_TX_BROADCAST, trace('Executing EVM swap'), {

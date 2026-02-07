@@ -9,7 +9,6 @@ import * as chatRepo from '../repositories/chatRepository.js';
 import { trackChatMessage } from '../services/userActivityService.js';
 import { chatWS } from '../services/chatWebSocket.js';
 import prisma from '../db/prisma.js';
-import { redact } from '../utils/sanitizer.js';
 import { sanitizedErrorResponse } from '../utils/securityUtils.js';
 import { evaluateUsageAccess } from '../services/usageAccess.js';
 import { getWalletBalance } from '../services/alchemy.js';
@@ -718,35 +717,12 @@ export async function chatRoutes(fastify: FastifyInstance) {
         }
     );
 
-    // =============================================
-    // Moderation Logging (Frontend Checks)
-    // =============================================
-
+    // Deprecated endpoint kept for compatibility; moderation DB logging has been removed.
     fastify.post(
         '/moderation/log',
         { preHandler: requireAuth },
-        async (request: FastifyRequest, reply: FastifyReply) => {
-            try {
-                const userId = (request as any).user?.sub;
-                const { channel, content, result, sessionId, model } = request.body as any;
-
-                const sanitizedContent = redact(content);
-                console.log(`[ModerationLog] Received backend request: channel=${channel}, userId=${userId}, content=${sanitizedContent?.slice(0, 20)}...`);
-
-                await chatRepo.createModerationLog(
-                    userId,
-                    channel || 'frontend',
-                    content,
-                    result,
-                    sessionId,
-                    model
-                );
-
-                return reply.send({ success: true });
-            } catch (error: any) {
-                fastify.log.error('Error logging moderation:', error);
-                return reply.code(500).send(sanitizedErrorResponse(error, 'logModeration'));
-            }
+        async (_request: FastifyRequest, reply: FastifyReply) => {
+            return reply.send({ success: true, skipped: true });
         }
     );
 }

@@ -1,7 +1,5 @@
 import { fetchJson } from '../config/unifiedApiService.js';
 import * as dotenv from 'dotenv';
-import { createModerationLog } from '../repositories/chatRepository.js';
-import { redact } from '../utils/sanitizer.js';
 import { scrub } from '../utils/scrubber.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
@@ -56,12 +54,6 @@ export class ModerationClient {
                 timeout: 3000
             });
 
-            // Log to DB
-            logger.debug(LogCode.SYS_INFO, 'Logging input check to DB', { userId: userId ?? undefined });
-            createModerationLog(userId || '', 'input', text, response, sessionId, model).catch((err: any) =>
-                logger.error(LogCode.SYS_ERROR, 'Moderation input log to DB failed', { error: err.message })
-            );
-
             logger.info(LogCode.SYS_INFO, 'Moderation Input check result', { safe: response.safe, action: response.action, userId: userId ?? undefined });
             return response;
         } catch (error: any) {
@@ -89,12 +81,6 @@ export class ModerationClient {
                 }),
                 timeout: 3000
             });
-
-            // Log to DB
-            logger.debug(LogCode.SYS_INFO, 'Logging output check to DB', { userId: userId ?? undefined });
-            createModerationLog(userId || '', 'output', text, response, sessionId, model).catch((err: any) =>
-                logger.error(LogCode.SYS_ERROR, 'Moderation output log to DB failed', { error: err.message })
-            );
 
             logger.info(LogCode.SYS_INFO, 'Moderation Output check result', { safe: response.safe, userId: userId ?? undefined });
             return response;
