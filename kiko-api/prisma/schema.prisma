@@ -388,10 +388,14 @@ model Position {
   tokenSymbol        String?
   chainId            Int
   entryPrice         Float
+  entryPriceDec      Decimal?        @db.Decimal(38, 18)
   entryAmount        String
+  entryAmountDec     Decimal?        @db.Decimal(38, 18)
   entryTxHash        String
   entryUsdValue      Float
+  entryUsdValueDec   Decimal?        @db.Decimal(38, 18)
   currentPrice       Float?
+  currentPriceDec    Decimal?        @db.Decimal(38, 18)
   peakPrice          Float? // For dynamic TP
   priceHistory       Json?           @default("[]") // For ATR/Rapid decline
   dynamicTPTriggered Boolean?        @default(false)
@@ -404,8 +408,11 @@ model Position {
   closedAt           DateTime?
   executionDelayMs   Int?
   exitAmount         String?
+  exitAmountDec      Decimal?        @db.Decimal(38, 18)
   exitPrice          Float?
+  exitPriceDec       Decimal?        @db.Decimal(38, 18)
   exitUsdValue       Float?
+  exitUsdValueDec    Decimal?        @db.Decimal(38, 18)
   holdDurationHours  Float?
   leaderBuyAmount    Float?
   leaderBuyPrice     Float?
@@ -415,7 +422,9 @@ model Position {
   ourGasUsed         String?
   ourSlippageBps     Int?
   realizedPnlPct     Float?
+  realizedPnlPctDec  Decimal?        @db.Decimal(38, 18)
   realizedPnlUsd     Float?
+  realizedPnlUsdDec  Decimal?        @db.Decimal(38, 18)
   exitRetryCount     Int             @default(0)
   lastExitAttempt    DateTime?
   config             CopyTradeConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
@@ -800,26 +809,30 @@ model UserActivity {
 }
 
 model SwapHistory {
-  id              String            @id @default(cuid())
-  userId          String
-  chainId         Int
-  txHash          String?           @unique
-  tokenInAddress  String
-  tokenInSymbol   String?
-  tokenInAmount   String
-  tokenInUsd      Float?
-  tokenOutAddress String
-  tokenOutSymbol  String?
-  tokenOutAmount  String?
-  tokenOutUsd     Float?
-  slippageBps     Int?
-  status          SwapHistoryStatus @default(pending)
-  failureReason   String?
-  source          String            @default("manual")
-  aiSessionId     String?
-  createdAt       DateTime          @default(now())
-  confirmedAt     DateTime?
-  user            User              @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
+  id                String            @id @default(cuid())
+  userId            String
+  chainId           Int
+  txHash            String?           @unique
+  tokenInAddress    String
+  tokenInSymbol     String?
+  tokenInAmount     String
+  tokenInAmountDec  Decimal?          @db.Decimal(38, 18)
+  tokenInUsd        Float?
+  tokenInUsdDec     Decimal?          @db.Decimal(38, 18)
+  tokenOutAddress   String
+  tokenOutSymbol    String?
+  tokenOutAmount    String?
+  tokenOutAmountDec Decimal?          @db.Decimal(38, 18)
+  tokenOutUsd       Float?
+  tokenOutUsdDec    Decimal?          @db.Decimal(38, 18)
+  slippageBps       Int?
+  status            SwapHistoryStatus @default(pending)
+  failureReason     String?
+  source            String            @default("manual")
+  aiSessionId       String?
+  createdAt         DateTime          @default(now())
+  confirmedAt       DateTime?
+  user              User              @relation(fields: [userId], references: [privyDid], onDelete: Cascade)
 
   @@index([userId])
   @@index([chainId])

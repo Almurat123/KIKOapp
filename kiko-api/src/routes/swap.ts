@@ -38,6 +38,13 @@ import { trackSwap } from '../services/userActivityService.js';
 // REMOVED: import { runJudgeEngine } from '../services/judge/judgeEngine.js';
 // Judge Engine should ONLY be used in Copy Trade, not in regular swaps
 
+function toDec(v: number | string | null | undefined): string | null {
+    if (v === null || v === undefined) return null;
+    const n = typeof v === 'string' ? Number(v) : v;
+    if (!Number.isFinite(n)) return null;
+    return String(n);
+}
+
 // 类型定义
 export interface SwapQuoteRequest {
     tokenIn: string;
@@ -1105,14 +1112,20 @@ export async function swapRoutes(fastify: FastifyInstance) {
                         tokenInAddress: tokenIn,
                         tokenInSymbol: tokenInMetadata?.symbol || tokenIn.slice(0, 6).toUpperCase(),
                         tokenInAmount: resolvedAmountIn,
+                        tokenInAmountDec: toDec(resolvedAmountIn),
                         tokenInUsd: tokenInUsd ? parseFloat(amountIn) * tokenInUsd : 0,
+                        tokenInUsdDec: toDec(tokenInUsd ? parseFloat(amountIn) * tokenInUsd : 0),
 
                         tokenOutAddress: tokenOut,
                         tokenOutSymbol: tokenOutMetadata?.symbol || tokenOut.slice(0, 6).toUpperCase(),
                         tokenOutAmount: swapResult.amountOut || null,
+                        tokenOutAmountDec: toDec(swapResult.amountOut || null),
                         tokenOutUsd: tokenOutUsd && swapResult.amountOut
                             ? (parseFloat(swapResult.amountOut) * tokenOutUsd)
                             : 0,
+                        tokenOutUsdDec: toDec(tokenOutUsd && swapResult.amountOut
+                            ? (parseFloat(swapResult.amountOut) * tokenOutUsd)
+                            : 0),
 
                         chainId: validatedChainId,
                         txHash,
@@ -1186,6 +1199,7 @@ export async function swapRoutes(fastify: FastifyInstance) {
                     tokenInAddress: tokenIn,
                     tokenInSymbol: 'UNKNOWN',
                     tokenInAmount: amountIn,
+                    tokenInAmountDec: toDec(amountIn),
 
                     tokenOutAddress: tokenOut,
                     tokenOutSymbol: 'UNKNOWN',

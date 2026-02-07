@@ -65,6 +65,13 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function toDec(v: number | string | null | undefined): string | null {
+    if (v === null || v === undefined) return null;
+    const n = typeof v === 'string' ? Number(v) : v;
+    if (!Number.isFinite(n)) return null;
+    return String(n);
+}
+
 function positionExitLockKey(positionId: string): string {
     return `copytrade:position_exit:${positionId}`;
 }
@@ -1442,9 +1449,12 @@ async function processSingleUserBuy(
                             tokenSymbol: tokenInfo.symbol || 'UNK',
                             chainId,
                             entryPrice: tokenInfo.price || 0,
+                            entryPriceDec: toDec(tokenInfo.price || 0),
                             entryAmount: '0',
+                            entryAmountDec: toDec(0),
                             entryTxHash: `PENDING_${Date.now()}`, // Temporary placeholder
                             entryUsdValue: usdAmount,
+                            entryUsdValueDec: toDec(usdAmount),
                             leaderTxHash: sourceTxHash,
                             status: 'pending'
                         }
@@ -1762,7 +1772,9 @@ async function processSingleUserBuy(
                     where: { id: pendingPositionId },
                     data: {
                         entryPrice: tokenInfo.price,
+                        entryPriceDec: toDec(tokenInfo.price),
                         entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
+                        entryAmountDec: toDec(usdAmount / nativePrice),
                         entryTxHash: txHash,
                         status: 'open',
                     },
@@ -1777,9 +1789,12 @@ async function processSingleUserBuy(
                         tokenSymbol: tokenInfo.symbol,
                         chainId,
                         entryPrice: tokenInfo.price,
+                        entryPriceDec: toDec(tokenInfo.price),
                         entryAmount: (usdAmount / nativePrice).toString(),
+                        entryAmountDec: toDec(usdAmount / nativePrice),
                         entryTxHash: txHash,
                         entryUsdValue: usdAmount,
+                        entryUsdValueDec: toDec(usdAmount),
                         leaderTxHash: sourceTxHash,
                         status: 'open',
                     },
@@ -2282,9 +2297,13 @@ async function executePositionExit(params: {
                         closedAt: new Date(),
                         exitRetryCount: 0,
                         exitPrice: exitPrice,
+                        exitPriceDec: toDec(exitPrice),
                         exitUsdValue: sellVolUsd,
+                        exitUsdValueDec: toDec(sellVolUsd),
                         realizedPnlUsd: realizedPnlUsd,
+                        realizedPnlUsdDec: toDec(realizedPnlUsd),
                         realizedPnlPct: realizedPnlPct,
+                        realizedPnlPctDec: toDec(realizedPnlPct),
                     },
                 });
             }
@@ -2640,9 +2659,13 @@ async function closePositionsWithoutExitTx(params: {
                 exitReason: params.reason,
                 closedAt: new Date(),
                 exitPrice: fallbackExitPrice > 0 ? fallbackExitPrice : null,
+                exitPriceDec: fallbackExitPrice > 0 ? toDec(fallbackExitPrice) : null,
                 exitUsdValue: estimated.exitUsdValue,
+                exitUsdValueDec: toDec(estimated.exitUsdValue),
                 realizedPnlUsd: estimated.realizedPnlUsd,
-                realizedPnlPct: estimated.realizedPnlPct
+                realizedPnlUsdDec: toDec(estimated.realizedPnlUsd),
+                realizedPnlPct: estimated.realizedPnlPct,
+                realizedPnlPctDec: toDec(estimated.realizedPnlPct)
             }
         });
     }
@@ -2869,9 +2892,13 @@ export async function checkPositionsForExits(): Promise<void> {
                                     exitReason: 'entry_failed_zero_balance',
                                     closedAt: new Date(),
                                     exitPrice: 0,
+                                    exitPriceDec: toDec(0),
                                     exitUsdValue: 0,
+                                    exitUsdValueDec: toDec(0),
                                     realizedPnlUsd: -(position.entryUsdValue || 0),
-                                    realizedPnlPct: -100
+                                    realizedPnlUsdDec: toDec(-(position.entryUsdValue || 0)),
+                                    realizedPnlPct: -100,
+                                    realizedPnlPctDec: toDec(-100)
                                 }
                             });
                             return; // Stop processing - no notification needed
@@ -2892,9 +2919,13 @@ export async function checkPositionsForExits(): Promise<void> {
                                 exitTxHash: 'MANUAL_ON_CHAIN',
                                 closedAt: new Date(),
                                 exitPrice: Number(priceHint) > 0 ? Number(priceHint) : null,
+                                exitPriceDec: Number(priceHint) > 0 ? toDec(Number(priceHint)) : null,
                                 exitUsdValue: estimated.exitUsdValue,
+                                exitUsdValueDec: toDec(estimated.exitUsdValue),
                                 realizedPnlUsd: estimated.realizedPnlUsd,
-                                realizedPnlPct: estimated.realizedPnlPct
+                                realizedPnlUsdDec: toDec(estimated.realizedPnlUsd),
+                                realizedPnlPct: estimated.realizedPnlPct,
+                                realizedPnlPctDec: toDec(estimated.realizedPnlPct)
                             }
                         });
 

@@ -181,6 +181,10 @@
   gap: 4px;
 }
 
+.rightAlign .gridItem {
+  align-items: flex-end;
+}
+
 .value {
   font-size: 15px;
   color: #fff;
@@ -193,20 +197,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid;
-  width: fit-content;
 }
 
 .tpBox {
-  background: rgba(74, 222, 128, 0.05);
-  border-color: rgba(74, 222, 128, 0.15);
+  /* [Logic]: Keep TP on left, but can align internal content if needed */
 }
 
 .slBox {
-  background: rgba(239, 68, 68, 0.05);
-  border-color: rgba(239, 68, 68, 0.15);
+  /* [Logic]: SL is in the rightAlign column, so it will be pushed right */
 }
 
 .boxLabel {

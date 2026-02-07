@@ -117,8 +117,8 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
           <div className={styles.mainGrid}>
             <div className={styles.gridColumn}>
               <div className={styles.gridItem}>
-                <div className={styles.label}>TRIGGER</div>
-                <div className={styles.value}>Tx {'>'} {formatMoney(copyConfig?.minTargetValueUsd ?? undefined)}</div>
+                <div className={styles.label}>MIN TRADE</div>
+                <div className={styles.value}>Value {'>'} {formatMoney(copyConfig?.minTargetValueUsd ?? undefined)}</div>
               </div>
               <div className={styles.tpBox}>
                 <span className={styles.boxLabel}>TP</span>
@@ -127,7 +127,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             </div>
             <div className={clsx(styles.gridColumn, styles.rightAlign)}>
               <div className={styles.gridItem}>
-                <div className={styles.label}>BUY AMT</div>
+                <div className={styles.label}>BUY AMOUNT</div>
                 <div className={styles.value}>{formatMoney(copyConfig?.buyAmountUsd)}</div>
               </div>
               <div className={styles.slBox}>
