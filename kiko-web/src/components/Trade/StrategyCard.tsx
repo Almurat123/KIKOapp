@@ -4,6 +4,8 @@ import { useThemeContext } from '../../contexts/ThemeContext';
 import type { TradingStrategy } from '../../hooks/useStrategies';
 import styles from './StrategyCard.module.css';
 import clsx from 'clsx';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { truncateAddress } from '../../utils/format';
 
 interface StrategyCardProps {
   strategy: TradingStrategy;
@@ -32,6 +34,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 }) => {
   const { resolvedTheme } = useThemeContext();
   const [isWalletCopied, setIsWalletCopied] = React.useState(false);
+  const isMobile = useIsMobile();
 
   const isCopyTrade = strategy.type === 'copy_trade';
   const isPolymarketCopy = strategy.type === 'polymarket_copy';
@@ -101,7 +104,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             setIsWalletCopied(true);
             setTimeout(() => setIsWalletCopied(false), 2000);
           }}>
-            <span className={styles.fullAddress}>{targetWallet}</span>
+            <span className={styles.fullAddress}>
+              {isMobile ? truncateAddress(targetWallet) : targetWallet}
+            </span>
             {isWalletCopied ? <Check size={10} color="#4ade80" /> : <Copy size={12} style={{ opacity: 0.5 }} />}
           </div>
         </div>

@@ -135,9 +135,10 @@
   border-radius: 6px;
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.04);
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   margin-top: 4px;
+  justify-content: flex-end;
 }
 
 .fullAddress {
@@ -145,7 +146,7 @@
   font-size: 12px;
   color: rgba(255, 255, 255, 0.9);
   line-height: 1.4;
-  flex: 1;
+  flex: 0 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

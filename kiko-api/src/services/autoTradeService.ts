@@ -2036,9 +2036,13 @@ async function executePositionExit(params: {
                         token: tokenAddress,
                         balanceUsd
                     });
-                    await prisma.position.updateMany({
-                        where: { userId: userId, tokenAddress: tokenAddress, chainId, status: 'closing' },
-                        data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
+                    await closePositionsWithoutExitTx({
+                        userId,
+                        tokenAddress,
+                        chainId,
+                        status: 'closing',
+                        reason: balance <= 0n ? 'balance_empty' : 'balance_dust',
+                        preferredExitPrice: hasValidPrice ? tokenInfo.price : undefined
                     });
 
                     // OPTIONAL: We could add CloseAccount instruction here if account exists but has dust, 
@@ -2132,9 +2136,13 @@ async function executePositionExit(params: {
 
             if (balance <= 0n || (hasValidPrice && balanceUsd < 0.1)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', { userId, tokenAddress, balanceUsd });
-                await prisma.position.updateMany({
-                    where: { userId: userId, tokenAddress: tokenAddress, chainId, status: 'closing' },
-                    data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
+                await closePositionsWithoutExitTx({
+                    userId,
+                    tokenAddress,
+                    chainId,
+                    status: 'closing',
+                    reason: balance <= 0n ? 'balance_empty' : 'balance_dust',
+                    preferredExitPrice: hasValidPrice ? tokenInfo.price : undefined
                 });
                 return null;
             }
@@ -2574,6 +2582,72 @@ async function cleanupStalePositions() {
     }
 }
 
+function estimateExitMetricsForUntrackedClose(position: {
+    entryPrice: number;
+    entryUsdValue: number;
+}, exitPrice: number): { exitUsdValue: number; realizedPnlUsd: number; realizedPnlPct: number } {
+    const safeEntryPrice = Number(position.entryPrice || 0);
+    const safeEntryUsd = Number(position.entryUsdValue || 0);
+    const safeExitPrice = Number(exitPrice || 0);
+
+    if (safeEntryPrice <= 0 || safeEntryUsd <= 0 || safeExitPrice <= 0) {
+        return {
+            exitUsdValue: safeEntryUsd,
+            realizedPnlUsd: 0,
+            realizedPnlPct: 0
+        };
+    }
+
+    // We do not have the external sell tx, so estimate token amount from entry side.
+    const estimatedTokenAmount = safeEntryUsd / safeEntryPrice;
+    const estimatedExitUsd = estimatedTokenAmount * safeExitPrice;
+    const realizedPnlUsd = estimatedExitUsd - safeEntryUsd;
+    const realizedPnlPct = safeEntryUsd > 0 ? (realizedPnlUsd / safeEntryUsd) * 100 : 0;
+
+    return {
+        exitUsdValue: estimatedExitUsd,
+        realizedPnlUsd,
+        realizedPnlPct
+    };
+}
+
+async function closePositionsWithoutExitTx(params: {
+    userId: string;
+    tokenAddress: string;
+    chainId: number;
+    status: 'open' | 'closing';
+    reason: string;
+    preferredExitPrice?: number;
+}) {
+    const positions = await prisma.position.findMany({
+        where: {
+            userId: params.userId,
+            tokenAddress: params.tokenAddress,
+            chainId: params.chainId,
+            status: params.status
+        }
+    });
+
+    for (const pos of positions) {
+        const fallbackExitPrice = Number(params.preferredExitPrice || 0) > 0
+            ? Number(params.preferredExitPrice)
+            : (Number(pos.currentPrice || 0) > 0 ? Number(pos.currentPrice) : Number(pos.entryPrice || 0));
+        const estimated = estimateExitMetricsForUntrackedClose(pos, fallbackExitPrice);
+        await prisma.position.update({
+            where: { id: pos.id },
+            data: {
+                status: 'closed',
+                exitReason: params.reason,
+                closedAt: new Date(),
+                exitPrice: fallbackExitPrice > 0 ? fallbackExitPrice : null,
+                exitUsdValue: estimated.exitUsdValue,
+                realizedPnlUsd: estimated.realizedPnlUsd,
+                realizedPnlPct: estimated.realizedPnlPct
+            }
+        });
+    }
+}
+
 
 /**
  * Check and execute take profit / stop loss for open positions
@@ -2793,16 +2867,35 @@ export async function checkPositionsForExits(): Promise<void> {
                                 data: {
                                     status: 'closed',
                                     exitReason: 'entry_failed_zero_balance',
-                                    closedAt: new Date()
+                                    closedAt: new Date(),
+                                    exitPrice: 0,
+                                    exitUsdValue: 0,
+                                    realizedPnlUsd: -(position.entryUsdValue || 0),
+                                    realizedPnlPct: -100
                                 }
                             });
                             return; // Stop processing - no notification needed
                         }
 
                         logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id, chainId: position.chainId });
+                        const tokenKeyForManual = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
+                        const priceHint = tokenPriceMap.get(tokenKeyForManual)?.price
+                            || position.currentPrice
+                            || position.entryPrice
+                            || 0;
+                        const estimated = estimateExitMetricsForUntrackedClose(position, Number(priceHint));
                         await prisma.position.update({
                             where: { id: position.id },
-                            data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN', closedAt: new Date() }
+                            data: {
+                                status: 'closed',
+                                exitReason: 'manual',
+                                exitTxHash: 'MANUAL_ON_CHAIN',
+                                closedAt: new Date(),
+                                exitPrice: Number(priceHint) > 0 ? Number(priceHint) : null,
+                                exitUsdValue: estimated.exitUsdValue,
+                                realizedPnlUsd: estimated.realizedPnlUsd,
+                                realizedPnlPct: estimated.realizedPnlPct
+                            }
                         });
 
                         // Notify user that position was auto-closed

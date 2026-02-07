@@ -14,6 +14,10 @@ const DEFAULT_POLICIES: DefaultPolicy[] = [
     // Cache handled internally, JudgeDecision permanent
 ];
 
+const DEFAULT_POLICY_BY_TABLE = new Map(DEFAULT_POLICIES.map((p) => [p.tableName, p]));
+const RETENTION_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+let retentionInterval: NodeJS.Timeout | null = null;
+
 /**
  * Initialize default retention policies if they don't exist
  */
@@ -22,21 +26,30 @@ export async function initializePolicies() {
         console.log('[DataRetention] Checking retention policies...');
 
         for (const policy of DEFAULT_POLICIES) {
-            const existing = await prisma.dataRetentionPolicy.findUnique({
-                where: { tableName: policy.tableName }
+            await prisma.dataRetentionPolicy.upsert({
+                where: { tableName: policy.tableName },
+                update: {
+                    retentionDays: policy.retentionDays,
+                    description: policy.description,
+                    isEnabled: true
+                },
+                create: {
+                    tableName: policy.tableName,
+                    retentionDays: policy.retentionDays,
+                    description: policy.description,
+                    isEnabled: true
+                }
             });
+        }
 
-            if (!existing) {
-                await prisma.dataRetentionPolicy.create({
-                    data: {
-                        tableName: policy.tableName,
-                        retentionDays: policy.retentionDays,
-                        description: policy.description,
-                        isEnabled: true
-                    }
-                });
-                console.log(`[DataRetention] Created default policy for ${policy.tableName}`);
-            }
+        // Remove obsolete policies that no longer have cleanup handlers.
+        const existingPolicies = await prisma.dataRetentionPolicy.findMany();
+        const obsolete = existingPolicies.filter((p) => !DEFAULT_POLICY_BY_TABLE.has(p.tableName));
+        if (obsolete.length > 0) {
+            await prisma.dataRetentionPolicy.deleteMany({
+                where: { id: { in: obsolete.map((p) => p.id) } }
+            });
+            console.log(`[DataRetention] Removed obsolete policies: ${obsolete.map((p) => p.tableName).join(', ')}`);
         }
     } catch (error) {
         console.error('[DataRetention] Failed to initialize policies:', error);
@@ -92,22 +105,26 @@ export async function runCleanup() {
                     deletedCount = txResult.count;
                     break;
                 default:
-                    console.warn(`[DataRetention] No cleanup handler for table: ${policy.tableName}`);
+                    console.warn(`[DataRetention] No cleanup handler for table: ${policy.tableName}, disabling policy`);
+                    await prisma.dataRetentionPolicy.update({
+                        where: { id: policy.id },
+                        data: { isEnabled: false }
+                    });
                     continue;
             }
 
             if (deletedCount > 0) {
                 console.log(`[DataRetention] Cleaned ${deletedCount} records from ${policy.tableName}`);
-
-                // Update policy stats
-                await prisma.dataRetentionPolicy.update({
-                    where: { id: policy.id },
-                    data: {
-                        lastCleanedAt: new Date(),
-                        lastCleanedCount: deletedCount
-                    }
-                });
             }
+
+            // Always update cleanup stats so we can verify scheduler activity.
+            await prisma.dataRetentionPolicy.update({
+                where: { id: policy.id },
+                data: {
+                    lastCleanedAt: new Date(),
+                    lastCleanedCount: deletedCount
+                }
+            });
         }
 
         console.log('[DataRetention] Cleanup job completed.');
@@ -115,4 +132,21 @@ export async function runCleanup() {
     } catch (error) {
         console.error('[DataRetention] Cleanup job failed:', error);
     }
+}
+
+export function startDataRetentionScheduler(): void {
+    if (retentionInterval) return;
+    retentionInterval = setInterval(() => {
+        runCleanup().catch((err) => {
+            console.error('[DataRetention] Scheduled cleanup failed:', err);
+        });
+    }, RETENTION_INTERVAL_MS);
+    console.log('[DataRetention] Scheduler started (every 60 minutes)');
+}
+
+export function stopDataRetentionScheduler(): void {
+    if (!retentionInterval) return;
+    clearInterval(retentionInterval);
+    retentionInterval = null;
+    console.log('[DataRetention] Scheduler stopped');
 }

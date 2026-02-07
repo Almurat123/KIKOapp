@@ -47,7 +47,7 @@ import { chatRoutes } from './routes/chat.js';
 import { chatWSRoutes } from './services/chatWebSocket.js';
 import { chatWorker } from './jobs/chatWorker.js';
 import { registerUserRoutes } from './routes/users.js';
-import { initializePolicies, runCleanup } from './services/dataRetentionService.js';
+import { initializePolicies, runCleanup, startDataRetentionScheduler, stopDataRetentionScheduler } from './services/dataRetentionService.js';
 import { zoraAlertService } from './services/zoraAlertService.js';
 import fastifyRawBody from 'fastify-raw-body';
 import helmet from '@fastify/helmet';
@@ -262,6 +262,7 @@ async function start() {
             await initializePolicies();
             // Run cleanup asynchronously
             runCleanup().catch(err => logger.error(LogCode.SYS_ERROR, 'Initial cleanup failed', { error: err.message }));
+            startDataRetentionScheduler();
         }
 
         // Initialize Redis
@@ -367,6 +368,7 @@ async function start() {
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGTERM received, shutting down gracefully...');
+    stopDataRetentionScheduler();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();
@@ -375,6 +377,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
     logger.info(LogCode.SYS_SHUTDOWN, 'SIGINT received, shutting down gracefully...');
+    stopDataRetentionScheduler();
     await stopAutoTradeService();
     if (prisma) await (prisma as any).$disconnect();
     await fastify.close();

@@ -55,3 +55,14 @@ export function formatUsd(value: number | string): string {
         maximumFractionDigits: 2
     });
 }
+
+/**
+ * Truncates a wallet address to a "short" version (e.g., 0x123...abcd)
+ * [Logic]: Prevents UI overflow on mobile while keeping identifiable segments.
+ */
+export function truncateAddress(address: string, startChars: number = 6, endChars: number = 4): string {
+    if (!address) return '';
+    // [Risk]: If address is shorter than requested truncation, return as is.
+    if (address.length <= startChars + endChars) return address;
+    return `${address.substring(0, startChars)}...${address.substring(address.length - endChars)}`;
+}
