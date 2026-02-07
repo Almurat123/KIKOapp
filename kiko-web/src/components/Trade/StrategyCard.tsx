@@ -6,6 +6,7 @@ import styles from './StrategyCard.module.css';
 import clsx from 'clsx';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { truncateAddress } from '../../utils/format';
+import { getTargetStatus } from '../../services/copyTradeApi';
 
 interface StrategyCardProps {
   strategy: TradingStrategy;
@@ -34,6 +35,9 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 }) => {
   const { resolvedTheme } = useThemeContext();
   const [isWalletCopied, setIsWalletCopied] = React.useState(false);
+  const [targetTradeCount, setTargetTradeCount] = React.useState<number>(0);
+  const [targetTotalProfit, setTargetTotalProfit] = React.useState<number>(0);
+  const [targetTotalLoss, setTargetTotalLoss] = React.useState<number>(0);
   const isMobile = useIsMobile();
 
   const isCopyTrade = strategy.type === 'copy_trade';
@@ -54,6 +58,35 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const executionCount = (strategy.executionHistory || []).length;
 
   const formatMoney = (val?: number) => val ? `$${val.toLocaleString()}` : '$0';
+  const formatUsdCompact = (val?: number) => {
+    const n = Number(val || 0);
+    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  };
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const configId = copyConfig?.id;
+    if (!isCopyTrade || !configId) return;
+
+    getTargetStatus(configId)
+      .then((res) => {
+        if (cancelled) return;
+        const agg = res?.aggregate;
+        setTargetTradeCount(Number(agg?.trackedTxCount || 0));
+        setTargetTotalProfit(Number(agg?.copyRealizedProfitUsd || 0));
+        setTargetTotalLoss(Number(agg?.copyRealizedLossUsd || 0));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTargetTradeCount(0);
+        setTargetTotalProfit(0);
+        setTargetTotalLoss(0);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isCopyTrade, copyConfig?.id]);
 
   const renderActions = () => (
     <div className={styles.footer}>
@@ -76,7 +109,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
     <div className={clsx(styles.strategyCard, styles[resolvedTheme], { [styles.rowVariant]: variant === 'row' })}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <div className={styles.chainIconWrapper} style={{ borderColor: `${chainInfo.color}33`, background: `${chainInfo.color}11` }}>
+          <div className={styles.chainIconWrapper}>
             <img src={chainInfo.icon} alt={chainInfo.name} className={styles.chainIcon} />
           </div>
           <div className={styles.titleColumn}>
@@ -110,30 +143,49 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
             {isWalletCopied ? <Check size={10} color="#4ade80" /> : <Copy size={12} style={{ opacity: 0.5 }} />}
           </div>
         </div>
+        {isCopyTrade ? (
+          <div className={styles.targetStatsRow}>
+            <div className={clsx(styles.targetStat, styles.targetStatLeft)}>
+              <span className={styles.targetStatLabel}>Trades</span>
+              <span className={styles.targetStatValue}>{targetTradeCount}</span>
+            </div>
+            <div className={clsx(styles.targetStat, styles.targetStatCenter)}>
+              <span className={styles.targetStatLabel}>Total Profit</span>
+              <span className={clsx(styles.targetStatValue, styles.successText)}>{formatUsdCompact(targetTotalProfit)}</span>
+            </div>
+            <div className={clsx(styles.targetStat, styles.targetStatRight)}>
+              <span className={styles.targetStatLabel}>Total Loss</span>
+              <span className={clsx(styles.targetStatValue, styles.dangerText)}>{formatUsdCompact(targetTotalLoss)}</span>
+            </div>
+          </div>
+        ) : null}
 
         <div className={styles.divider} />
 
         {isCopyTrade ? (
-          <div className={styles.mainGrid}>
-            <div className={styles.gridColumn}>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>MIN TRADE</div>
-                <div className={styles.value}>Value {'>'} {formatMoney(copyConfig?.minTargetValueUsd ?? undefined)}</div>
-              </div>
-              <div className={styles.tpBox}>
-                <span className={styles.boxLabel}>TP</span>
-                <span className={styles.boxValue}>+{copyConfig?.takeProfitPct}%</span>
-              </div>
+          <div className={styles.statsGrid}>
+            {/* Top Left: Threshold */}
+            <div className={styles.statItem}>
+              <div className={styles.label}>MIN TRADE</div>
+              <div className={styles.value}>Value {'>'} {formatMoney(copyConfig?.minTargetValueUsd ?? undefined)}</div>
             </div>
-            <div className={clsx(styles.gridColumn, styles.rightAlign)}>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>BUY AMOUNT</div>
-                <div className={styles.value}>{formatMoney(copyConfig?.buyAmountUsd)}</div>
-              </div>
-              <div className={styles.slBox}>
-                <span className={styles.boxLabel}>SL</span>
-                <span className={styles.boxValue}>-{copyConfig?.stopLossPct}%</span>
-              </div>
+
+            {/* Top Right: Buy Amount */}
+            <div className={clsx(styles.statItem, styles.alignRight)}>
+              <div className={styles.label}>BUY AMOUNT</div>
+              <div className={styles.value}>{formatMoney(copyConfig?.buyAmountUsd)}</div>
+            </div>
+
+            {/* Bottom Left: TP */}
+            <div className={styles.statItem}>
+              <div className={styles.label}>TAKE PROFIT</div>
+              <div className={clsx(styles.value, styles.successText)}>+{copyConfig?.takeProfitPct}%</div>
+            </div>
+
+            {/* Bottom Right: SL */}
+            <div className={clsx(styles.statItem, styles.alignRight)}>
+              <div className={styles.label}>STOP LOSS</div>
+              <div className={clsx(styles.value, styles.dangerText)}>-{copyConfig?.stopLossPct}%</div>
             </div>
           </div>
         ) : (

@@ -10,6 +10,7 @@ import { TOKEN_PROGRAM_ID } from '../utils/solanaToken.js';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { notificationService } from '../services/notificationService.js';
 import { isErc20ContractAddress } from '../utils/evmTokenCheck.js';
+import { bootstrapTrackedWalletHistory, getTargetWalletStatus } from '../services/targetWalletTrackingService.js';
 
 interface CreateConfigBody {
     targetWallet: string;
@@ -242,6 +243,11 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     console.warn('[CopyTrade] ❌ Alchemy webhook error:', err.message);
                 });
 
+            // Bootstrap target wallet history so trade card has context immediately.
+            bootstrapTrackedWalletHistory(normalizedTarget, chainId).catch((err) => {
+                console.warn('[CopyTrade] Failed to bootstrap target history:', err.message);
+            });
+
             // Notify user that copy trade is active
             if (user.farcasterFid) {
                 await notificationService.sendNotification({
@@ -374,6 +380,24 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
     });
 
     /**
+     * GET /api/copy-trade/config/:id/target-status
+     * Returns full tracked target status from config creation time to now.
+     */
+    fastify.get('/config/:id/target-status', { preHandler: requireAuth }, async (request, reply) => {
+        const userId = (request as any).user?.sub;
+        const { id } = request.params as { id: string };
+        if (!userId) return reply.status(401).send({ error: 'Unauthorized' });
+        try {
+            const data = await getTargetWalletStatus({ userId, configId: id, recentLimit: 120 });
+            if (!data) return reply.status(404).send({ error: 'Config not found' });
+            return reply.send({ success: true, ...data });
+        } catch (error: any) {
+            console.error('[CopyTrade] Error fetching target status:', error);
+            return reply.status(500).send({ error: 'Failed to fetch target status' });
+        }
+    });
+
+    /**
      * PATCH /api/copy-trade/config/:id
      * Update a copy trade configuration
      */
@@ -437,14 +461,12 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 where: { id },
                 data: {
                     ...allowedUpdates,
-                    // If target wallet changed, we need complex logic to update TrackedWallet counts
-                    // For MVP simplicity, let's assume targetWallet update is allowed but we handle tracking count locally or lazily
-                    // Ideally we should decrement old and increment new.
                     targetWallet: updates.targetWallet ? normalizeAddress(updates.targetWallet) : undefined,
                 },
             });
 
             if (updates.targetWallet && normalizeAddress(updates.targetWallet) !== existing.targetWallet) {
+                const normalizedNextTarget = normalizeAddress(updates.targetWallet);
                 // Update tracking: decrement old (composite key)
                 await prisma.trackedWallet.update({
                     where: { address_chainId: { address: existing.targetWallet, chainId: config.chainId } },
@@ -452,9 +474,19 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 }).catch(e => console.warn('[CopyTrade] Could not decrement old tracked:', e.message));
                 // increment new
                 await prisma.trackedWallet.upsert({
-                    where: { address_chainId: { address: normalizeAddress(updates.targetWallet), chainId: config.chainId } },
-                    create: { address: normalizeAddress(updates.targetWallet), chainId: config.chainId, activeConfigs: 1 },
+                    where: { address_chainId: { address: normalizedNextTarget, chainId: config.chainId } },
+                    create: { address: normalizedNextTarget, chainId: config.chainId, activeConfigs: 1 },
                     update: { activeConfigs: { increment: 1 } },
+                });
+
+                removeAddressFromWebhook(existing.targetWallet, config.chainId).catch(err => {
+                    console.warn('[CopyTrade] Failed to remove old webhook address on update:', err.message);
+                });
+                addAddressToWebhook(normalizedNextTarget, config.chainId).catch(err => {
+                    console.warn('[CopyTrade] Failed to add new webhook address on update:', err.message);
+                });
+                bootstrapTrackedWalletHistory(normalizedNextTarget, config.chainId).catch((err) => {
+                    console.warn('[CopyTrade] Failed to bootstrap target history on update:', err.message);
                 });
             }
 

@@ -467,167 +467,173 @@ const TokenRow = React.memo(({
   const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
 
   return (
-    <tr
-      onClick={() => onTokenClick(t)}
-      className={styles.tr}
-    >
-      {/* Token Info */}
-      <td
-        className={styles.td}
-        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+    <React.Fragment>
+      <tr
+        onClick={() => onTokenClick(t)}
+        className={styles.tr}
       >
-        <div className={styles.tokenInfo}>
-          {!isMobile && (
-            <span className={styles.rank}>
-              {i + 1}
-            </span>
-          )}
-          <div className={`${styles.tokenIconWrapper} ${isMobile ? styles.tokenIconWrapperMobile : ''}`}>
-            {isMobile && (
-              <span className={`${styles.avatarRankBadge} ${t.isNew ? styles.avatarRankNew : ''} ${t.isHot && !t.isNew ? styles.avatarRankHot : ''}`}>
-                {t.isNew ? 'NEW' : t.isHot ? 'HOT' : i + 1}
+        {/* Token Info */}
+        <td
+          className={styles.td}
+          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+        >
+          <div className={styles.tokenInfo}>
+            {!isMobile && (
+              <span className={styles.rank}>
+                {i + 1}
               </span>
             )}
-            <img
-              src={proxyImageUrl(t.imageUrl) || proxyImageUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`) || `https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`}
-              alt={t.name}
-              className={styles.tokenIcon}
-              loading="lazy"
-              decoding="async"
-              onError={(e) => {
-                const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`;
-                const stage = e.currentTarget.dataset.fallbackStage || '0';
-                if (stage === '0') {
-                  e.currentTarget.dataset.fallbackStage = '1';
-                  e.currentTarget.src = proxyImageUrl(fallbackUrl) || fallbackUrl;
-                  return;
-                }
-                if (stage === '1') {
-                  e.currentTarget.dataset.fallbackStage = '2';
-                  e.currentTarget.src = fallbackUrl;
-                }
-              }}
-            />
-            <img
-              src={getChainLogo(t.chain)}
-              alt={t.chain}
-              className={styles.chainLogo}
-              loading="lazy"
-              decoding="async"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                if (e.currentTarget.parentElement) {
-                  e.currentTarget.parentElement.style.background = getChainColor(t.chain);
-                }
-              }}
-            />
-          </div>
-
-          <div className={styles.tokenNameCol}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-              <span className={styles.tokenSymbol}>{t.symbol}</span>
-              {t.isNew && !isMobile && (
-                <span style={{
-                  background: 'linear-gradient(135deg, #10b981, #059669)',
-                  color: '#fff',
-                  fontSize: '9px',
-                  fontWeight: 700,
-                  padding: '2px 5px',
-                  borderRadius: '4px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.3px',
-                }}>NEW</span>
+            <div className={`${styles.tokenIconWrapper} ${isMobile ? styles.tokenIconWrapperMobile : ''}`}>
+              {isMobile && (
+                <span className={`${styles.avatarRankBadge} ${t.isNew ? styles.avatarRankNew : ''} ${t.isHot && !t.isNew ? styles.avatarRankHot : ''}`}>
+                  {t.isNew ? 'NEW' : t.isHot ? 'HOT' : i + 1}
+                </span>
               )}
-              {t.isHot && !t.isNew && !isMobile && (
-                <span style={{
-                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                  color: '#fff',
-                  fontSize: '9px',
-                  fontWeight: 700,
-                  padding: '2px 5px',
-                  borderRadius: '4px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.3px',
-                }}>HOT</span>
-              )}
+              <img
+                src={proxyImageUrl(t.imageUrl) || proxyImageUrl(`https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`) || `https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`}
+                alt={t.name}
+                className={styles.tokenIcon}
+                loading="lazy"
+                decoding="async"
+                onError={(e) => {
+                  const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(t.symbol)}&background=random&color=fff`;
+                  const stage = e.currentTarget.dataset.fallbackStage || '0';
+                  if (stage === '0') {
+                    e.currentTarget.dataset.fallbackStage = '1';
+                    e.currentTarget.src = proxyImageUrl(fallbackUrl) || fallbackUrl;
+                    return;
+                  }
+                  if (stage === '1') {
+                    e.currentTarget.dataset.fallbackStage = '2';
+                    e.currentTarget.src = fallbackUrl;
+                  }
+                }}
+              />
+              <img
+                src={getChainLogo(t.chain)}
+                alt={t.chain}
+                className={styles.chainLogo}
+                loading="lazy"
+                decoding="async"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  if (e.currentTarget.parentElement) {
+                    e.currentTarget.parentElement.style.background = getChainColor(t.chain);
+                  }
+                }}
+              />
             </div>
-            <span className={styles.tokenName}>{t.name}</span>
-          </div>
-        </div>
-      </td>
 
-      {/* Price */}
-      <td
-        className={`${styles.td} ${styles.tdRight}`}
-        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-      >
-        <div className={styles.price}>
-          {t.price}
-        </div>
-      </td>
-
-      {/* Change (based on timeframe) */}
-      <td
-        className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
-        style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
-      >
-        {changeValue}
-      </td>
-
-      {/* Age */}
-      <td
-        className={`${styles.td} ${styles.tdRight} ${styles.age} ${((t.age.toLowerCase().endsWith('h') || t.age.toLowerCase().endsWith('m')) || t.isNew) ? styles.ageRecent : ''}`}
-        style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
-      >
-        {t.age}
-      </td>
-
-      {/* Volume / Liquidity */}
-      <td
-        className={`${styles.td} ${styles.tdRight}`}
-        style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
-      >
-        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-          <div className={styles.volume}>
-            <span className={styles.volLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>VOL:</span>
-            {t.volume}
-          </div>
-          <div className={styles.volume}>
-            <span className={styles.liqLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>LIQ:</span>
-            {t.liquidity}
-          </div>
-        </div>
-      </td>
-
-      {/* Txns (Buy/Sell Bar) */}
-      {!isMobile && (
-        <td
-          className={`${styles.td} ${styles.tdCenter}`}
-          style={{ padding: '12px 16px' }}
-        >
-          <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
-            <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
-              <span className={styles.changePositive} style={{ fontSize: '9px' }}>
-                {t.buys}
-              </span>
-              <span className={styles.changeNegative} style={{ fontSize: '9px' }}>
-                {t.sells}
-              </span>
-            </div>
-            <div className={styles.barContainer} style={{ height: '6px' }}>
-              <div
-                className={styles.buyBar}
-                style={{ width: `${buyPct}%` }}
-              ></div>
-              <div
-                className={styles.sellBar}
-                style={{ width: `${100 - buyPct}%` }}
-              ></div>
+            <div className={styles.tokenNameCol}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                <span className={styles.tokenSymbol}>{t.symbol}</span>
+                {t.isNew && !isMobile && (
+                  <span style={{
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#fff',
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.3px',
+                  }}>NEW</span>
+                )}
+                {t.isHot && !t.isNew && !isMobile && (
+                  <span style={{
+                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                    color: '#fff',
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.3px',
+                  }}>HOT</span>
+                )}
+              </div>
+              <span className={styles.tokenName}>{t.name}</span>
             </div>
           </div>
         </td>
-      )}
-    </tr>
+
+        {/* Price */}
+        <td
+          className={`${styles.td} ${styles.tdRight}`}
+          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+        >
+          <div className={styles.price}>
+            {t.price}
+          </div>
+        </td>
+
+        {/* Change (based on timeframe) */}
+        <td
+          className={`${styles.td} ${styles.tdRight} ${isPositive ? styles.changePositive : styles.changeNegative}`}
+          style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+        >
+          {changeValue}
+        </td>
+
+        {/* Age */}
+        <td
+          className={`${styles.td} ${styles.tdRight} ${styles.age} ${((t.age.toLowerCase().endsWith('h') || t.age.toLowerCase().endsWith('m')) || t.isNew) ? styles.ageRecent : ''}`}
+          style={{ padding: isMobile ? '10px 8px' : '12px 16px', fontSize: isMobile ? '11px' : '12px' }}
+        >
+          {t.age}
+        </td>
+
+        {/* Volume / Liquidity */}
+        <td
+          className={`${styles.td} ${styles.tdRight}`}
+          style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
+        >
+          <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+            <div className={styles.volume}>
+              <span className={styles.volLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>VOL:</span>
+              {t.volume}
+            </div>
+            <div className={styles.volume}>
+              <span className={styles.liqLabel} style={{ marginRight: '4px', fontSize: isMobile ? '9px' : '11px', fontWeight: 500 }}>LIQ:</span>
+              {t.liquidity}
+            </div>
+          </div>
+        </td>
+
+        {/* Txns (Buy/Sell Bar) */}
+        {!isMobile && (
+          <td
+            className={`${styles.td} ${styles.tdCenter}`}
+            style={{ padding: '12px 16px' }}
+          >
+            <div className={styles.buySellBar} style={{ flexDirection: 'column' }}>
+              <div className={styles.buySellBar} style={{ justifyContent: 'space-between', marginBottom: '2px' }}>
+                <span className={styles.changePositive} style={{ fontSize: '9px' }}>
+                  {t.buys}
+                </span>
+                <span className={styles.changeNegative} style={{ fontSize: '9px' }}>
+                  {t.sells}
+                </span>
+              </div>
+              <div className={styles.barContainer} style={{ height: '6px' }}>
+                <div
+                  className={styles.buyBar}
+                  style={{ width: `${buyPct}%` }}
+                ></div>
+                <div
+                  className={styles.sellBar}
+                  style={{ width: `${100 - buyPct}%` }}
+                ></div>
+              </div>
+            </div>
+          </td>
+        )}
+      </tr>
+      {/* Sub-row for additional details */}
+      <tr className={styles.subRow}>
+        <td colSpan={isMobile ? 5 : 6}></td>
+      </tr>
+    </React.Fragment>
   );
 });
 

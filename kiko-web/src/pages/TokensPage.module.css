@@ -751,17 +751,20 @@
     border-bottom: 1px solid var(--border-color);
 }
 
-.tr:hover {
-    background: var(--bg-hover);
-}
-
 /* Dark mode tr */
 :global(.dark) .tr {
     border-bottom: 1px solid var(--border-color);
 }
 
-:global(.dark) .tr:hover {
-    background: var(--bg-hover);
+/* Desktop only hover effects */
+@media (min-width: 769px) {
+    .tr:hover {
+        background: var(--bg-hover);
+    }
+
+    :global(.dark) .tr:hover {
+        background: var(--bg-hover);
+    }
 }
 
 .td {
@@ -1120,4 +1123,9 @@
 
 :global(.dark) .infiniteScrollLoader {
     color: rgba(255, 255, 255, 0.4);
+}
+.subRow td {
+    padding: 0;
+    height: 30px;
+    border-bottom: 1px solid var(--border-color);
 }

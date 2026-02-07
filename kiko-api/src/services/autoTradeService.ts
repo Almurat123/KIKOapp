@@ -45,6 +45,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode, LogRole } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { randomUUID } from 'crypto';
+import { persistTargetSwapEvent } from './targetWalletTrackingService.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -502,6 +503,21 @@ export async function handleSwapDetected(
     const isSell = !isTokenInCash && isTokenOutCash;
     const isTokenToToken = !isTokenInCash && !isTokenOutCash;
 
+    // Persist target wallet swap event baseline immediately.
+    if (swap.txHash) {
+        await persistTargetSwapEvent({
+            walletAddress: targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            txType: isBuy ? 'TARGET_BUY' : isSell ? 'TARGET_SELL' : isTokenToToken ? 'TARGET_TOKEN_SWAP' : 'TARGET_TOKEN_SWAP',
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
+            amountIn: swap.amountIn,
+            amountOut: swap.amountOut,
+            blockTimestamp: new Date()
+        }).catch((err) => logger.warn(LogCode.SYS_ERROR, 'Failed to persist target swap baseline', { error: err?.message }));
+    }
+
     /* [DANGER_ZONE_UNVERIFIED] Complex logic for buy/sell detection.
      * logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis', { isBuy, isSell, isTokenToToken });
      */
@@ -822,6 +838,20 @@ async function processBuyWithInfo(
     // Record Leader Trade Stats (Buy)
     // We record it once for the leader, regardless of how many users copy it
     recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
+    if (swap.txHash) {
+        await persistTargetSwapEvent({
+            walletAddress: targetWallet,
+            chainId,
+            txHash: swap.txHash,
+            txType: 'TARGET_BUY',
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
+            amountIn: swap.amountIn,
+            amountOut: swap.amountOut,
+            valueUsd: targetSwapValueUsd,
+            blockTimestamp: new Date()
+        }).catch((err) => logger.warn(LogCode.SYS_ERROR, 'Failed to persist target buy event', { error: err?.message }));
+    }
 
     // =================================================================
     // 🚀 SMART BATCH EXECUTION ENGINE
@@ -2458,6 +2488,32 @@ async function handleTargetSell(
 
     logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: configs.length, targetWallet });
 
+    // Persist target sell volume estimate for card analytics.
+    try {
+        const sellInfo = await getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true });
+        const decimals = sellInfo?.decimals || 18;
+        const amountIn = BigInt(swap.amountIn || '0');
+        const amountInHuman = Number(ethers.formatUnits(amountIn, decimals));
+        const valueUsd = amountInHuman > 0 && sellInfo?.price > 0 ? amountInHuman * sellInfo.price : 0;
+        if (swap.txHash) {
+            await persistTargetSwapEvent({
+                walletAddress: targetWallet,
+                chainId,
+                txHash: swap.txHash,
+                txType: 'TARGET_SELL',
+                tokenIn: swap.tokenIn,
+                tokenOut: swap.tokenOut,
+                amountIn: swap.amountIn,
+                amountOut: swap.amountOut,
+                valueUsd,
+                blockTimestamp: new Date()
+            });
+        }
+        recordNewTrade(targetWallet, chainId, 'sell', valueUsd);
+    } catch (err: any) {
+        logger.warn(LogCode.SYS_ERROR, 'Failed to persist target sell value', { error: err?.message });
+    }
+
     await Promise.all(configs.map(async (config) => {
         const [positions, tokenInfo] = await Promise.all([
             prisma.position.findMany({
@@ -2467,10 +2523,6 @@ async function handleTargetSell(
         ]);
 
         if (positions.length === 0) return;
-
-        // Leader stat tracking (only for mirror sell)
-        const balanceUsdForStats = positions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
-        recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
 
         const positionIds = positions.map(p => p.id);
         if ((await Promise.all(positionIds.map(id => isPositionExitLocked(id)))).some(Boolean)) {

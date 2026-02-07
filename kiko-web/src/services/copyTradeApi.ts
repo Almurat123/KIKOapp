@@ -39,6 +39,32 @@ export interface CreateConfigParams {
     aiAnalysisMode?: 'disabled' | 'analyze_only' | 'auto_decide';
 }
 
+export interface CopyTradeTargetStatusResponse {
+    success: boolean;
+    config: {
+        id: string;
+        targetWallet: string;
+        chainId: number;
+        createdAt: string;
+        status: string;
+    };
+    aggregate: {
+        trackedTxCount: number;
+        buyCount: number;
+        sellCount: number;
+        tokenSwapCount: number;
+        buyVolumeUsd: number;
+        sellVolumeUsd: number;
+        netFlowUsd: number;
+        copyPositionsCount: number;
+        copyClosedPositions: number;
+        copyRealizedPnlUsd: number;
+        copyRealizedProfitUsd: number;
+        copyRealizedLossUsd: number;
+        latestTxAt: string | null;
+    };
+}
+
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/copy-trade`;
 
 // Helper to get auth headers
@@ -192,4 +218,16 @@ export const getPositions = async (): Promise<any[]> => {
         console.error('[CopyTradeApi] Error fetching positions:', error);
         throw error;
     }
+};
+
+/**
+ * Fetch target wallet aggregate status for one config
+ */
+export const getTargetStatus = async (id: string): Promise<CopyTradeTargetStatusResponse> => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE_URL}/config/${id}/target-status`, { headers });
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return response.json();
 };

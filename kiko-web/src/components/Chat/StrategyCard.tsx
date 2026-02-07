@@ -56,7 +56,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
     <div className={clsx(styles.strategyCard, styles[resolvedTheme])}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <div className={styles.chainIconWrapper} style={{ borderColor: `${chainInfo.color}33`, background: `${chainInfo.color}11` }}>
+          <div className={styles.chainIconWrapper}>
             <img src={chainInfo.icon} alt={chainInfo.name} className={styles.chainIcon} />
           </div>
           <div className={styles.titleColumn}>
@@ -98,26 +98,29 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         <div className={styles.divider} />
 
         {isCopyTrade ? (
-          <div className={styles.mainGrid}>
-            <div className={styles.gridColumn}>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>MIN TRADE</div>
-                <div className={styles.value}>Value {'>'} {formatMoney(copyConfig?.minTargetValueUsd ?? undefined)}</div>
-              </div>
-              <div className={styles.tpBox}>
-                <span className={styles.boxLabel}>TP</span>
-                <span className={styles.boxValue}>+{copyConfig?.takeProfitPct}%</span>
-              </div>
+          <div className={styles.statsGrid}>
+            {/* Top Left: Threshold */}
+            <div className={styles.statItem}>
+              <div className={styles.label}>MIN TRADE</div>
+              <div className={styles.value}>Value {'>'} {formatMoney(copyConfig?.minTargetValueUsd ?? undefined)}</div>
             </div>
-            <div className={clsx(styles.gridColumn, styles.rightAlign)}>
-              <div className={styles.gridItem}>
-                <div className={styles.label}>BUY AMOUNT</div>
-                <div className={styles.value}>{formatMoney(copyConfig?.buyAmountUsd)}</div>
-              </div>
-              <div className={styles.slBox}>
-                <span className={styles.boxLabel}>SL</span>
-                <span className={styles.boxValue}>-{copyConfig?.stopLossPct}%</span>
-              </div>
+
+            {/* Top Right: Buy Amount */}
+            <div className={clsx(styles.statItem, styles.alignRight)}>
+              <div className={styles.label}>BUY AMOUNT</div>
+              <div className={styles.value}>{formatMoney(copyConfig?.buyAmountUsd)}</div>
+            </div>
+
+            {/* Bottom Left: TP */}
+            <div className={styles.statItem}>
+              <div className={styles.label}>TAKE PROFIT</div>
+              <div className={clsx(styles.value, styles.successText)}>+{copyConfig?.takeProfitPct}%</div>
+            </div>
+
+            {/* Bottom Right: SL */}
+            <div className={clsx(styles.statItem, styles.alignRight)}>
+              <div className={styles.label}>STOP LOSS</div>
+              <div className={clsx(styles.value, styles.dangerText)}>-{copyConfig?.stopLossPct}%</div>
             </div>
           </div>
         ) : (
