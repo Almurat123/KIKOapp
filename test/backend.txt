@@ -1,447 +1,3 @@
-2026-02-07T09:06:54.423106060Z [inf]  Refreshed 4 primary chains in 113.5s
-2026-02-07T09:07:12.941631029Z [inf]  1:M 07 Feb 2026 09:07:03.082 * 1 changes in 60 seconds. Saving...
-2026-02-07T09:07:12.941637529Z [inf]  1:M 07 Feb 2026 09:07:03.084 * Background saving started by pid 42
-2026-02-07T09:07:12.941643741Z [inf]  42:C 07 Feb 2026 09:07:03.112 * DB saved on disk
-2026-02-07T09:07:12.941649606Z [inf]  42:C 07 Feb 2026 09:07:03.113 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-07T09:07:12.941655531Z [inf]  1:M 07 Feb 2026 09:07:03.184 * Background saving terminated with success
-2026-02-07T09:07:14.235005612Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:07:19.073892276Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:07:19.092802323Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:07:19.209137070Z [wrn]  All API liquidity sources failed
-2026-02-07T09:07:19.523301044Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:07:19.523305524Z [err]  Critical: No valid price data available
-2026-02-07T09:07:19.523309154Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:07:19.523344003Z [err]  Critical: No valid price data available
-2026-02-07T09:07:19.523354903Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:07:19.523362653Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:07:46.378595236Z [err]  2026-02-07 09:07:38.509 UTC [27] LOG:  checkpoint starting: time
-2026-02-07T09:07:59.320802015Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:07:59.320805805Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:07:59.320808524Z [wrn]  All API liquidity sources failed
-2026-02-07T09:07:59.320812124Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:07:59.320815054Z [err]  Critical: No valid price data available
-2026-02-07T09:07:59.320817524Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:07:59.321913478Z [err]  Critical: No valid price data available
-2026-02-07T09:07:59.321918348Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:07:59.321922938Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:07:59.321926128Z [wrn]  RPC health degraded
-2026-02-07T09:08:06.595552473Z [err]  2026-02-07 09:08:03.857 UTC [49120] LOG:  could not receive data from client: Connection reset by peer
-2026-02-07T09:08:07.757583132Z [err]  2026-02-07 09:08:07.567 UTC [49121] LOG:  could not receive data from client: Connection reset by peer
-2026-02-07T09:08:08.275329065Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:08:28.292716261Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:08:28.292721851Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:08:28.292726531Z [wrn]  All API liquidity sources failed
-2026-02-07T09:08:28.292729941Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:08:28.292735171Z [err]  Critical: No valid price data available
-2026-02-07T09:08:28.292738641Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:08:28.293451021Z [err]  Critical: No valid price data available
-2026-02-07T09:08:28.293455021Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:08:28.293457851Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:08:38.172582654Z [err]  2026-02-07 09:08:31.148 UTC [27] LOG:  checkpoint complete: wrote 527 buffers (3.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=52.607 s, sync=0.011 s, total=52.639 s; sync files=24, longest=0.008 s, average=0.001 s; distance=3053 kB, estimate=4788 kB; lsn=4/4892D360, redo lsn=4/4892D2D0
-2026-02-07T09:08:58.297559636Z [wrn]  RPC health degraded
-2026-02-07T09:08:58.297563446Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:08:58.297566996Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:08:58.297570876Z [wrn]  All API liquidity sources failed
-2026-02-07T09:08:58.297575026Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:08:58.298474902Z [err]  Critical: No valid price data available
-2026-02-07T09:08:58.298480452Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:08:58.298484552Z [err]  Critical: No valid price data available
-2026-02-07T09:08:58.298488542Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:08:58.298492342Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:09:18.293268069Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:09:22.216073826Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:09:22.281086506Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:09:22.338153931Z [wrn]  All API liquidity sources failed
-2026-02-07T09:09:22.540895068Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:09:22.540899558Z [err]  Critical: No valid price data available
-2026-02-07T09:09:22.653405810Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:09:22.653409470Z [err]  Critical: No valid price data available
-2026-02-07T09:09:22.851235069Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:09:22.851238079Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:09:52.693998811Z [wrn]  RPC health degraded
-2026-02-07T09:09:53.259446233Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:09:53.280857493Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:09:53.364440324Z [wrn]  All API liquidity sources failed
-2026-02-07T09:09:53.492728809Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:09:53.492732339Z [err]  Critical: No valid price data available
-2026-02-07T09:09:53.518954550Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:09:53.518959640Z [err]  Critical: No valid price data available
-2026-02-07T09:09:53.616157793Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:09:53.616166583Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:10:00.166169354Z [inf]  Fetching premium trending tokens
-2026-02-07T09:10:00.226929655Z [inf]  SocialRepo: Recalculated heat scores for 848 casts
-2026-02-07T09:10:00.226934115Z [inf]  Timer finished: recalc_heat_scores
-2026-02-07T09:10:00.393714632Z [inf]  WS addresses discovered
-2026-02-07T09:10:01.343788231Z [inf]  Processed DexScreener trending candidates
-2026-02-07T09:10:04.393950953Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:10:05.415571796Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:10:07.096244653Z [inf]  43:C 07 Feb 2026 09:10:00.209 * DB saved on disk
-2026-02-07T09:10:07.096274292Z [inf]  43:C 07 Feb 2026 09:10:00.210 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-07T09:10:07.096284378Z [inf]  1:M 07 Feb 2026 09:10:00.285 * Background saving terminated with success
-2026-02-07T09:10:07.096318604Z [inf]  1:M 07 Feb 2026 09:10:00.183 * 1 changes in 60 seconds. Saving...
-2026-02-07T09:10:07.096333913Z [inf]  1:M 07 Feb 2026 09:10:00.184 * Background saving started by pid 43
-2026-02-07T09:10:07.426930005Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:10:10.097748214Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:10:10.276551198Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:10:10.417815155Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:10:11.440094289Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:10:11.440099859Z [err]  GeckoTerminal API error after retries
-2026-02-07T09:10:11.440104129Z [err]  Error fetching trending tokens
-2026-02-07T09:10:11.440109069Z [inf]  Premium trending tokens fetch complete
-2026-02-07T09:10:11.440113049Z [inf]  Got 92 trending tokens for Ethereum
-2026-02-07T09:10:11.473487366Z [inf]  Saved 92 trending tokens for eth to database and memory cache
-2026-02-07T09:10:11.480224908Z [inf]  Saved 92 tokens for Ethereum to DB + cache
-2026-02-07T09:10:31.479604256Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:10:31.479617256Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:10:31.479623956Z [wrn]  All API liquidity sources failed
-2026-02-07T09:10:31.479629986Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:10:31.479635196Z [err]  Critical: No valid price data available
-2026-02-07T09:10:31.479640176Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:10:31.480460193Z [err]  Critical: No valid price data available
-2026-02-07T09:10:31.480465273Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:10:31.480468413Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:10:51.474895560Z [inf]  Fetching premium trending tokens
-2026-02-07T09:10:51.474900660Z [inf]  WS addresses discovered
-2026-02-07T09:10:51.474905630Z [inf]  Processed DexScreener trending candidates
-2026-02-07T09:10:51.474911910Z [inf]  Premium trending tokens fetch complete
-2026-02-07T09:10:51.474917029Z [inf]  Got 100 trending tokens for Solana
-2026-02-07T09:10:51.474922599Z [inf]  Saved 100 trending tokens for solana to database and memory cache
-2026-02-07T09:10:51.474927669Z [inf]  Saved 100 tokens for Solana to DB + cache
-2026-02-07T09:10:51.474933209Z [wrn]  RPC health degraded
-2026-02-07T09:10:54.899377050Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:10:55.143359122Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:10:55.143363462Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:10:55.143368042Z [err]  Critical: No valid price data available
-2026-02-07T09:10:55.167903417Z [wrn]  All API liquidity sources failed
-2026-02-07T09:10:55.323334458Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:10:55.323339618Z [err]  Critical: No valid price data available
-2026-02-07T09:10:55.366732611Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:10:55.366739461Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:11:00.000000000Z [inf]  Mounting volume on: /var/lib/containers/railwayapp/bind-mounts/d97170e8-dcec-467a-a910-b7ae6d72f60c/vol_s2jgiw6xeym0n0zh
-2026-02-07T09:11:01.000000000Z [inf]  Starting Container
-2026-02-07T09:11:02.040297649Z [inf]  The files belonging to this database system will be owned by user "postgres".
-2026-02-07T09:11:02.040505722Z [inf]  This user must also own the server process.
-2026-02-07T09:11:02.040512434Z [inf]  
-2026-02-07T09:11:02.040521867Z [inf]  The database cluster will be initialized with locale "en_US.utf8".
-2026-02-07T09:11:02.040528322Z [inf]  The default database encoding has accordingly been set to "UTF8".
-2026-02-07T09:11:02.040535925Z [inf]  The default text search configuration will be set to "english".
-2026-02-07T09:11:02.040542456Z [inf]  
-2026-02-07T09:11:02.040548458Z [inf]  Data page checksums are disabled.
-2026-02-07T09:11:02.040554697Z [inf]  
-2026-02-07T09:11:02.040561451Z [inf]  fixing permissions on existing directory /var/lib/postgresql/data/pgdata ... ok
-2026-02-07T09:11:02.040568127Z [inf]  creating subdirectories ... ok
-2026-02-07T09:11:02.040574668Z [inf]  selecting dynamic shared memory implementation ... posix
-2026-02-07T09:11:02.040581627Z [inf]  selecting default "max_connections" ... 100
-2026-02-07T09:11:02.040587818Z [inf]  selecting default "shared_buffers" ... 128MB
-2026-02-07T09:11:02.040594058Z [inf]  selecting default time zone ... Etc/UTC
-2026-02-07T09:11:02.040602395Z [inf]  creating configuration files ... ok
-2026-02-07T09:11:02.067430981Z [inf]  running bootstrap script ... ok
-2026-02-07T09:11:02.805864929Z [inf]  performing post-bootstrap initialization ... ok
-2026-02-07T09:11:03.901622262Z [inf]  waiting for server to start....2026-02-07 09:11:03.699 UTC [46] LOG:  starting PostgreSQL 17.7 (Debian 17.7-3.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
-2026-02-07T09:11:03.901632448Z [inf]  2026-02-07 09:11:03.702 UTC [46] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-2026-02-07T09:11:03.901640072Z [inf]  2026-02-07 09:11:03.717 UTC [49] LOG:  database system was shut down at 2026-02-07 09:11:02 UTC
-2026-02-07T09:11:03.901646665Z [inf]  2026-02-07 09:11:03.729 UTC [46] LOG:  database system is ready to accept connections
-2026-02-07T09:11:03.901653052Z [inf]   done
-2026-02-07T09:11:03.901659689Z [inf]  server started
-2026-02-07T09:11:03.901743966Z [inf]  syncing data to disk ... ok
-2026-02-07T09:11:03.901762223Z [inf]  
-2026-02-07T09:11:03.901767995Z [err]  initdb: warning: enabling "trust" authentication for local connections
-2026-02-07T09:11:03.901776401Z [err]  initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
-2026-02-07T09:11:03.901781946Z [inf]  
-2026-02-07T09:11:03.901787719Z [inf]  Success. You can now start the database server using:
-2026-02-07T09:11:03.901805140Z [inf]  
-2026-02-07T09:11:03.901815518Z [inf]      pg_ctl -D /var/lib/postgresql/data/pgdata -l logfile start
-2026-02-07T09:11:03.901825146Z [inf]  
-2026-02-07T09:11:04.009215685Z [inf]  CREATE DATABASE
-2026-02-07T09:11:04.009225673Z [inf]  
-2026-02-07T09:11:04.009233601Z [inf]  
-2026-02-07T09:11:04.009242897Z [inf]  /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/init-ssl.sh
-2026-02-07T09:11:04.061863901Z [err]  ....++++++++++++++
-2026-02-07T09:11:04.061873929Z [err]  ++++++++++
-2026-02-07T09:11:04.061882292Z [err]  ++++++++++
-2026-02-07T09:11:04.061893470Z [err]  +++++*...............+++
-2026-02-07T09:11:04.068820269Z [err]  ++++++++++
-2026-02-07T09:11:04.068829939Z [err]  ++++++++++++
-2026-02-07T09:11:04.068841032Z [err]  ++++++++++
-2026-02-07T09:11:04.068873726Z [err]  ++++*....+.....
-2026-02-07T09:11:04.068883199Z [err]  ......+...+.......
-2026-02-07T09:11:04.069599407Z [err]  ..+.......+...+
-2026-02-07T09:11:04.070950791Z [err]  ..+...+.+.....+.+........+...
-2026-02-07T09:11:04.070955566Z [err]  ...+..........+.....
-2026-02-07T09:11:04.070960353Z [err]  +.+.........
-2026-02-07T09:11:04.074611274Z [err]  +..+.........+
-2026-02-07T09:11:04.074625320Z [err]  .........+....
-2026-02-07T09:11:04.074631873Z [err]  ..+.+.....+....
-2026-02-07T09:11:04.077948274Z [err]  ......+.........+.....
-2026-02-07T09:11:04.077956049Z [err]  ...+.......+
-2026-02-07T09:11:04.077962866Z [err]  ......+...+......+.....+....
-2026-02-07T09:11:04.082039698Z [err]  +......+......
-2026-02-07T09:11:04.082076621Z [err]  ..+.+..+.....
-2026-02-07T09:11:04.084814768Z [err]  ..+...+..+...+..
-2026-02-07T09:11:04.084823052Z [err]  .+....+...+....
-2026-02-07T09:11:04.088977542Z [err]  .+...+.......+............+
-2026-02-07T09:11:04.088987088Z [err]  .....+...+....+.........+
-2026-02-07T09:11:04.090998920Z [err]  .........+...+..........
-2026-02-07T09:11:04.091007927Z [err]  .....+..+......+
-2026-02-07T09:11:04.094988515Z [err]  ....+..+.+..+...+....+
-2026-02-07T09:11:04.097427931Z [err]  .........+..+..........
-2026-02-07T09:11:04.101274244Z [err]  +...+......+...+......+.....+.+
-2026-02-07T09:11:04.101280989Z [err]  ........+...+....+
-2026-02-07T09:11:04.104484901Z [err]  ...+.....+..................+..........+
-2026-02-07T09:11:04.107928317Z [err]  ..+......++++++
-2026-02-07T09:11:04.107956795Z [err]  ..++++++++++++
-2026-02-07T09:11:04.107964487Z [err]  +++++++++++++
-2026-02-07T09:11:04.107971069Z [err]  ++++++++++++
-2026-02-07T09:11:04.107977141Z [err]  ++*.....+++++++++
-2026-02-07T09:11:04.111588327Z [err]  ++++++++++
-2026-02-07T09:11:04.111604615Z [err]  ++++++++++
-2026-02-07T09:11:04.111619145Z [err]  ++++++++++*...............+.............+.........
-2026-02-07T09:11:04.111625892Z [err]  ......+...+...+.....
-2026-02-07T09:11:04.113670659Z [err]  .++++++
-2026-02-07T09:11:04.120416871Z [err]  -----
-2026-02-07T09:11:04.134747264Z [err]  ..+..............+++++++++++++++++++++++++++++
-2026-02-07T09:11:04.134772203Z [err]  ++++++++++*..+
-2026-02-07T09:11:04.134781142Z [err]  ..........+....................+.+........+......+....+...+........+.+........+...+....+
-2026-02-07T09:11:04.134790368Z [err]  ...+.....+.......+......+...+..++++++
-2026-02-07T09:11:04.141195498Z [err]  ++++++++++
-2026-02-07T09:11:04.141202096Z [err]  ++++++++++++
-2026-02-07T09:11:04.141208456Z [err]  ++++++++++
-2026-02-07T09:11:04.141214450Z [err]  +*......+.........+......+.....+
-2026-02-07T09:11:04.144904619Z [err]  ..........+..+.........+.+.........+.....+
-2026-02-07T09:11:04.144911235Z [err]  ..........+...+..+....
-2026-02-07T09:11:04.144918637Z [err]  .............
-2026-02-07T09:11:04.144925424Z [err]  ..........
-2026-02-07T09:11:04.144931997Z [err]  ...+.............+
-2026-02-07T09:11:04.148081779Z [err]  .....+.+......+...+......+
-2026-02-07T09:11:04.150560301Z [err]  .....+.+...++++++
-2026-02-07T09:11:04.150567122Z [err]  ....++++++++++
-2026-02-07T09:11:04.150576774Z [err]  ++++++++++++
-2026-02-07T09:11:04.150582982Z [err]  ++++++++++
-2026-02-07T09:11:04.150589695Z [err]  +++++++*.+................
-2026-02-07T09:11:04.152696672Z [err]  ...+++++++++
-2026-02-07T09:11:04.152706769Z [err]  ++++++++++
-2026-02-07T09:11:04.152712874Z [err]  ++++++++++++
-2026-02-07T09:11:04.152719113Z [err]  ++++++++*..+
-2026-02-07T09:11:04.156738914Z [err]  .......+..........
-2026-02-07T09:11:04.156749950Z [err]  .......+....+.....
-2026-02-07T09:11:04.156757491Z [err]  +.+...+...+..+.+.....
-2026-02-07T09:11:04.158486514Z [err]  +......+..........+......+
-2026-02-07T09:11:04.158493281Z [err]  .....+...+....+..........
-2026-02-07T09:11:04.159741149Z [err]  .......+......+....
-2026-02-07T09:11:04.161998789Z [err]  ...+...+.........+...+.....
-2026-02-07T09:11:04.163900389Z [err]  +...+....+......+..+
-2026-02-07T09:11:04.168151087Z [err]  .+..+...+.......+...+.....
-2026-02-07T09:11:04.168162104Z [err]  +.........+.....
-2026-02-07T09:11:04.174506934Z [err]  .+.........+............
-2026-02-07T09:11:04.174519180Z [err]  ....+..+...+.....
-2026-02-07T09:11:04.174527351Z [err]  .+......+....+......
-2026-02-07T09:11:04.174534695Z [err]  ...+.........+
-2026-02-07T09:11:04.177156573Z [err]  ........+...+....+...+..+.+
-2026-02-07T09:11:04.861866434Z [err]  ......+........+...+
-2026-02-07T09:11:04.861874789Z [err]  ....+......+..............
-2026-02-07T09:11:04.868048001Z [err]  .+...............
-2026-02-07T09:11:04.868060363Z [err]  +.....+....+........
-2026-02-07T09:11:04.868069631Z [err]  +......+............
-2026-02-07T09:11:04.868088665Z [err]  +........+........
-2026-02-07T09:11:04.868336634Z [err]  ....+...+......+.+
-2026-02-07T09:11:04.868496953Z [err]  ..+..........+......
-2026-02-07T09:11:04.868503913Z [err]  ..+....+...+......+..
-2026-02-07T09:11:04.868555882Z [err]  +..........+....
-2026-02-07T09:11:04.868561289Z [err]  ....+..........+..
-2026-02-07T09:11:04.868566248Z [err]  +.........+.............
-2026-02-07T09:11:04.868858600Z [err]  +......+...........+
-2026-02-07T09:11:04.869039246Z [err]  ...+.+...............+
-2026-02-07T09:11:04.869046281Z [err]  ......+...........+....+.............
-2026-02-07T09:11:04.869053062Z [err]  .+.......+...+....................
-2026-02-07T09:11:04.871167971Z [err]  ...+....+......+.....
-2026-02-07T09:11:04.871175352Z [err]  .+......+.....+..........
-2026-02-07T09:11:04.876054790Z [err]  +..........+.....+.......+
-2026-02-07T09:11:04.876063643Z [err]  ..+...+.............+
-2026-02-07T09:11:04.876068942Z [err]  .....+............+...+.......+........+
-2026-02-07T09:11:04.876073226Z [err]  ......+.+...+...........+..........
-2026-02-07T09:11:04.876204033Z [err]  +.....+....+.................+....+...
-2026-02-07T09:11:04.876209691Z [err]  +..+...+...+....+......
-2026-02-07T09:11:04.876215798Z [err]  +.........+...+...+..+.+.....
-2026-02-07T09:11:04.876221977Z [err]  .........+.+.....+.+.....++
-2026-02-07T09:11:04.876228455Z [err]  ++++
-2026-02-07T09:11:04.876233636Z [err]  -----
-2026-02-07T09:11:04.876241047Z [err]  Certificate request self-signature ok
-2026-02-07T09:11:04.876246687Z [err]  subject=CN=localhost
-2026-02-07T09:11:04.876256077Z [inf]  
-2026-02-07T09:11:04.876381554Z [inf]  waiting for server to shut down....2026-02-07 09:11:04.246 UTC [46] LOG:  received fast shutdown request
-2026-02-07T09:11:04.876386581Z [inf]  2026-02-07 09:11:04.270 UTC [46] LOG:  aborting any active transactions
-2026-02-07T09:11:04.876391993Z [inf]  2026-02-07 09:11:04.273 UTC [46] LOG:  background worker "logical replication launcher" (PID 52) exited with exit code 1
-2026-02-07T09:11:04.876397973Z [inf]  2026-02-07 09:11:04.273 UTC [47] LOG:  shutting down
-2026-02-07T09:11:04.876403192Z [inf]  2026-02-07 09:11:04.277 UTC [47] LOG:  checkpoint starting: shutdown immediate
-2026-02-07T09:11:04.876408884Z [inf]  2026-02-07 09:11:04.533 UTC [47] LOG:  checkpoint complete: wrote 925 buffers (5.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.020 s, sync=0.205 s, total=0.260 s; sync files=301, longest=0.061 s, average=0.001 s; distance=4256 kB, estimate=4256 kB; lsn=0/1915960, redo lsn=0/1915960
-2026-02-07T09:11:04.876414131Z [inf]  2026-02-07 09:11:04.543 UTC [46] LOG:  database system is shut down
-2026-02-07T09:11:04.876419112Z [inf]   done
-2026-02-07T09:11:04.876424801Z [inf]  server stopped
-2026-02-07T09:11:04.876430160Z [inf]  
-2026-02-07T09:11:04.876443713Z [inf]  PostgreSQL init process complete; ready for start up.
-2026-02-07T09:11:04.876452015Z [inf]  
-2026-02-07T09:11:04.876461319Z [err]  2026-02-07 09:11:04.590 UTC [3] LOG:  starting PostgreSQL 17.7 (Debian 17.7-3.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
-2026-02-07T09:11:04.876465503Z [err]  2026-02-07 09:11:04.590 UTC [3] LOG:  listening on IPv4 address "0.0.0.0", port 5432
-2026-02-07T09:11:04.876469399Z [err]  2026-02-07 09:11:04.590 UTC [3] LOG:  listening on IPv6 address "::", port 5432
-2026-02-07T09:11:04.876473494Z [err]  2026-02-07 09:11:04.605 UTC [3] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-2026-02-07T09:11:04.876477488Z [err]  2026-02-07 09:11:04.619 UTC [78] LOG:  database system was shut down at 2026-02-07 09:11:04 UTC
-2026-02-07T09:11:04.877342581Z [err]  2026-02-07 09:11:04.630 UTC [3] LOG:  database system is ready to accept connections
-2026-02-07T09:11:10.280008358Z [inf]  1:M 07 Feb 2026 09:11:01.002 * 1 changes in 60 seconds. Saving...
-2026-02-07T09:11:10.280015311Z [inf]  1:M 07 Feb 2026 09:11:01.002 * Background saving started by pid 44
-2026-02-07T09:11:10.280021353Z [inf]  44:C 07 Feb 2026 09:11:01.025 * DB saved on disk
-2026-02-07T09:11:10.280028487Z [inf]  44:C 07 Feb 2026 09:11:01.026 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
-2026-02-07T09:11:10.280035512Z [inf]  1:M 07 Feb 2026 09:11:01.104 * Background saving terminated with success
-2026-02-07T09:11:15.365678537Z [inf]  Fetching premium trending tokens
-2026-02-07T09:11:15.365681507Z [inf]  WS addresses discovered
-2026-02-07T09:11:15.365684747Z [inf]  Processed DexScreener trending candidates
-2026-02-07T09:11:15.365699627Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:11:15.662902450Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:11:17.679998018Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:11:21.696263684Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:11:21.696271004Z [err]  GeckoTerminal API error after retries
-2026-02-07T09:11:21.696277794Z [err]  Error fetching trending tokens
-2026-02-07T09:11:21.696282134Z [inf]  Premium trending tokens fetch complete
-2026-02-07T09:11:21.696286144Z [inf]  Got 69 trending tokens for Base
-2026-02-07T09:11:21.720174075Z [inf]  Saved 69 trending tokens for base to database and memory cache
-2026-02-07T09:11:21.725940718Z [inf]  Saved 69 tokens for Base to DB + cache
-2026-02-07T09:11:25.817651258Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:11:25.852558453Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:11:25.879891813Z [wrn]  All API liquidity sources failed
-2026-02-07T09:11:25.948498742Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:11:25.948507562Z [err]  Critical: No valid price data available
-2026-02-07T09:11:25.969258290Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:11:25.969265060Z [err]  Critical: No valid price data available
-2026-02-07T09:11:26.169378764Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:11:26.169383334Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:11:56.017415329Z [wrn]  RPC health degraded
-2026-02-07T09:11:56.017417849Z [inf]  Fetching premium trending tokens
-2026-02-07T09:11:56.017420859Z [inf]  WS addresses discovered
-2026-02-07T09:11:56.017425359Z [inf]  Processed DexScreener trending candidates
-2026-02-07T09:11:56.017428299Z [err]  Error fetching trending tokens
-2026-02-07T09:11:56.018199438Z [inf]  Premium trending tokens fetch complete
-2026-02-07T09:11:56.018204538Z [inf]  Got 77 trending tokens for BSC
-2026-02-07T09:11:56.018208058Z [inf]  Saved 77 trending tokens for bsc to database and memory cache
-2026-02-07T09:11:56.018210998Z [inf]  Saved 77 tokens for BSC to DB + cache
-2026-02-07T09:11:56.018213848Z [inf]  Refreshed 4 primary chains in 113.0s
-2026-02-07T09:11:56.434190362Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:11:56.460801714Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:11:56.546314482Z [wrn]  All API liquidity sources failed
-2026-02-07T09:11:56.546325511Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:11:56.546330981Z [err]  Critical: No valid price data available
-2026-02-07T09:11:56.673818031Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:11:56.673821631Z [err]  Critical: No valid price data available
-2026-02-07T09:11:56.751911600Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:11:56.751916190Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:12:12.292191998Z [inf]  1:M 07 Feb 2026 09:12:02.019 * 1 changes in 60 seconds. Saving...
-2026-02-07T09:12:12.292280839Z [inf]  1:M 07 Feb 2026 09:12:02.019 * Background saving started by pid 45
-2026-02-07T09:12:12.292285810Z [inf]  45:C 07 Feb 2026 09:12:02.045 * DB saved on disk
-2026-02-07T09:12:12.292291028Z [inf]  45:C 07 Feb 2026 09:12:02.046 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-07T09:12:12.292295835Z [inf]  1:M 07 Feb 2026 09:12:02.120 * Background saving terminated with success
-2026-02-07T09:12:16.744148188Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:12:36.744530030Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:12:36.744538110Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:12:36.744541740Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:12:36.744544900Z [err]  Critical: No valid price data available
-2026-02-07T09:12:36.744548150Z [wrn]  All API liquidity sources failed
-2026-02-07T09:12:36.744551420Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:12:36.745723031Z [err]  Critical: No valid price data available
-2026-02-07T09:12:36.745728881Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:12:36.745733371Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:12:43.745548947Z [err]  2026-02-07 09:12:38.248 UTC [27] LOG:  checkpoint starting: time
-2026-02-07T09:12:56.748649646Z [wrn]  RPC health degraded
-2026-02-07T09:12:57.773094724Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:12:57.818176631Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:12:57.849281226Z [wrn]  All API liquidity sources failed
-2026-02-07T09:12:57.882804155Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:12:57.882809175Z [err]  Critical: No valid price data available
-2026-02-07T09:12:57.944869308Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:12:57.944875038Z [err]  Critical: No valid price data available
-2026-02-07T09:12:58.001624920Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:12:58.001633690Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:13:04.432750986Z [err]  2026-02-07 09:12:56.126 UTC [91] ERROR:  table "_prisma_migrations" does not exist
-2026-02-07T09:13:04.432762000Z [err]  2026-02-07 09:12:56.126 UTC [91] STATEMENT:  DROP TABLE _prisma_migrations
-2026-02-07T09:13:10.116139944Z [err]  2026-02-07 09:13:09.901 UTC [91] LOG:  could not receive data from client: Connection reset by peer
-2026-02-07T09:13:18.003821254Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:13:34.974443502Z [err]  2026-02-07 09:13:30.403 UTC [27] LOG:  checkpoint complete: wrote 521 buffers (3.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=52.108 s, sync=0.018 s, total=52.156 s; sync files=24, longest=0.010 s, average=0.001 s; distance=2839 kB, estimate=4593 kB; lsn=4/48C17928, redo lsn=4/48BF3140
-2026-02-07T09:13:38.005744096Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:13:38.005748826Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:13:38.005751556Z [err]  Critical: No valid price data available
-2026-02-07T09:13:38.005754006Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:13:38.005756536Z [wrn]  All API liquidity sources failed
-2026-02-07T09:13:38.005759486Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:13:38.006652443Z [err]  Critical: No valid price data available
-2026-02-07T09:13:38.006658132Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:13:38.006663002Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:13:58.012082104Z [wrn]  RPC health degraded
-2026-02-07T09:13:59.050045760Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:13:59.155616528Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:13:59.155619478Z [err]  Critical: No valid price data available
-2026-02-07T09:13:59.791270064Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:13:59.908582728Z [wrn]  All API liquidity sources failed
-2026-02-07T09:13:59.908586418Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:13:59.908589037Z [err]  Critical: No valid price data available
-2026-02-07T09:13:59.954562353Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:13:59.954571183Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:14:19.952880639Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:14:29.685630099Z [err]  2026-02-07 09:14:25.238 UTC [96] ERROR:  table "_prisma_migrations" does not exist
-2026-02-07T09:14:29.685635283Z [err]  2026-02-07 09:14:25.238 UTC [96] STATEMENT:  DROP TABLE _prisma_migrations
-2026-02-07T09:14:39.953325812Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:14:39.953337851Z [wrn]  All API liquidity sources failed
-2026-02-07T09:14:39.953341951Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:14:39.953345431Z [err]  Critical: No valid price data available
-2026-02-07T09:14:39.953348871Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:14:39.953352381Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:14:39.953984622Z [err]  Critical: No valid price data available
-2026-02-07T09:14:39.953988902Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:14:39.953992482Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:14:49.685199386Z [err]  2026-02-07 09:14:42.874 UTC [96] LOG:  could not receive data from client: Connection reset by peer
-2026-02-07T09:14:59.957368300Z [wrn]  RPC health degraded
-2026-02-07T09:15:00.471191851Z [inf]  Fetching premium trending tokens
-2026-02-07T09:15:00.795560555Z [inf]  SocialRepo: Recalculated heat scores for 848 casts
-2026-02-07T09:15:00.795563485Z [inf]  Timer finished: recalc_heat_scores
-2026-02-07T09:15:00.795567025Z [inf]  WS addresses discovered
-2026-02-07T09:15:00.957850902Z [inf]  1:M 07 Feb 2026 09:15:00.510 * Background saving started by pid 46
-2026-02-07T09:15:00.957857544Z [inf]  46:C 07 Feb 2026 09:15:00.538 * DB saved on disk
-2026-02-07T09:15:00.957864361Z [inf]  46:C 07 Feb 2026 09:15:00.540 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-07T09:15:00.957870584Z [inf]  1:M 07 Feb 2026 09:15:00.611 * Background saving terminated with success
-2026-02-07T09:15:00.958209004Z [inf]  1:M 07 Feb 2026 09:15:00.506 * 1 changes in 60 seconds. Saving...
-2026-02-07T09:15:01.343041756Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:15:01.350079952Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:15:01.466138239Z [wrn]  All API liquidity sources failed
-2026-02-07T09:15:01.466143409Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:15:01.466146619Z [err]  Critical: No valid price data available
-2026-02-07T09:15:01.524753209Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:15:01.524757659Z [err]  Critical: No valid price data available
-2026-02-07T09:15:01.813378603Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:15:01.813382253Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:15:01.813385143Z [inf]  Processed DexScreener trending candidates
-2026-02-07T09:15:04.782835601Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:15:05.809104126Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:15:07.815536885Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:15:11.801959411Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-07T09:15:11.801962981Z [err]  GeckoTerminal API error after retries
-2026-02-07T09:15:11.801966221Z [err]  Error fetching trending tokens
-2026-02-07T09:15:11.801969491Z [inf]  Premium trending tokens fetch complete
-2026-02-07T09:15:11.801973261Z [inf]  Got 91 trending tokens for Ethereum
-2026-02-07T09:15:11.801976961Z [inf]  Saved 91 trending tokens for eth to database and memory cache
-2026-02-07T09:15:11.801980731Z [inf]  Saved 91 tokens for Ethereum to DB + cache
-2026-02-07T09:15:14.296657961Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:15:14.499549551Z [inf]  Alpha Detector: Checking new coin
-2026-02-07T09:15:34.497274810Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:15:34.497278530Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:15:34.497283120Z [err]  Critical: No valid price data available
-2026-02-07T09:15:34.497287520Z [wrn]  0x API price returned liquidityAvailable=false
-2026-02-07T09:15:34.497291330Z [wrn]  All API liquidity sources failed
-2026-02-07T09:15:34.497294970Z [wrn]  RPC price failed, falling back to full API fetch
-2026-02-07T09:15:34.497915011Z [err]  Critical: No valid price data available
-2026-02-07T09:15:34.497924131Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
-2026-02-07T09:15:34.497927431Z [inf]  TP/SL check skipped: Price not available
-2026-02-07T09:15:41.904140392Z [inf]  Fetching premium trending tokens
-2026-02-07T09:15:42.093770001Z [inf]  WS addresses discovered
-2026-02-07T09:15:43.343036496Z [inf]  Processed DexScreener trending candidates
-2026-02-07T09:15:43.343040426Z [inf]  Premium trending tokens fetch complete
-2026-02-07T09:15:43.343044256Z [inf]  Got 100 trending tokens for Solana
-2026-02-07T09:15:43.394520173Z [inf]  Saved 100 trending tokens for solana to database and memory cache
 2026-02-07T09:15:43.401455070Z [inf]  Saved 100 tokens for Solana to DB + cache
 2026-02-07T09:15:51.296894762Z [wrn]  RPC health degraded
 2026-02-07T09:16:04.693900664Z [inf]  1:M 07 Feb 2026 09:16:01.036 * 1 changes in 60 seconds. Saving...
@@ -999,3 +555,452 @@
 2026-02-07T09:25:11.733991298Z [inf]  Got 90 trending tokens for Ethereum
 2026-02-07T09:25:11.733993858Z [inf]  Saved 90 trending tokens for eth to database and memory cache
 2026-02-07T09:25:11.733996488Z [inf]  Saved 90 tokens for Ethereum to DB + cache
+2026-02-07T09:25:41.824337592Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:25:41.824342922Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:25:41.824348482Z [wrn]  All API liquidity sources failed
+2026-02-07T09:25:41.824354202Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:25:41.824358862Z [err]  Critical: No valid price data available
+2026-02-07T09:25:41.824363742Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:25:41.827196900Z [err]  Critical: No valid price data available
+2026-02-07T09:25:41.827199420Z [inf]  Fetching premium trending tokens
+2026-02-07T09:25:41.827202490Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:25:41.827204890Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:25:41.841490632Z [inf]  WS addresses discovered
+2026-02-07T09:25:43.205522801Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:25:43.205525801Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:25:43.205529061Z [inf]  Got 100 trending tokens for Solana
+2026-02-07T09:25:43.244704675Z [inf]  Saved 100 trending tokens for solana to database and memory cache
+2026-02-07T09:25:43.246367852Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-07T09:26:03.245691687Z [wrn]  RPC health degraded
+2026-02-07T09:26:03.886189679Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:26:12.152906821Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:26:12.177213916Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:26:12.321627576Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:26:12.321631766Z [err]  Critical: No valid price data available
+2026-02-07T09:26:12.373048528Z [wrn]  All API liquidity sources failed
+2026-02-07T09:26:12.373053128Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:26:12.373056568Z [err]  Critical: No valid price data available
+2026-02-07T09:26:12.478473992Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:26:12.478480102Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:26:13.251488136Z [inf]  Fetching premium trending tokens
+2026-02-07T09:26:13.461844208Z [inf]  WS addresses discovered
+2026-02-07T09:26:13.466815275Z [inf]  1:M 07 Feb 2026 09:26:06.075 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:26:13.466820793Z [inf]  1:M 07 Feb 2026 09:26:06.075 * Background saving started by pid 55
+2026-02-07T09:26:13.466827488Z [inf]  55:C 07 Feb 2026 09:26:06.094 * DB saved on disk
+2026-02-07T09:26:13.466837138Z [inf]  55:C 07 Feb 2026 09:26:06.095 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 1 MB
+2026-02-07T09:26:13.466844443Z [inf]  1:M 07 Feb 2026 09:26:06.176 * Background saving terminated with success
+2026-02-07T09:26:14.425368065Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:26:15.881467613Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:26:16.885023709Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:26:18.927032587Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:26:22.937768899Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:26:22.937776929Z [err]  GeckoTerminal API error after retries
+2026-02-07T09:26:22.937877388Z [err]  Error fetching trending tokens
+2026-02-07T09:26:22.937890528Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:26:22.937897128Z [inf]  Got 72 trending tokens for Base
+2026-02-07T09:26:22.951880442Z [inf]  Saved 72 trending tokens for base to database and memory cache
+2026-02-07T09:26:22.953969376Z [inf]  Saved 72 tokens for Base to DB + cache
+2026-02-07T09:26:26.249039043Z [inf]  ChatWS Client connected
+2026-02-07T09:26:26.249044383Z [inf]  ChatWS: User connected
+2026-02-07T09:26:46.253637879Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:26:46.253641329Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:26:46.253645649Z [wrn]  All API liquidity sources failed
+2026-02-07T09:26:46.253649009Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:26:46.253652539Z [err]  Critical: No valid price data available
+2026-02-07T09:26:46.253660769Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:26:46.254616781Z [err]  Critical: No valid price data available
+2026-02-07T09:26:46.254622931Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:26:46.254627391Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:26:52.972587521Z [inf]  Fetching premium trending tokens
+2026-02-07T09:26:53.197377597Z [inf]  WS addresses discovered
+2026-02-07T09:26:54.192550537Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:26:54.193647349Z [err]  Error fetching trending tokens
+2026-02-07T09:26:54.193653529Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:26:54.193657519Z [inf]  Got 75 trending tokens for BSC
+2026-02-07T09:26:54.228457706Z [inf]  Saved 75 trending tokens for bsc to database and memory cache
+2026-02-07T09:26:54.228461726Z [inf]  Saved 75 tokens for BSC to DB + cache
+2026-02-07T09:26:54.229242870Z [inf]  Refreshed 4 primary chains in 113.3s
+2026-02-07T09:27:00.993170619Z [wrn]  RPC health degraded
+2026-02-07T09:27:04.367907833Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:27:13.679227987Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:27:13.715709912Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:27:13.736479726Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:27:13.736483436Z [err]  Critical: No valid price data available
+2026-02-07T09:27:14.056901312Z [wrn]  All API liquidity sources failed
+2026-02-07T09:27:14.056907662Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:27:14.056912992Z [err]  Critical: No valid price data available
+2026-02-07T09:27:14.056918492Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:27:14.056923782Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:27:15.225845599Z [inf]  1:M 07 Feb 2026 09:27:07.080 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:27:15.225852276Z [inf]  1:M 07 Feb 2026 09:27:07.081 * Background saving started by pid 56
+2026-02-07T09:27:15.225866862Z [inf]  56:C 07 Feb 2026 09:27:07.104 * DB saved on disk
+2026-02-07T09:27:15.225874328Z [inf]  56:C 07 Feb 2026 09:27:07.105 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 1 MB
+2026-02-07T09:27:15.225881108Z [inf]  1:M 07 Feb 2026 09:27:07.182 * Background saving terminated with success
+2026-02-07T09:27:42.340615657Z [err]  2026-02-07 09:27:38.436 UTC [27] LOG:  checkpoint starting: time
+2026-02-07T09:27:43.858424139Z [inf]  ChatWS Client connected
+2026-02-07T09:27:43.858435019Z [inf]  ChatWS: User connected
+2026-02-07T09:27:43.858439239Z [inf]  Sync request
+2026-02-07T09:27:44.412119814Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:27:44.461833980Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:27:44.565423501Z [wrn]  All API liquidity sources failed
+2026-02-07T09:27:44.586152944Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:27:44.586161934Z [err]  Critical: No valid price data available
+2026-02-07T09:27:44.778179220Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:27:44.778182390Z [err]  Critical: No valid price data available
+2026-02-07T09:27:44.818658085Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:27:44.818664035Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:28:04.816199953Z [inf]    requestedAddress: '0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B'
+2026-02-07T09:28:04.816220063Z [inf]  [verifyAccess] Checking access: {
+2026-02-07T09:28:04.816220443Z [inf]  }
+2026-02-07T09:28:04.816226842Z [inf]    userId: 'did:privy:cmk74yj4r03jcl70b8hwyuh2c',
+2026-02-07T09:28:04.816229372Z [inf]  [verifyAccess] ✅ Access granted
+2026-02-07T09:28:04.816233482Z [inf]    userIdLength: 35,
+2026-02-07T09:28:04.816235782Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:28:04.816242072Z [inf]    userIdPrefix: 'did:privy:cmk74yj4r0',
+2026-02-07T09:28:04.816242212Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:28:04.816248322Z [wrn]  RPC health degraded
+2026-02-07T09:28:04.817270195Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:28:04.817273255Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:28:05.126588250Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:28:17.467102359Z [inf]  1:M 07 Feb 2026 09:28:08.090 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:28:17.467108576Z [inf]  1:M 07 Feb 2026 09:28:08.091 * Background saving started by pid 57
+2026-02-07T09:28:17.467115491Z [inf]  57:C 07 Feb 2026 09:28:08.103 * DB saved on disk
+2026-02-07T09:28:17.467120884Z [inf]  57:C 07 Feb 2026 09:28:08.105 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-07T09:28:17.467125855Z [inf]  1:M 07 Feb 2026 09:28:08.191 * Background saving terminated with success
+2026-02-07T09:28:24.961993948Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:28:24.961998938Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:28:24.962002178Z [wrn]  All API liquidity sources failed
+2026-02-07T09:28:24.962005398Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:28:24.962008168Z [err]  Critical: No valid price data available
+2026-02-07T09:28:24.962018788Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:28:24.962890751Z [err]  Critical: No valid price data available
+2026-02-07T09:28:24.962895851Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:28:24.962900401Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:28:24.962904801Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
+2026-02-07T09:28:24.962909171Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
+2026-02-07T09:28:42.374300379Z [err]  2026-02-07 09:28:38.790 UTC [27] LOG:  checkpoint complete: wrote 604 buffers (3.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=60.320 s, sync=0.009 s, total=60.355 s; sync files=44, longest=0.005 s, average=0.001 s; distance=3722 kB, estimate=4222 kB; lsn=4/495BDF98, redo lsn=4/495527A8
+2026-02-07T09:28:54.964185315Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:28:54.964187875Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:28:54.964190555Z [wrn]  All API liquidity sources failed
+2026-02-07T09:28:54.964193665Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:28:54.964196475Z [err]  Critical: No valid price data available
+2026-02-07T09:28:54.964199285Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:28:54.965896002Z [err]  Critical: No valid price data available
+2026-02-07T09:28:54.965900691Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:28:54.965904741Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:28:54.965909601Z [inf]  [CopyTrade] GET /positions - Fetching positions for did:privy:cmk74yj4r03jcl70b8hwyuh2c
+2026-02-07T09:28:54.965914711Z [inf]  [CopyTrade] GET /configs - Fetching configs for user did:privy:cmk74yj4r03jcl70b8hwyuh2c
+2026-02-07T09:28:54.965919171Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:28:54.965922991Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:28:56.582391750Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:28:56.582395750Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:29:00.825016521Z [wrn]  RPC health degraded
+2026-02-07T09:29:05.737178032Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:29:17.845565821Z [inf]  1:M 07 Feb 2026 09:29:09.005 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:29:17.845573033Z [inf]  1:M 07 Feb 2026 09:29:09.005 * Background saving started by pid 58
+2026-02-07T09:29:17.845579701Z [inf]  58:C 07 Feb 2026 09:29:09.021 * DB saved on disk
+2026-02-07T09:29:17.845585340Z [inf]  58:C 07 Feb 2026 09:29:09.022 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-07T09:29:17.845590731Z [inf]  1:M 07 Feb 2026 09:29:09.107 * Background saving terminated with success
+2026-02-07T09:29:25.736474154Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:29:25.736478364Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:29:25.736481163Z [wrn]  All API liquidity sources failed
+2026-02-07T09:29:25.736483723Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:29:25.736487163Z [err]  Critical: No valid price data available
+2026-02-07T09:29:25.736489863Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:29:25.737367677Z [err]  Critical: No valid price data available
+2026-02-07T09:29:25.737370657Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:29:25.737373667Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:29:55.742094022Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:29:55.742102672Z [err]  Critical: No valid price data available
+2026-02-07T09:29:55.742107042Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:29:55.742133841Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:29:55.742138401Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:29:55.742142841Z [wrn]  All API liquidity sources failed
+2026-02-07T09:29:55.743212452Z [err]  Critical: No valid price data available
+2026-02-07T09:29:55.743216702Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:29:55.743220042Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:30:00.185086576Z [inf]  [SocialJob] Trending casts are fresh, skipping Snapchain API call
+2026-02-07T09:30:00.187052860Z [inf]  Fetching premium trending tokens
+2026-02-07T09:30:00.489198638Z [inf]  SocialRepo: Recalculated heat scores for 871 casts
+2026-02-07T09:30:00.489201258Z [inf]  Timer finished: recalc_heat_scores
+2026-02-07T09:30:00.489203528Z [inf]  WS addresses discovered
+2026-02-07T09:30:00.852827703Z [wrn]  RPC health degraded
+2026-02-07T09:30:01.367973414Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:30:04.188626805Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:30:05.208925513Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:30:06.853962151Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:30:07.229290940Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:30:11.235517845Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:30:11.235522195Z [err]  GeckoTerminal API error after retries
+2026-02-07T09:30:11.235525275Z [err]  Error fetching trending tokens
+2026-02-07T09:30:11.235527715Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:30:11.235531685Z [inf]  Got 84 trending tokens for Ethereum
+2026-02-07T09:30:11.270442014Z [inf]  Saved 84 trending tokens for eth to database and memory cache
+2026-02-07T09:30:11.270446244Z [inf]  Saved 84 tokens for Ethereum to DB + cache
+2026-02-07T09:30:18.177790039Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:30:18.194887221Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:30:18.554593568Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:30:18.554598268Z [err]  Critical: No valid price data available
+2026-02-07T09:30:18.554604008Z [wrn]  All API liquidity sources failed
+2026-02-07T09:30:18.554609058Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:30:18.554613677Z [err]  Critical: No valid price data available
+2026-02-07T09:30:18.554618097Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:30:18.554622327Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:30:20.210404042Z [inf]  1:M 07 Feb 2026 09:30:10.030 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:30:20.210410339Z [inf]  1:M 07 Feb 2026 09:30:10.031 * Background saving started by pid 59
+2026-02-07T09:30:20.210416462Z [inf]  59:C 07 Feb 2026 09:30:10.055 * DB saved on disk
+2026-02-07T09:30:20.210422719Z [inf]  59:C 07 Feb 2026 09:30:10.055 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-07T09:30:20.210429728Z [inf]  1:M 07 Feb 2026 09:30:10.133 * Background saving terminated with success
+2026-02-07T09:30:48.328357416Z [inf]  Fetching premium trending tokens
+2026-02-07T09:30:48.328362916Z [inf]  WS addresses discovered
+2026-02-07T09:30:48.328365946Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:30:48.328368416Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:30:48.328370996Z [inf]  Got 100 trending tokens for Solana
+2026-02-07T09:30:48.328374756Z [inf]  Saved 100 trending tokens for solana to database and memory cache
+2026-02-07T09:30:48.328377406Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-07T09:30:48.854837567Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:30:48.881282209Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:30:48.911170686Z [wrn]  All API liquidity sources failed
+2026-02-07T09:30:49.083911214Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:30:49.083917393Z [err]  Critical: No valid price data available
+2026-02-07T09:30:49.222505486Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:30:49.222512096Z [err]  Critical: No valid price data available
+2026-02-07T09:30:49.264832020Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:30:49.264836670Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:31:09.260337772Z [wrn]  RPC health degraded
+2026-02-07T09:31:09.260342772Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:31:11.704837268Z [inf]  1:M 07 Feb 2026 09:31:11.042 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:31:11.704843969Z [inf]  1:M 07 Feb 2026 09:31:11.042 * Background saving started by pid 60
+2026-02-07T09:31:11.704853837Z [inf]  60:C 07 Feb 2026 09:31:11.058 * DB saved on disk
+2026-02-07T09:31:11.704860844Z [inf]  60:C 07 Feb 2026 09:31:11.059 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-07T09:31:11.704867366Z [inf]  1:M 07 Feb 2026 09:31:11.143 * Background saving terminated with success
+2026-02-07T09:31:12.696755485Z [inf]  Fetching premium trending tokens
+2026-02-07T09:31:12.844029634Z [inf]  WS addresses discovered
+2026-02-07T09:31:13.832898709Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:31:14.668946988Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:31:15.685387518Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:31:17.704059645Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:31:19.683729103Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:31:19.683734873Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:31:19.688004632Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:31:19.688010202Z [err]  Critical: No valid price data available
+2026-02-07T09:31:19.742597844Z [wrn]  All API liquidity sources failed
+2026-02-07T09:31:20.044850303Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:31:20.044853323Z [err]  Critical: No valid price data available
+2026-02-07T09:31:20.157855609Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:31:20.157864529Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:31:21.771858361Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:31:21.771861071Z [err]  GeckoTerminal API error after retries
+2026-02-07T09:31:21.771863621Z [err]  Error fetching trending tokens
+2026-02-07T09:31:21.771866371Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:31:21.771869201Z [inf]  Got 72 trending tokens for Base
+2026-02-07T09:31:21.771871881Z [inf]  Saved 72 trending tokens for base to database and memory cache
+2026-02-07T09:31:21.771874481Z [inf]  Saved 72 tokens for Base to DB + cache
+2026-02-07T09:31:51.826006391Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:31:51.826013381Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:31:51.826017481Z [wrn]  All API liquidity sources failed
+2026-02-07T09:31:51.826020871Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:31:51.826023741Z [err]  Critical: No valid price data available
+2026-02-07T09:31:51.826026821Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:31:51.826663357Z [err]  Critical: No valid price data available
+2026-02-07T09:31:51.826667957Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:31:51.826671797Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:31:51.826674847Z [inf]  Fetching premium trending tokens
+2026-02-07T09:31:51.853236578Z [inf]  WS addresses discovered
+2026-02-07T09:31:52.728251521Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:31:52.728256871Z [err]  Error fetching trending tokens
+2026-02-07T09:31:52.728260231Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:31:52.728264511Z [inf]  Got 77 trending tokens for BSC
+2026-02-07T09:31:52.757195834Z [inf]  Saved 77 trending tokens for bsc to database and memory cache
+2026-02-07T09:31:52.757201414Z [inf]  Saved 77 tokens for BSC to DB + cache
+2026-02-07T09:31:52.757204664Z [inf]  Refreshed 4 primary chains in 112.6s
+2026-02-07T09:32:00.867681447Z [wrn]  RPC health degraded
+2026-02-07T09:32:10.152449412Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:32:14.722754472Z [inf]  1:M 07 Feb 2026 09:32:12.056 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:32:14.722764008Z [inf]  1:M 07 Feb 2026 09:32:12.057 * Background saving started by pid 61
+2026-02-07T09:32:14.722771152Z [inf]  61:C 07 Feb 2026 09:32:12.069 * DB saved on disk
+2026-02-07T09:32:14.722777612Z [inf]  61:C 07 Feb 2026 09:32:12.070 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-07T09:32:14.722784249Z [inf]  1:M 07 Feb 2026 09:32:12.157 * Background saving terminated with success
+2026-02-07T09:32:30.152065233Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:32:30.152068463Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:32:30.152071803Z [wrn]  All API liquidity sources failed
+2026-02-07T09:32:30.152074682Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:32:30.152078202Z [err]  Critical: No valid price data available
+2026-02-07T09:32:30.152080902Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:32:30.152949826Z [err]  Critical: No valid price data available
+2026-02-07T09:32:30.152954896Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:32:30.152957696Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:32:46.973691588Z [err]  2026-02-07 09:32:38.890 UTC [27] LOG:  checkpoint starting: time
+2026-02-07T09:33:00.156255248Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:33:00.156260988Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:33:00.156267178Z [wrn]  All API liquidity sources failed
+2026-02-07T09:33:00.156270738Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:33:00.156274808Z [err]  Critical: No valid price data available
+2026-02-07T09:33:00.156278758Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:33:00.157198240Z [err]  Critical: No valid price data available
+2026-02-07T09:33:00.157202440Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:33:00.157205470Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:33:00.825204756Z [wrn]  RPC health degraded
+2026-02-07T09:33:14.000000000Z [inf]  Starting Container
+2026-02-07T09:33:17.495389011Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-07T09:33:17.495394811Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-07T09:33:17.495400048Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-07T09:33:19.401318722Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-07T09:33:19.401327310Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-07T09:33:19.401334112Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-07T09:33:19.401342178Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-07T09:33:19.401349436Z [err]  INFO:     Started server process [1]
+2026-02-07T09:33:19.401356824Z [err]  INFO:     Waiting for application startup.
+2026-02-07T09:33:19.401384911Z [err]  INFO:     Application startup complete.
+2026-02-07T09:33:19.401392913Z [err]  INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-02-07T09:33:19.555594859Z [err]  INFO:     Shutting down
+2026-02-07T09:33:19.555900568Z [err]  INFO:     Waiting for application shutdown.
+2026-02-07T09:33:19.555913839Z [err]  INFO:     Application shutdown complete.
+2026-02-07T09:33:19.555925167Z [err]  INFO:     Finished server process [1]
+2026-02-07T09:33:20.825253194Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:33:20.825259694Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:33:22.000000000Z [inf]  Stopping Container
+2026-02-07T09:33:23.297594636Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:33:23.303059535Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:33:23.406232746Z [wrn]  All API liquidity sources failed
+2026-02-07T09:33:23.426883912Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:33:23.426888532Z [err]  Critical: No valid price data available
+2026-02-07T09:33:23.629066384Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:33:23.629788649Z [err]  Critical: No valid price data available
+2026-02-07T09:33:23.722573336Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:33:23.722583916Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:33:48.397230553Z [err]  2026-02-07 09:33:39.144 UTC [27] LOG:  checkpoint complete: wrote 604 buffers (3.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=60.219 s, sync=0.018 s, total=60.254 s; sync files=40, longest=0.014 s, average=0.001 s; distance=3433 kB, estimate=4143 kB; lsn=4/498D3090, redo lsn=4/498ACC68
+2026-02-07T09:34:03.729737695Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:34:03.729742605Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:34:03.729745895Z [wrn]  All API liquidity sources failed
+2026-02-07T09:34:03.729749435Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:34:03.729752635Z [err]  Critical: No valid price data available
+2026-02-07T09:34:03.729756185Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:34:03.730785158Z [err]  Critical: No valid price data available
+2026-02-07T09:34:03.730794508Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:34:03.730799047Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:34:03.730803207Z [wrn]  RPC health degraded
+2026-02-07T09:34:11.569801395Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:34:11.721647952Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:34:31.718446649Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:34:31.718451809Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:34:31.718455939Z [err]  Critical: No valid price data available
+2026-02-07T09:34:31.718459449Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:34:31.718463329Z [wrn]  All API liquidity sources failed
+2026-02-07T09:34:31.718466779Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:34:31.719987587Z [err]  Critical: No valid price data available
+2026-02-07T09:34:31.719991887Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:34:31.719995207Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:34:40.407934707Z [inf]  ChatWS Client connected
+2026-02-07T09:34:40.407939997Z [inf]  ChatWS: User connected
+2026-02-07T09:34:45.195093519Z [inf]  1:M 07 Feb 2026 09:34:40.317 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:34:45.195102403Z [inf]  1:M 07 Feb 2026 09:34:40.318 * Background saving started by pid 62
+2026-02-07T09:34:45.195110692Z [inf]  62:C 07 Feb 2026 09:34:40.338 * DB saved on disk
+2026-02-07T09:34:45.195117786Z [inf]  62:C 07 Feb 2026 09:34:40.339 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-07T09:34:45.195124467Z [inf]  1:M 07 Feb 2026 09:34:40.419 * Background saving terminated with success
+2026-02-07T09:35:00.222715296Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:35:00.222718836Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:35:00.222721886Z [wrn]  All API liquidity sources failed
+2026-02-07T09:35:00.222725806Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:35:00.222730306Z [err]  Critical: No valid price data available
+2026-02-07T09:35:00.222734076Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:35:00.224640082Z [err]  Critical: No valid price data available
+2026-02-07T09:35:00.224644402Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:35:00.224648262Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:35:00.670870889Z [inf]  Fetching premium trending tokens
+2026-02-07T09:35:00.670875869Z [inf]  SocialRepo: Recalculated heat scores for 871 casts
+2026-02-07T09:35:00.670881219Z [inf]  Timer finished: recalc_heat_scores
+2026-02-07T09:35:00.692099211Z [inf]  WS addresses discovered
+2026-02-07T09:35:00.830573710Z [wrn]  RPC health degraded
+2026-02-07T09:35:01.594546562Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:35:05.104044884Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:35:06.122085605Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:35:08.134033306Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:35:12.138689684Z [wrn]  GeckoTerminal 429 triggered backoff
+2026-02-07T09:35:12.138693914Z [err]  GeckoTerminal API error after retries
+2026-02-07T09:35:12.138698184Z [err]  Error fetching trending tokens
+2026-02-07T09:35:12.138701974Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:35:12.138705314Z [inf]  Got 86 trending tokens for Ethereum
+2026-02-07T09:35:12.181845844Z [inf]  Saved 86 trending tokens for eth to database and memory cache
+2026-02-07T09:35:12.183731919Z [inf]  Saved 86 tokens for Ethereum to DB + cache
+2026-02-07T09:35:12.288627439Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:35:12.623023920Z [inf]  Alpha Detector: Checking new coin
+2026-02-07T09:35:32.368241278Z [inf]  [verifyAccess] Checking access: {
+2026-02-07T09:35:32.368247188Z [inf]    userId: 'did:privy:cmk74yj4r03jcl70b8hwyuh2c',
+2026-02-07T09:35:32.368250398Z [inf]    userIdLength: 35,
+2026-02-07T09:35:32.368253098Z [inf]    userIdPrefix: 'did:privy:cmk74yj4r0',
+2026-02-07T09:35:32.368269428Z [inf]    requestedAddress: '0xFB64Ce8d64CEC808a8aCb977d3Ee7bE1169f1a2B'
+2026-02-07T09:35:32.368274008Z [inf]  }
+2026-02-07T09:35:32.368277018Z [inf]  [verifyAccess] ✅ Access granted
+2026-02-07T09:35:32.368279758Z [inf]  ChatWS Client connected
+2026-02-07T09:35:32.368283428Z [inf]  ChatWS: User connected
+2026-02-07T09:35:32.368286108Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:35:32.368289038Z [wrn]  0x API price returned liquidityAvailable=false
+2026-02-07T09:35:32.368292478Z [wrn]  All API liquidity sources failed
+2026-02-07T09:35:32.369939495Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:35:32.369944585Z [err]  Critical: No valid price data available
+2026-02-07T09:35:32.369947505Z [wrn]  RPC price failed, falling back to full API fetch
+2026-02-07T09:35:32.369950405Z [err]  Critical: No valid price data available
+2026-02-07T09:35:32.369952935Z [inf]  Repeated x2: API-5002:TP/SL check skipped: Price not available
+2026-02-07T09:35:32.369956385Z [inf]  TP/SL check skipped: Price not available
+2026-02-07T09:35:32.369959055Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:32.371885561Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:32.371893591Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:32.371902311Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:32.371906071Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:32.371909751Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:32.371913371Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:32.373579569Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:37.036668397Z [inf]  [ModerationLog] Received backend request: channel=frontend_local, userId=did:privy:cmk74yj4r03jcl70b8hwyuh2c, content=这个部署者是谁干嘛的？...
+2026-02-07T09:35:37.348054550Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:37.348068400Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_message_start
+2026-02-07T09:35:37.822305302Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:37.822308362Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:37.822312312Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:39.042887968Z [inf]  Moderation Input check result
+2026-02-07T09:35:39.042892848Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_message_start
+2026-02-07T09:35:39.042897248Z [inf]  Grok: message_start sent
+2026-02-07T09:35:39.042900718Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:39.713437099Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:39.713441759Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:39.758892591Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:39.758899511Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:39.838273210Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:39.838279270Z [inf]  Token decimals corrected from RPC
+2026-02-07T09:35:42.193383466Z [inf]  Fetching premium trending tokens
+2026-02-07T09:35:42.688380422Z [inf]  WS addresses discovered
+2026-02-07T09:35:43.612059143Z [err]  INFO:moderation.router:Moderating input: 这个部署者是谁干嘛的？...
+2026-02-07T09:35:43.612065845Z [err]  INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+2026-02-07T09:35:43.612070790Z [inf]  INFO:     10.242.73.217:38406 - "POST /moderation/input HTTP/1.1" 200 OK
+2026-02-07T09:35:43.697853941Z [inf]  Processed DexScreener trending candidates
+2026-02-07T09:35:43.697857791Z [inf]  Premium trending tokens fetch complete
+2026-02-07T09:35:43.697862001Z [inf]  Got 100 trending tokens for Solana
+2026-02-07T09:35:43.697866381Z [inf]  Timer finished: intent_parsing_fbe65547
+2026-02-07T09:35:43.697870371Z [inf]  Saved 100 trending tokens for solana to database and memory cache
+2026-02-07T09:35:43.697873811Z [inf]  Saved 100 tokens for Solana to DB + cache
+2026-02-07T09:35:43.697877481Z [inf]  Intent follow-up recorded
+2026-02-07T09:35:43.698018800Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:43.698024660Z [inf]  Grok: routed to mode
+2026-02-07T09:35:43.698028720Z [inf]  Grok: thinking mode without skills injection
+2026-02-07T09:35:43.698032560Z [inf]  ChatWorker: seeded get_wallet_info from client context
+2026-02-07T09:35:43.698036410Z [inf]  Timer finished: prompt_gen_GENERAL_CHAT_grok
+2026-02-07T09:35:43.698040710Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:43.699506359Z [inf]  ChatWorker: client context injected
+2026-02-07T09:35:43.699510739Z [inf]  ChatWorker: client balance snapshot summary
+2026-02-07T09:35:43.699513919Z [inf]  [ChatWorker] Added client context to Grok system prompt
+2026-02-07T09:35:43.699517669Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:44.334749153Z [inf]  Moderation Output check result
+2026-02-07T09:35:44.378223849Z [inf]  Grok: task completed
+2026-02-07T09:35:44.390381828Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_task_status
+2026-02-07T09:35:44.390385698Z [inf]  Timer finished: ws_broadcast_did:privy:cmk74yj4r03jcl70b8hwyuh2c_message_complete
+2026-02-07T09:35:44.833869597Z [inf]  [Model] Original: grok-4-1-fast-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
+2026-02-07T09:35:44.833874957Z [inf]  INFO:     10.242.73.217:45942 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+2026-02-07T09:35:44.833880331Z [inf]  [gRPC Error] Status: StatusCode.INVALID_ARGUMENT, Details: Invalid request content: Each message must have at least one content element.
+2026-02-07T09:35:44.833886125Z [inf]  [gRPC Error] Unhandled status code: StatusCode.INVALID_ARGUMENT
+2026-02-07T09:35:44.833892556Z [err]  INFO:moderation.router:Moderating output: ...
+2026-02-07T09:35:44.833902417Z [inf]  INFO:     10.242.73.217:45942 - "POST /moderation/output HTTP/1.1" 200 OK
+2026-02-07T09:35:49.138608816Z [inf]  1:M 07 Feb 2026 09:35:41.092 * 1 changes in 60 seconds. Saving...
+2026-02-07T09:35:49.138614263Z [inf]  1:M 07 Feb 2026 09:35:41.093 * Background saving started by pid 63
+2026-02-07T09:35:49.138620868Z [inf]  63:C 07 Feb 2026 09:35:41.109 * DB saved on disk
+2026-02-07T09:35:49.138626466Z [inf]  63:C 07 Feb 2026 09:35:41.111 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
+2026-02-07T09:35:49.138632350Z [inf]  1:M 07 Feb 2026 09:35:41.195 * Background saving terminated with success

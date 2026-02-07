@@ -1663,6 +1663,7 @@ async def chat_completions(
             log_tools(f"[Messages] Filtered message history: {len(request.messages)} -> {len(messages_to_add)} messages (removed {removed_count} tool/old messages)")
         
         log_tools(f"[Messages] Adding {len(messages_to_add)} message(s) to chat")
+        added_user_messages = 0
         for i, msg in enumerate(messages_to_add):
             if msg.role == "system":
                 sys_content = (msg.content or "").strip()
@@ -1678,9 +1679,21 @@ async def chat_completions(
                 if not user_content:
                     continue
                 chat.append(user(user_content))
+                added_user_messages += 1
                 log_tools(f"[Messages] [{i+1}] User: {user_content[:50]}...")
             elif msg.role == "assistant":
                 log_tools(f"[Messages] [{i+1}] Assistant: (skipped)")
+
+        # Guardrail: xAI rejects requests when no message content is provided.
+        # If previous_response_id flow has no new non-empty user message,
+        # send a minimal continuation prompt instead of an empty payload.
+        if added_user_messages == 0:
+            if request.previous_response_id:
+                fallback_user = "Continue."
+                chat.append(user(fallback_user))
+                print("[Messages] No valid user message found with previous_response_id; appended fallback continuation.")
+            else:
+                raise HTTPException(status_code=400, detail="No valid non-empty user message provided.")
         
         log_tools(f"[Chat] Starting {'streaming' if request.stream else 'non-streaming'} response generation")
         
@@ -2635,17 +2648,21 @@ async def chat_completions(
                             # For built-in tools, the SDK might have already added them or we just need to let it be.
                             # However, if we don't loop, we don't get the follow-up content.
                     
-                    if custom_tool_executed and hasattr(response, "id"):
-                        chat = client.chat.create(
-                            model=normalized_model,
-                            tools=tools,
-                            tool_choice=tool_choice,
-                            include=include_options,
-                            store_messages=True,
-                            previous_response_id=response.id,
-                        )
+                    # Keep using the same chat instance across tool turns.
+                    # Re-creating with previous_response_id can produce empty-message
+                    # chains and trigger INVALID_ARGUMENT from xAI.
+                    if not pending_tool_results:
+                        pending_tool_results = ["tool_result_empty"]
                     for tool_payload in pending_tool_results:
-                        chat.append(tool_result(result=tool_payload))
+                        if tool_payload is None:
+                            safe_payload = "tool_result_empty"
+                        else:
+                            safe_payload = str(tool_payload).strip()
+                            if not safe_payload:
+                                safe_payload = "tool_result_empty"
+                        if len(safe_payload) > 12000:
+                            safe_payload = safe_payload[:12000]
+                        chat.append(tool_result(result=safe_payload))
 
                     # Continue to next turn to get the answer after tool calls
                     continue
@@ -2977,15 +2994,19 @@ Only use tools when the provided data is insufficient for quality analysis.
                 
                 # If tool calls were made, continue to next turn
                 if has_tool_calls_this_turn:
-                    if final_response and hasattr(final_response, "id"):
-                        chat = client.chat.create(
-                            model="grok-4-1-fast-non-reasoning",
-                            tools=tools,
-                            store_messages=True,
-                            previous_response_id=final_response.id,
-                        )
+                    # Keep tool-chain state in one chat object to avoid invalid empty turns.
+                    if not pending_tool_results:
+                        pending_tool_results = ["tool_result_empty"]
                     for tool_payload in pending_tool_results:
-                        chat.append(tool_result(result=tool_payload))
+                        if tool_payload is None:
+                            safe_payload = "tool_result_empty"
+                        else:
+                            safe_payload = str(tool_payload).strip()
+                            if not safe_payload:
+                                safe_payload = "tool_result_empty"
+                        if len(safe_payload) > 12000:
+                            safe_payload = safe_payload[:12000]
+                        chat.append(tool_result(result=safe_payload))
                     full_content = ""  # Clear content, new turn will regenerate
                     print(f"[NewsWriter] Tool turn {tool_turn + 1} complete, continuing...")
                     continue
