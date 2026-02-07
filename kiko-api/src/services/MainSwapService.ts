@@ -35,6 +35,7 @@ import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
 import { callRpc } from './rpcManager.js';
+import { resolveTokenAddress, normalizeTokenAddress } from './tokens.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -143,6 +144,23 @@ function isCashLikeToken(token: string, chainId: number): boolean {
  */
 export class MainSwapService {
   private static readonly TRACE_PREFIX = '[MainSwapService]';
+
+  private static normalizeEvmTokenInput(token: string, chainId: number): string {
+    const resolved = resolveTokenAddress(token, chainId);
+    const normalized = normalizeTokenAddress(resolved);
+
+    if (isNativeToken(normalized, chainId)) return NATIVE_TOKEN_ADDRESS;
+
+    if (/^0x[0-9a-fA-F]{40}$/.test(normalized)) {
+      try {
+        return ethers.getAddress(normalized);
+      } catch {
+        return normalized.toLowerCase();
+      }
+    }
+
+    return normalized;
+  }
 
   /**
    * Execute a swap with full routing and error handling
@@ -424,18 +442,27 @@ export class MainSwapService {
     trace: (msg: string) => string,
     ctx: TradeContext
   ): Promise<MainSwapResult> {
+    const normalizedTokenIn = this.normalizeEvmTokenInput(request.tokenIn, request.chainId);
+    const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
+    if (!isNativeToken(normalizedTokenIn, request.chainId) && !/^0x[0-9a-fA-F]{40}$/.test(normalizedTokenIn)) {
+      throw new Error(`Invalid EVM tokenIn: ${request.tokenIn}`);
+    }
+    if (!isNativeToken(normalizedTokenOut, request.chainId) && !/^0x[0-9a-fA-F]{40}$/.test(normalizedTokenOut)) {
+      throw new Error(`Invalid EVM tokenOut: ${request.tokenOut}`);
+    }
+
     logger.info(LogCode.EXE_TX_BROADCAST, trace('Executing EVM swap'), {
       chainId: request.chainId,
-      tokenIn: request.tokenIn.slice(0, 12),
-      tokenOut: request.tokenOut.slice(0, 12),
+      tokenIn: normalizedTokenIn.slice(0, 12),
+      tokenOut: normalizedTokenOut.slice(0, 12),
       fastSwapMode: request.userSettings?.fastSwapMode
     });
 
     // [Logic]: FastSwapMode 使用直接交易 (V3/V4)，跳过 0x/Kyber
     // [Logic]: 买入方向判定基于 cash -> token（支持 ETH/WETH/USDC/USDT）
     // [Logic]: cash -> cash（例如 ETH -> USDC）不应触发买入直连
-    const isCashIn = isCashLikeToken(request.tokenIn, request.chainId);
-    const isCashOut = isCashLikeToken(request.tokenOut, request.chainId);
+    const isCashIn = isCashLikeToken(normalizedTokenIn, request.chainId);
+    const isCashOut = isCashLikeToken(normalizedTokenOut, request.chainId);
     const isBuyDirection = isCashIn && !isCashOut;
     const enforcedSlippageBps = request.mode === 'copytrade'
       ? Math.max(request.slippageBps ?? 1500, 1500)
@@ -465,8 +492,8 @@ export class MainSwapService {
       logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (buy direction)'), {
         mode: request.mode,
         chainId: request.chainId,
-        tokenIn: request.tokenIn,
-        tokenOut: request.tokenOut,
+        tokenIn: normalizedTokenIn,
+        tokenOut: normalizedTokenOut,
         amountIn: request.amountIn,
         slippageBps: enforcedSlippageBps,
         maxAttempts: DIRECT_SWAP_MAX_ATTEMPTS
@@ -479,8 +506,8 @@ export class MainSwapService {
             userId: request.userId,
             accessToken: request.accessToken || '',
             walletAddress: request.walletAddress,
-            tokenIn: request.tokenIn,
-            tokenOut: request.tokenOut,
+            tokenIn: normalizedTokenIn,
+            tokenOut: normalizedTokenOut,
             amountIn: request.amountIn,
             chainId: request.chainId,
             slippageBps: enforcedSlippageBps,
@@ -543,8 +570,8 @@ export class MainSwapService {
           poolInfo: lastDirectResult.poolInfo,
           chainId: request.chainId,
           mode: request.mode,
-          tokenIn: request.tokenIn,
-          tokenOut: request.tokenOut,
+          tokenIn: normalizedTokenIn,
+          tokenOut: normalizedTokenOut,
           attempts: DIRECT_SWAP_MAX_ATTEMPTS
         });
       } else if (lastDirectError) {
@@ -552,8 +579,8 @@ export class MainSwapService {
           error: lastDirectError.message,
           chainId: request.chainId,
           mode: request.mode,
-          tokenIn: request.tokenIn,
-          tokenOut: request.tokenOut,
+          tokenIn: normalizedTokenIn,
+          tokenOut: normalizedTokenOut,
           attempts: DIRECT_SWAP_MAX_ATTEMPTS
         });
       }
@@ -562,8 +589,8 @@ export class MainSwapService {
     const swapParams: SwapParams = {
       userId: request.userId,
       walletAddress: request.walletAddress,
-      tokenIn: request.tokenIn,
-      tokenOut: request.tokenOut,
+      tokenIn: normalizedTokenIn,
+      tokenOut: normalizedTokenOut,
       amountIn: request.amountIn,
       chainId: request.chainId,
       slippageBps: enforcedSlippageBps,
@@ -621,7 +648,7 @@ export class MainSwapService {
     */
     const isBuy = !swapParams.isSell; // SwapExecutor determines isSell=false for buys
     const targetSpender = executionResult.metadata?.allowanceTarget;
-    const outTokenLower = request.tokenOut.toLowerCase();
+    const outTokenLower = normalizedTokenOut.toLowerCase();
     const isNativeOut =
       outTokenLower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
       outTokenLower === '0x0000000000000000000000000000000000000000' ||
@@ -636,7 +663,7 @@ export class MainSwapService {
       (request.mode === 'fast-swap' || request.mode === 'copytrade' || request.mode === 'allowance')) {
 
       logger.info(LogCode.EXE_TX_BROADCAST, trace('Initiating Post-Buy Pre-Approval'), {
-        token: request.tokenOut,
+        token: normalizedTokenOut,
         spender: targetSpender
       });
 
@@ -670,7 +697,7 @@ export class MainSwapService {
           }
 
           const approveTxHash = await sendTransaction(request.userId, request.accessToken || '', {
-            to: request.tokenOut,
+            to: normalizedTokenOut,
             data: approvalData,
             value: '0',
             chainId: request.chainId,
@@ -679,7 +706,7 @@ export class MainSwapService {
 
           logger.info(LogCode.EXE_TX_CONFIRMED, trace('Post-Buy Pre-Approval Sent'), {
             txHash: approveTxHash,
-            token: request.tokenOut
+            token: normalizedTokenOut
           });
         } catch (approvalErr: any) {
           // Non-fatal error, just log it

@@ -5,6 +5,27 @@ import { Decimal } from 'decimal.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
+let hasSearchVectorColumnCache: boolean | null = null;
+
+async function hasSearchVectorColumn(): Promise<boolean> {
+    if (hasSearchVectorColumnCache !== null) return hasSearchVectorColumnCache;
+    try {
+        const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'trending_casts'
+                  AND column_name = 'search_vector'
+            ) AS exists
+        `;
+        hasSearchVectorColumnCache = !!rows?.[0]?.exists;
+    } catch {
+        hasSearchVectorColumnCache = false;
+    }
+    return hasSearchVectorColumnCache;
+}
+
 /**
  * Parse formatted coin value strings like "$2.1K", "$1.5M" into raw numbers
  */
@@ -359,7 +380,11 @@ export async function searchCasts(
         // Preferred: PostgreSQL full-text search (requires `search_vector`).
         // Fallback: plain ILIKE/contains search (works even if migrations didn't add `search_vector`).
         let casts: TrendingCast[] = [];
+        const canUseSearchVector = await hasSearchVectorColumn();
         try {
+            if (!canUseSearchVector) {
+                throw new Error('search_vector_missing');
+            }
             const result = await prisma.$queryRaw<any[]>`
         SELECT 
           cast_hash as hash,
@@ -431,7 +456,8 @@ export async function searchCasts(
             const code = rawError?.meta?.code || rawError?.code || '';
             const missingVector = String(message).includes('search_vector') || String(code) === '42703';
 
-            if (!missingVector) throw rawError;
+            if (!missingVector && rawError?.message !== 'search_vector_missing') throw rawError;
+            hasSearchVectorColumnCache = false;
 
             console.warn('[SocialRepo] search_vector missing; falling back to simple search');
 

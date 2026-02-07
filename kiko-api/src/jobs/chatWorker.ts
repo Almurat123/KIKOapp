@@ -665,6 +665,36 @@ export class ChatWorker {
         return sanitized;
     }
 
+    private sanitizeGrokHistory(history: any[]): any[] {
+        const sanitized: any[] = [];
+        for (const msg of history || []) {
+            if (!msg || !msg.role) continue;
+            const role = msg.role;
+            let content = typeof msg.content === 'string' ? msg.content : '';
+
+            // xAI/gRPC rejects messages with empty content blocks.
+            if (!content.trim()) {
+                if (role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+                    content = '(assistant tool call)';
+                } else if (role === 'tool') {
+                    content = '(tool result)';
+                } else if (role === 'user') {
+                    continue;
+                } else {
+                    content = '(empty message)';
+                }
+            }
+
+            sanitized.push({
+                role,
+                content,
+                ...(msg.tool_calls ? { tool_calls: msg.tool_calls } : {}),
+                ...(msg.tool_call_id ? { tool_call_id: msg.tool_call_id } : {}),
+            });
+        }
+        return sanitized;
+    }
+
     private redactToolNames(text: string): string {
         if (!text) return text;
         const toolNames = toolRegistry.getAllDefinitions().map(def => def.name);
@@ -3926,7 +3956,7 @@ Status: unavailable (balance data not available from cache).`;
             grokMessages.push({ role: 'system', content: grokSystemContext });
             console.log('[ChatWorker] Added client context to Grok system prompt');
         }
-        grokMessages.push(...enrichedHistory);
+        grokMessages.push(...this.sanitizeGrokHistory(enrichedHistory));
 
         const isLikelyCaAnalysis = (() => {
             const lastUser = lastUserMessage?.content || '';
