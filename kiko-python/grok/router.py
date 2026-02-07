@@ -1640,7 +1640,10 @@ async def chat_completions(
         # If using previous_response_id, rely on server-side state and only add latest user message.
         if request.previous_response_id:
             last_user_only = next((m for m in reversed(filtered_messages) if m.role == "user"), None)
-            filtered_messages = [last_user_only] if last_user_only else []
+            if last_user_only and isinstance(last_user_only.content, str) and last_user_only.content.strip():
+                filtered_messages = [last_user_only]
+            else:
+                filtered_messages = []
         
         # Limit message history to prevent context overflow.
         # IMPORTANT: Always preserve the latest system message (Node.js provides the v2 prompt + skills injection).
@@ -1662,14 +1665,20 @@ async def chat_completions(
         log_tools(f"[Messages] Adding {len(messages_to_add)} message(s) to chat")
         for i, msg in enumerate(messages_to_add):
             if msg.role == "system":
+                sys_content = (msg.content or "").strip()
+                if not sys_content:
+                    continue
                 # CRITICAL: Use the system prompt from Node.js (kiko-api)
                 # It already contains: IDENTITY + SAFETY + TOOLS + MODEL_BEHAVIOR + INTENT + USER_CONTEXT
                 # DO NOT override it with GROK_SYSTEM_PROMPT
-                chat.append(system(msg.content))
-                log_tools(f"[Messages] [{i+1}] System prompt from Node.js (length={len(msg.content)} chars)")
+                chat.append(system(sys_content))
+                log_tools(f"[Messages] [{i+1}] System prompt from Node.js (length={len(sys_content)} chars)")
             elif msg.role == "user":
-                chat.append(user(msg.content))
-                log_tools(f"[Messages] [{i+1}] User: {msg.content[:50]}...")
+                user_content = (msg.content or "").strip()
+                if not user_content:
+                    continue
+                chat.append(user(user_content))
+                log_tools(f"[Messages] [{i+1}] User: {user_content[:50]}...")
             elif msg.role == "assistant":
                 log_tools(f"[Messages] [{i+1}] Assistant: (skipped)")
         
@@ -2125,27 +2134,24 @@ async def chat_completions(
                             if force_stop_after_turn is not None and tool_turn >= force_stop_after_turn:
                                 final_tool_call_check = False
 
-                            if final_tool_call_check:
-                                # CRITICAL FIX: Tool was called, continue to next turn to get Grok's response
-                                # Don't break here! We need to call chat.stream() again to get Grok's response
-                                # based on the tool result we just added to the chat
-                                print(f"[Tool Turn] Tool call detected, continuing to turn {tool_turn + 2}")
-                                
-                                if final_response and hasattr(final_response, "id"):
-                                    chat = client.chat.create(
-                                        model=normalized_model,
-                                        tools=tools,
-                                        tool_choice=tool_choice,
-                                        include=include_options,
-                                        store_messages=True,
-                                        previous_response_id=final_response.id,
-                                    )
-                                elif final_response:
+                                if final_tool_call_check:
+                                    # CRITICAL FIX: Tool was called, continue to next turn to get Grok's response
+                                    # Don't break here! We need to call chat.stream() again to get Grok's response
+                                    # based on the tool result we just added to the chat
+                                    print(f"[Tool Turn] Tool call detected, continuing to turn {tool_turn + 2}")
+
+                                # IMPORTANT: Reuse existing chat instance for tool chaining.
+                                # Re-creating chat with previous_response_id on every tool turn can drop
+                                # in-memory context and lead to INVALID_ARGUMENT in deeper turns.
+                                if final_response and not hasattr(final_response, "id"):
                                     try:
                                         chat.append(final_response)
                                     except Exception as e:
                                         print(f"[Tool Turn] Failed to append response: {e}")
-                                
+
+                                if not pending_tool_results:
+                                    pending_tool_results = ["tool_result_empty"]
+
                                 for tool_payload in pending_tool_results:
                                     if tool_payload is None:
                                         safe_payload = "tool_result_empty"
@@ -2153,8 +2159,10 @@ async def chat_completions(
                                         safe_payload = str(tool_payload).strip()
                                         if not safe_payload:
                                             safe_payload = "tool_result_empty"
+                                    if len(safe_payload) > 12000:
+                                        safe_payload = safe_payload[:12000]
                                     chat.append(tool_result(result=safe_payload))
-                                
+
                                 continue  # Go to next turn to get Grok's response
                             else:
                                 # Ensure we sent some content before finishing
