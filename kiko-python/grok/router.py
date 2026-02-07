@@ -2147,11 +2147,11 @@ async def chat_completions(
                             if force_stop_after_turn is not None and tool_turn >= force_stop_after_turn:
                                 final_tool_call_check = False
 
-                                if final_tool_call_check:
-                                    # CRITICAL FIX: Tool was called, continue to next turn to get Grok's response
-                                    # Don't break here! We need to call chat.stream() again to get Grok's response
-                                    # based on the tool result we just added to the chat
-                                    print(f"[Tool Turn] Tool call detected, continuing to turn {tool_turn + 2}")
+                            if final_tool_call_check:
+                                # CRITICAL FIX: Tool was called, continue to next turn to get Grok's response
+                                # Don't break here! We need to call chat.stream() again to get Grok's response
+                                # based on the tool result we just added to the chat
+                                print(f"[Tool Turn] Tool call detected, continuing to turn {tool_turn + 2}")
 
                                 # IMPORTANT: Reuse existing chat instance for tool chaining.
                                 # Re-creating chat with previous_response_id on every tool turn can drop
