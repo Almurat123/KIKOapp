@@ -2,6 +2,7 @@ import { getWalletTransactions as fetchAlchemyTransactions, WalletBalance, getPo
 import prisma from '../db/prisma.js';
 import { getNativeBalance } from './rpcManager.js';
 import { ethers } from 'ethers';
+import { get as cacheGet, set as cacheSet } from '../cache/redis.js';
 
 const ALL_BALANCES_CACHE_TTL_MS = 60_000; // 增加到 60 秒，减少 RPC 调用
 const allBalancesCache = new Map<string, { timestamp: number; data: Record<string, WalletBalance> }>();
@@ -9,6 +10,14 @@ const allBalancesInflight = new Map<string, Promise<Record<string, WalletBalance
 
 const ACCESS_CACHE_TTL_MS = 60_000;
 const accessCache = new Map<string, { timestamp: number; allowed: boolean }>();
+
+function allBalancesRedisKey(cacheKey: string): string {
+    return `wallet:all_balances:${cacheKey}`;
+}
+
+function accessRedisKey(cacheKey: string): string {
+    return `wallet:access:${cacheKey}`;
+}
 
 export const walletService = {
     /**
@@ -86,6 +95,16 @@ export const walletService = {
         if (cached && Date.now() - cached.timestamp < ALL_BALANCES_CACHE_TTL_MS) {
             return cached.data;
         }
+        const redisCached = await cacheGet(allBalancesRedisKey(cacheKey)).catch(() => null);
+        if (redisCached) {
+            try {
+                const parsed = JSON.parse(redisCached) as Record<string, WalletBalance>;
+                allBalancesCache.set(cacheKey, { timestamp: Date.now(), data: parsed });
+                return parsed;
+            } catch {
+                // ignore redis parse error and continue
+            }
+        }
 
         const inflight = allBalancesInflight.get(cacheKey);
         if (inflight) return inflight;
@@ -95,6 +114,7 @@ export const walletService = {
         try {
             const data = await promise;
             allBalancesCache.set(cacheKey, { timestamp: Date.now(), data });
+            await cacheSet(allBalancesRedisKey(cacheKey), JSON.stringify(data), Math.ceil(ALL_BALANCES_CACHE_TTL_MS / 1000)).catch(() => { });
             return data;
         } catch (error) {
             if (cached) return cached.data;
@@ -122,6 +142,12 @@ export const walletService = {
         const cached = accessCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < ACCESS_CACHE_TTL_MS) {
             return cached.allowed;
+        }
+        const accessCached = await cacheGet(accessRedisKey(cacheKey)).catch(() => null);
+        if (accessCached) {
+            const allowed = accessCached === '1';
+            accessCache.set(cacheKey, { timestamp: Date.now(), allowed });
+            return allowed;
         }
 
         console.log('[verifyAccess] Checking access:', {
@@ -166,6 +192,7 @@ export const walletService = {
 
             if (isAddressMatch) {
                 accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
+                await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                 console.log('[verifyAccess] ✅ Access granted');
                 return true;
             }
@@ -179,6 +206,7 @@ export const walletService = {
                     data: { solanaWalletAddress: address }
                 });
                 accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
+                await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                 return true;
             }
 
@@ -191,12 +219,14 @@ export const walletService = {
                 userId: user.id
             });
             accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+            await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
             return false;
         } else {
             console.log('[verifyAccess] ❌ User not found');
             if (!isEvmAddress) {
                 // User model requires walletAddress (EVM). We do not auto-create users from non-EVM addresses.
                 accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+                await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                 return false;
             }
             const existingUser = await prisma.user.findFirst({
@@ -210,6 +240,7 @@ export const walletService = {
                         owner: existingUser.privyDid
                     });
                     accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+                    await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                     return false;
                 }
 
@@ -219,6 +250,7 @@ export const walletService = {
                 });
                 console.log('[verifyAccess] ✅ Access granted (attached privyDid to existing user)');
                 accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
+                await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                 return true;
             }
 
@@ -228,10 +260,12 @@ export const walletService = {
                 });
                 console.log('[verifyAccess] ✅ Access granted (created user)', { userId: created.id });
                 accessCache.set(cacheKey, { timestamp: Date.now(), allowed: true });
+                await cacheSet(accessRedisKey(cacheKey), '1', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                 return true;
             } catch (createError: any) {
                 console.error('[verifyAccess] ❌ Failed to create user record', { error: createError.message });
                 accessCache.set(cacheKey, { timestamp: Date.now(), allowed: false });
+                await cacheSet(accessRedisKey(cacheKey), '0', Math.ceil(ACCESS_CACHE_TTL_MS / 1000)).catch(() => { });
                 return false;
             }
         }

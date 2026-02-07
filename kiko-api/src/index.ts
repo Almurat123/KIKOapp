@@ -267,8 +267,12 @@ async function start() {
         // Initialize Redis
         logger.debug(LogCode.SYS_STARTUP, 'Initializing Redis...');
         try {
-            await initRedis();
-            logger.info(LogCode.SYS_REDIS_CONNECTED, 'Redis initialized');
+            const redisConnected = await initRedis();
+            if (redisConnected) {
+                logger.info(LogCode.SYS_REDIS_CONNECTED, 'Redis initialized');
+            } else {
+                logger.warn(LogCode.SYS_ERROR, 'Redis not connected, using DB cache fallback');
+            }
         } catch (redisError: any) {
             logger.error(LogCode.SYS_ERROR, 'Redis initialization failed, but continuing...', { error: redisError.message });
         }

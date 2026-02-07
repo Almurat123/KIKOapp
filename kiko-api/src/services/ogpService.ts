@@ -3,6 +3,8 @@ import * as cheerio from 'cheerio';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import redis from '../cache/redis.js';
+import { logger } from '../utils/logger.js';
+import { LogCode, LogRole } from '../config/logRegistry.js';
 
 let browserInstance: any = null;
 let requestCount = 0;
@@ -10,12 +12,15 @@ const MAX_REQUESTS_PER_BROWSER = 100;
 
 async function getBrowser() {
     if (browserInstance && requestCount >= MAX_REQUESTS_PER_BROWSER) {
-        console.log(`[OGPService] Browser reached ${requestCount} requests. Restarting...`);
+        logger.info(LogCode.SYS_INFO, `[OGPService] Browser reached limit. Restarting...`, {
+            requestCount,
+            role: LogRole.EVENT
+        });
         await closeBrowser();
     }
 
     if (!browserInstance) {
-        console.log('[OGPService] Launching Singleton Browser...');
+        logger.info(LogCode.SYS_INFO, '[OGPService] Launching Singleton Browser...', { role: LogRole.EVENT });
         browserInstance = await (puppeteer as any).launch({
             headless: 'new',
             args: [
@@ -28,7 +33,7 @@ async function getBrowser() {
         });
 
         browserInstance.on('disconnected', () => {
-            console.log('[OGPService] Browser disconnected, resetting singleton.');
+            logger.warn(LogCode.SYS_INFO, '[OGPService] Browser disconnected', { role: LogRole.EVENT });
             browserInstance = null;
             requestCount = 0;
         });
@@ -44,8 +49,11 @@ async function closeBrowser() {
     if (browserInstance) {
         try {
             await browserInstance.close();
-        } catch (e) {
-            console.error('[OGPService] Error closing browser:', e);
+        } catch (e: any) {
+            logger.error(LogCode.SYS_ERROR, '[OGPService] Error closing browser', {
+                error: e.message,
+                role: LogRole.EVENT
+            });
         }
         browserInstance = null;
         requestCount = 0;
@@ -175,8 +183,12 @@ export const ogpService = {
                     return sanitized;
                 }
             }
-        } catch (e) {
-            console.warn(`[OGPService] Simple fetch failed for ${url}`);
+        } catch (e: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, `[OGPService] Simple fetch failed`, {
+                url,
+                error: e.message,
+                role: LogRole.METRIC
+            });
         }
 
         // 2. Fallback: microlink.io
@@ -203,8 +215,12 @@ export const ogpService = {
                     }
                 }
             }
-        } catch (e) {
-            console.warn(`[OGPService] Microlink fallback failed for ${url}`);
+        } catch (e: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, `[OGPService] Microlink fallback failed`, {
+                url,
+                error: e.message,
+                role: LogRole.METRIC
+            });
         }
 
         // 3. Last resort: Puppeteer
@@ -235,8 +251,12 @@ export const ogpService = {
             } finally {
                 await page.close();
             }
-        } catch (e) {
-            console.error(`[OGPService] Puppeteer failed for ${url}`, e);
+        } catch (e: any) {
+            logger.error(LogCode.API_FETCH_FAILED, `[OGPService] Puppeteer failed`, {
+                url,
+                error: e.message,
+                role: LogRole.METRIC
+            });
         }
 
         return null;

@@ -41,24 +41,22 @@ interface ExecuteSwapParams {
  * Migration: Call mainSwapService.executeSwap() instead
  */
 export async function executeSwapInstant(params: ExecuteSwapParams): Promise<string> {
-    logger.warn(LogCode.SYS_INFO, '⚠️ DEPRECATED: tradeExecutor.executeSwapInstant() called - migrate to MainSwapService', {
-        caller: new Error().stack?.split('\n')[2],
-        tokenIn: params.tokenIn.slice(0, 10),
-        tokenOut: params.tokenOut.slice(0, 10)
+    logger.warn(LogCode.SYS_INFO, '⚠️ DEPRECATED: tradeExecutor called', {
+        caller: new Error().stack?.split('\n')[2]?.trim(),
+        pair: `${params.tokenIn}->${params.tokenOut}`
     });
     const { userId, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps = 50 } = params;
-    const timerLabel = `swap_instant_${walletAddress.slice(0, 8)}_${tokenIn}_${tokenOut}`;
+    const timerLabel = `swap_instant_${walletAddress}_${tokenIn}_${tokenOut}`;
     logger.startTimer(timerLabel);
 
     // === SIMULATION MODE ===
     if (process.env.SIMULATION_MODE === 'true') {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Skipping actual trade execution', {
+        const simHash = `0xSIMULATION_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        logger.info(LogCode.EXE_TX_BROADCAST, 'SIMULATION MODE: Trade skipped', {
             user: walletAddress,
-            tokenIn,
-            tokenOut,
-            amountIn,
-            chainId,
-            simulation: true
+            pair: `${tokenIn}->${tokenOut}`,
+            amount: amountIn,
+            simHash
         });
         // Return a mock TX Hash
         return `0xSIMULATION_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -70,10 +68,9 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
     }
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'Executing swap', {
-        user: walletAddress.slice(0, 10),
-        tokenIn,
-        tokenOut,
-        amountIn,
+        user: walletAddress,
+        pair: `${tokenIn}->${tokenOut}`,
+        amount: amountIn,
         chainId
     });
 
@@ -112,11 +109,11 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         throw new AppError(400, 'Failed to get sway quote', 'QUOTE_FAILED');
     }
 
-    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Received trade quote', {
-        sellAmount: amountIn,
-        buyAmount: quote.buyAmount,
-        minBuyAmount: quote.minBuyAmount,
-        provider: '0x'
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Trade quote received', {
+        in: amountIn,
+        out: quote.buyAmount,
+        min: quote.minBuyAmount,
+        via: '0x'
     });
 
     // 2. Execute Transaction via Privy
@@ -130,7 +127,7 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
         // We let Privy/RPC handle raw gas estimation optimization or use quote's estimate
     });
 
-    logger.info(LogCode.EXE_TX_BROADCAST, 'Swap transaction broadcasted', { txHash, chainId });
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Swap tx broadcasted', { txHash, chainId });
 
     // 3. POST-SWAP: Auto-Approve Token for Future Sells
     // User requested we approve the DEX router immediately after buying so selling is instant later
@@ -150,7 +147,7 @@ export async function executeSwapInstant(params: ExecuteSwapParams): Promise<str
                 throw new AppError(500, `Buy transaction reverted on-chain: ${txHash}`, 'TRANSACTION_REVERTED');
             }
 
-            logger.info(LogCode.EXE_TX_CONFIRMED, 'Buy confirmed, starting auto-approvals', { txHash, token: tokenOut });
+            logger.info(LogCode.EXE_TX_CONFIRMED, 'Buy confirmed, starting approvals', { txHash, token: tokenOut });
 
             // Approve Max Uint
             const MAX_UINT = '115792089237316195423570985008687907853269984665640564039457584007913129639935';
@@ -223,12 +220,12 @@ export async function executeSellInstant({
     tokenDecimals = 18,
     feeContext
 }: ExecuteSellParams): Promise<string> {
-    const timerLabel = `sell_instant_${walletAddress.slice(0, 8)}_${tokenToSell}`;
+    const timerLabel = `sell_instant_${walletAddress}_${tokenToSell}`;
     logger.startTimer(timerLabel);
     logger.info(LogCode.EXE_TX_BROADCAST, 'Executing SELL', {
-        user: walletAddress.slice(0, 10),
-        tokenToSell: tokenToSell.slice(0, 10),
-        amountToSell,
+        user: walletAddress,
+        token: tokenToSell,
+        amount: amountToSell,
         chainId
     });
 
@@ -266,9 +263,9 @@ export async function executeSellInstant({
         throw new AppError(400, 'Failed to get sell quote from any aggregator', 'QUOTE_FAILED');
     }
 
-    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Received best sell quote', {
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Sell quote received', {
         dex: best.dexName,
-        amountOut: best.amountOutBase
+        out: best.amountOutBase
     });
 
     // Check and Approve Allowance if needed
@@ -293,7 +290,7 @@ export async function executeSellInstant({
         gas: Math.floor(Number(best.gasEstimate) * 1.3).toString(), // Add 30% buffer for complex aggregator routes
     });
 
-    logger.info(LogCode.EXE_TX_BROADCAST, 'Sell transaction broadcasted', { txHash, chainId });
+    logger.info(LogCode.EXE_TX_BROADCAST, 'Sell tx broadcasted', { txHash, chainId });
 
     // WAIT for confirmation and check status
     // WAIT for confirmation and check status

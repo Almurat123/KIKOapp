@@ -7,6 +7,8 @@ import { DuneClient, QueryParameter } from '@duneanalytics/client-sdk';
 import * as dotenv from 'dotenv';
 import { env } from '../config/env.js';
 import { CHAINS } from '../config/chainConfig.js';
+import { logger } from '../utils/logger.js';
+import { LogCode, LogRole } from '../config/logRegistry.js';
 
 dotenv.config();
 
@@ -131,13 +133,18 @@ export async function getWalletPnlFromDune(
     days: number = 30
 ): Promise<DuneWalletPnlSummary | null> {
     if (!DUNE_API_KEY) {
-        console.error('[Dune PNL] API key not configured');
+        logger.error(LogCode.API_AUTH_FAILED, '[Dune PNL] API key not configured', { role: LogRole.EVENT });
         return null;
     }
 
     const duneChain = CHAIN_MAP[chain.toLowerCase()] || chain.toLowerCase();
 
-    console.log(`[Dune PNL] Fetching PNL for ${walletAddress.slice(0, 10)}... on ${duneChain} (${days} days)`);
+    logger.debug(LogCode.AI_API_CALL, `[Dune PNL] Fetching PNL`, {
+        wallet: walletAddress.slice(0, 10),
+        chain: duneChain,
+        days,
+        role: LogRole.METRIC
+    });
     const startTime = Date.now();
 
     try {
@@ -161,10 +168,14 @@ export async function getWalletPnlFromDune(
         );
 
         const executionTime = Date.now() - startTime;
-        console.log(`[Dune PNL] Query ${EVM_PNL_QUERY_ID} completed in ${executionTime}ms`);
+        logger.debug(LogCode.API_FETCH_SUCCESS, `[Dune PNL] Query completed`, {
+            queryId: EVM_PNL_QUERY_ID,
+            durationMs: executionTime,
+            role: LogRole.METRIC
+        });
 
         if (!response?.result?.rows || response.result.rows.length === 0) {
-            console.log('[Dune PNL] No trades found for this wallet');
+            logger.info(LogCode.API_FETCH_SUCCESS, '[Dune PNL] No trades found for this wallet', { role: LogRole.METRIC });
             return {
                 walletAddress,
                 chain: duneChain,
@@ -238,7 +249,11 @@ export async function getWalletPnlFromDune(
         // Sort: Absolute PNL descending
         filteredTokens.sort((a, b) => Math.abs(b.pnlUsd) - Math.abs(a.pnlUsd));
 
-        console.log(`[Dune PNL] ✅ Processed. Net Trader PNL: $${totalPnl.toFixed(2)} (Reflects User Reality)`);
+        logger.info(LogCode.API_FETCH_SUCCESS, `[Dune PNL] ✅ Processed. Net Trader PNL: $${totalPnl.toFixed(2)} (Reflects User Reality)`, {
+            wallet: walletAddress,
+            pnl: totalPnl,
+            role: LogRole.METRIC
+        });
 
         return {
             walletAddress,
@@ -261,7 +276,10 @@ export async function getWalletPnlFromDune(
         };
 
     } catch (error: any) {
-        console.error('[Dune PNL] Query failed:', error.message);
+        logger.error(LogCode.API_FETCH_FAILED, '[Dune PNL] Query failed', {
+            error: error.message,
+            role: LogRole.METRIC
+        });
         return null;
     }
 }

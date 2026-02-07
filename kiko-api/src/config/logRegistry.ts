@@ -1,8 +1,13 @@
 /**
- * Log Registry
- * Centralized definition of all system events and error codes.
- * Every log entry MUST be bound to a code defined here.
+ * Log Role
+ * Categorizes logs by their primary intent.
  */
+export enum LogRole {
+    AUDIT = 'AUDIT',   // Critical business trail (e.g. trades, auth)
+    METRIC = 'METRIC',  // Quantitative data (e.g. performance, RPC stats)
+    EVENT = 'EVENT',    // Lifecycle changes (e.g. startup, config)
+    TRACE = 'TRACE',    // Debugging and flow information
+}
 
 export enum LogCode {
     // --- System & Infrastructure (1xxx) ---
@@ -62,6 +67,7 @@ export enum LogCode {
     AI_LAUNCHPAD_DETECTED = 'AI-6005',
     AI_TOOL_FILTERED = 'AI-6006',
     AI_API_CALL = 'AI-6007',
+    AI_API_ERROR = 'AI-6012',
     AI_TOOL_USED = 'AI-6008',
     AI_MODE_ROUTED = 'AI-6009',
     AI_SKILLS_ATTACHED = 'AI-6010',
@@ -92,6 +98,7 @@ export enum LogCode {
 }
 
 export interface LogMetadata {
+    role?: LogRole;  // [Logic]: Unified role for categorization. [Ref]: implementation_plan.md
     traceId?: string;
     userId?: string;
     chainId?: number;

@@ -13,6 +13,8 @@ import { searchWeb, formatSearchResults } from '../services/searchService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import { resolveGeoFromIp } from '../services/ipGeo.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -102,7 +104,7 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
         try {
             functionArgs = JSON.parse(toolCall.function.arguments);
         } catch (e) {
-            console.error(`[AI Routes] Failed to parse args for ${functionName}:`, toolCall.function.arguments);
+            logger.error(LogCode.AI_TOOL_USED, `[AI Routes] Failed to parse args for ${functionName}`, { args: toolCall.function.arguments });
             toolMessages.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
@@ -111,7 +113,7 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
             continue;
         }
 
-        console.log(`[AI Routes] Executing tool: ${functionName}`, functionArgs);
+        logger.info(LogCode.AI_TOOL_USED, `[AI Routes] Executing tool: ${functionName}`, { args: functionArgs });
 
         try {
             // Execute tool via registry with timeout (30 seconds max per tool)
@@ -125,7 +127,7 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
 
             // Check for client action (Protocol: tool returns { __client_action: ... })
             if (result && typeof result === 'object' && result.__client_action) {
-                console.log(`[AI Routes] Tool ${functionName} returned client action`);
+                logger.info(LogCode.AI_TOOL_USED, `[AI Routes] Tool ${functionName} returned client action`);
                 clientActions.push(result.__client_action);
 
                 // If the tool return has a 'summary' field, use that as the content for LLM
@@ -149,8 +151,9 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
             // Convert result to string if it's an object
             const content = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
 
-            // Log tool result for debugging
-            console.log(`[AI Routes] Tool ${functionName} result (first 500 chars):`, content.substring(0, 500));
+            // Log tool result for debugging (summarized)
+            // Log tool result for debugging (Full fidelity)
+            logger.debug(LogCode.AI_TOOL_USED, `[AI Routes] Tool ${functionName} result`, { length: content.length, result: content });
 
             toolMessages.push({
                 role: 'tool',
@@ -158,9 +161,9 @@ async function executeToolCalls(toolCalls: any[]): Promise<{ toolMessages: ChatM
                 content: `TOOL RESULT - USE THIS DATA EXACTLY AS PROVIDED:\n${content}\n\nIMPORTANT: Copy all fields (names, symbols, prices, addresses) VERBATIM from the JSON above. Do NOT invent, round, or modify any values.`
             });
 
-            console.log(`[AI Routes] Tool ${functionName} completed`);
+            logger.debug(LogCode.AI_TOOL_USED, `[AI Routes] Tool ${functionName} completed`);
         } catch (error: any) {
-            console.error(`[AI Routes] Tool ${functionName} error:`, error);
+            logger.error(LogCode.AI_TOOL_USED, `[AI Routes] Tool ${functionName} error`, { error });
 
             // enhanced error handling for network/socket errors
             let errorMessage = error.message || 'Tool execution failed';
@@ -251,11 +254,11 @@ async function processStreamResponse(
                         // Extract usage data if present
                         if (data.usage) {
                             usage = data.usage;
-                            console.log('[AI Routes] DeepSeek usage extracted:', usage);
+                            logger.debug(LogCode.PERF_METRIC, '[AI Routes] DeepSeek usage extracted', { usage });
                         }
                     } catch (e) {
                         // Ignore parse errors
-                        console.warn('[AI Routes] Failed to parse stream chunk:', line.substring(0, 100));
+                        logger.warn(LogCode.AI_API_CALL, '[AI Routes] Failed to parse stream chunk', { chunk: line });
                     }
                 }
 
@@ -267,14 +270,14 @@ async function processStreamResponse(
                         }
                     } catch (writeError: any) {
                         // If write fails (client disconnected), stop forwarding
-                        console.error('[AI Routes] Failed to write to client stream:', writeError.message);
+                        logger.error(LogCode.WS_ERROR, '[AI Routes] Failed to write to client stream', { error: writeError.message });
                         throw writeError;
                     }
                 }
             }
         }
     } catch (error: any) {
-        console.error('[AI Routes] Stream processing error:', error);
+        logger.error(LogCode.AI_API_CALL, '[AI Routes] Stream processing error', { error });
         // Ensure we release the reader even on error
         if (error.name !== 'AbortError') {
             throw error;
@@ -312,7 +315,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 // -----------------------------------------------------------------
                 if (model.startsWith('grok-')) {
                     const grokServiceUrl = process.env.GROK_SERVICE_URL || 'http://localhost:8000/grok';
-                    console.log(`[AI Routes] Routing Grok request to ${grokServiceUrl}`);
+                    logger.info(LogCode.AI_MODE_ROUTED, `[AI Routes] Routing Grok request to ${grokServiceUrl}`);
 
                     try {
                         const grokMessages = Array.isArray(request.body.messages) ? [...request.body.messages] : [];
@@ -388,7 +391,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         if (!response.ok) {
                             const status = response.status;
                             const errorText = await response.text();
-                            console.error(`[AI Routes] Grok service error (${status}):`, errorText);
+                            logger.error(LogCode.WTC_RPC_ERROR, `[AI Routes] Grok service error (${status})`, { error: errorText });
                             try {
                                 const errorJson = JSON.parse(errorText);
                                 return reply.code(status).send(errorJson);
@@ -418,7 +421,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                     reply.raw.write(value);
                                 }
                             } catch (error) {
-                                console.error('[AI Routes] Grok stream interrupted:', error);
+                                logger.error(LogCode.WS_ERROR, '[AI Routes] Grok stream interrupted', { error });
                             } finally {
                                 reply.raw.end();
                                 reader.releaseLock();
@@ -429,7 +432,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             return reply.send(data);
                         }
                     } catch (error: any) {
-                        console.error('[AI Routes] Failed to proxy to Grok service:', error);
+                        logger.error(LogCode.API_FETCH_FAILED, '[AI Routes] Failed to proxy to Grok service', { error });
                         return reply.code(500).send({ error: `Grok service unreachable: ${error.message}` });
                     }
                 }
@@ -528,19 +531,19 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         if (requestBody.tools.length > 0) {
                             requestBody.tool_choice = 'auto';
                             const toolNames = requestBody.tools.map((t: any) => t.function?.name || t.name);
-                            console.log(`[AI Routes] Attached tools: ${toolNames.join(', ')}, tool_choice: ${requestBody.tool_choice}`);
+                            logger.info(LogCode.AI_TOOL_FILTERED, `[AI Routes] Attached tools`, { tools: toolNames, choice: requestBody.tool_choice });
                         } else {
-                            console.warn('[AI Routes] enable_search was true but no tools were attached');
+                            logger.warn(LogCode.AI_TOOL_FILTERED, '[AI Routes] enable_search was true but no tools were attached');
                         }
                     } else {
-                        console.log('[AI Routes] enable_search=false, tools will not be sent');
+                        logger.debug(LogCode.AI_TOOL_FILTERED, '[AI Routes] enable_search=false, tools will not be sent');
                     }
 
                     // Observability: log high-level request intent (safe, no message content)
                     const toolCount = requestBody.tools?.length || 0;
-                    console.log(`[AI Routes] DeepSeek request summary => model: ${model}, enable_search: ${enable_search}, tool_count: ${toolCount}, tool_choice: ${requestBody.tool_choice || 'none'}`);
+                    logger.info(LogCode.AI_API_CALL, `[AI Routes] DeepSeek request summary`, { model, enable_search, toolCount, tool_choice: requestBody.tool_choice || 'none' });
 
-                    console.log(`[AI Routes] Iteration ${iteration}: Streaming request to DeepSeek`);
+                    logger.debug(LogCode.AI_API_CALL, `[AI Routes] Iteration ${iteration}: Streaming request to DeepSeek`);
 
                     // Retry logic for DeepSeek API calls
                     let response: Response | null = null;
@@ -560,7 +563,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                             if (!response.ok || !response.body) {
                                 const errorData = await response.json().catch(() => ({ error: 'Unknown error' })) as any;
-                                console.error(`[AI Routes] DeepSeek API error (iteration ${iteration}, attempt ${attempt + 1}):`, errorData);
+                                logger.error(LogCode.AI_API_ERROR, `[AI Routes] DeepSeek API error`, { iteration, attempt: attempt + 1, error: errorData });
                                 if (stream) {
                                     reply.raw.write(`data: ${JSON.stringify({ error: errorData.error?.message || 'API error' })}\n\n`);
                                     reply.raw.end();
@@ -572,7 +575,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                 return;
                             }
 
-                            console.log(`[AI Routes] DeepSeek response received (iteration ${iteration}, attempt ${attempt + 1}), processing stream...`);
+                            logger.debug(LogCode.AI_API_CALL, `[AI Routes] DeepSeek response received`, { iteration, attempt: attempt + 1 });
 
                             // Process stream and detect tool calls (forwards to client in real-time)
                             streamResult = await processStreamResponse(response, stream ? reply : null);
@@ -581,7 +584,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             break;
 
                         } catch (streamError: any) {
-                            console.error(`[AI Routes] Stream error (attempt ${attempt + 1}/${maxRetries}):`, streamError.message);
+                            logger.error(LogCode.WS_ERROR, `[AI Routes] Stream error`, { attempt: attempt + 1, maxRetries, error: streamError.message });
 
                             // Check if it's a socket/connection error that we should retry
                             const isRetryable = streamError.message?.includes('terminated') ||
@@ -590,7 +593,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                 streamError.cause?.code === 'UND_ERR_SOCKET';
 
                             if (isRetryable && attempt < maxRetries - 1) {
-                                console.log(`[AI Routes] Retryable error, waiting before retry...`);
+                                logger.info(LogCode.AI_API_CALL, `[AI Routes] Retryable error, waiting before retry...`);
                                 await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
                                 continue;
                             }
@@ -613,7 +616,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     }
 
                     if (!streamResult) {
-                        console.error(`[AI Routes] Failed to get stream result after ${maxRetries} attempts`);
+                        logger.error(LogCode.AI_API_ERROR, `[AI Routes] Failed to get stream result after ${maxRetries} attempts`);
                         if (stream) {
                             reply.raw.write(`data: ${JSON.stringify({ error: 'Failed to connect to AI service after multiple attempts' })}\n\n`);
                             reply.raw.end();
@@ -624,10 +627,10 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     const result = streamResult as any;
                     const { hasToolCalls, toolCalls, assistantContent, reasoningContent, usage } = result;
 
-                    console.log(`[AI Routes] Stream processed - hasToolCalls: ${hasToolCalls}, toolCalls: ${toolCalls.length}, contentLength: ${assistantContent.length}`);
+                    logger.debug(LogCode.AI_API_CALL, `[AI Routes] Stream processed`, { hasToolCalls, toolCallsCount: toolCalls.length, contentLength: assistantContent.length });
 
                     if (hasToolCalls && toolCalls.length > 0) {
-                        console.log(`[AI Routes] Tool calls detected:`, toolCalls.length);
+                        logger.info(LogCode.AI_TOOL_USED, `[AI Routes] Tool calls detected`, { count: toolCalls.length });
 
                         // Send tool call status to client
                         if (stream) {
@@ -666,11 +669,11 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                             conversationMessages.push(...toolMessages);
 
-                            console.log(`[AI Routes] Tool execution complete, continuing to iteration ${iteration + 1}`);
+                            logger.debug(LogCode.AI_TOOL_USED, `[AI Routes] Tool execution complete, continuing to iteration ${iteration + 1}`);
                             // Continue loop for follow-up response
                             continue;
                         } catch (toolError: any) {
-                            console.error(`[AI Routes] Tool execution failed:`, toolError);
+                            logger.error(LogCode.AI_TOOL_USED, `[AI Routes] Tool execution failed`, { error: toolError });
                             // Send error message to client and continue
                             if (stream) {
                                 reply.raw.write(`data: ${JSON.stringify({
@@ -688,7 +691,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     }
 
                     // No tool calls - this is the final response
-                    console.log(`[AI Routes] Final streaming response completed (iteration ${iteration})`);
+                    logger.info(LogCode.AI_API_CALL, `[AI Routes] Final streaming response completed (iteration ${iteration})`);
 
                     // Send citations, client actions, and usage if we have them
                     if (stream && (collectedCitations.length > 0 || collectedClientActions.length > 0 || usage)) {
@@ -708,7 +711,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             }],
                             usage: usage // Add usage data at the top level
                         };
-                        console.log('[AI Routes] Sending usage data to client:', usage);
+                        logger.debug(LogCode.PERF_METRIC, '[AI Routes] Sending usage data to client', { usage });
                         reply.raw.write(`data: ${JSON.stringify(extraDataChunk)}\n\n`);
                     }
 
@@ -738,7 +741,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 }
 
                 // Reached max iterations - try to send a helpful message instead of just error
-                console.warn(`[AI Routes] Maximum iterations (${maxIterations}) reached. Attempting to send summary response.`);
+                logger.warn(LogCode.AI_API_CALL, `[AI Routes] Maximum iterations (${maxIterations}) reached. Attempting to send summary response.`);
 
                 if (stream) {
                     // Try to get a final summary response from AI about what was accomplished
@@ -770,11 +773,11 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         if (summaryResponse.ok && summaryResponse.body) {
                             const { assistantContent } = await processStreamResponse(summaryResponse, reply, true);
                             if (assistantContent) {
-                                console.log('[AI Routes] Summary response sent successfully');
+                                logger.info(LogCode.AI_API_CALL, '[AI Routes] Summary response sent successfully');
                             }
                         }
                     } catch (summaryError: any) {
-                        console.error('[AI Routes] Failed to generate summary:', summaryError);
+                        logger.error(LogCode.AI_API_ERROR, '[AI Routes] Failed to generate summary', { error: summaryError });
                         // Fallback to error message
                         reply.raw.write(`data: ${JSON.stringify({
                             error: `Maximum iterations (${maxIterations}) reached. Please try breaking your request into smaller parts.`,
@@ -793,7 +796,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 }
 
             } catch (error: any) {
-                fastify.log.error('Error in AI chat endpoint:', error);
+                logger.error(LogCode.API_FETCH_FAILED, 'Error in AI chat endpoint', { error });
 
                 // Get these from request body safely if possible, or fallback
                 const stream = (request.body as any)?.stream || false;
@@ -817,7 +820,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                         reply.raw.end();
                     } catch (writeError) {
                         // If we can't write, just log it
-                        fastify.log.error('Error writing error response');
+                        logger.error(LogCode.API_NOTIFY_FAILED, 'Error writing error response');
                     }
                 } else {
                     // For non-streaming, use standard error response
@@ -849,7 +852,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 count: skillsMetadata.length
             });
         } catch (error: any) {
-            fastify.log.error('Error fetching skills:', error);
+            logger.error(LogCode.SYS_ERROR, 'Error fetching skills', { error });
             return reply.code(500).send({
                 error: 'Failed to fetch skills',
                 message: error.message
@@ -879,7 +882,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
             const result = await toolRegistry.execute(toolName, args, context);
             return reply.send({ result });
         } catch (error: any) {
-            fastify.log.error('Error executing tool:', error);
+            logger.error(LogCode.AI_TOOL_USED, 'Error executing tool', { error });
             return reply.code(500).send({
                 error: error.message || 'Tool execution failed',
             });

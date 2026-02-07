@@ -10,6 +10,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { TOKEN_REGISTRY, getTokenDecimalsFromRegistry, NATIVE_TOKEN_ADDRESS } from '../config/tokenRegistry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { get as cacheGet, set as cacheSet } from '../cache/redis.js';
 import { ethers } from 'ethers';
 import { calculatePriceFromSqrtX96, findV4Pools, V4_STATE_VIEW } from './dex/uniswapV4.js';
 import { get as getDbCache, set as setDbCache } from '../cache/dbCache.js';
@@ -189,6 +190,9 @@ interface PriceCache {
 }
 const priceCache = new Map<string, PriceCache>();
 const PRICE_CACHE_TTL = 5000; // 5 second cache
+function onChainPriceRedisKey(cacheKey: string): string {
+    return `onchain:price:${cacheKey}`;
+}
 
 type RpcStrategy = 'fast' | 'cheap';
 const FAST_RPC_RACE = Number(process.env.FAST_RPC_RACE || 2);
@@ -344,6 +348,23 @@ export async function getOnChainPrice(
             dexName: `${cached.dexName} (cached)`
         };
     }
+    const redisCached = await cacheGet(onChainPriceRedisKey(cacheKey)).catch(() => null);
+    if (redisCached) {
+        try {
+            const parsed = JSON.parse(redisCached) as PriceCache;
+            if (parsed && Date.now() - parsed.timestamp < PRICE_CACHE_TTL) {
+                priceCache.set(cacheKey, parsed);
+                return {
+                    price: parsed.price,
+                    marketCap: parsed.marketCap,
+                    pairAddress: '',
+                    dexName: `${parsed.dexName} (cached)`
+                };
+            }
+        } catch {
+            // ignore parse errors
+        }
+    }
 
     const factories = DEX_FACTORIES[chainId] || [];
     const routers = DEX_ROUTERS[chainId] || [];
@@ -372,6 +393,11 @@ export async function getOnChainPrice(
                         timestamp: Date.now(),
                         dexName: v4Result.dexName
                     });
+                    await cacheSet(
+                        onChainPriceRedisKey(cacheKey),
+                        JSON.stringify(priceCache.get(cacheKey)),
+                        Math.ceil(PRICE_CACHE_TTL / 1000)
+                    ).catch(() => { });
                     return v4Result;
                 }
             } catch {
@@ -390,6 +416,11 @@ export async function getOnChainPrice(
                         timestamp: Date.now(),
                         dexName: v4PoolResult.dexName
                     });
+                    await cacheSet(
+                        onChainPriceRedisKey(cacheKey),
+                        JSON.stringify(priceCache.get(cacheKey)),
+                        Math.ceil(PRICE_CACHE_TTL / 1000)
+                    ).catch(() => { });
                     return v4PoolResult;
                 }
             } catch {
@@ -449,6 +480,11 @@ export async function getOnChainPrice(
                     timestamp: Date.now(),
                     dexName: result.value.factory
                 });
+                await cacheSet(
+                    onChainPriceRedisKey(cacheKey),
+                    JSON.stringify(priceCache.get(cacheKey)),
+                    Math.ceil(PRICE_CACHE_TTL / 1000)
+                ).catch(() => { });
                 logger.info(LogCode.API_FETCH_SUCCESS, `On-chain price fetched from ${result.value.factory}`, {
                     token: tokenAddress,
                     price: data.price,
@@ -490,6 +526,11 @@ export async function getOnChainPrice(
                         timestamp: Date.now(),
                         dexName: router.name
                     });
+                    await cacheSet(
+                        onChainPriceRedisKey(cacheKey),
+                        JSON.stringify(priceCache.get(cacheKey)),
+                        Math.ceil(PRICE_CACHE_TTL / 1000)
+                    ).catch(() => { });
                     logger.info(LogCode.API_FETCH_SUCCESS, `🔗 Router fallback succeeded: ${router.name}`, {
                         token: tokenAddress,
                         price: routerData.price,

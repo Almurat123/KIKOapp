@@ -1,6 +1,8 @@
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import type { DecodedSwap } from './txDecoder.js';
+import { acquireLock, releaseLock, get as cacheGet, set as cacheSet } from '../cache/redis.js';
+import { randomUUID } from 'node:crypto';
 
 type QueueTask = {
     targetWallet: string;
@@ -12,6 +14,13 @@ const queue: QueueTask[] = [];
 let inFlight = 0;
 
 const MAX_CONCURRENCY = Number(process.env.COPYTRADE_QUEUE_CONCURRENCY || 20);
+const COPYTRADE_TASK_LOCK_TTL_SECONDS = Number(process.env.COPYTRADE_TASK_LOCK_TTL_SECONDS || 120);
+const COPYTRADE_TASK_DEDUP_TTL_SECONDS = Number(process.env.COPYTRADE_TASK_DEDUP_TTL_SECONDS || 300);
+
+function getTaskKey(task: QueueTask): string {
+    const txHash = (task.swap?.txHash || 'nohash').toLowerCase();
+    return `copytrade:task:${task.chainId}:${task.targetWallet.toLowerCase()}:${txHash}`;
+}
 
 function processQueue(): void {
     while (inFlight < MAX_CONCURRENCY && queue.length > 0) {
@@ -21,8 +30,23 @@ function processQueue(): void {
         inFlight += 1;
         Promise.resolve()
             .then(async () => {
+                const taskKey = getTaskKey(task);
+                const doneKey = `${taskKey}:done`;
+                const alreadyDone = await cacheGet(doneKey).catch(() => null);
+                if (alreadyDone) return;
+
+                const lockKey = `${taskKey}:lock`;
+                const lockValue = randomUUID();
+                const claimed = await acquireLock(lockKey, COPYTRADE_TASK_LOCK_TTL_SECONDS, lockValue).catch(() => false);
+                if (!claimed) return;
+
                 const { handleSwapDetected } = await import('./autoTradeService.js');
-                await handleSwapDetected(task.targetWallet, task.swap, task.chainId);
+                try {
+                    await handleSwapDetected(task.targetWallet, task.swap, task.chainId);
+                    await cacheSet(doneKey, '1', COPYTRADE_TASK_DEDUP_TTL_SECONDS).catch(() => { });
+                } finally {
+                    await releaseLock(lockKey, lockValue).catch(() => { });
+                }
             })
             .catch((err: any) => {
                 logger.error(LogCode.SYS_ERROR, 'Copytrade task failed', {

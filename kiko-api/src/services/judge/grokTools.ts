@@ -10,6 +10,8 @@ import {
     FinalDecision
 } from '../../types/judgeTypes.js';
 import { fetchJson } from '../../config/unifiedApiService.js';
+import { logger } from '../../utils/logger.js';
+import { LogCode, LogRole } from '../../config/logRegistry.js';
 
 
 const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
@@ -85,7 +87,10 @@ export async function analyzeTwitterPresence(
     const sAddress = sanitizeInput(tokenAddress, 64);
     const sTwitter = twitterUrl ? sanitizeInput(twitterUrl, 150) : '';
 
-    console.log(`[Grok Tools] Analyzing Twitter presence for ${sSymbol}`);
+    logger.debug(LogCode.AI_TOOL_USED, `[Grok Tools] Analyzing Twitter presence`, {
+        symbol: sSymbol,
+        role: LogRole.METRIC
+    });
 
     const prompt = `
 You have access to x_search tool. Use it to analyze the Twitter/X presence for this crypto token.
@@ -132,7 +137,10 @@ Output ONLY this JSON:
         const jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
         const result = JSON.parse(jsonStr);
 
-        console.log(`[Grok Tools] Twitter analysis result:`, result);
+        logger.debug(LogCode.AI_INTENT_PARSED, `[Grok Tools] Twitter analysis complete`, {
+            result,
+            role: LogRole.METRIC
+        });
 
         return {
             twitterActive: result.twitterActive ?? false,
@@ -146,7 +154,10 @@ Output ONLY this JSON:
         };
 
     } catch (error) {
-        console.error('[Grok Tools] Twitter analysis error:', error);
+        logger.error(LogCode.AI_INTENT_FAILED, '[Grok Tools] Twitter analysis error', {
+            error,
+            role: LogRole.METRIC
+        });
         return {
             twitterActive: false,
             twitterFollowers: 0,
@@ -171,7 +182,10 @@ export async function analyzeWebsite(
     const sUrl = sanitizeInput(websiteUrl, 200);
     const sSymbol = sanitizeInput(tokenSymbol, 20);
 
-    console.log(`[Grok Tools] Analyzing website: ${sUrl}`);
+    logger.debug(LogCode.AI_TOOL_USED, `[Grok Tools] Analyzing website`, {
+        url: sUrl,
+        role: LogRole.METRIC
+    });
 
     if (!sUrl) {
         return {
@@ -229,7 +243,10 @@ Output ONLY this JSON:
         const jsonStr = content.replace(/```json\n?|\n?```/g, '').trim();
         const result = JSON.parse(jsonStr);
 
-        console.log(`[Grok Tools] Website analysis result:`, result);
+        logger.debug(LogCode.AI_INTENT_PARSED, `[Grok Tools] Website analysis complete`, {
+            result,
+            role: LogRole.METRIC
+        });
 
         return {
             websiteReachable: result.websiteReachable ?? false,
@@ -242,7 +259,10 @@ Output ONLY this JSON:
         };
 
     } catch (error) {
-        console.error('[Grok Tools] Website analysis error:', error);
+        logger.error(LogCode.AI_INTENT_FAILED, '[Grok Tools] Website analysis error', {
+            error,
+            role: LogRole.METRIC
+        });
         return {
             websiteReachable: false,
             designQuality: 0,

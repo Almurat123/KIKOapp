@@ -39,21 +39,81 @@ import { getTokenInfo } from './tokenService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { getDexPrice } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
+import { get as cacheGet, set as cacheSet, acquireLock, releaseLock } from '../cache/redis.js';
 import pLimit from 'p-limit'; // Fix 3: Unbounded Parallelism
 import { logger } from '../utils/logger.js';
-import { LogCode } from '../config/logRegistry.js';
+import { LogCode, LogRole } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
+import { randomUUID } from 'crypto';
 
 export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
+const positionExitLockValues = new Map<string, string>();
+const POSITION_EXIT_LOCK_TTL_SECONDS = Number(process.env.POSITION_EXIT_LOCK_TTL_SECONDS || 180);
 const positionPriceFallbackCache = new Map<string, { tokenInfo: any; timestamp: number }>();
 const POSITION_PRICE_STALE_TTL_MS = 5 * 60 * 1000;
 
 // Per-user trade locks to prevent concurrent trade execution for same user
 const userTradeLocks = new Map<string, Promise<any>>();
 const TRADE_LOCK_TIMEOUT_MS = 90000; // 90 seconds max wait for lock
+const DISTRIBUTED_USER_LOCK_TTL_SECONDS = Math.ceil(TRADE_LOCK_TIMEOUT_MS / 1000) + 15;
+const DISTRIBUTED_USER_LOCK_RETRY_MS = 200;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function positionExitLockKey(positionId: string): string {
+    return `copytrade:position_exit:${positionId}`;
+}
+
+async function isPositionExitLocked(positionId: string): Promise<boolean> {
+    if (positionsBeingExited.has(positionId)) return true;
+    const remote = await cacheGet(positionExitLockKey(positionId)).catch(() => null);
+    return Boolean(remote);
+}
+
+async function claimPositionExitLock(positionId: string): Promise<boolean> {
+    if (positionsBeingExited.has(positionId)) return false;
+    const lockValue = randomUUID();
+    const acquired = await acquireLock(positionExitLockKey(positionId), POSITION_EXIT_LOCK_TTL_SECONDS, lockValue).catch(() => false);
+    if (!acquired) return false;
+    positionsBeingExited.add(positionId);
+    positionExitLockValues.set(positionId, lockValue);
+    return true;
+}
+
+async function releasePositionExitLock(positionId: string): Promise<void> {
+    positionsBeingExited.delete(positionId);
+    const lockValue = positionExitLockValues.get(positionId);
+    if (lockValue) {
+        positionExitLockValues.delete(positionId);
+        await releaseLock(positionExitLockKey(positionId), lockValue).catch(() => { });
+    }
+}
+
+async function claimAllPositionExitLocks(positionIds: string[]): Promise<boolean> {
+    const acquired: string[] = [];
+    for (const id of positionIds) {
+        const ok = await claimPositionExitLock(id);
+        if (!ok) {
+            for (const releaseId of acquired) {
+                await releasePositionExitLock(releaseId);
+            }
+            return false;
+        }
+        acquired.push(id);
+    }
+    return true;
+}
+
+async function releaseAllPositionExitLocks(positionIds: string[]): Promise<void> {
+    for (const id of positionIds) {
+        await releasePositionExitLock(id);
+    }
+}
 
 /**
  * Execute a function with per-user locking to prevent concurrent trades
@@ -64,7 +124,7 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
     // Wait for any existing trade to complete (with timeout)
     const existingLock = userTradeLocks.get(userId);
     if (existingLock) {
-        logger.debug(LogCode.WTC_TX_SKIPPED, `Waiting for existing trade lock for user ${userId.slice(0, 10)}...`, { userId });
+        logger.debug(LogCode.WTC_TX_SKIPPED, `Waiting for existing trade lock for user ${userId}...`, { userId });
         try {
             // Race between existing lock and timeout
             await Promise.race([
@@ -76,7 +136,7 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
         } catch (err: any) {
             // If timeout, force clear the stale lock and proceed
             if (err.message === 'Lock timeout') {
-                logger.warn(LogCode.SYS_ERROR, 'Trade lock timeout, forcing lock release', { userId: userId.slice(0, 10) });
+                logger.warn(LogCode.SYS_ERROR, 'Trade lock timeout, forcing lock release', { userId });
                 userTradeLocks.delete(userId);
             }
             // Ignore other errors from previous trade
@@ -84,6 +144,29 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
     }
 
     // Create new lock
+    const distributedLockKey = `copytrade:userlock:${userId}`;
+    const lockValue = randomUUID();
+    const lockDeadline = Date.now() + TRADE_LOCK_TIMEOUT_MS;
+    let distributedLockAcquired = false;
+
+    while (Date.now() < lockDeadline) {
+        distributedLockAcquired = await acquireLock(
+            distributedLockKey,
+            DISTRIBUTED_USER_LOCK_TTL_SECONDS,
+            lockValue
+        ).catch(() => false);
+
+        if (distributedLockAcquired) break;
+        await sleep(DISTRIBUTED_USER_LOCK_RETRY_MS);
+    }
+
+    if (!distributedLockAcquired) {
+        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: distributed user lock busy', {
+            userId
+        });
+        throw new Error('DUPLICATE_TRADE: Distributed user lock busy');
+    }
+
     const lockPromise = fn();
     userTradeLocks.set(userId, lockPromise);
 
@@ -94,6 +177,7 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
         if (userTradeLocks.get(userId) === lockPromise) {
             userTradeLocks.delete(userId);
         }
+        await releaseLock(distributedLockKey, lockValue).catch(() => { });
     }
 }
 
@@ -162,23 +246,25 @@ async function tryAcquireDistributedTradeLock(
     return rows?.[0]?.acquired === true;
 }
 
-/**
- * Check if a token is currently locked for a user (trade in progress)
- * If not locked, acquires the lock
- */
-function isTokenLockedForUser(userId: string, tokenAddress: string, chainId: number): boolean {
+async function isTokenLockedForUserDistributed(userId: string, tokenAddress: string, chainId: number): Promise<boolean> {
     const key = `${userId}:${chainId}:${tokenAddress.toLowerCase()}`;
-    const lockTime = userTokenLocks.get(key);
     const now = Date.now();
+    const lockTime = userTokenLocks.get(key);
 
     if (lockTime && now - lockTime < USER_TOKEN_LOCK_DURATION_MS) {
-        return true; // Still locked from previous trade attempt
+        return true;
     }
 
-    // Acquire lock
-    userTokenLocks.set(key, now);
+    const redisLockKey = `copytrade:tokenlock:${key}`;
+    const lockValue = `${now}`;
+    const lockTtlSeconds = Math.max(1, Math.ceil(USER_TOKEN_LOCK_DURATION_MS / 1000));
+    const acquired = await acquireLock(redisLockKey, lockTtlSeconds, lockValue).catch(() => false);
+    if (!acquired) {
+        userTokenLocks.set(key, now);
+        return true;
+    }
 
-    // Cleanup old entries periodically
+    userTokenLocks.set(key, now);
     if (userTokenLocks.size > 500) {
         for (const [k, timestamp] of userTokenLocks.entries()) {
             if (now - timestamp > USER_TOKEN_LOCK_DURATION_MS) {
@@ -186,7 +272,6 @@ function isTokenLockedForUser(userId: string, tokenAddress: string, chainId: num
             }
         }
     }
-
     return false;
 }
 
@@ -203,17 +288,26 @@ function getSwapKey(targetWallet: string, swap: DecodedSwap, chainId: number): s
 /**
  * Check if this swap was recently processed
  */
-function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: number): boolean {
+async function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: number): Promise<boolean> {
     const key = getSwapKey(targetWallet, swap, chainId);
     const lastSeen = recentSwaps.get(key);
+    const dedupTtlSeconds = Math.max(1, Math.ceil(SWAP_DEDUP_WINDOW_MS / 1000));
+    const distributedKey = `copytrade:swapdedup:${chainId}:${key}`;
 
     if (lastSeen && Date.now() - lastSeen < SWAP_DEDUP_WINDOW_MS) {
         // logger.throttled(LogCode.WTC_TX_SKIPPED, `Skipping duplicate swap (last seen ${Date.now() - lastSeen}ms ago)`, { targetWallet, chainId });
         return true;
     }
 
+    const cached = await cacheGet(distributedKey).catch(() => null);
+    if (cached) {
+        recentSwaps.set(key, Date.now());
+        return true;
+    }
+
     // Mark as seen
     recentSwaps.set(key, Date.now());
+    await cacheSet(distributedKey, '1', dedupTtlSeconds).catch(() => { });
 
     // Cleanup old entries (prevent memory leak)
     if (recentSwaps.size > 1000) {
@@ -348,19 +442,16 @@ export async function handleSwapDetected(
         return;
     }
 
-    logger.info(LogCode.WTC_SWAP_DETECTED, 'Swap detected on target wallet', {
+    logger.info(LogCode.WTC_SWAP_DETECTED, 'Swap detected', {
         wallet: targetWallet,
-        tokenIn: swap.tokenIn,
-        tokenOut: swap.tokenOut,
-        amountIn: swap.amountIn,
-        amountOut: swap.amountOut,
-        chainId,
-        txHash: swap.txHash,
-        detectedAt
+        pair: `${swap.tokenIn}->${swap.tokenOut}`,
+        in: swap.amountIn,
+        out: swap.amountOut,
+        tx: swap.txHash
     });
 
     // Check for duplicate swap
-    if (isDuplicateSwap(targetWallet, swap, chainId)) {
+    if (await isDuplicateSwap(targetWallet, swap, chainId)) {
         return; // Skip duplicate
     }
 
@@ -404,22 +495,24 @@ export async function handleSwapDetected(
     const isSell = !isTokenInCash && isTokenOutCash;
     const isTokenToToken = !isTokenInCash && !isTokenOutCash;
 
-    logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis complete', {
-        isBuy,
-        isSell,
-        isTokenToToken,
-        tokenInIsCash: isTokenInCash,
-        tokenOutIsCash: isTokenOutCash
-    });
+    /* [DANGER_ZONE_UNVERIFIED] Complex logic for buy/sell detection.
+     * logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis', { isBuy, isSell, isTokenToToken });
+     */
 
     if (isSell) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Triggering mirror sell', {
+            target: targetWallet,
+            token: swap.tokenIn
+        });
         await handleTargetSell(targetWallet, swap, chainId);
     } else if (isBuy) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Triggering copy buy', {
+            target: targetWallet,
+            token: swap.tokenOut
+        });
         await handleTargetBuy(targetWallet, swap, chainId, { detectedAt });
     } else if (isTokenToToken) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Triggering fast swap (Buy+Sell)', { target: targetWallet });
         await Promise.all([
             handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', { error: e.message })),
             handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
@@ -445,13 +538,11 @@ async function handleTargetBuy(
     // I will fix this logic now too: `const tokenToBuy = swap.tokenOut`.
     const tokenToBuy = swap.tokenOut;
     const detectedAt = context?.detectedAt ?? Date.now();
-    logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target buy start', {
-        targetWallet,
+    // [LogCode.EXE_QUOTE_FETCHED] Concise
+    logger.info(LogCode.EXE_QUOTE_FETCHED, 'Target buy start', {
+        wallet: targetWallet,
         token: tokenToBuy,
-        chainId,
-        txHash: swap.txHash,
-        detectedAt,
-        elapsedMs: Date.now() - detectedAt
+        elapsed: Date.now() - detectedAt
     });
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
@@ -515,17 +606,14 @@ async function handleTargetBuy(
                 provider: 'rpc-metadata'
             };
 
-            logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Token info disabled - using RPC metadata fallback', {
-                token: tokenToBuy,
-                chainId
-            });
+            logger.info(LogCode.EXE_QUOTE_FETCHED, 'Using metadata fallback (Fast Mode)', { token: tokenToBuy });
 
             await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
             return;
         } catch (err: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
                 token: tokenToBuy,
-                error: err?.message?.slice(0, 120)
+                error: err?.message
             });
             // Fall through to standard flow
         }
@@ -597,10 +685,7 @@ async function handleTargetBuy(
                     provider: 'rpc-metadata'
                 };
 
-                logger.warn(LogCode.API_FETCH_FAILED, 'RPC price missing - proceeding with metadata-only fallback (fast mode)', {
-                    token: tokenToBuy,
-                    chainId
-                });
+                logger.warn(LogCode.API_FETCH_FAILED, 'Metadata-only fallback (Fast Mode)', { token: tokenToBuy });
 
                 await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
                 return;
@@ -631,13 +716,9 @@ async function processBuyWithInfo(
     tokenInfoCache?: Map<string, Promise<any>>,
     detectedAt?: number
 ) {
-    const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
+    // const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true; // Disabled for brevity
     const tStart = Date.now();
-    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
-        count: configs.length,
-        price: tokenInfo.price,
-        fallback: isFallbackMode
-    });
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing buy configs', { count: configs.length, price: tokenInfo.price });
 
     let judgeDecisionId: string | null = null;
 
@@ -755,10 +836,9 @@ async function processBuyWithInfo(
     ]);
     const cacheMs = Date.now() - cacheStart;
 
-    logger.debug(LogCode.EXE_QUOTE_FETCHED, '⚡ Shared data fetched via Cache Hub', {
-        userCount: configs.length,
-        nativePrice: sharedNativePrice,
-        settingsFetched: userSettingsMap.size
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Shared data fetched', {
+        users: configs.length,
+        price: sharedNativePrice
     });
 
     // ⚡ BATCH FILTER: Pre-filter users IN PARALLEL (优化: 串行 → 并行)
@@ -821,10 +901,10 @@ async function processBuyWithInfo(
         }
     }
 
-    logger.info(LogCode.EXE_QUOTE_FETCHED, '🔍 Batch filter complete (PARALLEL)', {
+    logger.info(LogCode.EXE_QUOTE_FETCHED, 'Batch filter complete', {
         total: configs.length,
-        eligible: eligibleConfigs.length,
-        skipped: skippedUsers.length
+        ok: eligibleConfigs.length,
+        skip: skippedUsers.length
     });
 
     // Send notifications to skipped users (async, non-blocking)
@@ -876,23 +956,18 @@ async function processBuyWithInfo(
     const MAX_LIQUIDITY_IMPACT_PERCENT = 30;
     const maxAllowedVolumeUsd = liquidity * (MAX_LIQUIDITY_IMPACT_PERCENT / 100);
 
-    logger.info(LogCode.EXE_QUOTE_FETCHED, '📊 Mass Copy Trade Analysis', {
-        userCount: configs.length,
-        totalVolumeUsd: totalVolumeUsd.toFixed(2),
-        liquidity: liquidity.toFixed(2),
-        maxAllowedVolumeUsd: maxAllowedVolumeUsd.toFixed(2),
-        willScale: totalVolumeUsd > maxAllowedVolumeUsd
+    logger.info(LogCode.EXE_QUOTE_FETCHED, 'Mass analysis', {
+        users: configs.length,
+        vol: totalVolumeUsd.toFixed(0),
+        liq: liquidity.toFixed(0),
+        cap: maxAllowedVolumeUsd.toFixed(0)
     });
 
     // Calculate scaling factor if we need to reduce individual amounts
     let scalingFactor = 1.0;
     if (liquidity > 0 && totalVolumeUsd > maxAllowedVolumeUsd) {
         scalingFactor = maxAllowedVolumeUsd / totalVolumeUsd;
-        logger.warn(LogCode.WTC_TX_SKIPPED, `⚠️ Scaling down trades to protect liquidity`, {
-            originalTotal: totalVolumeUsd.toFixed(2),
-            scaledTotal: maxAllowedVolumeUsd.toFixed(2),
-            scalingFactor: scalingFactor.toFixed(3)
-        });
+        logger.warn(LogCode.WTC_TX_SKIPPED, `Scaling trades down`, { factor: scalingFactor.toFixed(3) });
     }
 
     // 🎯 SMART BATCHING: Adjust batch size based on liquidity
@@ -930,10 +1005,7 @@ async function processBuyWithInfo(
         const batchNum = Math.floor(i / dynamicBatchSize) + 1;
         const totalBatches = Math.ceil(sortedConfigs.length / dynamicBatchSize);
 
-        logger.info(LogCode.EXE_TX_BROADCAST, `📦 Processing batch ${batchNum}/${totalBatches}`, {
-            batchSize: batch.length,
-            priceMultiplier: currentPriceMultiplier.toFixed(3)
-        });
+        logger.info(LogCode.EXE_TX_BROADCAST, `Processing batch ${batchNum}/${totalBatches}`, { size: batch.length });
 
         // Execute batch in parallel
         const results = await Promise.allSettled(
@@ -1025,24 +1097,12 @@ async function processBuyWithInfo(
     }
     const execMs = Date.now() - execStart;
 
-    logger.info(LogCode.EXE_TX_CONFIRMED, `✅ Smart batch execution complete`, {
-        targetWallet,
+    logger.info(LogCode.EXE_TX_CONFIRMED, `Batch exec complete`, {
+        wallet: targetWallet,
         token: tokenToBuy,
-        totalUsers: configs.length,
-        success: successCount,
-        failed: failCount,
-        scalingFactor: scalingFactor.toFixed(3),
-        batchSize: dynamicBatchSize,
-        finalPriceMultiplier: currentPriceMultiplier.toFixed(3),
-        ...(PROFILE ? {
-            profile: {
-                valueMs,
-                cacheMs,
-                filterMs,
-                execMs,
-                totalMs: Date.now() - tStart
-            }
-        } : {})
+        ok: successCount,
+        fail: failCount,
+        factor: scalingFactor.toFixed(2)
     });
 }
 
@@ -1083,7 +1143,7 @@ async function processSingleUserBuy(
                 return;
             }
 
-            if (isTokenLockedForUser(config.userId, tokenToBuy, chainId)) {
+            if (await isTokenLockedForUserDistributed(config.userId, tokenToBuy, chainId)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: token lock active', {
                     userId: config.userId,
                     token: tokenToBuy
@@ -2386,12 +2446,16 @@ async function handleTargetSell(
         recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
 
         const positionIds = positions.map(p => p.id);
-        if (positionIds.some(id => positionsBeingExited.has(id))) {
+        if ((await Promise.all(positionIds.map(id => isPositionExitLocked(id)))).some(Boolean)) {
             logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
             return;
         }
 
-        positionIds.forEach(id => positionsBeingExited.add(id));
+        const allClaimed = await claimAllPositionExitLocks(positionIds);
+        if (!allClaimed) {
+            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: distributed position exit lock busy', { userId: config.userId, token: tokenToSell });
+            return;
+        }
         try {
             await executePositionExit({
                 userId: config.userId,
@@ -2402,7 +2466,7 @@ async function handleTargetSell(
                 config: { ...config, user: (config as any).user }
             });
         } finally {
-            positionIds.forEach(id => positionsBeingExited.delete(id));
+            await releaseAllPositionExitLocks(positionIds);
         }
     }));
 }
@@ -2679,7 +2743,7 @@ export async function checkPositionsForExits(): Promise<void> {
 
         await Promise.all(batch.map(async (position) => {
             // Skip if this position is already being processed
-            if (positionsBeingExited.has(position.id)) return;
+            if (await isPositionExitLocked(position.id)) return;
 
             try {
                 // STEP A: Check on-chain balance first (detect manual sells or dust)
@@ -2821,7 +2885,8 @@ export async function checkPositionsForExits(): Promise<void> {
                         profitLossPct: profitLossPct.toFixed(2)
                     });
 
-                    positionsBeingExited.add(position.id);
+                    const lockAcquired = await claimPositionExitLock(position.id);
+                    if (!lockAcquired) return;
                     try {
                         await executePositionExit({
                             userId: position.userId,
@@ -2832,7 +2897,7 @@ export async function checkPositionsForExits(): Promise<void> {
                             config: { ...config, user: position.user }
                         });
                     } finally {
-                        positionsBeingExited.delete(position.id);
+                        await releasePositionExitLock(position.id);
                     }
                 }
                 // Check stop loss
@@ -2843,7 +2908,8 @@ export async function checkPositionsForExits(): Promise<void> {
                         profitLossPct: profitLossPct.toFixed(2)
                     });
 
-                    positionsBeingExited.add(position.id);
+                    const lockAcquired = await claimPositionExitLock(position.id);
+                    if (!lockAcquired) return;
                     try {
                         await executePositionExit({
                             userId: position.userId,
@@ -2854,7 +2920,7 @@ export async function checkPositionsForExits(): Promise<void> {
                             config: { ...config, user: position.user }
                         });
                     } finally {
-                        positionsBeingExited.delete(position.id);
+                        await releasePositionExitLock(position.id);
                     }
                 } else {
                     // === Dynamic Take Profit Check ===
@@ -2892,7 +2958,8 @@ export async function checkPositionsForExits(): Promise<void> {
                                 });
                             }
 
-                            positionsBeingExited.add(position.id);
+                            const lockAcquired = await claimPositionExitLock(position.id);
+                            if (!lockAcquired) return;
                             try {
                                 await executePositionExit({
                                     userId: position.userId,
@@ -2905,7 +2972,7 @@ export async function checkPositionsForExits(): Promise<void> {
                                     // otherwise it uses default. For now assume default is okay or logic inside handles it)
                                 });
                             } finally {
-                                positionsBeingExited.delete(position.id);
+                                await releasePositionExitLock(position.id);
                             }
                         }
                     }

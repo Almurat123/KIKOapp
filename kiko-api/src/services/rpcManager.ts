@@ -9,7 +9,7 @@
 
 import { getChainConfig } from '../config/chainConfig.js';
 import { logger } from '../utils/logger.js';
-import { LogCode } from '../config/logRegistry.js';
+import { LogCode, LogRole } from '../config/logRegistry.js';
 import { callRpc as unifiedCallRpc, fetchJson } from '../config/unifiedApiService.js';
 import { getRpcEndpointsWithStrategy, RpcEndpointConfig } from '../config/apiEndpoints.js';
 import { getCachedRpc, setCachedRpc, buildCacheKey, getTtlForMethod, isCacheable } from './rpcCache.js';
@@ -249,7 +249,8 @@ export async function callRpc<T = any>(
             if (upgraded.length > 0) {
                 endpoints = filterEndpointsByMethod(upgraded, method);
                 logger.warn(LogCode.API_FETCH_FAILED, 'RPC strategy upgraded to fast due to degraded cheap pool', {
-                    chain: chainName
+                    chain: chainName,
+                    role: LogRole.METRIC
                 });
             }
         }
@@ -284,7 +285,10 @@ export async function callRpc<T = any>(
 
         // Check circuit breaker
         if (isCircuitOpen(endpoint.url)) {
-            logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, { endpoint: maskEndpoint(endpoint.url) });
+            logger.debug(LogCode.API_FETCH_FAILED, `RPC circuit open, skipping endpoint`, {
+                endpoint: maskEndpoint(endpoint.url),
+                role: LogRole.METRIC
+            });
             continue;
         }
 
@@ -347,7 +351,8 @@ export async function callRpc<T = any>(
                     chain: chainName,
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
-                    responseTime
+                    responseTime,
+                    role: LogRole.METRIC
                 });
             }
 
@@ -376,7 +381,8 @@ export async function callRpc<T = any>(
                     endpoint: i + 1,
                     total: sortedEndpoints.length,
                     error: error.message,
-                    duration: Date.now() - startTime
+                    duration: Date.now() - startTime,
+                    role: LogRole.METRIC
                 });
             }
 
@@ -398,7 +404,8 @@ export async function callRpc<T = any>(
             chain: chainName,
             method,
             totalEndpoints: sortedEndpoints.length,
-            lastError: lastError?.message
+            lastError: lastError?.message,
+            role: LogRole.METRIC
         });
     } else {
         logger.debug(LogCode.API_FETCH_FAILED, 'All RPC endpoints failed (suppressed)', {

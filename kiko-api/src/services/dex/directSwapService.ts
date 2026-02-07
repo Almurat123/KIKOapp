@@ -24,6 +24,7 @@ import { getKyberQuote } from '../kyberAggregator.js';
 import { getTokenDetails } from '../geckoTerminal.js';
 import { getTokenMetadata } from '../rpcService.js';
 import { get as getDbCache } from '../../cache/dbCache.js';
+import { get as cacheGet, set as cacheSet, del as cacheDel } from '../../cache/redis.js';
 import { V2_ROUTER_ABI, V3_FEE_TIERS } from './types.js';
 import { buildAerodromeSwapTransaction, getAerodromeQuote } from './aerodrome.js';
 import { getChainConfig } from '../../config/chainConfig.js';
@@ -115,6 +116,9 @@ const v4QuoterCache = new Map<string, { value: bigint; timestamp: number }>();
 const referenceQuoteCache = new Map<string, { value: bigint; timestamp: number }>();
 const infinityPairCache = new Map<string, { poolKeys: InfinityPoolKey[]; timestamp: number }>();
 const noPoolNegativeCache = new Map<string, { reason: string; timestamp: number }>();
+function v4SpotRedisKey(cacheKey: string): string { return `directswap:v4spot:${cacheKey}`; }
+function v4QuoterRedisKey(cacheKey: string): string { return `directswap:v4quoter:${cacheKey}`; }
+function referenceQuoteRedisKey(cacheKey: string): string { return `directswap:refquote:${cacheKey}`; }
 
 type DexFamily = 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
 type StrategyKind = 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity' | 'zora-sdk' | 'virtual-bridge';
@@ -270,7 +274,11 @@ function getNoPoolCacheKey(chainId: number, tokenIn: string, tokenOut: string): 
     return `${chainId}:${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}`;
 }
 
-function isFreshNoPoolCache(chainId: number, tokenIn: string, tokenOut: string): boolean {
+function noPoolRedisKey(chainId: number, tokenIn: string, tokenOut: string): string {
+    return `directswap:nopool:${getNoPoolCacheKey(chainId, tokenIn, tokenOut)}`;
+}
+
+async function isFreshNoPoolCache(chainId: number, tokenIn: string, tokenOut: string): Promise<boolean> {
     const key = getNoPoolCacheKey(chainId, tokenIn, tokenOut);
     const hit = noPoolNegativeCache.get(key);
     if (!hit) return false;
@@ -278,16 +286,21 @@ function isFreshNoPoolCache(chainId: number, tokenIn: string, tokenOut: string):
         noPoolNegativeCache.delete(key);
         return false;
     }
+    const remote = await cacheGet(noPoolRedisKey(chainId, tokenIn, tokenOut)).catch(() => null);
+    if (remote) return true;
     return true;
 }
 
 function setNoPoolCache(chainId: number, tokenIn: string, tokenOut: string, reason: string): void {
     const key = getNoPoolCacheKey(chainId, tokenIn, tokenOut);
     noPoolNegativeCache.set(key, { reason, timestamp: Date.now() });
+    const ttlSeconds = Math.max(1, Math.ceil(NO_POOL_CACHE_TTL_MS / 1000));
+    cacheSet(noPoolRedisKey(chainId, tokenIn, tokenOut), reason || '1', ttlSeconds).catch(() => { });
 }
 
 function clearNoPoolCache(chainId: number, tokenIn: string, tokenOut: string): void {
     noPoolNegativeCache.delete(getNoPoolCacheKey(chainId, tokenIn, tokenOut));
+    cacheDel(noPoolRedisKey(chainId, tokenIn, tokenOut)).catch(() => { });
 }
 
 function isZoraTransientError(error: any): boolean {
@@ -648,7 +661,7 @@ export async function executeDirectSwap(params: {
         poolCacheTokenOut = poolTokenOut;
 
         const allowNoPoolCache = !params.hint?.sourceTxHash;
-        if (allowNoPoolCache && isFreshNoPoolCache(chainId, poolTokenIn, poolTokenOut)) {
+        if (allowNoPoolCache && await isFreshNoPoolCache(chainId, poolTokenIn, poolTokenOut)) {
             return finish({ success: false, error: 'No suitable pool found (cached)', provider: 'failed' });
         }
 
@@ -1776,10 +1789,28 @@ async function getV4BestSpotOut(
     if (cached && Date.now() - cached.timestamp < V4_SPOT_CACHE_TTL_MS) {
         return cached.value;
     }
+    const redisCached = await cacheGet(v4SpotRedisKey(cacheKey)).catch(() => null);
+    if (redisCached) {
+        try {
+            const parsed = JSON.parse(redisCached) as { value: string; timestamp: number };
+            if (Date.now() - parsed.timestamp < V4_SPOT_CACHE_TTL_MS) {
+                const value = BigInt(parsed.value);
+                v4SpotCache.set(cacheKey, { value, timestamp: parsed.timestamp });
+                return value;
+            }
+        } catch {
+            // ignore parse errors
+        }
+    }
 
     try {
         const best = await getV4BestPoolQuote(tokenIn, tokenOut, amountInWei, chainId);
         v4SpotCache.set(cacheKey, { value: best.amountOut, timestamp: Date.now() });
+        await cacheSet(
+            v4SpotRedisKey(cacheKey),
+            JSON.stringify({ value: best.amountOut.toString(), timestamp: Date.now() }),
+            Math.max(1, Math.ceil(V4_SPOT_CACHE_TTL_MS / 1000))
+        ).catch(() => { });
         return best.amountOut;
     } catch {
         return 0n;
@@ -1825,6 +1856,19 @@ async function callV4QuoterExactOut(
     if (cached && Date.now() - cached.timestamp < V4_QUOTER_CACHE_TTL_MS) {
         return cached.value;
     }
+    const redisCached = await cacheGet(v4QuoterRedisKey(cacheKey)).catch(() => null);
+    if (redisCached) {
+        try {
+            const parsed = JSON.parse(redisCached) as { value: string; timestamp: number };
+            if (Date.now() - parsed.timestamp < V4_QUOTER_CACHE_TTL_MS) {
+                const value = BigInt(parsed.value);
+                v4QuoterCache.set(cacheKey, { value, timestamp: parsed.timestamp });
+                return value;
+            }
+        } catch {
+            // ignore parse errors
+        }
+    }
 
     const iface = new ethers.Interface([
         'function quoteExactInputSingle((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) external returns (uint256 amountOut,uint256 gasEstimate)'
@@ -1866,6 +1910,11 @@ async function callV4QuoterExactOut(
                     const decoded = iface.decodeFunctionResult('quoteExactInputSingle', response.result);
                     const amountOut = BigInt(decoded[0].toString());
                     v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
+                    await cacheSet(
+                        v4QuoterRedisKey(cacheKey),
+                        JSON.stringify({ value: amountOut.toString(), timestamp: Date.now() }),
+                        Math.max(1, Math.ceil(V4_QUOTER_CACHE_TTL_MS / 1000))
+                    ).catch(() => { });
                     return amountOut;
                 }
 
@@ -1876,6 +1925,11 @@ async function callV4QuoterExactOut(
                     const amountOut = decodeV4QuoterRevert(errorData);
                     if (amountOut && amountOut > 0n) {
                         v4QuoterCache.set(cacheKey, { value: amountOut, timestamp: Date.now() });
+                        await cacheSet(
+                            v4QuoterRedisKey(cacheKey),
+                            JSON.stringify({ value: amountOut.toString(), timestamp: Date.now() }),
+                            Math.max(1, Math.ceil(V4_QUOTER_CACHE_TTL_MS / 1000))
+                        ).catch(() => { });
                         return amountOut;
                     }
                 }
@@ -2423,6 +2477,19 @@ async function getReferenceExpectedOutput(
     if (cached && Date.now() - cached.timestamp < REFERENCE_QUOTE_TTL_MS) {
         return cached.value;
     }
+    const redisCached = await cacheGet(referenceQuoteRedisKey(cacheKey)).catch(() => null);
+    if (redisCached) {
+        try {
+            const parsed = JSON.parse(redisCached) as { value: string; timestamp: number };
+            if (Date.now() - parsed.timestamp < REFERENCE_QUOTE_TTL_MS) {
+                const value = BigInt(parsed.value);
+                referenceQuoteCache.set(cacheKey, { value, timestamp: parsed.timestamp });
+                return value;
+            }
+        } catch {
+            // ignore parse errors
+        }
+    }
 
     const refStart = Date.now();
 
@@ -2469,6 +2536,11 @@ async function getReferenceExpectedOutput(
     const bestRef = ref0x > refKyber ? ref0x : refKyber;
     if (bestRef > 0n) {
         referenceQuoteCache.set(cacheKey, { value: bestRef, timestamp: Date.now() });
+        await cacheSet(
+            referenceQuoteRedisKey(cacheKey),
+            JSON.stringify({ value: bestRef.toString(), timestamp: Date.now() }),
+            Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
+        ).catch(() => { });
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote ready', {
             ref0x: ref0x.toString().slice(0, 15),
             refKyber: refKyber.toString().slice(0, 15),
@@ -2482,6 +2554,11 @@ async function getReferenceExpectedOutput(
         const v4Spot = await getV4BestSpotOut(tokenIn, tokenOut, amountInWei, chainId);
         if (v4Spot > 0n) {
             referenceQuoteCache.set(cacheKey, { value: v4Spot, timestamp: Date.now() });
+            await cacheSet(
+                referenceQuoteRedisKey(cacheKey),
+                JSON.stringify({ value: v4Spot.toString(), timestamp: Date.now() }),
+                Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
+            ).catch(() => { });
             logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote fallback (V4 spot)', {
                 outWei: v4Spot.toString().slice(0, 15),
                 durationMs: Date.now() - refStart
@@ -2515,6 +2592,11 @@ async function getReferenceExpectedOutput(
                 const outAmountHuman = inAmountHuman * (inDetails.price / outDetails.price);
                 const outWei = BigInt(Math.max(0, Math.floor(outAmountHuman * Math.pow(10, outMeta.decimals || 18))));
                 referenceQuoteCache.set(cacheKey, { value: outWei, timestamp: Date.now() });
+                await cacheSet(
+                    referenceQuoteRedisKey(cacheKey),
+                    JSON.stringify({ value: outWei.toString(), timestamp: Date.now() }),
+                    Math.max(1, Math.ceil(REFERENCE_QUOTE_TTL_MS / 1000))
+                ).catch(() => { });
                 logger.info(LogCode.EXE_QUOTE_FETCHED, '[DirectSwap] Reference quote from Gecko', {
                     outWei: outWei.toString().slice(0, 15),
                     durationMs: Date.now() - refStart
