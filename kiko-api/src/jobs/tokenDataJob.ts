@@ -50,7 +50,7 @@ const SECONDARY_CHAIN_DELAY_MS = 60000; // 60 seconds between secondary chains
 // Number of tokens to fetch per chain
 const TOKENS_PER_CHAIN = 100;
 const LAUNCHPAD_DETECT_CONCURRENCY = 6;
-const LAUNCH_MULTIPLE_ENRICH_CONCURRENCY = 3;
+const LAUNCH_MULTIPLE_ENRICH_ENABLED = (process.env.LAUNCH_MULTIPLE_ENRICH_ENABLED || 'false').toLowerCase() === 'true';
 const LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN = Math.max(
   48,
   Number(process.env.LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN || '80')
@@ -111,6 +111,40 @@ function isRateLimitError(error: unknown): boolean {
 
 function tokenMetaCacheKey(chainId: string, address: string): string {
   return `token:meta:v1:${chainId}:${address.toLowerCase()}`;
+}
+
+function geckoCandleBackoffKey(chainId: string): string {
+  return `token:meta:candle_backoff:v1:${chainId}`;
+}
+
+async function readGeckoCandleBackoff(chainId: string): Promise<number> {
+  const mem = geckoCandleBackoffByChain.get(chainId) || 0;
+  if (Date.now() < mem) return mem;
+
+  try {
+    const raw = await getRedisCache(geckoCandleBackoffKey(chainId));
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw) as { until?: number };
+    const until = Number(parsed?.until || 0);
+    if (Number.isFinite(until) && until > Date.now()) {
+      geckoCandleBackoffByChain.set(chainId, until);
+      return until;
+    }
+  } catch {
+    // ignore
+  }
+
+  return 0;
+}
+
+async function writeGeckoCandleBackoff(chainId: string, until: number): Promise<void> {
+  geckoCandleBackoffByChain.set(chainId, until);
+  try {
+    const ttl = Math.max(60, Math.ceil((until - Date.now()) / 1000));
+    await setRedisCache(geckoCandleBackoffKey(chainId), JSON.stringify({ until }), ttl);
+  } catch {
+    // ignore
+  }
 }
 
 async function readTokenMetaCache(chainId: string, address: string): Promise<EnrichedTokenMeta | null> {
@@ -254,8 +288,9 @@ async function enrichLaunchMultiplesForTrending(
   geckoNetwork: string,
   tokens: Array<{ address: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string }>
 ): Promise<void> {
+  if (!LAUNCH_MULTIPLE_ENRICH_ENABLED) return;
   if (tokens.length === 0) return;
-  const backoffUntil = geckoCandleBackoffByChain.get(chainId) || 0;
+  const backoffUntil = await readGeckoCandleBackoff(chainId);
   if (Date.now() < backoffUntil) {
     return;
   }
@@ -267,17 +302,15 @@ async function enrichLaunchMultiplesForTrending(
   if (candidates.length === 0) return;
 
   const targets = pickVerifyTargets(candidates, LAUNCH_MULTIPLE_BUDGET_PER_RUN);
-  const limiter = pLimit(LAUNCH_MULTIPLE_ENRICH_CONCURRENCY);
-
-  await Promise.all(targets.map((token) => limiter(async () => {
+  for (const token of targets) {
     try {
       const cached = await readTokenMetaCache(chainId, token.address);
       if (cached && Number.isFinite(cached.launchMultiple || NaN)) {
         token.launchMultiple = cached.launchMultiple;
-        return;
+        continue;
       }
-      const dynamicBackoffUntil = geckoCandleBackoffByChain.get(chainId) || 0;
-      if (Date.now() < dynamicBackoffUntil) return;
+      const dynamicBackoffUntil = await readGeckoCandleBackoff(chainId);
+      if (Date.now() < dynamicBackoffUntil) break;
 
       const now = Date.now();
       const createdMs = token.poolCreatedAt ? Date.parse(token.poolCreatedAt) : NaN;
@@ -297,15 +330,15 @@ async function enrichLaunchMultiplesForTrending(
       }
 
       const candles = await getGeckoCandlestickData(geckoNetwork, token.poolAddress!, timeframe, limit);
-      if (!Array.isArray(candles) || candles.length === 0) return;
+      if (!Array.isArray(candles) || candles.length === 0) continue;
 
       const first = candles[0];
       const open = typeof first?.open === 'number' ? first.open : Number(first?.open || 0);
       const current = Number(token.price || 0);
-      if (!Number.isFinite(open) || open <= 0 || !Number.isFinite(current) || current <= 0) return;
+      if (!Number.isFinite(open) || open <= 0 || !Number.isFinite(current) || current <= 0) continue;
 
       const multiple = current / open;
-      if (!Number.isFinite(multiple) || multiple <= 0) return;
+      if (!Number.isFinite(multiple) || multiple <= 0) continue;
 
       token.launchMultiple = multiple;
       await writeTokenMetaCache(chainId, token.address, {
@@ -314,11 +347,13 @@ async function enrichLaunchMultiplesForTrending(
       });
     } catch (error) {
       if (isRateLimitError(error)) {
-        geckoCandleBackoffByChain.set(chainId, Date.now() + GECKO_CANDLE_BACKOFF_MS);
+        const until = Date.now() + GECKO_CANDLE_BACKOFF_MS;
+        await writeGeckoCandleBackoff(chainId, until);
+        break;
       }
       // keep token without multiple when upstream API is unavailable
     }
-  })));
+  }
 }
 
 // Global rate limiter to prevent API abuse
