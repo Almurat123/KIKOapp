@@ -10,10 +10,9 @@ import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
 import { SOLANA_CONFIG } from '../../config/solanaConfig.js';
 import { fetchJson } from '../../config/unifiedApiService.js';
-import { getSolanaConnection } from '../rpcManager.js';
-import { findTokenPools } from '../dex/poolInfo.js';
-import { findV4Pools } from '../dex/uniswapV4.js';
-import { getTokenMetadata } from '../rpcService.js';
+import { getEthersProvider, getSolanaConnection } from '../rpcManager.js';
+import { get as getCache, set as setCache } from '../../cache/redis.js';
+import { ethers } from 'ethers';
 
 const LAUNCHPAD_AUTH_PDA = 'WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh';
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
@@ -40,15 +39,240 @@ async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
 }
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'fourmeme' | 'pumpfun' | 'bonkfun' | 'virtuals';
+    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph';
     data: any;
     chainId: number;
 }
 
+type DetectMode = 'full' | 'cheap';
+
+type DetectOptions = {
+    mode?: DetectMode;
+};
+
 // Simple In-Memory Cache
 const DETECTION_CACHE = new Map<string, { result: LaunchpadResult | null, expiry: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const VIRTUAL_BASE_TOKEN = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
+const ZORA_PLATFORM_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69';
+const CLANKER_SUFFIX = 'b07';
+const FOURMEME_SUFFIXES = ['4444', 'ffff'];
+const FLAP_SUFFIXES = ['8888', '7777'];
+const FLAP_PORTAL_BSC_MAINNET = '0xe2ce6ab80874fa9fa2aae65d277dd6b8e65c9de0';
+const FLAP_IPFS_GATEWAY = process.env.FLAP_IPFS_GATEWAY || 'https://flap.mypinata.cloud/ipfs/';
+const FLAP_PORTAL_ABI = [
+    'function getTokenV6(address token) view returns (tuple(uint8 status,uint256 reserve,uint256 circulatingSupply,uint256 price,uint8 tokenVersion,uint256 r,uint256 dexSupplyThresh,address quoteTokenAddress,bool nativeToQuoteSwapEnabled,bytes32 extensionID,uint256 h,uint256 k,uint256 taxRate,address pool,uint256 progress))',
+    'function getTokenV5(address token) view returns (tuple(uint8 status,uint256 reserve,uint256 circulatingSupply,uint256 price,uint8 tokenVersion,uint256 r,uint256 dexSupplyThresh,address quoteTokenAddress,bool nativeToQuoteSwapEnabled,bytes32 extensionID,uint256 h,uint256 k))'
+] as const;
+const FLAP_META_ABI = [
+    'function metaURI() view returns (string)',
+    'function meta() view returns (string)',
+    'function tokenURI() view returns (string)',
+    'function name() view returns (string)',
+    'function symbol() view returns (string)'
+] as const;
+const PROVIDER_BACKOFF_BASE_MS = Math.max(30_000, Number(process.env.LAUNCHPAD_PROVIDER_BACKOFF_BASE_MS || '120000'));
+const PROVIDER_BACKOFF_MAX_MS = Math.max(PROVIDER_BACKOFF_BASE_MS, Number(process.env.LAUNCHPAD_PROVIDER_BACKOFF_MAX_MS || '1800000'));
+const providerBackoffState = new Map<string, { until: number; strikes: number }>();
+const LAUNCHPAD_CACHE_PREFIX = 'launchpad:detected:v2';
+const LAUNCHPAD_CACHE_TTL_HOURS = Math.max(24, Number(process.env.LAUNCHPAD_CACHE_TTL_HOURS || '72'));
+const LAUNCHPAD_NEGATIVE_CACHE_PREFIX = 'launchpad:detected:none:v1';
+const LAUNCHPAD_NEGATIVE_CACHE_TTL_HOURS = Math.max(1, Number(process.env.LAUNCHPAD_NEGATIVE_CACHE_TTL_HOURS || '24'));
+const LAUNCHPAD_RETRY_CACHE_PREFIX = 'launchpad:detected:retry:v1';
+const LAUNCHPAD_RETRY_CACHE_TTL_SECONDS = Math.max(60, Number(process.env.LAUNCHPAD_RETRY_CACHE_TTL_SECONDS || '1200'));
+const ZORA_INDEX_TTL_MS = 10 * 60 * 1000;
+
+let zoraAddressIndexCache: { set: Set<string>; expiry: number } | null = null;
+let zoraAddressIndexInflight: Promise<Set<string>> | null = null;
+
+function buildPersistentCacheKey(address: string, chainId?: number): string {
+    return `${LAUNCHPAD_CACHE_PREFIX}:${chainId || 'any'}:${address.toLowerCase()}`;
+}
+
+function buildNegativeCacheKey(address: string, chainId?: number): string {
+    return `${LAUNCHPAD_NEGATIVE_CACHE_PREFIX}:${chainId || 'any'}:${address.toLowerCase()}`;
+}
+
+function buildRetryCacheKey(address: string, chainId?: number): string {
+    return `${LAUNCHPAD_RETRY_CACHE_PREFIX}:${chainId || 'any'}:${address.toLowerCase()}`;
+}
+
+function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider'] {
+    return value === 'zora'
+        || value === 'fourmeme'
+        || value === 'flap'
+        || value === 'pumpfun'
+        || value === 'bonkfun'
+        || value === 'virtuals'
+        || value === 'clanker'
+        || value === 'paragraph';
+}
+
+async function readPersistentLaunchpadCache(address: string, chainId?: number): Promise<LaunchpadResult | null> {
+    try {
+        const raw = await getCache(buildPersistentCacheKey(address, chainId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as any;
+        if (!parsed || !isLaunchpadProvider(parsed.provider)) return null;
+        const resolvedChainId = Number(parsed.chainId);
+        return {
+            provider: parsed.provider,
+            data: parsed.data || null,
+            chainId: Number.isFinite(resolvedChainId) ? resolvedChainId : (chainId || 0)
+        };
+    } catch {
+        return null;
+    }
+}
+
+async function writePersistentLaunchpadCache(address: string, chainId: number | undefined, result: LaunchpadResult): Promise<void> {
+    try {
+        await setCache(
+            buildPersistentCacheKey(address, chainId),
+            JSON.stringify({
+                provider: result.provider,
+                data: result.data || null,
+                chainId: result.chainId,
+                cachedAt: Date.now()
+            }),
+            LAUNCHPAD_CACHE_TTL_HOURS * 60 * 60
+        );
+    } catch {
+        // Ignore persistent cache errors
+    }
+}
+
+async function readNegativeLaunchpadCache(address: string, chainId?: number): Promise<boolean> {
+    try {
+        const raw = await getCache(buildNegativeCacheKey(address, chainId));
+        if (!raw) return false;
+        const parsed = JSON.parse(raw) as any;
+        return !!parsed?.none;
+    } catch {
+        return false;
+    }
+}
+
+async function writeNegativeLaunchpadCache(address: string, chainId?: number): Promise<void> {
+    try {
+        await setCache(
+            buildNegativeCacheKey(address, chainId),
+            JSON.stringify({ none: true, cachedAt: Date.now() }),
+            LAUNCHPAD_NEGATIVE_CACHE_TTL_HOURS * 60 * 60
+        );
+    } catch {
+        // Ignore persistent cache errors
+    }
+}
+
+async function readRetryLaunchpadCache(address: string, chainId?: number): Promise<boolean> {
+    try {
+        const raw = await getCache(buildRetryCacheKey(address, chainId));
+        if (!raw) return false;
+        const parsed = JSON.parse(raw) as any;
+        const until = Number(parsed?.until || 0);
+        return Number.isFinite(until) && until > Date.now();
+    } catch {
+        return false;
+    }
+}
+
+async function writeRetryLaunchpadCache(address: string, chainId?: number): Promise<void> {
+    const until = Date.now() + LAUNCHPAD_RETRY_CACHE_TTL_SECONDS * 1000;
+    try {
+        await setCache(
+            buildRetryCacheKey(address, chainId),
+            JSON.stringify({ until, cachedAt: Date.now() }),
+            LAUNCHPAD_RETRY_CACHE_TTL_SECONDS
+        );
+    } catch {
+        // Ignore persistent cache errors
+    }
+}
+
+function isRateLimitedError(error: unknown): boolean {
+    const msg = String((error as any)?.message || error || '').toLowerCase();
+    return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests');
+}
+
+function isProviderBackoffActive(provider: string): boolean {
+    const state = providerBackoffState.get(provider);
+    return !!state && Date.now() < state.until;
+}
+
+function markProviderRateLimited(provider: string): void {
+    const prev = providerBackoffState.get(provider) || { until: 0, strikes: 0 };
+    const strikes = Math.min(prev.strikes + 1, 8);
+    const duration = Math.min(PROVIDER_BACKOFF_BASE_MS * Math.pow(2, strikes - 1), PROVIDER_BACKOFF_MAX_MS);
+    providerBackoffState.set(provider, { until: Date.now() + duration, strikes });
+}
+
+function markProviderHealthy(provider: string): void {
+    if (providerBackoffState.has(provider)) {
+        providerBackoffState.delete(provider);
+    }
+}
+
+function hasAnyRelevantBackoff(address: string, chainId?: number): boolean {
+    const isSolana = address.length > 40 && !address.startsWith('0x');
+    const isEVM = address.startsWith('0x') && address.length === 42;
+    if (isSolana) {
+        return isProviderBackoffActive('pumpfun') || isProviderBackoffActive('bonkfun');
+    }
+    if (!isEVM) return false;
+    const basePlatforms = (chainId === 8453 || !chainId);
+    const bscPlatforms = (chainId === 56 || !chainId);
+    if (basePlatforms) {
+        if (isProviderBackoffActive('zora')
+            || isProviderBackoffActive('virtuals')
+            || isProviderBackoffActive('paragraph')
+            || isProviderBackoffActive('clanker')
+            || isProviderBackoffActive('flap')) {
+            return true;
+        }
+    }
+    if (bscPlatforms && isProviderBackoffActive('fourmeme')) {
+        return true;
+    }
+    return false;
+}
+
+let paragraphClient: any | null = null;
+let paragraphClientInited = false;
+
+async function getParagraphToken(address: string): Promise<any | null> {
+    try {
+        if (isProviderBackoffActive('paragraph')) return null;
+
+        if (!paragraphClientInited) {
+            paragraphClientInited = true;
+            const apiKey = process.env.PARAGRAPH_API_KEY;
+            if (apiKey) {
+                const sdk = await import('@paragraph_xyz/sdk');
+                const ParagraphAPI = (sdk as any).ParagraphAPI;
+                if (ParagraphAPI) {
+                    paragraphClient = new ParagraphAPI(apiKey);
+                }
+            }
+        }
+
+        if (!paragraphClient || typeof paragraphClient.getCoinByContract !== 'function') {
+            return null;
+        }
+
+        const coin = await paragraphClient.getCoinByContract(address);
+        markProviderHealthy('paragraph');
+        return coin || null;
+    } catch (error: any) {
+        if (isRateLimitedError(error)) {
+            markProviderRateLimited('paragraph');
+        }
+        logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Paragraph detection failed', {
+            address,
+            error: error?.message?.slice(0, 120)
+        });
+        return null;
+    }
+}
 
 
 /**
@@ -56,6 +280,7 @@ const VIRTUAL_BASE_TOKEN = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
  */
 async function getFourMemeToken(address: string): Promise<any | null> {
     try {
+        if (isProviderBackoffActive('fourmeme')) return null;
         const url = `https://four.meme/meme-api/v1/private/token/get?address=${encodeURIComponent(address)}`;
         const data = await fetchJson({
             url,
@@ -67,54 +292,250 @@ async function getFourMemeToken(address: string): Promise<any | null> {
         });
 
         if (data.code === 0 && data.data) {
+            markProviderHealthy('fourmeme');
             return {
                 ...data.data,
                 createdAt: data.data.createDate ? parseInt(data.data.createDate) : undefined
             };
         }
+        markProviderHealthy('fourmeme');
 
         return null;
     } catch (error: any) {
+        if (isRateLimitedError(error)) {
+            markProviderRateLimited('fourmeme');
+        }
         logger.error(LogCode.API_FETCH_FAILED, 'LaunchpadDetector: Four.meme fetch failed', { address, error: error.message, cause: error.cause });
         return null;
     }
 }
 
-async function getVirtualsToken(address: string): Promise<any | null> {
-    try {
-        if (address.toLowerCase() === VIRTUAL_BASE_TOKEN) {
-            return {
-                address,
-                symbol: 'VIRTUAL',
-                name: 'Virtual Protocol',
-                bridgeToken: VIRTUAL_BASE_TOKEN,
-                poolCount: 1
-            };
+function normalizeEvmAddress(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const addr = value.trim().toLowerCase();
+    return /^0x[0-9a-f]{40}$/.test(addr) ? addr : null;
+}
+
+async function getZoraAddressIndex(): Promise<Set<string>> {
+    const now = Date.now();
+    if (zoraAddressIndexCache && zoraAddressIndexCache.expiry > now) {
+        return zoraAddressIndexCache.set;
+    }
+    if (zoraAddressIndexInflight) return zoraAddressIndexInflight;
+
+    zoraAddressIndexInflight = (async () => {
+        const discovered = new Set<string>();
+        try {
+            const [topVolume, topGainers, combinedNew] = await Promise.all([
+                zoraService.getTopVolume24h(120).catch(() => []),
+                zoraService.getTopGainers(120).catch(() => []),
+                zoraService.getCombinedNewCoins(120).catch(() => [])
+            ]);
+
+            for (const row of [...topVolume, ...topGainers, ...combinedNew]) {
+                const addr = normalizeEvmAddress((row as any)?.address);
+                if (addr) discovered.add(addr);
+            }
+            markProviderHealthy('zora');
+        } catch {
+            // ignore
         }
 
-        const [v4Pools, allPools] = await Promise.all([
-            findV4Pools(address, VIRTUAL_BASE_TOKEN, 8453).catch(() => []),
-            findTokenPools(address, VIRTUAL_BASE_TOKEN, 8453).catch(() => [])
+        zoraAddressIndexCache = { set: discovered, expiry: Date.now() + ZORA_INDEX_TTL_MS };
+        zoraAddressIndexInflight = null;
+        return discovered;
+    })();
+
+    return zoraAddressIndexInflight;
+}
+
+async function getClankerToken(address: string): Promise<any | null> {
+    try {
+        if (isProviderBackoffActive('clanker')) return null;
+        const apiKey = process.env.CLANKER_API_KEY;
+        if (!apiKey) return null;
+
+        const url = `https://www.clanker.world/api/get-clanker-by-address?address=${encodeURIComponent(address)}`;
+        const data = await fetchJson({
+            url,
+            timeout: 8000,
+            headers: {
+                'Accept': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'x-api-key': apiKey
+            }
+        }) as any;
+
+        if (!data || data.error) return null;
+        const tokenAddress = normalizeEvmAddress(data?.tokenAddress || data?.address || data?.clanker?.tokenAddress || data?.clanker?.address);
+        if (tokenAddress && tokenAddress === address.toLowerCase()) {
+            markProviderHealthy('clanker');
+            return data;
+        }
+        markProviderHealthy('clanker');
+        return null;
+    } catch (error: any) {
+        if (isRateLimitedError(error)) {
+            markProviderRateLimited('clanker');
+        }
+        return null;
+    }
+}
+
+async function getVirtualsToken(address: string, _mode: DetectMode = 'full'): Promise<any | null> {
+    try {
+        if (isProviderBackoffActive('virtuals')) return null;
+        const lower = address.toLowerCase();
+        const baseUrl = 'https://api2.virtuals.io/api/virtuals';
+
+        const queryByField = async (field: 'tokenAddress' | 'migrateTokenAddress') => {
+            const url = new URL(baseUrl);
+            url.searchParams.append(`filters[${field}][]`, address);
+            url.searchParams.append('page', '1');
+            const data = await fetchJson({
+                url: url.toString(),
+                timeout: 8000,
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            }) as any;
+            return Array.isArray(data?.data) ? data.data : [];
+        };
+
+        const settled = await Promise.allSettled([
+            queryByField('tokenAddress'),
+            queryByField('migrateTokenAddress'),
         ]);
 
-        const poolCount = (v4Pools?.length || 0) + (allPools?.length || 0);
-        if (poolCount <= 0) return null;
+        const rowsA = settled[0].status === 'fulfilled' ? settled[0].value : [];
+        const rowsB = settled[1].status === 'fulfilled' ? settled[1].value : [];
+        const errors = settled
+            .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+            .map((r) => r.reason);
+        if (errors.length === settled.length) {
+            throw errors[0];
+        }
+        if (errors.some((e) => isRateLimitedError(e))) {
+            markProviderRateLimited('virtuals');
+        } else {
+            markProviderHealthy('virtuals');
+        }
 
-        const meta = await getTokenMetadata(8453, address).catch(() => ({ symbol: undefined, name: undefined }));
+        const rows = [...rowsA, ...rowsB];
+        const hit = rows.find((row: any) => {
+            const tokenAddress = normalizeEvmAddress(row?.tokenAddress);
+            const migrateTokenAddress = normalizeEvmAddress(row?.migrateTokenAddress);
+            const chain = String(row?.chain || '').toLowerCase();
+            const onBase = chain === 'base' || chain === '8453';
+            return onBase && (tokenAddress === lower || migrateTokenAddress === lower);
+        });
+
+        if (!hit) return null;
+
+        markProviderHealthy('virtuals');
         return {
-            address,
-            symbol: meta?.symbol || 'UNKNOWN',
-            name: meta?.name || 'Unknown',
-            bridgeToken: VIRTUAL_BASE_TOKEN,
-            v4PoolCount: v4Pools.length,
-            dexPoolCount: allPools.length,
-            poolCount
+            address: hit.tokenAddress || hit.migrateTokenAddress || address,
+            symbol: hit.symbol || 'UNKNOWN',
+            name: hit.name || 'Unknown',
+            lpAddress: hit.lpAddress || undefined,
+            virtualId: hit.id,
+            source: 'virtuals_api'
         };
     } catch (error: any) {
+        if (isRateLimitedError(error)) {
+            markProviderRateLimited('virtuals');
+        }
         logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Virtuals detection failed', {
             address,
             error: error?.message?.slice(0, 120)
         });
+        return null;
+    }
+}
+
+function normalizeMaybeIpfsUri(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const raw = value.trim();
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (raw.startsWith('ipfs://')) {
+        return `${FLAP_IPFS_GATEWAY}${raw.slice('ipfs://'.length).replace(/^ipfs\//, '')}`;
+    }
+    if (/^[a-zA-Z0-9]+$/.test(raw) && raw.length >= 32) {
+        return `${FLAP_IPFS_GATEWAY}${raw}`;
+    }
+    return null;
+}
+
+async function resolveFlapTokenImage(metaUri: string | null): Promise<string | null> {
+    if (!metaUri) return null;
+    const metaUrl = normalizeMaybeIpfsUri(metaUri);
+    if (!metaUrl) return null;
+
+    try {
+        const metadata = await fetchJson<any>({
+            url: metaUrl,
+            timeout: 4000,
+            headers: {
+                'Accept': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        });
+        return normalizeMaybeIpfsUri(metadata?.image || metadata?.image_url || metadata?.logo || null);
+    } catch {
+        return null;
+    }
+}
+
+async function getFlapToken(address: string): Promise<any | null> {
+    try {
+        if (isProviderBackoffActive('flap')) return null;
+        const provider = getEthersProvider(56);
+        const portal = new ethers.Contract(FLAP_PORTAL_BSC_MAINNET, FLAP_PORTAL_ABI, provider);
+
+        let tokenInfo: any = null;
+        try {
+            tokenInfo = await portal.getTokenV6(address);
+        } catch {
+            tokenInfo = await portal.getTokenV5(address);
+        }
+
+        const statusRaw = Number(tokenInfo?.status ?? tokenInfo?.[0] ?? 0);
+        if (!Number.isFinite(statusRaw) || statusRaw <= 0) {
+            markProviderHealthy('flap');
+            return null;
+        }
+
+        const token = new ethers.Contract(address, FLAP_META_ABI, provider);
+        let metaUri: string | null = null;
+        let name = 'Unknown';
+        let symbol = 'UNKNOWN';
+        try { metaUri = await token.metaURI(); } catch { /* no-op */ }
+        if (!metaUri) {
+            try { metaUri = await token.meta(); } catch { /* no-op */ }
+        }
+        if (!metaUri) {
+            try { metaUri = await token.tokenURI(); } catch { /* no-op */ }
+        }
+        try { name = await token.name(); } catch { /* no-op */ }
+        try { symbol = await token.symbol(); } catch { /* no-op */ }
+
+        const imageUrl = await resolveFlapTokenImage(metaUri);
+        markProviderHealthy('flap');
+        return {
+            address,
+            name,
+            symbol,
+            status: statusRaw,
+            source: 'flap_portal',
+            metaURI: metaUri || undefined,
+            imageUrl: imageUrl || undefined
+        };
+    } catch (error: any) {
+        if (isRateLimitedError(error)) {
+            markProviderRateLimited('flap');
+        }
         return null;
     }
 }
@@ -124,6 +545,7 @@ async function getVirtualsToken(address: string): Promise<any | null> {
  */
 async function getPumpFunToken(mintAddress: string): Promise<any | null> {
     try {
+        const normalizedMint = mintAddress.trim();
         // 1. Try Official API (might be unstable)
         const url = `https://frontend-api.pump.fun/coins/${mintAddress}`;
         try {
@@ -169,7 +591,9 @@ async function getPumpFunToken(mintAddress: string): Promise<any | null> {
                 timeout: 3000
             });
 
-            if (portalData && (portalData.mint || portalData.address)) {
+            // Strict match to avoid false positives from third-party mirror APIs.
+            const portalMint = String(portalData?.mint || portalData?.address || '').trim();
+            if (portalMint && portalMint === normalizedMint) {
                 return portalData;
             }
         } catch (e) {
@@ -272,24 +696,8 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
             // Continue to DexScreener fallback
         }
 
-        // 2. Try DexScreener (Browser Mimicry)
-        const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`;
-        try {
-            const data = await fetchJson({
-                url: dsUrl,
-                timeout: 3000,
-                headers: { ...headers, 'Referer': 'https://dexscreener.com/', 'Origin': 'https://dexscreener.com' }
-            });
-
-            if (data.pairs && data.pairs.length > 0) {
-                const p = data.pairs.find((pair: any) => pair.dexId === 'raydium') || data.pairs[0];
-                const t = p.baseToken?.address === mintAddress ? p.baseToken : p.quoteToken;
-                return { mint: mintAddress, name: t?.name, symbol: t?.symbol, image_uri: p.info?.imageUrl || t?.logoURI, decimals: 9 };
-            }
-        } catch (e) {
-            // Both fallbacks failed
-        }
-
+        // No non-official fallback here by design.
+        // For Bonk/LaunchLab detection we only trust Raydium official signals + on-chain authority checks.
         return null;
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, 'LaunchpadDetector: Solana detection failed', { mintAddress, error: error.message });
@@ -302,12 +710,28 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
  */
 export async function detectLaunchpadToken(
     address: string,
-    chainId?: number
+    chainId?: number,
+    options: DetectOptions = {}
 ): Promise<LaunchpadResult | null> {
-    const cacheKey = `${chainId || 'any'}:${address.toLowerCase()}`;
+    const mode = options.mode || 'full';
+    const cacheKey = `${chainId || 'any'}:${mode}:${address.toLowerCase()}`;
     const cached = DETECTION_CACHE.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
         return cached.result;
+    }
+
+    const persistent = await readPersistentLaunchpadCache(address, chainId);
+    if (persistent) {
+        DETECTION_CACHE.set(cacheKey, { result: persistent, expiry: Date.now() + CACHE_TTL });
+        return persistent;
+    }
+    if (await readRetryLaunchpadCache(address, chainId)) {
+        DETECTION_CACHE.set(cacheKey, { result: null, expiry: Date.now() + Math.min(CACHE_TTL, 60_000) });
+        return null;
+    }
+    if (await readNegativeLaunchpadCache(address, chainId)) {
+        DETECTION_CACHE.set(cacheKey, { result: null, expiry: Date.now() + CACHE_TTL });
+        return null;
     }
 
     // 6.0s Global Timeout for all detection
@@ -324,10 +748,18 @@ export async function detectLaunchpadToken(
 
     try {
         const result = await Promise.race([
-            handleDetection(address, chainId, cacheKey),
+            handleDetection(address, chainId, cacheKey, options),
             timeoutPromise
         ]);
         if (timeoutId) clearTimeout(timeoutId);
+
+        if (result) {
+            await writePersistentLaunchpadCache(address, chainId, result);
+        } else if (hasAnyRelevantBackoff(address, chainId)) {
+            await writeRetryLaunchpadCache(address, chainId);
+        } else {
+            await writeNegativeLaunchpadCache(address, chainId);
+        }
 
         logger.endTimer(timerLabel, LogCode.AI_LAUNCHPAD_DETECTED, { address, chainId, found: !!result });
         return result;
@@ -340,16 +772,39 @@ export async function detectLaunchpadToken(
 async function handleDetection(
     address: string,
     chainId: number | undefined,
-    cacheKey: string
+    cacheKey: string,
+    options: DetectOptions
 ): Promise<LaunchpadResult | null> {
-    const isSolana = address.length > 40 && !address.startsWith('0x');
-    const isEVM = address.startsWith('0x') && address.length === 42;
+  const isSolana = address.length > 40 && !address.startsWith('0x');
+  const isEVM = address.startsWith('0x') && address.length === 42;
+  const lowerAddress = address.toLowerCase();
 
     if (!isSolana && !isEVM) {
         return null;
     }
 
-    if (isSolana) {
+  if (isSolana) {
+        // Fast suffix detection first (cheap and deterministic for launchpad mints)
+        if (lowerAddress.endsWith('pump')) {
+            const result: LaunchpadResult = {
+                provider: 'pumpfun',
+                data: { mint: address, source: 'suffix' },
+                chainId: SOLANA_CONFIG.CHAIN_ID
+            };
+            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+            return result;
+        }
+
+        if (lowerAddress.endsWith('bonk')) {
+            const result: LaunchpadResult = {
+                provider: 'bonkfun',
+                data: { mint: address, source: 'suffix' },
+                chainId: SOLANA_CONFIG.CHAIN_ID
+            };
+            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+            return result;
+        }
+
         // Run checks in parallel but wait for both to decide priority
         // We MUST prioritize Pump.fun if it exists there, because Raydium also indexes Pump tokens.
         const [pumpResult, rayResult] = await Promise.all([
@@ -372,13 +827,68 @@ async function handleDetection(
         return null; // Not found on either
     }
 
-    if (isEVM) {
+  if (isEVM) {
         // Parallel checks for all EVM platforms
         const basePlatforms = (chainId === 8453 || !chainId);
         const bscPlatforms = (chainId === 56 || !chainId);
 
+        // Fast suffix rules (no API call needed)
+        if (bscPlatforms && FOURMEME_SUFFIXES.some((s) => lowerAddress.endsWith(s))) {
+            const result: LaunchpadResult = {
+                provider: 'fourmeme',
+                data: {
+                    address,
+                    source: 'suffix',
+                    vanitySuffix: lowerAddress.endsWith('ffff') ? 'ffff' : '4444'
+                },
+                chainId: 56
+            };
+            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+            return result;
+        }
+        if (bscPlatforms && FLAP_SUFFIXES.some((s) => lowerAddress.endsWith(s))) {
+            try {
+                const flapResult = await getFlapToken(address);
+                if (flapResult) {
+                    const result: LaunchpadResult = {
+                        provider: 'flap',
+                        data: {
+                            ...flapResult,
+                            vanitySuffix: lowerAddress.endsWith('7777') ? '7777' : '8888'
+                        },
+                        chainId: 56
+                    };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // flap verify failed, continue to other checks
+            }
+        }
+
+        // Clanker must take precedence for b07 addresses to avoid Zora over-labeling.
+        if (basePlatforms && lowerAddress.endsWith(CLANKER_SUFFIX)) {
+            try {
+                const clankerResult = await getClankerToken(address);
+                if (clankerResult) {
+                    const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // Clanker API check failed
+            }
+
+            const result: LaunchpadResult = {
+                provider: 'clanker',
+                data: { address, source: 'suffix_fallback' },
+                chainId: 8453
+            };
+            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+            return result;
+        }
+
         // Check for ZORA platform token first (lightning check)
-        const ZORA_PLATFORM_TOKEN = '0x1111111111166b7fe7bd91427724b487980afc69'.toLowerCase();
         if (address.toLowerCase() === ZORA_PLATFORM_TOKEN) {
             const result: LaunchpadResult = {
                 provider: 'zora',
@@ -394,23 +904,46 @@ async function handleDetection(
         // Only check other platforms if Zora returns null
 
         // Priority 1: Zora SDK (very fast, ~100-500ms)
-        if (basePlatforms) {
+        if (basePlatforms && !isProviderBackoffActive('zora')) {
             try {
                 const zoraResult = await zoraService.getCoinByAddress(address);
                 if (zoraResult) {
+                    markProviderHealthy('zora');
                     const result: LaunchpadResult = { provider: 'zora', data: zoraResult, chainId: 8453 };
                     DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
                     return result;
                 }
+                markProviderHealthy('zora');
             } catch (e) {
+                if (isRateLimitedError(e)) {
+                    markProviderRateLimited('zora');
+                }
                 // Zora check failed, continue to other platforms
             }
         }
 
-        // Priority 1.5: Virtuals (Base only)
+        // Priority 1.5: Zora API index fallback (still official Zora API/SDK data)
         if (basePlatforms) {
             try {
-                const virtualsResult = await getVirtualsToken(address);
+                const zoraIndex = await getZoraAddressIndex();
+                if (zoraIndex.has(lowerAddress)) {
+                    const result: LaunchpadResult = {
+                        provider: 'zora',
+                        data: { address, source: 'zora_api_index' },
+                        chainId: 8453
+                    };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // Zora index fallback failed
+            }
+        }
+
+        // Priority 1.6: Virtuals official API (Base only)
+        if (basePlatforms) {
+            try {
+                const virtualsResult = await getVirtualsToken(address, options.mode || 'full');
                 if (virtualsResult) {
                     const result: LaunchpadResult = { provider: 'virtuals', data: virtualsResult, chainId: 8453 };
                     DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
@@ -418,6 +951,20 @@ async function handleDetection(
                 }
             } catch {
                 // Virtuals check failed
+            }
+        }
+
+        // Priority 1.8: Paragraph (Base)
+        if (basePlatforms) {
+            try {
+                const paragraphResult = await getParagraphToken(address);
+                if (paragraphResult) {
+                    const result: LaunchpadResult = { provider: 'paragraph', data: paragraphResult, chainId: 8453 };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // Paragraph check failed
             }
         }
 

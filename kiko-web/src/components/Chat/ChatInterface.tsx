@@ -588,7 +588,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             slippageBps
                         });
 
-                        // CREATE NEW MESSAGE for transaction status (don't overwrite launchpad card)
+                        // CREATE NEW MESSAGE for transaction status
                         const getSymbol = (token: any): string => {
                             if (typeof token === 'string') return token;
                             return token?.symbol || token?.name || 'Unknown';
@@ -722,7 +722,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }
                             return prev;
                         });
-                    } else if (['show_chart_card', 'show_launchpad_card', 'show_transaction_status_card'].includes(event.data.action.type)) {
+                    } else if (['show_chart_card', 'show_transaction_status_card'].includes(event.data.action.type)) {
                         const targetMessageId = event.data.targetMessageId;
                         const actionType = event.data.action.type;
                         logger.debug('Handling card action:', { type: actionType, targetMsgId: targetMessageId });
@@ -735,49 +735,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 switch (type) {
                                     case 'show_strategy_card': return 'strategy-card';
                                     case 'show_chart_card': return 'chart-card';
-                                    case 'show_launchpad_card': return 'launchpad-card';
                                     case 'show_transaction_status_card': return 'transaction-status-card';
                                     default: return 'text';
                                 }
                             };
-
-                            // CRITICAL: Check card type compatibility
-                            // Never convert a launchpad-card to transaction-status-card
-                            // These should be SEPARATE messages
                             const newCardType = getCardType(actionType);
-                            const isCardTypeIncompatible = (existingMsg: Message, newType: string) => {
-                                // Don't update launchpad cards with transaction/swap cards
-                                if (existingMsg.type === 'launchpad-card' &&
-                                    ['transaction-status-card', 'swap-card'].includes(newType)) {
-                                    logger.warn('🚨 PREVENTED: Transaction card attempting to overwrite launchpad card');
-                                    return true;
-                                }
-                                return false;
-                            };
 
                             if (targetIdx !== -1) {
-                                const targetMsg = prev[targetIdx];
-                                if (!isCardTypeIncompatible(targetMsg, newCardType)) {
-                                    logger.debug('✅ Found target message, updating card:', targetMessageId);
-                                    return prev.map((m, idx) => idx === targetIdx ? {
-                                        ...m,
-                                        type: newCardType as any,
-                                        data: event.data.action.data
-                                    } : m);
-                                } else {
-                                    // Type incompatible - create new message instead
-                                    logger.warn('Type incompatible, creating new message for card');
-                                    return [...prev, {
-                                        id: `${targetMessageId}-card-${Date.now()}`,
-                                        role: 'assistant',
-                                        content: '',
-                                        reasoning_content: '',
-                                        status: 'complete',
-                                        timestamp: new Date().toISOString(),
-                                        type: newCardType as any,
-                                        data: event.data.action.data
-                                    } as Message];
-                                }
+                                logger.debug('✅ Found target message, updating card:', targetMessageId);
+                                return prev.map((m, idx) => idx === targetIdx ? {
+                                    ...m,
+                                    type: newCardType as any,
+                                    data: event.data.action.data
+                                } : m);
                             }
 
                             // Race condition fix: If message ID provided but not found, CREATE IT
@@ -798,7 +768,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                             // CRITICAL FIX: For transaction/swap cards with no targetMessageId,
                             // ALWAYS create a new message instead of falling back to last assistant message
-                            // This prevents overwriting launchpad cards
                             if (['transaction-status-card', 'swap-card'].includes(newCardType)) {
                                 logger.debug('No targetMessageId for transaction/swap card, creating new message');
                                 return [...prev, {
@@ -817,15 +786,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             const lastMsgIdx = [...prev].reverse().findIndex(m => m.role === 'assistant');
                             if (lastMsgIdx !== -1) {
                                 const actualIdx = prev.length - 1 - lastMsgIdx;
-                                const lastMsg = prev[actualIdx];
-                                // Only update if compatible
-                                if (lastMsg.type !== 'launchpad-card') {
-                                    return prev.map((m, idx) => idx === actualIdx ? {
-                                        ...m,
-                                        type: newCardType as any,
-                                        data: event.data.action.data
-                                    } : m);
-                                }
+                                return prev.map((m, idx) => idx === actualIdx ? {
+                                    ...m,
+                                    type: newCardType as any,
+                                    data: event.data.action.data
+                                } : m);
                             }
 
                             return prev;
@@ -947,41 +912,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             logger.warn('Failed to save model selection to localStorage:', e);
         }
     }, [selectedModel]);
-
-    // Listen for swap request events from LaunchpadCard
-    // Store pending swap message in state so useEffect can handle it after handleSend is defined
-    const [pendingSwapMessage, setPendingSwapMessage] = useState<string | null>(null);
-
-    useEffect(() => {
-        const handleSwapRequest = (e: CustomEvent<{
-            tokenAddress: string;
-            tokenSymbol: string;
-            tokenName: string;
-            chainId: number;
-            provider: string;
-        }>) => {
-            const { tokenSymbol, tokenAddress, chainId } = e.detail;
-            logger.debug('Swap request received:', e.detail);
-
-            // Store token info for swap context (will be used by AI)
-            localStorage.setItem('kiko-pending-swap', JSON.stringify({
-                tokenAddress,
-                tokenSymbol,
-                chainId,
-                timestamp: Date.now()
-            }));
-
-            // [SWAP] prefix signals to skip launchpad detection and let AI handle
-            // AI will see contract address and know to ask for amount per KIKO_RULES rule 5
-            const swapMessage = `[SWAP] I want to swap ${tokenSymbol} (${tokenAddress}). How much should I swap?`;
-            setPendingSwapMessage(swapMessage);
-        };
-
-        window.addEventListener('kiko-swap-request', handleSwapRequest as EventListener);
-        return () => {
-            window.removeEventListener('kiko-swap-request', handleSwapRequest as EventListener);
-        };
-    }, []);
 
     const currentConversationIdRef = useRef<string | null>(conversationId || null);
     const processedMessagesRef = useRef<Set<string>>(new Set());
@@ -1750,14 +1680,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     // Context Gathering (Handled by Hook now)
 
     // Intent Detection (Handled by Hook)
-    // Process pending swap message from LaunchpadCard
-    useEffect(() => {
-        if (pendingSwapMessage && !isStreaming && !isThinking) {
-            logger.debug('Sending pending swap message:', pendingSwapMessage);
-            handleSend(pendingSwapMessage);
-            setPendingSwapMessage(null);
-        }
-    }, [pendingSwapMessage, isStreaming, isThinking]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         // Don't send if user is composing text with IME (input method editor)
@@ -2037,7 +1959,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     isGrouped={isGrouped}
                                     thinkingText={
                                         // Only show thinking on the LAST text-type assistant message
-                                        // Never show on special cards (launchpad-card, transaction-status-card, etc.)
+                                        // Never show on special cards (transaction-status-card, etc.)
                                         msg.role === 'assistant' &&
                                             msg.id === lastTextAssistantId &&
                                             (!msg.type || msg.type === 'text')

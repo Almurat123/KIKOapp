@@ -140,3 +140,45 @@ type FavoriteToken struct {
 }
 
 func (FavoriteToken) TableName() string { return "FavoriteToken" }
+
+// ChatSession maps to ChatSession table.
+type ChatSession struct {
+	ID        string    `gorm:"primaryKey"`
+	UserID    string    `gorm:"column:userId;index"`
+	Title     string    `gorm:"column:title"`
+	Model     string    `gorm:"column:model"`
+	Status    string    `gorm:"column:status"`
+	CreatedAt time.Time `gorm:"column:createdAt"`
+	UpdatedAt time.Time `gorm:"column:updatedAt"`
+}
+
+func (ChatSession) TableName() string { return "ChatSession" }
+
+// ChatMessage maps to ChatMessage table.
+type ChatMessage struct {
+	ID        string    `gorm:"primaryKey"`
+	SessionID string    `gorm:"column:sessionId;index"`
+	Role      string    `gorm:"column:role"`
+	Content   string    `gorm:"column:content;type:text"`
+	MessageIndex int    `gorm:"column:messageIndex;index"`
+	Status    string    `gorm:"column:status"`
+	CreatedAt time.Time `gorm:"column:createdAt"`
+}
+
+func (ChatMessage) TableName() string { return "ChatMessage" }
+
+// AITask maps to AITask table.
+type AITask struct {
+	ID          string     `gorm:"primaryKey"`
+	SessionID   string     `gorm:"column:sessionId;index"`
+	UserMessageID   *string `gorm:"column:userMessageId"`
+	AssistantMessageID *string `gorm:"column:assistantMessageId"`
+	Model       string    `gorm:"column:model"`
+	Status      string    `gorm:"column:status"`
+	ErrorMessage *string  `gorm:"column:errorMessage"`
+	StartedAt   *time.Time `gorm:"column:startedAt"`
+	CompletedAt *time.Time `gorm:"column:completedAt"`
+	CreatedAt   time.Time `gorm:"column:createdAt"`
+}
+
+func (AITask) TableName() string { return "AITask" }

@@ -188,39 +188,15 @@ export async function getTargetWalletStatus(params: {
     }),
   ]);
 
-  const [txGrouped, pnlAgg] = await Promise.all([
-    prisma.walletTransaction.groupBy({
-      by: ['txType'],
-      where: {
-        walletAddress,
-        chain,
-        blockTimestamp: { gte: since },
-      },
-      _count: { _all: true },
-      _sum: { valueUsd: true },
-    }),
-    prisma.position.aggregate({
-      where: {
-        configId: cfg.id,
-        status: 'closed',
-      },
-      _sum: {
-        realizedPnlUsd: true,
-      },
-      _count: {
-        id: true,
-      },
-    })
-  ]);
-
-  const pnlRows = await prisma.position.findMany({
+  const txGrouped = await prisma.walletTransaction.groupBy({
+    by: ['txType'],
     where: {
-      configId: cfg.id,
-      status: 'closed',
+      walletAddress,
+      chain,
+      blockTimestamp: { gte: since },
     },
-    select: {
-      realizedPnlUsd: true,
-    },
+    _count: { _all: true },
+    _sum: { valueUsd: true },
   });
 
   let buys = 0;
@@ -240,13 +216,10 @@ export async function getTargetWalletStatus(params: {
     }
   }
 
-  let totalProfitUsd = 0;
-  let totalLossUsd = 0;
-  for (const row of pnlRows) {
-    const pnl = safeNum(row.realizedPnlUsd as any);
-    if (pnl > 0) totalProfitUsd += pnl;
-    if (pnl < 0) totalLossUsd += Math.abs(pnl);
-  }
+  const netFlowUsd = sellUsd - buyUsd;
+  const targetRealizedProfitUsd = netFlowUsd > 0 ? netFlowUsd : 0;
+  const targetRealizedLossUsd = netFlowUsd < 0 ? Math.abs(netFlowUsd) : 0;
+  const targetRealizedPnlUsd = netFlowUsd;
 
   return {
     config: {
@@ -263,12 +236,11 @@ export async function getTargetWalletStatus(params: {
       tokenSwapCount: tokenSwaps,
       buyVolumeUsd: buyUsd,
       sellVolumeUsd: sellUsd,
-      netFlowUsd: sellUsd - buyUsd,
+      netFlowUsd,
+      targetRealizedPnlUsd,
+      targetRealizedProfitUsd,
+      targetRealizedLossUsd,
       copyPositionsCount: copiedPositions,
-      copyClosedPositions: pnlAgg._count.id,
-      copyRealizedPnlUsd: safeNum(pnlAgg._sum.realizedPnlUsd as any),
-      copyRealizedProfitUsd: totalProfitUsd,
-      copyRealizedLossUsd: totalLossUsd,
       latestTxAt: recentTx[0]?.blockTimestamp || null,
     },
     leaderStats,

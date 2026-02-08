@@ -9,7 +9,7 @@ import { parseSwapTransaction } from '../services/txDecoder.js';
 import { executeDirectSwap, isDirectSwapSupported } from '../services/dex/directSwapService.js';
 import { isNativeToken } from '../config/tokenRegistry.js';
 
-type LaunchpadProvider = 'zora' | 'fourmeme' | 'pumpfun' | 'bonkfun' | 'virtuals' | 'unknown';
+type LaunchpadProvider = 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph' | 'unknown';
 
 interface TokenCandidate {
     address: string;

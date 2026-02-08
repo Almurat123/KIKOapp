@@ -1,10 +1,30 @@
 import prisma, { withRetry } from '../db/prisma.js';
 import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { TokenSearchResult } from '../services/geckoTerminal.js';
+import { hasMeaningfulActivity } from '../services/trendingValidation.js';
+import { get as getRedisCache } from '../cache/redis.js';
 
 export interface TrendingToken extends TokenSearchResult {
   chain: string;
   rank: number;
+}
+
+function hasPositiveLiquidity(token: Pick<TokenSearchResult, 'liquidity'>): boolean {
+  return typeof token.liquidity !== 'number' || token.liquidity > 0;
+}
+
+function shouldKeepListedToken(token: Pick<TokenSearchResult, 'liquidity' | 'volume24h' | 'txns24h'>): boolean {
+  return hasPositiveLiquidity(token) && hasMeaningfulActivity(token);
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function tokenMetaCacheKey(chain: string, address: string): string {
+  return `token:meta:v1:${chain}:${address.toLowerCase()}`;
 }
 
 export async function saveTrendingTokens(chain: string, tokens: TokenSearchResult[]): Promise<TokenSearchResult[]> {
@@ -92,6 +112,7 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
               liquidity: token.liquidity ?? null,
               fdv: token.fdv ?? null,
               rank: index + 1,
+              launchpad: (token as any).launchpad || null, // Capture launchpad if available
             })),
             skipDuplicates: true
           });
@@ -99,12 +120,14 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
       });
     });
 
+    const listedTokens = mergedTokens.filter((t) => shouldKeepListedToken(t));
+
     // Update memory cache
     const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain);
-    memoryCache.set(cacheKey, mergedTokens, CACHE_TTL.TRENDING_TOKENS);
+    memoryCache.set(cacheKey, listedTokens, CACHE_TTL.TRENDING_TOKENS);
 
-    console.log(`Saved ${mergedTokens.length} trending tokens for ${chain} to database and memory cache`);
-    return mergedTokens;
+    console.log(`Saved ${listedTokens.length}/${mergedTokens.length} trending tokens for ${chain} to database and memory cache`);
+    return listedTokens;
   } catch (error) {
     console.error('Error saving trending tokens:', error);
     throw error;
@@ -121,7 +144,7 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
     const cached = memoryCache.get<TokenSearchResult[]>(cacheKey);
     if (cached && cached.length > 0) {
       return cached
-        .filter(t => typeof t.liquidity !== 'number' || t.liquidity > 0)
+        .filter(shouldKeepListedToken)
         .slice(0, limit);
     }
 
@@ -140,25 +163,42 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
       poolCreatedAt: (row as any).poolCreatedAt
         ? (row as any).poolCreatedAt.toISOString()
         : undefined,
-      price: row.price ? Number(row.price) : undefined,
-      priceChange5m: row.priceChange5m ? Number(row.priceChange5m) : undefined,
-      priceChange1h: row.priceChange1h ? Number(row.priceChange1h) : undefined,
-      priceChange6h: row.priceChange6h ? Number(row.priceChange6h) : undefined,
-      priceChange24h: row.priceChange24h ? Number(row.priceChange24h) : undefined,
-      volume24h: row.volume24h ? Number(row.volume24h) : undefined,
-      liquidity: row.liquidity ? Number(row.liquidity) : undefined,
-      fdv: row.fdv ? Number(row.fdv) : undefined,
+      price: toOptionalNumber(row.price),
+      priceChange5m: toOptionalNumber(row.priceChange5m),
+      priceChange1h: toOptionalNumber(row.priceChange1h),
+      priceChange6h: toOptionalNumber(row.priceChange6h),
+      priceChange24h: toOptionalNumber(row.priceChange24h),
+      volume24h: toOptionalNumber(row.volume24h),
+      liquidity: toOptionalNumber(row.liquidity),
+      fdv: toOptionalNumber(row.fdv),
+      launchpad: row.launchpad || undefined,
     }));
+
+    await Promise.all(tokens.map(async (token) => {
+      try {
+        const raw = await getRedisCache(tokenMetaCacheKey(chain, token.address));
+        if (!raw) return;
+        const meta = JSON.parse(raw) as { creatorAddress?: string; launchMultiple?: number };
+        if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
+        if (Number.isFinite(meta?.launchMultiple || NaN) && !Number.isFinite((token as any).launchMultiple || NaN)) {
+          (token as any).launchMultiple = meta.launchMultiple;
+        }
+      } catch {
+        // ignore metadata cache parse/read errors
+      }
+    }));
+
+    const listedTokens = tokens.filter(shouldKeepListedToken);
 
     if (tokens.length > 0) {
       memoryCache.set(
         cacheKey,
-        tokens.filter(t => typeof t.liquidity !== 'number' || t.liquidity > 0),
+        listedTokens,
         CACHE_TTL.TRENDING_TOKENS
       );
     }
 
-    return tokens.filter(t => typeof t.liquidity !== 'number' || t.liquidity > 0);
+    return listedTokens;
   } catch (error) {
     console.error('Error getting trending tokens:', error);
     return [];

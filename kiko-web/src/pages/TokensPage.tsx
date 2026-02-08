@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
+import { LaunchpadCapsule } from '../components/Launchpad/LaunchpadCapsule';
+
+import { Activity, BarChart3, ChevronDown, ChevronUp, Droplets, Rocket, Search, TrendingUp, X } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
 import { TokenDetailPage } from './TokenDetailPage';
 import { tokenApi, type TokenSearchResult } from '../services/api';
@@ -16,6 +18,7 @@ import {
   saveToCache,
   type TrendingTimeframe
 } from '../services/trendingService';
+import dexScreenerLogo from '../assets/images/dex-screener.png';
 
 // --- Types ---
 
@@ -46,6 +49,9 @@ interface Token {
   poolAddress?: string; // Pool address for GeckoTerminal charts
   network?: string; // Network for API calls
   trendingScore: number; // Calculated trending score (0-100)
+  launchpad?: string; // Originating launchpad
+  creatorAddress?: string; // Launchpad creator/deployer when available
+  launchMultipleRaw?: number; // Current price multiple vs launch/open reference
 
   // Raw numeric fields for fast sorting
   priceRaw: number;
@@ -64,6 +70,16 @@ interface Token {
     telegram?: string;
     discord?: string;
   };
+}
+
+interface TokenSignal {
+  key: string;
+  label: string;
+  detail: string;
+  offDetail: string;
+  active: boolean;
+  kind: 'dex' | 'spike' | 'depth' | 'volume' | 'activity' | 'multiple';
+  tier?: 'x10' | 'x50' | 'x100' | 'x1000';
 }
 
 // --- Helper Functions ---
@@ -147,6 +163,67 @@ function computeTimeframeScore(t: Token, timeframe: TrendingTimeframe): number {
     0.20 * txns +
     0.15 * liquidity
   );
+}
+
+function capDuplicateSymbols(tokens: Token[], maxPerSymbol: number): Token[] {
+  if (maxPerSymbol <= 0) return tokens;
+
+  const seen = new Map<string, number>();
+  const preferred: Token[] = [];
+  const overflow: Token[] = [];
+
+  for (const token of tokens) {
+    const key = (token.symbol || '').trim().toLowerCase();
+    if (!key) {
+      preferred.push(token);
+      continue;
+    }
+
+    const count = seen.get(key) || 0;
+    if (count < maxPerSymbol) {
+      preferred.push(token);
+      seen.set(key, count + 1);
+    } else {
+      overflow.push(token);
+    }
+  }
+
+  // Keep deterministic order while ensuring the list remains full-length.
+  return [...preferred, ...overflow];
+}
+
+function getTokenSignals(token: Token): TokenSignal[] {
+  const hasImage = Boolean(token.imageUrl && token.imageUrl.trim().length > 0);
+  const hasDexScreenerProfile = hasImage;
+
+  const isVolumeSpike = (token.c5mRaw >= 12 && token.txns >= 40) || (token.c1hRaw >= 25 && token.volumeRaw >= 50_000);
+  const isDeepLiquidity = token.liquidityRaw >= 250_000;
+  const isHighVolume = token.volumeRaw >= 1_000_000;
+  const isVeryActive = token.txns >= 1_200;
+  const multipleRaw = Number(token.launchMultipleRaw || 0);
+  const multiple = Number.isFinite(multipleRaw) && multipleRaw > 0 ? multipleRaw : 0;
+
+  let multipleTier: TokenSignal['tier'];
+  if (multiple >= 1000) multipleTier = 'x1000';
+  else if (multiple >= 100) multipleTier = 'x100';
+  else if (multiple >= 50) multipleTier = 'x50';
+  else if (multiple >= 10) multipleTier = 'x10';
+
+  return [
+    { key: 'dex', label: 'DexScreener', detail: 'Metadata claimed', offDetail: 'Metadata not claimed', active: hasDexScreenerProfile, kind: 'dex' },
+    { key: 'spike', label: 'Volume Spike', detail: `${token.c5mRaw.toFixed(1)}% (5m)`, offDetail: `${token.c5mRaw.toFixed(1)}% (5m)`, active: isVolumeSpike, kind: 'spike' },
+    { key: 'depth', label: 'Pool Depth', detail: `${formatCurrency(token.liquidityRaw)} liquidity`, offDetail: `${formatCurrency(token.liquidityRaw)} liquidity`, active: isDeepLiquidity, kind: 'depth' },
+    { key: 'volume', label: '24H Volume', detail: `${formatCurrency(token.volumeRaw)} volume`, offDetail: `${formatCurrency(token.volumeRaw)} volume`, active: isHighVolume, kind: 'volume' },
+    { key: 'activity', label: 'Trading Activity', detail: `${token.txns} txns/24h`, offDetail: `${token.txns} txns/24h`, active: isVeryActive, kind: 'activity' },
+    { key: 'multiple', label: 'Since Launch', detail: `${multiple > 0 ? `x${multiple.toFixed(1)}` : 'N/A'}`, offDetail: `${multiple > 0 ? `x${multiple.toFixed(1)}` : 'N/A'}`, active: multiple >= 10, kind: 'multiple', tier: multipleTier },
+  ];
+}
+
+function shortAddress(address?: string): string {
+  if (!address) return '';
+  const trimmed = address.trim();
+  if (trimmed.length <= 12) return trimmed;
+  return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
 }
 
 // Subscript digits for displaying zero count
@@ -276,6 +353,7 @@ function formatCurrency(value: number | undefined | null | string): string {
   }
 
   if (!numValue || numValue === 0 || isNaN(numValue)) return '$0';
+  if (numValue > 0 && numValue < 1) return '<$1';
   if (numValue >= 1e9) {
     return `$${(numValue / 1e9).toFixed(2)}B`;
   } else if (numValue >= 1e6) {
@@ -410,6 +488,8 @@ function convertApiTokenToToken(apiToken: TokenSearchResult, id: number): Token 
       telegram: apiToken.socials?.find(s => s.type === 'telegram')?.url,
       discord: apiToken.socials?.find(s => s.type === 'discord')?.url,
     },
+    creatorAddress: (apiToken as any).creatorAddress || (apiToken as any).creator || (apiToken as any).userAddress || undefined,
+    launchMultipleRaw: typeof apiToken.launchMultiple === 'number' ? apiToken.launchMultiple : (apiToken.launchMultiple ? parseFloat(String(apiToken.launchMultiple)) : undefined),
     trendingScore: calculateTrendingScore({
       volume24h: volume24h || 0,
       txns24h: apiToken.txns24h || 0,
@@ -419,6 +499,7 @@ function convertApiTokenToToken(apiToken: TokenSearchResult, id: number): Token 
       makers: apiToken.txns24h ? Math.floor(apiToken.txns24h * 0.5) : 0,
       // Note: uniqueHolders is not available in list API, only in details enrichment
     }),
+    launchpad: apiToken.launchpad,
   };
 }
 
@@ -462,9 +543,12 @@ const TokenRow = React.memo(({
   timeframe: TrendingTimeframe;
   onTokenClick: (token: Token) => void;
 }) => {
+  const [activeSignalKey, setActiveSignalKey] = useState<string | null>(null);
   const changeValue = getTimeframeChangeValue(t, timeframe);
   const isPositive = changeValue.startsWith('+');
   const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
+  const showRank = !isMobile && !t.isNew && !t.isHot;
+  const tokenSignals = getTokenSignals(t);
 
   return (
     <React.Fragment>
@@ -478,7 +562,7 @@ const TokenRow = React.memo(({
           style={{ padding: isMobile ? '10px 8px' : '12px 16px' }}
         >
           <div className={styles.tokenInfo}>
-            {!isMobile && (
+            {showRank && (
               <span className={styles.rank}>
                 {i + 1}
               </span>
@@ -631,7 +715,74 @@ const TokenRow = React.memo(({
       </tr>
       {/* Sub-row for additional details */}
       <tr className={styles.subRow}>
-        <td colSpan={isMobile ? 5 : 6}></td>
+        <td colSpan={isMobile ? 5 : 6}>
+          <div className={styles.subRowContent}>
+            {showRank && <span className={styles.subRowRankSpacer} aria-hidden="true" />}
+            <div className={styles.subRowCapsuleWrap}>
+              <div className={styles.subRowLaunchpadWrap}>
+                <LaunchpadCapsule
+                  address={t.address || t.poolAddress || ''}
+                  chain={t.chain}
+                  launchpad={t.launchpad}
+                  onAskAI={() => console.log('Trigger Ask AI for', t.name)}
+                />
+                {t.launchpad && (
+                  <span className={styles.subRowCreator} title={t.creatorAddress || 'creator unavailable'}>
+                    {t.creatorAddress ? shortAddress(t.creatorAddress) : 'creator --'}
+                  </span>
+                )}
+              </div>
+              <div className={styles.tokenSignals} role="group" aria-label="Token quality indicators">
+                {tokenSignals.map((signal) => (
+                  <button
+                    key={signal.key}
+                    type="button"
+                    className={`${styles.tokenSignal} ${signal.active ? styles.tokenSignalActive : styles.tokenSignalInactive}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveSignalKey((prev) => (prev === signal.key ? null : signal.key));
+                    }}
+                    aria-label={`${signal.label}: ${signal.active ? 'ON' : 'OFF'}`}
+                  >
+                    {signal.kind === 'dex' && (
+                      <img
+                        src={dexScreenerLogo}
+                        alt="DexScreener"
+                        className={styles.tokenSignalDexLogo}
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    )}
+                    {signal.kind === 'spike' && <TrendingUp size={12} strokeWidth={2.2} />}
+                    {signal.kind === 'depth' && <Droplets size={12} strokeWidth={2.2} />}
+                    {signal.kind === 'volume' && <BarChart3 size={12} strokeWidth={2.2} />}
+                    {signal.kind === 'activity' && <Activity size={12} strokeWidth={2.2} />}
+                    {signal.kind === 'multiple' && (
+                      <Rocket
+                        size={12}
+                        strokeWidth={2.2}
+                        className={
+                          signal.tier === 'x1000' ? styles.multipleX1000 :
+                            signal.tier === 'x100' ? styles.multipleX100 :
+                              signal.tier === 'x50' ? styles.multipleX50 :
+                                signal.tier === 'x10' ? styles.multipleX10 : ''
+                        }
+                      />
+                    )}
+                    {activeSignalKey === signal.key && (
+                      <span className={styles.tokenSignalBubble} role="status" onClick={(e) => e.stopPropagation()}>
+                        <span className={styles.tokenSignalBubbleTitle}>{signal.label}</span>
+                        <span className={styles.tokenSignalBubbleText}>
+                          {signal.active ? `ON · ${signal.detail}` : `OFF · ${signal.offDetail}`}
+                        </span>
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </td>
       </tr>
     </React.Fragment>
   );
@@ -1021,6 +1172,14 @@ export const TokensPage: React.FC<TokensPageProps> = ({
       filtered = filtered.filter(t => t.address && favoriteAddresses.has(t.address.toLowerCase()));
     }
 
+    if (activeTab === 'trending') {
+      filtered = filtered.filter((t) => {
+        if (t.liquidityRaw <= 0) return false;
+        if (t.volumeRaw <= 0 && t.txns <= 0) return false;
+        return true;
+      });
+    }
+
     // Sort
     if (sortBy) {
       filtered.sort((a, b) => {
@@ -1079,6 +1238,16 @@ export const TokensPage: React.FC<TokensPageProps> = ({
     } else {
       // Default: rank by selected timeframe (so chain switch + timeframe switch feels responsive)
       filtered.sort((a, b) => computeTimeframeScore(b as Token, timeframe) - computeTimeframeScore(a as Token, timeframe));
+    }
+
+    // Prevent one repeated symbol (e.g. many "ZORA") from monopolizing the visible ranking.
+    // Only apply on trending feed without active search/sort to preserve explicit user intent.
+    if (
+      activeTab === 'trending' &&
+      !searchQuery.trim() &&
+      !sortBy
+    ) {
+      filtered = capDuplicateSymbols(filtered, 2);
     }
 
     return filtered;
@@ -1627,7 +1796,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
                     <tbody className={styles.tbody}>
                       {filteredAndSortedTokens.slice(0, visibleCount).map((t, i) => (
                         <TokenRow
-                          key={t.id}
+                          key={`${t.chain}-${t.address || t.poolAddress || t.symbol}-${t.id}`}
                           token={t}
                           index={i}
                           isMobile={isMobile}

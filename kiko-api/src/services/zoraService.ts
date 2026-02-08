@@ -112,6 +112,7 @@ export class ZoraService {
     // In-memory cache for current refresh cycle (avoids duplicate API calls)
     private coinCache = new Map<string, ZoraCoin | null>();
     private profileCache = new Map<string, UserProfile | null>();
+    private coinErrorBackoff = new Map<string, number>();
 
     constructor() {
         // Initialize API key if available in environment
@@ -183,8 +184,14 @@ export class ZoraService {
      */
     async getCoinByAddress(address: string): Promise<ZoraCoin | null> {
         try {
+            const key = address.toLowerCase();
+            const backoffUntil = this.coinErrorBackoff.get(key) || 0;
+            if (Date.now() < backoffUntil) {
+                return null;
+            }
+
             // Check in-memory cache first
-            const cached = this.coinCache.get(address.toLowerCase());
+            const cached = this.coinCache.get(key);
             if (cached !== undefined) {
                 return cached;
             }
@@ -196,7 +203,7 @@ export class ZoraService {
 
             const token = response.data?.zora20Token;
             if (!token) {
-                this.coinCache.set(address.toLowerCase(), null);
+                this.coinCache.set(key, null);
                 return null;
             }
 
@@ -262,12 +269,15 @@ export class ZoraService {
             };
 
             // Cache successful result
-            this.coinCache.set(address.toLowerCase(), coin);
+            this.coinCache.set(key, coin);
+            this.coinErrorBackoff.delete(key);
             return coin;
 
         } catch (error) {
-            // Cache null to avoid retrying failed requests
-            this.coinCache.set(address.toLowerCase(), null);
+            // Do not cache null permanently on transient failures (429/network).
+            // Apply short backoff to avoid hammering.
+            const key = address.toLowerCase();
+            this.coinErrorBackoff.set(key, Date.now() + 30_000);
             return null;
         }
     }
@@ -482,6 +492,7 @@ export class ZoraService {
     clearCache(): void {
         this.coinCache.clear();
         this.profileCache.clear();
+        this.coinErrorBackoff.clear();
     }
 
     /**

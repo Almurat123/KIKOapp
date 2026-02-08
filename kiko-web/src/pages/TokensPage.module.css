@@ -744,6 +744,166 @@
     color: var(--text-primary);
 }
 
+.subRow td {
+    border-bottom: 1px solid var(--border-color);
+    padding: 0;
+    height: 36px;
+}
+
+.subRowContent {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding-left: 8px;
+}
+
+.subRowRankSpacer {
+    width: 24px;
+    flex: 0 0 24px;
+}
+
+.subRowCapsuleWrap {
+    margin-left: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding-right: 10px;
+}
+
+.subRowLaunchpadWrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.subRowCreator {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tokenSignals {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.tokenSignal {
+    width: 18px;
+    height: 18px;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: opacity 0.2s ease, transform 0.2s ease, filter 0.2s ease;
+}
+
+.tokenSignalDexLogo {
+    width: 12px;
+    height: 12px;
+    object-fit: contain;
+}
+
+.tokenSignalActive {
+    color: #22c55e;
+}
+
+.tokenSignalInactive {
+    color: var(--text-secondary);
+}
+
+.tokenSignalActive svg,
+.tokenSignalActive img {
+    opacity: 1;
+    filter: none;
+}
+
+.tokenSignalInactive svg,
+.tokenSignalInactive img {
+    opacity: 0.35;
+    filter: saturate(0.35) grayscale(0.25);
+}
+
+.tokenSignalBubble {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 140px;
+    max-width: 210px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 30;
+    pointer-events: auto;
+}
+
+.tokenSignalBubbleTitle {
+    color: var(--text-primary);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: left;
+}
+
+.tokenSignalBubbleText {
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 1.25;
+    text-align: left;
+}
+
+.multipleX10 {
+    color: #22c55e;
+}
+
+.multipleX50 {
+    color: #f59e0b;
+}
+
+.multipleX100 {
+    color: #ef4444;
+}
+
+.multipleX1000 {
+    color: #ffffff;
+    filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.9));
+    animation: rainbowPulse 1.8s linear infinite;
+}
+
+@keyframes rainbowPulse {
+    0% {
+        filter: hue-rotate(0deg) saturate(1.2) drop-shadow(0 0 1px rgba(255, 0, 0, 0.7));
+    }
+
+    50% {
+        filter: hue-rotate(180deg) saturate(1.4) drop-shadow(0 0 1px rgba(0, 255, 255, 0.7));
+    }
+
+    100% {
+        filter: hue-rotate(360deg) saturate(1.2) drop-shadow(0 0 1px rgba(255, 0, 0, 0.7));
+    }
+}
+
+:global(.dark) .subRow td {
+    border-bottom: 1px solid var(--border-color);
+}
+
 .tr {
     transition: background 0.2s;
     cursor: pointer;
@@ -1123,9 +1283,4 @@
 
 :global(.dark) .infiniteScrollLoader {
     color: rgba(255, 255, 255, 0.4);
-}
-.subRow td {
-    padding: 0;
-    height: 30px;
-    border-bottom: 1px solid var(--border-color);
 }

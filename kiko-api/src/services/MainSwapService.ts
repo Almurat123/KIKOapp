@@ -46,6 +46,20 @@ export interface DirectSwapHint {
   sourceDexName?: string;
   sourceRouter?: string;
   sourceTxHash?: string;
+  resolvedPoolHint?: {
+    kind: 'v4' | 'v3' | 'v2';
+    dex?: 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
+    poolAddress?: string;
+    fee?: number;
+    v4PoolKey?: {
+      currency0: string;
+      currency1: string;
+      hooks: string;
+      poolManager: string;
+      fee: number;
+      tickSpacing: number;
+    };
+  };
   preferredStrategy?: 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity' | 'zora-sdk' | 'virtual-bridge';
   preferredDex?: 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
   bypassReferencePrice?: boolean;
@@ -87,7 +101,7 @@ export interface MainSwapRequest {
   };
 
   // Launchpad-specific
-  launchpadProvider?: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'clanker' | 'virtuals';
+  launchpadProvider?: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals';
 
   // Copytrade execution hint from target wallet decoded tx
   directSwapHint?: DirectSwapHint;
@@ -114,7 +128,7 @@ export interface MainSwapResult {
  * Launchpad token detection result
  */
 interface LaunchpadDetection {
-  provider: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'clanker' | 'virtuals';
+  provider: 'pumpfun' | 'bonkfun' | 'zora' | 'fourmeme' | 'flap' | 'clanker' | 'virtuals';
   data: any;
   chainId: number;
 }
@@ -205,16 +219,16 @@ export class MainSwapService {
           const launchpadDetection = await this.detectLaunchpad(request.tokenOut, request.chainId)
             || await this.detectLaunchpad(request.tokenIn, request.chainId);
 
-          if (launchpadDetection && launchpadDetection.provider !== 'clanker') {
+          if (launchpadDetection && launchpadDetection.provider !== 'clanker' && launchpadDetection.provider !== 'flap') {
             // Use launchpad routing for non-Clanker tokens only
             logger.info(LogCode.SYS_INFO, trace(`Launchpad detected: ${launchpadDetection.provider}`), {
               provider: launchpadDetection.provider,
               chainId: launchpadDetection.chainId
             });
             request.launchpadProvider = launchpadDetection.provider as any;
-          } else if (launchpadDetection?.provider === 'clanker') {
-            // DISABLED: ClankerService - use standard 0x/Kyber instead
-            logger.info(LogCode.SYS_INFO, trace(`Clanker token detected - routing to standard DEX (0x/Kyber)`));
+          } else if (launchpadDetection?.provider === 'clanker' || launchpadDetection?.provider === 'flap') {
+            // These platforms are currently detected-only and route through standard DEX path.
+            logger.info(LogCode.SYS_INFO, trace(`${launchpadDetection.provider} token detected - routing to standard DEX (0x/Kyber)`));
           }
         } catch (detectErr: any) {
           logger.warn(LogCode.SYS_ERROR, trace(`Launchpad detection failed: ${detectErr.message}`), {

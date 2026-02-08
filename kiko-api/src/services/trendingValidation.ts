@@ -32,6 +32,27 @@ export type TrendingValidationResult = {
   reason?: string;
 };
 
+const MIN_VOLUME24H_FOR_LISTING = 25;
+const MIN_TXNS24H_FOR_LISTING = 5;
+
+export function hasMeaningfulActivity(token: Pick<TokenSearchResult, 'volume24h' | 'txns24h'>): boolean {
+  const volume24h = toNumber(token.volume24h);
+  const txns24h = toNumber(token.txns24h);
+
+  const hasVolume = Number.isFinite(volume24h);
+  const hasTxns = Number.isFinite(txns24h);
+
+  if (hasVolume && hasTxns) {
+    if (volume24h <= 0 && txns24h <= 0) return false;
+    if (volume24h < MIN_VOLUME24H_FOR_LISTING && txns24h < MIN_TXNS24H_FOR_LISTING) return false;
+    return true;
+  }
+
+  if (hasVolume) return volume24h > 0;
+  if (hasTxns) return txns24h > 0;
+  return false;
+}
+
 /**
  * Zero-cost validation (no extra API calls).
  * Goal: keep the list stable and avoid obvious junk entries before "listing" (saving/serving).
@@ -67,6 +88,7 @@ export function validateTrendingTokenForListing(
   const txns24h = toNumber(token.txns24h);
   if (Number.isFinite(txns24h) && txns24h < 0) return { ok: false, reason: 'negative_txns' };
 
+  if (!hasMeaningfulActivity(token)) return { ok: false, reason: 'low_activity' };
+
   return { ok: true };
 }
-

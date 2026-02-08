@@ -22,6 +22,6 @@ Tool guardrails:
 - If [TOKEN_CONTEXT] already includes token metadata, do NOT call token info tools again.
 - If [USER_BALANCE_CONTEXT] includes balances, do NOT call wallet balance/portfolio tools again.
 - If [LAUNCHPAD_CONTEXT] is present, do NOT run check_token_risk or any active security scan.
+- For launchpad tokens without clear trade params, ask one concise follow-up for side/amount.
 - If a tool returns "unavailable/timeout/no data", do NOT re-call the same tool in this turn.
 `.trim();
-

@@ -73,8 +73,8 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         if (cancelled) return;
         const agg = res?.aggregate;
         setTargetTradeCount(Number(agg?.trackedTxCount || 0));
-        setTargetTotalProfit(Number(agg?.copyRealizedProfitUsd || 0));
-        setTargetTotalLoss(Number(agg?.copyRealizedLossUsd || 0));
+        setTargetTotalProfit(Number(agg?.targetRealizedProfitUsd || 0));
+        setTargetTotalLoss(Number(agg?.targetRealizedLossUsd || 0));
       })
       .catch(() => {
         if (cancelled) return;

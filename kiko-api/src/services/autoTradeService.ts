@@ -9,6 +9,7 @@ import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
 import { MainSwapService, type DirectSwapHint } from './MainSwapService.js';
+import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
@@ -421,15 +422,22 @@ function deriveDirectSwapHint(swap: DecodedSwap, chainId: number): DirectSwapHin
         }
     }
 
+    if (!preferredStrategy && (swap as any).resolvedPoolHint?.kind) {
+        preferredStrategy = (swap as any).resolvedPoolHint.kind;
+    }
+    if (!preferredDex && (swap as any).resolvedPoolHint?.dex) {
+        preferredDex = (swap as any).resolvedPoolHint.dex;
+    }
     if (!preferredStrategy && !rawDexName && !rawRouter) return undefined;
     return {
         sourceDexName: rawDexName || undefined,
         sourceRouter: rawRouter || undefined,
         sourceTxHash: swap.txHash,
+        resolvedPoolHint: (swap as any).resolvedPoolHint,
         preferredStrategy,
         preferredDex,
-        // Base fast path: if target tx gives us usable strategy, try direct execution first.
-        bypassReferencePrice: chainId === 8453 && !!preferredStrategy
+        // Global fast path: when source tx gives a usable strategy, bypass reference quote gate first.
+        bypassReferencePrice: !!preferredStrategy
     };
 }
 
@@ -441,9 +449,10 @@ function deriveDirectSwapHint(swap: DecodedSwap, chainId: number): DirectSwapHin
 export async function handleSwapDetected(
     targetWallet: string,
     swap: DecodedSwap,
-    chainId: number
+    chainId: number,
+    context?: { detectedAt?: number }
 ): Promise<void> {
-    const detectedAt = Date.now();
+    const detectedAt = context?.detectedAt ?? Date.now();
     // 🛑 SHUTDOWN CHECK (Risk #2 Mitigation)
     if (isServiceShuttingDown) {
         logger.warn(LogCode.SYS_SHUTDOWN, 'Service shutting down, rejecting new swap webhook', { wallet: targetWallet });
@@ -593,8 +602,8 @@ async function handleTargetBuy(
         .map((c: any) => ({
             ...c,
             user: userMap.get(c.userId),
-            // Fast execution flag (Base-only, controlled by per-strategy toggle)
-            fastExecutionEnabled: chainId === 8453 && c.disableTokenInfo === true
+            // Fast execution flag (global, controlled by per-strategy toggle)
+            fastExecutionEnabled: c.disableTokenInfo === true
         }))
         .filter((c) => Boolean(c.user));
 
@@ -609,8 +618,8 @@ async function handleTargetBuy(
         ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
         : Promise.resolve(null);
 
-    // 🔥 Base Fast Mode: If ALL configs explicitly disable Token Info, skip heavy APIs
-    const skipTokenInfo = chainId === 8453 && configs.every(c => c.disableTokenInfo === true);
+    // Fast Mode: if all configs disable token info, skip heavy API info fetch in buy path.
+    const skipTokenInfo = configs.every(c => c.disableTokenInfo === true);
     if (skipTokenInfo) {
         try {
             const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
@@ -1648,7 +1657,7 @@ async function processSingleUserBuy(
                             eth: baseAmount.toFixed(6),
                             timingMs: Date.now() - timingDetectedAt
                         });
-                        const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                        const fastSwapOverride = config.disableTokenInfo === true;
                         const result1 = await MainSwapService.executeSwap({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
@@ -1713,7 +1722,7 @@ async function processSingleUserBuy(
                             const amount99 = baseAmount * 0.99;
                             const slippage2 = 2000; // 20% (baseSlippage is now 15%, so we bump +5%)
                             logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                            const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                            const fastSwapOverride = config.disableTokenInfo === true;
                             const result2 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
@@ -1739,7 +1748,7 @@ async function processSingleUserBuy(
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = 2500; // 25% (maximum tolerance for volatile new tokens)
                                 logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 25% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                                const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                                const fastSwapOverride = config.disableTokenInfo === true;
                                 const result3 = await MainSwapService.executeSwap({
                                     userId: effectiveConfig.user.privyDid,
                                     walletAddress: effectiveConfig.user.walletAddress,
@@ -2566,8 +2575,9 @@ export function initAutoTradeService(): void {
     // NOTE: EVM watcher disabled - using Alchemy webhooks for real-time push notifications
     // startWatcher(); // Disabled - webhook is faster and more efficient
     startSolanaWatcher(); // Keep Solana watcher (no webhook alternative)
+    void startCopyTradePendingWatcher();
 
-    logger.info(LogCode.SYS_STARTUP, 'Auto trade service initialized (Solana watcher + EVM webhook enabled)', { mode: 'hybrid' });
+    logger.info(LogCode.SYS_STARTUP, 'Auto trade service initialized (Solana watcher + EVM webhook + pending watcher enabled)', { mode: 'hybrid+pending' });
 
     // Start lifecycle cleanup job: resolve stale transient states
     zombieCleanupInterval = setInterval(cleanupStalePositions, 5 * 60 * 1000);
@@ -2583,6 +2593,7 @@ export async function stopAutoTradeService(): Promise<void> {
         clearInterval(zombieCleanupInterval);
         zombieCleanupInterval = null;
     }
+    stopCopyTradePendingWatcher();
     // Note: watchers are event-driven, setting flag stops processing
 }
 

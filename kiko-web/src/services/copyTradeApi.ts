@@ -56,11 +56,10 @@ export interface CopyTradeTargetStatusResponse {
         buyVolumeUsd: number;
         sellVolumeUsd: number;
         netFlowUsd: number;
+        targetRealizedPnlUsd: number;
+        targetRealizedProfitUsd: number;
+        targetRealizedLossUsd: number;
         copyPositionsCount: number;
-        copyClosedPositions: number;
-        copyRealizedPnlUsd: number;
-        copyRealizedProfitUsd: number;
-        copyRealizedLossUsd: number;
         latestTxAt: string | null;
     };
 }

@@ -203,6 +203,7 @@ const DEFAULT_EXECUTION_PROFILE: TxExecutionProfile = {
     maxReplacements: 0,
     replacementBumpBps: 1000
 };
+const PRIVY_SNIPER_RETURN_ON_BROADCAST = (process.env.PRIVY_SNIPER_RETURN_ON_BROADCAST || 'true') === 'true';
 
 function toHexQuantity(value?: string | bigint): `0x${string}` | undefined {
     if (value === undefined || value === null) return undefined;
@@ -436,6 +437,16 @@ export async function sendTransaction(
                     nonce: nonce?.toString(),
                     sendMs: Date.now() - sendStart
                 });
+
+                if (PRIVY_SNIPER_RETURN_ON_BROADCAST && profile.name !== 'default') {
+                    logger.info(LogCode.EXE_TX_BROADCAST, '[PrivyTx] Sniper low-latency mode: return on broadcast', {
+                        execId,
+                        txHash: response.hash,
+                        chainId: tx.chainId,
+                        profile: profile.name
+                    });
+                    return response.hash;
+                }
 
                 if (profile.maxReplacements > 0 && nonce !== undefined) {
                     let included = await waitForReceiptFast(tx.chainId, response.hash, profile.stallMs, profile.pollMs);

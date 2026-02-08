@@ -18,6 +18,8 @@ import { Connection } from '@solana/web3.js';
 const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || '10000'); // 10s default
 const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
 const RPC_TIMEOUT_CRITICAL_MS = Number(process.env.RPC_TIMEOUT_CRITICAL_MS || '1500');
+const RPC_CRITICAL_HEDGE_ENABLED = (process.env.RPC_CRITICAL_HEDGE_ENABLED || 'true') === 'true';
+const RPC_CRITICAL_HEDGE_STAGGER_MS = Number(process.env.RPC_CRITICAL_HEDGE_STAGGER_MS || '60');
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Open circuit after 5 consecutive failures (more tolerant)
 const CIRCUIT_BREAKER_RESET_TIME = 30000; // Try again after 30s
@@ -277,6 +279,84 @@ export async function callRpc<T = any>(
 
     // Sort endpoints by health and priority
     const sortedEndpoints = sortEndpointsByScore(endpoints, effectiveImportance);
+
+    // Critical hedge for latency-sensitive copytrade reads: race top-2 endpoints.
+    const canUseCriticalHedge =
+        RPC_CRITICAL_HEDGE_ENABLED &&
+        effectiveImportance === 'critical' &&
+        (method === 'eth_getTransactionByHash' || method === 'eth_getTransactionReceipt') &&
+        sortedEndpoints.length >= 2;
+
+    if (canUseCriticalHedge) {
+        const runHedgeAttempt = async (endpoint: RpcEndpointConfig, delayMs: number): Promise<T> => {
+            if (delayMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+
+            if (isCircuitOpen(endpoint.url)) {
+                throw new Error('circuit_open');
+            }
+            const capacity = checkEndpointCapacity(endpoint, effectiveImportance);
+            if (!capacity.ok) {
+                throw new Error(`capacity_limited:${capacity.reason || 'unknown'}`);
+            }
+
+            const startTime = Date.now();
+            try {
+                recordUsageStart(endpoint.url);
+                recordAttempt(endpoint.url);
+
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+                const response = await fetch(endpoint.url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept-Encoding': 'gzip',
+                        'Connection': 'keep-alive',
+                    },
+                    body: JSON.stringify(request),
+                    signal: controller.signal,
+                    keepalive: true,
+                }).finally(() => clearTimeout(timeout));
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const data = await response.json() as RpcResponse<T>;
+                if (data.error) {
+                    throw new Error(`RPC Error: ${data.error.message}`);
+                }
+                if (data.result === undefined) {
+                    throw new Error('RPC returned undefined result');
+                }
+
+                recordSuccess(endpoint.url, Date.now() - startTime);
+                return data.result;
+            } catch (error: any) {
+                recordFailure(endpoint.url);
+                throw error;
+            } finally {
+                recordUsageEnd(endpoint.url);
+            }
+        };
+
+        try {
+            const hedged = await Promise.any([
+                runHedgeAttempt(sortedEndpoints[0], 0),
+                runHedgeAttempt(sortedEndpoints[1], Math.max(0, RPC_CRITICAL_HEDGE_STAGGER_MS))
+            ]);
+
+            if (isCacheable(method)) {
+                const cacheKey = buildCacheKey(chainIdOrName, method, params);
+                const ttl = getTtlForMethod(method);
+                setCachedRpc(cacheKey, hedged, ttl);
+            }
+            return hedged;
+        } catch {
+            // Fall through to sequential failover path below.
+        }
+    }
 
     // Try each endpoint with circuit breaker check
     for (let i = 0; i < sortedEndpoints.length; i++) {

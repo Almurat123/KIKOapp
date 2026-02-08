@@ -55,6 +55,9 @@ export interface TokenSearchResult {
   fdv?: number;
   decimals?: number;
   holders?: number;
+  launchpad?: string;
+  creatorAddress?: string;
+  launchMultiple?: number;
 }
 
 /**

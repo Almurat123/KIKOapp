@@ -278,11 +278,12 @@ async function checkAndApproveForFourMeme(
 }
 
 /**
- * Detect if a token is a Four.meme token by checking if address ends with '4444'
+ * Detect if a token is a Four.meme token by checking known vanity suffixes.
  * This is a quick heuristic - for definitive check use launchpadDetector
  */
 export function isFourMemeToken(tokenAddress: string): boolean {
-    return tokenAddress.toLowerCase().endsWith('4444');
+    const lower = tokenAddress.toLowerCase();
+    return lower.endsWith('4444') || lower.endsWith('ffff');
 }
 
 export const fourMemeService = {

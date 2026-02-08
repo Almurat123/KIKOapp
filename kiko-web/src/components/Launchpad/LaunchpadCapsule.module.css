@@ -1,0 +1,53 @@
+.capsule {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: #000000;
+    font-size: 11px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    height: 22px;
+    line-height: 1;
+}
+
+:global(.dark) .capsule {
+    color: #ffffff;
+}
+
+
+
+.logo {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.name {
+    display: flex;
+    align-items: center;
+}
+
+/* Specific styling for 'Ask AI' if it needs to look different, 
+   but user requested simple 'logo + name'. 
+   Ask AI has no logo image in the component (it renders <span Ask AI>), 
+   so we just keep it as text. */
+.askAi {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* Remove all specific color/background classes */
+.pumpfun,
+.clanker,
+.virtuals,
+.fourmeme,
+.flap,
+.moonshot {
+    background: transparent;
+    color: var(--text-secondary);
+}

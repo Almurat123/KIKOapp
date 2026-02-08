@@ -1031,7 +1031,6 @@ export class ChatWorker {
     private async processDeepSeekTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = []) {
         let iteration = 0;
         let fastSwapAttempted = false; // Circuit breaker for Fast Swap
-        let launchpadCardShown = false; // Circuit breaker for Launchpad Card
         let detectedLaunchpadInfo: { chainId: number; provider: string; data: any; address: string } | null = null; // Store launchpad info when detected
         const maxIterations = 10;
         const assistantMessageId = task.assistantMessageId!;
@@ -1941,73 +1940,8 @@ export class ChatWorker {
                     console.log(`[ChatWorker] 📦 Stored launchpad info: ${detectedLaunchpadInfo.provider} for ${detectedLaunchpadInfo.address}`);
                 }
 
-                // Show launchpad card if detected (only once per task)
-                // BUT: Skip if user has explicit swap/trade intent (they want to execute, not view info)
-                const hasExplicitTradeIntent = parsedIntent.detailed.action === 'swap' &&
-                    (parsedIntent.swapIntent?.amount || /\b(swap|buy|sell|trade)\b/i.test(lastUserMessage));
-
-                if (detectedLaunchpadInfo && !launchpadCardShown && !hasExplicitTradeIntent) {
-                    launchpadCardShown = true; // Mark as shown to prevent duplicates
-                    console.log(`[ChatWorker] Token is from launchpad: ${detectedLaunchpadInfo.provider}`);
-
-                    // Create a separate message for the launchpad card so it doesn't get overwritten
-                    // by the transaction status card
-                    const launchpadMsg = await this.repo.createMessage(
-                        task.sessionId,
-                        'assistant',
-                        '',
-                        {
-                            type: 'launchpad-card',
-                            data: {
-                                chainId: detectedLaunchpadInfo.chainId,
-                                provider: detectedLaunchpadInfo.provider,
-                                data: {
-                                    ...detectedLaunchpadInfo.data,
-                                    address: detectedLaunchpadInfo.address
-                                }
-                            },
-                            status: 'complete'
-                        }
-                    );
-
-                    console.log(`[ChatWorker] ✅ Created launchpad card message: ${launchpadMsg.id}`);
-
-                    this.ws.broadcastToUser(userId!, {
-                        type: 'client_action',
-                        sessionId: task.sessionId,
-                        data: {
-                            message_id: launchpadMsg.id,
-                            targetMessageId: launchpadMsg.id,
-                            action: {
-                                type: 'show_launchpad_card',
-                                data: {
-                                    chainId: detectedLaunchpadInfo.chainId,
-                                    provider: detectedLaunchpadInfo.provider,
-                                    data: {
-                                        ...detectedLaunchpadInfo.data,
-                                        address: detectedLaunchpadInfo.address
-                                    }
-                                }
-                            }
-                        }
-                    });
-
-                    // CRITICAL FIX: Immediately send a small content chunk to hide "Thinking" indicator
-                    // This ensures the frontend knows we're actively responding
-                    const initialChunk = {
-                        index: chunkIndex++,
-                        type: 'content' as const,
-                        content: '', // Empty content just to signal response started
-                        delta: '',
-                        messageId: assistantMessageId
-                    };
-                    this.ws.broadcastToUser(userId!, {
-                        type: 'chunk',
-                        sessionId: task.sessionId,
-                        data: initialChunk
-                    });
-                } else if (detectedLaunchpadInfo && hasExplicitTradeIntent) {
-                    console.log(`[ChatWorker] 🚫 Skipping launchpad card: User has explicit trade intent`);
+                if (detectedLaunchpadInfo) {
+                    console.log(`[ChatWorker] Launchpad context available: ${detectedLaunchpadInfo.provider}`);
                 }
             }
 
@@ -2081,7 +2015,8 @@ Token is a launchpad token.
 Provider: ${launchpad.provider?.toUpperCase?.() || launchpad.provider}
 Chain: ${launchpad.chainId || tokenInfo?.chainId}
 Address: ${launchpad.address || tokenInfo?.address}
-Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.`;
+Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.
+If the user has not provided clear trade params, ask one concise follow-up for side/amount.`;
                     launchpadContextAvailable = true;
                 }
 
@@ -2343,10 +2278,9 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             // Broadcast Thinking state before API call
             // IMPORTANT: Message order should be:
             // 1. message_start (already sent at line ~598)
-            // 2. launchpad_card (sent above if detected)
-            // 3. task_status: Thinking (this message)
-            // 4. content chunks (sent during streaming)
-            console.log(`[ChatWorker] Broadcasting Thinking status for ${assistantMessageId}. Message order: message_start → launchpad_card → Thinking → content_chunks`);
+            // 2. task_status: Thinking (this message)
+            // 3. content chunks (sent during streaming)
+            console.log(`[ChatWorker] Broadcasting Thinking status for ${assistantMessageId}. Message order: message_start → Thinking → content_chunks`);
 
             this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Thinking' });
 
@@ -3425,10 +3359,6 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 } else if (tc.function.name === 'get_token_chart' && result) {
                     clientAction = { type: 'show_chart_card', data: result };
                 }
-                // NOTE: Do NOT create launchpad card from tool results
-                // Token detector in preetch phase already handles launchpad card creation
-                // This prevents duplicate cards
-
                 if (clientAction) {
                     // Broadcast action to frontend IMMEDIATELY
                     if (sessionId && messageId) {
@@ -3447,8 +3377,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     // PERSIST: Map client action type to DB message type
                     let dbMessageType = 'text';
                     // DEPRECATED: show_swap_card removed from chat interface
-                    if (clientAction.type === 'show_launchpad_card') dbMessageType = 'launchpad-card';
-                    else if (clientAction.type === 'show_chart_card') dbMessageType = 'chart-card';
+                    if (clientAction.type === 'show_chart_card') dbMessageType = 'chart-card';
                     else if (clientAction.type === 'show_strategy_card') dbMessageType = 'strategy-card';
                     else if (clientAction.type === 'show_token_card') dbMessageType = 'token-card';
 
@@ -3555,7 +3484,6 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         const assistantMessageId = task.assistantMessageId!;
         let fullContent = '';
         let chunkIndex = 0;
-        let launchpadCardShown = false; // Circuit breaker for duplicate launchpad cards
         let lastUsage: any = null;  // Track usage for DB persistence
         let allCitations: any[] = [];  // Track citations for DB persistence
         const citationUrlSet = new Set<string>();
@@ -3713,30 +3641,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 tokenInfo = globalTokenInfo;
 
                 // Log launchpad info if detected
-                if (globalTokenInfo.launchpad && !launchpadCardShown) {
-                    launchpadCardShown = true; // Mark as shown to prevent duplicates
+                if (globalTokenInfo.launchpad) {
                     logger.info(LogCode.AI_LAUNCHPAD_DETECTED, 'Grok: launchpad token detected', { provider: globalTokenInfo.launchpad.provider });
-
-                    // AUTO-TRIGGER CARD: If it's a launchpad token, show card immediately
-                    this.ws.broadcastToUser(userId!, {
-                        type: 'client_action',
-                        sessionId: task.sessionId,
-                        data: {
-                            message_id: assistantMessageId,
-                            targetMessageId: assistantMessageId,
-                            action: {
-                                type: 'show_launchpad_card',
-                                data: {
-                                    chainId: globalTokenInfo.chainId,
-                                    provider: globalTokenInfo.launchpad.provider,
-                                    data: {
-                                        ...globalTokenInfo.launchpad.data,
-                                        address: globalTokenInfo.address // Ensure address is present
-                                    }
-                                }
-                            }
-                        }
-                    });
                 }
             }
 
@@ -3859,7 +3765,8 @@ Token is a launchpad token.
 Provider: ${cachedLaunchpad.provider?.toUpperCase?.() || cachedLaunchpad.provider}
 Chain: ${cachedLaunchpad.chainId || task.toolContext?.chainId}
 Address: ${cachedLaunchpad.address || parsedIntent.contractAddress}
-Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.`;
+Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.
+If the user has not provided clear trade params, ask one concise follow-up for side/amount.`;
                     launchpadContextAvailable = true;
                 }
             }
@@ -3869,7 +3776,8 @@ Token is a launchpad token.
 Provider: ${tokenInfo.launchpad.provider?.toUpperCase?.() || tokenInfo.launchpad.provider}
 Chain: ${tokenInfo.chainId}
 Address: ${tokenInfo.address}
-Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.`;
+Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.
+If the user has not provided clear trade params, ask one concise follow-up for side/amount.`;
                 launchpadContextAvailable = true;
             }
 

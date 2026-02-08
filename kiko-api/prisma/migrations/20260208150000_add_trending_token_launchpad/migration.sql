@@ -1,0 +1,2 @@
+ALTER TABLE "TrendingToken"
+ADD COLUMN IF NOT EXISTS "launchpad" TEXT;

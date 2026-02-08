@@ -10,6 +10,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { callRpc as rpcCall } from './rpcManager.js';
 import { NATIVE_TOKEN_ADDRESS } from '../config/tokenRegistry.js';
 import { get as getDbCache, set as setDbCache } from '../cache/dbCache.js';
+import { matchV4PoolKeyById } from './dex/uniswapV4.js';
 
 // Common DEX Router method signatures
 const DEX_SIGNATURES = {
@@ -378,6 +379,13 @@ async function decodeSwapFromV4Events(
     if (!tokens) return null;
 
     try {
+        const matchedKey = matchV4PoolKeyById(
+            chainId,
+            poolId,
+            tokens.token0,
+            tokens.token1
+        );
+
         const iface = new ethers.Interface([
             'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)'
         ]);
@@ -413,7 +421,21 @@ async function decodeSwapFromV4Events(
             amountIn: amountIn.toString(),
             amountOut: amountOut.toString(),
             router: '',
-            dexName: 'Uniswap v4'
+            dexName: 'Uniswap v4',
+            resolvedPoolHint: matchedKey ? {
+                kind: 'v4',
+                dex: chainId === 56 ? 'pancake' : 'uniswap',
+                poolAddress: poolId.toLowerCase(),
+                fee: matchedKey.fee,
+                v4PoolKey: {
+                    currency0: matchedKey.currency0,
+                    currency1: matchedKey.currency1,
+                    hooks: matchedKey.hooks,
+                    poolManager: poolManager.toLowerCase(),
+                    fee: matchedKey.fee,
+                    tickSpacing: matchedKey.tickSpacing
+                }
+            } : undefined
         };
     } catch (err: any) {
         logger.debug(LogCode.DEC_SWAP_DETECTION, 'Failed to parse V4 swap log', { error: err.message });
@@ -451,7 +473,12 @@ async function decodeSwapFromPoolEvents(
             amountIn: inferred.amountIn.toString(),
             amountOut: inferred.amountOut.toString(),
             router: '',
-            dexName: swapType === 'v3' ? 'V3 Pool' : 'V2 Pair'
+            dexName: swapType === 'v3' ? 'V3 Pool' : 'V2 Pair',
+            resolvedPoolHint: {
+                kind: swapType,
+                dex: chainId === 56 ? 'pancake' : 'uniswap',
+                poolAddress: pool
+            }
         };
     }
 
@@ -495,6 +522,12 @@ async function decodeSwapFromPoolEvents(
                 amountOut: amountOut.toString(),
                 router: '',
                 dexName: 'V3 Pool',
+                resolvedPoolHint: {
+                    kind: 'v3',
+                    dex: chainId === 56 ? 'pancake' : 'uniswap',
+                    poolAddress: pool,
+                    fee: 0
+                }
             };
         } catch (err: any) {
             logger.debug(LogCode.DEC_SWAP_DETECTION, 'Failed to parse V3 swap log', { pool, error: err.message });
@@ -540,6 +573,11 @@ async function decodeSwapFromPoolEvents(
                 amountOut: amountOut.toString(),
                 router: '',
                 dexName: 'V2 Pair',
+                resolvedPoolHint: {
+                    kind: 'v2',
+                    dex: chainId === 56 ? 'pancake' : 'uniswap',
+                    poolAddress: pool
+                }
             };
         } catch (err: any) {
             logger.debug(LogCode.DEC_SWAP_DETECTION, 'Failed to parse V2 swap log', { pool, error: err.message });
@@ -558,6 +596,20 @@ export interface DecodedSwap {
     amountOut: string;
     router: string;
     dexName: string;
+    resolvedPoolHint?: {
+        kind: 'v4' | 'v3' | 'v2';
+        dex?: 'uniswap' | 'pancake' | 'aerodrome' | 'pancake-infinity';
+        poolAddress?: string;
+        fee?: number;
+        v4PoolKey?: {
+            currency0: string;
+            currency1: string;
+            hooks: string;
+            poolManager: string;
+            fee: number;
+            tickSpacing: number;
+        };
+    };
 }
 
 /**
@@ -811,6 +863,12 @@ export async function parseSwapTransaction(
     const tTransferStart = Date.now();
     const transferSwap = decodeSwapFromLogs(receipt.logs, effectiveWallet, tx.value);
     if (transferSwap) {
+        if (hasV4Swap) {
+            const hintedV4 = await decodeSwapFromV4Events(receipt.logs, chainId);
+            if (hintedV4?.resolvedPoolHint) {
+                transferSwap.resolvedPoolHint = hintedV4.resolvedPoolHint;
+            }
+        }
         transferSwap.router = tx.to;
         transferSwap.dexName = hasV4Swap ? 'Uniswap v4' : getDexName(tx.to, chainId);
         transferSwap.txHash = tx.hash;

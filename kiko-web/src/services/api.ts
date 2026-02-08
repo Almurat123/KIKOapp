@@ -42,6 +42,7 @@ export type LaunchpadData =
     | { provider: 'zora'; data: ZoraToken; chainId: number }
     | { provider: 'clanker'; data: ClankerToken; chainId: number }
     | { provider: 'fourmeme'; data: FourMemeToken; chainId: number }
+    | { provider: 'flap'; data: unknown; chainId: number }
     | { provider: 'pumpfun'; data: PumpFunToken; chainId: number }
     | { provider: 'raydium'; data: RaydiumToken; chainId: number }
     | { provider: 'paragraph'; data: unknown; chainId: number }; // paragraph data is still loose
@@ -177,6 +178,9 @@ export interface TokenSearchResult {
     websites?: Array<{ url: string; label?: string }>;
     decimals?: number;        // Token decimals
     logoUrl?: string;         // Legacy alias for imageUrl
+    launchpad?: string;       // Originating launchpad (e.g. 'pump.fun', 'clanker')
+    creatorAddress?: string;  // Launchpad creator/deployer (when available)
+    launchMultiple?: number;  // Current price multiple vs earliest available launch candle
 }
 
 /**

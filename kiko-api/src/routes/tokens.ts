@@ -20,6 +20,7 @@ import { detectLaunchpadToken } from '../services/ai/launchpadDetector.js';
 import * as tokenAnalysis from '../services/tokenAnalysis.js';
 import { getHolderCount } from '../services/goPlus.js';
 import { getTokenSecurity } from '../services/tokenSecurity.js';
+import { validateTrendingTokenForListing } from '../services/trendingValidation.js';
 
 const GECKO_TERMINAL_BASE_URL = 'https://api.geckoterminal.com/api/v2';
 
@@ -51,6 +52,11 @@ const SEARCH_ALLOWED_NETWORKS = [
   'fantom',
   'solana',
 ];
+
+function sanitizeTrendingPayload(chain: string, rows: any[]): any[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((token) => validateTrendingTokenForListing(chain, token).ok);
+}
 
 export async function tokenRoutes(fastify: FastifyInstance) {
   // GET /api/tokens/chains - Get list of supported chains
@@ -85,8 +91,9 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       const cached = await get(cacheKey);
 
       if (cached) {
-        const tokens = JSON.parse(cached);
+        const tokens = sanitizeTrendingPayload(chain, JSON.parse(cached));
         if (tokens.length > 0) {
+          await set(cacheKey, JSON.stringify(tokens), 180);
           return reply.send({
             success: true,
             data: tokens.slice(0, tokenLimit),

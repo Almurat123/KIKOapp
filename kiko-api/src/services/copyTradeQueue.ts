@@ -3,11 +3,13 @@ import { LogCode } from '../config/logRegistry.js';
 import type { DecodedSwap } from './txDecoder.js';
 import { acquireLock, releaseLock, get as cacheGet, set as cacheSet } from '../cache/redis.js';
 import { randomUUID } from 'node:crypto';
+import { getPendingTxHint, markCopyTradeTxState } from './copyTradeTxStateService.js';
 
 type QueueTask = {
     targetWallet: string;
     swap: DecodedSwap;
     chainId: number;
+    detectedAt?: number;
 };
 
 const queue: QueueTask[] = [];
@@ -42,8 +44,19 @@ function processQueue(): void {
 
                 const { handleSwapDetected } = await import('./autoTradeService.js');
                 try {
-                    await handleSwapDetected(task.targetWallet, task.swap, task.chainId);
+                    const pendingHint = task.swap?.txHash
+                        ? await getPendingTxHint(task.chainId, task.swap.txHash).catch(() => null)
+                        : null;
+                    const detectedAt = task.detectedAt || pendingHint?.detectedAt;
+
+                    await markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executing', {
+                        wallet: task.targetWallet
+                    }).catch(() => { });
+                    await handleSwapDetected(task.targetWallet, task.swap, task.chainId, { detectedAt });
                     await cacheSet(doneKey, '1', COPYTRADE_TASK_DEDUP_TTL_SECONDS).catch(() => { });
+                    await markCopyTradeTxState(task.chainId, task.swap.txHash || 'nohash', 'executed', {
+                        wallet: task.targetWallet
+                    }).catch(() => { });
                 } finally {
                     await releaseLock(lockKey, lockValue).catch(() => { });
                 }
@@ -55,6 +68,10 @@ function processQueue(): void {
                     chainId: task.chainId,
                     txHash: task.swap?.txHash,
                 });
+                markCopyTradeTxState(task.chainId, task.swap?.txHash || 'nohash', 'failed', {
+                    wallet: task.targetWallet,
+                    error: err?.message || String(err)
+                }).catch(() => { });
             })
             .finally(() => {
                 inFlight -= 1;
@@ -65,8 +82,16 @@ function processQueue(): void {
     }
 }
 
-export function enqueueCopyTradeTask(targetWallet: string, swap: DecodedSwap, chainId: number): void {
-    queue.push({ targetWallet, swap, chainId });
+export function enqueueCopyTradeTask(
+    targetWallet: string,
+    swap: DecodedSwap,
+    chainId: number,
+    context?: { detectedAt?: number }
+): void {
+    markCopyTradeTxState(chainId, swap?.txHash || 'nohash', 'task_enqueued', {
+        wallet: targetWallet
+    }).catch(() => { });
+    queue.push({ targetWallet, swap, chainId, detectedAt: context?.detectedAt });
     if (inFlight < MAX_CONCURRENCY) {
         setImmediate(processQueue);
     }

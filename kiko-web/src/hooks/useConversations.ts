@@ -8,7 +8,7 @@ export interface Message {
   content: string;
   timestamp?: string;
   date?: string;
-  type?: 'text' | 'swap-card' | 'token-card' | 'strategy-card' | 'launchpad-card' | 'chart-card' | 'transaction-status-card';
+  type?: 'text' | 'swap-card' | 'token-card' | 'strategy-card' | 'chart-card' | 'transaction-status-card';
   data?: any;
   citations?: Array<string | { url: string; avatar_url?: string }>;
   reasoning_content?: string;
@@ -307,5 +307,4 @@ export const useConversations = () => {
     conversationsRef,
   };
 };
-
 

@@ -678,6 +678,7 @@ model TrendingToken {
   updatedAt      DateTime  @default(now()) @updatedAt
   createdAt      DateTime  @default(now())
   poolCreatedAt  DateTime? @map("pool_created_at")
+  launchpad      String?   @map("launchpad")
 
   @@unique([chain, address])
   @@index([rank])

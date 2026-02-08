@@ -53,11 +53,17 @@ func main() {
 	chainRepo := repositories.NewChainRepository(database)
 	chainSvc := services.NewChainService(chainRepo)
 	healthSvc := services.NewHealthService()
+	marketRepo := repositories.NewMarketRepository(database)
+	billingRepo := repositories.NewBillingRepository(database)
+	protocolRepo := repositories.NewProtocolRepository(database)
 
 	r := chi.NewRouter()
 	routes.Register(r, routes.Config{
 		HealthService:   healthSvc,
 		ChainService:    chainSvc,
+		MarketRepo:      marketRepo,
+		BillingRepo:     billingRepo,
+		ProtocolRepo:    protocolRepo,
 		RateLimitConfig: mw.RateLimiterConfig{
 			WindowSec:   env.APIConfig.RateLimit.WindowMs / 1000,
 			MaxRequests: env.APIConfig.RateLimit.MaxRequests,

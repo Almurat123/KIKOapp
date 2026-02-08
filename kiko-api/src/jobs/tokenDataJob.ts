@@ -12,8 +12,12 @@ import { getTrendingTokensPremium } from '../services/dexscreener.js';
 import { saveTrendingTokens, getLastUpdateTime, getTrendingTokens as getStoredTrendingTokens } from '../repositories/tokenRepository.js';
 import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { validateTrendingTokenForListing } from '../services/trendingValidation.js';
+import { detectLaunchpadToken } from '../services/ai/launchpadDetector.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import pLimit from 'p-limit';
+import { getCandlestickData as getGeckoCandlestickData } from '../services/geckoTerminal.js';
+import { acquireLock, releaseLock, set as setRedisCache, get as getRedisCache } from '../cache/redis.js';
 
 /**
  * Supported chains configuration
@@ -45,6 +49,257 @@ const SECONDARY_CHAIN_DELAY_MS = 60000; // 60 seconds between secondary chains
 
 // Number of tokens to fetch per chain
 const TOKENS_PER_CHAIN = 100;
+const LAUNCHPAD_DETECT_CONCURRENCY = 6;
+const LAUNCH_MULTIPLE_ENRICH_CONCURRENCY = 3;
+const LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN = Math.max(
+  48,
+  Number(process.env.LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN || '80')
+);
+const LAUNCH_MULTIPLE_BUDGET_PER_RUN = Math.max(
+  16,
+  Number(process.env.LAUNCH_MULTIPLE_BUDGET_PER_RUN || '24')
+);
+const TOKEN_META_CACHE_TTL_SECONDS = Math.max(
+  60 * 60,
+  Number(process.env.TOKEN_META_CACHE_TTL_SECONDS || `${6 * 60 * 60}`)
+);
+
+function pickVerifyTargets<T>(rows: T[], budget: number): T[] {
+  if (rows.length <= budget) return rows;
+  const windowSizeMs = 5 * 60 * 1000; // rotate with refresh cadence
+  const cursor = Math.floor(Date.now() / windowSizeMs);
+  const start = (cursor * budget) % rows.length;
+  const end = start + budget;
+  if (end <= rows.length) return rows.slice(start, end);
+  return [...rows.slice(start), ...rows.slice(0, end - rows.length)];
+}
+
+function detectBySuffix(chainId: string, address: string): string | null {
+  const lower = address.toLowerCase();
+  if (chainId === 'base' && lower.endsWith('b07')) return 'clanker';
+  if (chainId === 'bsc' && (lower.endsWith('4444') || lower.endsWith('ffff'))) return 'four.meme';
+  if (chainId === 'bsc' && (lower.endsWith('8888') || lower.endsWith('7777'))) return 'flap';
+  if (chainId === 'solana' && lower.endsWith('pump')) return 'pump.fun';
+  if (chainId === 'solana' && lower.endsWith('bonk')) return 'bonk.fun';
+  return null;
+}
+
+function normalizeLaunchpad(provider?: string | null): string | null {
+  if (!provider) return null;
+  if (provider === 'pumpfun') return 'pump.fun';
+  if (provider === 'bonkfun') return 'bonk.fun';
+  if (provider === 'fourmeme') return 'four.meme';
+  return provider;
+}
+
+type EnrichedTokenMeta = {
+  creatorAddress?: string;
+  launchMultiple?: number;
+  updatedAt?: number;
+};
+
+function tokenMetaCacheKey(chainId: string, address: string): string {
+  return `token:meta:v1:${chainId}:${address.toLowerCase()}`;
+}
+
+async function readTokenMetaCache(chainId: string, address: string): Promise<EnrichedTokenMeta | null> {
+  try {
+    const raw = await getRedisCache(tokenMetaCacheKey(chainId, address));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as EnrichedTokenMeta;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeTokenMetaCache(chainId: string, address: string, meta: EnrichedTokenMeta): Promise<void> {
+  if (!meta.creatorAddress && !Number.isFinite(meta.launchMultiple || NaN)) return;
+  try {
+    await setRedisCache(
+      tokenMetaCacheKey(chainId, address),
+      JSON.stringify({
+        creatorAddress: meta.creatorAddress,
+        launchMultiple: meta.launchMultiple,
+        updatedAt: Date.now(),
+      }),
+      TOKEN_META_CACHE_TTL_SECONDS
+    );
+  } catch {
+    // ignore cache write errors
+  }
+}
+
+function pickCreatorAddress(detected: any): string | undefined {
+  const data = detected?.data || {};
+  const candidates: unknown[] = [
+    data.creatorAddress,
+    data.creator,
+    data.userAddress,
+    data.msg_sender,
+    data.deployer,
+    data.owner,
+    data.requestor,
+  ];
+
+  for (const raw of candidates) {
+    if (typeof raw !== 'string') continue;
+    const value = raw.trim();
+    if (value.length >= 20) return value;
+  }
+  return undefined;
+}
+
+async function enrichLaunchpadsForTrending(
+  chainId: string,
+  tokens: Array<{ address: string; launchpad?: string; imageUrl?: string; creatorAddress?: string; launchMultiple?: number; poolAddress?: string; poolCreatedAt?: string; price?: number }>
+): Promise<void> {
+  if (tokens.length === 0) return;
+
+  // Warm from metadata cache first (keeps creator/multiple stable across DB reloads)
+  await Promise.all(tokens.map(async (token) => {
+    const cached = await readTokenMetaCache(chainId, token.address);
+    if (!cached) return;
+    if (!token.creatorAddress && cached.creatorAddress) token.creatorAddress = cached.creatorAddress;
+    if (!Number.isFinite(token.launchMultiple || NaN) && Number.isFinite(cached.launchMultiple || NaN)) {
+      token.launchMultiple = cached.launchMultiple;
+    }
+  }));
+
+  // Step 1: deterministic suffix detection
+  for (const token of tokens) {
+    token.launchpad = detectBySuffix(chainId, token.address) || undefined;
+  }
+
+  // Step 2: BSC flap verification for suffix-matched candidates
+  if (chainId === 'bsc') {
+    const flapCandidates = tokens.filter((t) => t.launchpad === 'flap' && t.address.startsWith('0x'));
+    if (flapCandidates.length === 0) return;
+
+    const verifyTargets = pickVerifyTargets(
+      flapCandidates,
+      Math.min(LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN, 60)
+    );
+    const limiter = pLimit(LAUNCHPAD_DETECT_CONCURRENCY);
+    await Promise.all(verifyTargets.map((token) => limiter(async () => {
+      try {
+        const detected = await detectLaunchpadToken(token.address, 56, { mode: 'cheap' });
+        if (!detected || detected.provider !== 'flap') {
+          token.launchpad = undefined;
+          return;
+        }
+        token.creatorAddress = pickCreatorAddress(detected);
+        await writeTokenMetaCache(chainId, token.address, {
+          creatorAddress: token.creatorAddress,
+          launchMultiple: token.launchMultiple
+        });
+        if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
+          token.imageUrl = (detected as any).data.imageUrl;
+        }
+      } catch {
+        // Keep suffix classification when verification fails due to transient errors.
+      }
+    })));
+    return;
+  }
+
+  // Step 3: API verification for Base tokens without deterministic suffix
+  if (chainId !== 'base') return;
+
+  const unresolved = tokens.filter((t) => !t.launchpad && t.address.startsWith('0x'));
+  if (unresolved.length === 0) return;
+  const verifyTargets = pickVerifyTargets(unresolved, LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN);
+  if (unresolved.length > verifyTargets.length) {
+    logger.info(LogCode.API_FETCH_SUCCESS, 'Launchpad verify budget applied', {
+      chain: chainId,
+      unresolved: unresolved.length,
+      verifying: verifyTargets.length
+    });
+  }
+
+  const limiter = pLimit(LAUNCHPAD_DETECT_CONCURRENCY);
+  await Promise.all(verifyTargets.map((token) => limiter(async () => {
+    try {
+      const detected = await detectLaunchpadToken(token.address, 8453, { mode: 'cheap' });
+      const normalized = normalizeLaunchpad(detected?.provider || null);
+      if (normalized) token.launchpad = normalized;
+      token.creatorAddress = pickCreatorAddress(detected);
+      await writeTokenMetaCache(chainId, token.address, {
+        creatorAddress: token.creatorAddress,
+        launchMultiple: token.launchMultiple
+      });
+      if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
+        token.imageUrl = (detected as any).data.imageUrl;
+      }
+    } catch {
+      // Keep unresolved token without launchpad tag
+    }
+  })));
+}
+
+async function enrichLaunchMultiplesForTrending(
+  chainId: string,
+  geckoNetwork: string,
+  tokens: Array<{ address: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string }>
+): Promise<void> {
+  if (tokens.length === 0) return;
+
+  const candidates = tokens
+    .filter((t) => typeof t.price === 'number' && t.price > 0 && !!t.poolAddress)
+    .sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
+
+  if (candidates.length === 0) return;
+
+  const targets = pickVerifyTargets(candidates, LAUNCH_MULTIPLE_BUDGET_PER_RUN);
+  const limiter = pLimit(LAUNCH_MULTIPLE_ENRICH_CONCURRENCY);
+
+  await Promise.all(targets.map((token) => limiter(async () => {
+    try {
+      const cached = await readTokenMetaCache(chainId, token.address);
+      if (cached && Number.isFinite(cached.launchMultiple || NaN)) {
+        token.launchMultiple = cached.launchMultiple;
+        return;
+      }
+
+      const now = Date.now();
+      const createdMs = token.poolCreatedAt ? Date.parse(token.poolCreatedAt) : NaN;
+      const ageHours = Number.isFinite(createdMs) ? Math.max(0, (now - createdMs) / (1000 * 60 * 60)) : NaN;
+
+      let timeframe: 'm5' | 'h1' | 'h6' = 'h1';
+      let limit = 300;
+      if (Number.isFinite(ageHours) && ageHours <= 12) {
+        timeframe = 'm5';
+        limit = Math.min(900, Math.max(120, Math.ceil((ageHours * 60) / 5) + 24));
+      } else if (Number.isFinite(ageHours) && ageHours > 40 * 24) {
+        timeframe = 'h6';
+        limit = Math.min(900, Math.max(160, Math.ceil(ageHours / 6) + 24));
+      } else if (Number.isFinite(ageHours)) {
+        timeframe = 'h1';
+        limit = Math.min(900, Math.max(120, Math.ceil(ageHours) + 24));
+      }
+
+      const candles = await getGeckoCandlestickData(geckoNetwork, token.poolAddress!, timeframe, limit);
+      if (!Array.isArray(candles) || candles.length === 0) return;
+
+      const first = candles[0];
+      const open = typeof first?.open === 'number' ? first.open : Number(first?.open || 0);
+      const current = Number(token.price || 0);
+      if (!Number.isFinite(open) || open <= 0 || !Number.isFinite(current) || current <= 0) return;
+
+      const multiple = current / open;
+      if (!Number.isFinite(multiple) || multiple <= 0) return;
+
+      token.launchMultiple = multiple;
+      await writeTokenMetaCache(chainId, token.address, {
+        creatorAddress: token.creatorAddress,
+        launchMultiple: multiple
+      });
+    } catch {
+      // keep token without multiple when upstream API is unavailable
+    }
+  })));
+}
 
 // Global rate limiter to prevent API abuse
 const apiRateLimiter = {
@@ -70,7 +325,6 @@ export function setGeckoBackoff(durationMs: number): void {
  * Refresh trending tokens for a single chain
  * Tries GeckoTerminal first, falls back to DexScreener if needed
  */
-import { acquireLock, releaseLock, set } from '../cache/redis.js';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -153,6 +407,16 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
       logger.warn(LogCode.API_FETCH_FAILED, `New list too small (${tokens.length}) for ${chain.name}; keeping existing (${existing.length})`);
       return;
     }
+    // Launchpad enrichment: suffix first, then API verification where needed.
+    await enrichLaunchpadsForTrending(
+      chain.id,
+      tokens as Array<{ address: string; launchpad?: string; imageUrl?: string; creatorAddress?: string; launchMultiple?: number; poolAddress?: string; poolCreatedAt?: string; price?: number }>
+    );
+    await enrichLaunchMultiplesForTrending(
+      chain.id,
+      chain.geckoNetwork,
+      tokens as Array<{ address: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string }>
+    );
 
     // Save to PostgreSQL database
     const savedTokens = await saveTrendingTokens(chain.id, tokens);
@@ -164,7 +428,7 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
 
     // Also update Redis cache for legacy compatibility
     const redisCacheKey = `trending:live:${chain.id}:5m`;
-    await set(redisCacheKey, JSON.stringify(cachedTokens), 600);
+    await setRedisCache(redisCacheKey, JSON.stringify(cachedTokens), 600);
 
     logger.info(LogCode.SYS_INFO, `Saved ${cachedTokens.length} tokens for ${chain.name} to DB + cache`);
 

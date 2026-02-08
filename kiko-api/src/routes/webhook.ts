@@ -17,6 +17,7 @@ import { normalizeAddress } from '../utils/address.js';
 import { parseSwapTransaction } from '../services/txDecoder.js';
 import { env } from '../config/env.js';
 import crypto from 'node:crypto';
+import { getPendingPredecodedSwap, getPendingTxHint, markCopyTradeTxState } from '../services/copyTradeTxStateService.js';
 
 interface ProcessTxBody {
     wallet: string;
@@ -87,6 +88,27 @@ function safeSecretEquals(provided: unknown, expected: string): boolean {
     const expectedBuf = Buffer.from(expected);
     if (providedBuf.length !== expectedBuf.length) return false;
     return crypto.timingSafeEqual(providedBuf, expectedBuf);
+}
+
+function buildTxSkeletonFromAlchemyActivity(item: any, txHash: string): {
+    hash: string;
+    from: string;
+    to: string;
+    input: string;
+    value: string;
+} {
+    const from = normalizeAddress(item?.fromAddress || '');
+    const to = normalizeAddress(item?.toAddress || '');
+    // Prefer raw contract value when available (wei-like string/hex in webhook payload)
+    const rawValue = item?.rawContract?.rawValue;
+    const value = typeof rawValue === 'string' && rawValue.length > 0 ? rawValue : '0';
+    return {
+        hash: txHash,
+        from,
+        to,
+        input: '0x',
+        value
+    };
 }
 
 export default async function webhookRoutes(fastify: FastifyInstance) {
@@ -192,10 +214,18 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 tokenOut: swap.tokenOut,
                 dex: swap.dexName,
             });
+            await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
+                wallet,
+                dex: swap.dexName,
+                source: 'internal_process_tx'
+            }).catch(() => { });
+            const pendingHint = await getPendingTxHint(chainId, txHash).catch(() => null);
 
             // Enqueue copy trade for async execution
             const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
-            enqueueCopyTradeTask(wallet, swap, chainId);
+            enqueueCopyTradeTask(wallet, swap, chainId, {
+                detectedAt: pendingHint?.detectedAt
+            });
             await markTxAsProcessedDistributed(txHash, chainId);
 
             return reply.send({ success: true, swap: { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut } });
@@ -444,6 +474,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         console.log(`[Webhook] Tx already in-flight: ${txHash.slice(0, 16)}`);
                         return;
                     }
+                    await markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
 
                     try {
                         const trackedWallets = await prisma.trackedWallet.findMany({
@@ -525,76 +556,113 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         }
 
                         // EVM Logic (Base, BSC, etc.)
-                        const fetchWithRetry = async () => {
-                            const maxAttempts = 3;
-                            let tx: any = null;
-                            let receipt: any = null;
-                            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                                [tx, receipt] = await Promise.all([
-                                    fetchTransaction(txHash, chainId),
-                                    fetchTransactionReceipt(txHash, chainId),
-                                ]);
-                                if (tx && receipt) break;
-                                if (attempt < maxAttempts) {
-                                    await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
-                                }
-                            }
-                            return { tx, receipt, attempts: maxAttempts };
-                        };
-
-                        const { tx, receipt, attempts } = await fetchWithRetry();
-
-                        if (!tx || !receipt) {
-                            console.warn(`[Webhook] Could not fetch tx/receipt after retries: ${txHash.slice(0, 16)}`, {
-                                txMissing: !tx,
-                                receiptMissing: !receipt,
-                                attempts
-                            });
-                            return;
-                        }
-
-                        // Mark as processed only after tx/receipt fetch succeeded
-                        await markTxAsProcessedDistributed(txHash, chainId);
-
-                        // Trigger copy trade for EACH matched tracked wallet
-                        const { handleSwapDetected } = await import('../services/autoTradeService.js');
-
-                        await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
-                        const trackedTarget = walletRecord.address;
-
-                        // Parse as swap - IMPORTANT: Use trackedTarget as the identity for decoding
-                        const swap = await parseSwapTransaction(
-                            {
-                                hash: txHash,
-                                from: tx.from,
-                                to: tx.to,
-                                input: tx.input,
-                                value: tx.value,
-                            },
-                            {
-                                logs: receipt.logs,
-                                status: parseInt(receipt.status, 16),
-                            },
-                            chainId,
-                            trackedTarget
+                        const txSkeleton = buildTxSkeletonFromAlchemyActivity(item, txHash);
+                        const predecodedRows = await Promise.all(
+                            trackedWallets.map(async (walletRecord) => ({
+                                wallet: walletRecord.address,
+                                predecoded: await getPendingPredecodedSwap(chainId, txHash, walletRecord.address).catch(() => null)
+                            }))
+                        );
+                        const predecodedByWallet = new Map(
+                            predecodedRows
+                                .filter((r) => !!r.predecoded?.swap)
+                                .map((r) => [r.wallet.toLowerCase(), r.predecoded!])
                         );
 
-                        if (!swap) {
-                            const selector = tx.input?.slice(0, 10) || '0x';
-                            console.log(
-                                `[Webhook] Not swap: tx=${txHash.slice(0, 12)} to=${(tx.to || '').slice(0, 10)} sel=${selector} status=${parseInt(receipt.status, 16)} logs=${receipt.logs?.length ?? 0}`
-                            );
-                            return;
+                        let receipt: any = null;
+                        if (predecodedByWallet.size !== trackedWallets.length) {
+                            const fetchReceiptWithRetry = async () => {
+                                const maxAttempts = 3;
+                                let current: any = null;
+                                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                                    current = await fetchTransactionReceipt(txHash, chainId);
+                                    if (current) break;
+                                    if (attempt < maxAttempts) {
+                                        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+                                    }
+                                }
+                                return { receipt: current, attempts: maxAttempts };
+                            };
+                            const fetched = await fetchReceiptWithRetry();
+                            receipt = fetched.receipt;
+                            if (!receipt) {
+                                console.warn(`[Webhook] Could not fetch receipt after retries: ${txHash.slice(0, 16)}`, {
+                                    receiptMissing: true,
+                                    attempts: fetched.attempts
+                                });
+                                return;
+                            }
+                        } else {
+                            console.log(`[Webhook] Pending predecode hit for all tracked wallets: tx=${txHash.slice(0, 12)}`);
                         }
 
-                        console.log(`[Webhook] ✅ Swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
-                            tokenIn: swap.tokenIn,
-                            tokenOut: swap.tokenOut,
-                            dex: swap.dexName,
-                        });
+                        // Mark as processed only after confirmed path is ready
+                        await markTxAsProcessedDistributed(txHash, chainId);
 
-                        const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
-                        enqueueCopyTradeTask(trackedTarget, swap, chainId);
+                        await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
+                            const trackedTarget = walletRecord.address;
+                            const cached = predecodedByWallet.get(trackedTarget.toLowerCase());
+                            let swap = cached?.swap || null;
+
+                            if (!swap && receipt) {
+                                swap = await parseSwapTransaction(
+                                    txSkeleton,
+                                    {
+                                        logs: receipt.logs,
+                                        status: parseInt(receipt.status, 16),
+                                    },
+                                    chainId,
+                                    trackedTarget
+                                );
+
+                                // Fallback: only fetch full tx when skeleton-based decode misses swap.
+                                if (!swap) {
+                                    const fullTx = await fetchTransaction(txHash, chainId);
+                                    if (fullTx) {
+                                        swap = await parseSwapTransaction(
+                                            {
+                                                hash: txHash,
+                                                from: fullTx.from,
+                                                to: fullTx.to,
+                                                input: fullTx.input,
+                                                value: fullTx.value,
+                                            },
+                                            {
+                                                logs: receipt.logs,
+                                                status: parseInt(receipt.status, 16),
+                                            },
+                                            chainId,
+                                            trackedTarget
+                                        );
+                                    }
+                                }
+                            }
+
+                            if (!swap) {
+                                const selector = txSkeleton.input?.slice(0, 10) || '0x';
+                                console.log(
+                                    `[Webhook] Not swap: tx=${txHash.slice(0, 12)} to=${(txSkeleton.to || '').slice(0, 10)} sel=${selector} logs=${receipt?.logs?.length ?? 0}`
+                                );
+                                return;
+                            }
+
+                            console.log(`[Webhook] ✅ Swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
+                                tokenIn: swap.tokenIn,
+                                tokenOut: swap.tokenOut,
+                                dex: swap.dexName,
+                                source: cached ? 'pending_prefetch' : 'webhook_decode'
+                            });
+                            await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
+                                wallet: trackedTarget,
+                                dex: swap.dexName,
+                                source: cached ? 'pending_prefetch' : 'webhook_decode'
+                            }).catch(() => { });
+
+                            const pendingHint = await getPendingTxHint(chainId, txHash).catch(() => null);
+                            const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
+                            enqueueCopyTradeTask(trackedTarget, swap, chainId, {
+                                detectedAt: pendingHint?.detectedAt || cached?.detectedAt
+                            });
                         }));
                     } finally {
                         await releaseTxProcessingLockDistributed(txHash, chainId, txLockValue);

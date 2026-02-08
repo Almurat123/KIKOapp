@@ -6,6 +6,8 @@ import ClankerLogo from '../assets/images/ClankerOG.png';
 import FourMemeLogo from '../assets/images/FourMeme.png';
 import ParagraphLogo from '../assets/images/Paragraph.png';
 import RaydiumLogo from '../assets/images/Raydium.png';
+import VirtualsLogo from '../assets/images/Virtuals.ico';
+import FlapLogo from '../assets/images/Flap.png';
 
 export const LAUNCHPAD_LOGOS: Record<string, string> = {
     'pump.fun': PumpFunLogo,
@@ -15,6 +17,8 @@ export const LAUNCHPAD_LOGOS: Record<string, string> = {
     'four.meme': FourMemeLogo,
     'paragraph': ParagraphLogo,
     'raydium': RaydiumLogo,
+    'virtuals': VirtualsLogo,
+    'flap': FlapLogo,
 };
 
 /**
@@ -48,9 +52,12 @@ export function detectLaunchpadByAddress(address: string, chain: string): string
 
     // BSC chain launchpads
     if (normalizedChain === 'bsc' || normalizedChain === 'bnb') {
-        // Four.meme: addresses ending with '4444'
-        if (lowerAddress.endsWith('4444')) {
+        // Four.meme: addresses ending with '4444' or 'ffff'
+        if (lowerAddress.endsWith('4444') || lowerAddress.endsWith('ffff')) {
             return 'four.meme';
+        }
+        if (lowerAddress.endsWith('8888') || lowerAddress.endsWith('7777')) {
+            return 'flap';
         }
         return null;
     }
@@ -78,12 +85,15 @@ export function getLaunchpadDisplayName(launchpad: string): string {
     const displayNames: Record<string, string> = {
         'pump.fun': 'Pump.fun',
         'bonk.fun': 'Bonk.fun',
+        'virtuals': 'Virtuals',
         'zora': 'Zora',
         'clanker': 'Clanker',
         'four.meme': '4.meme',
         'paragraph': 'Paragraph',
+        'moonshot': 'Moonshot',
         'uniswap': 'Uniswap',
         'raydium': 'Raydium',
+        'flap': 'Flap',
     };
 
     return displayNames[launchpad] || launchpad;

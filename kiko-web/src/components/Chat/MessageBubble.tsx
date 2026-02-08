@@ -12,7 +12,6 @@ import { preprocessMarkdown } from '../../utils/markdownUtils';
 // import { SwapCardChat } from './SwapCardChat';
 import { StrategyCard } from './StrategyCard';
 import { UnifiedChartCard } from '../Chart/UnifiedChartCard';
-import { LaunchpadCard } from '../Launchpad/LaunchpadCard';
 import { TransactionStatusCard } from './TransactionStatusCard';
 import { TokenCapsule } from './TokenCapsule';
 import { CitationRenderer } from './CitationRenderer';
@@ -202,10 +201,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
     const renderCard = () => {
         if (isUser) return null;
 
-        if (message.type === 'launchpad-card') {
-            // logger.debug('[MessageBubble] Rendering launchpad-card', { hasData: !!message.data, provider: message.data?.provider });
-        }
-
         if (!message.type || !message.data) return null;
 
         switch (message.type) {
@@ -222,23 +217,6 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                     onEdit={(strategy) => onCardAction?.('strategy-edit', strategy)}
                                     onDelete={(id) => onCardAction?.('strategy-delete', id)}
                                     onToggleStatus={(id) => onCardAction?.('strategy-toggle', id)}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                );
-
-            case 'launchpad-card':
-                return (
-                    <div className={styles.inlineCard}>
-                        <div className={styles.animFluid}>
-                            <div className={styles.cardContent}>
-                                <LaunchpadCard
-                                    tokenAddress={message.data?.data?.address || message.data?.data?.mint || message.data?.data?.contract_address}
-                                    chainId={message.data?.chainId}
-                                    provider={message.data?.provider}
-                                    initialData={message.data?.data}
-                                    platformName={message.data?.provider ? message.data.provider.charAt(0).toUpperCase() + message.data.provider.slice(1) : undefined}
                                 />
                             </div>
                         </div>
