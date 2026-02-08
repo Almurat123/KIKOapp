@@ -56,12 +56,16 @@ const LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN = Math.max(
   Number(process.env.LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN || '80')
 );
 const LAUNCH_MULTIPLE_BUDGET_PER_RUN = Math.max(
-  16,
-  Number(process.env.LAUNCH_MULTIPLE_BUDGET_PER_RUN || '24')
+  4,
+  Number(process.env.LAUNCH_MULTIPLE_BUDGET_PER_RUN || '8')
 );
 const TOKEN_META_CACHE_TTL_SECONDS = Math.max(
   60 * 60,
   Number(process.env.TOKEN_META_CACHE_TTL_SECONDS || `${6 * 60 * 60}`)
+);
+const GECKO_CANDLE_BACKOFF_MS = Math.max(
+  5 * 60 * 1000,
+  Number(process.env.GECKO_CANDLE_BACKOFF_MS || `${15 * 60 * 1000}`)
 );
 
 function pickVerifyTargets<T>(rows: T[], budget: number): T[] {
@@ -97,6 +101,13 @@ type EnrichedTokenMeta = {
   launchMultiple?: number;
   updatedAt?: number;
 };
+
+const geckoCandleBackoffByChain = new Map<string, number>();
+
+function isRateLimitError(error: unknown): boolean {
+  const msg = String((error as any)?.message || error || '').toLowerCase();
+  return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests');
+}
 
 function tokenMetaCacheKey(chainId: string, address: string): string {
   return `token:meta:v1:${chainId}:${address.toLowerCase()}`;
@@ -244,6 +255,10 @@ async function enrichLaunchMultiplesForTrending(
   tokens: Array<{ address: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string }>
 ): Promise<void> {
   if (tokens.length === 0) return;
+  const backoffUntil = geckoCandleBackoffByChain.get(chainId) || 0;
+  if (Date.now() < backoffUntil) {
+    return;
+  }
 
   const candidates = tokens
     .filter((t) => typeof t.price === 'number' && t.price > 0 && !!t.poolAddress)
@@ -261,22 +276,24 @@ async function enrichLaunchMultiplesForTrending(
         token.launchMultiple = cached.launchMultiple;
         return;
       }
+      const dynamicBackoffUntil = geckoCandleBackoffByChain.get(chainId) || 0;
+      if (Date.now() < dynamicBackoffUntil) return;
 
       const now = Date.now();
       const createdMs = token.poolCreatedAt ? Date.parse(token.poolCreatedAt) : NaN;
       const ageHours = Number.isFinite(createdMs) ? Math.max(0, (now - createdMs) / (1000 * 60 * 60)) : NaN;
 
       let timeframe: 'm5' | 'h1' | 'h6' = 'h1';
-      let limit = 300;
+      let limit = 96;
       if (Number.isFinite(ageHours) && ageHours <= 12) {
         timeframe = 'm5';
-        limit = Math.min(900, Math.max(120, Math.ceil((ageHours * 60) / 5) + 24));
+        limit = Math.min(180, Math.max(36, Math.ceil((ageHours * 60) / 5) + 12));
       } else if (Number.isFinite(ageHours) && ageHours > 40 * 24) {
         timeframe = 'h6';
-        limit = Math.min(900, Math.max(160, Math.ceil(ageHours / 6) + 24));
+        limit = Math.min(180, Math.max(32, Math.ceil(ageHours / 6) + 8));
       } else if (Number.isFinite(ageHours)) {
         timeframe = 'h1';
-        limit = Math.min(900, Math.max(120, Math.ceil(ageHours) + 24));
+        limit = Math.min(180, Math.max(36, Math.ceil(ageHours) + 12));
       }
 
       const candles = await getGeckoCandlestickData(geckoNetwork, token.poolAddress!, timeframe, limit);
@@ -295,7 +312,10 @@ async function enrichLaunchMultiplesForTrending(
         creatorAddress: token.creatorAddress,
         launchMultiple: multiple
       });
-    } catch {
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        geckoCandleBackoffByChain.set(chainId, Date.now() + GECKO_CANDLE_BACKOFF_MS);
+      }
       // keep token without multiple when upstream API is unavailable
     }
   })));

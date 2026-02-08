@@ -3,6 +3,7 @@ import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { TokenSearchResult } from '../services/geckoTerminal.js';
 import { hasMeaningfulActivity } from '../services/trendingValidation.js';
 import { get as getRedisCache } from '../cache/redis.js';
+import { Prisma } from '@prisma/client';
 
 export interface TrendingToken extends TokenSearchResult {
   chain: string;
@@ -27,9 +28,47 @@ function tokenMetaCacheKey(chain: string, address: string): string {
   return `token:meta:v1:${chain}:${address.toLowerCase()}`;
 }
 
+let trendingLaunchpadColumnCache:
+  | { checkedAt: number; exists: boolean }
+  | null = null;
+
+async function hasTrendingLaunchpadColumn(): Promise<boolean> {
+  const now = Date.now();
+  if (trendingLaunchpadColumnCache && now - trendingLaunchpadColumnCache.checkedAt < 10 * 60 * 1000) {
+    return trendingLaunchpadColumnCache.exists;
+  }
+
+  try {
+    const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'TrendingToken'
+          AND column_name = 'launchpad'
+      ) AS "exists"
+    `;
+    const exists = !!rows?.[0]?.exists;
+    trendingLaunchpadColumnCache = { checkedAt: now, exists };
+    return exists;
+  } catch {
+    // Safe default: assume missing to avoid runtime failures.
+    trendingLaunchpadColumnCache = { checkedAt: now, exists: false };
+    return false;
+  }
+}
+
+function isMissingLaunchpadColumnError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== 'P2022') return false;
+  const col = String((error.meta as any)?.column || '').toLowerCase();
+  return col.includes('launchpad');
+}
+
 export async function saveTrendingTokens(chain: string, tokens: TokenSearchResult[]): Promise<TokenSearchResult[]> {
   try {
     let mergedTokens: TokenSearchResult[] = [];
+    const canWriteLaunchpad = await hasTrendingLaunchpadColumn();
 
     await withRetry(async () => {
       // Deduplicate tokens by address to prevent unique constraint failures
@@ -95,25 +134,29 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
         // 2. Insert new tokens with rank in bulk
         if (mergedTokens.length > 0) {
           await tx.trendingToken.createMany({
-            data: mergedTokens.map((token, index) => ({
-              chain,
-              address: token.address,
-              name: token.name,
-              symbol: token.symbol,
-              imageUrl: token.imageUrl || null,
-              poolCreatedAt: token.poolCreatedAt ? new Date(token.poolCreatedAt) : null,
-
-              price: token.price ?? null,
-              priceChange5m: token.priceChange5m ?? null,
-              priceChange1h: token.priceChange1h ?? null,
-              priceChange6h: token.priceChange6h ?? null,
-              priceChange24h: token.priceChange24h ?? null,
-              volume24h: token.volume24h ?? null,
-              liquidity: token.liquidity ?? null,
-              fdv: token.fdv ?? null,
-              rank: index + 1,
-              launchpad: (token as any).launchpad || null, // Capture launchpad if available
-            })),
+            data: mergedTokens.map((token, index) => {
+              const baseData: Record<string, unknown> = {
+                chain,
+                address: token.address,
+                name: token.name,
+                symbol: token.symbol,
+                imageUrl: token.imageUrl || null,
+                poolCreatedAt: token.poolCreatedAt ? new Date(token.poolCreatedAt) : null,
+                price: token.price ?? null,
+                priceChange5m: token.priceChange5m ?? null,
+                priceChange1h: token.priceChange1h ?? null,
+                priceChange6h: token.priceChange6h ?? null,
+                priceChange24h: token.priceChange24h ?? null,
+                volume24h: token.volume24h ?? null,
+                liquidity: token.liquidity ?? null,
+                fdv: token.fdv ?? null,
+                rank: index + 1,
+              };
+              if (canWriteLaunchpad) {
+                baseData.launchpad = (token as any).launchpad || null;
+              }
+              return baseData as any;
+            }),
             skipDuplicates: true
           });
         }
@@ -129,6 +172,11 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
     console.log(`Saved ${listedTokens.length}/${mergedTokens.length} trending tokens for ${chain} to database and memory cache`);
     return listedTokens;
   } catch (error) {
+    if (isMissingLaunchpadColumnError(error)) {
+      // Refresh cache and retry once without launchpad writes.
+      trendingLaunchpadColumnCache = { checkedAt: Date.now(), exists: false };
+      return saveTrendingTokens(chain, tokens);
+    }
     console.error('Error saving trending tokens:', error);
     throw error;
   }
@@ -148,10 +196,27 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
         .slice(0, limit);
     }
 
+    const canReadLaunchpad = await hasTrendingLaunchpadColumn();
     const result = await prisma.trendingToken.findMany({
       where: { chain },
       orderBy: { rank: 'asc' },
-      take: limit
+      take: limit,
+      select: {
+        address: true,
+        name: true,
+        symbol: true,
+        imageUrl: true,
+        poolCreatedAt: true,
+        price: true,
+        priceChange5m: true,
+        priceChange1h: true,
+        priceChange6h: true,
+        priceChange24h: true,
+        volume24h: true,
+        liquidity: true,
+        fdv: true,
+        ...(canReadLaunchpad ? { launchpad: true } : {}),
+      },
     });
 
     const tokens: TokenSearchResult[] = result.map((row) => ({
@@ -171,7 +236,7 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
       volume24h: toOptionalNumber(row.volume24h),
       liquidity: toOptionalNumber(row.liquidity),
       fdv: toOptionalNumber(row.fdv),
-      launchpad: row.launchpad || undefined,
+      launchpad: (row as any).launchpad || undefined,
     }));
 
     await Promise.all(tokens.map(async (token) => {
@@ -200,6 +265,10 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
 
     return listedTokens;
   } catch (error) {
+    if (isMissingLaunchpadColumnError(error)) {
+      trendingLaunchpadColumnCache = { checkedAt: Date.now(), exists: false };
+      return getTrendingTokens(chain, limit);
+    }
     console.error('Error getting trending tokens:', error);
     return [];
   }
