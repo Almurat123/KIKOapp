@@ -18,6 +18,7 @@ import { computeUsdCost, getBillingCategory, getUtcDateString } from '../service
 import { buildSignedHeaders } from '../utils/requestSigningClient.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
+import { GENERAL_THINKING_POLICY } from '../services/ai/prompts/v2/policies/GeneralThinkingPolicy.js';
 import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
 import type { IntentType, ModelType, UserContext } from '../services/ai/types.js';
 import { parseIntent } from '../services/ai/intentParser.js';
@@ -628,13 +629,10 @@ export class ChatWorker {
     }
     
     private buildThinkingSystemPrompt(model: ModelType): string {
-        const basePrompt = `You are KiKo, a crypto research assistant embedded in the KiKo app.
-You are in thinking mode: focus on token information and discussion, not trade execution.
-Keep responses concise and helpful.`.trim();
         if (model === 'grok') {
-            return `${basePrompt}\n\n${AnalystPolicy}`;
+            return `${GENERAL_THINKING_POLICY}\n\n${AnalystPolicy}`;
         }
-        return basePrompt;
+        return GENERAL_THINKING_POLICY;
     }
 
     private injectEnrichedUserContent(history: any[], lastUserIndex: number, enrichedContent: string): any[] {

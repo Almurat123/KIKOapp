@@ -20,6 +20,7 @@ import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
 import { randomUUID } from 'crypto';
 import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
+import { GENERAL_THINKING_POLICY } from '../services/ai/prompts/v2/policies/GeneralThinkingPolicy.js';
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -57,15 +58,11 @@ interface ChatRequest {
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
 
-const SIMPLE_THINKING_PROMPT = `You are KiKo, a crypto research assistant embedded in the KiKo app.
-You are in thinking mode: focus on token information and discussion, not trade execution.
-Keep responses concise and helpful.`.trim();
-
 function buildThinkingSystemPrompt(model: string): string {
     if (model.startsWith('grok')) {
-        return `${SIMPLE_THINKING_PROMPT}\n\n${AnalystPolicy}`;
+        return `${GENERAL_THINKING_POLICY}\n\n${AnalystPolicy}`;
     }
-    return SIMPLE_THINKING_PROMPT;
+    return GENERAL_THINKING_POLICY;
 }
 
 function normalizeModel(model?: string): string {
