@@ -242,4 +242,52 @@
     cursor: not-allowed;
 }
 
+.modeSegment {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.modeButton {
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: #cfd3dc;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modeButton:hover {
+    border-color: rgba(96, 165, 250, 0.45);
+    color: #f3f4f6;
+}
+
+.modeButtonActive {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.2);
+    color: #ffffff;
+}
+
+:global(.light) .modeButton {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    color: #374151;
+}
+
+:global(.light) .modeButton:hover {
+    border-color: rgba(59, 130, 246, 0.55);
+    color: #111827;
+}
+
+:global(.light) .modeButtonActive {
+    border-color: #2563eb;
+    background: rgba(37, 99, 235, 0.1);
+    color: #1e3a8a;
+}
+
 /* Actions removed to support Auto-save on Close */

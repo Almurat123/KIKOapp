@@ -853,8 +853,35 @@ export async function parseSwapTransaction(
         }
     }
 
+    const v2SwapTopic = V2_SWAP_EVENT.toLowerCase();
+    const v3SwapTopic = V3_SWAP_EVENT.toLowerCase();
     const v4SwapTopic = V4_SWAP_EVENT.toLowerCase();
+    const infinityClSwapTopic = INFINITY_CL_SWAP_EVENT.toLowerCase();
+    const infinityBinSwapTopic = INFINITY_BIN_SWAP_EVENT.toLowerCase();
+    const hasV2Swap = receipt.logs.some((log) => log.topics?.[0]?.toLowerCase() === v2SwapTopic);
+    const hasV3Swap = receipt.logs.some((log) => log.topics?.[0]?.toLowerCase() === v3SwapTopic);
     const hasV4Swap = receipt.logs.some((log) => log.topics?.[0]?.toLowerCase() === v4SwapTopic);
+    const hasInfinitySwap = receipt.logs.some((log) => {
+        const topic0 = log.topics?.[0]?.toLowerCase();
+        return topic0 === infinityClSwapTopic || topic0 === infinityBinSwapTopic;
+    });
+    const hasPoolSwapEvidence = hasV2Swap || hasV3Swap || hasV4Swap || hasInfinitySwap;
+    const hasKnownSwapSelector = isSwapTransaction(tx.input || '');
+    const knownRouter = tx.to ? getDexName(tx.to, chainId) !== 'Unknown DEX' : false;
+    const hasDexIntentEvidence = hasKnownSwapSelector && knownRouter;
+
+    // Guardrail: prevent plain transfer/spam airdrop tx from being misclassified as swaps.
+    // Require either on-chain swap events, or a known router + known swap selector.
+    if (!hasPoolSwapEvidence && !hasDexIntentEvidence) {
+        if (PROFILE) {
+            logger.info(LogCode.DEC_SWAP_DETECTION, '[Profile] parseSwapTransaction', {
+                tx: tx.hash?.slice(0, 12),
+                path: 'no_swap_evidence',
+                totalMs: Date.now() - t0
+            });
+        }
+        return null;
+    }
 
     // Cache Pancake Infinity pool keys (non-blocking)
     cacheInfinityPoolKeysFromLogs(receipt.logs, chainId);

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { LaunchpadCapsule } from '../components/Launchpad/LaunchpadCapsule';
 
-import { Activity, BarChart3, ChevronDown, ChevronUp, Droplets, Rocket, Search, TrendingUp, X } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp, Droplets, Search, TrendingUp, X } from 'lucide-react';
 import { usePrivy } from '@privy-io/react-auth';
 import { TokenDetailPage } from './TokenDetailPage';
 import { tokenApi, type TokenSearchResult } from '../services/api';
@@ -78,8 +78,8 @@ interface TokenSignal {
   detail: string;
   offDetail: string;
   active: boolean;
-  kind: 'dex' | 'spike' | 'depth' | 'volume' | 'activity' | 'multiple';
-  tier?: 'x10' | 'x50' | 'x100' | 'x1000';
+  kind: 'dex' | 'spike' | 'depth' | 'activity' | 'multiple';
+  tier?: 'x10' | 'x50' | 'x100' | 'x1000' | 'green' | 'yellow' | 'red';
 }
 
 // --- Helper Functions ---
@@ -196,10 +196,25 @@ function getTokenSignals(token: Token): TokenSignal[] {
   const hasImage = Boolean(token.imageUrl && token.imageUrl.trim().length > 0);
   const hasDexScreenerProfile = hasImage;
 
-  const isVolumeSpike = (token.c5mRaw >= 12 && token.txns >= 40) || (token.c1hRaw >= 25 && token.volumeRaw >= 50_000);
-  const isDeepLiquidity = token.liquidityRaw >= 250_000;
-  const isHighVolume = token.volumeRaw >= 1_000_000;
-  const isVeryActive = token.txns >= 1_200;
+  const turnover = token.liquidityRaw > 0 ? token.volumeRaw / token.liquidityRaw : 0;
+  const volumeSpikeTier: TokenSignal['tier'] =
+    (turnover >= 4 && token.txns >= 800) ? 'red' :
+      (turnover >= 2 && token.txns >= 300) ? 'yellow' :
+        (turnover >= 1 && token.txns >= 120) ? 'green' :
+          undefined;
+
+  const poolDepthTier: TokenSignal['tier'] =
+    token.liquidityRaw >= 1_000_000 ? 'red' :
+      token.liquidityRaw >= 500_000 ? 'yellow' :
+        token.liquidityRaw >= 100_000 ? 'green' :
+          undefined;
+
+  const tradingTier: TokenSignal['tier'] =
+    token.txns >= 3000 ? 'red' :
+      token.txns >= 1200 ? 'yellow' :
+        token.txns >= 400 ? 'green' :
+          undefined;
+
   const multipleRaw = Number(token.launchMultipleRaw || 0);
   const multiple = Number.isFinite(multipleRaw) && multipleRaw > 0 ? multipleRaw : 0;
 
@@ -211,11 +226,10 @@ function getTokenSignals(token: Token): TokenSignal[] {
 
   return [
     { key: 'dex', label: 'DexScreener', detail: 'Metadata claimed', offDetail: 'Metadata not claimed', active: hasDexScreenerProfile, kind: 'dex' },
-    { key: 'spike', label: 'Volume Spike', detail: `${token.c5mRaw.toFixed(1)}% (5m)`, offDetail: `${token.c5mRaw.toFixed(1)}% (5m)`, active: isVolumeSpike, kind: 'spike' },
-    { key: 'depth', label: 'Pool Depth', detail: `${formatCurrency(token.liquidityRaw)} liquidity`, offDetail: `${formatCurrency(token.liquidityRaw)} liquidity`, active: isDeepLiquidity, kind: 'depth' },
-    { key: 'volume', label: '24H Volume', detail: `${formatCurrency(token.volumeRaw)} volume`, offDetail: `${formatCurrency(token.volumeRaw)} volume`, active: isHighVolume, kind: 'volume' },
-    { key: 'activity', label: 'Trading Activity', detail: `${token.txns} txns/24h`, offDetail: `${token.txns} txns/24h`, active: isVeryActive, kind: 'activity' },
     { key: 'multiple', label: 'Since Launch', detail: `${multiple > 0 ? `x${multiple.toFixed(1)}` : 'N/A'}`, offDetail: `${multiple > 0 ? `x${multiple.toFixed(1)}` : 'N/A'}`, active: multiple >= 10, kind: 'multiple', tier: multipleTier },
+    { key: 'depth', label: 'Pool Depth', detail: `${formatCurrency(token.liquidityRaw)} liquidity`, offDetail: `${formatCurrency(token.liquidityRaw)} liquidity`, active: !!poolDepthTier, kind: 'depth', tier: poolDepthTier },
+    { key: 'activity', label: 'Trading Activity', detail: `${token.txns} txns/24h`, offDetail: `${token.txns} txns/24h`, active: !!tradingTier, kind: 'activity', tier: tradingTier },
+    { key: 'spike', label: 'Volume Surge', detail: `${turnover.toFixed(2)}x turnover`, offDetail: `${turnover.toFixed(2)}x turnover`, active: !!volumeSpikeTier, kind: 'spike', tier: volumeSpikeTier },
   ];
 }
 
@@ -726,7 +740,7 @@ const TokenRow = React.memo(({
                   launchpad={t.launchpad}
                   onAskAI={() => console.log('Trigger Ask AI for', t.name)}
                 />
-                {t.launchpad && (
+                {(t.launchpad || t.creatorAddress) && (
                   <span className={styles.subRowCreator} title={t.creatorAddress || 'creator unavailable'}>
                     {t.creatorAddress ? shortAddress(t.creatorAddress) : 'creator --'}
                   </span>
@@ -737,7 +751,7 @@ const TokenRow = React.memo(({
                   <button
                     key={signal.key}
                     type="button"
-                    className={`${styles.tokenSignal} ${signal.active ? styles.tokenSignalActive : styles.tokenSignalInactive}`}
+                    className={`${styles.tokenSignal} ${signal.active ? styles.tokenSignalActive : styles.tokenSignalInactive} ${signal.tier === 'green' ? styles.signalTierGreen : ''} ${signal.tier === 'yellow' ? styles.signalTierYellow : ''} ${signal.tier === 'red' ? styles.signalTierRed : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       setActiveSignalKey((prev) => (prev === signal.key ? null : signal.key));
@@ -755,19 +769,19 @@ const TokenRow = React.memo(({
                     )}
                     {signal.kind === 'spike' && <TrendingUp size={12} strokeWidth={2.2} />}
                     {signal.kind === 'depth' && <Droplets size={12} strokeWidth={2.2} />}
-                    {signal.kind === 'volume' && <BarChart3 size={12} strokeWidth={2.2} />}
                     {signal.kind === 'activity' && <Activity size={12} strokeWidth={2.2} />}
                     {signal.kind === 'multiple' && (
-                      <Rocket
-                        size={12}
-                        strokeWidth={2.2}
-                        className={
-                          signal.tier === 'x1000' ? styles.multipleX1000 :
-                            signal.tier === 'x100' ? styles.multipleX100 :
-                              signal.tier === 'x50' ? styles.multipleX50 :
-                                signal.tier === 'x10' ? styles.multipleX10 : ''
-                        }
-                      />
+                      <span
+                        className={`${styles.tokenSignalMultipleValue} ${signal.tier === 'x1000' ? styles.multipleX1000 :
+                          signal.tier === 'x100' ? styles.multipleX100 :
+                            signal.tier === 'x50' ? styles.multipleX50 :
+                              signal.tier === 'x10' ? styles.multipleX10 : ''}`}
+                        aria-hidden="true"
+                      >
+                        {Number.isFinite(t.launchMultipleRaw || NaN) && (t.launchMultipleRaw || 0) > 0
+                          ? `x${(t.launchMultipleRaw || 0) >= 100 ? Math.round(t.launchMultipleRaw || 0) : (t.launchMultipleRaw || 0).toFixed(1)}`
+                          : 'x-'}
+                      </span>
                     )}
                     {activeSignalKey === signal.key && (
                       <span className={styles.tokenSignalBubble} role="status" onClick={(e) => e.stopPropagation()}>

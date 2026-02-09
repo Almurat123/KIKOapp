@@ -15,15 +15,37 @@ const AI_ANALYSIS_OPTIONS = [
     { value: 'analyze_only', label: 'Analyze Only (Chat Notify)' },
     { value: 'auto_decide', label: 'AI Auto Decide' },
 ];
+type ExecutionMode = 'safe' | 'balanced' | 'turbo';
+
+const EXECUTION_MODE_OPTIONS: Array<{ value: ExecutionMode; label: string; desc: string }> = [
+    {
+        value: 'safe',
+        label: 'SAFE',
+        desc: 'Full checks first. Lowest risk, slower entries.'
+    },
+    {
+        value: 'balanced',
+        label: 'BALANCED',
+        desc: 'Direct swap first, keeps token-info checks.'
+    },
+    {
+        value: 'turbo',
+        label: 'TURBO',
+        desc: 'Fastest path. Skips token-info checks before buy.'
+    }
+];
 
 export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSave }) => {
+    const initialExecutionMode: ExecutionMode =
+        (config.executionMode as ExecutionMode | undefined) ?? (config.disableTokenInfo ? 'turbo' : 'balanced');
     const [formData, setFormData] = useState<Partial<CopyTradeConfig>>({
         targetWallet: config.targetWallet,
         minTargetValueUsd: config.minTargetValueUsd ?? undefined,
         minMarketCapUsd: config.minMarketCapUsd ?? undefined,
         minLiquidityUsd: config.minLiquidityUsd ?? undefined,
         copyTradeTokenCooldownMinutes: config.copyTradeTokenCooldownMinutes ?? undefined,
-        disableTokenInfo: config.disableTokenInfo ?? false,
+        executionMode: initialExecutionMode,
+        disableTokenInfo: initialExecutionMode === 'turbo',
         buyAmountUsd: config.buyAmountUsd,
         takeProfitPct: config.takeProfitPct || 100,
         stopLossPct: config.stopLossPct || 20,
@@ -33,7 +55,6 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
         dynamicTPMinProfitPct: config.dynamicTPMinProfitPct || 100
     });
 
-    const isBase = config.chainId === 8453;
     const formDataRef = useRef(formData);
     const hasChangedRef = useRef(false);
 
@@ -54,6 +75,14 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     const updateFormData = (updates: Partial<CopyTradeConfig>) => {
         setFormData(prev => ({ ...prev, ...updates }));
         hasChangedRef.current = true;
+    };
+    const currentExecutionMode: ExecutionMode =
+        (formData.executionMode as ExecutionMode | undefined) ?? (formData.disableTokenInfo ? 'turbo' : 'balanced');
+    const updateExecutionMode = (mode: ExecutionMode) => {
+        updateFormData({
+            executionMode: mode,
+            disableTokenInfo: mode === 'turbo'
+        });
     };
 
     const handleNumberChange = (
@@ -192,22 +221,22 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                 </div>
 
                 <div className={styles.inputGroup} style={{ marginTop: '20px' }}>
-                    <div className={styles.headerRow}>
-                        <div className={styles.headerTitle}>Disable Token Info (Base V4 Fast)</div>
-                        <label className={clsx(styles.toggleSwitch, !isBase && styles.disabled)}>
-                            <input
-                                type="checkbox"
-                                checked={!!formData.disableTokenInfo}
-                                onChange={e => isBase && updateFormData({ disableTokenInfo: e.target.checked })}
-                                disabled={!isBase}
-                            />
-                            <span className={styles.slider}></span>
-                        </label>
+                    <div className={styles.headerTitle}>Execution Mode</div>
+                    <div className={styles.modeSegment} role="radiogroup" aria-label="Execution Mode">
+                        {EXECUTION_MODE_OPTIONS.map((option) => (
+                            <button
+                                key={option.value}
+                                type="button"
+                                className={clsx(styles.modeButton, currentExecutionMode === option.value && styles.modeButtonActive)}
+                                onClick={() => updateExecutionMode(option.value)}
+                                aria-pressed={currentExecutionMode === option.value}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
                     </div>
                     <p className={styles.headerDesc}>
-                        {isBase
-                            ? 'Bypasses token info checks for ultra-fast Base V4 execution. Highly recommended for degen plays.'
-                            : 'Only available on Base. BSC strategies still require full verification.'}
+                        {EXECUTION_MODE_OPTIONS.find(v => v.value === currentExecutionMode)?.desc}
                     </p>
                 </div>
             </div>

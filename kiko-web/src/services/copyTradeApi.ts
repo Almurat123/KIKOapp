@@ -1,6 +1,8 @@
 import { getAuthToken } from '../utils/authToken';
 
 // Types matching the Prisma model and API response
+export type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
+
 export interface CopyTradeConfig {
     id: string;
     userId: string;
@@ -12,6 +14,7 @@ export interface CopyTradeConfig {
     minLiquidityUsd?: number | null;
     minTargetValueUsd?: number | null;
     copyTradeTokenCooldownMinutes?: number | null;
+    executionMode?: CopyTradeExecutionMode | null;
     disableTokenInfo?: boolean | null;
     takeProfitPct?: number | null;
     stopLossPct?: number | null;
@@ -32,6 +35,7 @@ export interface CreateConfigParams {
     minLiquidityUsd?: number;
     minTargetValueUsd?: number;
     copyTradeTokenCooldownMinutes?: number;
+    executionMode?: CopyTradeExecutionMode;
     disableTokenInfo?: boolean;
     takeProfitPct?: number;
     stopLossPct?: number;

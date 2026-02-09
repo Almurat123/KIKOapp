@@ -50,7 +50,7 @@ const SECONDARY_CHAIN_DELAY_MS = 60000; // 60 seconds between secondary chains
 // Number of tokens to fetch per chain
 const TOKENS_PER_CHAIN = 100;
 const LAUNCHPAD_DETECT_CONCURRENCY = 6;
-const LAUNCH_MULTIPLE_ENRICH_ENABLED = (process.env.LAUNCH_MULTIPLE_ENRICH_ENABLED || 'false').toLowerCase() === 'true';
+const LAUNCH_MULTIPLE_ENRICH_ENABLED = (process.env.LAUNCH_MULTIPLE_ENRICH_ENABLED || 'true').toLowerCase() === 'true';
 const LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN = Math.max(
   48,
   Number(process.env.LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN || '80')
@@ -58,6 +58,10 @@ const LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN = Math.max(
 const LAUNCH_MULTIPLE_BUDGET_PER_RUN = Math.max(
   4,
   Number(process.env.LAUNCH_MULTIPLE_BUDGET_PER_RUN || '8')
+);
+const LAUNCHPAD_CREATOR_BACKFILL_BUDGET_PER_RUN = Math.max(
+  8,
+  Number(process.env.LAUNCHPAD_CREATOR_BACKFILL_BUDGET_PER_RUN || '24')
 );
 const TOKEN_META_CACHE_TTL_SECONDS = Math.max(
   60 * 60,
@@ -181,18 +185,70 @@ function pickCreatorAddress(detected: any): string | undefined {
   const candidates: unknown[] = [
     data.creatorAddress,
     data.creator,
+    data.creator_address,
     data.userAddress,
+    data.user_address,
+    data.walletAddress,
+    data.wallet_address,
+    data.account,
+    data.accountAddress,
+    data.account_address,
     data.msg_sender,
     data.deployer,
+    data.deployerAddress,
+    data.deployer_address,
     data.owner,
+    data.ownerAddress,
+    data.owner_address,
     data.requestor,
+    data.createdBy,
+    data.created_by,
+    data.launcher,
+    data.launcherAddress,
+    data.launcher_address,
+    data.teamWallet,
+    data.team_wallet,
+    data.creatorProfile?.address,
+    data.profile?.address,
+    data.user?.address,
+    data.author?.address,
   ];
 
+  const evmLike = /0x[a-fA-F0-9]{40}/;
+  const solLike = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   for (const raw of candidates) {
     if (typeof raw !== 'string') continue;
     const value = raw.trim();
-    if (value.length >= 20) return value;
+    if (evmLike.test(value) || solLike.test(value)) return value;
   }
+
+  // Last-resort deep scan for address-like values in nested payloads.
+  const stack: unknown[] = [data];
+  const seen = new Set<unknown>();
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
+
+    if (Array.isArray(cur)) {
+      for (const item of cur) stack.push(item);
+      continue;
+    }
+
+    for (const [key, value] of Object.entries(cur as Record<string, unknown>)) {
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        const keyHint = key.toLowerCase();
+        if ((keyHint.includes('creator') || keyHint.includes('owner') || keyHint.includes('deploy') || keyHint.includes('author')) &&
+          (evmLike.test(trimmed) || solLike.test(trimmed))) {
+          return trimmed;
+        }
+      } else if (value && typeof value === 'object') {
+        stack.push(value);
+      }
+    }
+  }
+
   return undefined;
 }
 
@@ -220,65 +276,102 @@ async function enrichLaunchpadsForTrending(
   // Step 2: BSC flap verification for suffix-matched candidates
   if (chainId === 'bsc') {
     const flapCandidates = tokens.filter((t) => t.launchpad === 'flap' && t.address.startsWith('0x'));
-    if (flapCandidates.length === 0) return;
-
-    const verifyTargets = pickVerifyTargets(
-      flapCandidates,
-      Math.min(LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN, 60)
-    );
-    const limiter = pLimit(LAUNCHPAD_DETECT_CONCURRENCY);
-    await Promise.all(verifyTargets.map((token) => limiter(async () => {
-      try {
-        const detected = await detectLaunchpadToken(token.address, 56, { mode: 'cheap' });
-        if (!detected || detected.provider !== 'flap') {
-          token.launchpad = undefined;
-          return;
+    if (flapCandidates.length > 0) {
+      const verifyTargets = pickVerifyTargets(
+        flapCandidates,
+        Math.min(LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN, 60)
+      );
+      const limiter = pLimit(LAUNCHPAD_DETECT_CONCURRENCY);
+      await Promise.all(verifyTargets.map((token) => limiter(async () => {
+        try {
+          const detected = await detectLaunchpadToken(token.address, 56, { mode: 'cheap' });
+          if (!detected || detected.provider !== 'flap') {
+            token.launchpad = undefined;
+            return;
+          }
+          token.creatorAddress = pickCreatorAddress(detected);
+          await writeTokenMetaCache(chainId, token.address, {
+            creatorAddress: token.creatorAddress,
+            launchMultiple: token.launchMultiple
+          });
+          if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
+            token.imageUrl = (detected as any).data.imageUrl;
+          }
+        } catch {
+          // Keep suffix classification when verification fails due to transient errors.
         }
-        token.creatorAddress = pickCreatorAddress(detected);
-        await writeTokenMetaCache(chainId, token.address, {
-          creatorAddress: token.creatorAddress,
-          launchMultiple: token.launchMultiple
-        });
-        if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
-          token.imageUrl = (detected as any).data.imageUrl;
-        }
-      } catch {
-        // Keep suffix classification when verification fails due to transient errors.
-      }
-    })));
-    return;
+      })));
+    }
   }
 
   // Step 3: API verification for Base tokens without deterministic suffix
-  if (chainId !== 'base') return;
+  if (chainId === 'base') {
+    const unresolved = tokens.filter((t) => !t.launchpad && t.address.startsWith('0x'));
+    if (unresolved.length > 0) {
+      const verifyTargets = pickVerifyTargets(unresolved, LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN);
+      if (unresolved.length > verifyTargets.length) {
+        logger.info(LogCode.API_FETCH_SUCCESS, 'Launchpad verify budget applied', {
+          chain: chainId,
+          unresolved: unresolved.length,
+          verifying: verifyTargets.length
+        });
+      }
 
-  const unresolved = tokens.filter((t) => !t.launchpad && t.address.startsWith('0x'));
-  if (unresolved.length === 0) return;
-  const verifyTargets = pickVerifyTargets(unresolved, LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN);
-  if (unresolved.length > verifyTargets.length) {
-    logger.info(LogCode.API_FETCH_SUCCESS, 'Launchpad verify budget applied', {
-      chain: chainId,
-      unresolved: unresolved.length,
-      verifying: verifyTargets.length
-    });
+      const limiter = pLimit(LAUNCHPAD_DETECT_CONCURRENCY);
+      await Promise.all(verifyTargets.map((token) => limiter(async () => {
+        try {
+          const detected = await detectLaunchpadToken(token.address, 8453, { mode: 'cheap' });
+          const normalized = normalizeLaunchpad(detected?.provider || null);
+          if (normalized) token.launchpad = normalized;
+          token.creatorAddress = pickCreatorAddress(detected);
+          await writeTokenMetaCache(chainId, token.address, {
+            creatorAddress: token.creatorAddress,
+            launchMultiple: token.launchMultiple
+          });
+          if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
+            token.imageUrl = (detected as any).data.imageUrl;
+          }
+        } catch {
+          // Keep unresolved token without launchpad tag
+        }
+      })));
+    }
   }
 
-  const limiter = pLimit(LAUNCHPAD_DETECT_CONCURRENCY);
-  await Promise.all(verifyTargets.map((token) => limiter(async () => {
+  // Step 4: creator backfill for already-classified launchpad tokens.
+  // This keeps request cost bounded while repairing "launchpad exists but creator missing".
+  const chainIdNum = chainId === 'base' ? 8453 : chainId === 'bsc' ? 56 : null;
+  if (!chainIdNum) return;
+
+  const backfillCandidates = tokens.filter((t) => t.launchpad && !t.creatorAddress && t.address.startsWith('0x'));
+  if (backfillCandidates.length === 0) return;
+
+  const backfillTargets = pickVerifyTargets(
+    backfillCandidates,
+    Math.min(LAUNCHPAD_CREATOR_BACKFILL_BUDGET_PER_RUN, LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN)
+  );
+  const backfillLimiter = pLimit(Math.max(2, Math.floor(LAUNCHPAD_DETECT_CONCURRENCY / 2)));
+  await Promise.all(backfillTargets.map((token) => backfillLimiter(async () => {
     try {
-      const detected = await detectLaunchpadToken(token.address, 8453, { mode: 'cheap' });
-      const normalized = normalizeLaunchpad(detected?.provider || null);
-      if (normalized) token.launchpad = normalized;
-      token.creatorAddress = pickCreatorAddress(detected);
+      const detected = await detectLaunchpadToken(token.address, chainIdNum, { mode: 'cheap' });
+      if (!detected) return;
+
+      if (!token.launchpad) {
+        const normalized = normalizeLaunchpad(detected.provider || null);
+        if (normalized) token.launchpad = normalized;
+      }
+      if (!token.creatorAddress) {
+        token.creatorAddress = pickCreatorAddress(detected);
+      }
+      if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
+        token.imageUrl = (detected as any).data.imageUrl;
+      }
       await writeTokenMetaCache(chainId, token.address, {
         creatorAddress: token.creatorAddress,
         launchMultiple: token.launchMultiple
       });
-      if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
-        token.imageUrl = (detected as any).data.imageUrl;
-      }
     } catch {
-      // Keep unresolved token without launchpad tag
+      // Best-effort metadata backfill only.
     }
   })));
 }
@@ -316,14 +409,16 @@ async function enrichLaunchMultiplesForTrending(
       const createdMs = token.poolCreatedAt ? Date.parse(token.poolCreatedAt) : NaN;
       const ageHours = Number.isFinite(createdMs) ? Math.max(0, (now - createdMs) / (1000 * 60 * 60)) : NaN;
 
-      let timeframe: 'm5' | 'h1' | 'h6' = 'h1';
+      let timeframe: 'm5' | 'h1' | 'h6' | 'd1' = 'h1';
       let limit = 96;
       if (Number.isFinite(ageHours) && ageHours <= 12) {
         timeframe = 'm5';
         limit = Math.min(180, Math.max(36, Math.ceil((ageHours * 60) / 5) + 12));
-      } else if (Number.isFinite(ageHours) && ageHours > 40 * 24) {
-        timeframe = 'h6';
-        limit = Math.min(180, Math.max(32, Math.ceil(ageHours / 6) + 8));
+      } else if (Number.isFinite(ageHours) && ageHours >= 24) {
+        // Prefer daily candles for older pools; first daily candle is a better launch proxy
+        // than short-range hourly windows, while keeping API cost bounded.
+        timeframe = 'd1';
+        limit = Math.min(365, Math.max(14, Math.ceil(ageHours / 24) + 3));
       } else if (Number.isFinite(ageHours)) {
         timeframe = 'h1';
         limit = Math.min(180, Math.max(36, Math.ceil(ageHours) + 12));

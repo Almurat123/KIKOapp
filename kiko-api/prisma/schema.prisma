@@ -151,6 +151,7 @@ model CopyTradeConfig {
   minLiquidityUsd               Float?
   minTargetValueUsd             Float?
   copyTradeTokenCooldownMinutes Int?
+  executionMode                 String                @default("balanced")
   disableTokenInfo              Boolean               @default(false)
   takeProfitPct                 Float?
   stopLossPct                   Float?

@@ -21,6 +21,7 @@ interface CreateConfigBody {
     minLiquidityUsd?: number;
     minTargetValueUsd?: number;
     copyTradeTokenCooldownMinutes?: number;
+    executionMode?: 'safe' | 'balanced' | 'turbo';
     disableTokenInfo?: boolean;
     takeProfitPct?: number;
     stopLossPct?: number;
@@ -28,6 +29,36 @@ interface CreateConfigBody {
 }
 
 const MAX_COPY_TRADE_USD = 1_000_000;
+type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
+
+function coerceExecutionMode(mode: unknown): CopyTradeExecutionMode | null {
+    if (typeof mode !== 'string') return null;
+    const normalized = mode.trim().toLowerCase();
+    if (normalized === 'safe' || normalized === 'balanced' || normalized === 'turbo') {
+        return normalized;
+    }
+    return null;
+}
+
+function resolveExecutionMode(args: {
+    requested?: unknown;
+    legacyDisableTokenInfo?: unknown;
+    fallback: CopyTradeExecutionMode;
+}): { mode: CopyTradeExecutionMode; valid: boolean } {
+    if (args.requested !== undefined) {
+        const mode = coerceExecutionMode(args.requested);
+        if (!mode) {
+            return { mode: args.fallback, valid: false };
+        }
+        return { mode, valid: true };
+    }
+
+    if (typeof args.legacyDisableTokenInfo === 'boolean') {
+        return { mode: args.legacyDisableTokenInfo ? 'turbo' : 'balanced', valid: true };
+    }
+
+    return { mode: args.fallback, valid: true };
+}
 
 export default async function copyTradeRoutes(fastify: FastifyInstance) {
     async function assertEoaTarget(chainId: number, address: string): Promise<void> {
@@ -112,6 +143,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             minLiquidityUsd,
             minTargetValueUsd,
             copyTradeTokenCooldownMinutes,
+            executionMode,
             disableTokenInfo,
             takeProfitPct,
             stopLossPct,
@@ -151,6 +183,15 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
         });
 
         try {
+            const resolvedMode = resolveExecutionMode({
+                requested: executionMode,
+                legacyDisableTokenInfo: disableTokenInfo,
+                fallback: 'balanced'
+            });
+            if (!resolvedMode.valid) {
+                return reply.status(400).send({ error: 'executionMode must be one of: safe, balanced, turbo' });
+            }
+
             try {
                 if (chainId === 900) {
                     await assertSolanaWalletTarget(normalizedTarget);
@@ -202,7 +243,8 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                     minLiquidityUsd,
                     minTargetValueUsd,
                     copyTradeTokenCooldownMinutes,
-                    disableTokenInfo,
+                    executionMode: resolvedMode.mode,
+                    disableTokenInfo: resolvedMode.mode === 'turbo',
                     takeProfitPct,
                     stopLossPct,
                     mirrorSell,
@@ -457,11 +499,25 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             }
 
             const { userId: _, ...allowedUpdates } = updates as any;
+            const existingMode =
+                coerceExecutionMode((existing as any).executionMode) ||
+                ((existing as any).disableTokenInfo === true ? 'turbo' : 'balanced');
+            const resolvedMode = resolveExecutionMode({
+                requested: (updates as any).executionMode,
+                legacyDisableTokenInfo: (updates as any).disableTokenInfo,
+                fallback: existingMode
+            });
+            if (!resolvedMode.valid) {
+                return reply.status(400).send({ error: 'executionMode must be one of: safe, balanced, turbo' });
+            }
+
             const config = await prisma.copyTradeConfig.update({
                 where: { id },
                 data: {
                     ...allowedUpdates,
                     targetWallet: updates.targetWallet ? normalizeAddress(updates.targetWallet) : undefined,
+                    executionMode: resolvedMode.mode,
+                    disableTokenInfo: resolvedMode.mode === 'turbo',
                 },
             });
 

@@ -56,6 +56,7 @@ const positionExitLockValues = new Map<string, string>();
 const POSITION_EXIT_LOCK_TTL_SECONDS = Number(process.env.POSITION_EXIT_LOCK_TTL_SECONDS || 180);
 const positionPriceFallbackCache = new Map<string, { tokenInfo: any; timestamp: number }>();
 const POSITION_PRICE_STALE_TTL_MS = 5 * 60 * 1000;
+type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
 
 // Per-user trade locks to prevent concurrent trade execution for same user
 const userTradeLocks = new Map<string, Promise<any>>();
@@ -65,6 +66,12 @@ const DISTRIBUTED_USER_LOCK_RETRY_MS = 200;
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
+    const raw = String(config?.executionMode || '').trim().toLowerCase();
+    if (raw === 'safe' || raw === 'balanced' || raw === 'turbo') return raw;
+    return config?.disableTokenInfo === true ? 'turbo' : 'balanced';
 }
 
 function toDec(v: number | string | null | undefined): string | null {
@@ -599,12 +606,16 @@ async function handleTargetBuy(
     });
     const userMap = new Map(users.map(u => [u.privyDid, u]));
     const configs = rawConfigs
-        .map((c: any) => ({
-            ...c,
-            user: userMap.get(c.userId),
-            // Fast execution flag (global, controlled by per-strategy toggle)
-            fastExecutionEnabled: c.disableTokenInfo === true
-        }))
+        .map((c: any) => {
+            const executionMode = resolveExecutionModeForConfig(c);
+            return {
+                ...c,
+                executionMode,
+                user: userMap.get(c.userId),
+                // safe: full path, balanced/turbo: fast path enabled
+                fastExecutionEnabled: executionMode !== 'safe'
+            };
+        })
         .filter((c) => Boolean(c.user));
 
     if (configs.length === 0) {
@@ -618,8 +629,8 @@ async function handleTargetBuy(
         ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
         : Promise.resolve(null);
 
-    // Fast Mode: if all configs disable token info, skip heavy API info fetch in buy path.
-    const skipTokenInfo = configs.every(c => c.disableTokenInfo === true);
+    // Turbo Mode: skip heavy token info path only when all configs explicitly choose turbo.
+    const skipTokenInfo = configs.every(c => c.executionMode === 'turbo');
     if (skipTokenInfo) {
         try {
             const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
@@ -1579,7 +1590,7 @@ async function processSingleUserBuy(
 
                 // SPECIALIZED ZORA INTERACTION - Use async launchpad detection (non-blocking)
                 const launchpad = await resolveLaunchpad(launchpadPromise, chainId);
-                const isFastExecutionEnabled = userSettings?.fastSwapMode === true;
+                const isFastExecutionEnabled = config.executionMode !== 'safe';
 
                 let useStandardSwap = true;
 
@@ -1657,7 +1668,7 @@ async function processSingleUserBuy(
                             eth: baseAmount.toFixed(6),
                             timingMs: Date.now() - timingDetectedAt
                         });
-                        const fastSwapOverride = config.disableTokenInfo === true;
+                        const fastSwapOverride = config.executionMode !== 'safe';
                         const result1 = await MainSwapService.executeSwap({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
@@ -1669,7 +1680,7 @@ async function processSingleUserBuy(
                             slippageBps: baseSlippage,
                             mode: 'copytrade',
                             feeBpsOverride: copyTradeFeeBpsOverride,
-                            userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode },
+                            userSettings: { fastSwapMode: fastSwapOverride },
                             directSwapHint
                         });
                         if (!result1.success) throw new Error(result1.error);
@@ -1722,7 +1733,7 @@ async function processSingleUserBuy(
                             const amount99 = baseAmount * 0.99;
                             const slippage2 = 2000; // 20% (baseSlippage is now 15%, so we bump +5%)
                             logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                            const fastSwapOverride = config.disableTokenInfo === true;
+                            const fastSwapOverride = config.executionMode !== 'safe';
                             const result2 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
@@ -1734,7 +1745,7 @@ async function processSingleUserBuy(
                                 slippageBps: slippage2,
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
-                                userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode },
+                                userSettings: { fastSwapMode: fastSwapOverride },
                                 directSwapHint
                             });
                             if (!result2.success) throw new Error(result2.error);
@@ -1748,7 +1759,7 @@ async function processSingleUserBuy(
                                 const amount98 = baseAmount * 0.98;
                                 const slippage3 = 2500; // 25% (maximum tolerance for volatile new tokens)
                                 logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 25% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                                const fastSwapOverride = config.disableTokenInfo === true;
+                                const fastSwapOverride = config.executionMode !== 'safe';
                                 const result3 = await MainSwapService.executeSwap({
                                     userId: effectiveConfig.user.privyDid,
                                     walletAddress: effectiveConfig.user.walletAddress,
@@ -1760,7 +1771,7 @@ async function processSingleUserBuy(
                                     slippageBps: slippage3,
                                     mode: 'copytrade',
                                     feeBpsOverride: copyTradeFeeBpsOverride,
-                                    userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode },
+                                    userSettings: { fastSwapMode: fastSwapOverride },
                                     directSwapHint
                                 });
                                 if (!result3.success) throw new Error(result3.error);

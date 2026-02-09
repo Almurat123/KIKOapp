@@ -58,6 +58,35 @@ function sanitizeTrendingPayload(chain: string, rows: any[]): any[] {
   return rows.filter((token) => validateTrendingTokenForListing(chain, token).ok);
 }
 
+function tokenMetaCacheKey(chain: string, address: string): string {
+  return `token:meta:v1:${chain}:${address.toLowerCase()}`;
+}
+
+async function hydrateTrendingMetadata(chain: string, rows: any[]): Promise<any[]> {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  await Promise.all(rows.map(async (row) => {
+    try {
+      if (!row || typeof row !== 'object') return;
+      const address = typeof row.address === 'string' ? row.address : '';
+      if (!address) return;
+      if (row.creatorAddress && Number.isFinite(row.launchMultiple || NaN)) return;
+
+      const raw = await get(tokenMetaCacheKey(chain, address));
+      if (!raw) return;
+      const meta = JSON.parse(raw) as { creatorAddress?: string; launchMultiple?: number };
+      if (meta?.creatorAddress && !row.creatorAddress) row.creatorAddress = meta.creatorAddress;
+      if (Number.isFinite(meta?.launchMultiple || NaN) && !Number.isFinite(row.launchMultiple || NaN)) {
+        row.launchMultiple = meta.launchMultiple;
+      }
+    } catch {
+      // best-effort hydration only
+    }
+  }));
+
+  return rows;
+}
+
 export async function tokenRoutes(fastify: FastifyInstance) {
   // GET /api/tokens/chains - Get list of supported chains
   fastify.get('/chains', async (request, reply) => {
@@ -92,6 +121,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
 
       if (cached) {
         const tokens = sanitizeTrendingPayload(chain, JSON.parse(cached));
+        await hydrateTrendingMetadata(chain, tokens);
         if (tokens.length > 0) {
           await set(cacheKey, JSON.stringify(tokens), 180);
           return reply.send({
@@ -108,6 +138,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
 
       // Step 2: Fallback to PostgreSQL database (populated by background job)
       let dbTokens = await getTrendingTokens(chain, tokenLimit);
+      await hydrateTrendingMetadata(chain, dbTokens);
 
       if (dbTokens.length > 0) {
         // Update cache for next request
@@ -130,6 +161,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       if (isStale) {
         await refreshSingleChain(chain);
         dbTokens = await getTrendingTokens(chain, tokenLimit);
+        await hydrateTrendingMetadata(chain, dbTokens);
       }
 
       if (dbTokens.length > 0) {
