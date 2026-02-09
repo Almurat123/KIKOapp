@@ -21,6 +21,7 @@ export function getBillingCategory(model: string): BillingCategory {
     const normalized = normalizeModelForPricing(model);
     if (env.billing.deepseekModels.includes(normalized)) return 'deepseek';
     if (env.billing.grokModels.includes(normalized)) return 'grok';
+    if (normalized.includes('gpt') || normalized.includes('openai')) return 'deepseek';
     if (normalized.includes('deepseek')) return 'deepseek';
     if (normalized.includes('grok')) return 'grok';
     return 'other';

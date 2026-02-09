@@ -2,6 +2,10 @@ import prisma from '../db/prisma.js';
 import { withRetry } from '../db/prisma.js';
 import { normalizeAddress } from '../utils/address.js';
 import { getWalletTransactions } from './alchemy.js';
+import { calculateTargetRealizedPnl } from './targetWalletPnl.js';
+
+const TARGET_STATUS_MIN_TX_USD = Number(process.env.TARGET_STATUS_MIN_TX_USD || 0.000001);
+const TARGET_STATUS_MAX_TX_USD = Number(process.env.TARGET_STATUS_MAX_TX_USD || 250000);
 
 function chainIdToLabel(chainId: number): string {
   if (chainId === 8453) return 'base';
@@ -163,7 +167,7 @@ export async function getTargetWalletStatus(params: {
   const chain = chainIdToLabel(cfg.chainId);
   const since = cfg.createdAt;
 
-  const [leaderStats, recentTx, totalCount, copiedPositions] = await Promise.all([
+  const [leaderStats, recentTx, copiedPositions, targetBuySellTxs, targetTokenSwapCount] = await Promise.all([
     prisma.leaderWalletStats.findUnique({
       where: { address_chainId: { address: walletAddress, chainId: cfg.chainId } },
     }),
@@ -176,50 +180,54 @@ export async function getTargetWalletStatus(params: {
       orderBy: { blockTimestamp: 'desc' },
       take: params.recentLimit ?? 80,
     }),
+    prisma.position.count({
+      where: { configId: cfg.id },
+    }),
+    prisma.walletTransaction.findMany({
+      where: {
+        walletAddress,
+        chain,
+        blockTimestamp: { gte: since },
+        txType: { in: ['TARGET_BUY', 'TARGET_SELL'] }
+      },
+      select: {
+        id: true,
+        txType: true,
+        valueUsd: true,
+        tokenAddress: true,
+        amount: true,
+        blockTimestamp: true,
+      },
+      orderBy: { blockTimestamp: 'asc' },
+    }),
     prisma.walletTransaction.count({
       where: {
         walletAddress,
         chain,
         blockTimestamp: { gte: since },
+        txType: 'TARGET_TOKEN_SWAP',
       },
-    }),
-    prisma.position.count({
-      where: { configId: cfg.id },
     }),
   ]);
 
-  const txGrouped = await prisma.walletTransaction.groupBy({
-    by: ['txType'],
-    where: {
-      walletAddress,
-      chain,
-      blockTimestamp: { gte: since },
-    },
-    _count: { _all: true },
-    _sum: { valueUsd: true },
+  const tokenSwaps = targetTokenSwapCount;
+  const buySellRows = targetBuySellTxs
+    .filter((row): row is typeof row & { txType: 'TARGET_BUY' | 'TARGET_SELL' } =>
+      row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL')
+    .map((row) => ({
+      id: row.id,
+      txType: row.txType,
+      tokenAddress: row.tokenAddress,
+      amount: row.amount,
+      valueUsd: row.valueUsd,
+      blockTimestamp: row.blockTimestamp,
+    }));
+
+  const pnl = calculateTargetRealizedPnl(buySellRows, {
+    minTxUsd: TARGET_STATUS_MIN_TX_USD,
+    maxTxUsd: TARGET_STATUS_MAX_TX_USD,
   });
-
-  let buys = 0;
-  let sells = 0;
-  let tokenSwaps = 0;
-  let buyUsd = 0;
-  let sellUsd = 0;
-  for (const row of txGrouped) {
-    if (row.txType === 'TARGET_BUY') {
-      buys += row._count._all;
-      buyUsd += safeNum(row._sum.valueUsd);
-    } else if (row.txType === 'TARGET_SELL') {
-      sells += row._count._all;
-      sellUsd += safeNum(row._sum.valueUsd);
-    } else if (row.txType === 'TARGET_TOKEN_SWAP') {
-      tokenSwaps += row._count._all;
-    }
-  }
-
-  const netFlowUsd = sellUsd - buyUsd;
-  const targetRealizedProfitUsd = netFlowUsd > 0 ? netFlowUsd : 0;
-  const targetRealizedLossUsd = netFlowUsd < 0 ? Math.abs(netFlowUsd) : 0;
-  const targetRealizedPnlUsd = netFlowUsd;
+  const trackedTxCount = pnl.buyCount + pnl.sellCount + tokenSwaps;
 
   return {
     config: {
@@ -230,16 +238,19 @@ export async function getTargetWalletStatus(params: {
       status: cfg.status,
     },
     aggregate: {
-      trackedTxCount: totalCount,
-      buyCount: buys,
-      sellCount: sells,
+      trackedTxCount,
+      buyCount: pnl.buyCount,
+      sellCount: pnl.sellCount,
       tokenSwapCount: tokenSwaps,
-      buyVolumeUsd: buyUsd,
-      sellVolumeUsd: sellUsd,
-      netFlowUsd,
-      targetRealizedPnlUsd,
-      targetRealizedProfitUsd,
-      targetRealizedLossUsd,
+      buyVolumeUsd: pnl.buyVolumeUsd,
+      sellVolumeUsd: pnl.sellVolumeUsd,
+      netFlowUsd: pnl.netFlowUsd,
+      targetRealizedPnlUsd: pnl.targetRealizedPnlUsd,
+      targetRealizedProfitUsd: pnl.targetRealizedProfitUsd,
+      targetRealizedLossUsd: pnl.targetRealizedLossUsd,
+      ignoredTxCount: pnl.ignoredTxCount,
+      unmatchedSellCount: pnl.unmatchedSellCount,
+      unmatchedSellUsd: pnl.unmatchedSellUsd,
       copyPositionsCount: copiedPositions,
       latestTxAt: recentTx[0]?.blockTimestamp || null,
     },

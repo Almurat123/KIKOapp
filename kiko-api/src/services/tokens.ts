@@ -40,6 +40,7 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
     },
     // Polygon (chainId: 137)
     137: {
+        'POL': '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         'MATIC': '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         'WMATIC': '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
         'USDC': '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359', // Native USDC
@@ -60,6 +61,7 @@ export function isNativeToken(address?: string | null): boolean {
         normalized === 'eth' ||
         normalized === 'bnb' ||
         normalized === 'matic' ||
+    normalized === 'pol' ||
         normalized === 'base' ||
         normalized === 'sol';
 }

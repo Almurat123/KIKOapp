@@ -5,7 +5,7 @@
 
 const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
-export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete';
+export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete';
 
 export interface ChatEvent {
     type: ChatEventType;

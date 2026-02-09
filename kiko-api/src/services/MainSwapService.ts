@@ -36,6 +36,7 @@ import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
 import { callRpc } from './rpcManager.js';
 import { resolveTokenAddress, normalizeTokenAddress } from './tokens.js';
+import { sendTransaction } from './privyWallet.js';
 
 /**
  * Swap execution mode to determine behavior and fee structure
@@ -96,6 +97,7 @@ export interface MainSwapRequest {
   userSettings?: {
     swapMethod?: 'allowance_trade' | 'wallet_sign';
     fastSwapMode?: boolean;
+    copyTradeExecutionMode?: 'safe' | 'balanced' | 'turbo';
     quickSwapMode?: boolean;
     mevProtection?: boolean;
   };
@@ -174,6 +176,66 @@ export class MainSwapService {
     }
 
     return normalized;
+  }
+
+  private static async collectDirectSwapFee(
+    request: MainSwapRequest,
+    normalizedTokenOut: string,
+    amountOutBase: string | undefined,
+    feeContext: FeeContext,
+    trace: (msg: string) => string
+  ): Promise<void> {
+    const fee = getPlatformFee(feeContext, request.feeBpsOverride);
+    if (fee.bps <= 0 || !isValidEvmAddress(fee.evmRecipient)) return;
+    if (!request.accessToken) {
+      logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: missing access token'));
+      return;
+    }
+    if (!amountOutBase) {
+      logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: missing amountOut'));
+      return;
+    }
+
+    let rawOut: bigint;
+    try {
+      rawOut = BigInt(amountOutBase);
+    } catch {
+      logger.warn(LogCode.SYS_INFO, trace('Direct swap fee skipped: invalid amountOut format'), { amountOutBase });
+      return;
+    }
+    if (rawOut <= 0n) return;
+
+    const feeAmount = rawOut * BigInt(fee.bps) / 10000n;
+    if (feeAmount <= 0n) return;
+
+    if (isNativeToken(normalizedTokenOut, request.chainId)) {
+      const feeTxHash = await sendTransaction(request.userId, request.accessToken, {
+        to: fee.evmRecipient!,
+        data: '0x',
+        value: feeAmount.toString(),
+        chainId: request.chainId
+      });
+      logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap native fee sent'), {
+        feeTxHash,
+        feeAmount: feeAmount.toString(),
+        feeRecipient: fee.evmRecipient
+      });
+      return;
+    }
+
+    const erc20 = new ethers.Interface(['function transfer(address to, uint256 value)']);
+    const feeTxHash = await sendTransaction(request.userId, request.accessToken, {
+      to: normalizedTokenOut,
+      data: erc20.encodeFunctionData('transfer', [fee.evmRecipient!, feeAmount]),
+      value: '0',
+      chainId: request.chainId
+    });
+    logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap token fee sent'), {
+      feeTxHash,
+      token: normalizedTokenOut,
+      feeAmount: feeAmount.toString(),
+      feeRecipient: fee.evmRecipient
+    });
   }
 
   /**
@@ -552,11 +614,25 @@ export class MainSwapService {
             amountIn: request.amountIn,
             chainId: request.chainId,
             slippageBps: enforcedSlippageBps,
-            hint: request.directSwapHint
+            hint: request.directSwapHint,
+            executionMode: request.userSettings?.copyTradeExecutionMode
           });
           lastDirectResult = directResult;
 
           if (directResult.success) {
+            try {
+              await this.collectDirectSwapFee(
+                request,
+                normalizedTokenOut,
+                directResult.amountOut,
+                feeContext,
+                trace
+              );
+            } catch (feeErr: any) {
+              logger.warn(LogCode.SYS_ERROR, trace('Direct swap fee transfer failed (non-fatal)'), {
+                error: feeErr?.message || String(feeErr)
+              });
+            }
             logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct swap successful'), {
               txHash: directResult.txHash,
               provider: directResult.provider,
@@ -697,6 +773,7 @@ export class MainSwapService {
       outTokenLower === 'bnb' ||
       outTokenLower === 'sol' ||
       outTokenLower === 'matic' ||
+      outTokenLower === 'pol' ||
       outTokenLower === 'avax' ||
       outTokenLower === 'base';
 

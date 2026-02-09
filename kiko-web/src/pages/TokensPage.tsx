@@ -51,6 +51,8 @@ interface Token {
   trendingScore: number; // Calculated trending score (0-100)
   launchpad?: string; // Originating launchpad
   creatorAddress?: string; // Launchpad creator/deployer when available
+  creatorUrl?: string; // Preferred creator profile/social URL
+  creatorLabel?: string; // Preferred creator label (e.g. @handle)
   launchMultipleRaw?: number; // Current price multiple vs launch/open reference
 
   // Raw numeric fields for fast sorting
@@ -236,8 +238,62 @@ function getTokenSignals(token: Token): TokenSignal[] {
 function shortAddress(address?: string): string {
   if (!address) return '';
   const trimmed = address.trim();
-  if (trimmed.length <= 12) return trimmed;
-  return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
+  if (trimmed.length <= 10) return trimmed;
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+}
+
+function creatorText(label?: string, address?: string, url?: string): string {
+  if (label && label.trim()) return label.trim();
+  if (address && address.trim()) return shortAddress(address);
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (u.hostname.includes('warpcast.com') && parts.length >= 2 && parts[0] === '~' && parts[1] === 'profiles') {
+      const fid = parts[2];
+      return fid ? `fid:${fid}` : 'creator';
+    }
+    const last = parts[parts.length - 1];
+    if (last) {
+      if (u.hostname.includes('x.com') || u.hostname.includes('twitter.com') || u.hostname.includes('warpcast.com')) {
+        return `@${last.replace(/^@/, '')}`;
+      }
+      return last;
+    }
+  } catch {
+    // ignore parse error
+  }
+  return '';
+}
+
+function chainExplorerAddressUrl(chain: string, address?: string): string | undefined {
+  if (!address) return undefined;
+  const normalized = address.trim();
+  if (!normalized) return undefined;
+  const chainUpper = String(chain || '').toUpperCase();
+
+  if (!normalized.startsWith('0x')) {
+    return `https://solscan.io/account/${normalized}`;
+  }
+
+  switch (chainUpper) {
+    case 'ETH':
+      return `https://etherscan.io/address/${normalized}`;
+    case 'BASE':
+      return `https://basescan.org/address/${normalized}`;
+    case 'BSC':
+      return `https://bscscan.com/address/${normalized}`;
+    case 'ARB':
+      return `https://arbiscan.io/address/${normalized}`;
+    case 'OP':
+      return `https://optimistic.etherscan.io/address/${normalized}`;
+    case 'MATIC':
+      return `https://polygonscan.com/address/${normalized}`;
+    case 'AVAX':
+      return `https://snowtrace.io/address/${normalized}`;
+    default:
+      return `https://etherscan.io/address/${normalized}`;
+  }
 }
 
 // Subscript digits for displaying zero count
@@ -503,6 +559,8 @@ function convertApiTokenToToken(apiToken: TokenSearchResult, id: number): Token 
       discord: apiToken.socials?.find(s => s.type === 'discord')?.url,
     },
     creatorAddress: (apiToken as any).creatorAddress || (apiToken as any).creator || (apiToken as any).userAddress || undefined,
+    creatorUrl: (apiToken as any).creatorUrl || undefined,
+    creatorLabel: (apiToken as any).creatorLabel || undefined,
     launchMultipleRaw: typeof apiToken.launchMultiple === 'number' ? apiToken.launchMultiple : (apiToken.launchMultiple ? parseFloat(String(apiToken.launchMultiple)) : undefined),
     trendingScore: calculateTrendingScore({
       volume24h: volume24h || 0,
@@ -563,6 +621,8 @@ const TokenRow = React.memo(({
   const buyPct = t.buys + t.sells > 0 ? (t.buys / (t.buys + t.sells)) * 100 : 50;
   const showRank = !isMobile && !t.isNew && !t.isHot;
   const tokenSignals = getTokenSignals(t);
+  const creatorDisplay = creatorText(t.creatorLabel, t.creatorAddress, t.creatorUrl);
+  const creatorHref = t.creatorUrl || chainExplorerAddressUrl(t.chain, t.creatorAddress);
 
   return (
     <React.Fragment>
@@ -740,10 +800,23 @@ const TokenRow = React.memo(({
                   launchpad={t.launchpad}
                   onAskAI={() => console.log('Trigger Ask AI for', t.name)}
                 />
-                {(t.launchpad || t.creatorAddress) && (
-                  <span className={styles.subRowCreator} title={t.creatorAddress || 'creator unavailable'}>
-                    {t.creatorAddress ? shortAddress(t.creatorAddress) : 'creator --'}
-                  </span>
+                {creatorDisplay && (t.creatorLabel || t.creatorAddress || t.creatorUrl) && (
+                  creatorHref ? (
+                    <a
+                      className={`${styles.subRowCreator} ${styles.subRowCreatorLink}`}
+                      href={creatorHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={t.creatorLabel || t.creatorAddress || 'creator'}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {creatorDisplay}
+                    </a>
+                  ) : (
+                    <span className={styles.subRowCreator} title={t.creatorAddress || t.creatorLabel || 'creator'}>
+                      {creatorDisplay}
+                    </span>
+                  )
                 )}
               </div>
               <div className={styles.tokenSignals} role="group" aria-label="Token quality indicators">

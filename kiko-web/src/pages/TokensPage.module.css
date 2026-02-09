@@ -786,6 +786,16 @@
     text-overflow: ellipsis;
 }
 
+.subRowCreatorLink {
+    color: #4da3ff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.subRowCreatorLink:hover {
+    color: #79bbff;
+}
+
 .tokenSignals {
     display: inline-flex;
     align-items: center;

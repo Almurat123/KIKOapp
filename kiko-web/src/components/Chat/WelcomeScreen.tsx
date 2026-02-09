@@ -19,6 +19,7 @@ import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 const MODEL_OPTIONS = [
   { id: 'deepseek-chat', name: 'DeepSeek-V3.2', mode: 'fast' },
   { id: 'deepseek-reasoner', name: 'DeepSeek-V3.2', mode: 'thinking' },
+  { id: 'gpt-5-mini', name: 'ChatGPT-5-mini', mode: 'thinking' },
   { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
   { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
 ];

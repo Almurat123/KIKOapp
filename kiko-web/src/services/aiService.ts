@@ -59,8 +59,8 @@ export async function generateAIResponse(
     // Generate response
     // Note: generateAIResponse doesn't currently accept model params
     // If needed, add modelId and mode parameters to this function
-    // Using default model (deepseek-chat) with recommended settings for chat
-    logger.ai('request', 'DeepSeek-V3.2', { temperature: 0.8 });
+    // Using default model (gpt-4o-mini) with recommended settings for chat
+    logger.ai('request', 'GPT', { temperature: 0.8 });
     const response = await chatCompletion(messages, {
       temperature: 0.8, // Better for conversational chat
       enable_search: true, // Enable tools (gas_price, token_info, etc.)
@@ -69,7 +69,7 @@ export async function generateAIResponse(
         chainName: userContext.chainName
       } : undefined
     });
-    logger.ai('response', 'DeepSeek-V3.2', { tokens: response.usage?.total_tokens });
+    logger.ai('response', 'GPT', { tokens: response.usage?.total_tokens });
 
     const content = response.choices[0]?.message?.content || 'I apologize, but I encountered an error processing your request.';
 

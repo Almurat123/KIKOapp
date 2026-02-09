@@ -27,6 +27,13 @@ export const ChainSwitcher: React.FC = () => {
         setIsOpen(false);
     };
 
+    const getChainDisplayName = (name: string) => {
+        const lower = name.toLowerCase();
+        if (lower.includes('bnb') || lower.includes('binance')) return 'BSC';
+        if (lower === 'ethereum') return 'ETH';
+        return name;
+    };
+
     return (
         <div className={styles.container} ref={dropdownRef}>
             <button
@@ -34,7 +41,7 @@ export const ChainSwitcher: React.FC = () => {
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {currentChain.icon && <img src={currentChain.icon} alt={currentChain.name} className={styles.chainIcon} />}
-                <span className={styles.chainName}>{currentChain.name}</span>
+                <span className={styles.chainName}>{getChainDisplayName(currentChain.name)}</span>
                 <ChevronDown size={14} className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ''}`} />
             </button>
 
@@ -48,7 +55,7 @@ export const ChainSwitcher: React.FC = () => {
                         >
                             <div className={styles.optionContent}>
                                 {chain.icon && <img src={chain.icon} alt={chain.name} className={styles.chainIcon} />}
-                                <span>{chain.name}</span>
+                                <span>{getChainDisplayName(chain.name)}</span>
                             </div>
                             {chain.id === currentChain.id && <Check size={14} className={styles.check} />}
                         </button>

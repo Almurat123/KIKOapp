@@ -1,15 +1,14 @@
 .container {
     position: relative;
     z-index: 50;
-    min-width: 60px;
-    /* Set consistent width for the whole component */
+    flex-shrink: 0;
 }
 
 .trigger {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    width: 100%;
+    min-width: 110px;
     gap: 8px;
     padding: 0 12px;
     height: 40px;
@@ -46,19 +45,26 @@
 }
 
 .chainIcon {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     object-fit: cover;
+    flex-shrink: 0;
 }
 
 .chainName {
     margin-right: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
+
+
 
 .chevron {
     color: var(--text-secondary);
     transition: transform 0.2s;
+    flex-shrink: 0;
 }
 
 .chevronOpen {
@@ -70,8 +76,10 @@
     top: 100%;
     right: 0;
     margin-top: 6px;
-    width: 100%;
-    /* Match container width */
+    min-width: 100%;
+    /* Use max-content to accommodate long names like Arbitrum One without wrapping */
+    width: max-content;
+    max-width: 240px;
     background: #18181b;
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 12px;
@@ -103,6 +111,8 @@
     border-radius: 8px;
     transition: all 0.15s;
     text-align: left;
+    white-space: nowrap;
+    /* Prevent wrapping in options */
 }
 
 :global(.light) .option {
@@ -139,6 +149,7 @@
 .check {
     /* Reverse logic: Use text color (white/black) instead of accent color */
     color: inherit;
+    margin-left: 12px;
 }
 
 @keyframes fadeIn {

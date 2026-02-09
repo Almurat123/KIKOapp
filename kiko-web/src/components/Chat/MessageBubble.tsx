@@ -266,6 +266,17 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
         }
     };
 
+    const hasThinkingPlaceholder =
+        !isUser &&
+        !!thinkingText &&
+        (!message.content || message.content.trim().length === 0) &&
+        (!message.reasoning_content || message.reasoning_content.trim().length === 0);
+
+    const hasVisibleContent =
+        (message.content && message.content.trim().length > 0) ||
+        (message.reasoning_content && message.reasoning_content.trim().length > 0) ||
+        (message.type && message.type !== 'text' && message.data);
+
     return (
         <div className={clsx(
             styles.messageRow,
@@ -277,7 +288,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                 {!isUser && !isGrouped && (
                     <div className={styles.senderName}>
                         {/* Show name when we have content OR reasoning */}
-                        {((message.content && message.content.trim().length > 0) || (message.reasoning_content && message.reasoning_content.length > 0)) && (
+                        {hasVisibleContent && (
                             <>
                                 KIKO
                                 <span className={styles.timestamp}>{message.timestamp}</span>
@@ -309,71 +320,74 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                     </div>
                 )}
 
-                <div className={clsx(styles.bubble, isUser ? styles.userBubble : styles.aiBubble, resolvedTheme)}>
-                    {isUser ? (
-                        message.content
-                    ) : (
-                        <>
-                            {/* Waiting for first content - show thinkingText animation */}
-                            {thinkingText && !message.content && !message.reasoning_content && (
-                                <div className={styles.thinkingBubble}>
-                                    <span className={styles.thinkingText}>
-                                        {thinkingText} ({elapsedTime.toFixed(1)}s)
-                                    </span>
-                                </div>
-                            )}
+                {/* Only render bubble if there is visible content or it's a user message */}
+                {(isUser || hasVisibleContent || hasThinkingPlaceholder) && (
+                    <div className={clsx(styles.bubble, isUser ? styles.userBubble : styles.aiBubble, resolvedTheme)}>
+                        {isUser ? (
+                            message.content
+                        ) : (
+                            <>
+                                {/* Waiting for first content - show thinkingText animation */}
+                                {thinkingText && !message.content && !message.reasoning_content && (
+                                    <div className={styles.thinkingBubble}>
+                                        <span className={styles.thinkingText}>
+                                            {thinkingText} ({elapsedTime.toFixed(1)}s)
+                                        </span>
+                                    </div>
+                                )}
 
-                            {/* Thinking进行中（无content）：在bubble内显示思考内容 */}
-                            {message.reasoning_content && (!message.content || message.content.trim().length === 0) && (
-                                <div className={styles.markdownContent}>
-                                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MarkdownComponents}>
-                                        {preprocessMarkdown(message.reasoning_content)}
-                                    </ReactMarkdown>
-                                </div>
-                            )}
-
-                            {/* Thinking完成（有content）：显示思考内容（如果展开） */}
-                            {message.reasoning_content && message.content && message.content.trim().length > 0 && showReasoning && (
-                                <div className={styles.reasoningContent}>
-                                    <div className={`${styles.reasoningText} ${styles.markdownContent}`}>
+                                {/* Thinking进行中（无content）：在bubble内显示思考内容 */}
+                                {message.reasoning_content && (!message.content || message.content.trim().length === 0) && (
+                                    <div className={styles.markdownContent}>
                                         <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MarkdownComponents}>
                                             {preprocessMarkdown(message.reasoning_content)}
                                         </ReactMarkdown>
                                     </div>
-                                </div>
-                            )}
-                            {message.content && (
-                                <div
-                                    className={clsx(
-                                        styles.markdownContent,
-                                        styles.markdownContentSelectable,
-                                        styles.markdownContainer
-                                    )}
-                                    onMouseDown={(e) => {
-                                        // Allow text selection by not preventing default
-                                        e.stopPropagation();
-                                    }}
-                                    onMouseUp={(e) => {
-                                        // Prevent any parent handlers from clearing selection
-                                        e.stopPropagation();
-                                    }}
-                                >
-                                    {/* Use simple ReactMarkdown without custom components to enable text selection */}
-                                    <CitationRenderer
-                                        content={message.content}
-                                        citations={message.citations || []}
-                                        components={MarkdownComponents}
-                                    />
-                                </div>
-                            )}
-                            {/* Render card inline after content */}
-                            {renderCard()}
-                        </>
-                    )}
-                </div >
+                                )}
 
-                {/* Hover Actions - Only show for regular text messages, not special cards */}
-                {(!message.type || message.type === 'text') && (
+                                {/* Thinking完成（有content）：显示思考内容（如果展开） */}
+                                {message.reasoning_content && message.content && message.content.trim().length > 0 && showReasoning && (
+                                    <div className={styles.reasoningContent}>
+                                        <div className={`${styles.reasoningText} ${styles.markdownContent}`}>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MarkdownComponents}>
+                                                {preprocessMarkdown(message.reasoning_content)}
+                                            </ReactMarkdown>
+                                        </div>
+                                    </div>
+                                )}
+                                {message.content && (
+                                    <div
+                                        className={clsx(
+                                            styles.markdownContent,
+                                            styles.markdownContentSelectable,
+                                            styles.markdownContainer
+                                        )}
+                                        onMouseDown={(e) => {
+                                            // Allow text selection by not preventing default
+                                            e.stopPropagation();
+                                        }}
+                                        onMouseUp={(e) => {
+                                            // Prevent any parent handlers from clearing selection
+                                            e.stopPropagation();
+                                        }}
+                                    >
+                                        {/* Use simple ReactMarkdown without custom components to enable text selection */}
+                                        <CitationRenderer
+                                            content={message.content}
+                                            citations={message.citations || []}
+                                            components={MarkdownComponents}
+                                        />
+                                    </div>
+                                )}
+                                {/* Render card inline after content */}
+                                {renderCard()}
+                            </>
+                        )}
+                    </div >
+                )}
+
+                {/* Hover Actions - Only show if hasVisibleContent and (regular text or no type) */}
+                {hasVisibleContent && (!message.type || message.type === 'text') && (
                     <div className={clsx(styles.actions, isUser ? styles.userActions : styles.aiActions)}>
                         <button className={styles.actionBtn} onClick={handleCopy} title="Copy">
                             {copied ? <Check size={14} /> : <Copy size={14} />}

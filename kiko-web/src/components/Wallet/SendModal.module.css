@@ -127,13 +127,14 @@
     align-items: center;
     background: #27272a;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 6px 12px 6px 6px;
-    /* Less padding on left for logo */
+    padding: 4px 10px 4px 4px;
+    /* Compact padding */
     border-radius: 100px;
-    font-size: 20px;
+    font-size: 16px;
+    /* Smaller font */
     font-weight: 600;
     color: #f4f4f5;
-    gap: 8px;
+    gap: 6px;
     cursor: pointer;
     transition: all 0.2s;
 }
@@ -145,22 +146,23 @@
 }
 
 .tokenLogoMain {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    /* Smaller logo */
+    height: 24px;
     border-radius: 50%;
     object-fit: cover;
 }
 
 .tokenLogoFallbackMain {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     background: #3f3f46;
     display: flex;
     align-items: center;
     justify-content: center;
     color: #fff;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: bold;
 }
 

@@ -222,7 +222,7 @@ function validateEnv(): EnvConfig {
             console.warn('[Env] Failed to parse USAGE_LIMITS_TIERS_JSON, using default tiers.');
         }
     }
-    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner')
+    const deepseekModels = (process.env.BILLING_DEEPSEEK_MODELS || 'deepseek-chat,deepseek-reasoner,gpt-5-mini')
         .split(',')
         .map(v => v.trim())
         .filter(Boolean);
@@ -233,10 +233,13 @@ function validateEnv(): EnvConfig {
     let modelPricing: Record<string, { promptUsdPer1M: number; completionUsdPer1M: number }> = {
         'grok-4-1-fast-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
         'grok-4-1-fast-non-reasoning': { promptUsdPer1M: 0.20, completionUsdPer1M: 0.50 },
-        // DeepSeek (CNY pricing converted to USD at 1 USD = 7.00 CNY)
-        // 2 CNY -> 0.285714 USD, 3 CNY -> 0.428571 USD
+        // OpenAI GPT (USD per 1M tokens); override via BILLING_MODEL_PRICING_JSON if needed.
         'deepseek-chat': { promptUsdPer1M: 0.285714, completionUsdPer1M: 0.428571 },
         'deepseek-reasoner': { promptUsdPer1M: 0.285714, completionUsdPer1M: 0.428571 },
+        'gpt-4o-mini': { promptUsdPer1M: 0.15, completionUsdPer1M: 0.60 },
+        'gpt-4.1': { promptUsdPer1M: 2.00, completionUsdPer1M: 8.00 },
+        'gpt-5-mini': { promptUsdPer1M: 2.00, completionUsdPer1M: 8.00 },
+        'gpt-5.2': { promptUsdPer1M: 2.00, completionUsdPer1M: 8.00 },
     };
     if (process.env.BILLING_MODEL_PRICING_JSON) {
         try {

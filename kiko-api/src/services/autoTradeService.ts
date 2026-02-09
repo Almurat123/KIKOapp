@@ -8,8 +8,7 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
-import { MainSwapService, type DirectSwapHint } from './MainSwapService.js';
-import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
+import { MainSwapService } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
@@ -40,96 +39,18 @@ import { getTokenInfo } from './tokenService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { getDexPrice } from './dexPriceService.js';
 import { cacheHub } from '../cache/DataCacheHub.js';
-import { get as cacheGet, set as cacheSet, acquireLock, releaseLock } from '../cache/redis.js';
-import pLimit from 'p-limit'; // Fix 3: Unbounded Parallelism
 import { logger } from '../utils/logger.js';
-import { LogCode, LogRole } from '../config/logRegistry.js';
+import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
-import { randomUUID } from 'crypto';
-import { persistTargetSwapEvent } from './targetWalletTrackingService.js';
 
 export { getTokenInfo } from './tokenService.js';
 
 // Track positions currently being processed for exit to prevent duplicate attempts
 const positionsBeingExited = new Set<string>();
-const positionExitLockValues = new Map<string, string>();
-const POSITION_EXIT_LOCK_TTL_SECONDS = Number(process.env.POSITION_EXIT_LOCK_TTL_SECONDS || 180);
-const positionPriceFallbackCache = new Map<string, { tokenInfo: any; timestamp: number }>();
-const POSITION_PRICE_STALE_TTL_MS = 5 * 60 * 1000;
-type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
 
 // Per-user trade locks to prevent concurrent trade execution for same user
 const userTradeLocks = new Map<string, Promise<any>>();
 const TRADE_LOCK_TIMEOUT_MS = 90000; // 90 seconds max wait for lock
-const DISTRIBUTED_USER_LOCK_TTL_SECONDS = Math.ceil(TRADE_LOCK_TIMEOUT_MS / 1000) + 15;
-const DISTRIBUTED_USER_LOCK_RETRY_MS = 200;
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
-    const raw = String(config?.executionMode || '').trim().toLowerCase();
-    if (raw === 'safe' || raw === 'balanced' || raw === 'turbo') return raw;
-    return config?.disableTokenInfo === true ? 'turbo' : 'balanced';
-}
-
-function toDec(v: number | string | null | undefined): string | null {
-    if (v === null || v === undefined) return null;
-    const n = typeof v === 'string' ? Number(v) : v;
-    if (!Number.isFinite(n)) return null;
-    return String(n);
-}
-
-function positionExitLockKey(positionId: string): string {
-    return `copytrade:position_exit:${positionId}`;
-}
-
-async function isPositionExitLocked(positionId: string): Promise<boolean> {
-    if (positionsBeingExited.has(positionId)) return true;
-    const remote = await cacheGet(positionExitLockKey(positionId)).catch(() => null);
-    return Boolean(remote);
-}
-
-async function claimPositionExitLock(positionId: string): Promise<boolean> {
-    if (positionsBeingExited.has(positionId)) return false;
-    const lockValue = randomUUID();
-    const acquired = await acquireLock(positionExitLockKey(positionId), POSITION_EXIT_LOCK_TTL_SECONDS, lockValue).catch(() => false);
-    if (!acquired) return false;
-    positionsBeingExited.add(positionId);
-    positionExitLockValues.set(positionId, lockValue);
-    return true;
-}
-
-async function releasePositionExitLock(positionId: string): Promise<void> {
-    positionsBeingExited.delete(positionId);
-    const lockValue = positionExitLockValues.get(positionId);
-    if (lockValue) {
-        positionExitLockValues.delete(positionId);
-        await releaseLock(positionExitLockKey(positionId), lockValue).catch(() => { });
-    }
-}
-
-async function claimAllPositionExitLocks(positionIds: string[]): Promise<boolean> {
-    const acquired: string[] = [];
-    for (const id of positionIds) {
-        const ok = await claimPositionExitLock(id);
-        if (!ok) {
-            for (const releaseId of acquired) {
-                await releasePositionExitLock(releaseId);
-            }
-            return false;
-        }
-        acquired.push(id);
-    }
-    return true;
-}
-
-async function releaseAllPositionExitLocks(positionIds: string[]): Promise<void> {
-    for (const id of positionIds) {
-        await releasePositionExitLock(id);
-    }
-}
 
 /**
  * Execute a function with per-user locking to prevent concurrent trades
@@ -140,7 +61,7 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
     // Wait for any existing trade to complete (with timeout)
     const existingLock = userTradeLocks.get(userId);
     if (existingLock) {
-        logger.debug(LogCode.WTC_TX_SKIPPED, `Waiting for existing trade lock for user ${userId}...`, { userId });
+        logger.debug(LogCode.WTC_TX_SKIPPED, `Waiting for existing trade lock for user ${userId.slice(0, 10)}...`, { userId });
         try {
             // Race between existing lock and timeout
             await Promise.race([
@@ -152,7 +73,7 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
         } catch (err: any) {
             // If timeout, force clear the stale lock and proceed
             if (err.message === 'Lock timeout') {
-                logger.warn(LogCode.SYS_ERROR, 'Trade lock timeout, forcing lock release', { userId });
+                logger.warn(LogCode.SYS_ERROR, 'Trade lock timeout, forcing lock release', { userId: userId.slice(0, 10) });
                 userTradeLocks.delete(userId);
             }
             // Ignore other errors from previous trade
@@ -160,29 +81,6 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
     }
 
     // Create new lock
-    const distributedLockKey = `copytrade:userlock:${userId}`;
-    const lockValue = randomUUID();
-    const lockDeadline = Date.now() + TRADE_LOCK_TIMEOUT_MS;
-    let distributedLockAcquired = false;
-
-    while (Date.now() < lockDeadline) {
-        distributedLockAcquired = await acquireLock(
-            distributedLockKey,
-            DISTRIBUTED_USER_LOCK_TTL_SECONDS,
-            lockValue
-        ).catch(() => false);
-
-        if (distributedLockAcquired) break;
-        await sleep(DISTRIBUTED_USER_LOCK_RETRY_MS);
-    }
-
-    if (!distributedLockAcquired) {
-        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: distributed user lock busy', {
-            userId
-        });
-        throw new Error('DUPLICATE_TRADE: Distributed user lock busy');
-    }
-
     const lockPromise = fn();
     userTradeLocks.set(userId, lockPromise);
 
@@ -193,7 +91,6 @@ async function withTradeLock<T>(userId: string, fn: () => Promise<T>): Promise<T
         if (userTradeLocks.get(userId) === lockPromise) {
             userTradeLocks.delete(userId);
         }
-        await releaseLock(distributedLockKey, lockValue).catch(() => { });
     }
 }
 
@@ -204,9 +101,9 @@ const SWAP_DEDUP_WINDOW_MS = 60000; // 1 minute
 const LAUNCHPAD_DET_TIMEOUT_MS = Number(process.env.LAUNCHPAD_DET_TIMEOUT_MS || '500');
 const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '5000');
 const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHECK_TIMEOUT_MS || '1200');
-const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme', 'virtuals']);
+const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
-    8453: new Set(['zora', 'virtuals']),
+    8453: new Set(['zora']),
     56: new Set(['fourmeme'])
 };
 
@@ -220,67 +117,23 @@ const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
 
-function getPositionPriceFallback(tokenKey: string): any | null {
-    const cached = positionPriceFallbackCache.get(tokenKey);
-    if (!cached) return null;
-    if (Date.now() - cached.timestamp > POSITION_PRICE_STALE_TTL_MS) {
-        positionPriceFallbackCache.delete(tokenKey);
-        return null;
-    }
-    return cached.tokenInfo;
-}
-
-function setPositionPriceFallback(tokenKey: string, tokenInfo: any): void {
-    const price = Number(tokenInfo?.price);
-    if (!Number.isFinite(price) || price <= 0) return;
-    positionPriceFallbackCache.set(tokenKey, { tokenInfo, timestamp: Date.now() });
-}
-
 /**
- * Cross-instance lock using PostgreSQL advisory locks.
- * Works across PM2/K8s replicas without Redis.
- *
- * Lock scope: user + chain + token
- * Lock lifetime: current DB transaction only (auto-released)
+ * Check if a token is currently locked for a user (trade in progress)
+ * If not locked, acquires the lock
  */
-async function tryAcquireDistributedTradeLock(
-    tx: any,
-    userId: string,
-    tokenAddress: string,
-    chainId: number
-): Promise<boolean> {
-    const normalizedToken = normalizeAddress(tokenAddress);
-    const tokenScopeKey = `copytrade:${chainId}:${normalizedToken}`;
-
-    const rows = await tx.$queryRaw<Array<{ acquired: boolean }>>`
-        SELECT pg_try_advisory_xact_lock(
-            hashtext(${userId}),
-            hashtext(${tokenScopeKey})
-        ) AS acquired
-    `;
-
-    return rows?.[0]?.acquired === true;
-}
-
-async function isTokenLockedForUserDistributed(userId: string, tokenAddress: string, chainId: number): Promise<boolean> {
-    const key = `${userId}:${chainId}:${tokenAddress.toLowerCase()}`;
-    const now = Date.now();
+function isTokenLockedForUser(userId: string, tokenAddress: string): boolean {
+    const key = `${userId}:${tokenAddress.toLowerCase()}`;
     const lockTime = userTokenLocks.get(key);
+    const now = Date.now();
 
     if (lockTime && now - lockTime < USER_TOKEN_LOCK_DURATION_MS) {
-        return true;
+        return true; // Still locked from previous trade attempt
     }
 
-    const redisLockKey = `copytrade:tokenlock:${key}`;
-    const lockValue = `${now}`;
-    const lockTtlSeconds = Math.max(1, Math.ceil(USER_TOKEN_LOCK_DURATION_MS / 1000));
-    const acquired = await acquireLock(redisLockKey, lockTtlSeconds, lockValue).catch(() => false);
-    if (!acquired) {
-        userTokenLocks.set(key, now);
-        return true;
-    }
-
+    // Acquire lock
     userTokenLocks.set(key, now);
+
+    // Cleanup old entries periodically
     if (userTokenLocks.size > 500) {
         for (const [k, timestamp] of userTokenLocks.entries()) {
             if (now - timestamp > USER_TOKEN_LOCK_DURATION_MS) {
@@ -288,6 +141,7 @@ async function isTokenLockedForUserDistributed(userId: string, tokenAddress: str
             }
         }
     }
+
     return false;
 }
 
@@ -304,26 +158,17 @@ function getSwapKey(targetWallet: string, swap: DecodedSwap, chainId: number): s
 /**
  * Check if this swap was recently processed
  */
-async function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: number): Promise<boolean> {
+function isDuplicateSwap(targetWallet: string, swap: DecodedSwap, chainId: number): boolean {
     const key = getSwapKey(targetWallet, swap, chainId);
     const lastSeen = recentSwaps.get(key);
-    const dedupTtlSeconds = Math.max(1, Math.ceil(SWAP_DEDUP_WINDOW_MS / 1000));
-    const distributedKey = `copytrade:swapdedup:${chainId}:${key}`;
 
     if (lastSeen && Date.now() - lastSeen < SWAP_DEDUP_WINDOW_MS) {
         // logger.throttled(LogCode.WTC_TX_SKIPPED, `Skipping duplicate swap (last seen ${Date.now() - lastSeen}ms ago)`, { targetWallet, chainId });
         return true;
     }
 
-    const cached = await cacheGet(distributedKey).catch(() => null);
-    if (cached) {
-        recentSwaps.set(key, Date.now());
-        return true;
-    }
-
     // Mark as seen
     recentSwaps.set(key, Date.now());
-    await cacheSet(distributedKey, '1', dedupTtlSeconds).catch(() => { });
 
     // Cleanup old entries (prevent memory leak)
     if (recentSwaps.size > 1000) {
@@ -387,67 +232,6 @@ async function getDexPriceWithTimeout(tokenAddress: string, chainId: number | 's
     }
 }
 
-function deriveDirectSwapHint(swap: DecodedSwap, chainId: number): DirectSwapHint | undefined {
-    const rawDexName = (swap.dexName || '').trim();
-    const rawRouter = (swap.router || '').trim();
-    const dexName = rawDexName.toLowerCase();
-    const router = rawRouter.toLowerCase();
-
-    let preferredStrategy: DirectSwapHint['preferredStrategy'] | undefined;
-    let preferredDex: DirectSwapHint['preferredDex'] | undefined;
-
-    if (dexName.includes('aerodrome') || dexName.includes('velodrome')) {
-        preferredStrategy = 'aerodrome';
-        preferredDex = 'aerodrome';
-    } else if (dexName.includes('infinity')) {
-        preferredStrategy = 'infinity';
-        preferredDex = 'pancake-infinity';
-    } else if (dexName.includes('virtual')) {
-        preferredStrategy = 'virtual-bridge';
-        preferredDex = 'uniswap';
-    } else if (dexName.includes('v4') || dexName.includes('universal router')) {
-        preferredStrategy = 'v4';
-        preferredDex = chainId === 56 ? 'pancake' : 'uniswap';
-    } else if (dexName.includes('v3')) {
-        preferredStrategy = 'v3';
-        preferredDex = dexName.includes('pancake') || chainId === 56 ? 'pancake' : 'uniswap';
-    } else if (dexName.includes('v2')) {
-        preferredStrategy = 'v2';
-        preferredDex = dexName.includes('pancake') || chainId === 56 ? 'pancake' : 'uniswap';
-    }
-
-    if (!preferredStrategy && router) {
-        if (router === '0x6ff5693b99212da76ad316178a184ab56d299b43' || router === '0x498581ff718922c3f8e6a244956af099b2652b2b') {
-            preferredStrategy = 'v4';
-            preferredDex = 'uniswap';
-        } else if (router === '0x2626664c2603336e57b271c5c0b26f421741e481') {
-            preferredStrategy = 'v3';
-            preferredDex = 'uniswap';
-        } else if (router === '0x10ed43c718714eb63d5aa57b78b54704e256024e') {
-            preferredStrategy = 'v2';
-            preferredDex = 'pancake';
-        }
-    }
-
-    if (!preferredStrategy && (swap as any).resolvedPoolHint?.kind) {
-        preferredStrategy = (swap as any).resolvedPoolHint.kind;
-    }
-    if (!preferredDex && (swap as any).resolvedPoolHint?.dex) {
-        preferredDex = (swap as any).resolvedPoolHint.dex;
-    }
-    if (!preferredStrategy && !rawDexName && !rawRouter) return undefined;
-    return {
-        sourceDexName: rawDexName || undefined,
-        sourceRouter: rawRouter || undefined,
-        sourceTxHash: swap.txHash,
-        resolvedPoolHint: (swap as any).resolvedPoolHint,
-        preferredStrategy,
-        preferredDex,
-        // Global fast path: when source tx gives a usable strategy, bypass reference quote gate first.
-        bypassReferencePrice: !!preferredStrategy
-    };
-}
-
 // ... (previous functions remain)
 
 /**
@@ -459,34 +243,36 @@ export async function handleSwapDetected(
     chainId: number,
     context?: { detectedAt?: number }
 ): Promise<void> {
-    const detectedAt = context?.detectedAt ?? Date.now();
+    const detectedAt = context?.detectedAt || Date.now();
     // 🛑 SHUTDOWN CHECK (Risk #2 Mitigation)
     if (isServiceShuttingDown) {
         logger.warn(LogCode.SYS_SHUTDOWN, 'Service shutting down, rejecting new swap webhook', { wallet: targetWallet });
         return;
     }
 
-    logger.info(LogCode.WTC_SWAP_DETECTED, 'Swap detected', {
+    logger.info(LogCode.WTC_SWAP_DETECTED, 'Swap detected on target wallet', {
         wallet: targetWallet,
-        pair: `${swap.tokenIn}->${swap.tokenOut}`,
-        in: swap.amountIn,
-        out: swap.amountOut,
-        tx: swap.txHash
+        tokenIn: swap.tokenIn,
+        tokenOut: swap.tokenOut,
+        amountIn: swap.amountIn,
+        amountOut: swap.amountOut,
+        chainId,
+        txHash: swap.txHash,
+        detectedAt
     });
 
     // Check for duplicate swap
-    if (await isDuplicateSwap(targetWallet, swap, chainId)) {
+    if (isDuplicateSwap(targetWallet, swap, chainId)) {
         return; // Skip duplicate
     }
 
-    // 🔥 Pre-warm cache (non-blocking)
-    // Fix 9: Floating Promises - Log error instead of silent catch
+    // 🔥 Pre-warm cache (non-blocking) for faster downstream execution
     Promise.allSettled([
-        cacheHub.getTokenInfo(swap.tokenIn, chainId, async () => getTokenInfo(swap.tokenIn, chainId, { rpcStrategy: 'fast', fastMode: true })),
-        cacheHub.getTokenInfo(swap.tokenOut, chainId, async () => getTokenInfo(swap.tokenOut, chainId, { rpcStrategy: 'fast', fastMode: true })),
+        getTokenInfo(swap.tokenIn, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
+        getTokenInfo(swap.tokenOut, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true }),
         getNativeTokenPriceUsd(chainId),
         detectLaunchpadToken(swap.tokenOut, chainId),
-    ]).catch(err => logger.warn(LogCode.CACHE_MISS, 'Cache warm-up failed', { error: err?.message }));
+    ]).catch(() => undefined);
 
     const chainConfig = getChainConfig(chainId);
 
@@ -519,39 +305,22 @@ export async function handleSwapDetected(
     const isSell = !isTokenInCash && isTokenOutCash;
     const isTokenToToken = !isTokenInCash && !isTokenOutCash;
 
-    // Persist target wallet swap event baseline immediately.
-    if (swap.txHash) {
-        await persistTargetSwapEvent({
-            walletAddress: targetWallet,
-            chainId,
-            txHash: swap.txHash,
-            txType: isBuy ? 'TARGET_BUY' : isSell ? 'TARGET_SELL' : isTokenToToken ? 'TARGET_TOKEN_SWAP' : 'TARGET_TOKEN_SWAP',
-            tokenIn: swap.tokenIn,
-            tokenOut: swap.tokenOut,
-            amountIn: swap.amountIn,
-            amountOut: swap.amountOut,
-            blockTimestamp: new Date()
-        }).catch((err) => logger.warn(LogCode.SYS_ERROR, 'Failed to persist target swap baseline', { error: err?.message }));
-    }
-
-    /* [DANGER_ZONE_UNVERIFIED] Complex logic for buy/sell detection.
-     * logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis', { isBuy, isSell, isTokenToToken });
-     */
+    logger.debug(LogCode.WTC_SWAP_DETECTED, 'Detection analysis complete', {
+        isBuy,
+        isSell,
+        isTokenToToken,
+        tokenInIsCash: isTokenInCash,
+        tokenOutIsCash: isTokenOutCash
+    });
 
     if (isSell) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Triggering mirror sell', {
-            target: targetWallet,
-            token: swap.tokenIn
-        });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });
         await handleTargetSell(targetWallet, swap, chainId);
     } else if (isBuy) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Triggering copy buy', {
-            target: targetWallet,
-            token: swap.tokenOut
-        });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Target is buying - triggering copy trade', { targetWallet, token: swap.tokenOut });
         await handleTargetBuy(targetWallet, swap, chainId, { detectedAt });
     } else if (isTokenToToken) {
-        logger.info(LogCode.EXE_TX_BROADCAST, 'Triggering fast swap (Buy+Sell)', { target: targetWallet });
+        logger.info(LogCode.EXE_TX_BROADCAST, 'Parallel lightning trigger: SELL and BUY starting simultaneously', { targetWallet });
         await Promise.all([
             handleTargetSell(targetWallet, swap, chainId).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel sell error', { error: e.message })),
             handleTargetBuy(targetWallet, swap, chainId, { detectedAt }).catch(e => logger.error(LogCode.EXE_TX_REVERTED, 'Parallel buy error', { error: e.message }))
@@ -577,11 +346,13 @@ async function handleTargetBuy(
     // I will fix this logic now too: `const tokenToBuy = swap.tokenOut`.
     const tokenToBuy = swap.tokenOut;
     const detectedAt = context?.detectedAt ?? Date.now();
-    // [LogCode.EXE_QUOTE_FETCHED] Concise
-    logger.info(LogCode.EXE_QUOTE_FETCHED, 'Target buy start', {
-        wallet: targetWallet,
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTradeTiming] target buy start', {
+        targetWallet,
         token: tokenToBuy,
-        elapsed: Date.now() - detectedAt
+        chainId,
+        txHash: swap.txHash,
+        detectedAt,
+        elapsedMs: Date.now() - detectedAt
     });
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, `Fast path execution started for ${tokenToBuy}`, { targetWallet, token: tokenToBuy });
@@ -606,16 +377,12 @@ async function handleTargetBuy(
     });
     const userMap = new Map(users.map(u => [u.privyDid, u]));
     const configs = rawConfigs
-        .map((c: any) => {
-            const executionMode = resolveExecutionModeForConfig(c);
-            return {
-                ...c,
-                executionMode,
-                user: userMap.get(c.userId),
-                // safe: full path, balanced/turbo: fast path enabled
-                fastExecutionEnabled: executionMode !== 'safe'
-            };
-        })
+        .map((c: any) => ({
+            ...c,
+            user: userMap.get(c.userId),
+            // Fast execution flag (Base-only, controlled by per-strategy toggle)
+            fastExecutionEnabled: chainId === 8453 && c.disableTokenInfo === true
+        }))
         .filter((c) => Boolean(c.user));
 
     if (configs.length === 0) {
@@ -629,8 +396,8 @@ async function handleTargetBuy(
         ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
         : Promise.resolve(null);
 
-    // Turbo Mode: skip heavy token info path only when all configs explicitly choose turbo.
-    const skipTokenInfo = configs.every(c => c.executionMode === 'turbo');
+    // 🔥 Base Fast Mode: If ALL configs explicitly disable Token Info, skip heavy APIs
+    const skipTokenInfo = chainId === 8453 && configs.every(c => c.disableTokenInfo === true);
     if (skipTokenInfo) {
         try {
             const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
@@ -649,14 +416,17 @@ async function handleTargetBuy(
                 provider: 'rpc-metadata'
             };
 
-            logger.info(LogCode.EXE_QUOTE_FETCHED, 'Using metadata fallback (Fast Mode)', { token: tokenToBuy });
+            logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Token info disabled - using RPC metadata fallback', {
+                token: tokenToBuy,
+                chainId
+            });
 
             await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
             return;
         } catch (err: any) {
             logger.warn(LogCode.API_FETCH_FAILED, '[CopyTrade] Token info disabled but metadata fallback failed', {
                 token: tokenToBuy,
-                error: err?.message
+                error: err?.message?.slice(0, 120)
             });
             // Fall through to standard flow
         }
@@ -728,7 +498,10 @@ async function handleTargetBuy(
                     provider: 'rpc-metadata'
                 };
 
-                logger.warn(LogCode.API_FETCH_FAILED, 'Metadata-only fallback (Fast Mode)', { token: tokenToBuy });
+                logger.warn(LogCode.API_FETCH_FAILED, 'RPC price missing - proceeding with metadata-only fallback (fast mode)', {
+                    token: tokenToBuy,
+                    chainId
+                });
 
                 await processBuyWithInfo(targetWallet, tokenToBuy, swap, chainId, configs, fallbackInfo, true, launchpadPromise, tokenInfoCache, detectedAt);
                 return;
@@ -759,9 +532,13 @@ async function processBuyWithInfo(
     tokenInfoCache?: Map<string, Promise<any>>,
     detectedAt?: number
 ) {
-    // const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true; // Disabled for brevity
+    const PROFILE = process.env.COPYTRADE_PROFILE ? process.env.COPYTRADE_PROFILE === 'true' : true;
     const tStart = Date.now();
-    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing buy configs', { count: configs.length, price: tokenInfo.price });
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Processing configurations for buy', {
+        count: configs.length,
+        price: tokenInfo.price,
+        fallback: isFallbackMode
+    });
 
     let judgeDecisionId: string | null = null;
 
@@ -858,20 +635,6 @@ async function processBuyWithInfo(
     // Record Leader Trade Stats (Buy)
     // We record it once for the leader, regardless of how many users copy it
     recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
-    if (swap.txHash) {
-        await persistTargetSwapEvent({
-            walletAddress: targetWallet,
-            chainId,
-            txHash: swap.txHash,
-            txType: 'TARGET_BUY',
-            tokenIn: swap.tokenIn,
-            tokenOut: swap.tokenOut,
-            amountIn: swap.amountIn,
-            amountOut: swap.amountOut,
-            valueUsd: targetSwapValueUsd,
-            blockTimestamp: new Date()
-        }).catch((err) => logger.warn(LogCode.SYS_ERROR, 'Failed to persist target buy event', { error: err?.message }));
-    }
 
     // =================================================================
     // 🚀 SMART BATCH EXECUTION ENGINE
@@ -893,58 +656,31 @@ async function processBuyWithInfo(
     ]);
     const cacheMs = Date.now() - cacheStart;
 
-    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Shared data fetched', {
-        users: configs.length,
-        price: sharedNativePrice
+    logger.debug(LogCode.EXE_QUOTE_FETCHED, '⚡ Shared data fetched via Cache Hub', {
+        userCount: configs.length,
+        nativePrice: sharedNativePrice,
+        settingsFetched: userSettingsMap.size
     });
 
     // ⚡ BATCH FILTER: Pre-filter users IN PARALLEL (优化: 串行 → 并行)
     // 🚀 100 users: 500ms (serial) → ~5ms (parallel)
-    // Fix 3: Limit concurrency to avoid CPU starvation
-    const limit = pLimit(20);
     const filterStart = Date.now();
-    const rawFilterResults = await Promise.all(
-        configs.map((config) => limit(async () => {
-            try {
-                // 1. Check if user paused copy trading
-                const userSettings = await cacheHub.getUserSettings(config.userId, async () => {
-                    return prisma.userSettings.findUnique({ where: { userId: config.userId } });
-                });
+    const filterResults = await Promise.all(
+        configs.map(async (config) => {
+            const userSettings = userSettingsMap.get(config.userId);
+            const universalSlippageBps = getSlippageBps(userSettings);
+            const effectiveConfig = {
+                ...config,
+                minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
+                minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
+                minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
+                maxSlippageBps: universalSlippageBps
+            };
 
-                if (userSettings?.isCopyTradingPaused) {
-                    return null;
-                }
-
-                // 2. Risk Controls
-                if (config.maxMarketCapUsd && tokenInfo.marketCap > config.maxMarketCapUsd) {
-                    return null;
-                }
-                if (config.minLiquidityUsd && tokenInfo.liquidity < config.minLiquidityUsd) {
-                    return null;
-                }
-
-                // 3. Prepare Effective Config
-                const universalSlippageBps = getSlippageBps(userSettings);
-                const effectiveConfig = {
-                    ...config,
-                    minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
-                    minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
-                    minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
-                    maxSlippageBps: universalSlippageBps
-                };
-
-                // 4. Advanced Filters
-                const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
-
-                return { config, filterResult, effectiveConfig, userSettings };
-
-            } catch (err: any) {
-                logger.warn(LogCode.SYS_ERROR, 'Error processing user config in filter', { userId: config.userId, error: err?.message || String(err) });
-                return null;
-            }
-        }))
+            const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
+            return { config, filterResult, effectiveConfig, userSettings };
+        })
     );
-    const filterResults = rawFilterResults.filter(r => r !== null);
     const filterMs = Date.now() - filterStart;
 
     const eligibleConfigs: any[] = [];
@@ -958,44 +694,30 @@ async function processBuyWithInfo(
         }
     }
 
-    logger.info(LogCode.EXE_QUOTE_FETCHED, 'Batch filter complete', {
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '🔍 Batch filter complete (PARALLEL)', {
         total: configs.length,
-        ok: eligibleConfigs.length,
-        skip: skippedUsers.length
+        eligible: eligibleConfigs.length,
+        skipped: skippedUsers.length
     });
 
     // Send notifications to skipped users (async, non-blocking)
     setImmediate(() => {
         skippedUsers.forEach(({ config, reason }) => {
-            (async () => {
-                const notified = await notificationService.sendNotification({
-                    userId: config.userId,
-                    farcasterFid: config.user?.farcasterFid,
-                    type: 'COPY_TRADE_SKIPPED',
-                    data: {
-                        tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
-                        tokenAddress: tokenToBuy,
-                        targetWallet: targetWallet,
-                        chainId: chainId,
-                        skipReason: reason,
-                        targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
-                        marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                        liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
-                    }
-                });
-                if (!notified) {
-                    logger.warn(LogCode.API_NOTIFY_FAILED, 'Copy-trade batch skip notification not delivered', {
-                        userId: config.userId,
-                        reason,
-                        hasFid: Boolean(config.user?.farcasterFid)
-                    });
+            notificationService.sendNotification({
+                userId: config.userId,
+                farcasterFid: config.user?.farcasterFid,
+                type: 'COPY_TRADE_SKIPPED',
+                data: {
+                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                    tokenAddress: tokenToBuy,
+                    targetWallet: targetWallet,
+                    chainId: chainId,
+                    skipReason: reason,
+                    targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
                 }
-            })().catch((err: any) => {
-                logger.warn(LogCode.API_NOTIFY_FAILED, 'Copy-trade batch skip notification error', {
-                    userId: config.userId,
-                    error: err?.message || String(err)
-                });
-            });
+            }).catch(() => { }); // Ignore notification errors
         });
     });
 
@@ -1013,18 +735,23 @@ async function processBuyWithInfo(
     const MAX_LIQUIDITY_IMPACT_PERCENT = 30;
     const maxAllowedVolumeUsd = liquidity * (MAX_LIQUIDITY_IMPACT_PERCENT / 100);
 
-    logger.info(LogCode.EXE_QUOTE_FETCHED, 'Mass analysis', {
-        users: configs.length,
-        vol: totalVolumeUsd.toFixed(0),
-        liq: liquidity.toFixed(0),
-        cap: maxAllowedVolumeUsd.toFixed(0)
+    logger.info(LogCode.EXE_QUOTE_FETCHED, '📊 Mass Copy Trade Analysis', {
+        userCount: configs.length,
+        totalVolumeUsd: totalVolumeUsd.toFixed(2),
+        liquidity: liquidity.toFixed(2),
+        maxAllowedVolumeUsd: maxAllowedVolumeUsd.toFixed(2),
+        willScale: totalVolumeUsd > maxAllowedVolumeUsd
     });
 
     // Calculate scaling factor if we need to reduce individual amounts
     let scalingFactor = 1.0;
     if (liquidity > 0 && totalVolumeUsd > maxAllowedVolumeUsd) {
         scalingFactor = maxAllowedVolumeUsd / totalVolumeUsd;
-        logger.warn(LogCode.WTC_TX_SKIPPED, `Scaling trades down`, { factor: scalingFactor.toFixed(3) });
+        logger.warn(LogCode.WTC_TX_SKIPPED, `⚠️ Scaling down trades to protect liquidity`, {
+            originalTotal: totalVolumeUsd.toFixed(2),
+            scaledTotal: maxAllowedVolumeUsd.toFixed(2),
+            scalingFactor: scalingFactor.toFixed(3)
+        });
     }
 
     // 🎯 SMART BATCHING: Adjust batch size based on liquidity
@@ -1062,7 +789,10 @@ async function processBuyWithInfo(
         const batchNum = Math.floor(i / dynamicBatchSize) + 1;
         const totalBatches = Math.ceil(sortedConfigs.length / dynamicBatchSize);
 
-        logger.info(LogCode.EXE_TX_BROADCAST, `Processing batch ${batchNum}/${totalBatches}`, { size: batch.length });
+        logger.info(LogCode.EXE_TX_BROADCAST, `📦 Processing batch ${batchNum}/${totalBatches}`, {
+            batchSize: batch.length,
+            priceMultiplier: currentPriceMultiplier.toFixed(3)
+        });
 
         // Execute batch in parallel
         const results = await Promise.allSettled(
@@ -1154,12 +884,24 @@ async function processBuyWithInfo(
     }
     const execMs = Date.now() - execStart;
 
-    logger.info(LogCode.EXE_TX_CONFIRMED, `Batch exec complete`, {
-        wallet: targetWallet,
+    logger.info(LogCode.EXE_TX_CONFIRMED, `✅ Smart batch execution complete`, {
+        targetWallet,
         token: tokenToBuy,
-        ok: successCount,
-        fail: failCount,
-        factor: scalingFactor.toFixed(2)
+        totalUsers: configs.length,
+        success: successCount,
+        failed: failCount,
+        scalingFactor: scalingFactor.toFixed(3),
+        batchSize: dynamicBatchSize,
+        finalPriceMultiplier: currentPriceMultiplier.toFixed(3),
+        ...(PROFILE ? {
+            profile: {
+                valueMs,
+                cacheMs,
+                filterMs,
+                execMs,
+                totalMs: Date.now() - tStart
+            }
+        } : {})
     });
 }
 
@@ -1186,9 +928,6 @@ async function processSingleUserBuy(
 ): Promise<void> {
     return withTradeLock(config.userId, async () => {
         let judgeDecisionId: string | null = null;
-        let pendingPositionId: string | null = null;
-        const sourceTxHash = (swap as any).txHash || null;
-        const directSwapHint = deriveDirectSwapHint(swap, chainId);
 
         try {
             if (detectedAt && Date.now() - detectedAt > COPYTRADE_MAX_DELAY_MS) {
@@ -1200,44 +939,88 @@ async function processSingleUserBuy(
                 return;
             }
 
-            if (await isTokenLockedForUserDistributed(config.userId, tokenToBuy, chainId)) {
+            if (isTokenLockedForUser(config.userId, tokenToBuy)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Skipping trade: token lock active', {
                     userId: config.userId,
                     token: tokenToBuy
                 });
                 return;
             }
-            // Universal Global Slippage (userSettings already passed in)
-            const universalSlippageBps = getSlippageBps(userSettings);
+        // Universal Global Slippage (userSettings already passed in)
+        const universalSlippageBps = getSlippageBps(userSettings);
 
-            const effectiveConfig = {
-                ...config,
-                minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
-                minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
-                minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
-                maxSlippageBps: universalSlippageBps
-            };
+        const effectiveConfig = {
+            ...config,
+            minMarketCapUsd: config.minMarketCapUsd ?? userSettings?.minMarketCapUsd,
+            minLiquidityUsd: config.minLiquidityUsd ?? userSettings?.minLiquidityUsd,
+            minTargetValueUsd: config.minTargetValueUsd ?? userSettings?.minTargetValueUsd,
+            maxSlippageBps: universalSlippageBps
+        };
 
-            // 🛡️ SAFETY CHECK: Token Info must be valid (unless in Fast Mode)
-            // If we failed to fetch token info (e.g. DexScreener down), we should NOT guess.
-            // Fast Mode explicitly opts-out of this safety check for speed.
-            const isFastMode = config.fastExecutionEnabled !== false;
-            if ((!tokenInfo || !tokenInfo.price) && !isFastMode) {
-                logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Token info invalid and Fast Mode disabled', { userId: config.userId, token: tokenToBuy });
-                return;
-            }
+        // 🛡️ SAFETY CHECK: Token Info must be valid (unless in Fast Mode)
+        // If we failed to fetch token info (e.g. DexScreener down), we should NOT guess.
+        // Fast Mode explicitly opts-out of this safety check for speed.
+        const isFastMode = config.fastExecutionEnabled !== false;
+        if ((!tokenInfo || !tokenInfo.price) && !isFastMode) {
+            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Token info invalid and Fast Mode disabled', { userId: config.userId, token: tokenToBuy });
+            return;
+        }
 
-            // ⚡ OPTIMIZATION: Filter already checked in batch, skip here
-            // const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
+        // ⚡ OPTIMIZATION: Filter already checked in batch, skip here
+        // const filterResult = await passesFilters(tokenInfo, effectiveConfig, targetSwapValueUsd);
 
 
-            // Calculate how much to buy in token units
-            // Apply scaling factor for liquidity protection (reduces amount when many users buy simultaneously)
-            const rawUsdAmount = Number(config.buyAmountUsd);
-            if (!Number.isFinite(rawUsdAmount) || rawUsdAmount <= 0 || rawUsdAmount > MAX_COPY_TRADE_USD) {
-                logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Invalid buy amount', {
+        // Calculate how much to buy in token units
+        // Apply scaling factor for liquidity protection (reduces amount when many users buy simultaneously)
+        const rawUsdAmount = Number(config.buyAmountUsd);
+        if (!Number.isFinite(rawUsdAmount) || rawUsdAmount <= 0 || rawUsdAmount > MAX_COPY_TRADE_USD) {
+            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Invalid buy amount', {
+                userId: config.userId,
+                buyAmountUsd: config.buyAmountUsd
+            });
+
+            await notificationService.sendNotification({
+                userId: config.userId,
+                farcasterFid: config.user.farcasterFid,
+                type: 'COPY_TRADE_SKIPPED',
+                data: {
+                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                    tokenAddress: tokenToBuy,
+                    targetWallet: targetWallet,
+                    chainId: chainId,
+                    skipReason: `Invalid buy amount ($${String(config.buyAmountUsd)}). Please update your copy trade amount.`,
+                    targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                }
+            });
+
+            return;
+        }
+
+        const usdAmount = rawUsdAmount * scalingFactor;
+
+        // Log if scaling was applied
+        if (scalingFactor < 1.0) {
+            logger.info(LogCode.EXE_QUOTE_FETCHED, `📉 Trade scaled for liquidity protection`, {
+                userId: config.userId,
+                originalAmount: rawUsdAmount.toFixed(2),
+                scaledAmount: usdAmount.toFixed(2),
+                scalingFactor: scalingFactor.toFixed(3)
+            });
+        }
+
+        // ⚡ OPTIMIZATION: Use shared native price instead of querying again
+        let nativePrice = sharedNativePrice;
+        if (!Number.isFinite(nativePrice) || nativePrice <= 1) {
+            const fallbackNative = await getNativeTokenPriceUsd(chainId);
+            if (Number.isFinite(fallbackNative) && fallbackNative > 1) {
+                nativePrice = fallbackNative;
+            } else {
+                logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Native price unavailable', {
                     userId: config.userId,
-                    buyAmountUsd: config.buyAmountUsd
+                    chainId,
+                    nativePrice
                 });
 
                 await notificationService.sendNotification({
@@ -1249,7 +1032,7 @@ async function processSingleUserBuy(
                         tokenAddress: tokenToBuy,
                         targetWallet: targetWallet,
                         chainId: chainId,
-                        skipReason: `Invalid buy amount ($${String(config.buyAmountUsd)}). Please update your copy trade amount.`,
+                        skipReason: 'Native token price unavailable. Please retry in a moment.',
                         targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
                         marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
                         liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
@@ -1258,32 +1041,116 @@ async function processSingleUserBuy(
 
                 return;
             }
+        }
 
-            const usdAmount = rawUsdAmount * scalingFactor;
+        const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
+        if (cooldownMinutes > 0) {
+            // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
+            // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
+            // If the target paid significantly more than Oracle price, we should be cautious.
+            // This protects against buying at the absolute top of a "scam wick" or high slippage event.
+            let targetExecutionPrice = 0;
+            if (tokenInfo.price > 0 && chainId !== 900 && targetSwapValueUsd > 0) { // Skip for Solana (diff mechanic)
+                try {
+                    const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || 18));
+                    if (estimatedOut > 0) {
+                        // Calculate IMPLIED execution price from TARGET WALLET's trade
+                        // This is how much the target ACTUALLY paid per token
+                        targetExecutionPrice = targetSwapValueUsd / estimatedOut;
+                        const priceDeviation = targetExecutionPrice / tokenInfo.price;
 
-            // Log if scaling was applied
-            if (scalingFactor < 1.0) {
-                logger.info(LogCode.EXE_QUOTE_FETCHED, `📉 Trade scaled for liquidity protection`, {
-                    userId: config.userId,
-                    originalAmount: rawUsdAmount.toFixed(2),
-                    scaledAmount: usdAmount.toFixed(2),
-                    scalingFactor: scalingFactor.toFixed(3)
-                });
+                        if (priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
+                            logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price.toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
+                                userId: config.userId,
+                                token: tokenToBuy,
+                                targetSwapValueUsd,
+                                estimatedOut
+                            });
+
+                            // Send skip notification for price deviation
+                            await notificationService.sendNotification({
+                                userId: config.userId,
+                                farcasterFid: config.user.farcasterFid,
+                                type: 'COPY_TRADE_SKIPPED',
+                                data: {
+                                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                                    tokenAddress: tokenToBuy,
+                                    targetWallet: targetWallet,
+                                    chainId: chainId,
+                                    skipReason: `Price deviation too high (${priceDeviation.toFixed(1)}x). Oracle: $${tokenInfo.price.toFixed(6)}, Target paid: $${targetExecutionPrice.toFixed(6)}`,
+                                    targetBuyValue: targetSwapValueUsd.toFixed(2),
+                                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                                    priceImpact: `${priceDeviation.toFixed(1)}x deviation`
+                                }
+                            });
+
+                            return; // SKIP TRADE
+                        }
+                    }
+                } catch (e) { }
             }
 
-            // ⚡ OPTIMIZATION: Use shared native price instead of querying again
-            let nativePrice = sharedNativePrice;
-            if (!Number.isFinite(nativePrice) || nativePrice <= 1) {
-                const fallbackNative = await getNativeTokenPriceUsd(chainId);
-                if (Number.isFinite(fallbackNative) && fallbackNative > 1) {
-                    nativePrice = fallbackNative;
-                } else {
-                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: Native price unavailable', {
+            if (targetExecutionPrice > 0) {
+                const dexChainId = chainId === 900 ? 'solana' : chainId;
+                const currentPrice = await getDexPriceWithTimeout(tokenToBuy, dexChainId);
+                if (currentPrice > 0) {
+                    const deviationBps = Math.abs(targetExecutionPrice - currentPrice) / currentPrice * 10000;
+                    if (deviationBps > effectiveConfig.maxSlippageBps) {
+                        logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: price deviation exceeds user limit', {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            deviationBps: deviationBps.toFixed(0),
+                            limitBps: effectiveConfig.maxSlippageBps
+                        });
+
+                        await notificationService.sendNotification({
+                            userId: config.userId,
+                            farcasterFid: config.user.farcasterFid,
+                            type: 'COPY_TRADE_SKIPPED',
+                            data: {
+                                tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                                tokenAddress: tokenToBuy,
+                                targetWallet: targetWallet,
+                                chainId: chainId,
+                                skipReason: `Price deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxSlippageBps} bps`,
+                                targetBuyValue: targetSwapValueUsd.toFixed(2),
+                            }
+                        }).catch(() => { });
+
+                        return;
+                    }
+                }
+            }
+
+            // 🛡️ GAS BUFFER CHECK (EVM Only)
+            // Ensure user has enough ETH left for gas AFTER the trade amount is deducted
+            // Ensure we have native price for gas calculation
+            if (chainId !== 900) {
+                const nativeBalance = await getNativeBalance(effectiveConfig.user.walletAddress, chainId);
+                const gasBufferWei = ethers.parseEther("0.005"); // ~$15 buffer
+
+                // Calculate trade cost in Native Token (ETH/BNB)
+                let tradeCostWei = 0n;
+                if (nativePrice > 0) {
+                    const amountInNative = usdAmount / nativePrice;
+                    // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
+                    // [Ref]: ethers.parseEther documentation.
+                    tradeCostWei = ethers.parseEther(amountInNative.toFixed(18));
+                }
+
+                if (nativeBalance < (tradeCostWei + gasBufferWei)) {
+                    const balanceEth = ethers.formatEther(nativeBalance);
+                    const requiredEth = ethers.formatEther(tradeCostWei + gasBufferWei);
+
+                    logger.throttled(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping trade: Insufficient gas buffer', {
                         userId: config.userId,
-                        chainId,
-                        nativePrice
+                        balance: balanceEth,
+                        required: requiredEth,
+                        buffer: "0.005"
                     });
 
+                    // Send skip notification for insufficient gas
                     await notificationService.sendNotification({
                         userId: config.userId,
                         farcasterFid: config.user.farcasterFid,
@@ -1293,7 +1160,7 @@ async function processSingleUserBuy(
                             tokenAddress: tokenToBuy,
                             targetWallet: targetWallet,
                             chainId: chainId,
-                            skipReason: 'Native token price unavailable. Please retry in a moment.',
+                            skipReason: `Insufficient gas. Balance: ${parseFloat(balanceEth).toFixed(4)} ETH, Required: ${parseFloat(requiredEth).toFixed(4)} ETH`,
                             targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
                             marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
                             liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
@@ -1304,596 +1171,404 @@ async function processSingleUserBuy(
                 }
             }
 
-            const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
-            if (cooldownMinutes > 0) {
-                // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
-                // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
-                // If the target paid significantly more than Oracle price, we should be cautious.
-                // This protects against buying at the absolute top of a "scam wick" or high slippage event.
-                let targetExecutionPrice = 0;
-                if (tokenInfo.price > 0 && chainId !== 900 && targetSwapValueUsd > 0) { // Skip for Solana (diff mechanic)
-                    try {
-                        const estimatedOut = Number(ethers.formatUnits(swap.amountOut, tokenInfo.decimals || 18));
-                        if (estimatedOut > 0) {
-                            // Calculate IMPLIED execution price from TARGET WALLET's trade
-                            // This is how much the target ACTUALLY paid per token
-                            targetExecutionPrice = targetSwapValueUsd / estimatedOut;
-                            const priceDeviation = targetExecutionPrice / tokenInfo.price;
+        }
 
-                            if (priceDeviation > 3.0) { // Allow up to 3x (200% increase) but no more
-                                logger.warn(LogCode.DEC_PRICE_IMPACT_HIGH, `🚨 Price Deviation too high! Oracle: $${tokenInfo.price.toFixed(6)}, Target Paid: $${targetExecutionPrice.toFixed(6)} (${priceDeviation.toFixed(1)}x)`, {
-                                    userId: config.userId,
-                                    token: tokenToBuy,
-                                    targetSwapValueUsd,
-                                    estimatedOut
-                                });
+        // 🛡️ DB TRANSACTION LOCK (Prevents Concurrent Buys)
+        // Create a PENDING position record atomically. If one exists, this will fail.
+        let pendingPositionId: string | null = null;
+        try {
+            const pendingPos = await prisma.$transaction(async (tx) => {
+                // Check for ANY recent open or pending position for this token
+                const existing = await tx.position.findFirst({
+                    where: {
+                        userId: config.userId,
+                        tokenAddress: tokenToBuy,
+                        status: { in: ['open', 'pending'] },
+                        createdAt: { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) }
+                    }
+                });
 
-                                // Send skip notification for price deviation
-                                await notificationService.sendNotification({
-                                    userId: config.userId,
-                                    farcasterFid: config.user.farcasterFid,
-                                    type: 'COPY_TRADE_SKIPPED',
-                                    data: {
-                                        tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
-                                        tokenAddress: tokenToBuy,
-                                        targetWallet: targetWallet,
-                                        chainId: chainId,
-                                        skipReason: `Price deviation too high (${priceDeviation.toFixed(1)}x). Oracle: $${tokenInfo.price.toFixed(6)}, Target paid: $${targetExecutionPrice.toFixed(6)}`,
-                                        targetBuyValue: targetSwapValueUsd.toFixed(2),
-                                        marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                                        liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
-                                        priceImpact: `${priceDeviation.toFixed(1)}x deviation`
-                                    }
-                                });
-
-                                return; // SKIP TRADE
-                            }
-                        }
-                    } catch (e) { }
+                if (existing) {
+                    throw new Error('DUPLICATE_TRADE: Position already exists or pending');
                 }
 
-                if (targetExecutionPrice > 0) {
-                    const dexChainId = chainId === 900 ? 'solana' : chainId;
-                    const currentPrice = await getDexPriceWithTimeout(tokenToBuy, dexChainId);
-                    if (currentPrice > 0) {
-                        const deviationBps = Math.abs(targetExecutionPrice - currentPrice) / currentPrice * 10000;
-                        if (deviationBps > effectiveConfig.maxSlippageBps) {
-                            logger.warn(LogCode.WTC_TX_SKIPPED, 'Skipping trade: price deviation exceeds user limit', {
-                                userId: config.userId,
-                                token: tokenToBuy,
-                                deviationBps: deviationBps.toFixed(0),
-                                limitBps: effectiveConfig.maxSlippageBps
-                            });
-
-                            await notificationService.sendNotification({
-                                userId: config.userId,
-                                farcasterFid: config.user.farcasterFid,
-                                type: 'COPY_TRADE_SKIPPED',
-                                data: {
-                                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
-                                    tokenAddress: tokenToBuy,
-                                    targetWallet: targetWallet,
-                                    chainId: chainId,
-                                    skipReason: `Price deviation ${deviationBps.toFixed(0)} bps > limit ${effectiveConfig.maxSlippageBps} bps`,
-                                    targetBuyValue: targetSwapValueUsd.toFixed(2),
-                                }
-                            }).catch(() => { });
-
-                            return;
-                        }
+                // Create PENDING position to claim the lock
+                return tx.position.create({
+                    data: {
+                        userId: config.userId,
+                        configId: effectiveConfig.id,
+                        tokenAddress: tokenToBuy,
+                        tokenSymbol: tokenInfo.symbol || 'UNK',
+                        chainId,
+                        entryPrice: tokenInfo.price || 0,
+                        entryAmount: '0',
+                        entryTxHash: `PENDING_${Date.now()}`, // Temporary placeholder
+                        entryUsdValue: usdAmount,
+                        status: 'pending'
                     }
-                }
+                });
+            });
+            pendingPositionId = pendingPos.id;
+            logger.info(LogCode.EXE_TX_BROADCAST, 'Created PENDING position lock', { userId: config.userId, token: tokenToBuy, positionId: pendingPositionId });
+        } catch (err: any) {
+            if (err.message.includes('DUPLICATE_TRADE')) {
+                logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping duplicate trade (DB Lock)', { userId: config.userId, token: tokenToBuy });
+            } else {
+                logger.error(LogCode.SYS_ERROR, 'Failed to create pending position', { error: err.message });
+            }
+            return;
+        }
 
-                // 🛡️ GAS BUFFER CHECK (EVM Only)
-                // Ensure user has enough ETH left for gas AFTER the trade amount is deducted
-                // Ensure we have native price for gas calculation
-                if (chainId !== 900) {
-                    const nativeBalance = await getNativeBalance(effectiveConfig.user.walletAddress, chainId);
-                    const gasBufferWei = ethers.parseEther("0.005"); // ~$15 buffer
+        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Executing trade', {
+            userId: config.userId,
+            wallet: config.user.walletAddress,
+            usdAmount
+        });
+        let txHash = '';
 
-                    // Calculate trade cost in Native Token (ETH/BNB)
-                    let tradeCostWei = 0n;
-                    if (nativePrice > 0) {
-                        const amountInNative = usdAmount / nativePrice;
-                        // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
-                        // [Ref]: ethers.parseEther documentation.
-                        tradeCostWei = ethers.parseEther(amountInNative.toFixed(18));
-                    }
-
-                    if (nativeBalance === null) {
-                        // Fail-open by design: RPC outages should not be misreported as "insufficient funds".
-                        logger.warn(LogCode.API_FETCH_FAILED, 'Gas balance check unavailable, skipping gas buffer gate', {
-                            userId: config.userId,
-                            chainId,
-                            wallet: effectiveConfig.user.walletAddress
-                        });
-                    } else if (nativeBalance < (tradeCostWei + gasBufferWei)) {
-                        const balanceEth = ethers.formatEther(nativeBalance);
-                        const requiredEth = ethers.formatEther(tradeCostWei + gasBufferWei);
-                        const nativeSymbol = getChainConfig(chainId).nativeCurrency.symbol;
-
-                        logger.throttled(LogCode.EXE_INSUFFICIENT_FUNDS, 'Skipping trade: Insufficient gas buffer', {
-                            userId: config.userId,
-                            balance: balanceEth,
-                            required: requiredEth,
-                            buffer: "0.005"
-                        });
-
-                        // Send skip notification for insufficient gas
-                        const notified = await notificationService.sendNotification({
-                            userId: config.userId,
-                            farcasterFid: config.user.farcasterFid,
-                            type: 'COPY_TRADE_SKIPPED',
-                            data: {
-                                tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
-                                tokenAddress: tokenToBuy,
-                                targetWallet: targetWallet,
-                                chainId: chainId,
-                                skipReason: `Insufficient gas. Balance: ${parseFloat(balanceEth).toFixed(4)} ${nativeSymbol}, Required: ${parseFloat(requiredEth).toFixed(4)} ${nativeSymbol}`,
-                                targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
-                                marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
-                                liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
-                            }
-                        });
-                        if (!notified) {
-                            logger.warn(LogCode.API_NOTIFY_FAILED, 'Copy-trade skip notification not delivered', {
-                                userId: config.userId,
-                                chainId,
-                                reason: 'insufficient_gas_buffer',
-                                hasFid: Boolean(config.user.farcasterFid)
-                            });
-                        }
-
-                        return;
-                    }
-                }
-
+        if (chainId === 900) {
+            // Dynamically fetch Solana wallet from Privy (not from database field)
+            let solAddress: string | null = null;
+            try {
+                solAddress = await getSolanaEmbeddedWalletAddress(config.user.privyDid);
+            } catch (err: any) {
+                logger.error(LogCode.SYS_ERROR, 'Unexpected error in processSingleUserBuy', {
+                    userId: config.userId,
+                    error: err?.message || String(err)
+                });
             }
 
-            // 🛡️ DB TRANSACTION LOCK (Prevents Concurrent Buys)
-            // Create a PENDING position record atomically. If one exists, this will fail.
-            try {
-                const pendingPos = await prisma.$transaction(async (tx) => {
-                    // Cross-instance distributed lock (no Redis): only one pod/process may proceed
-                    const lockAcquired = await tryAcquireDistributedTradeLock(tx, config.userId, tokenToBuy, chainId);
-                    if (!lockAcquired) {
-                        throw new Error('DUPLICATE_TRADE: Distributed lock busy');
-                    }
-
-                    // Strong idempotency: never execute the same leader signal twice for one user+token+chain
-                    if (sourceTxHash) {
-                        const sameSignal = await tx.position.findFirst({
-                            where: {
-                                userId: config.userId,
-                                chainId,
-                                tokenAddress: tokenToBuy,
-                                leaderTxHash: sourceTxHash
-                            }
-                        });
-                        if (sameSignal) {
-                            throw new Error('DUPLICATE_TRADE: Leader tx already processed');
-                        }
-                    }
-
-                    // Check for ANY recent open or pending position for this token
-                    const existing = await tx.position.findFirst({
-                        where: {
-                            userId: config.userId,
-                            chainId,
-                            tokenAddress: tokenToBuy,
-                            status: { in: ['open', 'pending'] },
-                            createdAt: { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) }
-                        }
-                    });
-
-                    if (existing) {
-                        throw new Error('DUPLICATE_TRADE: Position already exists or pending');
-                    }
-
-                    // Create PENDING position to claim the lock
-                    return tx.position.create({
-                        data: {
-                            userId: config.userId,
-                            configId: effectiveConfig.id,
-                            tokenAddress: tokenToBuy,
-                            tokenSymbol: tokenInfo.symbol || 'UNK',
-                            chainId,
-                            entryPrice: tokenInfo.price || 0,
-                            entryPriceDec: toDec(tokenInfo.price || 0),
-                            entryAmount: '0',
-                            entryAmountDec: toDec(0),
-                            entryTxHash: `PENDING_${Date.now()}`, // Temporary placeholder
-                            entryUsdValue: usdAmount,
-                            entryUsdValueDec: toDec(usdAmount),
-                            leaderTxHash: sourceTxHash,
-                            status: 'pending'
-                        }
-                    });
-                });
-                pendingPositionId = pendingPos.id;
-                logger.info(LogCode.EXE_TX_BROADCAST, 'Created PENDING position lock', { userId: config.userId, token: tokenToBuy, positionId: pendingPositionId });
-            } catch (err: any) {
-                if (err.message.includes('DUPLICATE_TRADE')) {
-                    logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping duplicate trade (DB Lock)', { userId: config.userId, token: tokenToBuy });
-                } else {
-                    logger.error(LogCode.SYS_ERROR, 'Failed to create pending position', { error: err.message });
-                }
+            if (!solAddress) {
+                logger.warn(LogCode.API_AUTH_FAILED, 'Skipping Solana trade: No Solana wallet found in Privy', { userId: config.userId });
                 return;
             }
 
-            logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Executing trade', {
-                userId: config.userId,
-                wallet: config.user.walletAddress,
-                usdAmount
+            // Get SOL Price dynamically (already fetched at top of loop)
+            if (nativePrice <= 0) {
+                logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch SOL price for trade calculation', { userId: config.userId });
+                return; // Better to skip than use a stale hardcoded price
+            }
+
+            const amountInLamports = Math.floor((usdAmount / nativePrice) * 1e9).toString();
+            const amountInSol = Number(amountInLamports) / 1e9;
+
+            logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Solana trade calculation complete', {
+                buyAmountUsd: usdAmount,
+                solPrice: nativePrice,
+                amountInSol: amountInSol.toString(),
+                token: tokenToBuy,
+                wallet: solAddress
             });
-            let txHash = '';
 
-            if (chainId === 900) {
-                // Dynamically fetch Solana wallet from Privy (not from database field)
-                let solAddress: string | null = null;
+            // Jupiter/Solana System Safeguard
+            // We enforce a $0.5 minimum to avoid "Route not found" errors common with tiny amounts
+            // and to ensure the trade is economically viable despite fees. Not a strict protocol limit.
+            const MIN_TRADE_USD = 0.5;
+            if (usdAmount < MIN_TRADE_USD) {
+                logger.throttled(LogCode.EXE_MIN_AMOUNT_NOT_MET, 'Trade amount below minimum threshold', {
+                    amountUsd: usdAmount,
+                    minUsd: MIN_TRADE_USD
+                });
+                return;
+            }
+
+            txHash = await executeSolanaSwap({
+                userId: effectiveConfig.user.privyDid,
+                tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
+                tokenOutMint: tokenToBuy,
+                amountIn: amountInLamports,
+                // Use universal global slippage directly
+                slippageBps: effectiveConfig.maxSlippageBps,
+                feeContext: 'copyTrade'
+            });
+
+        } else {
+            // EVM Logic - nativePrice already fetched at top
+
+
+            // SPECIALIZED ZORA INTERACTION - Use async launchpad detection (non-blocking)
+            const launchpad = await resolveLaunchpad(launchpadPromise, chainId);
+            const isFastExecutionEnabled = userSettings?.fastSwapMode === true;
+
+            let useStandardSwap = true;
+
+            if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
+                logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Zora token detected with fast execution enabled', { userId: config.userId, token: tokenToBuy });
                 try {
-                    solAddress = await getSolanaEmbeddedWalletAddress(config.user.privyDid);
-                } catch (err: any) {
-                    logger.error(LogCode.SYS_ERROR, 'Unexpected error in processSingleUserBuy', {
-                        userId: config.userId,
-                        error: err?.message || String(err)
-                    });
-                }
-
-                if (!solAddress) {
-                    logger.warn(LogCode.API_AUTH_FAILED, 'Skipping Solana trade: No Solana wallet found in Privy', { userId: config.userId });
-                    return;
-                }
-
-                // Get SOL Price dynamically (already fetched at top of loop)
-                if (nativePrice <= 0) {
-                    logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch SOL price for trade calculation', { userId: config.userId });
-                    return; // Better to skip than use a stale hardcoded price
-                }
-
-                const amountInLamports = Math.floor((usdAmount / nativePrice) * 1e9).toString();
-                const amountInSol = Number(amountInLamports) / 1e9;
-
-                logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Solana trade calculation complete', {
-                    buyAmountUsd: usdAmount,
-                    solPrice: nativePrice,
-                    amountInSol: amountInSol.toString(),
-                    token: tokenToBuy,
-                    wallet: solAddress
-                });
-
-                // Jupiter/Solana System Safeguard
-                // We enforce a $0.5 minimum to avoid "Route not found" errors common with tiny amounts
-                // and to ensure the trade is economically viable despite fees. Not a strict protocol limit.
-                const MIN_TRADE_USD = 0.5;
-                if (usdAmount < MIN_TRADE_USD) {
-                    logger.throttled(LogCode.EXE_MIN_AMOUNT_NOT_MET, 'Trade amount below minimum threshold', {
-                        amountUsd: usdAmount,
-                        minUsd: MIN_TRADE_USD
-                    });
-                    return;
-                }
-
-                txHash = await executeSolanaSwap({
-                    userId: effectiveConfig.user.privyDid,
-                    tokenInMint: SOLANA_CONFIG.TOKENS.SOL,
-                    tokenOutMint: tokenToBuy,
-                    amountIn: amountInLamports,
-                    // Use universal global slippage directly
-                    slippageBps: effectiveConfig.maxSlippageBps,
-                    feeContext: 'copyTrade'
-                });
-
-            } else {
-                // EVM Logic - nativePrice already fetched at top
-
-
-                // SPECIALIZED ZORA INTERACTION - Use async launchpad detection (non-blocking)
-                const launchpad = await resolveLaunchpad(launchpadPromise, chainId);
-                const isFastExecutionEnabled = config.executionMode !== 'safe';
-
-                let useStandardSwap = true;
-
-                if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
-                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Zora token detected with fast execution enabled', { userId: config.userId, token: tokenToBuy });
-                    try {
-                        const copyTradeFeeBpsOverride =
-                            config.aiAnalysisMode && config.aiAnalysisMode !== 'disabled'
-                                ? env.platformFees.copyTradeAiBps
-                                : undefined;
-                        txHash = await zoraSniperService.fastSwap({
-                            userId: effectiveConfig.user.privyDid,
-                            accessToken: '', // Privy server-side doesn't need token if configured
-                            walletAddress: effectiveConfig.user.walletAddress,
-                            tokenOut: tokenToBuy,
-                            // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
-                            amountIn: (usdAmount / nativePrice).toFixed(18),
-                            // Use universal global slippage directly
-                            slippage: effectiveConfig.maxSlippageBps / 100,
-                            feeContext: 'copyTrade',
-                            feeBpsOverride: copyTradeFeeBpsOverride
-                        });
-                        useStandardSwap = !txHash;
-                    } catch (zoraErr: any) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Zora fast swap failed, falling back to standard route', { userId: config.userId, error: zoraErr.message || zoraErr });
-                        useStandardSwap = true;
-                    }
-                } else if (launchpad && launchpad.provider === 'fourmeme' && chainId === 56) {
-                    // Four.meme tokens can be traded via TokenManager while on bonding curve
-                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting specialized contract buy', { userId: config.userId, token: tokenToBuy });
-                    try {
-                        const bnbAmount = (usdAmount / nativePrice).toFixed(18);
-                        txHash = await fourMemeService.buyTokenAMAP({
-                            userId: effectiveConfig.user.privyDid,
-                            walletAddress: effectiveConfig.user.walletAddress,
-                            tokenAddress: tokenToBuy,
-                            bnbAmount,
-                            // Use universal global slippage directly
-                            slippageBps: effectiveConfig.maxSlippageBps,
-                            feeContext: 'copyTrade',
-                        });
-                        // If successful, skip standard swap. If txHash is null/empty for some reason, fallback.
-                        useStandardSwap = !txHash;
-                    } catch (fourErr: any) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Four.meme specialized buy failed, falling back to standard route (Token might have graduated)', {
-                            userId: config.userId,
-                            error: fourErr.message || fourErr
-                        });
-                        useStandardSwap = true;
-                    }
-                }
-
-                if (useStandardSwap) {
-                    if (launchpad && launchpad.provider === 'zora' && !isFastExecutionEnabled) {
-                        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Zora token detected but Fast Execution is disabled', { userId: config.userId });
-                    }
-                    if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
-                        logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Falling back to standard swap after Zora fast swap failure', { userId: config.userId });
-                    }
-
-                    // === BUY WITH RETRY LOGIC (Hardened) ===
-                    const baseAmount = usdAmount / nativePrice;
-                    const timingDetectedAt = Date.now();
-                    // Use universal global slippage
-                    const baseSlippage = effectiveConfig.maxSlippageBps;
                     const copyTradeFeeBpsOverride =
                         config.aiAnalysisMode && config.aiAnalysisMode !== 'disabled'
                             ? env.platformFees.copyTradeAiBps
                             : undefined;
+                    txHash = await zoraSniperService.fastSwap({
+                        userId: effectiveConfig.user.privyDid,
+                        accessToken: '', // Privy server-side doesn't need token if configured
+                        walletAddress: effectiveConfig.user.walletAddress,
+                        tokenOut: tokenToBuy,
+                        // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
+                        amountIn: (usdAmount / nativePrice).toFixed(18),
+                        // Use universal global slippage directly
+                        slippage: effectiveConfig.maxSlippageBps / 100,
+                        feeContext: 'copyTrade',
+                        feeBpsOverride: copyTradeFeeBpsOverride
+                    });
+                    useStandardSwap = !txHash;
+                } catch (zoraErr: any) {
+                    logger.warn(LogCode.EXE_TX_REVERTED, 'Zora fast swap failed, falling back to standard route', { userId: config.userId, error: zoraErr.message || zoraErr });
+                    useStandardSwap = true;
+                }
+            } else if (launchpad && launchpad.provider === 'fourmeme' && chainId === 56) {
+                // Four.meme tokens can be traded via TokenManager while on bonding curve
+                logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Four.meme token detected - attempting specialized contract buy', { userId: config.userId, token: tokenToBuy });
+                try {
+                    const bnbAmount = (usdAmount / nativePrice).toFixed(18);
+                    txHash = await fourMemeService.buyTokenAMAP({
+                        userId: effectiveConfig.user.privyDid,
+                        walletAddress: effectiveConfig.user.walletAddress,
+                        tokenAddress: tokenToBuy,
+                        bnbAmount,
+                        // Use universal global slippage directly
+                        slippageBps: effectiveConfig.maxSlippageBps,
+                        feeContext: 'copyTrade',
+                    });
+                    // If successful, skip standard swap. If txHash is null/empty for some reason, fallback.
+                    useStandardSwap = !txHash;
+                } catch (fourErr: any) {
+                    logger.warn(LogCode.EXE_TX_REVERTED, 'Four.meme specialized buy failed, falling back to standard route (Token might have graduated)', {
+                        userId: config.userId,
+                        error: fourErr.message || fourErr
+                    });
+                    useStandardSwap = true;
+                }
+            }
+
+            if (useStandardSwap) {
+                if (launchpad && launchpad.provider === 'zora' && !isFastExecutionEnabled) {
+                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Zora token detected but Fast Execution is disabled', { userId: config.userId });
+                }
+                if (launchpad && launchpad.provider === 'zora' && isFastExecutionEnabled) {
+                    logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Falling back to standard swap after Zora fast swap failure', { userId: config.userId });
+                }
+
+                // === BUY WITH RETRY LOGIC (Hardened) ===
+                const baseAmount = usdAmount / nativePrice;
+                const timingDetectedAt = Date.now();
+                // Use universal global slippage
+                const baseSlippage = effectiveConfig.maxSlippageBps;
+                const copyTradeFeeBpsOverride =
+                    config.aiAnalysisMode && config.aiAnalysisMode !== 'disabled'
+                        ? env.platformFees.copyTradeAiBps
+                        : undefined;
+
+                try {
+                    // Step 1: Try with 100% amount, user's base slippage (default 15%)
+                    logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${baseSlippage / 100}% slippage`, {
+                        userId: effectiveConfig.userId,
+                        eth: baseAmount.toFixed(6),
+                        timingMs: Date.now() - timingDetectedAt
+                    });
+                    const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                    const result1 = await MainSwapService.executeSwap({
+                        userId: effectiveConfig.user.privyDid,
+                        walletAddress: effectiveConfig.user.walletAddress,
+                        tokenIn: 'ETH',
+                        tokenOut: tokenToBuy,
+                        // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
+                        amountIn: baseAmount.toFixed(18),
+                        chainId,
+                        slippageBps: baseSlippage,
+                        mode: 'copytrade',
+                        feeBpsOverride: copyTradeFeeBpsOverride,
+                        userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
+                    });
+                    if (!result1.success) throw new Error(result1.error);
+                    txHash = result1.txHash!;
+                    logger.info(LogCode.EXE_TX_BROADCAST, '[CopyTradeTiming] buy step 1 success', {
+                        userId: effectiveConfig.userId,
+                        token: tokenToBuy,
+                        txHash,
+                        timingMs: Date.now() - timingDetectedAt
+                    });
+                } catch (buyErr1: any) {
+                    logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
+
+                    // CHECK: Conservative vs Aggressive Retry Mode
+                    // If checkTokenBeforeSwap is TRUE (Conservative), we re-check price stability.
+                    // If price hasn't "flown" (spiked > 20%), we continue retry. Otherwise we abort.
+                    if (userSettings?.checkTokenBeforeSwap) {
+                        logger.info(LogCode.EXE_QUOTE_FETCHED, 'Conservative Mode: Checking price stability before retry...', { userId: config.userId });
+                        try {
+                            const freshInfo = tokenInfoCache
+                                ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
+                                : await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' });
+                            if (freshInfo && freshInfo.price > 0) {
+                                const priceChange = freshInfo.price / tokenInfo.price;
+                                if (priceChange > 2.00) { // > 100% spike (2x)
+                                    logger.warn(LogCode.WTC_TX_SKIPPED, `Conservative Mode: Price spiked ${((priceChange - 1) * 100).toFixed(1)}%, aborting retry`, {
+                                        userId: config.userId,
+                                        oldPrice: tokenInfo.price,
+                                        newPrice: freshInfo.price
+                                    });
+                                    return; // ABORT RETRY
+                                }
+                                // Update token info for record accuracy
+                                tokenInfo.price = freshInfo.price;
+                            }
+                        } catch (err) {
+                            logger.warn(LogCode.API_FETCH_FAILED, 'Conservative Mode: Failed to re-check price, aborting for safety', { userId: config.userId });
+                            return;
+                        }
+                    }
+
+                    // AGGRESSIVE MODE (or Conservative Passed): Proceed with high slippage retries
+                    logger.info(LogCode.EXE_TX_BROADCAST, 'Aggressive Mode: Initiating retry sequence...', { userId: config.userId });
+                    await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
 
                     try {
-                        // Step 1: Try with 100% amount, user's base slippage (default 15%)
-                        logger.info(LogCode.EXE_TX_BROADCAST, `Buy Step 1: 100% amount, ${baseSlippage / 100}% slippage`, {
-                            userId: effectiveConfig.userId,
-                            eth: baseAmount.toFixed(6),
-                            timingMs: Date.now() - timingDetectedAt
-                        });
-                        const fastSwapOverride = config.executionMode !== 'safe';
-                        const result1 = await MainSwapService.executeSwap({
+                        // Step 2: Try with 99% amount + 20% slippage
+                        // NOTE: We intentionally do NOT re-run Price Deviation Check here.
+                        // If Step 1 failed, we assume high volatility and prioritize execution over strict price protection.
+                        const amount99 = baseAmount * 0.99;
+                        const slippage2 = 2000; // 20% (baseSlippage is now 15%, so we bump +5%)
+                        logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
+                        const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                        const result2 = await MainSwapService.executeSwap({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
                             tokenIn: 'ETH',
                             tokenOut: tokenToBuy,
                             // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
-                            amountIn: baseAmount.toFixed(18),
+                            amountIn: amount99.toFixed(18),
                             chainId,
-                            slippageBps: baseSlippage,
+                            slippageBps: slippage2,
                             mode: 'copytrade',
                             feeBpsOverride: copyTradeFeeBpsOverride,
-                            userSettings: { fastSwapMode: fastSwapOverride },
-                            directSwapHint
+                            userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
                         });
-                        if (!result1.success) throw new Error(result1.error);
-                        txHash = result1.txHash!;
-                        logger.info(LogCode.EXE_TX_BROADCAST, '[CopyTradeTiming] buy step 1 success', {
-                            userId: effectiveConfig.userId,
-                            token: tokenToBuy,
-                            txHash,
-                            timingMs: Date.now() - timingDetectedAt
-                        });
-                    } catch (buyErr1: any) {
-                        logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
-
-                        // CHECK: Conservative vs Aggressive Retry Mode
-                        // If checkTokenBeforeSwap is TRUE (Conservative), we re-check price stability.
-                        // If price hasn't "flown" (spiked > 20%), we continue retry. Otherwise we abort.
-                        if (userSettings?.checkTokenBeforeSwap) {
-                            logger.info(LogCode.EXE_QUOTE_FETCHED, 'Conservative Mode: Checking price stability before retry...', { userId: config.userId });
-                            try {
-                                const freshInfo = tokenInfoCache
-                                    ? await getTokenInfoOnce(tokenInfoCache, tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' })
-                                    : await getTokenInfo(tokenToBuy, chainId, { verbose: false, forceRefresh: true, rpcStrategy: 'fast' });
-                                if (freshInfo && freshInfo.price > 0) {
-                                    const priceChange = freshInfo.price / tokenInfo.price;
-                                    if (priceChange > 2.00) { // > 100% spike (2x)
-                                        logger.warn(LogCode.WTC_TX_SKIPPED, `Conservative Mode: Price spiked ${((priceChange - 1) * 100).toFixed(1)}%, aborting retry`, {
-                                            userId: config.userId,
-                                            oldPrice: tokenInfo.price,
-                                            newPrice: freshInfo.price
-                                        });
-                                        return; // ABORT RETRY
-                                    }
-                                    // Update token info for record accuracy
-                                    tokenInfo.price = freshInfo.price;
-                                }
-                            } catch (err) {
-                                logger.warn(LogCode.API_FETCH_FAILED, 'Conservative Mode: Failed to re-check price, aborting for safety', { userId: config.userId });
-                                return;
-                            }
-                        }
-
-                        // AGGRESSIVE MODE (or Conservative Passed): Proceed with high slippage retries
-                        logger.info(LogCode.EXE_TX_BROADCAST, 'Aggressive Mode: Initiating retry sequence...', { userId: config.userId });
+                        if (!result2.success) throw new Error(result2.error);
+                        txHash = result2.txHash!;
+                    } catch (buyErr2: any) {
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', { userId: config.userId, error: buyErr2.message });
                         await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
 
                         try {
-                            // Step 2: Try with 99% amount + 20% slippage
-                            // NOTE: We intentionally do NOT re-run Price Deviation Check here.
-                            // If Step 1 failed, we assume high volatility and prioritize execution over strict price protection.
-                            const amount99 = baseAmount * 0.99;
-                            const slippage2 = 2000; // 20% (baseSlippage is now 15%, so we bump +5%)
-                            logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                            const fastSwapOverride = config.executionMode !== 'safe';
-                            const result2 = await MainSwapService.executeSwap({
+                            // Step 3: Final attempt with 98% amount + 25% slippage
+                            const amount98 = baseAmount * 0.98;
+                            const slippage3 = 2500; // 25% (maximum tolerance for volatile new tokens)
+                            logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 25% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
+                            const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                            const result3 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
                                 tokenIn: 'ETH',
                                 tokenOut: tokenToBuy,
                                 // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
-                                amountIn: amount99.toFixed(18),
+                                amountIn: amount98.toFixed(18),
                                 chainId,
-                                slippageBps: slippage2,
+                                slippageBps: slippage3,
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
-                                userSettings: { fastSwapMode: fastSwapOverride },
-                                directSwapHint
+                                userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
                             });
-                            if (!result2.success) throw new Error(result2.error);
-                            txHash = result2.txHash!;
-                        } catch (buyErr2: any) {
-                            logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 2 failed, retrying final step...', { userId: config.userId, error: buyErr2.message });
-                            await new Promise(resolve => setTimeout(resolve, 500)); // 🚀 Optimized: 1000ms → 500ms
-
-                            try {
-                                // Step 3: Final attempt with 98% amount + 25% slippage
-                                const amount98 = baseAmount * 0.98;
-                                const slippage3 = 2500; // 25% (maximum tolerance for volatile new tokens)
-                                logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 25% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                                const fastSwapOverride = config.executionMode !== 'safe';
-                                const result3 = await MainSwapService.executeSwap({
-                                    userId: effectiveConfig.user.privyDid,
-                                    walletAddress: effectiveConfig.user.walletAddress,
-                                    tokenIn: 'ETH',
-                                    tokenOut: tokenToBuy,
-                                    // [Logic]: Limit to 18 decimals to prevent ethers "too many decimals" error.
-                                    amountIn: amount98.toFixed(18),
-                                    chainId,
-                                    slippageBps: slippage3,
-                                    mode: 'copytrade',
-                                    feeBpsOverride: copyTradeFeeBpsOverride,
-                                    userSettings: { fastSwapMode: fastSwapOverride },
-                                    directSwapHint
-                                });
-                                if (!result3.success) throw new Error(result3.error);
-                                txHash = result3.txHash!;
-                            } catch (buyErr3: any) {
-                                logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', { userId: config.userId, token: tokenToBuy, error: buyErr3.message });
-                                return; // Skip to next config
-                            }
+                            if (!result3.success) throw new Error(result3.error);
+                            txHash = result3.txHash!;
+                        } catch (buyErr3: any) {
+                            logger.error(LogCode.EXE_TX_REVERTED, 'All buy steps failed for token', { userId: config.userId, token: tokenToBuy, error: buyErr3.message });
+                            return; // Skip to next config
                         }
                     }
                 }
             }
+        }
 
-            if (!txHash) {
-                logger.warn(LogCode.EXE_TX_REVERTED, 'No txHash returned for buy. Closing pending position.', { userId: config.userId, token: tokenToBuy });
-                if (pendingPositionId) {
-                    await prisma.position.updateMany({
-                        where: { id: pendingPositionId, status: 'pending' },
-                        data: {
-                            status: 'closed',
-                            exitReason: 'entry_failed_no_txhash',
-                            closedAt: new Date()
-                        }
-                    }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to close pending pos', { error: e }));
-                }
-                return;
-            }
-
-            // CRITICAL: Ensure price is valid before creating position to avoid infinite PNL
-            if (!tokenInfo.price || tokenInfo.price <= 0) {
-                logger.error(LogCode.DEC_FAILED_UNKNOWN_DEX, 'Invalid entry price found, closing pending position', { token: tokenToBuy, price: tokenInfo.price });
-                if (pendingPositionId) {
-                    await prisma.position.updateMany({
-                        where: { id: pendingPositionId, status: 'pending' },
-                        data: {
-                            status: 'closed',
-                            exitReason: 'entry_failed_invalid_price',
-                            closedAt: new Date()
-                        }
-                    }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to close pending pos', { error: e }));
-                }
-                return;
-            }
-
-            // Update PENDING position to OPEN with real details
+        if (!txHash) {
+            logger.warn(LogCode.EXE_TX_REVERTED, 'No txHash returned for buy. Deleting pending position.', { userId: config.userId, token: tokenToBuy });
             if (pendingPositionId) {
-                await prisma.position.update({
-                    where: { id: pendingPositionId },
-                    data: {
-                        entryPrice: tokenInfo.price,
-                        entryPriceDec: toDec(tokenInfo.price),
-                        entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
-                        entryAmountDec: toDec(usdAmount / nativePrice),
-                        entryTxHash: txHash,
-                        status: 'open',
-                    },
-                });
-            } else {
-                // Fallback (should not happen if logic is correct): Create new if pending failed for some reason
-                await prisma.position.create({
-                    data: {
-                        userId: effectiveConfig.userId,
-                        configId: effectiveConfig.id,
-                        tokenAddress: tokenToBuy,
-                        tokenSymbol: tokenInfo.symbol,
-                        chainId,
-                        entryPrice: tokenInfo.price,
-                        entryPriceDec: toDec(tokenInfo.price),
-                        entryAmount: (usdAmount / nativePrice).toString(),
-                        entryAmountDec: toDec(usdAmount / nativePrice),
-                        entryTxHash: txHash,
-                        entryUsdValue: usdAmount,
-                        entryUsdValueDec: toDec(usdAmount),
-                        leaderTxHash: sourceTxHash,
-                        status: 'open',
-                    },
-                });
+                await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
             }
+            return;
+        }
 
-            logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
+        // CRITICAL: Ensure price is valid before creating position to avoid infinite PNL
+        if (!tokenInfo.price || tokenInfo.price <= 0) {
+            logger.error(LogCode.DEC_FAILED_UNKNOWN_DEX, 'Invalid entry price found, cleanup pending position', { token: tokenToBuy, price: tokenInfo.price });
+            if (pendingPositionId) {
+                await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch(e => logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos', { error: e }));
+            }
+            return;
+        }
 
-            // Track User Activity (Copy Trade + Swap Volume)
-            trackCopyTrade(config.userId);
-            trackSwap(config.userId, usdAmount);
-
-            // =================================================================
-            // 🆕 AI Analysis Logic (Post-Trade)
-            // =================================================================
-            if (config.aiAnalysisMode && config.aiAnalysisMode !== 'disabled') {
-                logger.info(LogCode.DEC_AI_RISK_CHECK, 'AI Analysis triggered for copy trade (post-trade)', {
-                    userId: config.userId,
-                    mode: config.aiAnalysisMode
-                });
-
-                const analysis = await analyzeTradeOpportunity(
-                    tokenToBuy,
+        // Update PENDING position to OPEN with real details
+        if (pendingPositionId) {
+            await prisma.position.update({
+                where: { id: pendingPositionId },
+                data: {
+                    entryPrice: tokenInfo.price,
+                    entryAmount: (usdAmount / nativePrice).toString(), // Native amount spent
+                    entryTxHash: txHash,
+                    status: 'open',
+                },
+            });
+        } else {
+            // Fallback (should not happen if logic is correct): Create new if pending failed for some reason
+            await prisma.position.create({
+                data: {
+                    userId: effectiveConfig.userId,
+                    configId: effectiveConfig.id,
+                    tokenAddress: tokenToBuy,
+                    tokenSymbol: tokenInfo.symbol,
                     chainId,
-                    targetWallet,
-                    config.buyAmountUsd  // Pass real user amount for proper L1-L4 risk assessment
+                    entryPrice: tokenInfo.price,
+                    entryAmount: (usdAmount / nativePrice).toString(),
+                    entryTxHash: txHash,
+                    entryUsdValue: usdAmount,
+                    status: 'open',
+                },
+            });
+        }
+
+        logger.info(LogCode.EXE_TX_CONFIRMED, 'Copy trade completed and position created', { userId: config.userId, token: tokenToBuy, txHash });
+
+        // Track User Activity (Copy Trade + Swap Volume)
+        trackCopyTrade(config.userId);
+        trackSwap(config.userId, usdAmount);
+
+        // =================================================================
+        // 🆕 AI Analysis Logic (Post-Trade)
+        // =================================================================
+        if (config.aiAnalysisMode && config.aiAnalysisMode !== 'disabled') {
+            logger.info(LogCode.DEC_AI_RISK_CHECK, 'AI Analysis triggered for copy trade (post-trade)', {
+                userId: config.userId,
+                mode: config.aiAnalysisMode
+            });
+
+            const analysis = await analyzeTradeOpportunity(
+                tokenToBuy,
+                chainId,
+                targetWallet,
+                config.buyAmountUsd  // Pass real user amount for proper L1-L4 risk assessment
+            );
+            judgeDecisionId = analysis.judgeDecisionId ?? null;
+
+            await prisma.copyTradeAnalysis.create({
+                data: {
+                    configId: config.id,
+                    tokenAddress: tokenToBuy,
+                    tokenSymbol: tokenInfo.symbol || 'UNKNOWN',
+                    aiDecision: analysis.decision,
+                    confidenceScore: analysis.confidence,
+                    analysisJson: JSON.stringify(analysis),
+                }
+            });
+
+            try {
+                const session = await createSession(
+                    config.user.privyDid,
+                    `🤖 AI Trade Analysis: ${tokenInfo.symbol}`,
+                    env.aiModel
                 );
-                judgeDecisionId = analysis.judgeDecisionId ?? null;
+                const sessionId = session.id;
 
-                await prisma.copyTradeAnalysis.create({
-                    data: {
-                        configId: config.id,
-                        tokenAddress: tokenToBuy,
-                        tokenSymbol: tokenInfo.symbol || 'UNKNOWN',
-                        aiDecision: analysis.decision,
-                        confidenceScore: analysis.confidence,
-                        analysisJson: JSON.stringify(analysis),
-                    }
-                });
-
-                try {
-                    const session = await createSession(
-                        config.user.privyDid,
-                        `🤖 AI Trade Analysis: ${tokenInfo.symbol}`,
-                        env.aiModel
-                    );
-                    const sessionId = session.id;
-
-                    const messageContent = `
+                const messageContent = `
 ✅ **Copy Trade Executed**
 Target Wallet: \`${targetWallet.slice(0, 6)}...${targetWallet.slice(-4)}\`
 Token: **${tokenInfo.symbol}** (\`${tokenToBuy}\`)
@@ -1912,83 +1587,72 @@ Token: **${tokenInfo.symbol}** (\`${tokenToBuy}\`)
 ${analysis.rawAnalysis}
                     `.trim();
 
-                    await createMessage(sessionId, 'assistant', messageContent);
+                await createMessage(sessionId, 'assistant', messageContent);
 
-                    ChatWebSocketService.getInstance().broadcastToUser(config.user.privyDid, {
-                        type: 'content_block',
-                        sessionId,
-                        data: {
-                            text: messageContent,
-                            final: true
-                        }
-                    });
-                } catch (chatError: any) {
-                    logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send chat notification', { userId: config.userId, error: chatError.message });
-                }
-
-                if (judgeDecisionId) {
-                    try {
-                        await updateJudgeOutcome(judgeDecisionId, {
-                            actualExecuted: true,
-                            actualOutcome: 'success',
-                        });
-                    } catch (updateError: any) {
-                        logger.warn(LogCode.SYS_ERROR, 'Failed to update judge outcome', { decisionId: judgeDecisionId, error: updateError.message });
-                    }
-                }
-            }
-            // =================================================================
-
-            // =================================================================
-            // 🟣 Send Farcaster Direct Cast (Success)
-            // =================================================================
-            await notificationService.sendNotification({
-                userId: config.user.privyDid,
-                farcasterFid: config.user.farcasterFid,
-                type: 'TRADE_SUCCESS_BUY',
-                data: {
-                    tokenSymbol: tokenInfo.symbol,
-                    usdValue: usdAmount.toFixed(2),
-                    targetWallet: targetWallet,
-                    txHash: txHash,
-                    chainId: chainId
-                }
-            });
-
-        } catch (error: any) {
-            if (pendingPositionId) {
-                await prisma.position.updateMany({
-                    where: { id: pendingPositionId, status: 'pending' },
+                ChatWebSocketService.getInstance().broadcastToUser(config.user.privyDid, {
+                    type: 'content_block',
+                    sessionId,
                     data: {
-                        status: 'closed',
-                        exitReason: 'entry_failed_exception',
-                        closedAt: new Date()
+                        text: messageContent,
+                        final: true
                     }
-                }).catch((e: any) => logger.error(LogCode.SYS_ERROR, 'Failed to close pending position after exception', { error: e?.message || String(e) }));
+                });
+            } catch (chatError: any) {
+                logger.error(LogCode.API_NOTIFY_FAILED, 'Failed to send chat notification', { userId: config.userId, error: chatError.message });
             }
 
-            logger.error(LogCode.SYS_ERROR, `Error processing trade configuration`, {
-                configId: config.id,
-                userId: config.userId,
-                error: error.message,
-                stack: error.stack
-            });
-
-            // =================================================================
-            // 🟣 Send Farcaster Direct Cast (Failure)
-            // =================================================================
-            await notificationService.sendNotification({
-                userId: config.userId,
-                farcasterFid: config.user.farcasterFid,
-                type: 'TRADE_FAILURE',
-                data: {
-                    tokenSymbol: tokenInfo.symbol || 'Unknown',
-                    error: error.message,
-                    targetWallet: targetWallet,
-                    chainId: chainId
+            if (judgeDecisionId) {
+                try {
+                    await updateJudgeOutcome(judgeDecisionId, {
+                        actualExecuted: true,
+                        actualOutcome: 'success',
+                    });
+                } catch (updateError: any) {
+                    logger.warn(LogCode.SYS_ERROR, 'Failed to update judge outcome', { decisionId: judgeDecisionId, error: updateError.message });
                 }
-            });
+            }
         }
+        // =================================================================
+
+        // =================================================================
+        // 🟣 Send Farcaster Direct Cast (Success)
+        // =================================================================
+        await notificationService.sendNotification({
+            userId: config.user.privyDid,
+            farcasterFid: config.user.farcasterFid,
+            type: 'TRADE_SUCCESS_BUY',
+            data: {
+                tokenSymbol: tokenInfo.symbol,
+                usdValue: usdAmount.toFixed(2),
+                targetWallet: targetWallet,
+                txHash: txHash,
+                chainId: chainId
+            }
+        });
+
+    } catch (error: any) {
+        logger.error(LogCode.SYS_ERROR, `Error processing trade configuration`, {
+            configId: config.id,
+            userId: config.userId,
+            error: error.message,
+            stack: error.stack
+        });
+
+        // =================================================================
+        // 🟣 Send Farcaster Direct Cast (Failure)
+        // =================================================================
+        await notificationService.sendNotification({
+            userId: config.userId,
+            farcasterFid: config.user.farcasterFid,
+            type: 'TRADE_FAILURE',
+            data: {
+                tokenSymbol: tokenInfo.symbol || 'Unknown',
+                error: error.message,
+                targetWallet: targetWallet,
+                chainId: chainId
+            }
+        });
+    }
     });
 }
 
@@ -2028,27 +1692,6 @@ async function executePositionExit(params: {
     // Fetch universal global slippage from UserSettings
     const settings = params.userSettings || await prisma.userSettings.findUnique({ where: { userId } });
     const universalSlippageBps = getSlippageBps(settings);
-    const exitAttemptAt = new Date();
-
-    // DB state machine claim: open -> closing
-    // Ensures only one instance can execute exit for same user/token/chain.
-    const claim = await prisma.position.updateMany({
-        where: { userId, tokenAddress, chainId, status: 'open' },
-        data: {
-            status: 'closing',
-            lastExitAttempt: exitAttemptAt,
-            exitReason
-        }
-    });
-    if (claim.count === 0) {
-        logger.debug(LogCode.WTC_TX_SKIPPED, 'Skip exit: position already claimed or not open', {
-            userId,
-            token: tokenAddress,
-            chainId,
-            reason: exitReason
-        });
-        return null;
-    }
 
     try {
         if (chainId === 900) {
@@ -2101,13 +1744,9 @@ async function executePositionExit(params: {
                         token: tokenAddress,
                         balanceUsd
                     });
-                    await closePositionsWithoutExitTx({
-                        userId,
-                        tokenAddress,
-                        chainId,
-                        status: 'closing',
-                        reason: balance <= 0n ? 'balance_empty' : 'balance_dust',
-                        preferredExitPrice: hasValidPrice ? tokenInfo.price : undefined
+                    await prisma.position.updateMany({
+                        where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
+                        data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
                     });
 
                     // OPTIONAL: We could add CloseAccount instruction here if account exists but has dust, 
@@ -2201,13 +1840,9 @@ async function executePositionExit(params: {
 
             if (balance <= 0n || (hasValidPrice && balanceUsd < 0.1)) {
                 logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', { userId, tokenAddress, balanceUsd });
-                await closePositionsWithoutExitTx({
-                    userId,
-                    tokenAddress,
-                    chainId,
-                    status: 'closing',
-                    reason: balance <= 0n ? 'balance_empty' : 'balance_dust',
-                    preferredExitPrice: hasValidPrice ? tokenInfo.price : undefined
+                await prisma.position.updateMany({
+                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
+                    data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }
                 });
                 return null;
             }
@@ -2310,7 +1945,7 @@ async function executePositionExit(params: {
             // [Ref]: formatTokenAmount helper + tokenInfo.price from API
             // [Risk]: tokenInfo.price may be stale or 0 if API fails
             const openPositions = await prisma.position.findMany({
-                where: { userId: userId, tokenAddress: tokenAddress, chainId, status: 'closing' }
+                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
             });
             const fallbackExitPrice = openPositions.find(p => (p.currentPrice || 0) > 0)?.currentPrice
                 ?? openPositions.find(p => (p.entryPrice || 0) > 0)?.entryPrice
@@ -2345,15 +1980,10 @@ async function executePositionExit(params: {
                         exitTxHash: txHash,
                         exitReason: exitReason,
                         closedAt: new Date(),
-                        exitRetryCount: 0,
                         exitPrice: exitPrice,
-                        exitPriceDec: toDec(exitPrice),
                         exitUsdValue: sellVolUsd,
-                        exitUsdValueDec: toDec(sellVolUsd),
                         realizedPnlUsd: realizedPnlUsd,
-                        realizedPnlUsdDec: toDec(realizedPnlUsd),
                         realizedPnlPct: realizedPnlPct,
-                        realizedPnlPctDec: toDec(realizedPnlPct),
                     },
                 });
             }
@@ -2407,7 +2037,7 @@ async function executePositionExit(params: {
 
         try {
             const position = await prisma.position.findFirst({
-                where: { userId: userId, tokenAddress: tokenAddress, chainId, status: 'closing' }
+                where: { userId: userId, tokenAddress: tokenAddress, status: 'open' }
             });
 
             const retryCount = (position?.exitRetryCount || 0) + 1;
@@ -2416,9 +2046,8 @@ async function executePositionExit(params: {
                 // Update retry counter, keep position open for PositionMonitor retry
                 // FIX 6: Persist exitReason so we know WHY we are exiting during retry
                 await prisma.position.updateMany({
-                    where: { userId: userId, tokenAddress: tokenAddress, chainId, status: 'closing' },
+                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
                     data: {
-                        status: 'open',
                         exitRetryCount: retryCount,
                         lastExitAttempt: new Date(),
                         exitReason: exitReason // Persist intent
@@ -2439,7 +2068,7 @@ async function executePositionExit(params: {
             } else {
                 // After max retries, mark as failed permanently
                 await prisma.position.updateMany({
-                    where: { userId: userId, tokenAddress: tokenAddress, chainId, status: 'closing' },
+                    where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
                     data: {
                         status: 'closed',
                         exitReason: 'exit_failed_max_retries',
@@ -2508,53 +2137,27 @@ async function handleTargetSell(
 
     logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: configs.length, targetWallet });
 
-    // Persist target sell volume estimate for card analytics.
-    try {
-        const sellInfo = await getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true });
-        const decimals = sellInfo?.decimals || 18;
-        const amountIn = BigInt(swap.amountIn || '0');
-        const amountInHuman = Number(ethers.formatUnits(amountIn, decimals));
-        const valueUsd = amountInHuman > 0 && sellInfo?.price > 0 ? amountInHuman * sellInfo.price : 0;
-        if (swap.txHash) {
-            await persistTargetSwapEvent({
-                walletAddress: targetWallet,
-                chainId,
-                txHash: swap.txHash,
-                txType: 'TARGET_SELL',
-                tokenIn: swap.tokenIn,
-                tokenOut: swap.tokenOut,
-                amountIn: swap.amountIn,
-                amountOut: swap.amountOut,
-                valueUsd,
-                blockTimestamp: new Date()
-            });
-        }
-        recordNewTrade(targetWallet, chainId, 'sell', valueUsd);
-    } catch (err: any) {
-        logger.warn(LogCode.SYS_ERROR, 'Failed to persist target sell value', { error: err?.message });
-    }
-
     await Promise.all(configs.map(async (config) => {
         const [positions, tokenInfo] = await Promise.all([
             prisma.position.findMany({
-                where: { userId: config.userId, tokenAddress: tokenToSell, chainId, status: 'open' },
+                where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
             }),
             getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true })
         ]);
 
         if (positions.length === 0) return;
 
+        // Leader stat tracking (only for mirror sell)
+        const balanceUsdForStats = positions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
+        recordNewTrade(targetWallet, chainId, 'sell', balanceUsdForStats);
+
         const positionIds = positions.map(p => p.id);
-        if ((await Promise.all(positionIds.map(id => isPositionExitLocked(id)))).some(Boolean)) {
+        if (positionIds.some(id => positionsBeingExited.has(id))) {
             logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: position already being processed', { userId: config.userId, token: tokenToSell });
             return;
         }
 
-        const allClaimed = await claimAllPositionExitLocks(positionIds);
-        if (!allClaimed) {
-            logger.throttled(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: distributed position exit lock busy', { userId: config.userId, token: tokenToSell });
-            return;
-        }
+        positionIds.forEach(id => positionsBeingExited.add(id));
         try {
             await executePositionExit({
                 userId: config.userId,
@@ -2565,7 +2168,7 @@ async function handleTargetSell(
                 config: { ...config, user: (config as any).user }
             });
         } finally {
-            await releaseAllPositionExitLocks(positionIds);
+            positionIds.forEach(id => positionsBeingExited.delete(id));
         }
     }));
 }
@@ -2586,12 +2189,12 @@ export function initAutoTradeService(): void {
     // NOTE: EVM watcher disabled - using Alchemy webhooks for real-time push notifications
     // startWatcher(); // Disabled - webhook is faster and more efficient
     startSolanaWatcher(); // Keep Solana watcher (no webhook alternative)
-    void startCopyTradePendingWatcher();
 
-    logger.info(LogCode.SYS_STARTUP, 'Auto trade service initialized (Solana watcher + EVM webhook + pending watcher enabled)', { mode: 'hybrid+pending' });
+    logger.info(LogCode.SYS_STARTUP, 'Auto trade service initialized (Solana watcher + EVM webhook enabled)', { mode: 'hybrid' });
 
-    // Start lifecycle cleanup job: resolve stale transient states
-    zombieCleanupInterval = setInterval(cleanupStalePositions, 5 * 60 * 1000);
+    // Start Zombie Cleanup Job (Risk #1 Mitigation)
+    // Runs every 5 minutes to remove stale PENDING locks
+    zombieCleanupInterval = setInterval(cleanupPendingPositions, 5 * 60 * 1000);
 }
 
 /**
@@ -2604,144 +2207,25 @@ export async function stopAutoTradeService(): Promise<void> {
         clearInterval(zombieCleanupInterval);
         zombieCleanupInterval = null;
     }
-    stopCopyTradePendingWatcher();
     // Note: watchers are event-driven, setting flag stops processing
 }
 
 /**
- * Cleanup stale transient states:
- * 1) pending -> closed (entry timeout)
- * 2) closing -> open/closed (recovery)
+ * Cleanup stale PENDING positions (Zombies)
  */
-async function cleanupStalePositions() {
+async function cleanupPendingPositions() {
     try {
-        const now = Date.now();
-        const pendingTimeoutMs = 5 * 60 * 1000;
-        const closingTimeoutMs = 3 * 60 * 1000;
-        const maxExitRetries = 3;
-
-        const stalePending = await prisma.position.updateMany({
+        const result = await prisma.position.deleteMany({
             where: {
                 status: 'pending',
-                createdAt: { lt: new Date(now - pendingTimeoutMs) }
-            },
-            data: {
-                status: 'closed',
-                exitReason: 'entry_timeout_pending',
-                closedAt: new Date()
+                createdAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } // Older than 5 mins
             }
         });
-
-        const recoveredClosing = await prisma.position.updateMany({
-            where: {
-                status: 'closing',
-                OR: [
-                    { lastExitAttempt: null, createdAt: { lt: new Date(now - closingTimeoutMs) } },
-                    { lastExitAttempt: { lt: new Date(now - closingTimeoutMs) } }
-                ],
-                exitRetryCount: { lt: maxExitRetries }
-            },
-            data: {
-                status: 'open',
-                exitRetryCount: { increment: 1 }
-            }
-        });
-
-        const failedClosing = await prisma.position.updateMany({
-            where: {
-                status: 'closing',
-                OR: [
-                    { lastExitAttempt: null, createdAt: { lt: new Date(now - closingTimeoutMs) } },
-                    { lastExitAttempt: { lt: new Date(now - closingTimeoutMs) } }
-                ],
-                exitRetryCount: { gte: maxExitRetries }
-            },
-            data: {
-                status: 'closed',
-                exitReason: 'exit_failed_max_retries',
-                closedAt: new Date()
-            }
-        });
-
-        if (stalePending.count > 0 || recoveredClosing.count > 0 || failedClosing.count > 0) {
-            logger.info(LogCode.SYS_INFO, 'Recovered stale position states', {
-                stalePending: stalePending.count,
-                recoveredClosing: recoveredClosing.count,
-                failedClosing: failedClosing.count
-            });
+        if (result.count > 0) {
+            logger.info(LogCode.SYS_INFO, `Cleaned up ${result.count} zombie pending positions (stale locks)`);
         }
     } catch (err: any) {
-        logger.error(LogCode.SYS_ERROR, 'Failed to clean up stale positions', { error: err.message });
-    }
-}
-
-function estimateExitMetricsForUntrackedClose(position: {
-    entryPrice: number;
-    entryUsdValue: number;
-}, exitPrice: number): { exitUsdValue: number; realizedPnlUsd: number; realizedPnlPct: number } {
-    const safeEntryPrice = Number(position.entryPrice || 0);
-    const safeEntryUsd = Number(position.entryUsdValue || 0);
-    const safeExitPrice = Number(exitPrice || 0);
-
-    if (safeEntryPrice <= 0 || safeEntryUsd <= 0 || safeExitPrice <= 0) {
-        return {
-            exitUsdValue: safeEntryUsd,
-            realizedPnlUsd: 0,
-            realizedPnlPct: 0
-        };
-    }
-
-    // We do not have the external sell tx, so estimate token amount from entry side.
-    const estimatedTokenAmount = safeEntryUsd / safeEntryPrice;
-    const estimatedExitUsd = estimatedTokenAmount * safeExitPrice;
-    const realizedPnlUsd = estimatedExitUsd - safeEntryUsd;
-    const realizedPnlPct = safeEntryUsd > 0 ? (realizedPnlUsd / safeEntryUsd) * 100 : 0;
-
-    return {
-        exitUsdValue: estimatedExitUsd,
-        realizedPnlUsd,
-        realizedPnlPct
-    };
-}
-
-async function closePositionsWithoutExitTx(params: {
-    userId: string;
-    tokenAddress: string;
-    chainId: number;
-    status: 'open' | 'closing';
-    reason: string;
-    preferredExitPrice?: number;
-}) {
-    const positions = await prisma.position.findMany({
-        where: {
-            userId: params.userId,
-            tokenAddress: params.tokenAddress,
-            chainId: params.chainId,
-            status: params.status
-        }
-    });
-
-    for (const pos of positions) {
-        const fallbackExitPrice = Number(params.preferredExitPrice || 0) > 0
-            ? Number(params.preferredExitPrice)
-            : (Number(pos.currentPrice || 0) > 0 ? Number(pos.currentPrice) : Number(pos.entryPrice || 0));
-        const estimated = estimateExitMetricsForUntrackedClose(pos, fallbackExitPrice);
-        await prisma.position.update({
-            where: { id: pos.id },
-            data: {
-                status: 'closed',
-                exitReason: params.reason,
-                closedAt: new Date(),
-                exitPrice: fallbackExitPrice > 0 ? fallbackExitPrice : null,
-                exitPriceDec: fallbackExitPrice > 0 ? toDec(fallbackExitPrice) : null,
-                exitUsdValue: estimated.exitUsdValue,
-                exitUsdValueDec: toDec(estimated.exitUsdValue),
-                realizedPnlUsd: estimated.realizedPnlUsd,
-                realizedPnlUsdDec: toDec(estimated.realizedPnlUsd),
-                realizedPnlPct: estimated.realizedPnlPct,
-                realizedPnlPctDec: toDec(estimated.realizedPnlPct)
-            }
-        });
+        logger.error(LogCode.SYS_ERROR, 'Failed to clean up zombie positions', { error: err.message });
     }
 }
 
@@ -2849,60 +2333,28 @@ export async function checkPositionsForExits(): Promise<void> {
     for (let i = 0; i < tokenList.length; i += TOKEN_BATCH_SIZE) {
         const batch = tokenList.slice(i, i + TOKEN_BATCH_SIZE);
         await Promise.all(batch.map(async ({ address, chainId }) => {
-            const tokenKey = `${address.toLowerCase()}_${chainId}`;
             try {
                 // Primary: DEX aggregator price (0x for EVM, Jupiter for Solana)
                 const dexChainId = chainId === 900 ? 'solana' : chainId;
                 const dexPrice = await getDexPrice(address, dexChainId);
 
                 if (dexPrice > 0) {
-                    const resolved = {
-                        symbol: 'UNKNOWN',
-                        name: 'Unknown Token',
-                        decimals: chainId === 900 ? 9 : 18,
-                        liquidity: 0,
-                        volume24h: 0,
-                        marketCap: 0,
+                    const info = await getTokenInfo(address, chainId).catch(() => null);
+                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, {
+                        ...(info || {}),
                         price: dexPrice,
                         provider: chainId === 900 ? 'jupiter-dex' : '0x-dex'
-                    };
-                    tokenPriceMap.set(tokenKey, resolved);
-                    setPositionPriceFallback(tokenKey, resolved);
+                    });
                     return;
                 }
 
                 // Fallback: full token info (RPC + GeckoTerminal)
                 const info = await getTokenInfo(address, chainId);
                 if (info && info.price) {
-                    tokenPriceMap.set(tokenKey, info);
-                    setPositionPriceFallback(tokenKey, info);
-                    return;
-                }
-
-                const stale = getPositionPriceFallback(tokenKey);
-                if (stale && stale.price > 0) {
-                    tokenPriceMap.set(tokenKey, {
-                        ...stale,
-                        provider: `${stale.provider || 'unknown'}-stale`
-                    });
-                    logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Using stale price fallback', {
-                        token: address,
-                        chainId
-                    });
+                    tokenPriceMap.set(`${address.toLowerCase()}_${chainId}`, info);
                 }
             } catch (err) {
                 logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Failed to fetch price', { token: address, error: (err as Error).message });
-                const stale = getPositionPriceFallback(tokenKey);
-                if (stale && stale.price > 0) {
-                    tokenPriceMap.set(tokenKey, {
-                        ...stale,
-                        provider: `${stale.provider || 'unknown'}-stale`
-                    });
-                    logger.throttled(LogCode.API_FETCH_FAILED, 'Monitoring: Using stale price fallback after fetch error', {
-                        token: address,
-                        chainId
-                    });
-                }
             }
         }));
     }
@@ -2914,7 +2366,7 @@ export async function checkPositionsForExits(): Promise<void> {
 
         await Promise.all(batch.map(async (position) => {
             // Skip if this position is already being processed
-            if (await isPositionExitLocked(position.id)) return;
+            if (positionsBeingExited.has(position.id)) return;
 
             try {
                 // STEP A: Check on-chain balance first (detect manual sells or dust)
@@ -2952,55 +2404,21 @@ export async function checkPositionsForExits(): Promise<void> {
                         const MIN_AGE_FOR_AUTO_CLOSE_MS = 2 * 60 * 1000; // 2 minutes
 
                         if (positionAgeMs < MIN_AGE_FOR_AUTO_CLOSE_MS) {
-                            // Position is too new - likely a failed/reverted buy transaction.
-                            // Close silently (no notification), but keep audit trail.
-                            logger.warn(LogCode.EXE_TX_REVERTED, 'Closing new position with 0 balance (likely reverted buy)', {
+                            // Position is too new - likely a failed/reverted buy transaction
+                            // Delete the position silently instead of notifying about a "sell"
+                            logger.warn(LogCode.EXE_TX_REVERTED, 'Deleting new position with 0 balance (likely reverted buy)', {
                                 positionId: position.id,
                                 ageSeconds: Math.round(positionAgeMs / 1000),
                                 chainId: position.chainId
                             });
-                            await prisma.position.update({
-                                where: { id: position.id },
-                                data: {
-                                    status: 'closed',
-                                    exitReason: 'entry_failed_zero_balance',
-                                    closedAt: new Date(),
-                                    exitPrice: 0,
-                                    exitPriceDec: toDec(0),
-                                    exitUsdValue: 0,
-                                    exitUsdValueDec: toDec(0),
-                                    realizedPnlUsd: -(position.entryUsdValue || 0),
-                                    realizedPnlUsdDec: toDec(-(position.entryUsdValue || 0)),
-                                    realizedPnlPct: -100,
-                                    realizedPnlPctDec: toDec(-100)
-                                }
-                            });
+                            await prisma.position.delete({ where: { id: position.id } });
                             return; // Stop processing - no notification needed
                         }
 
                         logger.info(LogCode.EXE_TX_CONFIRMED, 'Auto-closing position: 0 balance found on-chain (likely manual sell)', { positionId: position.id, chainId: position.chainId });
-                        const tokenKeyForManual = `${position.tokenAddress.toLowerCase()}_${position.chainId}`;
-                        const priceHint = tokenPriceMap.get(tokenKeyForManual)?.price
-                            || position.currentPrice
-                            || position.entryPrice
-                            || 0;
-                        const estimated = estimateExitMetricsForUntrackedClose(position, Number(priceHint));
                         await prisma.position.update({
                             where: { id: position.id },
-                            data: {
-                                status: 'closed',
-                                exitReason: 'manual',
-                                exitTxHash: 'MANUAL_ON_CHAIN',
-                                closedAt: new Date(),
-                                exitPrice: Number(priceHint) > 0 ? Number(priceHint) : null,
-                                exitPriceDec: Number(priceHint) > 0 ? toDec(Number(priceHint)) : null,
-                                exitUsdValue: estimated.exitUsdValue,
-                                exitUsdValueDec: toDec(estimated.exitUsdValue),
-                                realizedPnlUsd: estimated.realizedPnlUsd,
-                                realizedPnlUsdDec: toDec(estimated.realizedPnlUsd),
-                                realizedPnlPct: estimated.realizedPnlPct,
-                                realizedPnlPctDec: toDec(estimated.realizedPnlPct)
-                            }
+                            data: { status: 'closed', exitReason: 'manual', exitTxHash: 'MANUAL_ON_CHAIN', closedAt: new Date() }
                         });
 
                         // Notify user that position was auto-closed
@@ -3032,7 +2450,7 @@ export async function checkPositionsForExits(): Promise<void> {
 
                 if (!tokenInfo) {
                     // Price not available in batch - LOG THIS! Critical for debugging TP failures
-                    logger.throttled(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
+                    logger.warn(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Price not available', {
                         positionId: position.id,
                         token: position.tokenSymbol || position.tokenAddress,
                         chainId: position.chainId,
@@ -3042,16 +2460,6 @@ export async function checkPositionsForExits(): Promise<void> {
                 }
 
                 const currentPrice = tokenInfo.price;
-
-                // [Safety]: Double check price validity (even if tokenInfo exists)
-                if (!currentPrice || currentPrice <= 0 || isNaN(currentPrice)) {
-                    logger.throttled(LogCode.API_FETCH_FAILED, 'TP/SL check skipped: Invalid price value', {
-                        positionId: position.id,
-                        token: position.tokenSymbol || undefined,
-                        rawPrice: currentPrice
-                    });
-                    return;
-                }
                 const profitLossPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
 
                 // Get config
@@ -3070,8 +2478,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         currentPrice: currentPrice,
                         profitLossPct: profitLossPct.toFixed(2) + '%',
                         takeProfitPct: config.takeProfitPct ? config.takeProfitPct + '%' : 'not set',
-                        stopLossPct: config.stopLossPct ? config.stopLossPct + '%' : 'not set',
-                        dynamicTP: (config as any).enableDynamicTP ? `ON (Min: ${(config as any).dynamicTPMinProfitPct}%)` : 'OFF'
+                        stopLossPct: config.stopLossPct ? config.stopLossPct + '%' : 'not set'
                     });
                 }
 
@@ -3083,8 +2490,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         profitLossPct: profitLossPct.toFixed(2)
                     });
 
-                    const lockAcquired = await claimPositionExitLock(position.id);
-                    if (!lockAcquired) return;
+                    positionsBeingExited.add(position.id);
                     try {
                         await executePositionExit({
                             userId: position.userId,
@@ -3095,7 +2501,7 @@ export async function checkPositionsForExits(): Promise<void> {
                             config: { ...config, user: position.user }
                         });
                     } finally {
-                        await releasePositionExitLock(position.id);
+                        positionsBeingExited.delete(position.id);
                     }
                 }
                 // Check stop loss
@@ -3106,8 +2512,7 @@ export async function checkPositionsForExits(): Promise<void> {
                         profitLossPct: profitLossPct.toFixed(2)
                     });
 
-                    const lockAcquired = await claimPositionExitLock(position.id);
-                    if (!lockAcquired) return;
+                    positionsBeingExited.add(position.id);
                     try {
                         await executePositionExit({
                             userId: position.userId,
@@ -3118,7 +2523,7 @@ export async function checkPositionsForExits(): Promise<void> {
                             config: { ...config, user: position.user }
                         });
                     } finally {
-                        await releasePositionExitLock(position.id);
+                        positionsBeingExited.delete(position.id);
                     }
                 } else {
                     // === Dynamic Take Profit Check ===
@@ -3156,8 +2561,7 @@ export async function checkPositionsForExits(): Promise<void> {
                                 });
                             }
 
-                            const lockAcquired = await claimPositionExitLock(position.id);
-                            if (!lockAcquired) return;
+                            positionsBeingExited.add(position.id);
                             try {
                                 await executePositionExit({
                                     userId: position.userId,
@@ -3170,7 +2574,7 @@ export async function checkPositionsForExits(): Promise<void> {
                                     // otherwise it uses default. For now assume default is okay or logic inside handles it)
                                 });
                             } finally {
-                                await releasePositionExitLock(position.id);
+                                positionsBeingExited.delete(position.id);
                             }
                         }
                     }
@@ -3212,13 +2616,13 @@ function getSlippageBps(userSettings: any): number {
     return Math.floor(userSettings.customSlippage * 100);
 }
 
-async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint | null> {
+async function getNativeBalance(walletAddress: string, chainId: number): Promise<bigint> {
     try {
         const raw = await rpcGetNativeBalance(walletAddress, chainId);
         return BigInt(raw);
     } catch (error) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Failed to fetch native balance for gas check', { wallet: walletAddress, chainId });
-        return null;
+        return 0n; // Fail open (don't block trade on RPC error, assume enough gas)
     }
 }
 

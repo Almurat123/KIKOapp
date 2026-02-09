@@ -211,7 +211,7 @@ function hasSwapKeywords(text: string): boolean {
  * Extract token symbols from message (simple pattern matching)
  */
 function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: string } {
-  const commonTokens = ['ETH', 'USDC', 'USDT', 'DAI', 'WBTC', 'BTC', 'BNB', 'MATIC', 'AVAX', 'SOL'];
+  const commonTokens = ['ETH', 'USDC', 'USDT', 'DAI', 'WBTC', 'BTC', 'BNB', 'MATIC', 'POL', 'AVAX', 'SOL'];
   const upperText = text.toUpperCase();
   const found: string[] = [];
 

@@ -57,6 +57,8 @@ export interface TokenSearchResult {
   holders?: number;
   launchpad?: string;
   creatorAddress?: string;
+  creatorUrl?: string;
+  creatorLabel?: string;
   launchMultiple?: number;
 }
 

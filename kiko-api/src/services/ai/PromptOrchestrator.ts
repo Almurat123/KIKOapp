@@ -114,6 +114,13 @@ USER_QUERY_END
     }
 
     private buildContextBlock(ctx: UserContext): string {
+        const maxTokenEntries = 12;
+        const maxPageContextChars = 800;
+        const truncateText = (text: string, maxLen: number): string => {
+            if (text.length <= maxLen) return text;
+            return `${text.slice(0, maxLen)}...`;
+        };
+
         const parts: string[] = [];
         parts.push(`[CONTEXT]`);
 
@@ -133,10 +140,13 @@ USER_QUERY_END
 
 
         if (ctx.balance && Object.keys(ctx.balance).length > 0) {
-            const tokenStr = Object.entries(ctx.balance)
+            const entries = Object.entries(ctx.balance);
+            const preview = entries.slice(0, maxTokenEntries)
                 .map(([k, v]) => `${k}=${v}`)
                 .join(', ');
-            parts.push(`- Tokens: ${tokenStr}`);
+            const remaining = entries.length - maxTokenEntries;
+            const suffix = remaining > 0 ? `, ... (+${remaining} more)` : '';
+            parts.push(`- Tokens: ${preview}${suffix}`);
         }
 
         if (ctx.pendingSwapToken) {
@@ -145,7 +155,7 @@ USER_QUERY_END
 
         if (ctx.currentPage) parts.push(`- Current Page: ${ctx.currentPage}`);
         if (ctx.pageContext) {
-            parts.push(`- Page Details:\n${ctx.pageContext}`);
+            parts.push(`- Page Details:\n${truncateText(ctx.pageContext, maxPageContextChars)}`);
         }
 
         if (ctx.toolConfig && Object.keys(ctx.toolConfig).length > 0) {

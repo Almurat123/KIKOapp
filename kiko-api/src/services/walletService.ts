@@ -19,6 +19,48 @@ function accessRedisKey(cacheKey: string): string {
     return `wallet:access:${cacheKey}`;
 }
 
+const TRUSTED_SYMBOLS = new Set([
+    'USDC', 'USDT', 'DAI', 'USDBC', 'USDbC',
+    'ETH', 'WETH', 'BTC', 'WBTC',
+    'MATIC', 'WMATIC', 'SOL', 'BNB',
+    'POL', 'OP', 'ARB'
+]);
+const MIN_VALUE_USD = 0.05; // Lowered to $0.05 to catch small but real balances (e.g. dust)
+const SPAM_PATTERNS = [
+    't.me', 'telegram', 'reward', 'airdrop', 'claim',
+    'visit', 'bonus', 'promo', 'http', 'www', '.com',
+    'winner', 'voucher', 'free'
+];
+
+function filterSpamTokens(balance: WalletBalance): WalletBalance {
+    if (!balance.tokens || balance.tokens.length === 0) return balance;
+
+    const filteredTokens = balance.tokens.filter((t: any) => {
+        const symbol = (t.symbol || '').toUpperCase();
+        const name = (t.name || '').toString();
+        const symbolRaw = (t.symbol || '').toString();
+
+        // 1. Check for explicit spam patterns in symbol or name
+        const lowerSymbol = symbolRaw.toLowerCase();
+        const lowerName = name.toLowerCase();
+        if (SPAM_PATTERNS.some(p => lowerSymbol.includes(p) || lowerName.includes(p))) return false;
+
+        // 2. Always keep trusted tokens/stables regardless of value
+        if (TRUSTED_SYMBOLS.has(symbol)) return true;
+
+        // 3. Keep tokens with meaningful USD value
+        if (t.valueUsd && t.valueUsd >= MIN_VALUE_USD) return true;
+
+        // 4. If legacy 'price' field exists and value > threshold
+        const usd = typeof t.valueUsd === 'number' ? t.valueUsd : (parseFloat(t.tokenBalance) * (t.price || 0));
+        if (usd >= MIN_VALUE_USD) return true;
+
+        return false;
+    });
+
+    return { ...balance, tokens: filteredTokens };
+}
+
 export const walletService = {
     /**
      * Get real-time balance for an address
@@ -28,46 +70,7 @@ export const walletService = {
         try {
             const results = await getPortfolio(address, [chain]);
             const balance = results[chain] || { ethBalance: '0', ethBalanceFormatted: 0, tokens: [] };
-
-            // Filter spam/low-value tokens
-            // Keep: trusted tokens with meaningful value, drop common scam patterns
-            const TRUSTED_SYMBOLS = new Set([
-                'USDC', 'USDT', 'DAI', 'USDBC',
-                'ETH', 'WETH', 'BTC', 'WBTC',
-                'MATIC', 'WMATIC'
-            ]);
-            const MIN_VALUE_USD = 1; // Minimum $1 to include
-            const SPAM_PATTERNS = [
-                't.me',
-                'telegram',
-                'reward',
-                'airdrop',
-                'claim',
-                'visit',
-                'bonus',
-                'promo'
-            ];
-            const hasSpamText = (value: string) => {
-                const lower = value.toLowerCase();
-                return SPAM_PATTERNS.some(pattern => lower.includes(pattern));
-            };
-
-            if (balance.tokens && balance.tokens.length > 0) {
-                balance.tokens = balance.tokens.filter((t: any) => {
-                    const symbol = (t.symbol || '').toUpperCase();
-                    const name = (t.name || '').toString();
-                    const symbolRaw = (t.symbol || '').toString();
-                    if (hasSpamText(symbolRaw) || hasSpamText(name)) return false;
-                    // Always keep trusted stablecoins
-                    if (TRUSTED_SYMBOLS.has(symbol)) return true;
-                    // Keep tokens with meaningful USD value
-                    if (t.valueUsd && t.valueUsd >= MIN_VALUE_USD) return true;
-                    // Filter out: no price = likely scam/unknown
-                    return false;
-                });
-            }
-
-            return balance;
+            return filterSpamTokens(balance);
         } catch (err) {
             // Fallback to direct RPC (native balance only)
             const raw = await getNativeBalance(address, chain);
@@ -109,7 +112,18 @@ export const walletService = {
         const inflight = allBalancesInflight.get(cacheKey);
         if (inflight) return inflight;
 
-        const promise = getNativeBalances(address, chains, solanaAddress);
+        // [Change]: Use getPortfolio instead of getNativeBalances to ensure all tokens are fetched
+        // [Ref]: User request to fix missing tokens in balance view
+        const promise = (async () => {
+            const rawData = await getPortfolio(address, chains, solanaAddress);
+            const filteredData: Record<string, WalletBalance> = {};
+
+            for (const [chain, balance] of Object.entries(rawData)) {
+                filteredData[chain] = filterSpamTokens(balance);
+            }
+            return filteredData;
+        })();
+
         allBalancesInflight.set(cacheKey, promise);
         try {
             const data = await promise;

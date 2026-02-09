@@ -484,7 +484,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id VARCHAR(100) NOT NULL,  -- Privy user ID (DID)
   title VARCHAR(500) DEFAULT 'New Chat',
-  model VARCHAR(50) DEFAULT 'deepseek-chat',
+  model VARCHAR(50) DEFAULT 'gpt-4o-mini',
   status VARCHAR(20) DEFAULT 'active',  -- active, archived
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()

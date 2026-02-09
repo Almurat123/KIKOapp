@@ -70,12 +70,14 @@ async function hydrateTrendingMetadata(chain: string, rows: any[]): Promise<any[
       if (!row || typeof row !== 'object') return;
       const address = typeof row.address === 'string' ? row.address : '';
       if (!address) return;
-      if (row.creatorAddress && Number.isFinite(row.launchMultiple || NaN)) return;
+      if (row.creatorAddress && row.creatorUrl && Number.isFinite(row.launchMultiple || NaN)) return;
 
       const raw = await get(tokenMetaCacheKey(chain, address));
       if (!raw) return;
-      const meta = JSON.parse(raw) as { creatorAddress?: string; launchMultiple?: number };
+      const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number };
       if (meta?.creatorAddress && !row.creatorAddress) row.creatorAddress = meta.creatorAddress;
+      if (meta?.creatorUrl && !row.creatorUrl) row.creatorUrl = meta.creatorUrl;
+      if (meta?.creatorLabel && !row.creatorLabel) row.creatorLabel = meta.creatorLabel;
       if (Number.isFinite(meta?.launchMultiple || NaN) && !Number.isFinite(row.launchMultiple || NaN)) {
         row.launchMultiple = meta.launchMultiple;
       }

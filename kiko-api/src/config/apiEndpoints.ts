@@ -306,8 +306,9 @@ function getSolanaEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
 
   // Public endpoints first (cheap strategy)
   push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
-  push('DRPC', 'https://solana.drpc.org', false, 'public');
   push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
+  // dRPC free tier blocks some standard methods (e.g. getSlot/getTransaction), keep only as last fallback.
+  push('DRPC', 'https://solana.drpc.org', false, 'fallback');
 
   // Premium / authenticated endpoints
   if (env.apiKeys.alchemy) {
@@ -405,8 +406,8 @@ function getVerifiedFreeEndpoints(chainSlug: string): { name: string; url: strin
     // Solana: Public endpoints
     'solana': [
       { name: 'PublicNode', url: 'https://solana-rpc.publicnode.com' },
-      { name: 'DRPC', url: 'https://solana.drpc.org' },
       { name: 'Solana Official', url: 'https://api.mainnet-beta.solana.com' },
+      { name: 'DRPC', url: 'https://solana.drpc.org' },
     ],
   };
 

@@ -1,7 +1,7 @@
 /**
  * AI Routes
  * Proxy for AI API calls to avoid CORS issues
- * Supports DeepSeek tool calls for web search with real-time streaming
+ * Supports DeepSeek/GPT tool calls for web search with real-time streaming
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -15,6 +15,11 @@ import { fetchJson } from '../config/unifiedApiService.js';
 import { resolveGeoFromIp } from '../services/ipGeo.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { evaluateUsageAccess } from '../services/usageAccess.js';
+import { insertUsageRecord } from '../repositories/billingRepository.js';
+import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
+import { randomUUID } from 'crypto';
+import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -49,7 +54,26 @@ interface ChatRequest {
     };
 }
 
-const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
+const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+
+const SIMPLE_THINKING_PROMPT = `You are KiKo, a crypto research assistant embedded in the KiKo app.
+You are in thinking mode: focus on token information and discussion, not trade execution.
+Keep responses concise and helpful.`.trim();
+
+function buildThinkingSystemPrompt(model: string): string {
+    if (model.startsWith('grok')) {
+        return `${SIMPLE_THINKING_PROMPT}\n\n${AnalystPolicy}`;
+    }
+    return SIMPLE_THINKING_PROMPT;
+}
+
+function normalizeModel(model?: string): string {
+    const normalized = (model || '').toLowerCase().trim();
+    if (!normalized) return 'deepseek-chat';
+    if (normalized === 'gpt5-2' || normalized === 'gpt-5.2') return 'gpt-5-mini';
+    return normalized;
+}
 
 const THINKING_TOOL_ALLOWLIST = new Set<string>([
     'get_token_info',
@@ -58,9 +82,6 @@ const THINKING_TOOL_ALLOWLIST = new Set<string>([
     'get_trending_tokens',
     'get_market_overview',
     'get_economic_calendar',
-    'get_wallet_info',
-    'analyze_wallet_pnl',
-    'get_user_favorites',
     'check_token_risk',
     'get_trending_casts',
     'search_farcaster_casts',
@@ -80,11 +101,13 @@ const THINKING_TOOL_ALLOWLIST = new Set<string>([
     'external_web_search'
 ]);
 
-// Helper to get DeepSeek API Key
-function getDeepSeekApiKey(): string {
-    const key = process.env.DEEPSEEK_API_KEY;
+// Helper to get API Key by model provider
+function getApiKey(model: string): string {
+    const normalized = normalizeModel(model);
+    const useOpenAI = normalized.startsWith('gpt');
+    const key = useOpenAI ? process.env.OPENAI_API_KEY : process.env.DEEPSEEK_API_KEY;
     if (!key) {
-        throw new Error('DEEPSEEK_API_KEY is not set in environment variables');
+        throw new Error(useOpenAI ? 'OPENAI_API_KEY is not set in environment variables' : 'DEEPSEEK_API_KEY is not set in environment variables');
     }
     return key;
 }
@@ -293,6 +316,44 @@ async function processStreamResponse(
     return { hasToolCalls, toolCalls, assistantContent, reasoningContent, usage };
 }
 
+async function persistProxyUsage(params: {
+    userId?: string;
+    model: string;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+    toolCallsCount?: number;
+    isFree?: boolean;
+}): Promise<void> {
+    if (!params.userId) return;
+
+    const usage = params.usage || {};
+    const promptTokens = Number(usage.prompt_tokens || 0);
+    const completionTokens = Number(usage.completion_tokens || 0);
+    const totalTokens = Number(usage.total_tokens || promptTokens + completionTokens);
+    const modelCategory = getBillingCategory(params.model);
+    const toolCallsCount = Number(params.toolCallsCount || 0);
+    const usdCost = computeUsdCost(params.usage, params.model, toolCallsCount);
+
+    try {
+        await insertUsageRecord({
+            assistantMessageId: `ai-route-${randomUUID()}`,
+            userId: params.userId,
+            model: params.model,
+            modelCategory,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            toolCallsCount,
+            usdCost,
+            dateUtc: getUtcDateString(),
+            isFree: params.isFree !== false,
+        });
+    } catch (error: any) {
+        logger.warn(LogCode.DB_TRANSACTION_FAILED, '[AI Routes] Usage ledger insert failed', {
+            error: error?.message || error
+        });
+    }
+}
+
 export async function aiRoutes(fastify: FastifyInstance) {
     fastify.post<{ Body: ChatRequest }>(
         '/chat',
@@ -308,12 +369,44 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     enable_search = true
                 } = request.body;
 
+                const normalizedModel = normalizeModel(model);
+                const userId = (request as any).user?.sub;
+
+                if (!userId) {
+                    return reply.code(401).send({ error: 'Unauthorized' });
+                }
+
+                let usageDecision: Awaited<ReturnType<typeof evaluateUsageAccess>>;
+                try {
+                    usageDecision = await evaluateUsageAccess({
+                        userId,
+                        model: normalizedModel
+                    });
+                } catch (usageError: any) {
+                    logger.error(LogCode.SYS_ERROR, '[AI Routes] Usage limit check failed', { error: usageError?.message || usageError });
+                    return reply.code(500).send({
+                        error: 'Usage limit check failed',
+                        reason: 'USAGE_CHECK_FAILED'
+                    });
+                }
+
+                if (!usageDecision.allowed) {
+                    return reply.code(429).send({
+                        error: 'Daily limit reached',
+                        reason: usageDecision.reason,
+                        dateUtc: usageDecision.dateUtc,
+                        totalUsed: usageDecision.totalUsed,
+                        totalLimit: usageDecision.totalLimit,
+                        tokenBalance: usageDecision.tokenBalance
+                    });
+                }
+
                 // -----------------------------------------------------------------
                 // GROK PROXY: Forward to kiko-python if model is grok-*
                 // This keeps Grok logic (tool use, search) in the Python service
                 // while providing a unified CORS-safe endpoint for the frontend.
                 // -----------------------------------------------------------------
-                if (model.startsWith('grok-')) {
+                if (normalizedModel.startsWith('grok-')) {
                     const grokServiceUrl = process.env.GROK_SERVICE_URL || 'http://localhost:8000/grok';
                     logger.info(LogCode.AI_MODE_ROUTED, `[AI Routes] Routing Grok request to ${grokServiceUrl}`);
 
@@ -327,12 +420,22 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             isWalletConnected: !!request.body.walletAddress,
                         });
                         const intentType = parsedIntent.highLevel.type;
-                        const systemPrompt = promptOrchestrator.getSystemPrompt('grok', intentType);
+                        const routingMode = (intentType === 'TRADING' || intentType === 'COPY_TRADING') ? 'execution' : 'thinking';
+                        logger.info(LogCode.AI_MODE_ROUTED, '[AI Routes] Intent routed', {
+                            intent: intentType,
+                            routingMode,
+                            model: normalizedModel,
+                        });
+                        const systemPrompt = routingMode === 'thinking'
+                            ? buildThinkingSystemPrompt('grok')
+                            : promptOrchestrator.getSystemPrompt('grok', intentType, { routingMode });
 
                         const contextLines: string[] = [];
-                        if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
-                        if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
-                            contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
+                        if (routingMode !== 'thinking') {
+                            if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
+                            if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
+                                contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
+                            }
                         }
                         const contextBlock = contextLines.length > 0
                             ? `[CONTEXT]\n${contextLines.join('\n')}`
@@ -412,23 +515,59 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                             const reader = response.body!.getReader();
                             const decoder = new TextDecoder();
-                            const encoder = new TextEncoder();
+                            let grokBuffer = '';
+                            let grokUsage: any = null;
+                            let grokToolCallsCount = 0;
 
                             try {
                                 while (true) {
                                     const { done, value } = await reader.read();
                                     if (done) break;
                                     reply.raw.write(value);
+
+                                    grokBuffer += decoder.decode(value, { stream: true });
+                                    const lines = grokBuffer.split('\n');
+                                    grokBuffer = lines.pop() || '';
+
+                                    for (const line of lines) {
+                                        if (!line.startsWith('data: ')) continue;
+                                        const data = line.slice(6).trim();
+                                        if (!data || data === '[DONE]') continue;
+                                        try {
+                                            const parsed = JSON.parse(data);
+                                            if (parsed.usage) grokUsage = parsed.usage;
+                                            const deltaToolCalls = parsed?.choices?.[0]?.delta?.tool_calls;
+                                            if (Array.isArray(deltaToolCalls)) {
+                                                grokToolCallsCount += deltaToolCalls.length;
+                                            }
+                                        } catch {
+                                            // ignore malformed intermediate chunks
+                                        }
+                                    }
                                 }
                             } catch (error) {
                                 logger.error(LogCode.WS_ERROR, '[AI Routes] Grok stream interrupted', { error });
                             } finally {
+                                await persistProxyUsage({
+                                    userId,
+                                    model: normalizedModel,
+                                    usage: grokUsage,
+                                    toolCallsCount: grokToolCallsCount,
+                                    isFree: true
+                                });
                                 reply.raw.end();
                                 reader.releaseLock();
                             }
                             return;
                         } else {
                             const data = await response.json();
+                            await persistProxyUsage({
+                                userId,
+                                model: normalizedModel,
+                                usage: data?.usage,
+                                toolCallsCount: 0,
+                                isFree: true
+                            });
                             return reply.send(data);
                         }
                     } catch (error: any) {
@@ -444,7 +583,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     });
                 }
 
-                const apiKey = getDeepSeekApiKey();
+                const apiKey = getApiKey(normalizedModel);
+                const targetUrl = normalizedModel.startsWith('gpt') ? OPENAI_API_URL : DEEPSEEK_API_URL;
                 const origin = request.headers.origin || 'http://localhost:5173';
                 let conversationMessages = [...messages];
 
@@ -456,12 +596,22 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     isWalletConnected: !!request.body.walletAddress,
                 });
                 const intentType = parsedIntent.highLevel.type;
-                const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intentType);
+                const routingMode = (intentType === 'TRADING' || intentType === 'COPY_TRADING') ? 'execution' : 'thinking';
+                logger.info(LogCode.AI_MODE_ROUTED, '[AI Routes] Intent routed', {
+                    intent: intentType,
+                    routingMode,
+                    model: normalizedModel,
+                });
+                const systemPrompt = routingMode === 'thinking'
+                    ? buildThinkingSystemPrompt(normalizedModel)
+                    : promptOrchestrator.getSystemPrompt('deepseek', intentType, { routingMode });
 
                 const contextLines: string[] = [];
-                if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
-                if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
-                    contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
+                if (routingMode !== 'thinking') {
+                    if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
+                    if (request.body.chain_context?.chainId && request.body.chain_context?.chainName) {
+                        contextLines.push(`- Chain: ${request.body.chain_context.chainName} (${request.body.chain_context.chainId})`);
+                    }
                 }
                 const contextBlock = contextLines.length > 0
                     ? `[CONTEXT]\n${contextLines.join('\n')}`
@@ -479,6 +629,8 @@ export async function aiRoutes(fastify: FastifyInstance) {
                 const collectedCitations: string[] = [];
                 const collectedClientActions: any[] = [];
                 let iteration = 0;
+                let totalToolCallsCount = 0;
+                let lastUsage: any = null;
                 // Set up streaming response headers
                 if (stream) {
                     reply.raw.writeHead(200, {
@@ -498,12 +650,16 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     iteration++;
 
                     const requestBody: any = {
-                        model,
+                        model: normalizedModel,
                         messages: conversationMessages,
                         temperature,
                         max_tokens,
                         stream: true, // Always use streaming for real-time output
                     };
+                    if (normalizedModel.startsWith('gpt')) {
+                        // OpenAI streaming requires include_usage to emit token usage chunks.
+                        requestBody.stream_options = { include_usage: true };
+                    }
 
                     if (enable_search) {
                         const freeIntents = new Set(['MARKET_ANALYSIS', 'SOCIAL_SENSING', 'GENERAL_CHAT', 'PREDICTION_MARKETS', 'RISK_SCAN']);
@@ -541,7 +697,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                     // Observability: log high-level request intent (safe, no message content)
                     const toolCount = requestBody.tools?.length || 0;
-                    logger.info(LogCode.AI_API_CALL, `[AI Routes] DeepSeek request summary`, { model, enable_search, toolCount, tool_choice: requestBody.tool_choice || 'none' });
+                    logger.info(LogCode.AI_API_CALL, `[AI Routes] DeepSeek request summary`, { model: normalizedModel, enable_search, toolCount, tool_choice: requestBody.tool_choice || 'none' });
 
                     logger.debug(LogCode.AI_API_CALL, `[AI Routes] Iteration ${iteration}: Streaming request to DeepSeek`);
 
@@ -552,7 +708,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                     for (let attempt = 0; attempt < maxRetries; attempt++) {
                         try {
-                            response = await fetch(DEEPSEEK_API_URL, {
+                            response = await fetch(targetUrl, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
@@ -626,10 +782,14 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                     const result = streamResult as any;
                     const { hasToolCalls, toolCalls, assistantContent, reasoningContent, usage } = result;
+                    if (usage) {
+                        lastUsage = usage;
+                    }
 
                     logger.debug(LogCode.AI_API_CALL, `[AI Routes] Stream processed`, { hasToolCalls, toolCallsCount: toolCalls.length, contentLength: assistantContent.length });
 
                     if (hasToolCalls && toolCalls.length > 0) {
+                        totalToolCallsCount += toolCalls.length;
                         logger.info(LogCode.AI_TOOL_USED, `[AI Routes] Tool calls detected`, { count: toolCalls.length });
 
                         // Send tool call status to client
@@ -638,7 +798,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                                 id: 'tool-status',
                                 object: 'chat.completion.chunk',
                                 created: Math.floor(Date.now() / 1000),
-                                model,
+                                model: normalizedModel,
                                 choices: [{
                                     index: 0,
                                     delta: { tool_status: 'Searching the web...' },
@@ -699,7 +859,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             id: 'extras',
                             object: 'chat.completion.chunk',
                             created: Math.floor(Date.now() / 1000),
-                            model,
+                            model: normalizedModel,
                             choices: [{
                                 index: 0,
                                 delta: {},
@@ -716,16 +876,30 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     }
 
                     if (stream) {
+                        await persistProxyUsage({
+                            userId,
+                            model: normalizedModel,
+                            usage: lastUsage,
+                            toolCallsCount: totalToolCallsCount,
+                            isFree: true
+                        });
                         // Send [DONE] marker to indicate stream completion
                         reply.raw.write('data: [DONE]\n\n');
                         reply.raw.end();
                     } else {
+                        await persistProxyUsage({
+                            userId,
+                            model: normalizedModel,
+                            usage: lastUsage,
+                            toolCallsCount: totalToolCallsCount,
+                            isFree: true
+                        });
                         // Non-streaming response
                         return reply.send({
                             id: 'response',
                             object: 'chat.completion',
                             created: Math.floor(Date.now() / 1000),
-                            model,
+                            model: normalizedModel,
                             choices: [{
                                 index: 0,
                                 message: {
@@ -748,7 +922,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     try {
                         // Add a system message asking for summary
                         const summaryRequest = {
-                            model,
+                            model: normalizedModel,
                             messages: [
                                 ...conversationMessages.slice(0, -1), // Remove last assistant message
                                 {
@@ -761,7 +935,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             stream: true,
                         };
 
-                        const summaryResponse = await fetch(DEEPSEEK_API_URL, {
+                        const summaryResponse = await fetch(targetUrl, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -786,9 +960,23 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     }
 
                     // Send [DONE] marker
+                    await persistProxyUsage({
+                        userId,
+                        model: normalizedModel,
+                        usage: lastUsage,
+                        toolCallsCount: totalToolCallsCount,
+                        isFree: true
+                    });
                     reply.raw.write('data: [DONE]\n\n');
                     reply.raw.end();
                 } else {
+                    await persistProxyUsage({
+                        userId,
+                        model: normalizedModel,
+                        usage: lastUsage,
+                        toolCallsCount: totalToolCallsCount,
+                        isFree: true
+                    });
                     return reply.code(500).send({
                         error: `Maximum tool call iterations (${maxIterations}) reached. Please try breaking your request into smaller parts.`,
                         iterations: maxIterations
@@ -891,8 +1079,9 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
     fastify.get('/health', async (request, reply) => {
         try {
-            const apiKey = getDeepSeekApiKey();
-            return reply.send({ status: 'ok', hasApiKey: !!apiKey });
+            const hasDeepSeekApiKey = !!process.env.DEEPSEEK_API_KEY;
+            const hasOpenAIApiKey = !!process.env.OPENAI_API_KEY;
+            return reply.send({ status: 'ok', hasDeepSeekApiKey, hasOpenAIApiKey });
         } catch (error: any) {
             return reply.code(500).send({ status: 'error', message: error.message });
         }

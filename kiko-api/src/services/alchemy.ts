@@ -1318,7 +1318,7 @@ const PORTFOLIO_TIMEOUT_MS = 12_000;
 const METADATA_TIMEOUT_MS = 6_000;
 const PRICE_TIMEOUT_MS = 8_000;
 const MAX_METADATA_TOKENS_EVM = 80;
-const MAX_BATCH_SIZE = 10; // ✅ Alchemy best practice: Keep batch size small (10 per request)
+const MAX_BATCH_SIZE = 50; // ✅ Increased batch size for performance (Alchemy allows up to 100 for some endpoints)
 const MAX_PRICE_TOKENS_EVM = 120;
 const tokenPriceCache = new Map<string, { price: number; timestamp: number }>();
 const tokenPriceInFlight = new Map<string, Promise<number | undefined>>();
@@ -1417,14 +1417,18 @@ async function fetchTokenPrices(
   if (missing.length === 0) return results;
 
   const batchSize = 25;
+  const batches = [];
   for (let i = 0; i < missing.length; i += batchSize) {
-    const batch = missing.slice(i, i + batchSize);
+    batches.push(missing.slice(i, i + batchSize));
+  }
+
+  await Promise.all(batches.map(async batch => {
     const priceMap = await fetchAlchemyPricesByAddress(apiKey, network, batch);
     Object.entries(priceMap).forEach(([addr, price]) => {
       results[addr.toLowerCase()] = price;
       setCachedTokenPrice(chain, addr, price);
     });
-  }
+  }));
 
   // [Removed] External fallback logic removed to prevent rate limiting issues.
   // If Alchemy doesn't have the price, we respect that as the source of truth.
@@ -1508,9 +1512,13 @@ async function getTokenMetadataBatch(
   const results: Record<string, any> = {};
 
   // ✅ Split into smaller batches (Alchemy best practice)
-  // Instead of 80 requests in one batch, do 8 batches of 10
+  // Instead of 80 requests in one batch, do batches of MAX_BATCH_SIZE
+  const batches = [];
   for (let batchStart = 0; batchStart < uniqueAddresses.length; batchStart += MAX_BATCH_SIZE) {
-    const batchAddresses = uniqueAddresses.slice(batchStart, batchStart + MAX_BATCH_SIZE);
+    batches.push(uniqueAddresses.slice(batchStart, batchStart + MAX_BATCH_SIZE));
+  }
+
+  await Promise.all(batches.map(async (batchAddresses, batchIndex) => {
     const addressById = new Map<number, string>();
 
     const payload = batchAddresses.map((addr, index) => {
@@ -1538,7 +1546,7 @@ async function getTokenMetadataBatch(
 
       // fetchJson returns parsed JSON directly
       const json = data;
-      if (!Array.isArray(json)) continue;
+      if (!Array.isArray(json)) return;
 
       json.forEach(entry => {
         const addr = addressById.get(entry?.id);
@@ -1551,12 +1559,11 @@ async function getTokenMetadataBatch(
         error: e.message,
         chain,
         batchSize: batchAddresses.length,
-        batchStart
+        batchIndex
       });
-      // Continue with next batch even if this one fails
-      continue;
+      // Continue with other batches
     }
-  }
+  }));
 
   return results;
 }
@@ -1696,7 +1703,8 @@ export async function getPortfolio(
         '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1': { symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
       },
       polygon: {
-        '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+        '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': { symbol: 'USDC', name: 'USD Coin (PoS)', decimals: 6 },
+        '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
         '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
         '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063': { symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
       },
@@ -1707,7 +1715,10 @@ export async function getPortfolio(
       },
     };
 
-    const NATIVE_PRICES = await getNativePrices();
+    const startTotal = Date.now();
+
+    // [Optimization]: Start native prices fetch in parallel
+    const nativePricesPromise = getNativePrices();
 
     const targetNetworks = chains.map(c => networkMap[c.toLowerCase()]).filter(Boolean);
     const evmNetworks = targetNetworks.filter(n => n !== 'solana-mainnet');
@@ -1730,6 +1741,8 @@ export async function getPortfolio(
     };
 
     // 1. Fetch EVM Portfolio
+    let evmFetchPromise: Promise<any> | undefined;
+    const startAlchemy = Date.now();
     if (evmNetworks.length > 0) {
       // Use generic alchemy endpoint for Portfolio API
       const url = `https://api.g.alchemy.com/data/v1/${apiKey}/assets/tokens/balances/by-address`;
@@ -1740,9 +1753,8 @@ export async function getPortfolio(
         includeNativeTokens: true
       };
 
-      let response: any | null = null;
       try {
-        response = await fetchJson<any>({
+        evmFetchPromise = fetchJson<any>({
           url,
           method: 'POST',
           headers: {
@@ -1754,10 +1766,28 @@ export async function getPortfolio(
           requestTimeout: PORTFOLIO_TIMEOUT_MS
         });
       } catch (e: any) {
+        logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API call error', { error: e.message });
+      }
+    }
+
+    // Await both promises here to ensure NATIVE_PRICES is available for both EVM and Solana logic
+    const NATIVE_PRICES = await nativePricesPromise;
+    let response: any = null;
+    if (evmFetchPromise) {
+      try {
+        response = await evmFetchPromise;
+      } catch (e: any) {
         logger.warn(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API timeout', { error: e.message });
       }
+    }
+
+    if (evmNetworks.length > 0) {
 
       if (response && response.data && Array.isArray(response.data.tokens)) {
+        logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy Portfolio response received', { duration: Date.now() - startAlchemy });
+
+
+
         const json = response;
 
         if (json.data && Array.isArray(json.data.tokens)) {
@@ -1767,7 +1797,7 @@ export async function getPortfolio(
             networkGroups[t.network].push(t);
           });
 
-          for (const network of Object.keys(networkGroups)) {
+          await Promise.all(Object.keys(networkGroups).map(async network => {
             // Map matic-mainnet or others back to our standard keys
             let chainKey = Object.keys(networkMap).find(key => networkMap[key] === network) || network;
             chainKey = normalizeChainKey(chainKey);
@@ -1838,6 +1868,11 @@ export async function getPortfolio(
                 .slice(0, MAX_METADATA_TOKENS_EVM);
 
               const decimalsResults = await Promise.all(tokensByBalance.map(async token => {
+                // [Optimization]: Only fetch decimals from RPC if they are missing or invalid
+                // Alchemy Portfolio API is usually correct.
+                if (token.decimals !== undefined && token.decimals !== null) {
+                  return { token, decimals: token.decimals };
+                }
                 const decimals = await fetchTokenDecimalsFromRpc(chainKey, token.contractAddress);
                 return { token, decimals };
               }));
@@ -1888,7 +1923,7 @@ export async function getPortfolio(
               });
 
             }
-          }
+          }));
         }
       } else if (response?.error) {
         logger.error(LogCode.API_FETCH_FAILED, 'Alchemy Portfolio EVM API error', { error: response.error });
@@ -2036,9 +2071,71 @@ export async function getPortfolio(
       }
     }
 
+    // [Hybrid Fetch]: Cross-check against known stablecoins and fetch missing ones via RPC
+    // This ensures we don't miss balances (like Base USDC) even if Alchemy Portfolio API ignores them
+    await Promise.all(chains.filter(c => c !== 'solana').map(async chain => {
+      const chainKey = normalizeChainKey(chain);
+      if (!results[chainKey]) return;
+
+      const criticalTokens = stablecoinOverrides[chainKey];
+      if (!criticalTokens) return;
+
+      const existingAddresses = new Set(results[chainKey].tokens.map(t => t.contractAddress.toLowerCase()));
+      const missingTokens = Object.keys(criticalTokens).filter(addr => !existingAddresses.has(addr));
+
+      if (missingTokens.length > 0) {
+        // Define helper for RPC call inside loop (or hoisted if preferred)
+        const readErc20Hybrid = async (tokenAddress: string): Promise<bigint> => {
+          try {
+            const data = '0x70a08231' + address.toLowerCase().replace('0x', '').padStart(64, '0');
+            const result = await rpcManager.callRpc<string>(chainKey, 'eth_call', [
+              { to: tokenAddress, data },
+              'latest'
+            ]);
+            return BigInt(result);
+          } catch (e: any) {
+            return 0n;
+          }
+        };
+
+        const overrides = criticalTokens; // Alias for closure clarity
+
+        await Promise.all(missingTokens.map(async (tokenAddr) => {
+          const raw = await readErc20Hybrid(tokenAddr);
+          if (raw > 0n) {
+            const meta = overrides[tokenAddr];
+            const formatted = formatTokenBalance(raw, meta.decimals);
+
+            // Construct token object
+            const newToken: TokenBalance = {
+              contractAddress: tokenAddr,
+              tokenBalance: formatted,
+              symbol: meta.symbol,
+              name: meta.name,
+              decimals: meta.decimals,
+              logo: '', // No logo available from override
+              price: 1, // Treat critical stablecoins as $1
+              valueUsd: parseFloat(formatted)
+            };
+
+            results[chainKey].tokens.push(newToken);
+
+            logger.info(LogCode.API_FETCH_SUCCESS, 'Hybrid Fetch recovered missing token', {
+              chain: chainKey,
+              token: meta.symbol,
+              amount: formatted
+            });
+          }
+        }));
+
+        // RE-SORT tokens by value USD descending to ensure newly added tokens appear correctly
+        results[chainKey].tokens.sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
+      }
+    }));
+
     // Ensure all requested chains have at least empty values
     // Also fetch stablecoin balances as fallback when Portfolio API fails
-    for (const c of chains) {
+    await Promise.all(chains.map(async c => {
       const chainKey = normalizeChainKey(c);
       if (!results[chainKey]) {
         const defaultPrice = NATIVE_PRICES[chainKey.toLowerCase()] || 0;
@@ -2099,7 +2196,7 @@ export async function getPortfolio(
             ethPrice: defaultPrice,
             tokens,
           } as any;
-          continue;
+          return;
         }
         // Solana fallback (no ERC20 tokens)
         if (!results[chainKey]) {
@@ -2111,7 +2208,7 @@ export async function getPortfolio(
           } as any;
         }
       }
-    }
+    }));
 
     return results;
   } catch (error: any) {

@@ -70,37 +70,36 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 
 /**
- * Map frontend model ID to DeepSeek API model name
+ * Map frontend model ID to model name
  * 
- * According to DeepSeek API documentation (https://api-docs.deepseek.com/zh-cn/quick_start/pricing):
- * - deepseek-chat: DeepSeek-V3.2 (非思考模式) - Standard chat model
- *   - 输出长度: 默认 4K，最大 8K
- * - deepseek-reasoner: DeepSeek-V3.2 (思考模式) - Thinking/reasoning model
- *   - 输出长度: 默认 32K，最大 64K
+ * Current mapping:
+ * - deepseek-chat/deepseek-reasoner: DeepSeek
+ * - gpt-5-mini: OpenAI GPT
  * 
  * @param modelId - Frontend model identifier (e.g., 'deepseek-reasoner')
  * @param mode - Model mode ('thinking' or 'fast')
- * @returns Actual DeepSeek API model name
+ * @returns Actual model name
  */
 export function getModelName(modelId?: string, mode?: string): string {
-  if (modelId === 'deepseek-reasoner' || modelId === 'deepseek-chat') {
+  if (modelId === 'deepseek-chat' || modelId === 'deepseek-reasoner' || modelId === 'gpt-5-mini') {
     return modelId;
   }
+  if (modelId === 'gpt5-2' || modelId === 'gpt-5.2') return 'gpt-5-mini';
   if (mode === 'thinking') return 'deepseek-reasoner';
   return DEFAULT_MODEL;
 }
 
 /**
  * Get recommended max_tokens based on model type
- * According to DeepSeek API docs:
- * - deepseek-chat: 默认 4K，最大 8K
- * - deepseek-reasoner: 默认 32K，最大 64K
  */
 export function getRecommendedMaxTokens(modelName: string): number {
   if (modelName === 'deepseek-reasoner') {
-    return 32000; // Default for reasoner (can go up to 64K)
+    return 32000;
   }
-  return 4000; // Default for chat (can go up to 8K)
+  if (modelName === 'gpt-5-mini' || modelName === 'gpt-5.2') {
+    return 8192;
+  }
+  return 4096;
 }
 
 /**
@@ -409,4 +408,3 @@ export async function* streamChatCompletion(
     }
   }
 }
-

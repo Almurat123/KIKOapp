@@ -71,13 +71,28 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
   initialTokenOut,
   initialAmountIn,
   solanaAggregator = 'auto',
-  maxPriceImpact: initialMaxPriceImpact = 5,
+  maxPriceImpact: _initialMaxPriceImpact = 5,
   autoExecute = false,
   useServerExecution = true,
   userHoldings = [],
 }) => {
   // State for settings
-  const [maxPriceImpact, setMaxPriceImpact] = useState(initialMaxPriceImpact);
+  // State for settings
+  // Load initial slippage from local storage
+  const [slippage, setSlippage] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kiko-swap-slippage');
+      return saved ? parseFloat(saved) : 0.5;
+    } catch {
+      return 0.5;
+    }
+  });
+
+  // Save slippage to local storage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('kiko-swap-slippage', slippage.toString());
+  }, [slippage]);
+
   const [showSettings, setShowSettings] = useState(false);
   const [fastSwapMode, setFastSwapMode] = useState(false);
 
@@ -114,17 +129,17 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
 
   const evmSwap = useSwap({
     chainId: isSolana ? 1 : chainId, // Fallback to Ethereum if Solana
-    slippageBps: 50,
+    slippageBps: slippage * 100, // Dynamic slippage
     userAddress: isSolana ? undefined : userAddress, // Don't pass address to EVM hook on Solana chain
     // Pass initial tokens to avoid race condition where tokens are set
     // This ensures the hook initializes with correct tokens from the start
     initialTokenIn: !isSolana ? (initialTokenIn ?? undefined) : undefined,
     initialTokenOut: !isSolana ? (initialTokenOut ?? undefined) : undefined,
-    maxPriceImpact,
+    maxPriceImpact: 5, // Fixed safety max impact
   });
 
   const solanaSwap = useSolanaSwap({
-    slippageBps: 50,
+    slippageBps: slippage * 100,
     userAddress,
     aggregator: solanaAggregator,
   });
@@ -680,28 +695,45 @@ export const SwapCardIntegrated: React.FC<SwapCardIntegratedProps> = ({
         {showSettings && (
           <div className={styles.settingsDropdown}>
             <div className={styles.settingsRow}>
-              <span className={styles.settingsLabel}>Max Price Impact</span>
+              <span className={styles.settingsLabel}>Slippage Tolerance</span>
+
+              {/* Preset Options */}
               <div className={styles.settingsOptions}>
-                {[1, 3, 5].map((val) => (
+                {[0.5, 1, 3].map((val) => (
                   <button
                     key={val}
-                    className={`${styles.settingsOption} ${maxPriceImpact === val ? styles.settingsOptionActive : ''}`}
-                    onClick={() => setMaxPriceImpact(val)}
+                    className={`${styles.settingsOption} ${slippage === val ? styles.settingsOptionActive : ''}`}
+                    onClick={() => setSlippage(val)}
                   >
                     {val}%
                   </button>
                 ))}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <input
-                  className={styles.settingsInput}
-                  type="number"
-                  placeholder="Custom"
-                  value={maxPriceImpact}
-                  onChange={(e) => setMaxPriceImpact(parseFloat(e.target.value) || 0)}
-                />
-                <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>%</span>
+
+              {/* Custom Input Row */}
+              <div style={{ marginTop: '8px' }}>
+                <span className={styles.settingsLabel} style={{ fontSize: '11px', marginBottom: '4px', display: 'block' }}>
+                  Custom
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <input
+                    className={styles.settingsInput}
+                    type="number"
+                    placeholder="Custom"
+                    value={slippage}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setSlippage(isNaN(val) ? 0 : val);
+                    }}
+                    onBlur={() => {
+                      if (slippage < 0.1) setSlippage(0.1);
+                      if (slippage > 50) setSlippage(50);
+                    }}
+                  />
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>%</span>
+                </div>
               </div>
+
             </div>
           </div>
         )}

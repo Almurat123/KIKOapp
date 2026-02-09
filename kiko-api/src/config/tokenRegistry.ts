@@ -40,6 +40,14 @@ export const TOKEN_REGISTRY: Record<string, TokenEntry> = {
             10: NATIVE_TOKEN_ADDRESS,    // Optimism
         }
     },
+    'POL': {
+        symbol: 'POL',
+        name: 'Polygon',
+        decimals: 18,
+        addresses: {
+            137: NATIVE_TOKEN_ADDRESS,
+        }
+    },
     'USDC': {
         symbol: 'USDC',
         name: 'USD Coin',

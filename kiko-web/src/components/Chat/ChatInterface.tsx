@@ -32,14 +32,17 @@ import { logger } from '../../utils/logger';
 
 // Model options
 // DeepSeek models:
-// - deepseek-chat: DeepSeek-V3.2 (非思考模式)
-// - deepseek-reasoner: DeepSeek-V3.2 (思考模式)
+// - deepseek-chat: DeepSeek-V3.2 (non-thinking)
+// - deepseek-reasoner: DeepSeek-V3.2 (thinking)
+// GPT models:
+// - gpt-5-mini: ChatGPT-5-mini (thinking)
 // X.ai (Grok) models:
 // - grok-4-1-fast-reasoning: Grok-4.1 Fast (Reasoning mode) - for complex multi-step workflows
 // - grok-4-1-fast-non-reasoning: Grok-4.1 Fast (Non-reasoning mode) - for fast chat, brainstorming
 const MODEL_OPTIONS = [
     { id: 'deepseek-chat', name: 'DeepSeek-V3.2', mode: 'fast' },
     { id: 'deepseek-reasoner', name: 'DeepSeek-V3.2', mode: 'thinking' },
+    { id: 'gpt-5-mini', name: 'ChatGPT-5-mini', mode: 'thinking' },
     { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
     { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
 ];
@@ -552,7 +555,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }
 
                             // 3. Handle native tokens
-                            if (['ETH', 'BNB', 'MATIC', 'AVAX', 'SOL'].includes(value.toUpperCase())) {
+                            if (['ETH', 'BNB', 'MATIC', 'POL', 'AVAX', 'SOL'].includes(value.toUpperCase())) {
                                 // For Solana, use WSOL or native mint depending on implementation
                                 // But frontend usually handles 'SOL' specially
                                 if (value.toUpperCase() === 'SOL') return 'So11111111111111111111111111111111111111112';
@@ -612,6 +615,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }
                         };
 
+                        setIsThinking(false);
+                        setIsStreaming(false);
+                        setActiveTaskId(null);
                         setMessages(prev => [...prev, txCardMsg]);
 
                         // Call executeSwapInstant directly
@@ -838,6 +844,40 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     if (event.data.is_final) {
                         setIsThinking(false);
                         setIsStreaming(false);
+                    }
+                    break;
+                case 'transaction_update':
+                case 'transaction_confirmed':
+                case 'transaction_complete':
+                    // CRITICAL: Stop thinking/streaming when transaction status arrives
+                    setIsThinking(false);
+                    setIsStreaming(false);
+                    setActiveTaskId(null);
+
+                    if (event.data.messageId || event.data.message_id || (event as any).messageId || (event as any).message_id) {
+                        const mid = event.data.messageId || event.data.message_id || (event as any).messageId || (event as any).message_id;
+                        setMessages(prev => {
+                            const exists = prev.some(m => m.id === mid);
+                            if (exists) {
+                                return prev.map(m => {
+                                    if (m.id === mid && m.type === 'transaction-status-card') {
+                                        return {
+                                            ...m,
+                                            data: {
+                                                ...m.data,
+                                                ...event.data,
+                                                isLoading: event.type !== 'transaction_complete' && event.type !== 'transaction_confirmed' && event.data.status !== 'success' && event.data.status !== 'failed'
+                                            }
+                                        };
+                                    }
+                                    return m;
+                                });
+                            }
+                            return prev;
+                        });
+                    }
+                    if (sidebar?.setGeneratingConversationId) {
+                        sidebar.setGeneratingConversationId(null);
                     }
                     break;
             }

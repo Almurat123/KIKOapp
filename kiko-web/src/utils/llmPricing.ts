@@ -1,7 +1,7 @@
 /**
  * Utility for calculating LLM token costs
  * Based on official pricing
- * DeepSeek V3.2 (CNY converted to USD @ 1 USD = 7.00 CNY): https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
+ * GPT pricing is configurable and can be overridden from backend billing config.
  * Grok 4.1 Fast (USD): https://x.ai/api/
  */
 
@@ -12,17 +12,20 @@ const PRICING: Record<string, { input: number; output: number; currency: Currenc
     // Grok 4.1 Fast (USD)
     'grok-4-1-fast-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
     'grok-4-1-fast-non-reasoning': { input: 0.20, output: 0.50, currency: 'USD' },
-    // DeepSeek V3.2 (CNY converted to USD @ 1 USD = 7.00 CNY)
-    // 2 CNY -> 0.285714 USD, 3 CNY -> 0.428571 USD
+    // GPT (USD)
     'deepseek-chat': { input: 0.285714, output: 0.428571, currency: 'USD' },
     'deepseek-reasoner': { input: 0.285714, output: 0.428571, currency: 'USD' },
+    'gpt-4o-mini': { input: 0.15, output: 0.60, currency: 'USD' },
+    'gpt-4.1': { input: 2.00, output: 8.00, currency: 'USD' },
+    'gpt-5-mini': { input: 2.00, output: 8.00, currency: 'USD' },
+    'gpt-5.2': { input: 2.00, output: 8.00, currency: 'USD' },
 };
 
 // Tool pricing in USD per 1 call (based on $5/1000 calls)
 const TOOL_PRICE_PER_CALL = 0.005;
 
 // Default fallback pricing
-const DEFAULT_DEEPSEEK_PRICING = { input: 0.285714, output: 0.428571, currency: 'USD' as const };
+const DEFAULT_GPT_PRICING = { input: 0.15, output: 0.60, currency: 'USD' as const };
 const DEFAULT_GROK_PRICING = { input: 0.20, output: 0.50, currency: 'USD' as const };
 
 /**
@@ -42,7 +45,7 @@ export function calculateCost(
     if (!model) return { amount: 0, currency: 'USD' };
 
     const isGrok = model.toLowerCase().includes('grok');
-    const pricing = PRICING[model] || (isGrok ? DEFAULT_GROK_PRICING : DEFAULT_DEEPSEEK_PRICING);
+    const pricing = PRICING[model] || (isGrok ? DEFAULT_GROK_PRICING : DEFAULT_GPT_PRICING);
     const tokenCost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
     let total = tokenCost;
 

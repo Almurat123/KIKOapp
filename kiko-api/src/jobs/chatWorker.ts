@@ -17,11 +17,31 @@ import { scrub } from '../utils/scrubber.js';
 import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
 import { buildSignedHeaders } from '../utils/requestSigningClient.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
+import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
+import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
+import type { IntentType, ModelType, UserContext } from '../services/ai/types.js';
+import { parseIntent } from '../services/ai/intentParser.js';
+import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.js';
+import { getTokenDetails as getDexTokenDetails } from '../services/dexscreener.js';
+import { ragClient } from '../services/ragClient.js';
+import { skillRegistryClean, skillRegistryExec } from '../skills/registry.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
+import { getChainConfig } from '../config/chainConfig.js';
 
 // Constants
-const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
+const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
 const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+function normalizeModel(model?: string): string {
+    const normalized = (model || '').toLowerCase().trim();
+    if (!normalized) return 'deepseek-chat';
+    if (normalized === 'gpt5-2' || normalized === 'gpt-5.2') return 'gpt-5-mini';
+    return normalized;
+}
 
 // Chain ID to Alchemy/Service chain name map
 const CHAIN_ID_MAP: Record<number, string> = {
@@ -41,9 +61,6 @@ const THINKING_TOOL_ALLOWLIST = new Set<string>([
     'get_trending_tokens',
     'get_market_overview',
     'get_economic_calendar',
-    'get_wallet_info',
-    'analyze_wallet_pnl',
-    'get_user_favorites',
     'check_token_risk',
     'get_trending_casts',
     'search_farcaster_casts',
@@ -66,23 +83,17 @@ const THINKING_TOOL_ALLOWLIST = new Set<string>([
 // In thinking mode, we restrict skills to a small "clean" subset to prevent
 // execution-oriented prompts/tools from affecting analysis quality.
 const THINKING_SKILL_ID_ALLOWLIST = new Set<string>([
-    'wallet_portfolio',
     'polymarket_prediction',
     'welcome_onboarding',
     'token_analysis',
 ]);
 
-// System Prompts (Unified Orchestrator)
-import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
-import type { IntentType, UserContext } from '../services/ai/types.js';
-import { parseIntent } from '../services/ai/intentParser.js';
-import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.js';
-import { getTokenDetails as getDexTokenDetails } from '../services/dexscreener.js';
-import { ragClient } from '../services/ragClient.js';
-import { skillRegistryClean, skillRegistryExec } from '../skills/registry.js';
-import { logger } from '../utils/logger.js';
-import { LogCode } from '../config/logRegistry.js';
+const EXECUTION_INTENTS = new Set<IntentType>([
+    'TRADING',
+    'COPY_TRADING',
+]);
 
+// System Prompts (Unified Orchestrator)
 type ToolTraceEntry = {
     tool: string;
     argsKey: string;
@@ -102,7 +113,6 @@ type ToolTraceState = {
     stopReasons: string[];
     blockedKeys: Set<string>;
     lastResultByKey: Map<string, string>;
-
 };
 
 export class ChatWorker {
@@ -387,11 +397,18 @@ export class ChatWorker {
         const ctx = task.toolContext;
         if (!ctx) return null;
 
+        const maxBalancePreview = 8;
+        const maxPageContextChars = 800;
+        const truncateText = (text: string, maxLen: number): string => {
+            if (text.length <= maxLen) return text;
+            return `${text.slice(0, maxLen)}...`;
+        };
+
         const payload = {
             walletAddress: ctx.walletAddress || ctx.userAddress,
             chainId: ctx.chainId,
             currentPage: ctx.currentPage,
-            pageContext: ctx.pageContext,
+            pageContext: ctx.pageContext ? truncateText(String(ctx.pageContext), maxPageContextChars) : undefined,
             nativeBalance: ctx.nativeBalance,
             balance: ctx.balance,
             tokenSnapshot: (ctx as any).tokenSnapshot || (ctx as any).tokenContext || (ctx as any).tokenInfo,
@@ -401,6 +418,26 @@ export class ChatWorker {
 
         const hasAny = Object.values(payload).some(v => v !== undefined);
         if (!hasAny) return null;
+
+        let balanceSummary: any = undefined;
+        if (payload.balance) {
+            const entries = this.parseBalanceEntries(payload.balance);
+            const filteredEntries = this.filterBalanceEntriesForAi(entries, payload.chainId);
+            const sample = filteredEntries ? filteredEntries.slice(0, maxBalancePreview) : [];
+            balanceSummary = {
+                tokenCount: filteredEntries ? filteredEntries.length : 0,
+                sample: sample.map((token) => ({
+                    symbol: token.symbol,
+                    balance: token.balance,
+                    decimals: token.decimals,
+                    contractAddress: token.contractAddress,
+                })),
+                truncated: filteredEntries && filteredEntries.length > maxBalancePreview
+                    ? filteredEntries.length - maxBalancePreview
+                    : 0,
+            };
+            payload.balance = balanceSummary;
+        }
 
         let serialized = JSON.stringify(payload, null, 2);
         const maxLen = 4000;
@@ -415,32 +452,11 @@ export class ChatWorker {
             hasToolConfig: !!payload.toolConfig,
             contextBytes: serialized.length,
         });
-        if (payload.balance) {
-            const entries = this.parseBalanceEntries(payload.balance);
-            const filteredEntries = this.filterBalanceEntriesForAi(entries, payload.chainId);
-            if (filteredEntries && filteredEntries.length > 0) {
-                payload.balance = filteredEntries;
-            }
-            const spotlightSymbols = new Set(['USDC', 'ETH']);
-            const spotlight = filteredEntries
-                ? filteredEntries.filter((token) => spotlightSymbols.has(String(token.symbol).toUpperCase()))
-                : [];
+        if (balanceSummary) {
             logger.info(LogCode.AI_API_CALL, 'ChatWorker: client balance snapshot summary', {
-                tokenCount: filteredEntries ? filteredEntries.length : 0,
-                sample: filteredEntries
-                    ? filteredEntries.slice(0, 5).map((token) => ({
-                        symbol: token.symbol,
-                        balance: token.balance,
-                        decimals: token.decimals,
-                        contractAddress: token.contractAddress,
-                    }))
-                    : [],
-                spotlight: spotlight.map((token) => ({
-                    symbol: token.symbol,
-                    balance: token.balance,
-                    decimals: token.decimals,
-                    contractAddress: token.contractAddress,
-                })),
+                tokenCount: balanceSummary.tokenCount,
+                sample: balanceSummary.sample,
+                truncated: balanceSummary.truncated,
             });
         }
 
@@ -453,16 +469,31 @@ export class ChatWorker {
         allowContracts: Set<string> = new Set()
     ) {
         if (!entries || entries.length === 0) return entries;
-        const nativeSymbols = new Set(['ETH', 'MATIC', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
+        const nativeSymbols = new Set(['ETH', 'MATIC', 'POL', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
         const isEvm = chainId !== 900 && chainId !== undefined;
         const scamKeywordPattern = /(t\.me|telegram|airdrop|reward|claim|visit|free|bonus|giveaway|promo|http|https|\.com|\.io)/i;
         const dustThreshold = 1e-6;
+        const wrappedNative = (() => {
+            if (!chainId || chainId === 900) return '';
+            try {
+                return getChainConfig(chainId).wrappedNativeAddress.toLowerCase();
+            } catch {
+                return '';
+            }
+        })();
         return entries.filter((token) => {
             const symbol = String(token.symbol || '').toUpperCase();
             const rawSymbol = String(token.symbol || '');
-            if (nativeSymbols.has(symbol)) return true;
-            if (this.isStableSymbolForChain(chainId, symbol)) return true;
             const addr = token.contractAddress || '';
+            if (nativeSymbols.has(symbol)) {
+                if (!addr) return true;
+                const addrLower = addr.toLowerCase();
+                if (addrLower === '0x0000000000000000000000000000000000000000') return true;
+                if (addrLower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') return true;
+                if (wrappedNative && addrLower === wrappedNative) return true;
+                return false;
+            }
+            if (this.isStableSymbolForChain(chainId, symbol)) return true;
             if (!addr) return false;
             if (isEvm) {
                 if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return false;
@@ -483,6 +514,16 @@ export class ChatWorker {
         });
     }
 
+    private limitLines(lines: string[], limit: number): { lines: string[]; hiddenCount: number } {
+        if (lines.length <= limit) {
+            return { lines, hiddenCount: 0 };
+        }
+        return {
+            lines: lines.slice(0, limit),
+            hiddenCount: lines.length - limit,
+        };
+    }
+
     private isStableSymbolForChain(chainId: number | undefined, symbol: string): boolean {
         const stableSymbols = new Set(['USDC', 'USDT', 'DAI', 'USDBC']);
         if (!stableSymbols.has(symbol)) return false;
@@ -492,7 +533,7 @@ export class ChatWorker {
     }
 
     private isNativeSymbol(symbol: string): boolean {
-        const nativeSymbols = new Set(['ETH', 'MATIC', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
+        const nativeSymbols = new Set(['ETH', 'MATIC', 'POL', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
         return nativeSymbols.has(symbol.toUpperCase());
     }
 
@@ -584,6 +625,16 @@ export class ChatWorker {
             ? { ...params.userContext, pageContext: [params.userContext.pageContext, extra].filter(Boolean).join('\n') }
             : params.userContext;
         return promptOrchestrator.buildPrompt(params.userQuery, ctx, params.intent);
+    }
+    
+    private buildThinkingSystemPrompt(model: ModelType): string {
+        const basePrompt = `You are KiKo, a crypto research assistant embedded in the KiKo app.
+You are in thinking mode: focus on token information and discussion, not trade execution.
+Keep responses concise and helpful.`.trim();
+        if (model === 'grok') {
+            return `${basePrompt}\n\n${AnalystPolicy}`;
+        }
+        return basePrompt;
     }
 
     private injectEnrichedUserContent(history: any[], lastUserIndex: number, enrichedContent: string): any[] {
@@ -708,26 +759,14 @@ export class ChatWorker {
     }
 
     private isFreeIntent(intent: IntentType): boolean {
-        return new Set<IntentType>([
-            'MARKET_ANALYSIS',
-            'SOCIAL_SENSING',
-            'GENERAL_CHAT',
-            'PREDICTION_MARKETS',
-            'RISK_SCAN',
-        ]).has(intent);
+        return !EXECUTION_INTENTS.has(intent);
     }
 
     private resolveRoutingMode(
         intent: IntentType,
-        decision?: Awaited<ReturnType<typeof parseIntent>>['decision']
+        _decision?: Awaited<ReturnType<typeof parseIntent>>['decision']
     ): 'thinking' | 'execution' {
-        const slotsComplete = decision?.slots?.complete === true;
-        const hasQuestion = decision?.signals?.hasQuestion === true;
-        const hasConflict = Boolean(decision?.conflict);
-
-        if (hasQuestion || hasConflict) return 'thinking';
-        if (intent === 'TRADING' && !slotsComplete) return 'thinking';
-        return this.isFreeIntent(intent) ? 'thinking' : 'execution';
+        return EXECUTION_INTENTS.has(intent) ? 'execution' : 'thinking';
     }
 
     private getExplorerUrl(chainId: number, txHash: string): string {
@@ -962,7 +1001,7 @@ export class ChatWorker {
 
 
             // 3. Process based on model
-            if (task.model.includes('deepseek')) {
+            if (task.model.includes('deepseek') || task.model.includes('gpt')) {
                 await this.processDeepSeekTask(task, conversationHistory, userId, messages);
             } else if (task.model.includes('grok')) {
                 await this.processGrokTask(task, conversationHistory, userId, messages);
@@ -1089,13 +1128,13 @@ export class ChatWorker {
         const balanceContextAvailable = !!this.buildWalletInfoFromContext(task);
         const balanceRefreshRequested = /\b(refresh|update|check balance|balance check|查询余额|查看余额|刷新余额)\b/i.test(lastUserMessage);
 
-        // RAG INTEGRATION: Fetch context for general queries
-        // If query looks like "how to", "what is", "explain", etc.
+        // RAG INTEGRATION: temporarily disabled
         let ragContext = '';
+        const ragEnabled = false;
         const informationalRegex = /(how|what|why|explain|tell me|介绍|是什么|怎么|如何|原理)/i;
         console.log(`[ChatWorker] 🔍 RAG check for: "${lastUserMessage.slice(0, 50)}..."`);
 
-        if (informationalRegex.test(lastUserMessage)) {
+        if (ragEnabled && informationalRegex.test(lastUserMessage)) {
             console.log(`[ChatWorker] 🎯 RAG: Match found! Query looks informational.`);
             try {
                 this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Searching knowledge base' });
@@ -1110,7 +1149,7 @@ export class ChatWorker {
                 console.warn('[ChatWorker] ❌ RAG: Fetch error:', err);
             }
         } else {
-            console.log(`[ChatWorker] ⏭️ RAG: Skipped (Query doesn't match informational patterns).`);
+            console.log(`[ChatWorker] ⏭️ RAG: Skipped (RAG disabled or query not informational).`);
         }
 
         // Declare toolCalls outside main loop so it can be accessed in finally/cleanup
@@ -1137,7 +1176,7 @@ export class ChatWorker {
 
             // DeepSeek Reasoner (thinking mode) requires reasoning_content in assistant messages
             const normalizedModel = (task.model || '').toLowerCase();
-            const isReasonerModel = normalizedModel === 'deepseek-reasoner';
+            const isDeepSeekReasonerModel = normalizedModel === 'deepseek-reasoner';
 
             // Transform history for reasoner model - add reasoning_content to assistant messages
             // CRITICAL: DeepSeek strict API requirement
@@ -1148,7 +1187,7 @@ export class ChatWorker {
                     const { reasoning_content, tool_calls, ...rest } = msg;
                     const apiMsg = { ...rest };
 
-                    if (isReasonerModel) {
+                    if (isDeepSeekReasonerModel) {
                         apiMsg.reasoning_content = reasoning_content || '';
                     } else if (reasoning_content) {
                         // Non-reasoner shouldn't have reasoning_content, but if present, strip it.
@@ -1369,7 +1408,8 @@ export class ChatWorker {
                     const isBuyOperation = /\b(buy|买|purchase|get)\b/i.test(lastUserMessage);
                     const isSolana = chainId === 900;
                     const isBsc = chainId === 56 || /\bBNB\b/i.test(lastUserMessage);
-                    const nativeToken = isSolana ? 'SOL' : (isBsc ? 'BNB' : 'ETH');
+                    const isPolygon = chainId === 137;
+                    const nativeToken = isSolana ? 'SOL' : (isBsc ? 'BNB' : (isPolygon ? 'POL' : 'ETH'));
 
                     if (isSellOperation && !isBuyOperation) {
                         console.log('[ChatWorker] Detected tokenIn === tokenOut, fixing for SELL operation...');
@@ -1948,7 +1988,9 @@ export class ChatWorker {
             // Use high-level intent for system prompt selection
 
             // Get System Prompt from Orchestrator
-            const systemPrompt = promptOrchestrator.getSystemPrompt('deepseek', intent, { routingMode });
+            const systemPrompt = routingMode === 'thinking'
+                ? this.buildThinkingSystemPrompt('deepseek')
+                : promptOrchestrator.getSystemPrompt('deepseek', intent, { routingMode });
 
             // Prepare User Context with detected information
 
@@ -1958,11 +2000,12 @@ export class ChatWorker {
                 detectedChainName = this.resolveChainNameForContext(chainIdToResolve!) || 'Unknown Chain';
             }
 
-            const userContext = this.buildUserContext(
+            const fullUserContext = this.buildUserContext(
                 task,
                 { chainId: detectedChainId || task.toolContext?.chainId, chainName: detectedChainName },
                 parsedIntent
             );
+            const userContext: UserContext = routingMode === 'thinking' ? {} : fullUserContext;
 
             // Inject Context into the LATEST User Message
             // We find the last message from 'user' in the history and wrap it
@@ -1972,6 +2015,7 @@ export class ChatWorker {
             let balanceContextBlock = '';
             let tokenContextAvailable = false;
             let launchpadContextAvailable = false;
+            let didInjectUserContext = false;
             if (lastUserIndex !== -1) {
                 const lastMsg = finalMessages[lastUserIndex];
 
@@ -2039,7 +2083,7 @@ Detected Contract Address: ${parsedIntent.contractAddress}
                     console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_wallet_info (${tokenCount} tokens cached)`);
 
                     // CRITICAL FIX: Show symbol, balance AND contract address so LLM knows both
-                    const portfolioLines = filteredTokens.length > 0 ? filteredTokens.map((t: any) => {
+                    const portfolioLineItems = filteredTokens.length > 0 ? filteredTokens.map((t: any) => {
                         const symbol = t.symbol || 'Unknown';
                         const balance = t.balance || '0';
                         const contract = t.contractAddress || t.contract;
@@ -2048,13 +2092,16 @@ Detected Contract Address: ${parsedIntent.contractAddress}
                             ? ` (${contract})`
                             : '';
                         return `- ${symbol}: ${balance}${contractInfo}`;
-                    }).join('\n') : '';
+                    }) : [];
+                    const limitedPortfolio = this.limitLines(portfolioLineItems, 12);
+                    const portfolioLines = limitedPortfolio.lines.join('\n')
+                        + (limitedPortfolio.hiddenCount > 0 ? `\n... (+${limitedPortfolio.hiddenCount} more)` : '');
 
                     const userBalanceBlock = `\n\n[USER_BALANCE_CONTEXT] ✅ CACHED DATA AVAILABLE
 User Wallet: ${task.toolContext?.walletAddress}
 Chain ID: ${task.toolContext?.chainId}
 Total Assets: ${tokenCount} tokens
-${filteredTokens.length > 0 ? `Portfolio Assets:\n${filteredTokens.map((t: any) => `- ${t.symbol}: ${t.balance}`).join('\n')}` : ''}
+${portfolioLines ? `Portfolio Assets:\n${portfolioLines}` : ''}
 
 IMPORTANT: This balance data is ALREADY AVAILABLE from cache. DO NOT call get_wallet_info again.
 `;
@@ -2079,11 +2126,20 @@ IMPORTANT: This balance data is ALREADY AVAILABLE from cache. DO NOT call get_wa
                                 missing.push(request);
                                 continue;
                             }
-                            const match = balanceData.tokens.find((t: any) => {
+                            const aliasSymbols: string[] = (() => {
+                                if (!requestIsAddress && requestSymbol === 'USDC' && task.toolContext?.chainId === 137) {
+                                    return ['usdc', 'usdc.e'];
+                                }
+                                return [requestLower];
+                            })();
+
+                            const matches = balanceData.tokens.filter((t: any) => {
                                 const symbol = t.symbol ? String(t.symbol).toLowerCase() : '';
                                 const contract = (t.contractAddress || t.contract) ? String(t.contractAddress || t.contract).toLowerCase() : '';
-                                return symbol === requestLower || contract === requestLower;
+                                return aliasSymbols.includes(symbol) || contract === requestLower;
                             });
+
+                            const match = matches.find((t: any) => Number(t.balance ?? t.tokenBalance ?? 0) > 0) || matches[0];
                             if (match) {
                                 const matchBalance = match.balance ?? match.tokenBalance ?? '0';
                                 requestedLines.push(`- ${match.symbol || request}: ${matchBalance}${match.decimals !== undefined ? ` (decimals: ${match.decimals})` : ''}`);
@@ -2118,72 +2174,74 @@ Status: unavailable (balance data not available from cache).`;
 
 
                 // Check if detected token is missing from portfolio and add it directly
-                // This runs regardless of cache state to ensure we always check for new tokens
-                if (tokenInfo && tokenInfo.address && task.toolContext?.walletAddress) {
-                    if (!tokensInPortfolio.includes(tokenInfo.address.toLowerCase())) {
-                        try {
-                            console.log(`[ChatWorker] 🔍 Token not in portfolio, querying direct balance...`, {
-                                symbol: tokenInfo.symbol,
-                                address: tokenInfo.address,
-                                chainId: task.toolContext?.chainId,
-                                chainName: tokenInfo.chainName
-                            });
+                // Skip in thinking mode to avoid user-specific context
+                if (routingMode !== 'thinking') {
+                    if (tokenInfo && tokenInfo.address && task.toolContext?.walletAddress) {
+                        if (!tokensInPortfolio.includes(tokenInfo.address.toLowerCase())) {
+                            try {
+                                console.log(`[ChatWorker] 🔍 Token not in portfolio, querying direct balance...`, {
+                                    symbol: tokenInfo.symbol,
+                                    address: tokenInfo.address,
+                                    chainId: task.toolContext?.chainId,
+                                    chainName: tokenInfo.chainName
+                                });
 
-                            // Map chainId to Alchemy chain name
-                            const chainIdToName: Record<number, string> = {
-                                1: 'eth', 8453: 'base', 56: 'bsc', 42161: 'arbitrum',
-                                10: 'optimism', 137: 'polygon', 43114: 'avalanche'
-                            };
-                            const chainName = tokenInfo.chainName ||
-                                chainIdToName[task.toolContext?.chainId || 0] ||
-                                'base';
+                                // Map chainId to Alchemy chain name
+                                const chainIdToName: Record<number, string> = {
+                                    1: 'eth', 8453: 'base', 56: 'bsc', 42161: 'arbitrum',
+                                    10: 'optimism', 137: 'polygon', 43114: 'avalanche'
+                                };
+                                const chainName = tokenInfo.chainName ||
+                                    chainIdToName[task.toolContext?.chainId || 0] ||
+                                    'base';
 
-                            console.log(`[ChatWorker] Querying balance on chain: ${chainName}`);
-                            const directBalance = await alchemy.getSpecificTokenBalance(
-                                task.toolContext.walletAddress,
-                                chainName,
-                                tokenInfo.address
-                            );
+                                console.log(`[ChatWorker] Querying balance on chain: ${chainName}`);
+                                const directBalance = await alchemy.getSpecificTokenBalance(
+                                    task.toolContext.walletAddress,
+                                    chainName,
+                                    tokenInfo.address
+                                );
 
-                            console.log(`[ChatWorker] Direct balance result:`, {
-                                raw: directBalance?.raw,
-                                decimals: directBalance?.decimals,
-                                formatted: directBalance?.formatted
-                            });
+                                console.log(`[ChatWorker] Direct balance result:`, {
+                                    raw: directBalance?.raw,
+                                    decimals: directBalance?.decimals,
+                                    formatted: directBalance?.formatted
+                                });
 
-                            // CRITICAL FIX: directBalance returns {raw, decimals, formatted}, not a number
-                            const balanceNum = parseFloat(directBalance?.formatted || '0');
-                            console.log(`[ChatWorker] Parsed balance: ${balanceNum}`);
+                                // CRITICAL FIX: directBalance returns {raw, decimals, formatted}, not a number
+                                const balanceNum = parseFloat(directBalance?.formatted || '0');
+                                console.log(`[ChatWorker] Parsed balance: ${balanceNum}`);
 
-                            if (balanceNum > 0) {
-                                // Initialize context block if not already present
-                                if (!tokenContextBlock.includes('[USER_BALANCE_CONTEXT]')) {
-                                    tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
+                                if (balanceNum > 0) {
+                                    // Initialize context block if not already present
+                                    if (!tokenContextBlock.includes('[USER_BALANCE_CONTEXT]')) {
+                                        tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
 User Wallet: ${task.toolContext?.walletAddress}
 Chain: ${task.toolContext?.chainId || chainName}
 `;
-                                }
-                                tokenContextBlock += `\n⚠️ DETECTED TOKEN BALANCE (Direct Query):
+                                    }
+                                    tokenContextBlock += `\n⚠️ DETECTED TOKEN BALANCE (Direct Query):
 - ${tokenInfo.symbol} (${tokenInfo.address}): ${directBalance.formatted}${directBalance.decimals ? ` (decimals: ${directBalance.decimals})` : ''}
 `;
-                                console.log(`[ChatWorker] ✅ Added direct balance for ${tokenInfo.symbol}: ${directBalance.formatted}`);
-                            } else {
-                                console.log(`[ChatWorker] ⚠️ Direct balance for ${tokenInfo.symbol} is 0 or unavailable`);
+                                    console.log(`[ChatWorker] ✅ Added direct balance for ${tokenInfo.symbol}: ${directBalance.formatted}`);
+                                } else {
+                                    console.log(`[ChatWorker] ⚠️ Direct balance for ${tokenInfo.symbol} is 0 or unavailable`);
+                                }
+                            } catch (e: any) {
+                                console.error(`[ChatWorker] ❌ Failed to add direct token balance:`, {
+                                    error: e.message,
+                                    stack: e.stack?.split('\n').slice(0, 3).join('\n')
+                                });
                             }
-                        } catch (e: any) {
-                            console.error(`[ChatWorker] ❌ Failed to add direct token balance:`, {
-                                error: e.message,
-                                stack: e.stack?.split('\n').slice(0, 3).join('\n')
-                            });
+                        } else {
+                            console.log(`[ChatWorker] Token already in portfolio: ${tokenInfo.symbol}`);
                         }
                     } else {
-                        console.log(`[ChatWorker] Token already in portfolio: ${tokenInfo.symbol}`);
-                    }
-                } else {
-                    if (!tokenInfo) {
-                        console.log(`[ChatWorker] No tokenInfo available`);
-                    } else {
-                        console.log(`[ChatWorker] Missing wallet address or token address`);
+                        if (!tokenInfo) {
+                            console.log(`[ChatWorker] No tokenInfo available`);
+                        } else {
+                            console.log(`[ChatWorker] Missing wallet address or token address`);
+                        }
                     }
                 }
 
@@ -2212,16 +2270,19 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                     console.log(`[ChatWorker] 🧠 RAG: Injected ${ragContext.length} chars of local knowledge into prompt`);
                 }
 
-                const enrichedContent = this.buildEnrichedUserContent({
-                    userQuery: lastMsg.content,
-                    userContext,
-                    intent,
-                    extraBlocks,
-                });
+                const enrichedContent = routingMode === 'thinking'
+                    ? [lastMsg.content, ...extraBlocks].filter(Boolean).join('\n\n')
+                    : this.buildEnrichedUserContent({
+                        userQuery: lastMsg.content,
+                        userContext,
+                        intent,
+                        extraBlocks,
+                    });
 
                 // Create a shallow copy of the message with new content to send to LLM
                 // (We don't update DB history to keep it clean, only what the LLM sees)
                 finalMessages = this.injectEnrichedUserContent(finalMessages, lastUserIndex, enrichedContent);
+                didInjectUserContext = true;
                 if (ragContext) {
                     console.log(`[ChatWorker] 🚀 DeepSeek request will include local knowledge context.`);
                 }
@@ -2230,16 +2291,18 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
 
             // Start building messages
             const messages: any[] = [{ role: 'system', content: systemPrompt }];
-            const systemContext = this.buildSystemContextMessage(task);
-            if (systemContext) {
-                messages.push({ role: 'system', content: systemContext });
-                console.log('[ChatWorker] Added client context to system prompt');
-            }
-            if (balanceContextBlock) {
-                messages.push({ role: 'system', content: balanceContextBlock.trim() });
-                logger.info(LogCode.AI_API_CALL, 'ChatWorker: balance context attached to system prompt', {
-                    bytes: balanceContextBlock.length,
-                });
+            if (!didInjectUserContext && routingMode !== 'thinking') {
+                const systemContext = this.buildSystemContextMessage(task);
+                if (systemContext) {
+                    messages.push({ role: 'system', content: systemContext });
+                    console.log('[ChatWorker] Added client context to system prompt');
+                }
+                if (balanceContextBlock) {
+                    messages.push({ role: 'system', content: balanceContextBlock.trim() });
+                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: balance context attached to system prompt', {
+                        bytes: balanceContextBlock.length,
+                    });
+                }
             }
             // No additional guidance injected; only context is provided.
 
@@ -2268,12 +2331,23 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             }
 
             const requestBody: any = {
-                model: (task.model || '').toLowerCase() || 'deepseek-chat',
+                model: normalizeModel(task.model),
                 messages: [...messages, ...finalMessages],
                 stream: true,
                 tools: toolDefinitions,
                 tool_choice: 'auto'
             };
+            const normalizedRequestModel = String(requestBody.model || '').toLowerCase();
+            const useOpenAI = normalizedRequestModel.startsWith('gpt');
+            if (useOpenAI) {
+                // OpenAI only returns usage in streaming when include_usage is enabled.
+                requestBody.stream_options = { include_usage: true };
+            }
+            const targetUrl = useOpenAI ? OPENAI_API_URL : DEEPSEEK_API_URL;
+            const apiKey = useOpenAI ? OPENAI_API_KEY : DEEPSEEK_API_KEY;
+            if (!apiKey) {
+                throw new Error(useOpenAI ? 'OPENAI_API_KEY is not configured' : 'DEEPSEEK_API_KEY is not configured');
+            }
 
             // Broadcast Thinking state before API call
             // IMPORTANT: Message order should be:
@@ -2291,11 +2365,11 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             // Start retry loop
             while (retryCount < maxRetries) {
                 try {
-                    response = await fetch(DEEPSEEK_API_URL, {
+                    response = await fetch(targetUrl, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+                            'Authorization': `Bearer ${apiKey}`,
                         },
                         body: JSON.stringify(requestBody),
                     });
@@ -3621,7 +3695,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             logger.warn(LogCode.AI_API_CALL, 'Grok: early pre-fetch failed', { error: err?.message || err });
         });
 
-        const systemPrompt = promptOrchestrator.getSystemPrompt('grok', intent, { routingMode });
+        const systemPrompt = routingMode === 'thinking'
+            ? this.buildThinkingSystemPrompt('grok')
+            : promptOrchestrator.getSystemPrompt('grok', intent, { routingMode });
 
         // Detect and resolve contract address if present (same as DeepSeek)
         let detectedChainId = task.toolContext?.chainId;
@@ -3695,11 +3771,12 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             detectedChainName = this.resolveChainNameForContext(detectedChainId) || 'Unknown Chain';
         }
 
-        const userContext = this.buildUserContext(
+        const fullUserContext = this.buildUserContext(
             task,
             { chainId: detectedChainId || task.toolContext?.chainId, chainName: detectedChainName },
             parsedIntent
         );
+        const userContext: UserContext = routingMode === 'thinking' ? {} : fullUserContext;
 
         // Wait for early pre-fetch to complete before building enrichment
         if (earlyPreFetchPromise) {
@@ -3714,6 +3791,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         const lastUserIndex = enrichedHistory.map(m => m.role).lastIndexOf('user');
         let tokenContextAvailable = false;
         let launchpadContextAvailable = false;
+        let didInjectUserContext = false;
 
         if (lastUserIndex !== -1) {
             const lastMsg = enrichedHistory[lastUserIndex];
@@ -3781,7 +3859,7 @@ If the user has not provided clear trade params, ask one concise follow-up for s
                 launchpadContextAvailable = true;
             }
 
-            if (task.toolContext?.walletAddress) {
+            if (routingMode !== 'thinking' && task.toolContext?.walletAddress) {
                 const chainId = task.toolContext?.chainId;
                 const chainName = chainId ? (CHAIN_ID_MAP[chainId] || 'Unknown Chain') : 'Unknown Chain';
                 tokenContextBlock += `\n\n[USER_WALLET_CONTEXT]
@@ -3791,25 +3869,29 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
             }
 
             // Add balance info if pre-fetched (TRADING intent stability)
-            const balanceKey = `get_wallet_info:${this.stableStringify({
-                address: task.toolContext?.walletAddress,
-                chainId: task.toolContext?.chainId
-            })}`;
-            if (toolResultsCache.has(balanceKey)) {
-                const balanceData = toolResultsCache.get(balanceKey);
-                if (balanceData) {
-                    // CRITICAL FIX: Show symbol, balance AND contract address
-                    const portfolioLines = balanceData.tokens ? balanceData.tokens.map((t: any) => {
-                        const symbol = t.symbol || 'Unknown';
-                        const balance = t.balance || '0';
-                        const contract = t.contractAddress || t.contract;
-                        const contractInfo = contract && !contract.startsWith('0x0000000000000000000000000000000000000000')
-                            ? ` (${contract})`
-                            : '';
-                        return `- ${symbol}: ${balance}${contractInfo}`;
-                    }).join('\n') : '';
+            if (routingMode !== 'thinking') {
+                const balanceKey = `get_wallet_info:${this.stableStringify({
+                    address: task.toolContext?.walletAddress,
+                    chainId: task.toolContext?.chainId
+                })}`;
+                if (toolResultsCache.has(balanceKey)) {
+                    const balanceData = toolResultsCache.get(balanceKey);
+                    if (balanceData) {
+                        // CRITICAL FIX: Show symbol, balance AND contract address
+                        const portfolioLineItems = balanceData.tokens ? balanceData.tokens.map((t: any) => {
+                            const symbol = t.symbol || 'Unknown';
+                            const balance = t.balance || '0';
+                            const contract = t.contractAddress || t.contract;
+                            const contractInfo = contract && !contract.startsWith('0x0000000000000000000000000000000000000000')
+                                ? ` (${contract})`
+                                : '';
+                            return `- ${symbol}: ${balance}${contractInfo}`;
+                        }) : [];
+                        const limitedPortfolio = this.limitLines(portfolioLineItems, 12);
+                        const portfolioLines = limitedPortfolio.lines.join('\n')
+                            + (limitedPortfolio.hiddenCount > 0 ? `\n... (+${limitedPortfolio.hiddenCount} more)` : '');
 
-                    tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
+                        tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
 User Wallet: ${task.toolContext?.walletAddress}
 Chain: ${task.toolContext?.chainId || 'Unknown'}
 Native Balance: ${balanceData.ethBalance || 'Unknown'}
@@ -3817,22 +3899,27 @@ ${portfolioLines ? `\nToken Holdings:\n${portfolioLines}` : '\nNo tokens found.'
 
 CRITICAL: When user says "sell all 0xABC..." or "sell SYMBOL", extract the balance from above and use it as amount_in (NOT "all").
 `;
-                }
-            } else if (task.toolContext?.walletAddress) {
-                tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
+                    }
+                } else if (task.toolContext?.walletAddress) {
+                    tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
 User Wallet: ${task.toolContext?.walletAddress}
 Status: unavailable (balance data not available from cache).`;
+                }
             }
 
 
             // Do not inject balance context; let the model request wallet data via tools.
-            const enrichedContent = this.buildEnrichedUserContent({
-                userQuery: lastMsg.content,
-                userContext,
-                intent,
-                extraBlocks: [tokenContextBlock, launchpadContextBlock].filter(Boolean),
-            });
+            const extraBlocks = [tokenContextBlock, launchpadContextBlock].filter(Boolean);
+            const enrichedContent = routingMode === 'thinking'
+                ? [lastMsg.content, ...extraBlocks].filter(Boolean).join('\n\n')
+                : this.buildEnrichedUserContent({
+                    userQuery: lastMsg.content,
+                    userContext,
+                    intent,
+                    extraBlocks,
+                });
             enrichedHistory = this.injectEnrichedUserContent(enrichedHistory, lastUserIndex, enrichedContent);
+            didInjectUserContext = true;
         }
 
         if (tokenContextAvailable) {
@@ -3859,10 +3946,12 @@ Status: unavailable (balance data not available from cache).`;
         const grokMessages = [
             { role: 'system', content: systemPrompt },
         ];
-        const grokSystemContext = this.buildSystemContextMessage(task);
-        if (grokSystemContext) {
-            grokMessages.push({ role: 'system', content: grokSystemContext });
-            console.log('[ChatWorker] Added client context to Grok system prompt');
+        if (!didInjectUserContext && routingMode !== 'thinking') {
+            const grokSystemContext = this.buildSystemContextMessage(task);
+            if (grokSystemContext) {
+                grokMessages.push({ role: 'system', content: grokSystemContext });
+                console.log('[ChatWorker] Added client context to Grok system prompt');
+            }
         }
         grokMessages.push(...this.sanitizeGrokHistory(enrichedHistory));
 

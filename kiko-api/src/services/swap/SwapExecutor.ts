@@ -319,15 +319,14 @@ export class SwapExecutor {
                                 isLoading: true
                             };
                             await updateMessage(messageId, { data: updatedData });
-                            chatWS.broadcast(userId, {
-                                type: 'client_action',
+                            chatWS.broadcastToUser(userId, {
+                                type: 'transaction_update',
                                 sessionId: currentMessage.sessionId,
                                 data: {
-                                    targetMessageId: messageId,
-                                    action: {
-                                        type: 'show_transaction_status_card',
-                                        data: updatedData
-                                    }
+                                    messageId: messageId,
+                                    status: 'approving',
+                                    message: '⏳ Approving token...',
+                                    isLoading: true
                                 }
                             });
                         }
@@ -383,15 +382,15 @@ export class SwapExecutor {
                                     isLoading: true
                                 };
                                 await updateMessage(messageId, { data: updatedData });
-                                chatWS.broadcast(userId, {
-                                    type: 'client_action',
+                                chatWS.broadcastToUser(userId, {
+                                    type: 'transaction_update',
                                     sessionId: currentMessage.sessionId,
                                     data: {
-                                        targetMessageId: messageId,
-                                        action: {
-                                            type: 'show_transaction_status_card',
-                                            data: updatedData
-                                        }
+                                        messageId: messageId,
+                                        status: 'approving',
+                                        message: '⏳ Waiting for approval...',
+                                        txHash: approveTxHash,
+                                        isLoading: true
                                     }
                                 });
                             }
@@ -418,7 +417,7 @@ export class SwapExecutor {
                         actualTokenIn: actualTokenInFixed,
                         actualTokenOut: actualTokenOutFixed,
                         amountInBase,
-            amountInHuman: parseFloat(amountInHuman),
+                        amountInHuman: parseFloat(amountInHuman),
                         tokenInDecimals: decimalsIn,
                         tokenOutDecimals: decimalsOut,
                         chainId,
@@ -655,7 +654,7 @@ export class SwapExecutor {
                 if (!confirmed.success) {
                     if (confirmed.reason === 'Transaction confirmation timeout' && params.returnOnConfirmTimeout) {
                         // Fast-path: return success and keep monitoring in background
-                        this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId).catch(err => {
+                        this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId, params.messageId).catch(err => {
                             logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed after confirm-timeout', { txHash, error: err.message });
                         });
                         return {
@@ -752,7 +751,7 @@ export class SwapExecutor {
 
             } else {
                 // ASYNC MONITORING: Fire-and-forget for normal swaps
-                this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId).catch(err => {
+                this.monitorEvmTransaction(txHash, chainId, best.dexName, best.amountOut, userId, params.messageId).catch(err => {
                     logger.error(LogCode.EXE_TX_REVERTED, 'Background monitoring failed', { txHash, error: err.message });
                 });
             }
@@ -908,14 +907,15 @@ export class SwapExecutor {
                                 });
 
                                 // Push WebSocket update
-                                chatWS.broadcast(userId, {
+                                chatWS.broadcastToUser(userId, {
                                     type: 'transaction_update',
-                                    sessionId: 'unknown', // SessionId not available here, falling back
+                                    sessionId: currentMessage.sessionId || 'unknown',
                                     data: {
                                         messageId,
                                         status: 'retrying',
                                         retryCount: (currentData.retryCount || 0) + 1,
-                                        message: `Retrying with ${nextSlippage / 100}% slippage...`
+                                        message: `⏳ Retrying with ${nextSlippage / 100}% slippage...`,
+                                        isLoading: true
                                     }
                                 });
                             }
@@ -1131,7 +1131,8 @@ export class SwapExecutor {
         chainId: number,
         dexName: string,
         expectedAmountOut: string,
-        userId: string
+        userId: string,
+        messageId?: string
     ): Promise<void> {
         const TIMEOUT_MS = 120000; // 2 minutes
         const startTime = Date.now();
@@ -1166,12 +1167,20 @@ export class SwapExecutor {
             // ⚡ WebSocket update for success
             try {
                 const { chatWS } = await import('../../services/chatWebSocket.js');
-                chatWS.broadcast(userId, {
-                    type: 'transaction_confirmed',
-                    sessionId: 'legacy_session_id',
+                let sessionId = 'legacy_session_id';
+                if (messageId) {
+                    const { getMessage } = await import('../../repositories/chatRepository.js');
+                    const msg = await getMessage(messageId);
+                    if (msg) sessionId = msg.sessionId;
+                }
+                chatWS.broadcastToUser(userId, {
+                    type: 'transaction_complete',
+                    sessionId,
                     data: {
+                        messageId,
                         txHash,
-                        status: 'success'
+                        status: 'success',
+                        message: '✅ Transaction confirmed!'
                     }
                 });
             } catch (err) { /* ignore */ }
@@ -1213,6 +1222,27 @@ export class SwapExecutor {
             gasUsed: receipt.gasUsed,
             dex: dexName
         });
+
+        // ⚡ WebSocket update for failure
+        try {
+            const { chatWS } = await import('../../services/chatWebSocket.js');
+            let sessionId = 'legacy_session_id';
+            if (messageId) {
+                const { getMessage } = await import('../../repositories/chatRepository.js');
+                const msg = await getMessage(messageId);
+                if (msg) sessionId = msg.sessionId;
+            }
+            chatWS.broadcastToUser(userId, {
+                type: 'transaction_complete',
+                sessionId,
+                data: {
+                    messageId,
+                    txHash,
+                    status: 'failed',
+                    errorMessage: revertReason
+                }
+            });
+        } catch (err) { /* ignore */ }
     }
 
     /**

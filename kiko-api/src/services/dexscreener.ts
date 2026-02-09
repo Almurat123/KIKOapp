@@ -39,6 +39,17 @@ export interface DexScreenerToken {
   holders?: number;
 }
 
+export interface DexScreenerPairLite {
+  pairAddress: string;
+  pairCreatedAt?: number;
+  chainId?: string;
+  dexId?: string;
+  liquidityUsd?: number;
+  volume24h?: number;
+  baseTokenAddress?: string;
+  quoteTokenAddress?: string;
+}
+
 /**
  * Chain ID mapping for DexScreener API
  */
@@ -265,6 +276,51 @@ export async function getTokenDetails(chainId: string, address: string): Promise
  * Alias for getTokenDetails to match common naming convention
  */
 export const getTokenInfo = getTokenDetails;
+
+/**
+ * Get all pools/pairs for a token on a specific chain.
+ * Uses DexScreener official token-pairs endpoint.
+ */
+export async function getTokenPairsByAddress(
+  chainId: string,
+  tokenAddress: string
+): Promise<DexScreenerPairLite[]> {
+  try {
+    const normalizedChain = CHAIN_ID_MAP[chainId.toLowerCase()] || chainId.toLowerCase();
+    const url = `https://api.dexscreener.com/token-pairs/v1/${normalizedChain}/${tokenAddress}`;
+
+    const data = await fetchJson<any[]>({
+      url,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'KiKo/1.0'
+      },
+      timeout: 10000
+    });
+
+    if (!Array.isArray(data) || data.length === 0) return [];
+
+    return data
+      .map((p: any) => ({
+        pairAddress: String(p?.pairAddress || ''),
+        pairCreatedAt: Number(p?.pairCreatedAt || 0) || undefined,
+        chainId: typeof p?.chainId === 'string' ? p.chainId : undefined,
+        dexId: typeof p?.dexId === 'string' ? p.dexId : undefined,
+        liquidityUsd: Number(p?.liquidity?.usd || 0) || undefined,
+        volume24h: Number(p?.volume?.h24 || 0) || undefined,
+        baseTokenAddress: typeof p?.baseToken?.address === 'string' ? p.baseToken.address : undefined,
+        quoteTokenAddress: typeof p?.quoteToken?.address === 'string' ? p.quoteToken.address : undefined,
+      }))
+      .filter((p) => !!p.pairAddress);
+  } catch (error: any) {
+    logger.debug(LogCode.API_FETCH_FAILED, 'DexScreener token-pairs fetch failed', {
+      chain: chainId,
+      tokenAddress,
+      error: error?.message || String(error)
+    });
+    return [];
+  }
+}
 
 /**
  * Get pair address for a token (for use with Gecko Terminal chart API)

@@ -28,6 +28,134 @@ function tokenMetaCacheKey(chain: string, address: string): string {
   return `token:meta:v1:${chain}:${address.toLowerCase()}`;
 }
 
+function launchpadCacheKey(chain: string, address: string): string {
+  const chainId = chain === 'base' ? 8453 : chain === 'bsc' ? 56 : chain === 'solana' ? 101 : 'any';
+  return `launchpad:detected:v2:${chainId}:${address.toLowerCase()}`;
+}
+
+function pickCreatorAddressFromLaunchpadCache(raw: string): string | undefined {
+  try {
+    const parsed = JSON.parse(raw) as any;
+    const root = parsed?.data || {};
+    const nested = (root && typeof root === 'object' && root.data && typeof root.data === 'object')
+      ? root.data
+      : null;
+    const data = nested ? { ...(root as Record<string, unknown>), ...(nested as Record<string, unknown>) } : root;
+    const candidates: unknown[] = [
+      data.creatorAddress,
+      data.creator,
+      data.creator_address,
+      data.userAddress,
+      data.user_address,
+      data.walletAddress,
+      data.sentientWalletAddress,
+      data.msg_sender,
+      data.requestorAddress,
+      data.creator_wallet,
+      data.creatorWalletAddress,
+      data.creatorPublicKey,
+      data.mintAuthority,
+      data.updateAuthority,
+      data.devAddress,
+      data.owner,
+      data.ownerAddress,
+      data.deployer,
+      data.deployerAddress,
+      data.creatorProfile?.address,
+      data.profile?.address,
+      data.user?.address,
+      data.author?.address,
+    ];
+    const evmLike = /0x[a-fA-F0-9]{40}/;
+    const solLike = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+    const isIgnored = (value: string): boolean => {
+      const v = value.trim().toLowerCase();
+      if (!v) return true;
+      if (v === '0x0000000000000000000000000000000000000000') return true;
+      if (v === '0x000000000000000000000000000000000000dead') return true;
+      return false;
+    };
+    for (const rawValue of candidates) {
+      if (typeof rawValue !== 'string') continue;
+      const value = rawValue.trim();
+      if ((evmLike.test(value) || solLike.test(value)) && !isIgnored(value)) return value;
+    }
+  } catch {
+    // ignore parsing errors
+  }
+  return undefined;
+}
+
+function pickCreatorMetaFromLaunchpadCache(raw: string): { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string } {
+  let creatorAddress: string | undefined;
+  let creatorUrl: string | undefined;
+  let creatorLabel: string | undefined;
+  try {
+    const parsed = JSON.parse(raw) as any;
+    const root = parsed?.data || {};
+    const nested = (root && typeof root === 'object' && root.data && typeof root.data === 'object')
+      ? root.data
+      : null;
+    const data = nested ? { ...(root as Record<string, unknown>), ...(nested as Record<string, unknown>) } : root;
+
+    creatorAddress = pickCreatorAddressFromLaunchpadCache(raw);
+    const socials = data.socials || {};
+    const urlCandidates: unknown[] = [
+      data.creatorUrl,
+      data.creator_url,
+      data.profileUrl,
+      data.profile_url,
+      socials.x,
+      socials.twitter,
+      socials.TWITTER,
+      socials.farcaster,
+      socials.warpcast,
+      data.social_context?.url,
+      data.social_context?.profile,
+    ];
+    for (const c of urlCandidates) {
+      if (typeof c !== 'string') continue;
+      const v = c.trim();
+      if (v.startsWith('http://') || v.startsWith('https://')) {
+        creatorUrl = v;
+        break;
+      }
+      if (v.startsWith('@')) {
+        creatorUrl = `https://x.com/${v.slice(1)}`;
+        break;
+      }
+    }
+    if (!creatorUrl) {
+      const requestorFid = Number(data.requestor_fid || data.requestorFid || 0);
+      if (Number.isFinite(requestorFid) && requestorFid > 0) {
+        creatorUrl = `https://warpcast.com/~/profiles/${requestorFid}`;
+      }
+    }
+
+    const labelCandidates: unknown[] = [
+      data.creatorProfile?.handle,
+      data.creatorHandle,
+      data.social_context?.id,
+      socials.handle,
+      data.twitterUsername,
+      data.farcasterUsername,
+    ];
+    for (const c of labelCandidates) {
+      if (typeof c !== 'string') continue;
+      const v = c.trim();
+      if (!v) continue;
+      creatorLabel = v.startsWith('@') ? v : (creatorUrl?.includes('x.com') || creatorUrl?.includes('warpcast.com') ? `@${v}` : v);
+      break;
+    }
+
+    const addressLike = (value?: string) => !!value && (/^0x[a-f0-9]{40}$/i.test(value) || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value));
+    if (creatorLabel && addressLike(creatorLabel)) creatorLabel = undefined;
+  } catch {
+    // ignore parsing errors
+  }
+  return { creatorAddress, creatorUrl, creatorLabel };
+}
+
 let trendingLaunchpadColumnCache:
   | { checkedAt: number; exists: boolean }
   | null = null;
@@ -243,13 +371,29 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
       try {
         const raw = await getRedisCache(tokenMetaCacheKey(chain, token.address));
         if (!raw) return;
-        const meta = JSON.parse(raw) as { creatorAddress?: string; launchMultiple?: number };
+        const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number };
         if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
+        if (meta?.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = meta.creatorUrl;
+        if (meta?.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = meta.creatorLabel;
         if (Number.isFinite(meta?.launchMultiple || NaN) && !Number.isFinite((token as any).launchMultiple || NaN)) {
           (token as any).launchMultiple = meta.launchMultiple;
         }
       } catch {
         // ignore metadata cache parse/read errors
+      }
+    }));
+
+    await Promise.all(tokens.map(async (token) => {
+      if (token.creatorAddress && (token as any).creatorUrl) return;
+      try {
+        const raw = await getRedisCache(launchpadCacheKey(chain, token.address));
+        if (!raw) return;
+        const creator = pickCreatorMetaFromLaunchpadCache(raw);
+        if (creator.creatorAddress && !token.creatorAddress) token.creatorAddress = creator.creatorAddress;
+        if (creator.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = creator.creatorUrl;
+        if (creator.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = creator.creatorLabel;
+      } catch {
+        // ignore launchpad cache parse/read errors
       }
     }));
 

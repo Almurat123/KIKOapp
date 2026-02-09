@@ -25,7 +25,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { TOKEN_REGISTRY, SOLANA_NATIVE_MINT } from '../config/tokenRegistry.js';
 import { SOLANA_CONFIG } from '../config/solanaConfig.js';
 import { fetchJson } from '../config/unifiedApiService.js';
-import { getPlatformFee, type FeeContext } from './platformFeeService.js';
+import { getPlatformFee } from './platformFeeService.js';
 
 export interface SolanaQuote {
   inputMint: string;
@@ -73,23 +73,6 @@ const getJupiterApiKey = (): string | undefined => {
 const RAYDIUM_SWAP_HOST = 'https://transaction-v1.raydium.io';
 const RAYDIUM_BASE_HOST = 'https://api-v3.raydium.io';
 
-const normalizeFeeContext = (context?: string): FeeContext => {
-  return context === 'copy_trade' || context === 'copyTrade' ? 'copyTrade' : 'swap';
-};
-
-const getJupiterReferralParams = (feeContext?: string) => {
-  const fee = getPlatformFee(normalizeFeeContext(feeContext));
-  if (!fee.solanaRecipient || fee.bps <= 0) {
-    return null;
-  }
-  try {
-    new PublicKey(fee.solanaRecipient);
-    return { referralAccount: fee.solanaRecipient, referralFee: fee.bps };
-  } catch {
-    return null;
-  }
-};
-
 /**
  * Get swap quote from Jupiter Ultra API
  * Documentation: https://dev.jup.ag/api-reference/ultra/order
@@ -129,10 +112,11 @@ async function getJupiterQuote(
       // ULTRA API: /order
       isUltra = true;
       const takerParam = userAddress ? `&taker=${userAddress}` : '';
-      const referral = getJupiterReferralParams(feeContext);
-      const referralParam = referral
-        ? `&referralAccount=${referral.referralAccount}&referralFee=${referral.referralFee}`
-        : '';
+      const fee = getPlatformFee(feeContext === 'copyTrade' ? 'copyTrade' : 'swap');
+      const referralParam =
+        fee.bps > 0 && fee.solanaRecipient
+          ? `&referralAccount=${encodeURIComponent(fee.solanaRecipient)}&referralFee=${fee.bps}`
+          : '';
       quoteUrl = `${JUPITER_ULTRA_API}/order?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}${takerParam}${referralParam}`;
       logger.debug(LogCode.EXE_QUOTE_FETCHED, 'Fetching Jupiter Ultra quote', { inputMint, outputMint, amount });
     } else {

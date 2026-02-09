@@ -12,7 +12,7 @@ import {
 import clsx from 'clsx';
 import styles from './TransactionStatusCard.module.css';
 
-export type TransactionStatus = 'building' | 'sending' | 'pending' | 'success' | 'failed' | 'cancelled';
+export type TransactionStatus = 'building' | 'approving' | 'sending' | 'pending' | 'retrying' | 'success' | 'failed' | 'cancelled';
 
 export interface TransactionStatusCardProps {
     /** 交易状态 */
@@ -31,6 +31,8 @@ export interface TransactionStatusCardProps {
     chainId?: number;
     /** 错误信息 */
     errorMessage?: string;
+    /** 消息内容 (用于显示重试原因等) */
+    message?: string;
     /** 是否正在加载数据 */
     isLoading?: boolean;
 }
@@ -38,16 +40,20 @@ export interface TransactionStatusCardProps {
 // 交易步骤定义
 const TRANSACTION_STEPS = [
     { status: 'building', label: "Preparing Transaction", sub: "Constructing payload...", icon: Layers },
+    { status: 'approving', label: "Waiting for Approval", sub: "Checking token allowance...", icon: ShieldCheck },
     { status: 'sending', label: "Sending Transaction", sub: "Broadcasting to network...", icon: ArrowUpRight },
-    { status: 'pending', label: "Confirming Transaction", sub: "Waiting for confirmation...", icon: ShieldCheck }
+    { status: 'pending', label: "Confirming Transaction", sub: "Waiting for confirmation...", icon: CircleDashed },
+    { status: 'retrying', label: "Retrying Transaction", sub: "Adjusting slippage...", icon: Sparkles }
 ];
 
 // 根据status获取步骤索引
 const getStepIndex = (status: TransactionStatus): number => {
     switch (status) {
         case 'building': return 0;
-        case 'sending': return 1;
-        case 'pending': return 2;
+        case 'approving': return 1;
+        case 'sending': return 2;
+        case 'pending': return 3;
+        case 'retrying': return 4;
         default: return 0;
     }
 };
@@ -91,6 +97,7 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     amountOut,
     chainId = 1,
     errorMessage,
+    message, // Added missing prop
     isLoading = false,
 }) => {
     // 根据实际状态获取当前步骤
@@ -138,26 +145,30 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                     <div className={styles.statusContent}>
                         {/* Status Icon */}
                         <div className={clsx(styles.statusIconWrapper, styles[status] || styles.pending)}>
-                            {['building', 'sending', 'pending'].includes(status) && <Layers className={clsx(styles.statusIconSvg, styles.pendingIconSvg)} />}
+                            {['building', 'approving', 'sending', 'pending', 'retrying'].includes(status) && (
+                                status === 'approving' ? <ShieldCheck className={clsx(styles.statusIconSvg, styles.pendingIconSvg)} /> :
+                                    status === 'retrying' ? <Sparkles className={clsx(styles.statusIconSvg, styles.pendingIconSvg)} /> :
+                                        <Layers className={clsx(styles.statusIconSvg, styles.pendingIconSvg)} />
+                            )}
                             {status === 'success' && <CheckCircle2 className={styles.statusIconSvg} />}
                             {(status === 'failed' || status === 'cancelled') && <XCircle className={styles.statusIconSvg} />}
                         </div>
 
                         {/* Status Text */}
                         <div className={styles.statusTextGroup}>
-                            {['building', 'sending', 'pending'].includes(status) ? (
+                            {['building', 'approving', 'sending', 'pending', 'retrying'].includes(status) ? (
                                 <>
                                     <p className={clsx(styles.statusLabelText, styles.statusLabelPending)}>
                                         {TRANSACTION_STEPS[currentStep].label}
                                     </p>
                                     <p className={clsx(styles.statusSubText, styles.statusSubPending)}>
-                                        {TRANSACTION_STEPS[currentStep].sub}
+                                        {message || TRANSACTION_STEPS[currentStep].sub}
                                     </p>
                                 </>
                             ) : status === 'success' ? (
                                 <>
                                     <p className={clsx(styles.statusLabelText, styles.statusLabelSuccess)}>Success</p>
-                                    <p className={clsx(styles.statusSubText, styles.statusSubSuccess)}>On-chain confirmation complete.</p>
+                                    <p className={clsx(styles.statusSubText, styles.statusSubSuccess)}>{message || 'On-chain confirmation complete.'}</p>
                                 </>
                             ) : (
                                 <>
@@ -173,7 +184,7 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                     </div>
 
                     {/* Right Side Animation */}
-                    {['building', 'sending', 'pending'].includes(status) && <CircleDashed className={styles.spinLoader} />}
+                    {['building', 'approving', 'sending', 'pending', 'retrying'].includes(status) && <CircleDashed className={styles.spinLoader} />}
                     {status === 'success' && <Sparkles className={styles.sparkleAnim} />}
                 </div>
             </div>

@@ -14,8 +14,8 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
 3. **Asset resolution**
    - Address + amount: proceed with Trade Preparation.
    - Address only: do Token Snapshot, then ask exactly one question for the amount.
-   - Symbol only:
-     - Major assets (e.g., ETH/USDC/SOL/BTC): resolve normally.
+      - Symbol only:
+         - Major assets (e.g., ETH/USDC/SOL/BTC/MATIC/POL): resolve normally.
      - All other tokens: do not guess; ask for the contract address to avoid fakes.
 
 4. **Safety verification (mandatory gates)**

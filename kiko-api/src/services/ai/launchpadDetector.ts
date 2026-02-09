@@ -48,6 +48,8 @@ type DetectMode = 'full' | 'cheap';
 
 type DetectOptions = {
     mode?: DetectMode;
+    forceRefresh?: boolean;
+    requireCreator?: boolean;
 };
 
 // Simple In-Memory Cache
@@ -69,6 +71,20 @@ const FLAP_META_ABI = [
     'function tokenURI() view returns (string)',
     'function name() view returns (string)',
     'function symbol() view returns (string)'
+] as const;
+const PUMPFUN_FRONTEND_BASES = (process.env.PUMPFUN_FRONTEND_BASES
+    ? process.env.PUMPFUN_FRONTEND_BASES.split(',').map((v) => v.trim()).filter(Boolean)
+    : [
+        'https://frontend-api-v3.pump.fun',
+        'https://frontend-api-v2.pump.fun',
+        'https://frontend-api.pump.fun',
+    ]);
+const FLAP_CREATOR_ABI = [
+    'function creator() view returns (address)',
+    'function getCreator() view returns (address)',
+    'function owner() view returns (address)',
+    'function deployer() view returns (address)',
+    'function dev() view returns (address)'
 ] as const;
 const PROVIDER_BACKOFF_BASE_MS = Math.max(30_000, Number(process.env.LAUNCHPAD_PROVIDER_BACKOFF_BASE_MS || '120000'));
 const PROVIDER_BACKOFF_MAX_MS = Math.max(PROVIDER_BACKOFF_BASE_MS, Number(process.env.LAUNCHPAD_PROVIDER_BACKOFF_MAX_MS || '1800000'));
@@ -105,6 +121,33 @@ function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider
         || value === 'virtuals'
         || value === 'clanker'
         || value === 'paragraph';
+}
+
+function hasCreatorInResult(result: LaunchpadResult | null | undefined): boolean {
+    if (!result || !result.data || typeof result.data !== 'object') return false;
+    const data = result.data as Record<string, unknown>;
+    const candidates: unknown[] = [
+        data.creatorAddress,
+        data.creator,
+        data.creator_address,
+        data.userAddress,
+        data.user_address,
+        data.owner,
+        data.ownerAddress,
+        data.deployer,
+        data.deployerAddress,
+        (data as any)?.creatorProfile?.address,
+        (data as any)?.profile?.address,
+        (data as any)?.user?.address,
+    ];
+    const evmLike = /0x[a-fA-F0-9]{40}/;
+    const solLike = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+    for (const raw of candidates) {
+        if (typeof raw !== 'string') continue;
+        const v = raw.trim();
+        if (evmLike.test(v) || solLike.test(v)) return true;
+    }
+    return false;
 }
 
 async function readPersistentLaunchpadCache(address: string, chainId?: number): Promise<LaunchpadResult | null> {
@@ -293,8 +336,20 @@ async function getFourMemeToken(address: string): Promise<any | null> {
 
         if (data.code === 0 && data.data) {
             markProviderHealthy('fourmeme');
+            const creatorAddress = normalizeEvmAddress(
+                data.data.userAddress
+                || data.data.accountAddress
+                || data.data.ownerAddress
+                || data.data.owner
+                || data.data.creatorAddress
+                || data.data.creator
+                || data.data.deployer
+            ) || undefined;
             return {
                 ...data.data,
+                creatorAddress,
+                creatorUrl: data.data.twitterUrl || data.data.webUrl || undefined,
+                creatorLabel: data.data.userName || undefined,
                 createdAt: data.data.createDate ? parseInt(data.data.createDate) : undefined
             };
         }
@@ -367,10 +422,36 @@ async function getClankerToken(address: string): Promise<any | null> {
         }) as any;
 
         if (!data || data.error) return null;
-        const tokenAddress = normalizeEvmAddress(data?.tokenAddress || data?.address || data?.clanker?.tokenAddress || data?.clanker?.address);
+
+        // Clanker API may return either the token payload directly or wrapped in { data: {...} }.
+        const payload = (data && typeof data === 'object' && data.data && typeof data.data === 'object')
+            ? data.data
+            : data;
+
+        const tokenAddress = normalizeEvmAddress(
+            (payload as any)?.contract_address
+            || (payload as any)?.token_address
+            || (payload as any)?.tokenAddress
+            || (payload as any)?.address
+            || (payload as any)?.clanker?.tokenAddress
+            || (payload as any)?.clanker?.address
+        );
         if (tokenAddress && tokenAddress === address.toLowerCase()) {
             markProviderHealthy('clanker');
-            return data;
+            const requestorFid = Number((payload as any)?.requestor_fid || (payload as any)?.requestorFid || 0);
+            const creatorUrl = requestorFid > 0 ? `https://warpcast.com/~/profiles/${requestorFid}` : undefined;
+            const socialId = typeof (payload as any)?.social_context?.id === 'string'
+                ? (payload as any).social_context.id.trim()
+                : '';
+
+            return {
+                ...(payload as any),
+                source: 'clanker_api',
+                creatorAddress: (payload as any)?.msg_sender || (payload as any)?.creator || undefined,
+                creatorUrl,
+                creatorLabel: socialId ? `@${socialId.replace(/^@/, '')}` : undefined,
+                imageUrl: (payload as any)?.img_url || (payload as any)?.image || undefined,
+            };
         }
         markProviderHealthy('clanker');
         return null;
@@ -440,6 +521,9 @@ async function getVirtualsToken(address: string, _mode: DetectMode = 'full'): Pr
             name: hit.name || 'Unknown',
             lpAddress: hit.lpAddress || undefined,
             virtualId: hit.id,
+            walletAddress: hit.walletAddress || undefined,
+            sentientWalletAddress: hit.sentientWalletAddress || undefined,
+            socials: hit.socials || undefined,
             source: 'virtuals_api'
         };
     } catch (error: any) {
@@ -508,9 +592,11 @@ async function getFlapToken(address: string): Promise<any | null> {
         }
 
         const token = new ethers.Contract(address, FLAP_META_ABI, provider);
+        const creatorProbe = new ethers.Contract(address, FLAP_CREATOR_ABI, provider);
         let metaUri: string | null = null;
         let name = 'Unknown';
         let symbol = 'UNKNOWN';
+        let creatorAddress: string | undefined;
         try { metaUri = await token.metaURI(); } catch { /* no-op */ }
         if (!metaUri) {
             try { metaUri = await token.meta(); } catch { /* no-op */ }
@@ -520,6 +606,39 @@ async function getFlapToken(address: string): Promise<any | null> {
         }
         try { name = await token.name(); } catch { /* no-op */ }
         try { symbol = await token.symbol(); } catch { /* no-op */ }
+        try {
+            const creator = await creatorProbe.creator();
+            const normalized = normalizeEvmAddress(creator);
+            if (normalized) creatorAddress = normalized;
+        } catch { /* no-op */ }
+        if (!creatorAddress) {
+            try {
+                const creator = await creatorProbe.getCreator();
+                const normalized = normalizeEvmAddress(creator);
+                if (normalized) creatorAddress = normalized;
+            } catch { /* no-op */ }
+        }
+        if (!creatorAddress) {
+            try {
+                const owner = await creatorProbe.owner();
+                const normalized = normalizeEvmAddress(owner);
+                if (normalized) creatorAddress = normalized;
+            } catch { /* no-op */ }
+        }
+        if (!creatorAddress) {
+            try {
+                const deployer = await creatorProbe.deployer();
+                const normalized = normalizeEvmAddress(deployer);
+                if (normalized) creatorAddress = normalized;
+            } catch { /* no-op */ }
+        }
+        if (!creatorAddress) {
+            try {
+                const dev = await creatorProbe.dev();
+                const normalized = normalizeEvmAddress(dev);
+                if (normalized) creatorAddress = normalized;
+            } catch { /* no-op */ }
+        }
 
         const imageUrl = await resolveFlapTokenImage(metaUri);
         markProviderHealthy('flap');
@@ -527,6 +646,7 @@ async function getFlapToken(address: string): Promise<any | null> {
             address,
             name,
             symbol,
+            creatorAddress,
             status: statusRaw,
             source: 'flap_portal',
             metaURI: metaUri || undefined,
@@ -540,47 +660,107 @@ async function getFlapToken(address: string): Promise<any | null> {
     }
 }
 
+function normalizeSolanaAddress(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const v = value.trim();
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v)) return null;
+    try {
+        return new PublicKey(v).toBase58();
+    } catch {
+        return null;
+    }
+}
+
+function pickSolanaCreatorAddress(payload: any): string | undefined {
+    if (!payload || typeof payload !== 'object') return undefined;
+    const candidates: unknown[] = [
+        payload.creator,
+        payload.creatorAddress,
+        payload.creator_address,
+        payload.creator_wallet,
+        payload.creatorWallet,
+        payload.user,
+        payload.userAddress,
+        payload.owner,
+        payload.deployer,
+        payload.dev,
+        payload.teamWallet,
+        payload.authority,
+        payload.mintAuthority,
+        payload.updateAuthority,
+    ];
+    for (const raw of candidates) {
+        const addr = normalizeSolanaAddress(raw);
+        if (addr) return addr;
+    }
+    return undefined;
+}
+
 /**
  * Detect Pump.fun token (Solana)
  */
 async function getPumpFunToken(mintAddress: string): Promise<any | null> {
     try {
         const normalizedMint = mintAddress.trim();
-        // 1. Try Official API (might be unstable)
-        const url = `https://frontend-api.pump.fun/coins/${mintAddress}`;
-        try {
-            const data = await fetchJson({
-                url,
-                timeout: 3000,
-                headers: {
-                    'Accept': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        for (const base of PUMPFUN_FRONTEND_BASES) {
+            // 1) GET /coins/:mint
+            try {
+                const data = await fetchJson({
+                    url: `${base}/coins/${mintAddress}`,
+                    timeout: 3000,
+                    suppressError: true,
+                    headers: {
+                        'Accept': 'application/json',
+                        'Origin': 'https://pump.fun',
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    }
+                });
+                if (data && (data as any).mint) {
+                    const payload: any = data as any;
+                    const creatorAddress = pickSolanaCreatorAddress(payload);
+                    const twitter = typeof payload.twitter === 'string' ? payload.twitter : undefined;
+                    const telegram = typeof payload.telegram === 'string' ? payload.telegram : undefined;
+                    return {
+                        ...payload,
+                        creatorAddress,
+                        creatorUrl: twitter || telegram || undefined,
+                        creatorLabel: typeof payload.username === 'string' ? payload.username : undefined
+                    };
                 }
-            });
-            if (data && data.mint) return data;
-        } catch (e) {
-            // Continue to fallback
-        }
-
-        // 2b. Try Core Frontend API v3 (POST /coins/mints) - Good for batch or stable lookup
-        try {
-            const batchUrl = 'https://frontend-api.pump.fun/coins/mints';
-            const batchData = await fetchJson({
-                url: batchUrl,
-                method: 'POST',
-                timeout: 3000,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                },
-                body: JSON.stringify([mintAddress])
-            });
-
-            if (batchData && batchData.length > 0 && batchData[0].mint === mintAddress) {
-                return batchData[0];
+            } catch {
+                // try next endpoint
             }
-        } catch (e) {
-            // Silently fail to next fallback
+
+            // 2) POST /coins/mints
+            try {
+                const batchData = await fetchJson({
+                    url: `${base}/coins/mints`,
+                    method: 'POST',
+                    timeout: 3000,
+                    suppressError: true,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Origin': 'https://pump.fun',
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    },
+                    body: JSON.stringify([mintAddress])
+                });
+
+                if (Array.isArray(batchData) && batchData.length > 0 && (batchData[0] as any)?.mint === mintAddress) {
+                    const row: any = batchData[0];
+                    const creatorAddress = pickSolanaCreatorAddress(row);
+                    const twitter = typeof row.twitter === 'string' ? row.twitter : undefined;
+                    const telegram = typeof row.telegram === 'string' ? row.telegram : undefined;
+                    return {
+                        ...row,
+                        creatorAddress,
+                        creatorUrl: twitter || telegram || undefined,
+                        creatorLabel: typeof row.username === 'string' ? row.username : undefined
+                    };
+                }
+            } catch {
+                // try next endpoint
+            }
         }
 
         // 3. Fallback: PumpPortal.fun (Often more stable)
@@ -588,13 +768,22 @@ async function getPumpFunToken(mintAddress: string): Promise<any | null> {
             const portalUrl = `https://pumpportal.fun/api/data/token-info?ca=${mintAddress}`;
             const portalData = await fetchJson({
                 url: portalUrl,
-                timeout: 3000
+                timeout: 3000,
+                suppressError: true
             });
 
             // Strict match to avoid false positives from third-party mirror APIs.
             const portalMint = String(portalData?.mint || portalData?.address || '').trim();
             if (portalMint && portalMint === normalizedMint) {
-                return portalData;
+                const creatorAddress = pickSolanaCreatorAddress(portalData);
+                const twitter = typeof portalData.twitter === 'string' ? portalData.twitter : undefined;
+                const telegram = typeof portalData.telegram === 'string' ? portalData.telegram : undefined;
+                return {
+                    ...portalData,
+                    creatorAddress,
+                    creatorUrl: twitter || telegram || undefined,
+                    creatorLabel: typeof portalData.username === 'string' ? portalData.username : undefined
+                };
             }
         } catch (e) {
             logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: PumpPortal fallback failed');
@@ -605,7 +794,8 @@ async function getPumpFunToken(mintAddress: string): Promise<any | null> {
             const raydiumUrl = `https://api-v3.raydium.io/mint/ids?mints=${mintAddress}`;
             const raydiumData = await fetchJson({
                 url: raydiumUrl,
-                timeout: 3000
+                timeout: 3000,
+                suppressError: true
             });
 
             if (raydiumData.success && raydiumData.data?.[0]) {
@@ -613,12 +803,15 @@ async function getPumpFunToken(mintAddress: string): Promise<any | null> {
                 // STRICT FILTER: Ensure the token from Raydium is actually a Pump.fun token
                 // Pump.fun Program ID: 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
                 if (token.programId === '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P') {
+                    const creatorAddress = pickSolanaCreatorAddress(token);
                     return {
+                        ...token,
                         mint: mintAddress,
                         name: token.name,
                         symbol: token.symbol,
                         image_uri: token.logoURI,
-                        decimals: token.decimals
+                        decimals: token.decimals,
+                        creatorAddress
                     };
                 }
                 logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Raydium fallback Program ID mismatch', { mintAddress, programId: token.programId });
@@ -663,13 +856,16 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
                 const isLaunchLabProgram = t.programId === 'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj';
                 const hasPlatformId = !!t.platformId || !!t.platform || (t.extensions && (t.extensions.platform === 'launchlab' || t.extensions.platform === 'bonkfun'));
                 if (isLaunchLabProgram || hasPlatformId) {
+                    const creatorAddress = pickSolanaCreatorAddress(t);
                     return {
+                        ...t,
                         mint: mintAddress, // Use input mint as canonical
                         name: t.name,
                         symbol: t.symbol,
                         image_uri: t.logoURI,
                         decimals: t.decimals,
-                        isBonkFun: true
+                        isBonkFun: true,
+                        creatorAddress
                     };
                 }
 
@@ -679,13 +875,16 @@ async function getRaydiumToken(mintAddress: string): Promise<any | null> {
                 const isLaunchpad = await checkLaunchpadAuth(mintAddress);
 
                 if (isLaunchpad) {
+                    const creatorAddress = pickSolanaCreatorAddress(t);
                     return {
+                        ...t,
                         mint: mintAddress,
                         name: t.name,
                         symbol: t.symbol,
                         image_uri: t.logoURI,
                         decimals: t.decimals,
-                        isBonkFun: true
+                        isBonkFun: true,
+                        creatorAddress
                     };
                 }
 
@@ -715,21 +914,28 @@ export async function detectLaunchpadToken(
 ): Promise<LaunchpadResult | null> {
     const mode = options.mode || 'full';
     const cacheKey = `${chainId || 'any'}:${mode}:${address.toLowerCase()}`;
+    const needsCreator = !!options.requireCreator;
+    const forceRefresh = !!options.forceRefresh;
+
     const cached = DETECTION_CACHE.get(cacheKey);
-    if (cached && cached.expiry > Date.now()) {
-        return cached.result;
+    if (!forceRefresh && cached && cached.expiry > Date.now()) {
+        if (!needsCreator || hasCreatorInResult(cached.result)) {
+            return cached.result;
+        }
     }
 
-    const persistent = await readPersistentLaunchpadCache(address, chainId);
+    const persistent = !forceRefresh ? await readPersistentLaunchpadCache(address, chainId) : null;
     if (persistent) {
-        DETECTION_CACHE.set(cacheKey, { result: persistent, expiry: Date.now() + CACHE_TTL });
-        return persistent;
+        if (!needsCreator || hasCreatorInResult(persistent)) {
+            DETECTION_CACHE.set(cacheKey, { result: persistent, expiry: Date.now() + CACHE_TTL });
+            return persistent;
+        }
     }
-    if (await readRetryLaunchpadCache(address, chainId)) {
+    if (!forceRefresh && await readRetryLaunchpadCache(address, chainId)) {
         DETECTION_CACHE.set(cacheKey, { result: null, expiry: Date.now() + Math.min(CACHE_TTL, 60_000) });
         return null;
     }
-    if (await readNegativeLaunchpadCache(address, chainId)) {
+    if (!forceRefresh && await readNegativeLaunchpadCache(address, chainId)) {
         DETECTION_CACHE.set(cacheKey, { result: null, expiry: Date.now() + CACHE_TTL });
         return null;
     }
@@ -785,7 +991,7 @@ async function handleDetection(
 
   if (isSolana) {
         // Fast suffix detection first (cheap and deterministic for launchpad mints)
-        if (lowerAddress.endsWith('pump')) {
+        if (lowerAddress.endsWith('pump') && !options.requireCreator) {
             const result: LaunchpadResult = {
                 provider: 'pumpfun',
                 data: { mint: address, source: 'suffix' },
@@ -795,7 +1001,7 @@ async function handleDetection(
             return result;
         }
 
-        if (lowerAddress.endsWith('bonk')) {
+        if (lowerAddress.endsWith('bonk') && !options.requireCreator) {
             const result: LaunchpadResult = {
                 provider: 'bonkfun',
                 data: { mint: address, source: 'suffix' },
@@ -834,6 +1040,25 @@ async function handleDetection(
 
         // Fast suffix rules (no API call needed)
         if (bscPlatforms && FOURMEME_SUFFIXES.some((s) => lowerAddress.endsWith(s))) {
+            if (options.requireCreator || (options.mode || 'full') === 'full') {
+                try {
+                    const fourmemeResult = await getFourMemeToken(address);
+                    if (fourmemeResult) {
+                        const result: LaunchpadResult = {
+                            provider: 'fourmeme',
+                            data: {
+                                ...fourmemeResult,
+                                vanitySuffix: lowerAddress.endsWith('ffff') ? 'ffff' : '4444'
+                            },
+                            chainId: 56
+                        };
+                        DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                        return result;
+                    }
+                } catch {
+                    // continue to suffix fallback
+                }
+            }
             const result: LaunchpadResult = {
                 provider: 'fourmeme',
                 data: {
@@ -879,13 +1104,47 @@ async function handleDetection(
                 // Clanker API check failed
             }
 
-            const result: LaunchpadResult = {
-                provider: 'clanker',
-                data: { address, source: 'suffix_fallback' },
-                chainId: 8453
-            };
-            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-            return result;
+            // Fallback: keep Clanker provider but borrow creator metadata from Zora coin data when available.
+            if (basePlatforms && !isProviderBackoffActive('zora')) {
+                try {
+                    const zoraResult = await zoraService.getCoinByAddress(address);
+                    if (zoraResult) {
+                        const twitter = zoraResult.creatorProfile?.socialAccounts?.twitter?.username;
+                        const farcaster = zoraResult.creatorProfile?.socialAccounts?.farcaster?.username;
+                        const creatorUrl = twitter
+                            ? `https://x.com/${String(twitter).replace(/^@/, '')}`
+                            : (farcaster ? `https://warpcast.com/${String(farcaster).replace(/^@/, '')}` : undefined);
+                        const creatorLabel = zoraResult.creatorProfile?.handle
+                            ? `@${String(zoraResult.creatorProfile.handle).replace(/^@/, '')}`
+                            : undefined;
+                        const result: LaunchpadResult = {
+                            provider: 'clanker',
+                            data: {
+                                address,
+                                source: 'clanker_suffix_zora_creator_fallback',
+                                creatorAddress: zoraResult.creatorAddress || undefined,
+                                creatorUrl,
+                                creatorLabel,
+                            },
+                            chainId: 8453
+                        };
+                        DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                        return result;
+                    }
+                } catch {
+                    // ignore zora fallback errors
+                }
+            }
+
+            if (!options.requireCreator) {
+                const result: LaunchpadResult = {
+                    provider: 'clanker',
+                    data: { address, source: 'suffix_fallback' },
+                    chainId: 8453
+                };
+                DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                return result;
+            }
         }
 
         // Check for ZORA platform token first (lightning check)
@@ -923,7 +1182,7 @@ async function handleDetection(
         }
 
         // Priority 1.5: Zora API index fallback (still official Zora API/SDK data)
-        if (basePlatforms) {
+        if (basePlatforms && !options.requireCreator) {
             try {
                 const zoraIndex = await getZoraAddressIndex();
                 if (zoraIndex.has(lowerAddress)) {

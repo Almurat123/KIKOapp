@@ -378,6 +378,14 @@ export const COMMON_TOKENS: Record<number, Record<string, TokenData>> = {
   },
   // Polygon
   137: {
+    POL: {
+      address: '0x0000000000000000000000000000000000000000',
+      symbol: 'POL',
+      name: 'Polygon',
+      decimals: 18,
+      chainId: 137,
+      logoURI: 'https://assets.coingecko.com/coins/images/4713/large/matic-token-icon.png',
+    },
     MATIC: {
       address: '0x0000000000000000000000000000000000000000',
       symbol: 'MATIC',

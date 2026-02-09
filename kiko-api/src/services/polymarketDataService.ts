@@ -74,7 +74,7 @@ export async function getWalletPositions(wallet: string): Promise<PolymarketUser
                     where: {
                         userId: user.privyDid,
                         type: 'SELL',
-                        status: 'SUCCESS',
+                        status: 'success',
                         createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) } // Last 5 minutes
                     }
                 });

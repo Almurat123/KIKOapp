@@ -5,7 +5,7 @@ import { getServerSolanaWalletAddress, sendSolanaTransaction, getDelegatedSolana
 import { getSolanaQuote } from './solanaSwap.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
-import { PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 
 export interface SolanaSwapParams {
     userId: string;
@@ -39,15 +39,14 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     }
 
     logger.info(LogCode.EXE_TX_BROADCAST, 'SolanaExecutor: Executing Swap', { tokenInMint, tokenOutMint, amountIn });
-
-    let effectiveAmountIn = amountIn;
+    const blockhashConnection = getSolanaConnection();
 
     // 1. Get Quote & Transaction (Unified)
     // using 'auto' aggregator to try Jupiter first, then Raydium
     const quote = await getSolanaQuote(
         tokenInMint,
         tokenOutMint,
-        effectiveAmountIn,
+        amountIn,
         slippageBps,
         'auto', // Try all aggregators
         walletAddress, // Build transaction for the SAME wallet that will sign
@@ -79,8 +78,6 @@ export async function executeSolanaSwap(params: SolanaSwapParams): Promise<strin
     // We need to pass the base64 string to sendSolanaTransaction first
     // But since sendSolanaTransaction handles deserialization, we should modify it there or do it here.
     // Let's do it here for clarity and control:
-
-    const blockhashConnection = getSolanaConnection();
 
     // Deserialize
     const transactionBuffer = Buffer.from(quote.swapTransaction, 'base64');

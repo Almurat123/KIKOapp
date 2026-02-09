@@ -180,6 +180,8 @@ export interface TokenSearchResult {
     logoUrl?: string;         // Legacy alias for imageUrl
     launchpad?: string;       // Originating launchpad (e.g. 'pump.fun', 'clanker')
     creatorAddress?: string;  // Launchpad creator/deployer (when available)
+    creatorUrl?: string;      // Preferred creator social/profile URL
+    creatorLabel?: string;    // Preferred creator display label (e.g. @handle)
     launchMultiple?: number;  // Current price multiple vs earliest available launch candle
 }
 

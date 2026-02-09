@@ -179,6 +179,8 @@ interface DirectSwapHint {
     bypassReferencePrice?: boolean;
 }
 
+type DirectSwapExecutionMode = 'balanced' | 'turbo';
+
 function deriveHintStrategy(chainId: number, hint?: DirectSwapHint): DexStrategy | null {
     if (!hint) return null;
     if (hint.preferredStrategy) {
@@ -677,6 +679,7 @@ export async function executeDirectSwap(params: {
     chainId: number;
     slippageBps: number;
     hint?: DirectSwapHint;
+    executionMode?: 'safe' | 'balanced' | 'turbo';
     _externalRetryAttempt?: number;
 }): Promise<DirectSwapResult> {
     const { userId, accessToken, walletAddress, tokenIn, tokenOut, amountIn, chainId, slippageBps } = params;
@@ -761,8 +764,9 @@ export async function executeDirectSwap(params: {
         const defaultStrategies = CHAIN_STRATEGIES[chainId] || CHAIN_STRATEGIES[1];
         const preferredStrategy = deriveHintStrategy(chainId, params.hint);
         const bypassReferenceGate = params.hint?.bypassReferencePrice === true && !!preferredStrategy;
+        const requestedMode: DirectSwapExecutionMode = params.executionMode === 'turbo' ? 'turbo' : 'balanced';
         const fastHintMode = Boolean(params.hint?.sourceTxHash);
-        const turboMode = DIRECT_SWAP_TURBO_MODE && fastHintMode;
+        const turboMode = DIRECT_SWAP_TURBO_MODE && requestedMode === 'turbo';
         const skipReferenceQuote = bypassReferenceGate || turboMode;
         const zoraToken = ZORA_TOKEN_ADDRESSES[chainId]?.toLowerCase();
         const hintDexLower = String(params.hint?.sourceDexName || '').toLowerCase();
@@ -825,7 +829,8 @@ export async function executeDirectSwap(params: {
                     });
                     return finish(await executeV4Swap(normalizedParams, earlyHintedPool.pool, {
                         allowZeroQuoteMinOut: true,
-                        fastMode: turboMode
+                        fastMode: turboMode,
+                        executionMode: requestedMode
                     }));
                 }
                 if (earlyHintedPool?.kind === 'v3') {
@@ -836,7 +841,8 @@ export async function executeDirectSwap(params: {
                         fee: earlyHintedPool.pool.fee
                     });
                     return finish(await executeV3Swap(normalizedParams, earlyHintedPool.pool, earlyHintedPool.dex, {
-                        fastMode: turboMode
+                        fastMode: turboMode,
+                        executionMode: requestedMode
                     }));
                 }
                 if (earlyHintedPool?.kind === 'v2') {
@@ -893,7 +899,8 @@ export async function executeDirectSwap(params: {
                 });
                 return finish(await executeV4Swap(normalizedParams, v4Best.pool, {
                     allowZeroQuoteMinOut: v4Best.amountOut <= 0n && forceV4,
-                    fastMode: turboMode
+                    fastMode: turboMode,
+                    executionMode: requestedMode
                 }));
             }
             logger.info(LogCode.SYS_INFO, '[DirectSwap] Early v4 bypass unavailable, continue fallback flow', {
@@ -937,7 +944,11 @@ export async function executeDirectSwap(params: {
                     poolId: v4Best.pool.poolAddress,
                     fee: v4Best.pool.fee
                 });
-                return finish(await executeV4Swap(normalizedParams, v4Best.pool, { allowZeroQuoteMinOut: true, fastMode: turboMode }));
+                return finish(await executeV4Swap(normalizedParams, v4Best.pool, {
+                    allowZeroQuoteMinOut: true,
+                    fastMode: turboMode,
+                    executionMode: requestedMode
+                }));
             }
 
             if (v4Best.pool && v4Best.amountOut > 0n && referenceQuote > 0n) {
@@ -950,7 +961,7 @@ export async function executeDirectSwap(params: {
                         poolId: v4Best.pool.poolAddress,
                         fee: v4Best.pool.fee
                     });
-                    return finish(await executeV4Swap(normalizedParams, v4Best.pool, { fastMode: turboMode }));
+                    return finish(await executeV4Swap(normalizedParams, v4Best.pool, { fastMode: turboMode, executionMode: requestedMode }));
                 }
             }
 
@@ -975,7 +986,7 @@ export async function executeDirectSwap(params: {
                     kind: infinityQuote.kind,
                     durationMs: Date.now() - infStart
                 });
-                return finish(await executeInfinitySwap(normalizedParams, infinityQuote));
+                return finish(await executeInfinitySwap(normalizedParams, infinityQuote, { executionMode: requestedMode }));
             }
             infinityPrecheckFailed = true;
             logger.info(LogCode.SYS_INFO, '[DirectSwap] Fast-hint Infinity precheck failed, fallback to pool discovery', {
@@ -1042,7 +1053,11 @@ export async function executeDirectSwap(params: {
                         hook: hintedPool.pool.poolKey.hooks,
                         fee: hintedPool.pool.poolKey.fee
                     });
-                    return finish(await executeV4Swap(normalizedParams, hintedPool.pool, { allowZeroQuoteMinOut: true, fastMode: turboMode }));
+                    return finish(await executeV4Swap(normalizedParams, hintedPool.pool, {
+                        allowZeroQuoteMinOut: true,
+                        fastMode: turboMode,
+                        executionMode: requestedMode
+                    }));
                 }
                 if (hintedPool?.kind === 'v3') {
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Sniper fallback selected (hinted v3 source tx)', {
@@ -1050,7 +1065,10 @@ export async function executeDirectSwap(params: {
                         pool: hintedPool.pool.poolAddress,
                         fee: hintedPool.pool.fee
                     });
-                    return finish(await executeV3Swap(normalizedParams, hintedPool.pool, hintedPool.dex, { fastMode: turboMode }));
+                    return finish(await executeV3Swap(normalizedParams, hintedPool.pool, hintedPool.dex, {
+                        fastMode: turboMode,
+                        executionMode: requestedMode
+                    }));
                 }
                 if (hintedPool?.kind === 'v2') {
                     const v2Quote = await getV2ExpectedOutput(poolTokenIn, poolTokenOut, amountInWei, chainId);
@@ -1095,7 +1113,8 @@ export async function executeDirectSwap(params: {
                     });
                     return finish(await executeV4Swap(normalizedParams, v4Best.pool, {
                         allowZeroQuoteMinOut: v4Best.amountOut <= 0n && forceV4,
-                        fastMode: turboMode
+                        fastMode: turboMode,
+                        executionMode: requestedMode
                     }));
                 }
             } else if (preferredStrategy.kind === 'v3') {
@@ -1110,7 +1129,7 @@ export async function executeDirectSwap(params: {
                             pool: v3Pool.poolAddress,
                             fee: v3Pool.fee
                         });
-                    return finish(await executeV3Swap(normalizedParams, v3Pool, v3Dex, { fastMode: turboMode }));
+                    return finish(await executeV3Swap(normalizedParams, v3Pool, v3Dex, { fastMode: turboMode, executionMode: requestedMode }));
                 }
                 }
             } else if (preferredStrategy.kind === 'aerodrome' && chainId === 8453) {
@@ -1151,7 +1170,7 @@ export async function executeDirectSwap(params: {
                         fee: infinityQuote.fee,
                         kind: infinityQuote.kind
                     });
-                    return finish(await executeInfinitySwap(normalizedParams, infinityQuote));
+                    return finish(await executeInfinitySwap(normalizedParams, infinityQuote, { executionMode: requestedMode }));
                 }
             } else if (preferredStrategy.kind === 'virtual-bridge' && chainId === 8453) {
                 const virtualToken = VIRTUAL_TOKEN_ADDRESSES[chainId];
@@ -1204,7 +1223,7 @@ export async function executeDirectSwap(params: {
             ));
 
         const canUseSourceHintFallback = !!params.hint?.sourceTxHash;
-        if (referenceQuote <= 0n && !canUseSourceHintFallback) {
+        if (referenceQuote <= 0n && !canUseSourceHintFallback && !turboMode) {
             return finish({ success: false, error: 'No valid reference price (0x/Kyber/Gecko)', provider: 'failed' });
         }
         if (referenceQuote <= 0n && canUseSourceHintFallback) {
@@ -1213,8 +1232,15 @@ export async function executeDirectSwap(params: {
                 txHash: params.hint?.sourceTxHash
             });
         }
-        if (referenceQuote <= 0n && !preferredStrategy) {
+        if (referenceQuote <= 0n && !preferredStrategy && !turboMode) {
             return finish({ success: false, error: 'No valid reference price and no trusted hint strategy', provider: 'failed' });
+        }
+        if (referenceQuote <= 0n && turboMode) {
+            logger.warn(LogCode.SYS_INFO, '[DirectSwap] Turbo mode continuing without reference quote', {
+                chainId,
+                tokenIn: normalizedTokenIn,
+                tokenOut: normalizedTokenOut
+            });
         }
 
         const deviationBps = Math.min(Math.max(REFERENCE_DEVIATION_BPS, 0), 5000);
@@ -1250,6 +1276,7 @@ export async function executeDirectSwap(params: {
             preferredStrategy: preferredStrategy ? `${preferredStrategy.kind}${preferredStrategy.dex ? `:${preferredStrategy.dex}` : ''}` : 'none',
             fastHintMode,
             turboMode,
+            requestedMode,
             zoraRoutesEnabled
         });
 
@@ -1266,7 +1293,7 @@ export async function executeDirectSwap(params: {
                         fee: infinityQuote.fee,
                         kind: infinityQuote.kind
                     });
-                    return finish(await executeInfinitySwap(normalizedParams, infinityQuote));
+                    return finish(await executeInfinitySwap(normalizedParams, infinityQuote, { executionMode: requestedMode }));
                 }
                 logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: 'infinity',
@@ -1293,7 +1320,8 @@ export async function executeDirectSwap(params: {
                         });
                         return finish(await executeV4Swap(normalizedParams, turboHintedPool.pool, {
                             allowZeroQuoteMinOut: true,
-                            fastMode: turboMode
+                            fastMode: turboMode,
+                            executionMode: requestedMode
                         }));
                     }
                 }
@@ -1314,7 +1342,11 @@ export async function executeDirectSwap(params: {
                         poolId: v4Best.pool.poolAddress,
                         fee: v4Best.pool.fee
                     });
-                    return finish(await executeV4Swap(normalizedParams, v4Best.pool, { allowZeroQuoteMinOut: true, fastMode: turboMode }));
+                    return finish(await executeV4Swap(normalizedParams, v4Best.pool, {
+                        allowZeroQuoteMinOut: true,
+                        fastMode: turboMode,
+                        executionMode: requestedMode
+                    }));
                 }
                 if (v4Best.pool && v4Best.amountOut >= minReasonable) {
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy selected', {
@@ -1324,7 +1356,7 @@ export async function executeDirectSwap(params: {
                         poolId: v4Best.pool.poolAddress,
                         fee: v4Best.pool.fee
                     });
-                    return finish(await executeV4Swap(normalizedParams, v4Best.pool, { fastMode: turboMode }));
+                    return finish(await executeV4Swap(normalizedParams, v4Best.pool, { fastMode: turboMode, executionMode: requestedMode }));
                 }
                 if (forceV4) {
                     return finish({ success: false, error: 'clanker_force_v4_failed', provider: 'uniswap-v4' });
@@ -1351,7 +1383,7 @@ export async function executeDirectSwap(params: {
                         pool: v3Pool.poolAddress,
                         fee: v3Pool.fee
                     });
-                    return finish(await executeV3Swap(normalizedParams, v3Pool, strategy.dex, { fastMode: turboMode }));
+                    return finish(await executeV3Swap(normalizedParams, v3Pool, strategy.dex, { fastMode: turboMode, executionMode: requestedMode }));
                 }
                 logger.info(LogCode.SYS_INFO, '[DirectSwap] Strategy rejected', {
                     strategy: `v3:${strategy.dex}`,
@@ -3068,6 +3100,7 @@ async function executeV4Swap(
     options?: {
         allowZeroQuoteMinOut?: boolean;
         fastMode?: boolean;
+        executionMode?: DirectSwapExecutionMode;
     }
 ): Promise<DirectSwapResult> {
     const { userId, accessToken, tokenIn, tokenOut, chainId, slippageBps } = params;
@@ -3095,6 +3128,7 @@ async function executeV4Swap(
     // 计算金额 (wei)
     const amountInWei = params.amountInWei;
     const fastMode = options?.fastMode === true;
+    const executionMode: DirectSwapExecutionMode = options?.executionMode === 'turbo' ? 'turbo' : 'balanced';
 
     // [Safety]: 使用 V4 Pool 的 spot price + Quoter 做报价偏离校验，避免极端误报价
     let quoterOutWei = 0n;
@@ -3199,6 +3233,15 @@ async function executeV4Swap(
                     error: errSummary.shortMessage,
                     errorCode: errSummary.code
                 });
+            } else if (executionMode === 'turbo') {
+                logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] V4 pre-simulation soft-fail in turbo mode', {
+                    poolId,
+                    hook: poolKey.hooks,
+                    tokenIn: normalizedIn,
+                    tokenOut: normalizedOut,
+                    error: errSummary.shortMessage,
+                    revertReason: reason
+                });
             } else {
                 return { success: false, error: 'V4 pre-simulation failed', provider: 'failed' };
             }
@@ -3280,7 +3323,8 @@ async function executeInfinitySwap(
         chainId: number;
         slippageBps: number;
     },
-    quote: InfinityBestQuote
+    quote: InfinityBestQuote,
+    options?: { executionMode?: DirectSwapExecutionMode }
 ): Promise<DirectSwapResult> {
     const { userId, accessToken, walletAddress, chainId, slippageBps } = params;
     if (chainId !== 56) {
@@ -3388,6 +3432,8 @@ async function executeInfinitySwap(
 
     const data = infinityRouterInterface.encodeFunctionData('execute', [commands, inputs, deadline]);
 
+    const executionMode: DirectSwapExecutionMode = options?.executionMode === 'turbo' ? 'turbo' : 'balanced';
+
     try {
         await callRpc<string>(chainId, 'eth_call', [{
             from: walletAddress,
@@ -3399,7 +3445,12 @@ async function executeInfinitySwap(
         logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] Infinity pre-simulation failed', {
             error: err?.message?.slice(0, 160)
         });
-        return { success: false, error: 'Infinity pre-simulation failed', provider: 'failed' };
+        if (executionMode !== 'turbo') {
+            return { success: false, error: 'Infinity pre-simulation failed', provider: 'failed' };
+        }
+        logger.warn(LogCode.EXE_TX_REVERTED, '[DirectSwap] Infinity pre-simulation soft-fail in turbo mode', {
+            error: err?.message?.slice(0, 160)
+        });
     }
 
     let gasLimit: string;
@@ -3453,7 +3504,7 @@ async function executeV3Swap(
     },
     pool: PoolInfo,
     dex: 'uniswap' | 'pancake',
-    options?: { fastMode?: boolean }
+    options?: { fastMode?: boolean; executionMode?: DirectSwapExecutionMode }
 ): Promise<DirectSwapResult> {
     const { userId, accessToken, walletAddress, tokenIn, tokenOut, chainId, slippageBps } = params;
 

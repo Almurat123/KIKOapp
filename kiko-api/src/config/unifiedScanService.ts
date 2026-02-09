@@ -323,6 +323,114 @@ export async function getSolanaTransactions(
 }
 
 // ============================================================================
+// EVM LOGS (module=logs, action=getLogs)
+// ============================================================================
+
+export type ScanLogItem = {
+  address: string;
+  topics: string[];
+  data: string;
+  blockNumber: number;
+  logIndex: number;
+  transactionHash?: string;
+};
+
+function parseScanNumber(v: any): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    if (v.startsWith('0x') || v.startsWith('0X')) {
+      const n = parseInt(v, 16);
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function normalizeScanLogs(result: any): ScanLogItem[] {
+  if (!Array.isArray(result)) return [];
+  return result
+    .map((row: any) => ({
+      address: String(row?.address || '').toLowerCase(),
+      topics: Array.isArray(row?.topics)
+        ? row.topics.map((t: any) => String(t || ''))
+        : [row?.topic0, row?.topic1, row?.topic2, row?.topic3].filter(Boolean).map((t: any) => String(t || '')),
+      data: String(row?.data || '0x'),
+      blockNumber: parseScanNumber(row?.blockNumber),
+      logIndex: parseScanNumber(row?.logIndex),
+      transactionHash: typeof row?.transactionHash === 'string' ? row.transactionHash : undefined,
+    }))
+    .filter((l) => !!l.address && Array.isArray(l.topics) && l.topics.length > 0 && Number.isFinite(l.blockNumber) && l.blockNumber > 0);
+}
+
+export async function getEvmLogs(
+  chainId: number,
+  chain: string,
+  options: {
+    address: string;
+    topic0?: string;
+    fromBlock: number;
+    toBlock: number;
+    page?: number;
+    offset?: number;
+    sort?: 'asc' | 'desc';
+  }
+): Promise<ScanLogItem[]> {
+  const params: Record<string, any> = {
+    module: 'logs',
+    action: 'getLogs',
+    address: options.address,
+    fromBlock: Math.max(0, Math.floor(options.fromBlock || 0)),
+    toBlock: Math.max(0, Math.floor(options.toBlock || 0)),
+    page: Math.max(1, Math.floor(options.page || 1)),
+    offset: Math.max(1, Math.min(1000, Math.floor(options.offset || 1000))),
+  };
+  if (options.topic0) params.topic0 = options.topic0;
+  if (options.sort) params.sort = options.sort;
+
+  const providers: Array<{ name: string; fn: () => Promise<any> }> = [];
+
+  if (ETHERSCAN_CONFIG.apiKey && !isScanCircuitOpen('etherscan')) {
+    providers.push({
+      name: 'etherscan',
+      fn: () => callEtherscan(chainId, params),
+    });
+  }
+
+  if (ROUTESCAN_CONFIG.apiKey && !isScanCircuitOpen('routescan')) {
+    providers.push({
+      name: 'routescan',
+      fn: () => callRoutescan(chain, params),
+    });
+  }
+
+  if (BLOCKSCOUT_CONFIG.apiKey && !isScanCircuitOpen('blockscout')) {
+    providers.push({
+      name: 'blockscout',
+      fn: () => callBlockscout(chain, params),
+    });
+  }
+
+  let lastError: any = null;
+  for (const provider of providers) {
+    try {
+      const data = await provider.fn();
+      const result = (data && typeof data === 'object' && 'result' in data) ? (data as any).result : data;
+      return normalizeScanLogs(result);
+    } catch (error: any) {
+      lastError = error;
+      continue;
+    }
+  }
+
+  if (lastError) {
+    throw new Error(`All scan log providers failed: ${lastError?.message || String(lastError)}`);
+  }
+  return [];
+}
+
+// ============================================================================
 // HEALTH STATS
 // ============================================================================
 

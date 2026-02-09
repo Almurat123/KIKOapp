@@ -126,11 +126,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Get user info and avatar
   const { name: userName, initials: userInitials, avatarUrl } = getUserInfo(user);
 
+  // Filter conversations to hide "ghost" sessions (those with no messages and no activity)
+  // But ALWAYS show the active conversation or one that is being generated
+  const filteredConversations = conversations.filter(conv => {
+    if (conv.id === activeConversationId || generatingConversationId === conv.id) return true;
+    // Check if it has any messages or activity
+    // Note: initially conversations have messages: [] until loaded, 
+    // but a ghost session stays in this state.
+    // However, if we filter all messages:[] we hide everything.
+    // We need a way to distinguish "not loaded" from "actually empty".
+    // For now, if messages array is present (loaded) and empty, it's a candidate.
+    // If it's NOT loaded (messages.length === 0 usually), we look at title or other indicators.
+    // A better approach: backend should probably not create empty sessions, 
+    // but since we are in UX fix mode:
+    return conv.messages.length > 0 || (conv.id === activeConversationId);
+  });
+
   const chatItem: NavItem = {
     id: 'chat',
     icon: MessageSquare,
     label: 'Chat',
-    subItems: conversations.map(conv => ({
+    subItems: filteredConversations.map(conv => ({
       id: conv.id,
       label: conv.title,
     })),

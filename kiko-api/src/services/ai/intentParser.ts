@@ -348,7 +348,7 @@ function hasTradeVerbs(text: string): boolean {
  * Extract token symbols from message
  */
 function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: string } {
-    const commonTokens = ['ETH', 'USDC', 'USDT', 'DAI', 'WBTC', 'BTC', 'BNB', 'MATIC', 'AVAX', 'SOL'];
+    const commonTokens = ['ETH', 'USDC', 'USDT', 'DAI', 'WBTC', 'BTC', 'BNB', 'MATIC', 'POL', 'AVAX', 'SOL'];
     const tokenAlternatives = [...commonTokens].sort((a, b) => b.length - a.length);
     const tokenPattern = new RegExp(`\\b(${tokenAlternatives.join('|')})\\b`, 'gi');
 
@@ -382,7 +382,7 @@ function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: strin
 
     // Pattern: "buy X for Y BNB" - the native token is what we're spending
     // In this case, BNB is tokenIn, and X (contract address) is tokenOut
-    const buyForPattern = /\bfor\s+([\d.]+)\s+(ETH|BNB|SOL|MATIC|AVAX)\b/i;
+    const buyForPattern = /\bfor\s+([\d.]+)\s+(ETH|BNB|SOL|MATIC|POL|AVAX)\b/i;
     const buyForMatch = text.match(buyForPattern);
     if (buyForMatch) {
         const nativeToken = buyForMatch[2].toUpperCase();
@@ -400,7 +400,7 @@ function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: strin
     }
 
     // If only one token found and it's a native token, it's likely tokenIn for a buy
-    if (foundOrdered.length === 1 && ['ETH', 'BNB', 'SOL', 'MATIC', 'AVAX'].includes(foundOrdered[0])) {
+    if (foundOrdered.length === 1 && ['ETH', 'BNB', 'SOL', 'MATIC', 'POL', 'AVAX'].includes(foundOrdered[0])) {
         return {
             tokenIn: foundOrdered[0],
             tokenOut: undefined,
@@ -548,13 +548,13 @@ function detectTargetSymbol(text: string): boolean {
 function detectAmountPresence(text: string): boolean {
     if (/\b(\d{1,3})%/.test(text)) return true;
     if (/\b(all|half|quarter)\b/i.test(text)) return true;
-    if (/\b(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB|BTC)\b/i.test(text)) return true;
+    if (/\b(\d+\.?\d*)\s*(?:USDC|ETH|SOL|USDT|BNB|BTC|MATIC|POL)\b/i.test(text)) return true;
     return /\b(buy|sell|swap)\s+(\d+\.?\d*)\b/i.test(text);
 }
 
 function detectAssetPresence(text: string, tokenSymbols: { tokenIn?: string; tokenOut?: string }): boolean {
     if (tokenSymbols.tokenIn || tokenSymbols.tokenOut) return true;
-    return /\b(ETH|USDC|USDT|SOL|BNB|BTC|MATIC|ARB|OP|BASE)\b/i.test(text);
+    return /\b(ETH|USDC|USDT|SOL|BNB|BTC|MATIC|POL|ARB|OP|BASE)\b/i.test(text);
 }
 
 function getIntentSignals(userMessage: string, userContext?: UserContext): { signals: IntentSignals; slots: IntentSlots } {
@@ -890,7 +890,7 @@ async function parseDetailedIntentAI(
     userMessage: string,
     userContext?: UserContext
 ): Promise<DetailedIntent | null> {
-    const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+    const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
     const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
     const apiKey = DEEPSEEK_API_KEY;
 
@@ -1008,7 +1008,7 @@ async function parseDetailedIntentAI(
             // If user says "buy X TOKEN" and token_out is missing but token_in is set, treat token_in as target
             if (!intent.token_out && intent.token_in) {
                 const hasBuyVerb = /\b(buy|purchase|ape|买|购买)\b/i.test(userMessage);
-                const isNativeIn = ['ETH', 'BNB', 'SOL', 'MATIC', 'AVAX', 'BASE'].includes(intent.token_in.toUpperCase());
+                const isNativeIn = ['ETH', 'BNB', 'SOL', 'MATIC', 'POL', 'AVAX', 'BASE'].includes(intent.token_in.toUpperCase());
                 if (hasBuyVerb && !isNativeIn) {
                     intent.token_out = intent.token_in;
                     intent.token_in = undefined;
@@ -1019,7 +1019,8 @@ async function parseDetailedIntentAI(
             if (intent.token_out && !intent.token_in) {
                 const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56 || intent.chain_id === 56;
                 const isSolana = intent.chain_id === 900;
-                intent.token_in = isSolana ? 'SOL' : (isBsc ? 'BNB' : 'ETH');
+                const isPolygon = userContext?.chainId === 137 || intent.chain_id === 137;
+                intent.token_in = isSolana ? 'SOL' : (isBsc ? 'BNB' : (isPolygon ? 'POL' : 'ETH'));
             }
 
             // Normalize "BASE" to native token when on Base chain
@@ -1116,7 +1117,8 @@ function parseDetailedIntentHeuristic(
 
         // Detect native token based on chain
         const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56;
-        const nativeToken = isSolana ? 'SOL' : (isBsc ? 'BNB' : 'ETH');
+        const isPolygon = userContext?.chainId === 137;
+        const nativeToken = isSolana ? 'SOL' : (isBsc ? 'BNB' : (isPolygon ? 'POL' : 'ETH'));
 
         if (isSellOperation) {
             // Selling: contract address is tokenIn, native token is tokenOut
@@ -1131,7 +1133,7 @@ function parseDetailedIntentHeuristic(
         // If user says "buy X TOKEN" and token_out is missing but token_in is set, treat token_in as target
         if (!tokenOut && tokenIn) {
             const hasBuyVerb = /\b(buy|purchase|ape|买|购买)\b/i.test(userMessage);
-            const isNativeIn = ['ETH', 'BNB', 'SOL', 'MATIC', 'AVAX', 'BASE'].includes(tokenIn.toUpperCase());
+            const isNativeIn = ['ETH', 'BNB', 'SOL', 'MATIC', 'POL', 'AVAX', 'BASE'].includes(tokenIn.toUpperCase());
             if (hasBuyVerb && !isNativeIn) {
                 tokenOut = tokenIn;
                 tokenIn = undefined;
@@ -1141,7 +1143,8 @@ function parseDetailedIntentHeuristic(
         // If token_out exists but token_in missing, default to native token based on chain/context
         if (tokenOut && !tokenIn) {
             const isBsc = /\bBNB\b/i.test(userMessage) || userContext?.chainId === 56;
-            tokenIn = isSolana ? 'SOL' : (isBsc ? 'BNB' : 'ETH');
+            const isPolygon = userContext?.chainId === 137;
+            tokenIn = isSolana ? 'SOL' : (isBsc ? 'BNB' : (isPolygon ? 'POL' : 'ETH'));
         }
 
         // Normalize "BASE" to native token when on Base chain

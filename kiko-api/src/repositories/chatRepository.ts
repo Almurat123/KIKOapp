@@ -74,11 +74,17 @@ export async function createSession(
     title?: string,
     model?: string
 ): Promise<any> {
+    const normalizedModel = (() => {
+        const normalized = (model || '').toLowerCase().trim();
+        if (!normalized) return 'deepseek-chat';
+        if (normalized === 'gpt5-2' || normalized === 'gpt-5.2') return 'gpt-5-mini';
+        return normalized;
+    })();
     return prisma.chatSession.create({
         data: {
             userId,
             title: title || 'New Chat',
-            model: model || 'deepseek-chat',
+            model: normalizedModel,
             status: 'active'
         }
     });
