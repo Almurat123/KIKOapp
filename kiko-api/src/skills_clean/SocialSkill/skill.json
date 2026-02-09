@@ -13,14 +13,14 @@
     "examples": {
         "en": [
             "What's trending on Farcaster?",
-            "Search for casts about $DEGEN",
+            "Search for casts about $",
             "Find user @dwr.eth on Farcaster",
             "Show latest discussion about Base",
             "Who are the top posters today?"
         ],
         "zh": [
             "Farcaster 上现在的热门内容是什么？",
-            "搜索关于 $DEGEN 的帖子",
+            "搜索关于 $ 的帖子",
             "在 Farcaster 上查找用户 @dwr.eth",
             "显示关于 Base 的最新讨论",
             "今天谁是热门发布者？"
