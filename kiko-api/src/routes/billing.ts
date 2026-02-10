@@ -10,7 +10,7 @@ import {
     upsertBillingConsent
 } from '../repositories/billingRepository.js';
 import { getUtcDateString } from '../services/billing/billingService.js';
-import { getDailyTotalUsageCount, getDailyUsageCount } from '../repositories/billingRepository.js';
+import { getUsageCounts } from '../services/usageCounter.js';
 import { getUserDailyLimit } from '../services/usageLimitsService.js';
 
 interface ConsentBody {
@@ -89,16 +89,14 @@ export async function billingRoutes(fastify: FastifyInstance) {
             }
 
             const dateUtc = getUtcDateString();
-            const totalUsed = await getDailyTotalUsageCount(userId, dateUtc);
-            const normalUsed = await getDailyUsageCount(userId, dateUtc, 'deepseek');
-            const advancedUsed = await getDailyUsageCount(userId, dateUtc, 'grok');
+            const counts = await getUsageCounts({ userId, dateUtc });
             const { limit: totalLimit, tokenBalance } = await getUserDailyLimit({ userId });
 
             return reply.send({
                 dateUtc,
-                total: { used: totalUsed, limit: totalLimit },
-                normal: { used: normalUsed },
-                advanced: { used: advancedUsed },
+                total: { used: counts.total, limit: totalLimit },
+                normal: { used: counts.deepseek },
+                advanced: { used: counts.grok },
                 tokenBalance,
             });
         }

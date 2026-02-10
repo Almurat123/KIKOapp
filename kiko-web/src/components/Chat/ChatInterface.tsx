@@ -521,6 +521,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         const msgId = event.data.messageId || event.data.message_id;
                         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: 'complete' } : m));
                     }
+                    if (sidebar?.refreshUsageSummary) {
+                        sidebar.refreshUsageSummary();
+                    }
                     break;
                 case 'client_action':
                     logger.debug('Received client action:', event.data.action);

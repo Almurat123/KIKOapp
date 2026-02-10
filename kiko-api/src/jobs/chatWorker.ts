@@ -15,6 +15,7 @@ import * as alchemy from '../services/alchemy.js';
 import * as privyWallet from '../services/privyWallet.js';
 import { scrub } from '../utils/scrubber.js';
 import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
+import { recordUsage } from '../services/usageCounter.js';
 import { buildSignedHeaders } from '../utils/requestSigningClient.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
@@ -177,7 +178,7 @@ export class ChatWorker {
     private findRecentSimulateSwap(
         sessionMessages: any[],
         windowMs: number
-    ): { token_in: string; token_out: string; amount_in: string; chain_id: number } | null {
+    ): { token_in: string; token_out: string; amount_in: string; chain_id: number; isCrossChain: boolean; toChain?: number } | null {
         const sorted = [...sessionMessages].sort((a, b) => (a.message_index || a.messageIndex || 0) - (b.message_index || b.messageIndex || 0));
         const now = Date.now();
         for (let i = sorted.length - 1; i >= 0; i -= 1) {
@@ -190,13 +191,43 @@ export class ChatWorker {
             for (let j = toolCalls.length - 1; j >= 0; j -= 1) {
                 const entry = toolCalls[j];
                 // CRITICAL FIX: Support both simulate_swap and get_cross_chain_quote
-                // This allows "Proceed" to work for cross-chain swaps
+                // This allows "Proceed" to work for both single-chain and cross-chain swaps
                 if ((entry.tool !== 'simulate_swap' && entry.tool !== 'get_cross_chain_quote') || entry.status !== 'success') continue;
                 const parsed = this.parseArgsFromKey(entry.argsKey || '');
                 if (!parsed?.args) continue;
-                const { token_in, token_out, amount_in, chain_id } = parsed.args;
+
+                // Handle different parameter formats:
+                // - simulate_swap uses: token_in, token_out, amount_in, chain_id
+                // - get_cross_chain_quote uses: fromToken, toToken, fromAmount, fromChain, toChain
+                let token_in: string | undefined;
+                let token_out: string | undefined;
+                let amount_in: string | undefined;
+                let chain_id: number | undefined;
+                let isCrossChain = false;
+                let toChain: number | undefined;
+
+                if (entry.tool === 'simulate_swap') {
+                    // Standard single-chain swap format
+                    token_in = parsed.args.token_in;
+                    token_out = parsed.args.token_out;
+                    amount_in = parsed.args.amount_in;
+                    chain_id = parsed.args.chain_id;
+                    isCrossChain = false;
+                } else if (entry.tool === 'get_cross_chain_quote') {
+                    // Cross-chain swap format - map to unified format
+                    token_in = parsed.args.fromToken;
+                    token_out = parsed.args.toToken;
+                    amount_in = parsed.args.fromAmount;
+                    // For cross-chain, use fromChain as the execution chain (where the swap originates)
+                    const fromChain = parsed.args.fromChain;
+                    chain_id = typeof fromChain === 'string' ? parseInt(fromChain, 10) : fromChain;
+                    const destChain = parsed.args.toChain;
+                    toChain = typeof destChain === 'string' ? parseInt(destChain, 10) : destChain;
+                    isCrossChain = true;
+                }
+
                 if (!token_in || !token_out || !amount_in || !chain_id) continue;
-                return { token_in, token_out, amount_in, chain_id };
+                return { token_in, token_out, amount_in, chain_id, isCrossChain, toChain };
             }
         }
         return null;
@@ -1238,7 +1269,13 @@ export class ChatWorker {
                         signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
                         slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
                     };
-                    (task as any).systemInjection = `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}. Do NOT call simulate_swap again or use web search.`;
+
+
+                    if (confirmedSwap.isCrossChain) {
+                        (task as any).systemInjection = `CONFIRMED_CROSS_CHAIN_SWAP: User confirmed cross-chain swap. You MUST call prepare_cross_chain_tx now with: fromToken=${confirmedSwap.token_in}, toToken=${confirmedSwap.token_out}, fromAmount=${confirmedSwap.amount_in}, fromChain=${confirmedSwap.chain_id}, toChain=${confirmedSwap.toChain}. Do NOT call get_cross_chain_quote again.`;
+                    } else {
+                        (task as any).systemInjection = `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}. Do NOT call simulate_swap again or use web search.`;
+                    }
                 }
             }
             if (iteration === 1) {
@@ -1303,22 +1340,8 @@ export class ChatWorker {
                             toolCount: toolDefinitions.length,
                         });
                     } else {
-                        console.warn(`[ChatWorker] Skill gating produced 0 tools for intent=${intentStr}; falling back to base tool set`);
+                        console.warn(`[ChatWorker] Skill gating produced 0 tools for intent=${intentStr}; no fallback - skills control tool availability`);
                     }
-                } else if (isFreeIntent) {
-                    const allToolDefs = toolRegistry.getAllDefinitions();
-                    const filtered = allToolDefs.filter(def => THINKING_TOOL_ALLOWLIST.has(def.name));
-                    toolDefinitions = filtered.map(def => ({ type: 'function', function: def }));
-                    console.log(`[ChatWorker] Free intent mode: using ${toolDefinitions.length} thinking tools`);
-                    logger.info(LogCode.AI_SKILLS_ATTACHED, 'DeepSeek: thinking mode without skills injection', {
-                        taskId: task.id,
-                        sessionId: task.sessionId,
-                        model: task.model,
-                        intent: intentStr,
-                        routingMode,
-                        skillVersion: 'clean',
-                        toolCount: toolDefinitions.length,
-                    });
                 }
             }
 
@@ -3121,6 +3144,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         const completionTokens = Number(params.usage.completion_tokens || 0);
         const totalTokens = Number(params.usage.total_tokens || promptTokens + completionTokens);
 
+        const dateUtc = getUtcDateString();
+
         try {
             await insertUsageRecord({
                 assistantMessageId: params.assistantMessageId,
@@ -3132,8 +3157,14 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 totalTokens,
                 toolCallsCount: params.toolCallsCount || 0,
                 usdCost,
-                dateUtc: getUtcDateString(),
+                dateUtc,
                 isFree
+            });
+            await recordUsage({
+                userId: params.userId,
+                dateUtc,
+                modelCategory,
+                assistantMessageId: params.assistantMessageId,
             });
         } catch (error: any) {
             logger.warn(LogCode.DB_TRANSACTION_FAILED, 'Billing usage insert failed', {
@@ -3658,26 +3689,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     toolCount: toolDefinitions.length,
                 });
             } else {
-                logger.warn(LogCode.AI_TOOL_FILTERED, 'Grok: skill gating produced 0 tools; fallback to base', { intent: intentStr });
+                logger.warn(LogCode.AI_TOOL_FILTERED, 'Grok: skill gating produced 0 tools; no fallback - skills control tool availability', { intent: intentStr });
             }
-        } else if (isFreeIntent) {
-            const allToolDefs = toolRegistry.getAllDefinitions();
-            const filtered = allToolDefs.filter(def => THINKING_TOOL_ALLOWLIST.has(def.name));
-            toolDefinitions = filtered.map(def => ({ type: 'function', function: def }));
-            logger.debug(LogCode.AI_TOOL_FILTERED, 'Grok: free intent mode uses thinking tools', {
-                count: toolDefinitions.length,
-                routingMode,
-                skillVersion: 'clean',
-            });
-            logger.info(LogCode.AI_SKILLS_ATTACHED, 'Grok: thinking mode without skills injection', {
-                taskId: task.id,
-                sessionId: task.sessionId,
-                model: task.model,
-                intent: intentStr,
-                routingMode,
-                skillVersion: 'clean',
-                toolCount: toolDefinitions.length,
-            });
         }
         if (!isFreeIntent) {
             toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'external_web_search');

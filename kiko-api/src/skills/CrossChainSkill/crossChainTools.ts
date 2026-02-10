@@ -2,7 +2,9 @@ import { Tool } from '../../tooling/registry.js';
 import axios from 'axios';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { parseUnits } from 'ethers';
+import { parseUnits, Interface } from 'ethers';
+import { getErc20Allowance, getTransactionReceipt } from '../../services/rpcManager.js';
+import { chatWS } from '../../services/chatWebSocket.js';
 
 /**
  * [Configuration]: Supported Chains & Wrapped Tokens
@@ -406,7 +408,7 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
             const toChainId = resolveChainId(args.toChain);
 
             // Dynamic Import
-            const { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress } = await import('../../services/privyWallet.js');
+            const { getEmbeddedWalletAddress, getSolanaEmbeddedWalletAddress, sendTransaction, sendSolanaTransaction } = await import('../../services/privyWallet.js');
 
             // [Address Auto-Discovery]
             let fromAddress = args.fromAddress;
@@ -467,32 +469,125 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
             // Native tokens (0x0... / 111...) do not need approval.
             // ERC20/SPL tokens DO need approval.
             const isNative = fromToken === NATIVE_TOKEN_ADDRESS || fromToken === SOL_NATIVE_ADDRESS;
-            // Solana transactions (even for SPL) usually bundle necessary instructions, 
-            // so we can consider them "executable" directly if LI.FI allows.
-            // However, strictly speaking, `isNative` check is safest for automations.
-            // Let's trust LI.FI's Solana tx building to include delegation/owner checks correctly.
             const isSolana = fromChainId === '1151111081099710';
-
             const approvalAddress = quote.estimate.approvalAddress;
-            const requiresApproval = !isNative && !!approvalAddress && !isSolana; // Solana doesn't use semantic approval step like EVM ERC20
+            let requiresApproval = !isNative && !!approvalAddress && !isSolana;
 
-            // [Smart Account Optimization]: 
-            // If NO approval is needed (Native Token or Solana), we can execute INSTANTLY via Privy Server Wallet!
-            // This is the "missing step" to true AI automation.
+            // [Smart Account Automation]: Auto-Approve for Privy Users
+            // If it's an ERC20 token and user is on Privy, we can check allowance and auto-approve.
+            const isPrivyUser = userId.includes('did:privy');
+
+            if (requiresApproval && isPrivyUser) {
+                try {
+                    logger.info(LogCode.SYS_INFO, `[CrossChain] Checking allowance for ${args.fromToken} on ${fromChainId}...`);
+
+                    // 1. Check current allowance
+                    const currentAllowance = await getErc20Allowance(
+                        fromToken,
+                        fromAddress,
+                        approvalAddress!,
+                        Number(fromChainId)
+                    );
+
+                    if (currentAllowance >= BigInt(amountAtomic)) {
+                        logger.info(LogCode.SYS_INFO, `[CrossChain] Allowance sufficient (${currentAllowance.toString()} >= ${amountAtomic})`);
+                        requiresApproval = false;
+                    } else {
+                        logger.info(LogCode.SYS_INFO, `[CrossChain] Allowance insufficient. Auto-approving...`);
+
+                        // [UX Update] Broadcast "Approving" status card
+                        chatWS.broadcastToUser(userId, {
+                            type: 'client_action',
+                            data: {
+                                type: 'show_cross_chain_status_card',
+                                payload: {
+                                    status: 'approving',
+                                    fromChain: fromChainId,
+                                    toChain: toChainId,
+                                    fromToken: args.fromToken,
+                                    toToken: args.toToken,
+                                    amount: args.fromAmount
+                                }
+                            }
+                        });
+
+                        // 2. Construct Approval Transaction
+                        const iface = new Interface(['function approve(address spender, uint256 amount) returns (bool)']);
+                        const approveData = iface.encodeFunctionData('approve', [approvalAddress, amountAtomic]);
+
+                        // 3. Send Approval Transaction
+                        // Using a dummy high gas limit or letting Privy estimate. Usually 60k is safe for approve.
+                        const approveTxHash = await sendTransaction(userId, context.accessToken || '', {
+                            to: fromToken,
+                            data: approveData,
+                            chainId: Number(fromChainId),
+                            gas: '0x186A0' // 100,000 gas safety limit
+                        });
+
+                        logger.info(LogCode.EXE_TX_BROADCAST, `[CrossChain] Approval Sent: ${approveTxHash}. Waiting for confirmation...`);
+
+                        // 4. Wait for Confirmation (Polling)
+                        // Poll up to 120 seconds (60 attempts * 2s)
+                        let confirmed = false;
+                        for (let i = 0; i < 60; i++) {
+                            await new Promise(r => setTimeout(r, 2000)); // Wait 2s
+                            try {
+                                const receipt = await getTransactionReceipt(Number(fromChainId), approveTxHash);
+                                if (receipt && receipt.status === 1) { // 1 = success
+                                    confirmed = true;
+                                    logger.info(LogCode.EXE_TX_SUCCESS, `[CrossChain] Approval Confirmed!`);
+                                    break;
+                                }
+                            } catch (e) {
+                                // Ignore RPC errors during polling
+                            }
+                        }
+
+                        // 5. Double Check: If timeout, check allowance one last time
+                        if (!confirmed) {
+                            logger.warn(LogCode.SYS_INFO, `[CrossChain] Approval polling timed out. Verifying allowance directly...`);
+                            const finalAllowance = await getErc20Allowance(fromToken, fromAddress, approvalAddress!, Number(fromChainId));
+                            if (finalAllowance >= BigInt(amountAtomic)) {
+                                confirmed = true;
+                                logger.info(LogCode.SYS_INFO, `[CrossChain] Allowance verification passed! Proceeding.`);
+                            }
+                        }
+
+                        if (confirmed) {
+                            requiresApproval = false; // Proceed to swap
+                            // [UX Update] Broadcast "Bridge Pending" (Executing Swap) status
+                            chatWS.broadcastToUser(userId, {
+                                type: 'client_action',
+                                data: {
+                                    type: 'show_cross_chain_status_card',
+                                    payload: {
+                                        status: 'pending_bridge',
+                                        fromChain: fromChainId,
+                                        toChain: toChainId,
+                                        fromToken: args.fromToken,
+                                        toToken: args.toToken,
+                                        amount: args.fromAmount
+                                    }
+                                }
+                            });
+                        } else {
+                            throw new Error("Approval transaction timed out or failed.");
+                        }
+                    }
+                } catch (err: any) {
+                    logger.warn(LogCode.SYS_ERROR, `[CrossChain] Auto-approval failed: ${err.message}. Falling back to manual.`, { error: err });
+                    // requiresApproval remains true, will fall back to manual card
+                }
+            }
+
+            // [Smart Account Optimization]:
+            // If NO approval is needed (Native Token, Solana, or Auto-Approved), execute INSTANTLY!
             if (!requiresApproval) {
                 try {
-                    // Import dynamically to avoid circular deps if any (though currently safe)
-                    const { sendTransaction, sendSolanaTransaction } = await import('../../services/privyWallet.js');
-
-                    // console.log(`[CrossChain] Attempting Server-Side Execution for ${userId} on ${fromChainId}`);
-
                     let txHash = '';
 
                     if (isSolana) {
                         // Handle Solana Server Execution
-                        // LI.FI returns transactionRequest.data which might be base64 encoded transaction?
-                        // LI.FI documentation: data is "The transaction data..."
-                        // For Solana validation, we need to ensure quote.transactionRequest.data is the base64 encoded tx.
                         if (quote.transactionRequest.data) {
                             txHash = await sendSolanaTransaction(userId, quote.transactionRequest.data);
                         } else {
@@ -556,8 +651,12 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
 
             // [Client Action]: Fallback or Manual Requirement
             // Return structured data for Frontend/Privy (Manual Execution)
+            const confirmationMsg = userId?.includes('did:privy')
+                ? `Prepared cross-chain swap for ${args.fromToken}. Since this is an ERC20 token, it requires approval. Please click 'Confirm' in the transaction card below to execute.`
+                : `Prepared cross-chain swap. Please confirm in your wallet.`;
+
             return {
-                summary: `Prepared cross-chain swap. Please confirm in your wallet.`,
+                summary: confirmationMsg,
                 __client_action: {
                     type: 'execute_cross_chain_swap',
                     payload: {

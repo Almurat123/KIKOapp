@@ -18,6 +18,7 @@ import { LogCode } from '../config/logRegistry.js';
 import { evaluateUsageAccess } from '../services/usageAccess.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
+import { recordUsage } from '../services/usageCounter.js';
 import { randomUUID } from 'crypto';
 import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
 import { GENERAL_THINKING_POLICY } from '../services/ai/prompts/v2/policies/GeneralThinkingPolicy.js';
@@ -322,6 +323,7 @@ async function persistProxyUsage(params: {
 }): Promise<void> {
     if (!params.userId) return;
 
+    const assistantMessageId = `ai-route-${randomUUID()}`;
     const usage = params.usage || {};
     const promptTokens = Number(usage.prompt_tokens || 0);
     const completionTokens = Number(usage.completion_tokens || 0);
@@ -329,10 +331,11 @@ async function persistProxyUsage(params: {
     const modelCategory = getBillingCategory(params.model);
     const toolCallsCount = Number(params.toolCallsCount || 0);
     const usdCost = computeUsdCost(params.usage, params.model, toolCallsCount);
+    const dateUtc = getUtcDateString();
 
     try {
         await insertUsageRecord({
-            assistantMessageId: `ai-route-${randomUUID()}`,
+            assistantMessageId,
             userId: params.userId,
             model: params.model,
             modelCategory,
@@ -341,8 +344,14 @@ async function persistProxyUsage(params: {
             totalTokens,
             toolCallsCount,
             usdCost,
-            dateUtc: getUtcDateString(),
+            dateUtc,
             isFree: params.isFree !== false,
+        });
+        await recordUsage({
+            userId: params.userId,
+            dateUtc,
+            modelCategory,
+            assistantMessageId,
         });
     } catch (error: any) {
         logger.warn(LogCode.DB_TRANSACTION_FAILED, '[AI Routes] Usage ledger insert failed', {

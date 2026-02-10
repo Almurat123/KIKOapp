@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 import { getUtcDateString } from './billing/billingService.js';
 import { getBillingCategory } from './billing/billingService.js';
-import { getDailyTotalUsageCount, getDailyUsageCount } from '../repositories/billingRepository.js';
+import { getUsageCounts } from './usageCounter.js';
 import { getUserDailyLimit } from './usageLimitsService.js';
 
 export type UsageDecision = {
@@ -21,24 +21,24 @@ export async function evaluateUsageAccess(params: { userId: string; model: strin
     const modelCategory = getBillingCategory(params.model);
 
     if (!env.usageLimits.enabled) {
-        const normalUsed = await getDailyUsageCount(params.userId, dateUtc, 'deepseek');
-        const advancedUsed = await getDailyUsageCount(params.userId, dateUtc, 'grok');
+        const counts = await getUsageCounts({ userId: params.userId, dateUtc });
         return {
             allowed: true,
             dateUtc,
-            totalUsed: normalUsed + advancedUsed,
+            totalUsed: counts.total,
             totalLimit: 0,
             tokenBalance: 0,
-            normalUsed,
-            advancedUsed,
+            normalUsed: counts.deepseek,
+            advancedUsed: counts.grok,
             modelCategory
         };
     }
 
     const { limit: totalLimit, tokenBalance } = await getUserDailyLimit({ userId: params.userId });
-    const totalUsed = await getDailyTotalUsageCount(params.userId, dateUtc);
-    const normalUsed = await getDailyUsageCount(params.userId, dateUtc, 'deepseek');
-    const advancedUsed = await getDailyUsageCount(params.userId, dateUtc, 'grok');
+    const counts = await getUsageCounts({ userId: params.userId, dateUtc });
+    const totalUsed = counts.total;
+    const normalUsed = counts.deepseek;
+    const advancedUsed = counts.grok;
 
     if (totalLimit > 0 && totalUsed >= totalLimit) {
         return {

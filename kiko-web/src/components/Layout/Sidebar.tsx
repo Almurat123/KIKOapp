@@ -60,6 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editValue, setEditValue] = useState<string>('');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [showAllConversations, setShowAllConversations] = useState(false);
   const [usageSummary, setUsageSummary] = useState<{
     dateUtc: string;
     total: { used: number; limit: number };
@@ -126,27 +127,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Get user info and avatar
   const { name: userName, initials: userInitials, avatarUrl } = getUserInfo(user);
 
-  // Filter conversations to hide "ghost" sessions (those with no messages and no activity)
-  // But ALWAYS show the active conversation or one that is being generated
-  const filteredConversations = conversations.filter(conv => {
-    if (conv.id === activeConversationId || generatingConversationId === conv.id) return true;
-    // Check if it has any messages or activity
-    // Note: initially conversations have messages: [] until loaded, 
-    // but a ghost session stays in this state.
-    // However, if we filter all messages:[] we hide everything.
-    // We need a way to distinguish "not loaded" from "actually empty".
-    // For now, if messages array is present (loaded) and empty, it's a candidate.
-    // If it's NOT loaded (messages.length === 0 usually), we look at title or other indicators.
-    // A better approach: backend should probably not create empty sessions, 
-    // but since we are in UX fix mode:
-    return conv.messages.length > 0 || (conv.id === activeConversationId);
-  });
+  const filteredConversations = conversations;
+  const conversationLimit = 5;
+  const hasMoreConversations = filteredConversations.length > conversationLimit;
+  let visibleConversations = filteredConversations;
+  if (!showAllConversations && hasMoreConversations) {
+    visibleConversations = filteredConversations.slice(0, conversationLimit);
+    const pinnedId = generatingConversationId || activeConversationId;
+    if (pinnedId && !visibleConversations.some(conv => conv.id === pinnedId)) {
+      const pinned = filteredConversations.find(conv => conv.id === pinnedId);
+      if (pinned) {
+        visibleConversations = [...visibleConversations.slice(0, conversationLimit - 1), pinned];
+      }
+    }
+  }
 
   const chatItem: NavItem = {
     id: 'chat',
     icon: MessageSquare,
     label: 'Chat',
-    subItems: filteredConversations.map(conv => ({
+    subItems: visibleConversations.map(conv => ({
       id: conv.id,
       label: conv.title,
     })),
@@ -374,6 +374,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </div>
                     );
                   })}
+                  {item.id === 'chat' && hasMoreConversations && (
+                    <button
+                      className={styles.showMoreButton}
+                      onClick={() => setShowAllConversations(prev => !prev)}
+                    >
+                      {showAllConversations ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

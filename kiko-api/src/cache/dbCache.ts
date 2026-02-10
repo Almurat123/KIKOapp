@@ -74,6 +74,44 @@ export async function set(key: string, value: string, ttl?: number): Promise<voi
     }
 }
 
+export async function setIfNotExists(key: string, value: string, ttl?: number): Promise<boolean> {
+    try {
+        let expiresAt: Date | null = null;
+        if (ttl) {
+            expiresAt = new Date();
+            expiresAt.setSeconds(expiresAt.getSeconds() + ttl);
+        }
+
+        await prisma.cache.create({
+            data: {
+                key,
+                value,
+                expiresAt
+            }
+        });
+        return true;
+    } catch (error: any) {
+        if (error?.code === 'P2002') {
+            return false;
+        }
+        console.error(`[DBCache] SetIfNotExists error for ${key}:`, error);
+        return false;
+    }
+}
+
+export async function incrBy(key: string, amount: number, ttl?: number): Promise<number> {
+    try {
+        const entry = await getEntry(key);
+        const current = entry ? Number(entry.value) : 0;
+        const next = current + amount;
+        await set(key, String(next), ttl);
+        return next;
+    } catch (error) {
+        console.error(`[DBCache] IncrBy error for ${key}:`, error);
+        return 0;
+    }
+}
+
 /**
  * Delete item from PostgreSQL Cache
  */

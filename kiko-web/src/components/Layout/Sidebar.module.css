@@ -343,6 +343,28 @@
     opacity: 1;
 }
 
+.showMoreButton {
+    padding: 6px 0;
+    font-size: 12px;
+    color: #71717a;
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+}
+
+.light .showMoreButton {
+    color: #9ca3af;
+}
+
+.showMoreButton:hover {
+    color: #a1a1aa;
+}
+
+.light .showMoreButton:hover {
+    color: #6b7280;
+}
+
 /* Mobile: Always show action buttons (no hover on touch devices) */
 @media (max-width: 768px) {
     .subItemActions {

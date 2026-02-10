@@ -345,6 +345,20 @@ function hasTradeVerbs(text: string): boolean {
 }
 
 /**
+ * Detect confirmation keywords
+ * Maps "proceed", "confirm" etc. to TRADING intent to ensure execution tools are loaded
+ */
+function hasConfirmationKeywords(text: string): boolean {
+    const cleanText = text.trim().toLowerCase();
+    // Exact matches for short commands (English + Chinese)
+    if (/^(proceed|confirm|yes|continue|go ahead|execute|do it|approve|submit|ok|okay|sure|确认|确定|执行|好的|ok|继续)$/i.test(cleanText)) {
+        return true;
+    }
+    // Phrase matches
+    return /\b(confirm transaction|execute swap|proceed with trade|proceed with swap|continue with trade|confirm trade|确认交易|执行交易)\b/i.test(text);
+}
+
+/**
  * Extract token symbols from message
  */
 function extractTokenSymbols(text: string): { tokenIn?: string; tokenOut?: string } {
@@ -674,6 +688,9 @@ function evaluateRuleLayer(userMessage: string, userContext?: UserContext): {
     if (signals.hasSocial) {
         add('SOCIAL_SENSING', 0.8, ['keyword: social/trending']);
     }
+    if (hasConfirmationKeywords(userMessage)) {
+        add('TRADING', 0.85, ['confirmation keyword']);
+    }
     if (signals.hasWallet) {
         add('MARKET_ANALYSIS', 0.8, ['keyword: wallet/portfolio']);
     }
@@ -691,6 +708,7 @@ function evaluateRuleLayer(userMessage: string, userContext?: UserContext): {
         if (signals.hasRisk && (signals.hasQuestion || !signals.hasAction)) {
             return { label: 'RISK_SCAN' as HighLevelIntentType, reason: 'risk question without trade action' };
         }
+        if (hasConfirmationKeywords(userMessage)) return { label: 'TRADING' as HighLevelIntentType, reason: 'confirmation keyword' };
         if (signals.hasSocial) return { label: 'SOCIAL_SENSING' as HighLevelIntentType, reason: 'social intent' };
         // CRITICAL FIX: Prioritize TRADING over question intent when slots are complete
         // "Can you sell my 3 USDC to Base?" should be TRADING, not MARKET_ANALYSIS

@@ -13,6 +13,7 @@ This skill handles asset movements between different blockchains using LI.FI agg
 2. **Address Verification**: Ensure the `toAddress` (destination wallet) is provided or explicitly confirmed as the same as `fromAddress`.
 3. **Quote Selection**: Use `get_cross_chain_quote` to find the best route. Always present the estimated output, fee, and time to the user before proceeding.
 4. **Execution**: Use `prepare_cross_chain_tx` to get the final transaction data for the chosen route.
+5. **Confirmation Handling (CRITICAL)**: If the user says "confirm", "proceed", "execute", "yes", "go ahead", or "确认", "继续", "执行", you MUST call `prepare_cross_chain_tx`. Do NOT call `get_cross_chain_quote` again. Trust the previous quote context.
 
 **Workflow:**
 1. Identify `fromChain`, `toChain`, `fromToken`, `toToken`, and `amount`.

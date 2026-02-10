@@ -74,6 +74,37 @@ export async function set(key: string, value: string, ttlSeconds?: number): Prom
     await dbCache.set(key, value, ttlSeconds);
 }
 
+export async function setIfNotExists(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
+    if (redis?.isOpen) {
+        try {
+            if (ttlSeconds && ttlSeconds > 0) {
+                const result = await redis.set(key, value, { NX: true, EX: Math.floor(ttlSeconds) });
+                return result === 'OK';
+            }
+            const result = await redis.set(key, value, { NX: true });
+            return result === 'OK';
+        } catch (error: any) {
+            console.error('[Redis] setIfNotExists failed, fallback to DB cache:', error?.message || String(error));
+        }
+    }
+    return dbCache.setIfNotExists(key, value, ttlSeconds);
+}
+
+export async function incrBy(key: string, amount: number, ttlSeconds?: number): Promise<number> {
+    if (redis?.isOpen) {
+        try {
+            const next = await redis.incrBy(key, amount);
+            if (ttlSeconds && ttlSeconds > 0) {
+                await redis.expire(key, Math.floor(ttlSeconds));
+            }
+            return Number(next);
+        } catch (error: any) {
+            console.error('[Redis] incrBy failed, fallback to DB cache:', error?.message || String(error));
+        }
+    }
+    return dbCache.incrBy(key, amount, ttlSeconds);
+}
+
 export async function acquireLock(key: string, ttlSeconds: number, value: string): Promise<boolean> {
     if (redis?.isOpen) {
         try {
@@ -162,6 +193,8 @@ export { redis };
 export default {
     get,
     set,
+    setIfNotExists,
+    incrBy,
     del,
     connect: connectRedis,
     get client() {
