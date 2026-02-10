@@ -686,6 +686,26 @@ model TrendingToken {
   @@index([updatedAt(sort: Desc)])
 }
 
+model TokenLaunchBaseline {
+  id            String   @id @default(cuid())
+  chain         String
+  address       String
+  baselinePrice Decimal? @map("baseline_price")
+  baselineSource String? @map("baseline_source")
+  status        String   @default("pending")
+  firstSeenAt   DateTime? @map("first_seen_at")
+  lastCheckedAt DateTime? @map("last_checked_at")
+  retryAfter    DateTime? @map("retry_after")
+  attempts      Int      @default(0)
+  lastError     String?  @map("last_error")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([chain, address])
+  @@index([chain, status])
+  @@index([updatedAt(sort: Desc)])
+}
+
 model TrendingCast {
   hash                String    @id @map("cast_hash")
   fid                 Int

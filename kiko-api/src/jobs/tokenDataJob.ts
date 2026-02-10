@@ -24,6 +24,7 @@ import { getChainConfig } from '../config/chainConfig.js';
 import { getRpcEndpointsWithStrategy } from '../config/apiEndpoints.js';
 import { getNativeTokenPriceUsd } from '../services/onChainPriceService.js';
 import { getEvmLogs } from '../config/unifiedScanService.js';
+import prisma from '../db/prisma.js';
 
 /**
  * Supported chains configuration
@@ -335,16 +336,50 @@ async function writeTokenMetaCache(chainId: string, address: string, meta: Enric
 }
 
 async function readTokenBaselineCache(chainId: string, address: string): Promise<TokenBaselineMeta | null> {
+  const key = tokenBaselineCacheKey(chainId, address);
   try {
-    const raw = await getRedisCache(tokenBaselineCacheKey(chainId, address));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as TokenBaselineMeta;
-    const baselinePrice = Number(parsed?.baselinePrice || 0);
-    const firstSeenAt = Number(parsed?.firstSeenAt || 0);
-    const baselineSource = typeof parsed?.baselineSource === 'string' ? parsed.baselineSource : undefined;
+    const raw = await getRedisCache(key);
+    if (raw) {
+      const parsed = JSON.parse(raw) as TokenBaselineMeta;
+      const baselinePrice = Number(parsed?.baselinePrice || 0);
+      const firstSeenAt = Number(parsed?.firstSeenAt || 0);
+      const baselineSource = typeof parsed?.baselineSource === 'string' ? parsed.baselineSource : undefined;
+      if (Number.isFinite(baselinePrice) && baselinePrice > 0 && Number.isFinite(firstSeenAt) && firstSeenAt > 0) {
+        return { baselinePrice, firstSeenAt, baselineSource };
+      }
+    }
+  } catch {
+    // fallback to DB below
+  }
+
+  try {
+    const row = await prisma.tokenLaunchBaseline.findUnique({
+      where: {
+        chain_address: {
+          chain: chainId,
+          address: address.toLowerCase(),
+        },
+      },
+      select: {
+        baselinePrice: true,
+        baselineSource: true,
+        firstSeenAt: true,
+      },
+    });
+
+    const baselinePrice = Number(row?.baselinePrice || 0);
+    const firstSeenAt = row?.firstSeenAt ? row.firstSeenAt.getTime() : 0;
+    const baselineSource = row?.baselineSource || undefined;
     if (!Number.isFinite(baselinePrice) || baselinePrice <= 0 || !Number.isFinite(firstSeenAt) || firstSeenAt <= 0) {
       return null;
     }
+
+    // warm Redis cache from DB source of truth
+    await setRedisCache(
+      key,
+      JSON.stringify({ baselinePrice, firstSeenAt, baselineSource }),
+      TOKEN_BASELINE_CACHE_TTL_SECONDS
+    );
     return { baselinePrice, firstSeenAt, baselineSource };
   } catch {
     return null;
@@ -358,14 +393,47 @@ async function writeTokenBaselineCache(
   baselineSource: string = 'unknown'
 ): Promise<void> {
   if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) return;
+  const lower = address.toLowerCase();
+  const now = Date.now();
+  const status = baselineSource === 'first_seen_fallback' ? 'fallback' : 'verified';
   try {
     await setRedisCache(
-      tokenBaselineCacheKey(chainId, address),
-      JSON.stringify({ baselinePrice, firstSeenAt: Date.now(), baselineSource }),
+      tokenBaselineCacheKey(chainId, lower),
+      JSON.stringify({ baselinePrice, firstSeenAt: now, baselineSource }),
       TOKEN_BASELINE_CACHE_TTL_SECONDS
     );
   } catch {
     // ignore cache write errors
+  }
+
+  try {
+    await prisma.tokenLaunchBaseline.upsert({
+      where: {
+        chain_address: {
+          chain: chainId,
+          address: lower,
+        },
+      },
+      update: {
+        baselinePrice,
+        baselineSource,
+        status,
+        firstSeenAt: new Date(now),
+        lastCheckedAt: new Date(now),
+        lastError: null,
+      },
+      create: {
+        chain: chainId,
+        address: lower,
+        baselinePrice,
+        baselineSource,
+        status,
+        firstSeenAt: new Date(now),
+        lastCheckedAt: new Date(now),
+      },
+    });
+  } catch {
+    // keep refresh resilient even when DB upsert fails
   }
 }
 
@@ -402,6 +470,68 @@ async function writeBaselineRetryCooldown(chainId: string, address: string): Pro
     );
   } catch {
     // ignore
+  }
+
+  try {
+    const lower = address.toLowerCase();
+    const until = new Date(Date.now() + BASELINE_EXTERNAL_RETRY_TTL_SECONDS * 1000);
+    await prisma.tokenLaunchBaseline.upsert({
+      where: {
+        chain_address: {
+          chain: chainId,
+          address: lower,
+        },
+      },
+      update: {
+        retryAfter: until,
+        status: 'pending',
+        attempts: { increment: 1 },
+        lastCheckedAt: new Date(),
+      },
+      create: {
+        chain: chainId,
+        address: lower,
+        status: 'pending',
+        retryAfter: until,
+        attempts: 1,
+        firstSeenAt: new Date(),
+        lastCheckedAt: new Date(),
+      },
+    });
+  } catch {
+    // ignore
+  }
+}
+
+async function ensureBaselineTrackingRows(
+  chainId: string,
+  tokens: Array<{ address?: string }>
+): Promise<void> {
+  try {
+    const addresses = Array.from(new Set(tokens.map((t) => String(t.address || '').toLowerCase()).filter(Boolean)));
+    if (addresses.length === 0) return;
+    const existing = await prisma.tokenLaunchBaseline.findMany({
+      where: {
+        chain: chainId,
+        address: { in: addresses },
+      },
+      select: { address: true },
+    });
+    const existingSet = new Set(existing.map((r) => r.address.toLowerCase()));
+    const toCreate = addresses.filter((a) => !existingSet.has(a));
+    if (toCreate.length === 0) return;
+    await prisma.tokenLaunchBaseline.createMany({
+      data: toCreate.map((address) => ({
+        chain: chainId,
+        address,
+        status: 'pending',
+        firstSeenAt: new Date(),
+        lastCheckedAt: new Date(),
+      })),
+      skipDuplicates: true,
+    });
+  } catch {
+    // non-blocking tracking path
   }
 }
 
@@ -2297,6 +2427,7 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     // Save to PostgreSQL database
     const savedTokens = await saveTrendingTokens(chain.id, tokens);
     const cachedTokens = savedTokens.length > 0 ? savedTokens : tokens;
+    await ensureBaselineTrackingRows(chain.id, cachedTokens as Array<{ address?: string }>);
 
     // Update memory cache for instant API access
     const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain.id);

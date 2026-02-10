@@ -367,6 +367,46 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
       launchpad: (row as any).launchpad || undefined,
     }));
 
+    // DB fallback for launch multiple:
+    // when Redis metadata is missing/expired, use persisted baseline source-of-truth.
+    try {
+      const addresses = tokens.map((t) => t.address.toLowerCase());
+      if (addresses.length > 0) {
+        const baselines = await prisma.tokenLaunchBaseline.findMany({
+          where: {
+            chain,
+            address: { in: addresses },
+            status: { in: ['verified', 'estimated', 'fallback'] },
+            baselinePrice: { not: null },
+          },
+          select: {
+            address: true,
+            baselinePrice: true,
+            baselineSource: true,
+          },
+        });
+        const baselineMap = new Map<string, { price: number; source?: string }>();
+        for (const b of baselines) {
+          const price = toOptionalNumber(b.baselinePrice);
+          if (!Number.isFinite(price || NaN) || (price || 0) <= 0) continue;
+          baselineMap.set(b.address.toLowerCase(), { price: Number(price), source: b.baselineSource || undefined });
+        }
+
+        for (const token of tokens) {
+          if (Number.isFinite((token as any).launchMultiple || NaN)) continue;
+          const current = toOptionalNumber(token.price);
+          if (!Number.isFinite(current || NaN) || (current || 0) <= 0) continue;
+          const baseline = baselineMap.get(token.address.toLowerCase());
+          if (!baseline || !Number.isFinite(baseline.price) || baseline.price <= 0) continue;
+          const raw = Number(current) / baseline.price;
+          if (!Number.isFinite(raw) || raw <= 0) continue;
+          (token as any).launchMultiple = Math.max(1, raw);
+        }
+      }
+    } catch {
+      // best-effort only
+    }
+
     await Promise.all(tokens.map(async (token) => {
       try {
         const raw = await getRedisCache(tokenMetaCacheKey(chain, token.address));
