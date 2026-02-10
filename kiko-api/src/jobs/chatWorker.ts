@@ -189,7 +189,9 @@ export class ChatWorker {
             if (createdMs && now - createdMs > windowMs) continue;
             for (let j = toolCalls.length - 1; j >= 0; j -= 1) {
                 const entry = toolCalls[j];
-                if (entry.tool !== 'simulate_swap' || entry.status !== 'success') continue;
+                // CRITICAL FIX: Support both simulate_swap and get_cross_chain_quote
+                // This allows "Proceed" to work for cross-chain swaps
+                if ((entry.tool !== 'simulate_swap' && entry.tool !== 'get_cross_chain_quote') || entry.status !== 'success') continue;
                 const parsed = this.parseArgsFromKey(entry.argsKey || '');
                 if (!parsed?.args) continue;
                 const { token_in, token_out, amount_in, chain_id } = parsed.args;
@@ -627,7 +629,7 @@ export class ChatWorker {
             : params.userContext;
         return promptOrchestrator.buildPrompt(params.userQuery, ctx, params.intent);
     }
-    
+
     private buildThinkingSystemPrompt(model: ModelType): string {
         if (model === 'grok') {
             return `${GENERAL_THINKING_POLICY}\n\n${AnalystPolicy}`;

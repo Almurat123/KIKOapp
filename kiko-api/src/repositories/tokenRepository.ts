@@ -28,6 +28,15 @@ function tokenMetaCacheKey(chain: string, address: string): string {
   return `token:meta:v1:${chain}:${address.toLowerCase()}`;
 }
 
+function isDisplayTrustedBaselineSource(source?: string): boolean {
+  return source === 'gecko_launch_window'
+    || source === 'dex_candles'
+    || source === 'rpc_stable_first_swap'
+    || source === 'rpc_native_first_swap'
+    || source === 'rpc_v4_initialize'
+    || source === 'solana_public_rpc';
+}
+
 function launchpadCacheKey(chain: string, address: string): string {
   const chainId = chain === 'base' ? 8453 : chain === 'bsc' ? 56 : chain === 'solana' ? 101 : 'any';
   return `launchpad:detected:v2:${chainId}:${address.toLowerCase()}`;
@@ -369,6 +378,7 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
 
     // DB fallback for launch multiple:
     // when Redis metadata is missing/expired, use persisted baseline source-of-truth.
+    const trustedBaselineMap = new Map<string, { price: number; source?: string }>();
     try {
       const addresses = tokens.map((t) => t.address.toLowerCase());
       if (addresses.length > 0) {
@@ -385,18 +395,18 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
             baselineSource: true,
           },
         });
-        const baselineMap = new Map<string, { price: number; source?: string }>();
         for (const b of baselines) {
           const price = toOptionalNumber(b.baselinePrice);
           if (!Number.isFinite(price || NaN) || (price || 0) <= 0) continue;
-          baselineMap.set(b.address.toLowerCase(), { price: Number(price), source: b.baselineSource || undefined });
+          if (!isDisplayTrustedBaselineSource(b.baselineSource || undefined)) continue;
+          trustedBaselineMap.set(b.address.toLowerCase(), { price: Number(price), source: b.baselineSource || undefined });
         }
 
         for (const token of tokens) {
           if (Number.isFinite((token as any).launchMultiple || NaN)) continue;
           const current = toOptionalNumber(token.price);
           if (!Number.isFinite(current || NaN) || (current || 0) <= 0) continue;
-          const baseline = baselineMap.get(token.address.toLowerCase());
+          const baseline = trustedBaselineMap.get(token.address.toLowerCase());
           if (!baseline || !Number.isFinite(baseline.price) || baseline.price <= 0) continue;
           const raw = Number(current) / baseline.price;
           if (!Number.isFinite(raw) || raw <= 0) continue;
@@ -415,7 +425,8 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
         if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
         if (meta?.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = meta.creatorUrl;
         if (meta?.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = meta.creatorLabel;
-        if (Number.isFinite(meta?.launchMultiple || NaN) && !Number.isFinite((token as any).launchMultiple || NaN)) {
+        const hasTrustedBaseline = trustedBaselineMap.has(token.address.toLowerCase());
+        if (hasTrustedBaseline && Number.isFinite(meta?.launchMultiple || NaN) && !Number.isFinite((token as any).launchMultiple || NaN)) {
           (token as any).launchMultiple = meta.launchMultiple;
         }
       } catch {

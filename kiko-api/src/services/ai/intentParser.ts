@@ -543,7 +543,10 @@ function detectSellVerb(text: string): boolean {
 function detectTargetSymbol(text: string): boolean {
     const symbolPattern = /(?:buy|sell|swap|ape|market\s+buy|market\s+sell)\s+[\d.]*\s*([A-Za-z0-9]{2,10})\b/i;
     const intoPattern = /\b(?:into|to)\s+([A-Za-z0-9]{2,10})\b/i;
-    return symbolPattern.test(text) || intoPattern.test(text);
+    // CRITICAL FIX: Recognize chain names as targets for cross-chain swaps
+    // "sell USDC to Base" should have target=true for slots.complete
+    const chainNames = /\b(?:to|on)\s+(base|arbitrum|optimism|polygon|avalanche|bnb|ethereum|eth|mainnet)\b/i;
+    return symbolPattern.test(text) || intoPattern.test(text) || chainNames.test(text);
 }
 function detectAmountPresence(text: string): boolean {
     if (/\b(\d{1,3})%/.test(text)) return true;
@@ -689,8 +692,10 @@ function evaluateRuleLayer(userMessage: string, userContext?: UserContext): {
             return { label: 'RISK_SCAN' as HighLevelIntentType, reason: 'risk question without trade action' };
         }
         if (signals.hasSocial) return { label: 'SOCIAL_SENSING' as HighLevelIntentType, reason: 'social intent' };
-        if (signals.hasQuestion) return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'question intent' };
+        // CRITICAL FIX: Prioritize TRADING over question intent when slots are complete
+        // "Can you sell my 3 USDC to Base?" should be TRADING, not MARKET_ANALYSIS
         if (signals.hasAction && slots.complete) return { label: 'TRADING' as HighLevelIntentType, reason: 'action + slots complete' };
+        if (signals.hasQuestion) return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'question intent' };
         if (signals.hasWallet) return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'wallet intent' };
         if (signals.hasContractAddress && !signals.hasAction) {
             return { label: 'MARKET_ANALYSIS' as HighLevelIntentType, reason: 'contract address without action' };

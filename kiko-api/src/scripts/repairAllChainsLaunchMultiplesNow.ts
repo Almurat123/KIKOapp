@@ -35,7 +35,6 @@ function trustedSource(source?: string): boolean {
   return source === 'solana_public_rpc'
     || source === 'gecko_launch_window'
     || source === 'dex_candles'
-    || source === 'derived_change_proxy'
     || source === 'rpc_stable_first_swap'
     || source === 'rpc_native_first_swap'
     || source === 'rpc_v4_initialize';

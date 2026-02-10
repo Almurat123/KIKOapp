@@ -448,6 +448,15 @@ function isTrustedBaselineSource(source?: string): boolean {
     || source === 'first_seen_fallback';
 }
 
+function isDisplayTrustedBaselineSource(source?: string): boolean {
+  return source === 'gecko_launch_window'
+    || source === 'dex_candles'
+    || source === 'rpc_stable_first_swap'
+    || source === 'rpc_native_first_swap'
+    || source === 'rpc_v4_initialize'
+    || source === 'solana_public_rpc';
+}
+
 async function readBaselineRetryCooldown(chainId: string, address: string): Promise<boolean> {
   try {
     const raw = await getRedisCache(tokenBaselineRetryKey(chainId, address));
@@ -1562,7 +1571,7 @@ async function applyBaselineMultiples(
 
       const baseline = await readTokenBaselineCache(chainId, token.address);
       if (!baseline || !isTrustedBaselineSource(baseline.baselineSource)) return;
-      if (baseline.baselineSource === 'first_seen_fallback') return;
+      if (!isDisplayTrustedBaselineSource(baseline.baselineSource)) return;
 
       const multipleRaw = current / baseline.baselinePrice;
       if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return;
@@ -1588,7 +1597,7 @@ async function applyBaselineMultiples(
     if (!baseline || !isTrustedBaselineSource(baseline.baselineSource)) {
       return { token: t, baselineSource: undefined as string | undefined };
     }
-    if (baseline.baselineSource === 'first_seen_fallback') {
+    if (!isDisplayTrustedBaselineSource(baseline.baselineSource)) {
       return { token: t, baselineSource: baseline.baselineSource };
     }
     return null;
@@ -1611,9 +1620,9 @@ async function applyBaselineMultiples(
       if (
         cachedBaseline &&
         isTrustedBaselineSource(cachedBaseline.baselineSource) &&
+        isDisplayTrustedBaselineSource(cachedBaseline.baselineSource) &&
         Number.isFinite(cachedBaseline.baselinePrice) &&
-        cachedBaseline.baselinePrice > 0 &&
-        cachedBaseline.baselineSource !== 'first_seen_fallback'
+        cachedBaseline.baselinePrice > 0
       ) {
         const current = Number(token.price || 0);
         if (!Number.isFinite(current) || current <= 0) return;
@@ -1654,15 +1663,11 @@ async function applyBaselineMultiples(
         if (!Number.isFinite(derivedBaseline) || derivedBaseline <= 0) return false;
 
         await writeTokenBaselineCache(chainId, token.address, derivedBaseline, 'derived_change_proxy');
-        const multipleRaw = current / derivedBaseline;
-        if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return false;
-        const multiple = Math.max(1, multipleRaw);
-        token.launchMultiple = multiple;
+        // Keep derived baseline for later upgrades, but do not expose multiple as "accurate".
         await writeTokenMetaCache(chainId, token.address, {
           creatorAddress: token.creatorAddress,
           creatorUrl: token.creatorUrl,
           creatorLabel: token.creatorLabel,
-          launchMultiple: multiple,
         });
         return true;
       };
@@ -1687,8 +1692,9 @@ async function applyBaselineMultiples(
             return;
           }
         }
-        await writeTokenBaselineCache(chainId, token.address, externalBaseline.price, externalBaseline.source || 'gecko_launch_window');
-        if (Number.isFinite(current) && current > 0) {
+        const externalSource = externalBaseline.source || 'gecko_launch_window';
+        await writeTokenBaselineCache(chainId, token.address, externalBaseline.price, externalSource);
+        if (isDisplayTrustedBaselineSource(externalSource) && Number.isFinite(current) && current > 0) {
           const multipleRaw = current / externalBaseline.price;
           if (Number.isFinite(multipleRaw) && multipleRaw > 0) {
             const multiple = Math.max(1, multipleRaw);
@@ -1714,9 +1720,9 @@ async function applyBaselineMultiples(
       if (
         cachedBaseline &&
         isTrustedBaselineSource(cachedBaseline.baselineSource) &&
+        isDisplayTrustedBaselineSource(cachedBaseline.baselineSource) &&
         Number.isFinite(cachedBaseline.baselinePrice) &&
-        cachedBaseline.baselinePrice > 0 &&
-        cachedBaseline.baselineSource !== 'first_seen_fallback'
+        cachedBaseline.baselinePrice > 0
       ) {
         const currentFallback = Number(token.price || 0);
         if (Number.isFinite(currentFallback) && currentFallback > 0) {
@@ -1746,9 +1752,9 @@ async function applyBaselineMultiples(
       if (
         baseline &&
         isTrustedBaselineSource(baseline.baselineSource) &&
+        isDisplayTrustedBaselineSource(baseline.baselineSource) &&
         Number.isFinite(baseline.baselinePrice) &&
-        baseline.baselinePrice > 0 &&
-        baseline.baselineSource !== 'first_seen_fallback'
+        baseline.baselinePrice > 0
       ) {
         const current = Number(token.price || 0);
         if (!Number.isFinite(current) || current <= 0) return;
