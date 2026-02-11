@@ -561,7 +561,12 @@ function convertApiTokenToToken(apiToken: TokenSearchResult, id: number): Token 
     creatorAddress: (apiToken as any).creatorAddress || (apiToken as any).creator || (apiToken as any).userAddress || undefined,
     creatorUrl: (apiToken as any).creatorUrl || undefined,
     creatorLabel: (apiToken as any).creatorLabel || undefined,
-    launchMultipleRaw: typeof apiToken.launchMultiple === 'number' ? apiToken.launchMultiple : (apiToken.launchMultiple ? parseFloat(String(apiToken.launchMultiple)) : undefined),
+    launchMultipleRaw: (() => {
+      const v = typeof apiToken.launchMultiple === 'number' ? apiToken.launchMultiple : (apiToken.launchMultiple ? parseFloat(String(apiToken.launchMultiple)) : undefined);
+      // Guard: suppress absurd multiples that indicate bad baseline data
+      if (v !== undefined && Number.isFinite(v) && v > 0 && v <= 200_000) return v;
+      return undefined;
+    })(),
     trendingScore: calculateTrendingScore({
       volume24h: volume24h || 0,
       txns24h: apiToken.txns24h || 0,

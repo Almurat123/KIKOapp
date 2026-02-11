@@ -757,6 +757,13 @@
     padding-left: 8px;
 }
 
+/* Desktop: match main row padding */
+@media (min-width: 769px) {
+    .subRowContent {
+        padding-left: 16px;
+    }
+}
+
 .subRowRankSpacer {
     width: 24px;
     flex: 0 0 24px;
@@ -769,6 +776,7 @@
     gap: 10px;
     width: 100%;
     padding-right: 10px;
+    flex-wrap: nowrap;
 }
 
 .subRowLaunchpadWrap {

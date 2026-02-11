@@ -502,11 +502,10 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                                 type: 'show_cross_chain_status_card',
                                 payload: {
                                     status: 'approving',
-                                    fromChain: fromChainId,
-                                    toChain: toChainId,
-                                    fromToken: args.fromToken,
-                                    toToken: args.toToken,
-                                    amount: args.fromAmount
+                                    chainId: fromChainId,
+                                    tokenInSymbol: args.fromToken,
+                                    tokenOutSymbol: args.toToken,
+                                    amountIn: args.fromAmount
                                 }
                             }
                         });
@@ -535,7 +534,7 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                                 const receipt = await getTransactionReceipt(Number(fromChainId), approveTxHash);
                                 if (receipt && receipt.status === 1) { // 1 = success
                                     confirmed = true;
-                                    logger.info(LogCode.EXE_TX_SUCCESS, `[CrossChain] Approval Confirmed!`);
+                                    logger.info(LogCode.EXE_TX_CONFIRMED, `[CrossChain] Approval Confirmed!`);
                                     break;
                                 }
                             } catch (e) {
@@ -562,11 +561,10 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                                     type: 'show_cross_chain_status_card',
                                     payload: {
                                         status: 'pending_bridge',
-                                        fromChain: fromChainId,
-                                        toChain: toChainId,
-                                        fromToken: args.fromToken,
-                                        toToken: args.toToken,
-                                        amount: args.fromAmount
+                                        chainId: fromChainId,
+                                        tokenInSymbol: args.fromToken,
+                                        tokenOutSymbol: args.toToken,
+                                        amountIn: args.fromAmount
                                     }
                                 }
                             });
@@ -613,11 +611,11 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                             payload: {
                                 status: 'submitted',
                                 txHash: txHash,
-                                fromChain: fromChainId,
-                                toChain: toChainId,
-                                fromToken: args.fromToken,
-                                toToken: args.toToken,
-                                amount: args.fromAmount,
+                                chainId: fromChainId,
+                                tokenInSymbol: args.fromToken,
+                                tokenOutSymbol: args.toToken,
+                                amountIn: args.fromAmount,
+                                amountOut: quote.estimate.toAmount, // Add expected output
                                 bridgeTool: quote.tool,
                                 estimatedDuration: quote.estimate.executionDuration,
                                 explorerLink: `https://scan.li.fi/tx/${txHash}` // Generic LI.FI explorer

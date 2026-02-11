@@ -81,6 +81,8 @@ async function warmConfirmedSwapFromPending(
                 if (!swap) return;
 
                 await markPendingPredecodedSwap(chainId, txHash, targetWallet, swap, start).catch(() => { });
+                const { enqueueCopyTradeTask } = await import('./copyTradeQueue.js');
+                enqueueCopyTradeTask(targetWallet, swap, chainId, { detectedAt: start });
                 await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
                     source: 'pending_prefetch',
                     wallet: targetWallet,
@@ -91,7 +93,8 @@ async function warmConfirmedSwapFromPending(
                     chainId,
                     txHash: txHash.slice(0, 12),
                     wallet: targetWallet.slice(0, 10),
-                    ms: Date.now() - start
+                    ms: Date.now() - start,
+                    action: 'enqueued_copytrade_early'
                 });
                 return;
             }

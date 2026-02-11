@@ -22,7 +22,7 @@ async function main() {
   }
   console.log(`[sol-baseline-reset] deleted keys=${deleted}`);
 
-  const ok = await refreshSingleChain('solana');
+  const ok = await refreshSingleChain('solana', true);
   console.log(`[sol-baseline-reset] refreshSingleChain('solana') => ${ok}`);
 }
 

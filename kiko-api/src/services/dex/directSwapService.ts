@@ -110,7 +110,6 @@ const REFERENCE_QUOTE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_REF_TIMEOUT_MS
 const ZORA_QUOTE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_ZORA_TIMEOUT_MS || '5000');
 const ZORA_REFERENCE_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_ZORA_REFERENCE_TIMEOUT_MS || '500');
 const DIRECT_SWAP_HINT_POOL_TIMEOUT_MS = Number(process.env.DIRECT_SWAP_HINT_POOL_TIMEOUT_MS || '900');
-const DIRECT_SWAP_TURBO_MODE = (process.env.DIRECT_SWAP_TURBO_MODE || 'true') === 'true';
 const DIRECT_SWAP_FASTPATH_BUDGET_MS = Number(process.env.DIRECT_SWAP_FASTPATH_BUDGET_MS || '2000');
 const DIRECT_SWAP_TURBO_V4_GAS_LIMIT = process.env.DIRECT_SWAP_TURBO_V4_GAS_LIMIT || '950000';
 const DIRECT_SWAP_TURBO_V3_GAS_LIMIT = process.env.DIRECT_SWAP_TURBO_V3_GAS_LIMIT || '420000';
@@ -766,7 +765,7 @@ export async function executeDirectSwap(params: {
         const bypassReferenceGate = params.hint?.bypassReferencePrice === true && !!preferredStrategy;
         const requestedMode: DirectSwapExecutionMode = params.executionMode === 'turbo' ? 'turbo' : 'balanced';
         const fastHintMode = Boolean(params.hint?.sourceTxHash);
-        const turboMode = DIRECT_SWAP_TURBO_MODE && requestedMode === 'turbo';
+        const turboMode = requestedMode === 'turbo';
         const skipReferenceQuote = bypassReferenceGate || turboMode;
         const zoraToken = ZORA_TOKEN_ADDRESSES[chainId]?.toLowerCase();
         const hintDexLower = String(params.hint?.sourceDexName || '').toLowerCase();
@@ -3134,14 +3133,16 @@ async function executeV4Swap(
     let quoterOutWei = 0n;
 
     let gasPriceWei: bigint | undefined;
-    try {
-        const gasPriceHex = await callRpc<string>(chainId, 'eth_gasPrice', [], {
-            strategy: 'fast',
-            importance: 'critical'
-        });
-        gasPriceWei = gasPriceHex ? BigInt(gasPriceHex) : undefined;
-    } catch {
-        gasPriceWei = undefined;
+    if (!fastMode) {
+        try {
+            const gasPriceHex = await callRpc<string>(chainId, 'eth_gasPrice', [], {
+                strategy: 'fast',
+                importance: 'critical'
+            });
+            gasPriceWei = gasPriceHex ? BigInt(gasPriceHex) : undefined;
+        } catch {
+            gasPriceWei = undefined;
+        }
     }
 
     if (!fastMode) {

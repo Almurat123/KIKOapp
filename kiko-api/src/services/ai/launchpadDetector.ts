@@ -1227,6 +1227,21 @@ async function handleDetection(
             }
         }
 
+        // Priority 1.9: Clanker API for non-b07 addresses (older Clanker contracts)
+        // b07 addresses are already handled above with suffix detection.
+        if (basePlatforms && !lowerAddress.endsWith(CLANKER_SUFFIX) && !isProviderBackoffActive('clanker')) {
+            try {
+                const clankerResult = await getClankerToken(address);
+                if (clankerResult) {
+                    const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // Clanker API check failed for non-b07 address
+            }
+        }
+
         // Priority 2: FourMeme (BSC only)
         if (bscPlatforms) {
             try {

@@ -42,6 +42,7 @@ import { cacheHub } from '../cache/DataCacheHub.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
+import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -116,6 +117,15 @@ let zombieCleanupInterval: NodeJS.Timeout | null = null;
 const userTokenLocks = new Map<string, number>(); // key -> timestamp
 const USER_TOKEN_LOCK_DURATION_MS = 30000; // 30 seconds
 const MAX_COPY_TRADE_USD = 1_000_000; // Hard safety cap to prevent absurd buy amounts
+type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
+
+function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
+    const raw = String(config?.executionMode || '').trim().toLowerCase();
+    if (raw === 'safe' || raw === 'balanced' || raw === 'turbo') {
+        return raw;
+    }
+    return config?.disableTokenInfo === true ? 'turbo' : 'balanced';
+}
 
 /**
  * Check if a token is currently locked for a user (trade in progress)
@@ -380,8 +390,9 @@ async function handleTargetBuy(
         .map((c: any) => ({
             ...c,
             user: userMap.get(c.userId),
-            // Fast execution flag (Base-only, controlled by per-strategy toggle)
-            fastExecutionEnabled: chainId === 8453 && c.disableTokenInfo === true
+            executionMode: resolveExecutionModeForConfig(c),
+            // safe: full path, balanced/turbo: fast path enabled (all EVM chains)
+            fastExecutionEnabled: resolveExecutionModeForConfig(c) !== 'safe'
         }))
         .filter((c) => Boolean(c.user));
 
@@ -396,8 +407,8 @@ async function handleTargetBuy(
         ? detectLaunchpadToken(tokenToBuy, chainId).catch(() => null)
         : Promise.resolve(null);
 
-    // 🔥 Base Fast Mode: If ALL configs explicitly disable Token Info, skip heavy APIs
-    const skipTokenInfo = chainId === 8453 && configs.every(c => c.disableTokenInfo === true);
+    // Turbo Mode: only if ALL configs explicitly choose turbo.
+    const skipTokenInfo = configs.every(c => c.executionMode === 'turbo');
     if (skipTokenInfo) {
         try {
             const meta = await getTokenMetadata(chainId, tokenToBuy, { rpcStrategy: 'fast' });
@@ -1366,7 +1377,8 @@ async function processSingleUserBuy(
                         eth: baseAmount.toFixed(6),
                         timingMs: Date.now() - timingDetectedAt
                     });
-                    const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                    const executionMode = resolveExecutionModeForConfig(config);
+                    const fastSwapOverride = executionMode !== 'safe';
                     const result1 = await MainSwapService.executeSwap({
                         userId: effectiveConfig.user.privyDid,
                         walletAddress: effectiveConfig.user.walletAddress,
@@ -1378,7 +1390,10 @@ async function processSingleUserBuy(
                         slippageBps: baseSlippage,
                         mode: 'copytrade',
                         feeBpsOverride: copyTradeFeeBpsOverride,
-                        userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
+                        userSettings: {
+                            fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
+                            copyTradeExecutionMode: executionMode
+                        }
                     });
                     if (!result1.success) throw new Error(result1.error);
                     txHash = result1.txHash!;
@@ -1430,7 +1445,8 @@ async function processSingleUserBuy(
                         const amount99 = baseAmount * 0.99;
                         const slippage2 = 2000; // 20% (baseSlippage is now 15%, so we bump +5%)
                         logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                        const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                        const executionMode = resolveExecutionModeForConfig(config);
+                        const fastSwapOverride = executionMode !== 'safe';
                         const result2 = await MainSwapService.executeSwap({
                             userId: effectiveConfig.user.privyDid,
                             walletAddress: effectiveConfig.user.walletAddress,
@@ -1442,7 +1458,10 @@ async function processSingleUserBuy(
                             slippageBps: slippage2,
                             mode: 'copytrade',
                             feeBpsOverride: copyTradeFeeBpsOverride,
-                            userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
+                            userSettings: {
+                                fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
+                                copyTradeExecutionMode: executionMode
+                            }
                         });
                         if (!result2.success) throw new Error(result2.error);
                         txHash = result2.txHash!;
@@ -1455,7 +1474,8 @@ async function processSingleUserBuy(
                             const amount98 = baseAmount * 0.98;
                             const slippage3 = 2500; // 25% (maximum tolerance for volatile new tokens)
                             logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 25% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                            const fastSwapOverride = config.disableTokenInfo && chainId === 8453;
+                            const executionMode = resolveExecutionModeForConfig(config);
+                            const fastSwapOverride = executionMode !== 'safe';
                             const result3 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
                                 walletAddress: effectiveConfig.user.walletAddress,
@@ -1467,7 +1487,10 @@ async function processSingleUserBuy(
                                 slippageBps: slippage3,
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
-                                userSettings: { fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode }
+                                userSettings: {
+                                    fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
+                                    copyTradeExecutionMode: executionMode
+                                }
                             });
                             if (!result3.success) throw new Error(result3.error);
                             txHash = result3.txHash!;
@@ -1848,6 +1871,7 @@ async function executePositionExit(params: {
             }
 
             let isPartialSell = false;
+            const executionMode = resolveExecutionModeForConfig(config);
             try {
                 const safeBalance = balance > 0n ? balance - 1n : 0n;
                 // Use universal global slippage
@@ -1866,7 +1890,11 @@ async function executePositionExit(params: {
                     amountIn: amountToSellHuman,
                     chainId: chainId,
                     slippageBps: initialSlippage,
-                    mode: 'copytrade'
+                    mode: 'copytrade',
+                    userSettings: {
+                        fastSwapMode: executionMode !== 'safe',
+                        copyTradeExecutionMode: executionMode
+                    }
                 });
                 if (!sellResult.success) throw new Error(sellResult.error);
                 txHash = sellResult.txHash!;
@@ -1888,7 +1916,11 @@ async function executePositionExit(params: {
                         amountIn: amountToSellHuman999,
                         chainId: chainId,
                         slippageBps: retrySlippage,
-                        mode: 'copytrade'
+                        mode: 'copytrade',
+                        userSettings: {
+                            fastSwapMode: executionMode !== 'safe',
+                            copyTradeExecutionMode: executionMode
+                        }
                     });
                     if (!retryResult.success) throw new Error(retryResult.error);
                     txHash = retryResult.txHash!;
@@ -1929,7 +1961,11 @@ async function executePositionExit(params: {
                             amountIn: dustAmountHuman,
                             chainId: chainId,
                             slippageBps: 2000, // Higher slippage for dust sweep (20%)
-                            mode: 'copytrade'
+                            mode: 'copytrade',
+                            userSettings: {
+                                fastSwapMode: executionMode !== 'safe',
+                                copyTradeExecutionMode: executionMode
+                            }
                         });
                         // Dust sweep failure is non-critical, just log
                     }
@@ -2189,8 +2225,13 @@ export function initAutoTradeService(): void {
     // NOTE: EVM watcher disabled - using Alchemy webhooks for real-time push notifications
     // startWatcher(); // Disabled - webhook is faster and more efficient
     startSolanaWatcher(); // Keep Solana watcher (no webhook alternative)
+    startCopyTradePendingWatcher().catch((err: any) => {
+        logger.warn(LogCode.SYS_INFO, '[CopyTradePending] Failed to start pending watcher', {
+            error: err?.message || String(err)
+        });
+    });
 
-    logger.info(LogCode.SYS_STARTUP, 'Auto trade service initialized (Solana watcher + EVM webhook enabled)', { mode: 'hybrid' });
+    logger.info(LogCode.SYS_STARTUP, 'Auto trade service initialized (Solana watcher + EVM webhook + pending prefetch enabled)', { mode: 'hybrid+pending' });
 
     // Start Zombie Cleanup Job (Risk #1 Mitigation)
     // Runs every 5 minutes to remove stale PENDING locks
@@ -2207,6 +2248,7 @@ export async function stopAutoTradeService(): Promise<void> {
         clearInterval(zombieCleanupInterval);
         zombieCleanupInterval = null;
     }
+    stopCopyTradePendingWatcher();
     // Note: watchers are event-driven, setting flag stops processing
 }
 

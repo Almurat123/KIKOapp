@@ -236,10 +236,17 @@ async function getNativeUsdOnDate(chainId: number, tsSec?: number): Promise<numb
     // fallback below
   }
 
-  const spot = await getNativeTokenPriceUsd(chainId);
-  if (Number.isFinite(spot) && spot > 0) {
-    historicalNativeUsdByDate.set(key, spot);
-    return spot;
+  // Only use spot as fallback when the requested date is recent (within 48h).
+  // For older dates, spot price can be wildly different and would corrupt baselines.
+  const ageSec = Math.abs(Date.now() / 1000 - Number(tsSec));
+  if (ageSec <= 48 * 3600) {
+    const spot = await getNativeTokenPriceUsd(chainId);
+    if (Number.isFinite(spot) && spot > 0) {
+      historicalNativeUsdByDate.set(key, spot);
+      return spot;
+    }
+  } else {
+    console.warn(`[getNativeUsdOnDate] Coinbase historical price unavailable for ${symbol} on ${date}, age=${(ageSec / 3600).toFixed(0)}h — skipping spot fallback to avoid baseline corruption`);
   }
   return null;
 }
@@ -259,7 +266,7 @@ function isRateLimitError(error: unknown): boolean {
 }
 
 function tokenMetaCacheKey(chainId: string, address: string): string {
-  return `token:meta:v1:${chainId}:${address.toLowerCase()}`;
+  return `token:meta:v2:${chainId}:${address.toLowerCase()}`;
 }
 
 function tokenBaselineCacheKey(chainId: string, address: string): string {
@@ -308,8 +315,18 @@ async function readTokenMetaCache(chainId: string, address: string): Promise<Enr
   try {
     const raw = await getRedisCache(tokenMetaCacheKey(chainId, address));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as EnrichedTokenMeta;
+    const parsed = JSON.parse(raw) as EnrichedTokenMeta & { cacheVersion?: number };
     if (!parsed || typeof parsed !== 'object') return null;
+    // Ignore legacy/unversioned multiple values to avoid stale carry-over after deploy.
+    const cacheVersion = Number(parsed?.cacheVersion || 0);
+    if (cacheVersion < 2) {
+      return {
+        creatorAddress: parsed.creatorAddress,
+        creatorUrl: parsed.creatorUrl,
+        creatorLabel: parsed.creatorLabel,
+        updatedAt: parsed.updatedAt,
+      };
+    }
     return parsed;
   } catch {
     return null;
@@ -322,6 +339,7 @@ async function writeTokenMetaCache(chainId: string, address: string, meta: Enric
     await setRedisCache(
       tokenMetaCacheKey(chainId, address),
       JSON.stringify({
+        cacheVersion: 2,
         creatorAddress: meta.creatorAddress,
         creatorUrl: meta.creatorUrl,
         creatorLabel: meta.creatorLabel,
@@ -395,6 +413,34 @@ async function writeTokenBaselineCache(
   if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) return;
   const lower = address.toLowerCase();
   const now = Date.now();
+  const incomingIsDisplayTrusted = isDisplayTrustedBaselineSource(baselineSource);
+
+  // Stabilize baseline:
+  // 1) Never downgrade a display-trusted baseline to weaker sources.
+  // 2) Once display-trusted exists, keep it immutable to avoid day-to-day drift.
+  try {
+    const existing = await prisma.tokenLaunchBaseline.findUnique({
+      where: {
+        chain_address: { chain: chainId, address: lower },
+      },
+      select: {
+        baselinePrice: true,
+        baselineSource: true,
+        firstSeenAt: true,
+      },
+    });
+    const existingPrice = Number(existing?.baselinePrice || 0);
+    const existingSource = String(existing?.baselineSource || '');
+    const existingIsDisplayTrusted = isDisplayTrustedBaselineSource(existingSource);
+    if (existingIsDisplayTrusted && !incomingIsDisplayTrusted) return;
+    if (existingIsDisplayTrusted && incomingIsDisplayTrusted && Number.isFinite(existingPrice) && existingPrice > 0) {
+      // Keep first trusted baseline; do not rewrite with another "trusted" candidate.
+      return;
+    }
+  } catch {
+    // best-effort guard; continue with write path below
+  }
+
   const status = baselineSource === 'first_seen_fallback' ? 'fallback' : 'verified';
   try {
     await setRedisCache(
@@ -418,7 +464,6 @@ async function writeTokenBaselineCache(
         baselinePrice,
         baselineSource,
         status,
-        firstSeenAt: new Date(now),
         lastCheckedAt: new Date(now),
         lastError: null,
       },
@@ -455,6 +500,56 @@ function isDisplayTrustedBaselineSource(source?: string): boolean {
     || source === 'rpc_native_first_swap'
     || source === 'rpc_v4_initialize'
     || source === 'solana_public_rpc';
+}
+
+/**
+ * Centralized sanity check for launch multiples.
+ * Caps absurd values based on pool age to prevent wrong baseline prices
+ * from producing misleading "x999999" display values.
+ * Returns sanitized multiple or null if the value is too suspicious to display.
+ */
+function sanitizeMultiple(
+  multipleRaw: number,
+  poolCreatedAt?: string,
+  opts?: { chainId?: string; source?: string; address?: string }
+): number | null {
+  if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return null;
+
+  const createdMs = poolCreatedAt ? Date.parse(poolCreatedAt) : NaN;
+  const ageHours = Number.isFinite(createdMs) && createdMs > 0
+    ? Math.max(0, (Date.now() - createdMs) / (1000 * 60 * 60))
+    : NaN;
+
+  // Age-based maximum allowed multiple.
+  // Even the most explosive memecoins rarely exceed these bounds legitimately.
+  let allowedMax: number;
+  if (!Number.isFinite(ageHours)) {
+    allowedMax = 50_000; // unknown age — generous but not infinite
+  } else if (ageHours <= 1) {
+    allowedMax = 50;
+  } else if (ageHours <= 6) {
+    allowedMax = 200;
+  } else if (ageHours <= 24) {
+    allowedMax = 1_000;
+  } else if (ageHours <= 7 * 24) {
+    allowedMax = 10_000;
+  } else if (ageHours <= 30 * 24) {
+    allowedMax = 50_000;
+  } else {
+    allowedMax = 200_000;
+  }
+
+  const multiple = Math.max(1, multipleRaw);
+
+  if (multiple > allowedMax) {
+    console.warn(
+      `[LaunchMultiple] Suspicious multiple x${multiple.toFixed(1)} (max allowed x${allowedMax} for age ${Number.isFinite(ageHours) ? ageHours.toFixed(1) + 'h' : 'unknown'}) ` +
+      `chain=${opts?.chainId || '?'} addr=${opts?.address?.slice(0, 10) || '?'} source=${opts?.source || '?'} — suppressed`
+    );
+    return null;
+  }
+
+  return multiple;
 }
 
 async function readBaselineRetryCooldown(chainId: string, address: string): Promise<boolean> {
@@ -631,15 +726,15 @@ async function fetchExternalBaselinePrice(
   token: { address?: string; poolAddress?: string; poolCreatedAt?: string }
 ): Promise<ExternalBaselineResult | null> {
   const candidates = await getBaselinePoolCandidates(
-    chainId,
-    token.address,
-    token.poolAddress,
-    token.poolCreatedAt
+      chainId,
+      token.address,
+      token.poolAddress,
+      token.poolCreatedAt
   );
   if (candidates.length === 0) return null;
 
   for (const pool of candidates) {
-    const result = await fetchExternalBaselinePriceForPool(chainId, geckoNetwork, token.address, pool);
+      const result = await fetchExternalBaselinePriceForPool(chainId, geckoNetwork, token.address, pool);
     if (result && Number.isFinite(result.price) && result.price > 0) {
       return result;
     }
@@ -661,7 +756,7 @@ async function fetchExternalBaselinePriceForPool(
 
   // Solana: RPC first swap is more reliable for baseline than candle windows.
   if (chainId === 'solana') {
-    const solRpcBaseline = await fetchSolanaRpcBaselineUsd(tokenAddress, pool.poolAddress, pool.poolCreatedAt);
+      const solRpcBaseline = await fetchSolanaRpcBaselineUsd(tokenAddress, pool.poolAddress, pool.poolCreatedAt);
     if (typeof solRpcBaseline === 'number' && Number.isFinite(solRpcBaseline) && solRpcBaseline > 0) {
       return { price: solRpcBaseline, source: 'solana_public_rpc' };
     }
@@ -1563,19 +1658,68 @@ async function applyBaselineMultiples(
     creatorLabel?: string;
   }>
 ): Promise<void> {
+  const baselineSnapshot = new Map<string, TokenBaselineMeta>();
+  try {
+    const addresses = Array.from(new Set(tokens.map((t) => String(t.address || '').toLowerCase()).filter(Boolean)));
+    if (addresses.length > 0) {
+      const rows = await prisma.tokenLaunchBaseline.findMany({
+        where: {
+          chain: chainId,
+          address: { in: addresses },
+          baselinePrice: { not: null },
+        },
+        select: {
+          address: true,
+          baselinePrice: true,
+          baselineSource: true,
+          firstSeenAt: true,
+        },
+      });
+      for (const row of rows) {
+        const baselinePrice = Number(row?.baselinePrice || 0);
+        const firstSeenAt = row?.firstSeenAt ? row.firstSeenAt.getTime() : 0;
+        const baselineSource = typeof row?.baselineSource === 'string' ? row.baselineSource : undefined;
+        if (!Number.isFinite(baselinePrice) || baselinePrice <= 0 || !Number.isFinite(firstSeenAt) || firstSeenAt <= 0) continue;
+        baselineSnapshot.set(row.address.toLowerCase(), {
+          baselinePrice,
+          firstSeenAt,
+          baselineSource,
+        });
+      }
+    }
+  } catch {
+    // best-effort snapshot only
+  }
+
+  const getBaseline = async (address: string): Promise<TokenBaselineMeta | null> => {
+    const key = address.toLowerCase();
+    const fromSnap = baselineSnapshot.get(key);
+    if (fromSnap) return fromSnap;
+    const fromCache = await readTokenBaselineCache(chainId, key);
+    if (fromCache) baselineSnapshot.set(key, fromCache);
+    return fromCache;
+  };
+
+  const setBaseline = async (address: string, price: number, source: string): Promise<void> => {
+    await writeTokenBaselineCache(chainId, address, price, source);
+    const refreshed = await readTokenBaselineCache(chainId, address);
+    if (refreshed) baselineSnapshot.set(address.toLowerCase(), refreshed);
+  };
+
   // 1) Existing baseline -> direct multiple
   await Promise.all(tokens.map(async (token) => {
     try {
       const current = Number(token.price || 0);
       if (!Number.isFinite(current) || current <= 0) return;
 
-      const baseline = await readTokenBaselineCache(chainId, token.address);
+      const baseline = await getBaseline(token.address);
       if (!baseline || !isTrustedBaselineSource(baseline.baselineSource)) return;
       if (!isDisplayTrustedBaselineSource(baseline.baselineSource)) return;
 
       const multipleRaw = current / baseline.baselinePrice;
       if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return;
-      const multiple = Math.max(1, multipleRaw);
+      const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: baseline.baselineSource, address: token.address });
+      if (multiple === null) return;
       token.launchMultiple = multiple;
       await writeTokenMetaCache(chainId, token.address, {
         creatorAddress: token.creatorAddress,
@@ -1593,7 +1737,7 @@ async function applyBaselineMultiples(
   const externalCandidates = (await Promise.all(tokens.map(async (t) => {
     const current = Number(t.price || 0);
     if (!Number.isFinite(current) || current <= 0) return null;
-    const baseline = await readTokenBaselineCache(chainId, t.address);
+    const baseline = await getBaseline(t.address);
     if (!baseline || !isTrustedBaselineSource(baseline.baselineSource)) {
       return { token: t, baselineSource: undefined as string | undefined };
     }
@@ -1616,7 +1760,7 @@ async function applyBaselineMultiples(
       if (hasCooldown && !isFallbackBaseline) return;
 
       // Recheck cache in case another worker already wrote baseline.
-      const cachedBaseline = await readTokenBaselineCache(chainId, token.address);
+      const cachedBaseline = await getBaseline(token.address);
       if (
         cachedBaseline &&
         isTrustedBaselineSource(cachedBaseline.baselineSource) &&
@@ -1628,7 +1772,8 @@ async function applyBaselineMultiples(
         if (!Number.isFinite(current) || current <= 0) return;
         const multipleRaw = current / cachedBaseline.baselinePrice;
         if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return;
-        const multiple = Math.max(1, multipleRaw);
+        const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: cachedBaseline.baselineSource, address: token.address });
+        if (multiple === null) return;
         token.launchMultiple = multiple;
         await writeTokenMetaCache(chainId, token.address, {
           creatorAddress: token.creatorAddress,
@@ -1662,7 +1807,7 @@ async function applyBaselineMultiples(
         const derivedBaseline = current / growth;
         if (!Number.isFinite(derivedBaseline) || derivedBaseline <= 0) return false;
 
-        await writeTokenBaselineCache(chainId, token.address, derivedBaseline, 'derived_change_proxy');
+        await setBaseline(token.address, derivedBaseline, 'derived_change_proxy');
         // Keep derived baseline for later upgrades, but do not expose multiple as "accurate".
         await writeTokenMetaCache(chainId, token.address, {
           creatorAddress: token.creatorAddress,
@@ -1693,18 +1838,20 @@ async function applyBaselineMultiples(
           }
         }
         const externalSource = externalBaseline.source || 'gecko_launch_window';
-        await writeTokenBaselineCache(chainId, token.address, externalBaseline.price, externalSource);
+        await setBaseline(token.address, externalBaseline.price, externalSource);
         if (isDisplayTrustedBaselineSource(externalSource) && Number.isFinite(current) && current > 0) {
           const multipleRaw = current / externalBaseline.price;
           if (Number.isFinite(multipleRaw) && multipleRaw > 0) {
-            const multiple = Math.max(1, multipleRaw);
-            token.launchMultiple = multiple;
-            await writeTokenMetaCache(chainId, token.address, {
-              creatorAddress: token.creatorAddress,
-              creatorUrl: token.creatorUrl,
-              creatorLabel: token.creatorLabel,
-              launchMultiple: multiple
-            });
+            const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: externalSource, address: token.address });
+            if (multiple !== null) {
+              token.launchMultiple = multiple;
+              await writeTokenMetaCache(chainId, token.address, {
+                creatorAddress: token.creatorAddress,
+                creatorUrl: token.creatorUrl,
+                creatorLabel: token.creatorLabel,
+                launchMultiple: multiple
+              });
+            }
           }
         }
         return;
@@ -1728,13 +1875,16 @@ async function applyBaselineMultiples(
         if (Number.isFinite(currentFallback) && currentFallback > 0) {
           const multipleRaw = currentFallback / cachedBaseline.baselinePrice;
           if (Number.isFinite(multipleRaw) && multipleRaw > 0) {
-            token.launchMultiple = Math.max(1, multipleRaw);
-            await writeTokenMetaCache(chainId, token.address, {
-              creatorAddress: token.creatorAddress,
-              creatorUrl: token.creatorUrl,
-              creatorLabel: token.creatorLabel,
-              launchMultiple: token.launchMultiple
-            });
+            const sanitized = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: cachedBaseline.baselineSource, address: token.address });
+            if (sanitized !== null) {
+              token.launchMultiple = sanitized;
+              await writeTokenMetaCache(chainId, token.address, {
+                creatorAddress: token.creatorAddress,
+                creatorUrl: token.creatorUrl,
+                creatorLabel: token.creatorLabel,
+                launchMultiple: token.launchMultiple
+              });
+            }
           }
         }
       }
@@ -1748,7 +1898,7 @@ async function applyBaselineMultiples(
   await Promise.all(tokens.map(async (token) => {
     try {
       if (Number.isFinite(token.launchMultiple || NaN) && (token.launchMultiple || 0) > 0) return;
-      const baseline = await readTokenBaselineCache(chainId, token.address);
+      const baseline = await getBaseline(token.address);
       if (
         baseline &&
         isTrustedBaselineSource(baseline.baselineSource) &&
@@ -1760,7 +1910,8 @@ async function applyBaselineMultiples(
         if (!Number.isFinite(current) || current <= 0) return;
         const multipleRaw = current / baseline.baselinePrice;
         if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return;
-        const multiple = Math.max(1, multipleRaw);
+        const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: baseline.baselineSource, address: token.address });
+        if (multiple === null) return;
         token.launchMultiple = multiple;
         await writeTokenMetaCache(chainId, token.address, {
           creatorAddress: token.creatorAddress,
@@ -1773,7 +1924,7 @@ async function applyBaselineMultiples(
 
       const current = Number(token.price || 0);
       if (!Number.isFinite(current) || current <= 0) return;
-      await writeTokenBaselineCache(chainId, token.address, current, 'first_seen_fallback');
+      await setBaseline(token.address, current, 'first_seen_fallback');
     } catch {
       // best-effort only
     }
@@ -2032,9 +2183,6 @@ async function enrichLaunchpadsForTrending(
     if (!token.creatorAddress && cached.creatorAddress) token.creatorAddress = cached.creatorAddress;
     if (!(token as any).creatorUrl && cached.creatorUrl) (token as any).creatorUrl = cached.creatorUrl;
     if (!(token as any).creatorLabel && cached.creatorLabel) (token as any).creatorLabel = cached.creatorLabel;
-    if (!Number.isFinite(token.launchMultiple || NaN) && Number.isFinite(cached.launchMultiple || NaN)) {
-      token.launchMultiple = cached.launchMultiple;
-    }
   }));
 
   // Step 1: deterministic suffix detection
@@ -2242,9 +2390,10 @@ async function enrichLaunchMultiplesForTrending(
   for (const token of targets) {
     try {
       const cached = await readTokenMetaCache(chainId, token.address);
-      if (cached && Number.isFinite(cached.launchMultiple || NaN)) {
-        token.launchMultiple = cached.launchMultiple;
-        continue;
+      if (cached) {
+        if (!token.creatorAddress && cached.creatorAddress) token.creatorAddress = cached.creatorAddress;
+        if (!token.creatorUrl && cached.creatorUrl) token.creatorUrl = cached.creatorUrl;
+        if (!token.creatorLabel && cached.creatorLabel) token.creatorLabel = cached.creatorLabel;
       }
       const dynamicBackoffUntil = await readGeckoCandleBackoff(chainId);
       if (Date.now() < dynamicBackoffUntil) break;
@@ -2284,8 +2433,11 @@ async function enrichLaunchMultiplesForTrending(
         : Number(token.price || 0);
       if (!Number.isFinite(open) || open <= 0 || !Number.isFinite(current) || current <= 0) continue;
 
-      const multiple = current / open;
-      if (!Number.isFinite(multiple) || multiple <= 0) continue;
+      const multipleRaw = current / open;
+      if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) continue;
+
+      const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: 'candle_open', address: token.address });
+      if (multiple === null) continue;
 
       token.launchMultiple = multiple;
       await writeTokenMetaCache(chainId, token.address, {
@@ -2420,28 +2572,65 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
       return;
     }
     // Launchpad enrichment: suffix first, then API verification where needed.
-    await enrichLaunchpadsForTrending(
-      chain.id,
-      tokens as Array<{ address: string; launchpad?: string; imageUrl?: string; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; poolAddress?: string; poolCreatedAt?: string; price?: number }>
-    );
-    await enrichLaunchMultiplesForTrending(
-      chain.id,
-      chain.geckoNetwork,
-      tokens as Array<{ address: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }>
-    );
+    try {
+      await enrichLaunchpadsForTrending(
+        chain.id,
+        tokens as Array<{ address: string; launchpad?: string; imageUrl?: string; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; poolAddress?: string; poolCreatedAt?: string; price?: number }>
+      );
+    } catch (error) {
+      logger.warn(LogCode.API_FETCH_FAILED, `Launchpad enrichment failed for ${chain.name}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
 
-    // Save to PostgreSQL database
-    const savedTokens = await saveTrendingTokens(chain.id, tokens);
+    try {
+      await enrichLaunchMultiplesForTrending(
+        chain.id,
+        chain.geckoNetwork,
+        tokens as Array<{ address: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }>
+      );
+    } catch (error) {
+      logger.warn(LogCode.API_FETCH_FAILED, `Launch multiple enrichment failed for ${chain.name}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    // Save to PostgreSQL database (best-effort)
+    let savedTokens: typeof tokens = [];
+    try {
+      savedTokens = await saveTrendingTokens(chain.id, tokens);
+    } catch (error) {
+      logger.error(LogCode.SYS_ERROR, `Failed to save trending tokens for ${chain.name}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
     const cachedTokens = savedTokens.length > 0 ? savedTokens : tokens;
-    await ensureBaselineTrackingRows(chain.id, cachedTokens as Array<{ address?: string }>);
 
-    // Update memory cache for instant API access
-    const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain.id);
-    memoryCache.set(cacheKey, cachedTokens, CACHE_TTL.TRENDING_TOKENS);
+    try {
+      await ensureBaselineTrackingRows(chain.id, cachedTokens as Array<{ address?: string }>);
+    } catch (error) {
+      logger.warn(LogCode.API_FETCH_FAILED, `Baseline tracking setup failed for ${chain.name}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    // Memory cache is already updated inside saveTrendingTokens() with merged creator/launchpad data.
+    // Only update cache here if saveTrendingTokens failed (savedTokens is empty).
+    if (savedTokens.length === 0) {
+      const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain.id);
+      memoryCache.set(cacheKey, cachedTokens, CACHE_TTL.TRENDING_TOKENS);
+    }
 
     // Also update Redis cache for legacy compatibility
     const redisCacheKey = `trending:live:${chain.id}:5m`;
-    await setRedisCache(redisCacheKey, JSON.stringify(cachedTokens), 600);
+    try {
+      await setRedisCache(redisCacheKey, JSON.stringify(cachedTokens), 600);
+    } catch (error) {
+      logger.warn(LogCode.API_FETCH_FAILED, `Failed to write cache for ${chain.name}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
 
     logger.info(LogCode.SYS_INFO, `Saved ${cachedTokens.length} tokens for ${chain.name} to DB + cache`);
 
@@ -2501,14 +2690,14 @@ async function refreshSecondaryChains(force = false): Promise<void> {
 /**
  * Refresh a single chain (for targeted refresh)
  */
-export async function refreshSingleChain(chainId: string): Promise<boolean> {
+export async function refreshSingleChain(chainId: string, force = false): Promise<boolean> {
   const chain = SUPPORTED_CHAINS.find(c => c.id === chainId);
   if (!chain) {
     logger.error(LogCode.SYS_ERROR, `Unknown chain: ${chainId}`);
     return false;
   }
 
-  await refreshChainTokens(chain);
+  await refreshChainTokens(chain, force);
   return true;
 }
 

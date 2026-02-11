@@ -222,20 +222,31 @@ export async function sendTransaction(
             throw new AppError(400, 'User has no embedded wallet', 'NO_WALLET');
         }
 
-        // DEBUG: Log the full transaction parameters before sending
-        console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
-        console.log('[sendTransaction] From:', walletInfo.address);
-        console.log('[sendTransaction] To:', tx.to);
-        console.log('[sendTransaction] Value:', tx.value);
-        console.log('[sendTransaction] ValueHex:', tx.value ? `0x${BigInt(tx.value).toString(16)}` : 'undefined');
-        console.log('[sendTransaction] Data length:', tx.data?.length);
-        console.log('[sendTransaction] Data (full):', tx.data);
-        console.log('[sendTransaction] ChainId:', tx.chainId);
-        console.log('[sendTransaction] Gas:', tx.gas);
-        console.log('[sendTransaction] MaxFeePerGas:', tx.maxFeePerGas);
-        console.log('[sendTransaction] MaxPriorityFeePerGas:', tx.maxPriorityFeePerGas);
-        console.log('[sendTransaction] Full TX object:', tx);
-        console.log('[sendTransaction] ===========================================');
+        const verboseTxLog = (process.env.PRIVY_TX_DEBUG || 'false') === 'true';
+        if (verboseTxLog) {
+            console.log('[sendTransaction] ========== PRIVY TX PARAMS ==========');
+            console.log('[sendTransaction] From:', walletInfo.address);
+            console.log('[sendTransaction] To:', tx.to);
+            console.log('[sendTransaction] Value:', tx.value);
+            console.log('[sendTransaction] ValueHex:', tx.value ? `0x${BigInt(tx.value).toString(16)}` : 'undefined');
+            console.log('[sendTransaction] Data length:', tx.data?.length);
+            console.log('[sendTransaction] Data prefix:', tx.data?.slice?.(0, 82));
+            console.log('[sendTransaction] ChainId:', tx.chainId);
+            console.log('[sendTransaction] Gas:', tx.gas);
+            console.log('[sendTransaction] MaxFeePerGas:', tx.maxFeePerGas);
+            console.log('[sendTransaction] MaxPriorityFeePerGas:', tx.maxPriorityFeePerGas);
+            console.log('[sendTransaction] Profile:', tx.executionProfile);
+            console.log('[sendTransaction] ===========================================');
+        } else {
+            logger.debug(LogCode.EXE_TX_BROADCAST, 'Privy tx prepared', {
+                chainId: tx.chainId,
+                to: tx.to?.slice(0, 10),
+                value: tx.value,
+                gas: tx.gas,
+                profile: tx.executionProfile,
+                dataLength: tx.data?.length || 0
+            });
+        }
 
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
@@ -263,9 +274,10 @@ export async function sendTransaction(
 
                 logger.info(LogCode.EXE_TX_BROADCAST, 'Ethereum transaction sent via Privy', { txHash: response.hash, chainId: tx.chainId });
 
-                // Add a small delay after sending to allow nonce propagation/indexing
-                // This helps when sending multiple transactions in rapid succession
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                const postSendDelayMs = Math.max(0, Number(process.env.PRIVY_POST_SEND_DELAY_MS || '0'));
+                if (postSendDelayMs > 0) {
+                    await new Promise(resolve => setTimeout(resolve, postSendDelayMs));
+                }
 
                 return response.hash;
             } catch (error: any) {

@@ -9,7 +9,7 @@ import { FastifyInstance } from 'fastify';
 import { searchTokens as searchGeckoTerminal, getTokenDetails as getGeckoTokenDetails, getCandlestickData as getGeckoCandlestickData, getTrendingTokens as getLiveTrendingTokens, type TrendingDuration } from '../services/geckoTerminal.js';
 import { searchTokens as searchDexScreener, getTokenDetails as getDexTokenDetails, getTokenPairAddress, getCandlestickData as getDexCandlestickData, getTrendingTokensPremium } from '../services/dexscreener.js';
 import { get, set } from '../cache/redis.js';
-import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime } from '../repositories/tokenRepository.js';
+import { getTrendingTokens, getLastUpdateTime as getTrendingUpdateTime, saveTrendingTokenCreator } from '../repositories/tokenRepository.js';
 import { getSupportedChains, refreshSingleChain } from '../jobs/tokenDataJob.js';
 import { env } from '../config/env.js';
 import { fetchJson } from '../config/unifiedApiService.js';
@@ -41,6 +41,21 @@ const SUPPORTED_CHAINS_INFO = [
   { id: 'polygon', name: 'Polygon', network: 'polygon' },
 ];
 
+function chainFromId(chainId?: number): string | undefined {
+  if (!Number.isFinite(chainId || NaN)) return undefined;
+  switch (Number(chainId)) {
+    case 1: return 'eth';
+    case 10: return 'optimism';
+    case 56: return 'bsc';
+    case 137: return 'polygon';
+    case 42161: return 'arbitrum';
+    case 8453: return 'base';
+    case 900: return 'solana';
+    case 101: return 'solana';
+    default: return undefined;
+  }
+}
+
 const SEARCH_ALLOWED_NETWORKS = [
   'eth', 'ethereum',
   'base',
@@ -59,7 +74,7 @@ function sanitizeTrendingPayload(chain: string, rows: any[]): any[] {
 }
 
 function tokenMetaCacheKey(chain: string, address: string): string {
-  return `token:meta:v1:${chain}:${address.toLowerCase()}`;
+  return `token:meta:v2:${chain}:${address.toLowerCase()}`;
 }
 
 async function hydrateTrendingMetadata(chain: string, rows: any[]): Promise<any[]> {
@@ -70,17 +85,15 @@ async function hydrateTrendingMetadata(chain: string, rows: any[]): Promise<any[
       if (!row || typeof row !== 'object') return;
       const address = typeof row.address === 'string' ? row.address : '';
       if (!address) return;
-      if (row.creatorAddress && row.creatorUrl && Number.isFinite(row.launchMultiple || NaN)) return;
+      if (row.creatorAddress && row.creatorUrl) return;
 
       const raw = await get(tokenMetaCacheKey(chain, address));
       if (!raw) return;
-      const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number };
+      const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; cacheVersion?: number };
       if (meta?.creatorAddress && !row.creatorAddress) row.creatorAddress = meta.creatorAddress;
       if (meta?.creatorUrl && !row.creatorUrl) row.creatorUrl = meta.creatorUrl;
       if (meta?.creatorLabel && !row.creatorLabel) row.creatorLabel = meta.creatorLabel;
-      if (Number.isFinite(meta?.launchMultiple || NaN) && !Number.isFinite(row.launchMultiple || NaN)) {
-        row.launchMultiple = meta.launchMultiple;
-      }
+      // launchMultiple comes from repository/DB-trusted baseline path only.
     } catch {
       // best-effort hydration only
     }
@@ -142,6 +155,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       let dbTokens = await getTrendingTokens(chain, tokenLimit);
       await hydrateTrendingMetadata(chain, dbTokens);
 
+      // Step 2.5: Fallback to 5m cache if DB is empty but refresh job filled short-term cache
       if (dbTokens.length > 0) {
         // Update cache for next request
         await set(cacheKey, JSON.stringify(dbTokens), 180);
@@ -155,6 +169,27 @@ export async function tokenRoutes(fastify: FastifyInstance) {
           cached: false,
           source: 'database',
         });
+      }
+
+      if (validDuration !== '5m') {
+        const fallbackKey = `trending:live:${chain}:5m`;
+        const fallback = await get(fallbackKey);
+        if (fallback) {
+          const tokens = sanitizeTrendingPayload(chain, JSON.parse(fallback));
+          await hydrateTrendingMetadata(chain, tokens);
+          if (tokens.length > 0) {
+            await set(cacheKey, JSON.stringify(tokens), 180);
+            return reply.send({
+              success: true,
+              data: tokens.slice(0, tokenLimit),
+              count: Math.min(tokens.length, tokenLimit),
+              duration: validDuration,
+              chain: chain,
+              cached: true,
+              source: 'cache-5m-fallback',
+            });
+          }
+        }
       }
 
       // Step 3: Database is empty or stale - refresh once and return DB results
@@ -254,7 +289,10 @@ export async function tokenRoutes(fastify: FastifyInstance) {
   // POST /api/tokens/trending/refresh - Manually trigger refresh for a specific chain
   fastify.post('/trending/refresh', async (request, reply) => {
     try {
-      const { chain = 'eth' } = request.body as { chain?: string };
+      const body = (request.body || {}) as { chain?: string };
+      const query = (request.query || {}) as { chain?: string };
+      const chain = (query.chain || body.chain || 'eth').toLowerCase();
+      const force = String((query as any).force || (body as any).force || 'true').toLowerCase() === 'true';
 
       // Validate chain
       const supportedChains = getSupportedChains();
@@ -267,7 +305,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       }
 
       // Use the job's refresh function
-      const success = await refreshSingleChain(chain);
+      const success = await refreshSingleChain(chain, force);
 
       if (!success) {
         throw new AppError(500, `Failed to refresh trending tokens for chain: ${chain}`, 'REFRESH_ERROR');
@@ -893,6 +931,20 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       }
 
       console.log(`[TokenRoutes] Found launchpad token: ${result.provider} for ${address}`);
+
+      try {
+        const chain = chainFromId(parsedChainId || result.chainId);
+        const data = (result as any)?.data || {};
+        const creatorAddress = data.creatorAddress || data.creator || data.creator_address || data.userAddress || data.user_address || data.msg_sender || undefined;
+        const creatorUrl = data.creatorUrl || data.creator_url || undefined;
+        const creatorLabel = data.creatorLabel || data.creator_label || undefined;
+        if (chain && (creatorAddress || creatorUrl || creatorLabel)) {
+          await saveTrendingTokenCreator(chain, address, { creatorAddress, creatorUrl, creatorLabel });
+        }
+      } catch {
+        // best-effort only
+      }
+
       return reply.send({
         success: true,
         data: result,

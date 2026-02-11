@@ -25,7 +25,7 @@ function toOptionalNumber(value: unknown): number | undefined {
 }
 
 function tokenMetaCacheKey(chain: string, address: string): string {
-  return `token:meta:v1:${chain}:${address.toLowerCase()}`;
+  return `token:meta:v2:${chain}:${address.toLowerCase()}`;
 }
 
 function isDisplayTrustedBaselineSource(source?: string): boolean {
@@ -169,6 +169,10 @@ let trendingLaunchpadColumnCache:
   | { checkedAt: number; exists: boolean }
   | null = null;
 
+let trendingCreatorColumnCache:
+  | { checkedAt: number; exists: boolean }
+  | null = null;
+
 async function hasTrendingLaunchpadColumn(): Promise<boolean> {
   const now = Date.now();
   if (trendingLaunchpadColumnCache && now - trendingLaunchpadColumnCache.checkedAt < 10 * 60 * 1000) {
@@ -195,6 +199,32 @@ async function hasTrendingLaunchpadColumn(): Promise<boolean> {
   }
 }
 
+async function hasTrendingCreatorColumns(): Promise<boolean> {
+  const now = Date.now();
+  if (trendingCreatorColumnCache && now - trendingCreatorColumnCache.checkedAt < 10 * 60 * 1000) {
+    return trendingCreatorColumnCache.exists;
+  }
+
+  try {
+    const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'TrendingToken'
+          AND column_name = 'creator_address'
+      ) AS "exists"
+    `;
+    const exists = !!rows?.[0]?.exists;
+    trendingCreatorColumnCache = { checkedAt: now, exists };
+    return exists;
+  } catch {
+    // Safe default: assume missing to avoid runtime failures.
+    trendingCreatorColumnCache = { checkedAt: now, exists: false };
+    return false;
+  }
+}
+
 function isMissingLaunchpadColumnError(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
   if (error.code !== 'P2022') return false;
@@ -202,10 +232,54 @@ function isMissingLaunchpadColumnError(error: unknown): boolean {
   return col.includes('launchpad');
 }
 
+function isMissingCreatorColumnError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== 'P2022') return false;
+  const col = String((error.meta as any)?.column || '').toLowerCase();
+  return col.includes('creator_address') || col.includes('creator_url') || col.includes('creator_label');
+}
+
+export async function saveTrendingTokenCreator(
+  chain: string,
+  address: string,
+  creator: { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }
+): Promise<void> {
+  try {
+    if (!creator.creatorAddress && !creator.creatorUrl && !creator.creatorLabel) return;
+    const canWriteCreator = await hasTrendingCreatorColumns();
+    if (!canWriteCreator) return;
+
+    const lower = address.toLowerCase();
+    const existing = await prisma.trendingToken.findUnique({
+      where: { chain_address: { chain, address: lower } },
+      select: { creatorAddress: true, creatorUrl: true, creatorLabel: true },
+    });
+    if (!existing) return;
+
+    const updateData: { creatorAddress?: string | null; creatorUrl?: string | null; creatorLabel?: string | null } = {};
+    if (!existing.creatorAddress && creator.creatorAddress) updateData.creatorAddress = creator.creatorAddress;
+    if (!existing.creatorUrl && creator.creatorUrl) updateData.creatorUrl = creator.creatorUrl;
+    if (!existing.creatorLabel && creator.creatorLabel) updateData.creatorLabel = creator.creatorLabel;
+    if (Object.keys(updateData).length === 0) return;
+
+    await prisma.trendingToken.update({
+      where: { chain_address: { chain, address: lower } },
+      data: updateData,
+    });
+  } catch (error) {
+    if (isMissingCreatorColumnError(error)) {
+      trendingCreatorColumnCache = { checkedAt: Date.now(), exists: false };
+      return;
+    }
+    // best-effort only
+  }
+}
+
 export async function saveTrendingTokens(chain: string, tokens: TokenSearchResult[]): Promise<TokenSearchResult[]> {
   try {
     let mergedTokens: TokenSearchResult[] = [];
     const canWriteLaunchpad = await hasTrendingLaunchpadColumn();
+    const canWriteCreator = await hasTrendingCreatorColumns();
 
     await withRetry(async () => {
       // Deduplicate tokens by address to prevent unique constraint failures
@@ -224,7 +298,7 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
 
       // Use a transaction to ensure atomicity
       await prisma.$transaction(async (tx) => {
-        // Preserve existing poolCreatedAt values to avoid "all new" age regressions
+        // Preserve existing poolCreatedAt and creator values to avoid data loss on re-save
         const existingRows = addressList.length > 0
           ? await tx.trendingToken.findMany({
             where: {
@@ -234,14 +308,28 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
             select: {
               address: true,
               poolCreatedAt: true,
+              launchpad: true,
+              creatorAddress: true,
+              creatorUrl: true,
+              creatorLabel: true,
             },
           })
           : [];
 
         const existingPoolCreatedAt = new Map<string, Date>();
+        const existingCreatorData = new Map<string, { launchpad?: string | null; creatorAddress?: string | null; creatorUrl?: string | null; creatorLabel?: string | null }>();
         for (const row of existingRows) {
+          const addr = row.address.toLowerCase();
           if (row.poolCreatedAt instanceof Date) {
-            existingPoolCreatedAt.set(row.address.toLowerCase(), row.poolCreatedAt);
+            existingPoolCreatedAt.set(addr, row.poolCreatedAt);
+          }
+          if (row.creatorAddress || row.creatorUrl || row.creatorLabel || row.launchpad) {
+            existingCreatorData.set(addr, {
+              launchpad: row.launchpad,
+              creatorAddress: row.creatorAddress,
+              creatorUrl: row.creatorUrl,
+              creatorLabel: row.creatorLabel,
+            });
           }
         }
 
@@ -257,10 +345,20 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
             poolCreatedAt = existing;
           }
 
-          return {
+          // Preserve previously-discovered creator/launchpad data when incoming has none
+          const existingCreator = existingCreatorData.get(addr);
+          const merged: any = {
             ...token,
             poolCreatedAt: poolCreatedAt ? poolCreatedAt.toISOString() : undefined,
           };
+          if (existingCreator) {
+            if (!merged.launchpad && existingCreator.launchpad) merged.launchpad = existingCreator.launchpad;
+            if (!merged.creatorAddress && existingCreator.creatorAddress) merged.creatorAddress = existingCreator.creatorAddress;
+            if (!merged.creatorUrl && existingCreator.creatorUrl) merged.creatorUrl = existingCreator.creatorUrl;
+            if (!merged.creatorLabel && existingCreator.creatorLabel) merged.creatorLabel = existingCreator.creatorLabel;
+          }
+
+          return merged;
         });
 
         // 1. Delete old data for this chain
@@ -279,18 +377,23 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
                 symbol: token.symbol,
                 imageUrl: token.imageUrl || null,
                 poolCreatedAt: token.poolCreatedAt ? new Date(token.poolCreatedAt) : null,
-                price: token.price ?? null,
-                priceChange5m: token.priceChange5m ?? null,
-                priceChange1h: token.priceChange1h ?? null,
-                priceChange6h: token.priceChange6h ?? null,
-                priceChange24h: token.priceChange24h ?? null,
-                volume24h: token.volume24h ?? null,
-                liquidity: token.liquidity ?? null,
-                fdv: token.fdv ?? null,
+                price: toOptionalNumber(token.price) ?? null,
+                priceChange5m: toOptionalNumber(token.priceChange5m) ?? null,
+                priceChange1h: toOptionalNumber(token.priceChange1h) ?? null,
+                priceChange6h: toOptionalNumber(token.priceChange6h) ?? null,
+                priceChange24h: toOptionalNumber(token.priceChange24h) ?? null,
+                volume24h: toOptionalNumber(token.volume24h) ?? null,
+                liquidity: toOptionalNumber(token.liquidity) ?? null,
+                fdv: toOptionalNumber(token.fdv) ?? null,
                 rank: index + 1,
               };
               if (canWriteLaunchpad) {
                 baseData.launchpad = (token as any).launchpad || null;
+              }
+              if (canWriteCreator) {
+                baseData.creatorAddress = (token as any).creatorAddress || null;
+                baseData.creatorUrl = (token as any).creatorUrl || null;
+                baseData.creatorLabel = (token as any).creatorLabel || null;
               }
               return baseData as any;
             }),
@@ -314,6 +417,10 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
       trendingLaunchpadColumnCache = { checkedAt: Date.now(), exists: false };
       return saveTrendingTokens(chain, tokens);
     }
+    if (isMissingCreatorColumnError(error)) {
+      trendingCreatorColumnCache = { checkedAt: Date.now(), exists: false };
+      return saveTrendingTokens(chain, tokens);
+    }
     console.error('Error saving trending tokens:', error);
     throw error;
   }
@@ -334,6 +441,7 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
     }
 
     const canReadLaunchpad = await hasTrendingLaunchpadColumn();
+    const canReadCreator = await hasTrendingCreatorColumns();
     const result = await prisma.trendingToken.findMany({
       where: { chain },
       orderBy: { rank: 'asc' },
@@ -353,6 +461,7 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
         liquidity: true,
         fdv: true,
         ...(canReadLaunchpad ? { launchpad: true } : {}),
+        ...(canReadCreator ? { creatorAddress: true, creatorUrl: true, creatorLabel: true } : {}),
       },
     });
 
@@ -374,6 +483,9 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
       liquidity: toOptionalNumber(row.liquidity),
       fdv: toOptionalNumber(row.fdv),
       launchpad: (row as any).launchpad || undefined,
+      creatorAddress: (row as any).creatorAddress || undefined,
+      creatorUrl: (row as any).creatorUrl || undefined,
+      creatorLabel: (row as any).creatorLabel || undefined,
     }));
 
     // DB fallback for launch multiple:
@@ -410,7 +522,14 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
           if (!baseline || !Number.isFinite(baseline.price) || baseline.price <= 0) continue;
           const raw = Number(current) / baseline.price;
           if (!Number.isFinite(raw) || raw <= 0) continue;
-          (token as any).launchMultiple = Math.max(1, raw);
+          // Sanity cap: suppress absurdly high multiples from bad baselines.
+          // Even the most explosive tokens rarely exceed x200k legitimately.
+          const capped = Math.max(1, raw);
+          if (capped > 200_000) {
+            console.warn(`[TokenRepo] Suspicious launch multiple x${capped.toFixed(0)} for ${token.address.slice(0, 10)}… (baseline=$${baseline.price}, current=$${current}) — suppressed`);
+            continue;
+          }
+          (token as any).launchMultiple = capped;
         }
       }
     } catch {
@@ -425,10 +544,6 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
         if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
         if (meta?.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = meta.creatorUrl;
         if (meta?.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = meta.creatorLabel;
-        const hasTrustedBaseline = trustedBaselineMap.has(token.address.toLowerCase());
-        if (hasTrustedBaseline && Number.isFinite(meta?.launchMultiple || NaN) && !Number.isFinite((token as any).launchMultiple || NaN)) {
-          (token as any).launchMultiple = meta.launchMultiple;
-        }
       } catch {
         // ignore metadata cache parse/read errors
       }
@@ -462,6 +577,10 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
   } catch (error) {
     if (isMissingLaunchpadColumnError(error)) {
       trendingLaunchpadColumnCache = { checkedAt: Date.now(), exists: false };
+      return getTrendingTokens(chain, limit);
+    }
+    if (isMissingCreatorColumnError(error)) {
+      trendingCreatorColumnCache = { checkedAt: Date.now(), exists: false };
       return getTrendingTokens(chain, limit);
     }
     console.error('Error getting trending tokens:', error);
