@@ -29,7 +29,6 @@ import { ethers } from 'ethers';
 import { getChainConfig } from '../config/chainConfig.js';
 import { getRpcEndpointsWithStrategy } from '../config/apiEndpoints.js';
 import { getNativeTokenPriceUsd } from '../services/onChainPriceService.js';
-import { getEvmLogs } from '../config/unifiedScanService.js';
 import prisma from '../db/prisma.js';
 import { Prisma } from '@prisma/client';
 
@@ -98,7 +97,7 @@ const TOKEN_BASELINE_CACHE_TTL_SECONDS = Math.max(
 );
 const BASELINE_EXTERNAL_FETCH_BUDGET_PER_RUN = Math.max(
   6,
-  Number(process.env.BASELINE_EXTERNAL_FETCH_BUDGET_PER_RUN || '48')
+  Number(process.env.BASELINE_EXTERNAL_FETCH_BUDGET_PER_RUN || '120')
 );
 const BASELINE_EXTERNAL_RETRY_TTL_SECONDS = Math.max(
   2 * 60,
@@ -183,7 +182,13 @@ type BaselinePoolCandidate = {
   poolCreatedAt?: string;
   liquidityUsd?: number;
 };
-const TRUSTED_BASELINE_SOURCES = ['rpc_stable_first_swap', 'rpc_native_first_swap', 'rpc_v4_initialize', 'solana_public_rpc'] as const;
+const TRUSTED_BASELINE_SOURCES = [
+  'rpc_stable_first_swap',
+  'rpc_native_first_swap',
+  'rpc_v4_initialize',
+  'solana_public_rpc',
+  'bsc_token_manager_purchase'
+] as const;
 const pendingBaselineInFlight = new Map<string, Promise<{ queued: number; processed: number }>>();
 const multipleEnrichmentInFlight = new Map<string, Promise<void>>();
 let baselineSweepInProgress = false;
@@ -201,17 +206,13 @@ const RPC_LOG_MAX_BLOCK_RANGE = Math.max(
   200,
   Number(process.env.RPC_LOG_MAX_BLOCK_RANGE || '500')
 );
-const OLD_TOKEN_SCAN_MIN_DAYS = Math.max(
-  7,
-  Number(process.env.OLD_TOKEN_SCAN_MIN_DAYS || '30')
-);
 const SOL_RPC_SIGNATURE_PAGE_LIMIT = Math.max(
   100,
-  Number(process.env.SOL_RPC_SIGNATURE_PAGE_LIMIT || '120')
+  Number(process.env.SOL_RPC_SIGNATURE_PAGE_LIMIT || '250')
 );
 const SOL_RPC_SIGNATURE_MAX_PAGES = Math.max(
   2,
-  Number(process.env.SOL_RPC_SIGNATURE_MAX_PAGES || '3')
+  Number(process.env.SOL_RPC_SIGNATURE_MAX_PAGES || '10')
 );
 const SOL_RPC_EARLIEST_CANDIDATES = Math.max(
   1,
@@ -219,7 +220,7 @@ const SOL_RPC_EARLIEST_CANDIDATES = Math.max(
 );
 const SOL_RPC_MAX_SIGNATURES_TO_INSPECT = Math.max(
   20,
-  Number(process.env.SOL_RPC_MAX_SIGNATURES_TO_INSPECT || '80')
+  Number(process.env.SOL_RPC_MAX_SIGNATURES_TO_INSPECT || '250')
 );
 const SOL_RPC_MIN_INTERVAL_MS = Math.max(
   150,
@@ -1343,7 +1344,6 @@ type FirstSwapData = {
 
 const EVM_BASELINE_MIN_QUOTE_USD = Math.max(0, Number(process.env.EVM_BASELINE_MIN_QUOTE_USD || '0'));
 const EVM_BASELINE_MAX_CANDIDATE_SWAPS = Math.max(5, Number(process.env.EVM_BASELINE_MAX_CANDIDATE_SWAPS || '40'));
-const EVM_SCAN_FIRST_ENABLED = String(process.env.EVM_SCAN_FIRST_ENABLED || 'false').toLowerCase() === 'true';
 const EVM_BASELINE_FALLBACK_MAX_SWAPS = Math.max(10, Number(process.env.EVM_BASELINE_FALLBACK_MAX_SWAPS || '50'));
 const EVM_BASELINE_FALLBACK_WINDOW_SECONDS = Math.max(600, Number(process.env.EVM_BASELINE_FALLBACK_WINDOW_SECONDS || '1800'));
 const BSC_RECEIPT_SCAN_MAX_BLOCKS = Math.max(3000, Number(process.env.BSC_RECEIPT_SCAN_MAX_BLOCKS || '15000'));
@@ -1494,70 +1494,6 @@ async function findBuySwapSamples(
   ];
   const out: FirstSwapData[] = [];
   const seen = new Set<string>();
-  const tokenAgeDays = Math.max(0, (Date.now() / 1000 - createdSec) / 86400);
-  const canUseScan = !!CHAIN_SLUG_TO_ID[chainSlug] && (
-    chainSlug === 'bsc' || tokenAgeDays >= OLD_TOKEN_SCAN_MIN_DAYS
-  );
-
-  // Optional scan-first path.
-  // Default is RPC-first for stability/cost; enable scan-first only if explicitly requested.
-  if (canUseScan && EVM_SCAN_FIRST_ENABLED) {
-    try {
-      const latestBlock = Number(latest.number || 0);
-      if (latestBlock > 0) {
-        const [scanV2Earliest, scanV3Earliest] = await Promise.all([
-          getEvmLogs(CHAIN_SLUG_TO_ID[chainSlug], chainSlug, {
-            address: poolAddress,
-            topic0: V2_SWAP_TOPIC,
-            fromBlock: 0,
-            toBlock: latestBlock,
-            page: 1,
-            offset: 150,
-            sort: 'asc',
-          }).catch(() => []),
-          getEvmLogs(CHAIN_SLUG_TO_ID[chainSlug], chainSlug, {
-            address: poolAddress,
-            topic0: V3_SWAP_TOPIC,
-            fromBlock: 0,
-            toBlock: latestBlock,
-            page: 1,
-            offset: 150,
-            sort: 'asc',
-          }).catch(() => []),
-        ]);
-
-        const earliestLogs = [...scanV2Earliest, ...scanV3Earliest]
-          .map((l: any) => ({
-            topics: l.topics,
-            data: l.data,
-            blockNumber: Number(l.blockNumber),
-            index: Number(l.logIndex || 0),
-            transactionHash: l.transactionHash || l.hash || undefined,
-          }))
-          .sort((a: any, b: any) => {
-            if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
-            return Number(a.index) - Number(b.index);
-          });
-
-        for (const log of earliestLogs) {
-          const parsed = parseFirstSwapLog(log as any, target, token0, token1) || parseAnySwapLog(log as any, target, token0, token1);
-          if (!parsed) continue;
-          const key = `${log.blockNumber}:${Number(log.index)}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          out.push({
-            ...parsed,
-            blockNumber: Number(log.blockNumber),
-            txHash: (log as any).transactionHash || undefined
-          });
-          if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) break;
-        }
-      }
-      if (out.length > 0) return out.sort((a, b) => a.blockNumber - b.blockNumber);
-    } catch {
-      // fall through to RPC path
-    }
-  }
 
   for (const r of ranges) {
     for (let from = r.from; from <= r.to; from += RPC_LOG_MAX_BLOCK_RANGE) {
@@ -1585,112 +1521,7 @@ async function findBuySwapSamples(
     }
   }
 
-  // Explorer fallback:
-  // - always enabled on BSC (public RPC getLogs is less stable across many pools)
-  // - enabled on other EVM chains for older pools only (cost control)
-  if (!canUseScan) return out.sort((a, b) => a.blockNumber - b.blockNumber);
-
-  try {
-    const latestBlock = Number(latest.number || 0);
-    if (latestBlock > 0) {
-      const [scanV2Earliest, scanV3Earliest] = await Promise.all([
-        getEvmLogs(CHAIN_SLUG_TO_ID[chainSlug], chainSlug, {
-          address: poolAddress,
-          topic0: V2_SWAP_TOPIC,
-          fromBlock: 0,
-          toBlock: latestBlock,
-          page: 1,
-          offset: 100,
-          sort: 'asc',
-        }).catch(() => []),
-        getEvmLogs(CHAIN_SLUG_TO_ID[chainSlug], chainSlug, {
-          address: poolAddress,
-          topic0: V3_SWAP_TOPIC,
-          fromBlock: 0,
-          toBlock: latestBlock,
-          page: 1,
-          offset: 100,
-          sort: 'asc',
-        }).catch(() => []),
-      ]);
-
-      const earliestLogs = [...scanV2Earliest, ...scanV3Earliest]
-        .map((l: any) => ({
-          topics: l.topics,
-          data: l.data,
-          blockNumber: Number(l.blockNumber),
-          index: Number(l.logIndex || 0),
-        }))
-        .sort((a: any, b: any) => {
-          if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
-          return Number(a.index) - Number(b.index);
-        });
-
-      for (const log of earliestLogs) {
-        const parsed = parseFirstSwapLog(log as any, target, token0, token1);
-        if (!parsed) continue;
-        const key = `${log.blockNumber}:${Number(log.index)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ ...parsed, blockNumber: Number(log.blockNumber), txHash: (log as any).transactionHash || undefined });
-        if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) {
-          return out.sort((a, b) => a.blockNumber - b.blockNumber);
-        }
-      }
-    }
-
-    for (const r of ranges) {
-      for (let to = r.to; to >= r.from; to -= 5000) {
-        const from = Math.max(r.from, to - 4999);
-        const [scanV2, scanV3] = await Promise.all([
-          getEvmLogs(CHAIN_SLUG_TO_ID[chainSlug], chainSlug, {
-            address: poolAddress,
-            topic0: V2_SWAP_TOPIC,
-            fromBlock: from,
-            toBlock: to,
-            page: 1,
-            offset: 1000,
-            sort: 'desc',
-          }).catch(() => []),
-          getEvmLogs(CHAIN_SLUG_TO_ID[chainSlug], chainSlug, {
-            address: poolAddress,
-            topic0: V3_SWAP_TOPIC,
-            fromBlock: from,
-            toBlock: to,
-            page: 1,
-            offset: 1000,
-            sort: 'desc',
-          }).catch(() => []),
-        ]);
-
-        const logs = [...scanV2, ...scanV3]
-          .map((l: any) => ({
-            topics: l.topics,
-            data: l.data,
-            blockNumber: Number(l.blockNumber),
-            index: Number(l.logIndex || 0),
-          }))
-          .sort((a: any, b: any) => {
-            if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
-            return Number(a.index) - Number(b.index);
-          });
-
-        for (const log of logs) {
-          const parsed = parseFirstSwapLog(log as any, target, token0, token1);
-          if (!parsed) continue;
-          const key = `${log.blockNumber}:${Number(log.index)}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          out.push({ ...parsed, blockNumber: Number(log.blockNumber), txHash: (log as any).transactionHash || (log as any).hash || undefined });
-          if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) {
-            return out.sort((a, b) => a.blockNumber - b.blockNumber);
-          }
-        }
-      }
-    }
-  } catch {
-    // best-effort fallback only
-  }
+  if (out.length > 0) return out.sort((a, b) => a.blockNumber - b.blockNumber);
 
   // Last chance: use first swap in absolute terms (buy/sell agnostic).
   if (out.length === 0) {

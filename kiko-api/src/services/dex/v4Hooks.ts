@@ -21,6 +21,14 @@ export const ZORA_HOOKS_BY_CHAIN: Record<number, string[]> = {
     ]
 };
 
+// Known non-clanker/non-zora hook families seen in production traffic
+export const CUSTOM_V4_HOOKS_BY_CHAIN: Record<number, string[]> = {
+    8453: [
+        // DecayMulticurveInitializerHook (Base)
+        '0xbb7784a4d481184283ed89619a3e3ed143e1adc0'
+    ]
+};
+
 export type V4HookFamily = 'none' | 'clanker' | 'zora' | 'custom' | 'unknown';
 export type V4HookStage = 'quote' | 'execute';
 
@@ -53,6 +61,7 @@ export function getKnownV4HooksByChain(chainId: number): string[] {
     return Array.from(new Set([
         ...(CLANKER_HOOKS_BY_CHAIN[chainId] || []),
         ...(ZORA_HOOKS_BY_CHAIN[chainId] || []),
+        ...(CUSTOM_V4_HOOKS_BY_CHAIN[chainId] || []),
         ...dynamic
     ].map((h) => h.toLowerCase())));
 }
@@ -159,6 +168,16 @@ export function resolveV4HookProfile(chainId: number, hookAddress?: string): V4H
             family: 'zora',
             requiresWalletAddress: false,
             description: 'zora_creator_coin_hook'
+        };
+    }
+    const customHooks = CUSTOM_V4_HOOKS_BY_CHAIN[chainId] || [];
+    if (customHooks.some((h) => h.toLowerCase() === normalizedHook)) {
+        return {
+            chainId,
+            hookAddress: normalizedHook,
+            family: 'custom',
+            requiresWalletAddress: false,
+            description: 'known_custom_hook'
         };
     }
 

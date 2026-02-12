@@ -166,6 +166,10 @@ export async function getTargetWalletStatus(params: {
   const walletAddress = normalizeAddress(cfg.targetWallet);
   const chain = chainIdToLabel(cfg.chainId);
   const since = cfg.createdAt;
+  const recentLimit = params.recentLimit ?? 80;
+
+  // Refresh latest wallet activity before aggregating so card data stays current.
+  await bootstrapTrackedWalletHistory(walletAddress, cfg.chainId, Math.max(120, recentLimit)).catch(() => undefined);
 
   const [leaderStats, recentTx, copiedPositions, targetBuySellTxs, targetTokenSwapCount] = await Promise.all([
     prisma.leaderWalletStats.findUnique({
@@ -178,7 +182,7 @@ export async function getTargetWalletStatus(params: {
         blockTimestamp: { gte: since },
       },
       orderBy: { blockTimestamp: 'desc' },
-      take: params.recentLimit ?? 80,
+      take: recentLimit,
     }),
     prisma.position.count({
       where: { configId: cfg.id },
@@ -188,7 +192,7 @@ export async function getTargetWalletStatus(params: {
         walletAddress,
         chain,
         blockTimestamp: { gte: since },
-        txType: { in: ['TARGET_BUY', 'TARGET_SELL'] }
+        txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'BUY', 'SELL'] }
       },
       select: {
         id: true,
@@ -205,15 +209,15 @@ export async function getTargetWalletStatus(params: {
         walletAddress,
         chain,
         blockTimestamp: { gte: since },
-        txType: 'TARGET_TOKEN_SWAP',
+        txType: { in: ['TARGET_TOKEN_SWAP', 'SWAP'] },
       },
     }),
   ]);
 
   const tokenSwaps = targetTokenSwapCount;
   const buySellRows = targetBuySellTxs
-    .filter((row): row is typeof row & { txType: 'TARGET_BUY' | 'TARGET_SELL' } =>
-      row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL')
+    .filter((row): row is typeof row & { txType: 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL' } =>
+      row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL' || row.txType === 'BUY' || row.txType === 'SELL')
     .map((row) => ({
       id: row.id,
       txType: row.txType,

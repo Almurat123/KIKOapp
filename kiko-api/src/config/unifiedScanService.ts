@@ -97,6 +97,7 @@ export async function callEtherscan(
       requestTimeout: ETHERSCAN_CONFIG.timeout,
       endpointName: 'etherscan',
       headers: { 'Content-Type': 'application/json' },
+      retry: { retries: 2, minTimeout: 300, maxTimeout: 1800, factor: 2 },
     });
 
     recordScanSuccess('etherscan');
@@ -138,6 +139,7 @@ export async function callRoutescan(
       requestTimeout: ROUTESCAN_CONFIG.timeout,
       endpointName: 'routescan',
       headers: { 'Content-Type': 'application/json' },
+      retry: { retries: 2, minTimeout: 300, maxTimeout: 1800, factor: 2 },
     });
 
     recordScanSuccess('routescan');
@@ -179,6 +181,7 @@ export async function callBlockscout(
       requestTimeout: BLOCKSCOUT_CONFIG.timeout,
       endpointName: 'blockscout',
       headers: { 'Content-Type': 'application/json' },
+      retry: { retries: 1, minTimeout: 300, maxTimeout: 1200, factor: 2 },
     });
 
     recordScanSuccess('blockscout');
@@ -390,6 +393,15 @@ export async function getEvmLogs(
   if (options.sort) params.sort = options.sort;
 
   const providers: Array<{ name: string; fn: () => Promise<any> }> = [];
+  const normalizedChain = String(chain || '').toLowerCase();
+  const preferRoutescanFirst = normalizedChain === 'bsc';
+
+  if (preferRoutescanFirst && ROUTESCAN_CONFIG.apiKey && !isScanCircuitOpen('routescan')) {
+    providers.push({
+      name: 'routescan',
+      fn: () => callRoutescan(chain, params),
+    });
+  }
 
   if (ETHERSCAN_CONFIG.apiKey && !isScanCircuitOpen('etherscan')) {
     providers.push({
@@ -398,7 +410,7 @@ export async function getEvmLogs(
     });
   }
 
-  if (ROUTESCAN_CONFIG.apiKey && !isScanCircuitOpen('routescan')) {
+  if (!preferRoutescanFirst && ROUTESCAN_CONFIG.apiKey && !isScanCircuitOpen('routescan')) {
     providers.push({
       name: 'routescan',
       fn: () => callRoutescan(chain, params),

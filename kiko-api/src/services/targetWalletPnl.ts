@@ -1,6 +1,6 @@
 export interface TargetBuySellRow {
   id?: number;
-  txType: 'TARGET_BUY' | 'TARGET_SELL';
+  txType: 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL';
   tokenAddress: string | null;
   amount: string | null;
   valueUsd: number | null;
@@ -76,7 +76,7 @@ export function calculateTargetRealizedPnl(
       continue;
     }
 
-    if (row.txType === 'TARGET_BUY') {
+    if (row.txType === 'TARGET_BUY' || row.txType === 'BUY') {
       buyCount += 1;
       buyVolumeUsd += usd;
       const unitCostUsd = usd / qty;

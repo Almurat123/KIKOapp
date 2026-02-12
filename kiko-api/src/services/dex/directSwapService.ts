@@ -120,6 +120,7 @@ const ZORA_ROUTABLE_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_ZORA_ROUTABLE_
 const WINNING_ROUTE_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_WINNING_ROUTE_CACHE_TTL_MS || '600');
 const DIRECT_SWAP_TURBO_BUDGET_WARN_MS = Number(process.env.DIRECT_SWAP_TURBO_BUDGET_WARN_MS || '2000');
 const DIRECT_SWAP_GAS_CACHE_TTL_MS = Number(process.env.DIRECT_SWAP_GAS_CACHE_TTL_MS || '600000');
+const V4_DYNAMIC_FEE_FLAG = 0x800000;
 
 const v4SpotCache = new Map<string, { value: bigint; timestamp: number }>();
 const v4QuoterCache = new Map<string, { value: bigint; timestamp: number }>();
@@ -1019,7 +1020,12 @@ export async function executeDirectSwap(params: {
         if (isV4SwapSupported(chainId) && !turboMode) {
             try {
                 preloadedV4Pools = await findV4Pools(poolTokenIn, poolTokenOut, chainId);
-                forceV4 = preloadedV4Pools.some(p => isClankerHook(chainId, p.poolKey.hooks));
+                forceV4 = preloadedV4Pools.some((p) => {
+                    const family = resolveV4HookProfile(chainId, p.poolKey.hooks).family;
+                    if (family === 'clanker') return true;
+                    if (p.poolKey.fee === V4_DYNAMIC_FEE_FLAG && (family === 'custom' || family === 'unknown')) return true;
+                    return false;
+                });
             } catch {
                 forceV4 = false;
             }

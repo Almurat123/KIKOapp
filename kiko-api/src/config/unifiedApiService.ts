@@ -145,10 +145,14 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const externalSignal = fetchOptions.signal as AbortSignal | undefined;
     const controller = new AbortController();
-    const onExternalAbort = () => controller.abort();
+    let abortedByExternal = false;
+    const onExternalAbort = () => {
+      abortedByExternal = true;
+      controller.abort();
+    };
     if (externalSignal) {
       if (externalSignal.aborted) {
-        controller.abort();
+        onExternalAbort();
       } else {
         externalSignal.addEventListener('abort', onExternalAbort, { once: true });
       }
@@ -203,7 +207,9 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
       const isClientError = error.message.match(/HTTP 4\d\d/) && !isRateLimit;
       const isAbort = error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('aborted');
 
-      if (attempt >= maxRetries || (isClientError && !isRateLimit) || isAbort) {
+      // Retry internal timeout aborts; only stop immediately when caller cancelled externally.
+      const shouldStopOnAbort = isAbort && abortedByExternal;
+      if (attempt >= maxRetries || (isClientError && !isRateLimit) || shouldStopOnAbort) {
         break;
       }
 

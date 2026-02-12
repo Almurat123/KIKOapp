@@ -17,7 +17,14 @@
         "rootDir": "./src",
         "outDir": "./dist",
         "noEmit": false,
-        "baseUrl": "."
+        "paths": {
+            "@/*": ["./src/*"],
+            "@config/*": ["./src/config/*"],
+            "@middleware/*": ["./src/middleware/*"],
+            "@services/*": ["./src/services/*"],
+            "@utils/*": ["./src/utils/*"],
+            "@v2/*": ["./src/v2/*"]
+        }
     },
     "include": [
         "src/**/*"
