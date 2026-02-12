@@ -6,10 +6,8 @@
     width: 100%;
     max-width: 420px;
     /* Matching max-w-md somewhat */
-    background: rgba(255, 255, 255, 0.02);
-    backdrop-filter: blur(50px);
-    -webkit-backdrop-filter: blur(50px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #09090b;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 32px;
     padding: 32px;
     overflow: hidden;
@@ -17,21 +15,24 @@
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     box-shadow: 0 24px 48px -20px rgba(0, 0, 0, 0.18);
     transition: all 0.5s ease;
+    --kiko-italic-style: italic;
+    --kiko-caps-spacing: 0.08em;
+    --kiko-body-spacing: 0.01em;
+    font-style: var(--kiko-italic-style);
 }
 
-@media (prefers-color-scheme: light) {
-    .card {
-        box-shadow: 0 4px 12px -12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.02);
-        border-color: rgba(0, 0, 0, 0.09);
-        background: rgba(255, 255, 255, 0.75);
-    }
-}
-
-/* App theme override (light mode class-based, takes priority over system) */
+/* App theme overrides (class-based, independent from system preference) */
 :global(.light) .card {
     box-shadow: 0 4px 12px -12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.02);
     border-color: rgba(0, 0, 0, 0.09);
-    background: rgba(255, 255, 255, 0.75);
+    background: #ffffff;
+    color: #111111;
+}
+
+:global(.dark) .card {
+    background: #09090b;
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
 }
 
 /* Background Ambient Glows */
@@ -52,8 +53,8 @@
     /* -top-24 */
     left: -96px;
     /* -left-24 */
-    background: rgba(37, 99, 235, 0.05);
-    /* blue-600/5 */
+    background: rgba(255, 255, 255, 0.02);
+    /* neutral glow */
 }
 
 .glowBottom {
@@ -61,8 +62,8 @@
     /* -bottom-24 */
     right: -96px;
     /* -right-24 */
-    background: rgba(79, 70, 229, 0.05);
-    /* indigo-600/5 */
+    background: rgba(255, 255, 255, 0.02);
+    /* neutral glow */
 }
 
 
@@ -89,9 +90,10 @@
 .amountLabel {
     font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.2em;
+    letter-spacing: var(--kiko-caps-spacing);
     font-weight: 700;
     color: rgba(255, 255, 255, 0.2);
+    font-style: var(--kiko-italic-style);
 }
 
 .amountValue {
@@ -99,13 +101,13 @@
     /* text-4xl */
     font-weight: 300;
     /* font-light */
-    letter-spacing: -0.05em;
+    letter-spacing: var(--kiko-body-spacing);
     /* tracking-tighter */
-    font-style: italic;
-    line-height: 1;
+    font-style: var(--kiko-italic-style);
+    line-height: 1.05;
     color: #ffffff;
     display: flex;
-    align-items: baseline;
+    align-items: center;
 }
 
 .amountValueEst {
@@ -115,12 +117,46 @@
 }
 
 .tokenSymbol {
-    color: rgba(255, 255, 255, 0.1);
-    font-size: 20px;
-    /* text-xl */
-    font-style: normal;
-    margin-left: 4px;
-    font-weight: 500;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 18px;
+    font-style: var(--kiko-italic-style);
+    margin-left: 0;
+    font-weight: 600;
+    letter-spacing: var(--kiko-body-spacing);
+}
+
+.tokenPill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 10px;
+    padding: 3px 10px 3px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+    align-self: center;
+    transform: translateY(0.5px);
+}
+
+.tokenPillIcon {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.tokenPillFallback {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.16);
 }
 
 /* Divider */
@@ -205,8 +241,8 @@
 .statusLabelText {
     font-size: 12px;
     font-weight: 500;
-    letter-spacing: 0.025em;
-    /* tracking-wide */
+    letter-spacing: var(--kiko-body-spacing);
+    font-style: var(--kiko-italic-style);
 }
 
 .statusLabelPending {
@@ -225,7 +261,9 @@
 
 .statusSubText {
     font-size: 10px;
-    font-style: italic;
+    font-style: var(--kiko-italic-style);
+    letter-spacing: var(--kiko-body-spacing);
+    line-height: 1.35;
 }
 
 .statusSubPending {
@@ -269,7 +307,8 @@
     color: rgba(255, 255, 255, 0.2);
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: var(--kiko-caps-spacing);
+    font-style: var(--kiko-italic-style);
 }
 
 .viewHashBtn {
@@ -298,6 +337,8 @@
 
 .hashValue {
     font-family: monospace;
+    font-style: var(--kiko-italic-style);
+    letter-spacing: 0.02em;
     opacity: 0.3;
     animation: fadeIn 1s ease-out;
 }

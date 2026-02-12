@@ -9,6 +9,10 @@
    - Use internal research to find real-time news about regulations, hacks, company updates, or specific network announcements.
    - Summarize findings into a narrative: "The market is currently [Bullish/Bearish/Neutral], driven by [Factor A] and [Factor B]."
 
+2b. **Prediction Market Signal (Optional)**:
+   - If the user asks about odds/chance/future outcomes (e.g., elections, Fed decisions, approvals, regulatory outcomes), use Prediction Market Research to see what the market is pricing.
+   - Present it as market-implied probabilities (expectations), not as factual confirmation.
+
 3. **Network Status**:
    - If the user is planning a trade or asks about congestion, include current transaction cost conditions when available (do not mention internal tool names).
 

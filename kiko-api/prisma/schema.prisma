@@ -449,6 +449,9 @@ model ChatSession {
   title     String
   model     String        @default("grok-4-1-fast-reasoning")
   status    String        @default("active")
+  lastResponseId String? 
+  compactionCursor String?
+  conversationStateVersion Int @default(1)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   tasks     AITask[]
@@ -472,6 +475,7 @@ model ChatMessage {
   usage             String?
   toolCalls         String?
   toolCallId        String?
+  compactedData     String?
   messageIndex      Int
   status            String         @default("complete")
   createdAt         DateTime       @default(now())
@@ -695,6 +699,11 @@ model TokenLaunchBaseline {
   address       String
   baselinePrice Decimal? @map("baseline_price")
   baselineSource String? @map("baseline_source")
+  baselineBlockNumber BigInt? @map("baseline_block_number")
+  baselineTxHash String? @map("baseline_tx_hash")
+  baselinePoolAddress String? @map("baseline_pool_address")
+  baselineNativeUsd Decimal? @map("baseline_native_usd")
+  baselineQuotedAt DateTime? @map("baseline_quoted_at")
   status        String   @default("pending")
   firstSeenAt   DateTime? @map("first_seen_at")
   lastCheckedAt DateTime? @map("last_checked_at")
@@ -706,6 +715,28 @@ model TokenLaunchBaseline {
 
   @@unique([chain, address])
   @@index([chain, status])
+  @@index([updatedAt(sort: Desc)])
+}
+
+model TokenLaunchpadProfile {
+  id             String   @id @default(cuid())
+  chain          String
+  address        String
+  launchpad      String?  @map("launchpad")
+  creatorAddress String?  @map("creator_address")
+  creatorUrl     String?  @map("creator_url")
+  creatorLabel   String?  @map("creator_label")
+  source         String?  @map("source")
+  verifiedAt     DateTime? @map("verified_at")
+  lastCheckedAt  DateTime? @map("last_checked_at")
+  retryAfter     DateTime? @map("retry_after")
+  attempts       Int      @default(0)
+  lastError      String?  @map("last_error")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([chain, address])
+  @@index([chain, launchpad])
   @@index([updatedAt(sort: Desc)])
 }
 

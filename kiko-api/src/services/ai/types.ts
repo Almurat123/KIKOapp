@@ -15,6 +15,11 @@ export interface UserContext {
     chainId?: number;
     chainName?: string;
     isWalletConnected?: boolean;
+    farcaster?: {
+        followsKiko?: boolean;
+        kikoHandle?: string;
+        profileUrl?: string;
+    };
     balance?: Record<string, string> | Array<{
         symbol: string;
         balance: string;

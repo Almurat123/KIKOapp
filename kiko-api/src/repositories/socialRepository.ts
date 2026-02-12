@@ -6,6 +6,8 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 
 let hasSearchVectorColumnCache: boolean | null = null;
+const FARCASTER_EPOCH_MS = 1609459200000; // 2021-01-01 UTC
+const MAX_FUTURE_SKEW_MS = 7 * 24 * 60 * 60 * 1000; // tolerate small clock skew
 
 async function hasSearchVectorColumn(): Promise<boolean> {
     if (hasSearchVectorColumnCache !== null) return hasSearchVectorColumnCache;
@@ -50,6 +52,53 @@ function parseCoinValue(value: string | number | undefined | null): number | nul
     return isNaN(num) ? null : num;
 }
 
+function normalizeCastTimestamp(input: unknown): Date | null {
+    const now = Date.now();
+    let ts: number | null = null;
+
+    if (input instanceof Date) {
+        ts = input.getTime();
+    } else if (typeof input === 'number' && Number.isFinite(input)) {
+        ts = input;
+    } else if (typeof input === 'string') {
+        const parsedDate = new Date(input).getTime();
+        if (Number.isFinite(parsedDate) && !Number.isNaN(parsedDate)) {
+            ts = parsedDate;
+        } else {
+            const parsedNum = Number(input);
+            if (Number.isFinite(parsedNum)) ts = parsedNum;
+        }
+    }
+
+    if (ts === null || !Number.isFinite(ts)) return null;
+
+    // Seconds -> milliseconds (unix or farcaster style)
+    if (ts > 0 && ts < 1e11) {
+        const unixMs = ts * 1000;
+        const farcasterMs = ts * 1000 + FARCASTER_EPOCH_MS;
+
+        // Prefer candidate closer to "now" and within sane bounds
+        const unixDelta = Math.abs(now - unixMs);
+        const farcasterDelta = Math.abs(now - farcasterMs);
+        ts = farcasterDelta < unixDelta ? farcasterMs : unixMs;
+    }
+
+    // Repair double-epoch drift: (unix/farcaster ms) + FARCASTER_EPOCH_MS
+    if (ts > now + MAX_FUTURE_SKEW_MS) {
+        const deEpoch = ts - FARCASTER_EPOCH_MS;
+        if (deEpoch >= FARCASTER_EPOCH_MS && deEpoch <= now + MAX_FUTURE_SKEW_MS) {
+            ts = deEpoch;
+        }
+    }
+
+    // Hard bounds: reject obviously invalid timestamps
+    if (ts < FARCASTER_EPOCH_MS || ts > now + MAX_FUTURE_SKEW_MS) {
+        return null;
+    }
+
+    return new Date(ts);
+}
+
 export async function getLastUpdateTime(): Promise<Date | null> {
     try {
         const result = await prisma.trendingCast.aggregate({
@@ -89,6 +138,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
 
                 for (let i = 0; i < sortedCasts.length; i++) {
                     const cast = sortedCasts[i];
+                    const normalizedTimestamp = normalizeCastTimestamp(cast.timestamp);
 
                     // FINAL GUARD: Prevent mock data from ever hitting the DB
                     const isMockUser = !cast.author.username ||
@@ -99,6 +149,14 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
 
                     if (isMockUser) {
                         logger.warn(LogCode.SOC_TRENDING_UPDATED, 'SocialRepo: Dropping cast with mock user data', { hash: cast.hash, fid: cast.fid });
+                        continue;
+                    }
+                    if (!normalizedTimestamp) {
+                        logger.warn(LogCode.SOC_TRENDING_UPDATED, 'SocialRepo: Dropping cast with invalid timestamp', {
+                            hash: cast.hash,
+                            fid: cast.fid,
+                            rawTimestamp: cast.timestamp
+                        });
                         continue;
                     }
 
@@ -118,7 +176,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             authorAvatar: cast.author.avatar,
                             authorVerified: cast.author.verified || false,
                             text: cast.text,
-                            timestamp: new Date(cast.timestamp),
+                            timestamp: normalizedTimestamp,
                             embeds: cast.embeds || [],
                             parentCastFid: cast.parentCastId?.fid || null,
                             parentCastHash: cast.parentCastId?.hash || null,
@@ -144,7 +202,7 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                             authorAvatar: cast.author.avatar,
                             authorVerified: cast.author.verified || false,
                             text: cast.text,
-                            timestamp: new Date(cast.timestamp),
+                            timestamp: normalizedTimestamp,
                             embeds: cast.embeds || [],
                             parentCastFid: cast.parentCastId?.fid || null,
                             parentCastHash: cast.parentCastId?.hash || null,
@@ -196,13 +254,14 @@ export async function saveTrendingCasts(casts: TrendingCast[]): Promise<void> {
                 }
 
                 // Prune old low-quality data
-                const cutoff = new Date(Date.now() - (24 * 60 * 60 * 1000));
+                const cutoff = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
                 const longTermCutoff = new Date(1609459200000);
                 await tx.trendingCast.deleteMany({
                     where: {
                         OR: [
-                            { AND: [{ timestamp: { lt: cutoff } }, { likes: { lte: 5 } }] },
-                            { timestamp: { lt: longTermCutoff } }
+                            { AND: [{ timestamp: { lt: cutoff } }, { likes: { lte: 0 } }] },
+                            { timestamp: { lt: longTermCutoff } },
+                            { timestamp: { gt: new Date(Date.now() + MAX_FUTURE_SKEW_MS) } }
                         ],
                         isBaseAppCoin: false
                     }
@@ -282,13 +341,9 @@ export async function getTrendingCasts(
         let queryLimit = limit;
         if (timeRange === 'trending') {
             queryLimit = FULL_LIST_LIMIT; // Fetch full list for cache
-            const cutoff = new Date(Date.now() - (24 * 60 * 60 * 1000));
+            const cutoff = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
             where = {
-                OR: [
-                    { timestamp: { gte: cutoff } },
-                    { likes: { gt: 5 } }
-                ],
-                timestamp: { gt: Jan1_2021, lte: new Date() } // Ensure no future dates
+                timestamp: { gte: cutoff, lte: new Date() } // strict recency guard: hide stale months-old data
             };
         } else {
             // Use specific time range logic (no caching for non-trending usually, or different keys)
@@ -781,13 +836,9 @@ export async function getTrendingCastsWithCursor(
 
         // Time range filter
         if (timeRange === 'trending') {
-            const cutoff = new Date(Date.now() - (24 * 60 * 60 * 1000));
+            const cutoff = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
             baseWhere = {
-                OR: [
-                    { timestamp: { gte: cutoff } },
-                    { likes: { gt: 5 } }
-                ],
-                timestamp: { gt: Jan1_2021, lte: new Date() }
+                timestamp: { gte: cutoff, lte: new Date() }
             };
         } else {
             let days = 1;

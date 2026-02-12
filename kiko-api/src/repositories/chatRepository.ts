@@ -13,6 +13,9 @@ export interface ChatSession {
     title: string;
     model: string;
     status: 'active' | 'archived';
+    lastResponseId?: string;
+    compactionCursor?: string;
+    conversationStateVersion?: number;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -31,6 +34,7 @@ export interface ChatMessage {
     };
     toolCalls?: any[];
     toolCallId?: string;
+    compactedData?: any;
     type: string;
     data?: any;
     transactionStatus?: string;
@@ -122,6 +126,24 @@ export async function updateSession(
     });
 }
 
+export async function updateSessionConversationState(
+    sessionId: string,
+    updates: {
+        lastResponseId?: string | null;
+        compactionCursor?: string | null;
+        conversationStateVersion?: number;
+    }
+): Promise<any> {
+    return prisma.chatSession.update({
+        where: { id: sessionId },
+        data: {
+            ...(updates.lastResponseId !== undefined ? { lastResponseId: updates.lastResponseId } : {}),
+            ...(updates.compactionCursor !== undefined ? { compactionCursor: updates.compactionCursor } : {}),
+            ...(updates.conversationStateVersion !== undefined ? { conversationStateVersion: updates.conversationStateVersion } : {}),
+        },
+    });
+}
+
 export async function deleteSession(sessionId: string): Promise<boolean> {
     try {
         await prisma.chatSession.delete({
@@ -162,6 +184,7 @@ export async function createMessage(
             usage: options.usage ? JSON.stringify(options.usage) : null,
             toolCalls: options.tool_calls ? JSON.stringify(options.tool_calls) : null,
             toolCallId: options.tool_call_id,
+            compactedData: options.compacted_data ? JSON.stringify(options.compacted_data) : null,
             type: options.type || 'text',
             data: options.data ? JSON.stringify(options.data) : null,
             transactionStatus: options.transactionStatus,
@@ -212,6 +235,7 @@ export async function updateMessage(
     if (updates.transactionHash !== undefined) data.transactionHash = updates.transactionHash;
     if (updates.status !== undefined) data.status = updates.status;
     if (updates.feedback !== undefined) data.feedback = updates.feedback;
+    if (updates.compacted_data !== undefined) data.compactedData = JSON.stringify(updates.compacted_data);
 
     const message = await withRetry(async () => {
         return prisma.chatMessage.update({
@@ -231,6 +255,7 @@ function mapPrismaMessage(msg: any): any {
         data: msg.data ? JSON.parse(msg.data) : undefined,
         citations: msg.citations ? JSON.parse(msg.citations) : undefined,
         usage: msg.usage ? JSON.parse(msg.usage) : undefined,
+        compacted_data: msg.compactedData ? JSON.parse(msg.compactedData) : undefined,
         created_at: msg.createdAt,
     };
 }

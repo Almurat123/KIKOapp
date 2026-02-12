@@ -518,6 +518,22 @@ export class MainSwapService {
     trace: (msg: string) => string,
     ctx: TradeContext
   ): Promise<MainSwapResult> {
+    const TURBO_TOTAL_BUDGET_MS = Number(process.env.COPYTRADE_TURBO_TOTAL_BUDGET_MS || '2200');
+    const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_ATTEMPT_TIMEOUT_MS || '1400');
+    const TURBO_SKIP_FALLBACK_ON_TIMEOUT = (process.env.COPYTRADE_TURBO_SKIP_FALLBACK_ON_TIMEOUT || 'true') === 'true';
+    const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+      return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`timeout_${label}_${ms}ms`)), ms);
+        promise.then((v) => {
+          clearTimeout(timer);
+          resolve(v);
+        }).catch((e) => {
+          clearTimeout(timer);
+          reject(e);
+        });
+      });
+    };
+
     const normalizedTokenIn = this.normalizeEvmTokenInput(request.tokenIn, request.chainId);
     const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
     const rawTokenIn = String(request.tokenIn || '').trim().toLowerCase();
@@ -535,7 +551,9 @@ export class MainSwapService {
     }
 
     // Precheck native spendable balance before routing; fail fast with clear error instead of deep swap failure.
-    if (isNativeToken(normalizedTokenIn, request.chainId)) {
+    // Turbo copytrade skips this precheck to save one RPC on the critical latency path.
+    const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
+    if (isNativeToken(normalizedTokenIn, request.chainId) && !isTurboCopytrade) {
       const amountInWei = ethers.parseUnits(request.amountIn, 18);
       const chainCfg = getChainConfig(request.chainId);
       const reserveWei = ethers.parseUnits(chainCfg.gasReserve || '0.003', 18);
@@ -591,7 +609,8 @@ export class MainSwapService {
     }
 
     if (fastSwapEnabled && isDirectSwapSupported(request.chainId) && isBuyDirection) {
-      const DIRECT_SWAP_MAX_ATTEMPTS = 2; // first try + 1 retry
+      const DIRECT_SWAP_MAX_ATTEMPTS = isTurboCopytrade ? 1 : 2; // turbo: fail fast, balanced: one retry
+      const turboBudgetStart = Date.now();
       logger.info(LogCode.SYS_INFO, trace('FastSwapMode enabled - attempting direct swap (buy direction)'), {
         mode: request.mode,
         chainId: request.chainId,
@@ -605,7 +624,12 @@ export class MainSwapService {
       let lastDirectError: any = null;
       try {
         for (let attempt = 1; attempt <= DIRECT_SWAP_MAX_ATTEMPTS; attempt++) {
-          const directResult = await executeDirectSwap({
+          const remainingTurboBudget = TURBO_TOTAL_BUDGET_MS - (Date.now() - turboBudgetStart);
+          if (isTurboCopytrade && remainingTurboBudget <= 0) {
+            lastDirectError = new Error(`timeout_turbo_budget_${TURBO_TOTAL_BUDGET_MS}ms`);
+            break;
+          }
+          const directPromise = executeDirectSwap({
             userId: request.userId,
             accessToken: request.accessToken || '',
             walletAddress: request.walletAddress,
@@ -617,6 +641,13 @@ export class MainSwapService {
             hint: request.directSwapHint,
             executionMode: request.userSettings?.copyTradeExecutionMode
           });
+          const directResult = isTurboCopytrade
+            ? await withTimeout(
+              directPromise,
+              Math.max(200, Math.min(TURBO_DIRECT_ATTEMPT_TIMEOUT_MS, remainingTurboBudget)),
+              'direct_swap'
+            )
+            : await directPromise;
           lastDirectResult = directResult;
 
           if (directResult.success) {
@@ -680,6 +711,26 @@ export class MainSwapService {
         lastDirectError = directErr;
       }
 
+      if (
+        isTurboCopytrade &&
+        TURBO_SKIP_FALLBACK_ON_TIMEOUT &&
+        String(lastDirectError?.message || '').toLowerCase().includes('timeout_')
+      ) {
+        logger.warn(LogCode.SYS_INFO, trace('Turbo direct path timed out, skipping fallback by policy'), {
+          error: lastDirectError?.message,
+          budgetMs: TURBO_TOTAL_BUDGET_MS,
+          attemptTimeoutMs: TURBO_DIRECT_ATTEMPT_TIMEOUT_MS
+        });
+        return {
+          success: false,
+          error: lastDirectError?.message || 'Turbo direct timeout',
+          metadata: {
+            provider: lastDirectResult?.provider || 'failed',
+            mode: request.mode
+          }
+        };
+      }
+
       if (lastDirectResult) {
         logger.warn(LogCode.SYS_INFO, trace(`Direct swap failed, falling back to 0x/Kyber: ${lastDirectResult.error || 'unknown'}`), {
           error: lastDirectResult.error,
@@ -721,11 +772,11 @@ export class MainSwapService {
       // - swap-card: API/UI swaps need real confirmation before reporting success
       // - copytrade: Copy trading requires verified confirmation before notifications
       // Only 'allowance' mode skips confirmation (handles separately via allowance trade flow)
-      waitForConfirmation: true,
-      confirmationTimeoutMs: request.mode === 'allowance' || request.mode === 'copytrade' ? 12000 : 60000,
+      waitForConfirmation: isTurboCopytrade ? false : true,
+      confirmationTimeoutMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 3000 : 12000) : 60000,
       returnOnConfirmTimeout: request.mode === 'allowance' || request.mode === 'copytrade',
-      speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? 6000 : undefined,
-      speedUpBumpBps: request.mode === 'copytrade' ? 15000 : request.mode === 'allowance' ? 13000 : undefined
+      speedUpAfterMs: request.mode === 'allowance' || request.mode === 'copytrade' ? (isTurboCopytrade ? 1200 : 6000) : undefined,
+      speedUpBumpBps: request.mode === 'copytrade' ? (isTurboCopytrade ? 22000 : 15000) : request.mode === 'allowance' ? 13000 : undefined
     };
 
     const executionResult = await SwapExecutor.execute(swapParams);

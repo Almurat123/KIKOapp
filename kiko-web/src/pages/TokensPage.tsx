@@ -899,6 +899,7 @@ const CHAIN_OPTIONS = [
 
 // Chains to fetch data from
 const FETCH_CHAINS = CHAIN_OPTIONS.filter(c => c.apiKey).map(c => c.apiKey);
+const USE_LOCAL_TRENDING_CACHE = false;
 
 export const TokensPage: React.FC<TokensPageProps> = ({
   searchQuery: externalSearchQuery,
@@ -957,13 +958,15 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         let tokenId = 1;
 
         // 1. Load from Cache first (Instant display)
-        FETCH_CHAINS.forEach((chain) => {
-          const cached = loadFromCache(chain, timeframe);
-          if (cached && cached.length > 0) {
-            const cachedTokens = cached.map((token) => convertApiTokenToToken(token, tokenId++));
-            currentTokens = [...currentTokens, ...cachedTokens];
-          }
-        });
+        if (USE_LOCAL_TRENDING_CACHE) {
+          FETCH_CHAINS.forEach((chain) => {
+            const cached = loadFromCache(chain, timeframe);
+            if (cached && cached.length > 0) {
+              const cachedTokens = cached.map((token) => convertApiTokenToToken(token, tokenId++));
+              currentTokens = [...currentTokens, ...cachedTokens];
+            }
+          });
+        }
 
         if (currentTokens.length > 0) {
           // Rank by selected timeframe
@@ -981,7 +984,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
           if (!mountedRef.current) return [];
 
           try {
-            const data = await tokenApi.getTrendingLive(chain, timeframe, 100);
+            const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
 
             if (mountedRef.current && data && data.length > 0) {
               // Save to cache
@@ -1005,8 +1008,8 @@ export const TokensPage: React.FC<TokensPageProps> = ({
           freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
         }
 
-        // Batch update
-        if (mountedRef.current && freshTokens.length > 0) {
+        // Batch update (also clear stale list if backend returns empty)
+        if (mountedRef.current) {
           // Assign unique IDs for the table display AFTER global sorting
           const displayTokens = freshTokens.map((t, idx) => ({ ...t, id: idx + 1 }));
           setAllTokens(displayTokens);
@@ -1058,7 +1061,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         const promises = FETCH_CHAINS.map(async (chain) => {
           if (!mountedRef.current) return [];
           try {
-            const data = await tokenApi.getTrendingLive(chain, timeframe, 100);
+            const data = await tokenApi.getTrendingLive(chain, timeframe, 100, true);
             if (mountedRef.current && data && data.length > 0) {
               return data.map((token) => convertApiTokenToToken(token, 0));
             }
@@ -1071,7 +1074,7 @@ export const TokensPage: React.FC<TokensPageProps> = ({
         const results = await Promise.all(promises);
         let freshTokens = results.flat();
 
-        if (mountedRef.current && freshTokens.length > 0) {
+        if (mountedRef.current) {
           // Keep the list ranked by selected timeframe
           freshTokens.sort((a, b) => computeTimeframeScore(b, timeframe) - computeTimeframeScore(a, timeframe));
 

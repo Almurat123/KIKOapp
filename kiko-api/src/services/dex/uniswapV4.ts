@@ -14,7 +14,7 @@ import { ethers } from 'ethers';
 import { callRpc } from '../rpcManager.js';
 import { logger } from '../../utils/logger.js';
 import { LogCode } from '../../config/logRegistry.js';
-import { CLANKER_HOOKS_BY_CHAIN } from './v4Hooks.js';
+import { CLANKER_HOOKS_BY_CHAIN, getKnownV4HooksByChain } from './v4Hooks.js';
 
 // StateView ABI
 const V4_STATE_VIEW_ABI = [
@@ -55,12 +55,7 @@ const CLANKER_FEE_TICK_SPACING = [
     { fee: 1000, tickSpacing: 20 },
 ];
 
-// Zora Creator Coin Hooks (Base)
-const ZORA_HOOKS_BASE = [
-    '0xd61A675F8a0c67A73DC3B54FB7318B4D91409040', // Original Creator Coin Hook
-    '0xc8d077444625eb300a427a6dfb2b1dbf9b159040', // Newer Creator Coin Hook
-    '0x5e5d19d22c85a4aef7c1fdf25fb22a5a38f71040', // New Creator Coin Hook
-];
+const KNOWN_HOOKS_BASE = getKnownV4HooksByChain(8453);
 
 // V4 配置
 
@@ -77,10 +72,10 @@ const V4_CONFIGS: Record<number, V4PoolConfig[]> = {
         ...CLANKER_FEE_TICK_SPACING.map(cfg => ({ ...cfg, hooks: CLANKER_HOOKS_DYNAMIC_BASE })),
         ...CLANKER_FEE_TICK_SPACING.map(cfg => ({ ...cfg, hooks: CLANKER_HOOKS_STATIC_BASE })),
 
-        // Common static fee tiers (hookless + Zora hooks)
-        { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000', ...ZORA_HOOKS_BASE] },
-        { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...ZORA_HOOKS_BASE] },
-        { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000', ...ZORA_HOOKS_BASE] },
+        // Common static fee tiers (hookless + known hooks from registry)
+        { fee: 500, tickSpacing: 10, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
+        { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
+        { fee: 10000, tickSpacing: 200, hooks: ['0x0000000000000000000000000000000000000000', ...KNOWN_HOOKS_BASE] },
     ],
     1: [ // Ethereum
         { fee: 3000, tickSpacing: 60, hooks: ['0x0000000000000000000000000000000000000000'] },

@@ -24,6 +24,8 @@ import { promptOrchestrator } from '../services/ai/PromptOrchestrator.js';
 import type { IntentType, ModelType, UserContext } from '../services/ai/types.js';
 import { parseIntent } from '../services/ai/intentParser.js';
 import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.js';
+import { contextBudgetManager } from '../services/ai/contextBudgetManager.js';
+import { modelGateway, type ConversationStateRef, type Provider } from '../services/ai/modelGateway.js';
 import { getTokenDetails as getDexTokenDetails } from '../services/dexscreener.js';
 import { ragClient } from '../services/ragClient.js';
 import { skillRegistryClean, skillRegistryExec } from '../skills/registry.js';
@@ -37,6 +39,10 @@ const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/
 const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const CHAT_ORCHESTRATOR_MODE = (process.env.CHAT_ORCHESTRATOR_MODE || 'unified').toLowerCase();
+const CHAT_CONTEXT_RECENT_WINDOW = Math.max(4, parseInt(process.env.CHAT_CONTEXT_RECENT_WINDOW || '12', 10) || 12);
+const CHAT_CONTEXT_MAX_INPUT_TOKENS = Math.max(2048, parseInt(process.env.CHAT_CONTEXT_MAX_INPUT_TOKENS || '16000', 10) || 16000);
+const CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS = Math.max(512, parseInt(process.env.CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS || '3500', 10) || 3500);
 
 function normalizeModel(model?: string): string {
     const normalized = (model || '').toLowerCase().trim();
@@ -251,6 +257,37 @@ export class ChatWorker {
         return CHAIN_ID_MAP[chainId] || 'Unknown Chain';
     }
 
+    private normalizeChainName(input: unknown): string | undefined {
+        if (input === null || input === undefined) return undefined;
+        const raw = String(input).trim().toLowerCase();
+        if (!raw) return undefined;
+        const aliases: Record<string, string> = {
+            ethereum: 'eth',
+            mainnet: 'eth',
+            matic: 'polygon',
+            polygonpos: 'polygon',
+            polygon_pos: 'polygon',
+            arb: 'arbitrum',
+            op: 'optimism',
+            sol: 'solana',
+        };
+        return aliases[raw] || raw;
+    }
+
+    private resolveRequestedWalletChain(args: any): string | undefined {
+        const explicitChain = this.normalizeChainName(args?.chain);
+        if (explicitChain) return explicitChain;
+
+        const rawChainId = args?.chainId;
+        if (rawChainId !== undefined && rawChainId !== null && rawChainId !== '') {
+            const chainIdNum = Number(rawChainId);
+            if (Number.isFinite(chainIdNum) && CHAIN_ID_MAP[chainIdNum]) {
+                return CHAIN_ID_MAP[chainIdNum];
+            }
+        }
+        return undefined;
+    }
+
     private buildUserContext(task: AITask, opts: { chainId?: number; chainName?: string }, parsedIntent: any): UserContext {
         const normalizedBalance = this.normalizeBalanceSnapshot(task.toolContext?.balance);
         return {
@@ -258,6 +295,7 @@ export class ChatWorker {
             chainId: opts.chainId ?? task.toolContext?.chainId,
             chainName: opts.chainName,
             isWalletConnected: !!task.toolContext?.walletAddress,
+            farcaster: task.toolContext?.farcaster,
             toolConfig: task.toolContext?.toolConfig,
             balance: normalizedBalance,
             nativeBalance: task.toolContext?.nativeBalance,
@@ -663,7 +701,7 @@ export class ChatWorker {
 
     private buildThinkingSystemPrompt(model: ModelType): string {
         if (model === 'grok') {
-            return `${GENERAL_THINKING_POLICY}\n\n${AnalystPolicy}`;
+            return AnalystPolicy;
         }
         return GENERAL_THINKING_POLICY;
     }
@@ -1033,9 +1071,9 @@ export class ChatWorker {
 
             // 3. Process based on model
             if (task.model.includes('deepseek') || task.model.includes('gpt')) {
-                await this.processDeepSeekTask(task, conversationHistory, userId, messages);
+                await this.processDeepSeekTask(task, conversationHistory, userId, messages, session);
             } else if (task.model.includes('grok')) {
-                await this.processGrokTask(task, conversationHistory, userId, messages);
+                await this.processGrokTask(task, conversationHistory, userId, messages, session);
             } else {
                 throw new Error(`Unsupported model: ${task.model}`);
             }
@@ -1095,10 +1133,76 @@ export class ChatWorker {
         });
     }
 
+    private isUnifiedOrchestrator(): boolean {
+        return CHAT_ORCHESTRATOR_MODE !== 'legacy';
+    }
+
+    private resolveProvider(model: string): Provider {
+        const normalized = String(model || '').toLowerCase();
+        if (normalized.includes('grok')) return 'grok';
+        if (normalized.startsWith('gpt')) return 'openai';
+        return 'deepseek';
+    }
+
+    private buildConversationRef(session: any): ConversationStateRef {
+        return {
+            previousResponseId: session?.lastResponseId || undefined,
+            compactionCursor: session?.compactionCursor || undefined,
+            version: session?.conversationStateVersion || 1,
+        };
+    }
+
+    private async persistConversationRef(
+        task: AITask,
+        updates: { previousResponseId?: string; compactionCursor?: string }
+    ) {
+        if (!task.sessionId) return;
+        if (!updates.previousResponseId && !updates.compactionCursor) return;
+        try {
+            await this.repo.updateSessionConversationState(task.sessionId, {
+                ...(updates.previousResponseId ? { lastResponseId: updates.previousResponseId } : {}),
+                ...(updates.compactionCursor ? { compactionCursor: updates.compactionCursor } : {}),
+            });
+        } catch (err: any) {
+            logger.warn(LogCode.DB_TRANSACTION_FAILED, 'ChatWorker: failed to persist conversation state', {
+                sessionId: task.sessionId,
+                error: err?.message || err,
+            });
+        }
+    }
+
+    private broadcastLatencyMetrics(
+        userId: string | null,
+        task: AITask,
+        payload: {
+            ttftMs?: number;
+            latencyMs?: number;
+            inputTokensEstimated?: number;
+            promptTokens?: number;
+            completionTokens?: number;
+            totalTokens?: number;
+            cachedTokens?: number;
+            toolRounds?: number;
+            compactionHits?: number;
+            historyKept?: number;
+            historyCompacted?: number;
+        }
+    ) {
+        if (!userId || !task.sessionId) return;
+        this.ws.broadcastToUser(userId, {
+            type: 'latency_metrics',
+            sessionId: task.sessionId,
+            data: {
+                messageId: task.assistantMessageId,
+                ...payload,
+            },
+        });
+    }
+
     /**
      * DeepSeek processing with multi-turn tool support
      */
-    private async processDeepSeekTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = []) {
+    private async processDeepSeekTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = [], session: any = null) {
         let iteration = 0;
         let fastSwapAttempted = false; // Circuit breaker for Fast Swap
         let detectedLaunchpadInfo: { chainId: number; provider: string; data: any; address: string } | null = null; // Store launchpad info when detected
@@ -1111,6 +1215,9 @@ export class ChatWorker {
         let allCitations: any[] = [];  // Track citations for DB persistence
         let lastToolResults: any[] = [];
         const citationUrlSet = new Set<string>();
+        let lastBudgetMetrics: { inputTokensEstimated: number; historyKept: number; historyCompacted: number; compactionHits: number } | null = null;
+        const taskProcessStartedAt = Date.now();
+        let latestProviderResponseId: string | undefined;
 
         // Immediately broadcast thinking status so UI doesn't feel stuck
         this.broadcastTaskStatus(userId, task, {
@@ -1926,11 +2033,13 @@ export class ChatWorker {
                 (task as any).systemInjection = 'FAST SWAP SAFE MODE: User shared a token address without explicit trade intent. Ask a short confirmation question: trade now or analyze? Do not execute any trade without a clear buy/sell instruction.';
             } // end if (fastSwapMode && hasSwapTarget && !hasExplicitSwapVerb)
 
-            // Wait for early pre-fetch to complete before building enrichment
+            // Latency optimization: do NOT block the first model call on pre-fetch.
+            // We still await this promise later (right before tool execution) to keep correctness.
             if (earlyPreFetchPromise) {
-                console.log('[ChatWorker] Waiting for early pre-fetch to complete');
-                await earlyPreFetchPromise;
-                earlyPreFetchPromise = null;
+                logger.debug(LogCode.AI_API_CALL, 'ChatWorker: early pre-fetch still running; continue without blocking first call', {
+                    taskId: task.id,
+                    sessionId: task.sessionId,
+                });
             }
 
             // Detect and resolve contract address if present
@@ -2126,7 +2235,10 @@ Chain ID: ${task.toolContext?.chainId}
 Total Assets: ${tokenCount} tokens
 ${portfolioLines ? `Portfolio Assets:\n${portfolioLines}` : ''}
 
-IMPORTANT: This balance data is ALREADY AVAILABLE from cache. DO NOT call get_wallet_info again.
+IMPORTANT:
+- This cached snapshot is for Chain ID ${task.toolContext?.chainId} only.
+- Do NOT call get_wallet_info again for the same chain unless user asks to refresh.
+- For cross-chain/source-chain checks on a different chain, you MUST call get_wallet_info for that specific chain.
 `;
                     tokensInPortfolio = balanceData.tokens?.map((t: any) => (t.contractAddress || t.contract)?.toLowerCase()) || [];
 
@@ -2312,8 +2424,42 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                 console.log(`[ChatWorker] Enriched user prompt with context for ${userContext.userAddress || 'guest'}`);
             }
 
+            // Apply context budget in unified orchestrator mode to reduce token cost.
+            let compactedHistoryMessage: string | undefined;
+            if (this.isUnifiedOrchestrator()) {
+                const budget = contextBudgetManager.applyBudget(finalMessages as any, {
+                    recentWindow: CHAT_CONTEXT_RECENT_WINDOW,
+                    maxInputTokens: CHAT_CONTEXT_MAX_INPUT_TOKENS,
+                    reservedOutputTokens: CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS,
+                });
+                finalMessages = budget.messages as any[];
+                compactedHistoryMessage = budget.compactedSummary;
+                lastBudgetMetrics = {
+                    inputTokensEstimated: budget.inputTokensEstimated,
+                    historyKept: budget.historyKept,
+                    historyCompacted: budget.historyCompacted,
+                    compactionHits: budget.compactedSummary ? 1 : 0,
+                };
+                logger.info(LogCode.AI_API_CALL, 'ChatWorker: context budget applied', {
+                    taskId: task.id,
+                    sessionId: task.sessionId,
+                    inputTokensEstimated: budget.inputTokensEstimated,
+                    historyKept: budget.historyKept,
+                    historyCompacted: budget.historyCompacted,
+                    hasCompaction: !!budget.compactedSummary,
+                });
+                if (budget.compactedSummary) {
+                    await this.persistConversationRef(task, {
+                        compactionCursor: `cmp_${Date.now()}`,
+                    });
+                }
+            }
+
             // Start building messages
             const messages: any[] = [{ role: 'system', content: systemPrompt }];
+            if (compactedHistoryMessage) {
+                messages.push({ role: 'system', content: compactedHistoryMessage });
+            }
             if (!didInjectUserContext && routingMode !== 'thinking') {
                 const systemContext = this.buildSystemContextMessage(task);
                 if (systemContext) {
@@ -2353,13 +2499,36 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                 }
             }
 
-            const requestBody: any = {
-                model: normalizeModel(task.model),
-                messages: [...messages, ...finalMessages],
-                stream: true,
-                tools: toolDefinitions,
-                tool_choice: 'auto'
-            };
+            const normalizedModelName = normalizeModel(task.model);
+            const provider = this.resolveProvider(normalizedModelName);
+            let requestBody: any;
+            if (this.isUnifiedOrchestrator()) {
+                const allowedToolNames = toolDefinitions.map(t => t.function?.name).filter(Boolean) as string[];
+                const conversationRef = this.buildConversationRef(session);
+                const gateway = modelGateway.prepareRequest({
+                    model: normalizedModelName,
+                    provider,
+                    system: messages[0].content,
+                    messages: [...messages.slice(1), ...finalMessages],
+                    tools: toolDefinitions as any,
+                    allowedTools: { names: allowedToolNames },
+                    conversationRef,
+                    stream: true,
+                    metadata: {
+                        orchestrator: 'unified',
+                        input_tokens_estimated: lastBudgetMetrics?.inputTokensEstimated,
+                    },
+                });
+                requestBody = gateway.requestBody;
+            } else {
+                requestBody = {
+                    model: normalizedModelName,
+                    messages: [...messages, ...finalMessages],
+                    stream: true,
+                    tools: toolDefinitions,
+                    tool_choice: 'auto'
+                };
+            }
             const normalizedRequestModel = String(requestBody.model || '').toLowerCase();
             const useOpenAI = normalizedRequestModel.startsWith('gpt');
             if (useOpenAI) {
@@ -2384,6 +2553,8 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             let response: Response | undefined;
             let retryCount = 0;
             const maxRetries = 3;
+            const apiRequestStartedAt = Date.now();
+            let firstTokenAt: number | null = null;
 
             // Start retry loop
             while (retryCount < maxRetries) {
@@ -2491,6 +2662,8 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
 
                         try {
                             const data = JSON.parse(line.slice(6));
+                            if (typeof data?.response_id === 'string') latestProviderResponseId = data.response_id;
+                            if (typeof data?.id === 'string') latestProviderResponseId = data.id;
                             const delta = data.choices?.[0]?.delta;
 
                             // Handle usage data (sent in final chunks)
@@ -2527,6 +2700,17 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                             // Handle content chunks - HOT PATH: WebSocket only, no DB writes (conceptually)
                             // UPDATE: We MUST write to DB periodically, otherwise user loses data on refresh/switch
                             if (delta.content) {
+                                if (firstTokenAt === null) {
+                                    firstTokenAt = Date.now();
+                                    this.broadcastLatencyMetrics(userId, task, {
+                                        ttftMs: firstTokenAt - apiRequestStartedAt,
+                                        inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
+                                        historyKept: lastBudgetMetrics?.historyKept,
+                                        historyCompacted: lastBudgetMetrics?.historyCompacted,
+                                        compactionHits: lastBudgetMetrics?.compactionHits,
+                                        toolRounds: iteration,
+                                    });
+                                }
                                 iterContent += delta.content;
                                 totalContent += delta.content;
 
@@ -2555,6 +2739,17 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
 
                             // Handle reasoning chunks - HOT PATH: WebSocket only
                             if (delta.reasoning_content) {
+                                if (firstTokenAt === null) {
+                                    firstTokenAt = Date.now();
+                                    this.broadcastLatencyMetrics(userId, task, {
+                                        ttftMs: firstTokenAt - apiRequestStartedAt,
+                                        inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
+                                        historyKept: lastBudgetMetrics?.historyKept,
+                                        historyCompacted: lastBudgetMetrics?.historyCompacted,
+                                        compactionHits: lastBudgetMetrics?.compactionHits,
+                                        toolRounds: iteration,
+                                    });
+                                }
                                 iterReasoning += delta.reasoning_content;
                                 totalReasoning += delta.reasoning_content;
                                 // Broadcast immediately to frontend (zero latency)
@@ -2811,6 +3006,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         }
 
         // Check if we hit max iterations
+        if (latestProviderResponseId && this.isUnifiedOrchestrator()) {
+            await this.persistConversationRef(task, { previousResponseId: latestProviderResponseId });
+        }
         try {
             const existing = await this.repo.getMessage(assistantMessageId);
             const existingData = existing?.data || {};
@@ -2842,6 +3040,12 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     reasoning_content: totalReasoning,
                     usage: lastUsage || undefined,
                     citations: allCitations.length > 0 ? allCitations : undefined,
+                    compacted_data: {
+                        summaryVersion: 1,
+                        toolCalls: toolTrace.toolCalls.length,
+                        stopReasons: Array.from(new Set(toolTrace.stopReasons)),
+                        citationCount: allCitations.length,
+                    },
                     status: 'complete'
                 });
                 logger.debug(LogCode.AI_API_CALL, 'ChatWorker: DeepSeek final message persisted', { assistantMessageId });
@@ -2859,6 +3063,18 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
             // CRITICAL: Broadcast message_complete to frontend so it stops showing "Thinking"
             console.log(`[ChatWorker] Broadcasting message_complete for ${assistantMessageId}`);
+            this.broadcastLatencyMetrics(userId, task, {
+                latencyMs: Date.now() - taskProcessStartedAt,
+                inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
+                promptTokens: lastUsage?.prompt_tokens,
+                completionTokens: lastUsage?.completion_tokens,
+                totalTokens: lastUsage?.total_tokens,
+                cachedTokens: lastUsage?.prompt_tokens_details?.cached_tokens,
+                toolRounds: iteration,
+                compactionHits: lastBudgetMetrics?.compactionHits || 0,
+                historyKept: lastBudgetMetrics?.historyKept,
+                historyCompacted: lastBudgetMetrics?.historyCompacted,
+            });
             this.ws.broadcastToUser(userId!, {
                 type: 'message_complete',
                 sessionId: task.sessionId,
@@ -2883,6 +3099,12 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     reasoning_content: totalReasoning,
                     usage: lastUsage || undefined,
                     citations: allCitations.length > 0 ? allCitations : undefined,
+                    compacted_data: {
+                        summaryVersion: 1,
+                        toolCalls: toolTrace.toolCalls.length,
+                        stopReasons: Array.from(new Set(toolTrace.stopReasons)),
+                        citationCount: allCitations.length,
+                    },
                     status: 'complete'
                 });
                 await this.persistBillingUsage({
@@ -2909,6 +3131,18 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
 
             // CRITICAL: Still broadcast message_complete so frontend stops showing "Thinking"
             console.log(`[ChatWorker] Broadcasting message_complete (max iterations) for ${assistantMessageId}`);
+            this.broadcastLatencyMetrics(userId, task, {
+                latencyMs: Date.now() - taskProcessStartedAt,
+                inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
+                promptTokens: lastUsage?.prompt_tokens,
+                completionTokens: lastUsage?.completion_tokens,
+                totalTokens: lastUsage?.total_tokens,
+                cachedTokens: lastUsage?.prompt_tokens_details?.cached_tokens,
+                toolRounds: iteration,
+                compactionHits: lastBudgetMetrics?.compactionHits || 0,
+                historyKept: lastBudgetMetrics?.historyKept,
+                historyCompacted: lastBudgetMetrics?.historyCompacted,
+            });
             this.ws.broadcastToUser(userId!, {
                 type: 'message_complete',
                 sessionId: task.sessionId,
@@ -3182,7 +3416,12 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         const promises = toolCalls.map(async (tc) => {
             try {
                 const args = JSON.parse(tc.function.arguments);
-                const result = await toolRegistry.execute(tc.function.name, args, context);
+                const toolContext = {
+                    ...(context || {}),
+                    sessionId,
+                    messageId,
+                };
+                const result = await toolRegistry.execute(tc.function.name, args, toolContext);
                 const cacheKey = `${tc.function.name}:${this.stableStringify(args)}`;
                 cache.set(cacheKey, result);
                 logger.debug(LogCode.AI_API_CALL, 'ChatWorker: stream pre-fetch stored', { tool: tc.function.name });
@@ -3246,8 +3485,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 if (walletAddress && !args.address) {
                     args.address = walletAddress;
                 }
-                if (context?.chainId && !args.chainId) {
-                    args.chainId = context.chainId;
+                if (context?.chainId && !args.chain && !args.chainId) {
+                    args.chain = CHAIN_ID_MAP[context.chainId] || 'eth';
                 }
             }
             const argsKey = this.buildToolKey(toolName, args);
@@ -3307,13 +3546,17 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     continue;
                 }
                 if (toolName === 'get_wallet_info' && cache) {
+                    const contextChain = this.normalizeChainName(this.resolveChainNameForContext(context?.chainId));
+                    const requestedChain = this.resolveRequestedWalletChain(args);
+                    const canUseContextChain = !requestedChain || !contextChain || requestedChain === contextChain;
                     const fallbackKey = `get_wallet_info:${this.stableStringify({
                         address: context?.walletAddress || context?.userAddress,
                         chainId: context?.chainId,
                     })}`;
-                    if (cache.has(fallbackKey)) {
+                    if (cache.has(fallbackKey) && canUseContextChain) {
                         logger.info(LogCode.AI_API_CALL, 'ChatWorker: get_wallet_info short-circuited to client context', {
                             chainId: context?.chainId,
+                            requestedChain: requestedChain || null,
                         });
                         const cachedResult = cache.get(fallbackKey);
                         trace?.toolCalls.push({ tool: toolName, argsKey, status: 'cached' });
@@ -3326,10 +3569,14 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     }
                 }
                 if (toolName === 'get_wallet_info') {
+                    const contextChain = this.normalizeChainName(this.resolveChainNameForContext(context?.chainId));
+                    const requestedChain = this.resolveRequestedWalletChain(args);
+                    const canUseContextChain = !requestedChain || !contextChain || requestedChain === contextChain;
                     const contextResult = this.buildWalletInfoFromContext({ toolContext: context } as AITask);
-                    if (contextResult) {
+                    if (contextResult && canUseContextChain) {
                         logger.info(LogCode.AI_API_CALL, 'ChatWorker: get_wallet_info forced from client context', {
                             chainId: context?.chainId,
+                            requestedChain: requestedChain || null,
                             tokenCount: Array.isArray(contextResult.tokens) ? contextResult.tokens.length : 0,
                             hasNativeBalance: !!contextResult.ethBalance,
                         });
@@ -3467,6 +3714,19 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 if (clientAction) {
                     // Broadcast action to frontend IMMEDIATELY
                     if (sessionId && messageId) {
+                        const actionDataForLog = clientAction.data || clientAction.payload || {};
+                        const isTxCardAction = clientAction.type === 'show_transaction_status_card' || clientAction.type === 'show_cross_chain_status_card';
+                        if (isTxCardAction) {
+                            logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] ChatWorker broadcasting tx card action', {
+                                sessionId,
+                                messageId,
+                                toolName: tc.function.name,
+                                actionType: clientAction.type,
+                                status: actionDataForLog?.status || null,
+                                txHash: actionDataForLog?.txHash || null,
+                                chainId: actionDataForLog?.chainId || null,
+                            });
+                        }
                         this.ws.broadcastToUser(userId!, {
                             type: 'client_action',
                             sessionId: sessionId,
@@ -3485,12 +3745,26 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     if (clientAction.type === 'show_chart_card') dbMessageType = 'chart-card';
                     else if (clientAction.type === 'show_strategy_card') dbMessageType = 'strategy-card';
                     else if (clientAction.type === 'show_token_card') dbMessageType = 'token-card';
+                    else if (clientAction.type === 'show_transaction_status_card' || clientAction.type === 'show_cross_chain_status_card') dbMessageType = 'transaction-status-card';
 
                     // Save card metadata to DB
+                    const actionData = clientAction.data || clientAction.payload;
                     await this.repo.updateMessage(messageId, {
                         type: dbMessageType,
-                        data: clientAction.data || clientAction.payload
+                        data: actionData,
+                        transactionStatus: dbMessageType === 'transaction-status-card' ? actionData?.status : undefined,
+                        transactionHash: dbMessageType === 'transaction-status-card' ? actionData?.txHash : undefined,
                     });
+                    if (dbMessageType === 'transaction-status-card') {
+                        logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] ChatWorker persisted tx card action', {
+                            sessionId,
+                            messageId,
+                            actionType: clientAction.type,
+                            status: actionData?.status || null,
+                            txHash: actionData?.txHash || null,
+                            chainId: actionData?.chainId || null,
+                        });
+                    }
 
                     // Use summary for LLM context if available, otherwise strip the action
                     const contentForLLM = (result && result.summary)
@@ -3584,7 +3858,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
      * Grok processing via grok-service (Python FastAPI)
      * Uses OpenAI-compatible streaming format
      */
-    private async processGrokTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = []) {
+    private async processGrokTask(task: AITask, history: any[], userId: string | null = null, sessionMessages: any[] = [], session: any = null) {
         const GROK_SERVICE_URL = process.env.GROK_SERVICE_URL || 'http://localhost:8001';
         const assistantMessageId = task.assistantMessageId!;
         let fullContent = '';
@@ -3593,6 +3867,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         let allCitations: any[] = [];  // Track citations for DB persistence
         const citationUrlSet = new Set<string>();
         let lastDbSave = 0; // Periodic DB sync to prevent data loss on refresh
+        let lastBudgetMetrics: { inputTokensEstimated: number; historyKept: number; historyCompacted: number; compactionHits: number } | null = null;
+        const taskProcessStartedAt = Date.now();
         const toolTrace: ToolTraceState = {
             mode: 'thinking',
             skillVersion: 'clean',
@@ -3701,10 +3977,8 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         // Phase 5 Cache: Shared across this task
         const toolResultsCache = new Map<string, any>();
         this.seedToolCacheFromContext(toolResultsCache, task);
-        let earlyPreFetchPromise: Promise<void> | null = null;
-
         // 🚀 PRE-EMPTIVE TOOL EXECUTION (Phase 5: Intent-based)
-        earlyPreFetchPromise = this.preFetchByIntent(task, parsedIntent, toolResultsCache).catch(err => {
+        const earlyPreFetchPromise = this.preFetchByIntent(task, parsedIntent, toolResultsCache).catch(err => {
             logger.warn(LogCode.AI_API_CALL, 'Grok: early pre-fetch failed', { error: err?.message || err });
         });
 
@@ -3791,12 +4065,12 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         );
         const userContext: UserContext = routingMode === 'thinking' ? {} : fullUserContext;
 
-        // Wait for early pre-fetch to complete before building enrichment
-        if (earlyPreFetchPromise) {
-            logger.debug(LogCode.AI_API_CALL, 'Grok: waiting for early pre-fetch');
-            await earlyPreFetchPromise;
-            earlyPreFetchPromise = null;
-        }
+        // Latency optimization: do NOT block the first model call on pre-fetch.
+        // We still await this promise later (right before tool execution) to keep correctness.
+        logger.debug(LogCode.AI_API_CALL, 'Grok: early pre-fetch still running; continue without blocking first call', {
+            taskId: task.id,
+            sessionId: task.sessionId,
+        });
 
         // Build enriched user message with context (similar to DeepSeek)
         this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Building context' });
@@ -3956,9 +4230,42 @@ Status: unavailable (balance data not available from cache).`;
             }
         }
 
+        let compactedHistoryMessage: string | undefined;
+        if (this.isUnifiedOrchestrator()) {
+            const budget = contextBudgetManager.applyBudget(enrichedHistory as any, {
+                recentWindow: CHAT_CONTEXT_RECENT_WINDOW,
+                maxInputTokens: CHAT_CONTEXT_MAX_INPUT_TOKENS,
+                reservedOutputTokens: CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS,
+            });
+            enrichedHistory = budget.messages as any[];
+            compactedHistoryMessage = budget.compactedSummary;
+            lastBudgetMetrics = {
+                inputTokensEstimated: budget.inputTokensEstimated,
+                historyKept: budget.historyKept,
+                historyCompacted: budget.historyCompacted,
+                compactionHits: budget.compactedSummary ? 1 : 0,
+            };
+            logger.info(LogCode.AI_API_CALL, 'Grok: context budget applied', {
+                taskId: task.id,
+                sessionId: task.sessionId,
+                inputTokensEstimated: budget.inputTokensEstimated,
+                historyKept: budget.historyKept,
+                historyCompacted: budget.historyCompacted,
+                hasCompaction: !!budget.compactedSummary,
+            });
+            if (budget.compactedSummary) {
+                await this.persistConversationRef(task, {
+                    compactionCursor: `cmp_${Date.now()}`,
+                });
+            }
+        }
+
         const grokMessages = [
             { role: 'system', content: systemPrompt },
         ];
+        if (compactedHistoryMessage) {
+            grokMessages.push({ role: 'system', content: compactedHistoryMessage });
+        }
         if (!didInjectUserContext && routingMode !== 'thinking') {
             const grokSystemContext = this.buildSystemContextMessage(task);
             if (grokSystemContext) {
@@ -3983,6 +4290,24 @@ Status: unavailable (balance data not available from cache).`;
         // Call grok-service
         const accessToken = task.toolContext?.accessToken;
         const previousResponseId = this.grokResponseIdBySession.get(task.sessionId);
+        const gateway = this.isUnifiedOrchestrator()
+            ? modelGateway.prepareRequest({
+                model: task.model,
+                provider: 'grok',
+                system: systemPrompt,
+                messages: grokMessages.slice(1),
+                tools: toolDefinitions as any,
+                allowedTools: { names: toolDefinitions.map(t => t.function?.name).filter(Boolean) as string[] },
+                conversationRef: this.buildConversationRef(session),
+                stream: true,
+                metadata: {
+                    orchestrator: 'unified',
+                    input_tokens_estimated: lastBudgetMetrics?.inputTokensEstimated,
+                },
+            })
+            : null;
+        const apiRequestStartedAt = Date.now();
+        let firstTokenAt: number | null = null;
         const response = await fetch(`${GROK_SERVICE_URL}/v1/chat/completions`, {
             method: 'POST',
             headers: {
@@ -4007,12 +4332,13 @@ Status: unavailable (balance data not available from cache).`;
                         ...(isLikelyCaAnalysis ? { from_date: last7dIso } : {}),
                     },
                 },
-                tools: toolDefinitions,
+                tools: gateway?.requestBody.tools || toolDefinitions,
                 tool_context: task.toolContext,
                 // Pass user settings for trading preferences
                 user_settings: {
                     allowance_mode: task.toolContext?.allowanceMode || 'confirm', // default: require confirmation
                 },
+                ...(gateway?.requestBody.metadata ? { metadata: gateway.requestBody.metadata } : {}),
             }),
         });
 
@@ -4100,6 +4426,17 @@ Status: unavailable (balance data not available from cache).`;
 
                     // Handle content chunks - HOT PATH: WebSocket only, no DB writes
                     if (delta && delta.content) {
+                        if (firstTokenAt === null) {
+                            firstTokenAt = Date.now();
+                            this.broadcastLatencyMetrics(userId, task, {
+                                ttftMs: firstTokenAt - apiRequestStartedAt,
+                                inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
+                                historyKept: lastBudgetMetrics?.historyKept,
+                                historyCompacted: lastBudgetMetrics?.historyCompacted,
+                                compactionHits: lastBudgetMetrics?.compactionHits,
+                                toolRounds: 1,
+                            });
+                        }
                         fullContent += delta.content;
                         // Broadcast immediately to frontend (zero latency)
                         // Include both content and delta for compatibility
@@ -4172,6 +4509,12 @@ Status: unavailable (balance data not available from cache).`;
                 content: fullContent,
                 usage: lastUsage || undefined,
                 citations: allCitations.length > 0 ? allCitations : undefined,
+                compacted_data: {
+                    summaryVersion: 1,
+                    toolCalls: toolTrace.toolCalls.length,
+                    stopReasons: Array.from(new Set(toolTrace.stopReasons)),
+                    citationCount: allCitations.length,
+                },
                 status: 'complete'
             });
         } catch (dbErr) {
@@ -4202,7 +4545,23 @@ Status: unavailable (balance data not available from cache).`;
 
         if (newResponseId) {
             this.grokResponseIdBySession.set(task.sessionId, newResponseId);
+            if (this.isUnifiedOrchestrator()) {
+                await this.persistConversationRef(task, { previousResponseId: newResponseId });
+            }
         }
+
+        this.broadcastLatencyMetrics(userId, task, {
+            latencyMs: Date.now() - taskProcessStartedAt,
+            inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
+            promptTokens: lastUsage?.prompt_tokens,
+            completionTokens: lastUsage?.completion_tokens,
+            totalTokens: lastUsage?.total_tokens,
+            cachedTokens: lastUsage?.prompt_tokens_details?.cached_tokens,
+            toolRounds: 1,
+            compactionHits: lastBudgetMetrics?.compactionHits || 0,
+            historyKept: lastBudgetMetrics?.historyKept,
+            historyCompacted: lastBudgetMetrics?.historyCompacted,
+        });
 
         logger.throttled(LogCode.AI_API_CALL, 'Grok: task completed', { taskId: task.id, chunks: chunkIndex });
     }

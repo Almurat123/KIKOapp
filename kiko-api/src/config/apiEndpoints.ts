@@ -168,6 +168,17 @@ export function getRpcEndpointsWithStrategy(
     }
     return ordered;
   }
+  if (chainSlug === 'bsc') {
+    const list = strategy === 'fast'
+      ? getBscPreferredEndpoints(primaryUrl)
+      : getBscCheapEndpoints(primaryUrl);
+    const ordered = strategy === 'fast' && preferPremium ? prioritizePremium(list) : list;
+    if (strategy === 'fast' && onlyPremium) {
+      const premium = ordered.filter(e => e.type === 'premium');
+      return premium.length > 0 ? premium : ordered;
+    }
+    return ordered;
+  }
 
   // For other chains, keep existing ordering until we benchmark them.
   const list = getRpcEndpoints(chainSlug, primaryUrl);
@@ -177,6 +188,54 @@ export function getRpcEndpointsWithStrategy(
     return premium.length > 0 ? premium : ordered;
   }
   return ordered;
+}
+
+function getBscPreferredEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
+  const endpoints: RpcEndpointConfig[] = [];
+  let priority = 1;
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+    if (!url) return;
+    endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
+  };
+
+  if (primaryUrl) push('Primary', primaryUrl, true, 'premium');
+  if (env.apiKeys.alchemy) push('Alchemy', getAlchemyUrl('bsc') || undefined, true, 'premium');
+  if (env.apiKeys.ankr) push('Ankr', `https://rpc.ankr.com/bsc/${env.apiKeys.ankr}`, true, 'premium');
+
+  push('PublicNode', 'https://bsc-rpc.publicnode.com', false, 'public');
+  push('Binance Dataseed', 'https://bsc-dataseed.binance.org', false, 'public');
+  push('DRPC', 'https://bsc.drpc.org', false, 'public');
+
+  const seen = new Set<string>();
+  return endpoints.filter(ep => {
+    if (seen.has(ep.url)) return false;
+    seen.add(ep.url);
+    return true;
+  });
+}
+
+function getBscCheapEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
+  const endpoints: RpcEndpointConfig[] = [];
+  let priority = 1;
+  const push = (name: string, url?: string, requiresAuth = false, type: 'premium' | 'public' | 'fallback' = 'public') => {
+    if (!url) return;
+    endpoints.push({ name, url, priority: priority++, requiresAuth, type, limits: getDefaultLimits(type) });
+  };
+
+  push('PublicNode', 'https://bsc-rpc.publicnode.com', false, 'public');
+  push('Binance Dataseed', 'https://bsc-dataseed.binance.org', false, 'public');
+  push('DRPC', 'https://bsc.drpc.org', false, 'public');
+
+  if (primaryUrl) push('Primary', primaryUrl, true, 'premium');
+  if (env.apiKeys.alchemy) push('Alchemy', getAlchemyUrl('bsc') || undefined, true, 'premium');
+  if (env.apiKeys.ankr) push('Ankr', `https://rpc.ankr.com/bsc/${env.apiKeys.ankr}`, true, 'premium');
+
+  const seen = new Set<string>();
+  return endpoints.filter(ep => {
+    if (seen.has(ep.url)) return false;
+    seen.add(ep.url);
+    return true;
+  });
 }
 
 function prioritizePremium(endpoints: RpcEndpointConfig[]): RpcEndpointConfig[] {
@@ -306,6 +365,7 @@ function getSolanaEndpoints(primaryUrl?: string): RpcEndpointConfig[] {
 
   // Public endpoints first (cheap strategy)
   push('PublicNode', 'https://solana-rpc.publicnode.com', false, 'public');
+  push('Ankr Public', 'https://rpc.ankr.com/solana', false, 'public');
   push('Solana Official', 'https://api.mainnet-beta.solana.com', false, 'public');
   // dRPC free tier blocks some standard methods (e.g. getSlot/getTransaction), keep only as last fallback.
   push('DRPC', 'https://solana.drpc.org', false, 'fallback');
@@ -362,7 +422,7 @@ export function getFlashbotsEndpoints(): RpcEndpointConfig[] {
  * 获取经过验证的免费 RPC 节点
  * 基于 2026-02-02 生产环境测试结果
  */
-function getVerifiedFreeEndpoints(chainSlug: string): { name: string; url: string }[] {
+export function getVerifiedFreeEndpoints(chainSlug: string): { name: string; url: string }[] {
   const endpoints: Record<string, { name: string; url: string }[]> = {
     // ETH: PublicNode 100% 成功率
     'eth': [
@@ -429,6 +489,7 @@ function getAlchemyUrl(chainSlug: string): string | null {
 const ALCHEMY_NETWORK_MAP: Record<string, string> = {
   'eth': 'eth-mainnet',
   'base': 'base-mainnet',
+  'bsc': 'bnb-mainnet',
   'polygon': 'polygon-mainnet',
   'arbitrum': 'arb-mainnet',
   'optimism': 'opt-mainnet',

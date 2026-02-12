@@ -88,6 +88,26 @@ const formatTokenSymbol = (symbol?: string): string => {
     return cleaned.toUpperCase();
 };
 
+const getTokenIconUrl = (symbol: string): string | null => {
+    const iconMap: Record<string, string> = {
+        ETH: '/assets/tokens/eth.png',
+        WETH: '/assets/tokens/eth.png',
+        SOL: '/assets/tokens/sol.png',
+        WSOL: '/assets/tokens/sol.png',
+        BNB: '/assets/tokens/bsc.png',
+        WBNB: '/assets/tokens/bsc.png',
+        MATIC: '/assets/tokens/polygon.png',
+        WMATIC: '/assets/tokens/polygon.png',
+        POL: '/assets/tokens/polygon.png',
+        USDC: '/assets/tokens/usdc.png',
+        USDT: '/assets/tokens/usdt.png',
+        BASE: '/assets/tokens/base.png',
+        ARB: '/assets/tokens/arbitrum.png',
+        OP: '/assets/tokens/optimism.png',
+    };
+    return iconMap[symbol] || null;
+};
+
 export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     status,
     txHash,
@@ -107,6 +127,8 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
     const formattedHash = txHash ? formatTxHash(txHash) : '';
     const tokenIn = formatTokenSymbol(tokenInSymbol);
     const tokenOut = formatTokenSymbol(tokenOutSymbol);
+    const tokenInIcon = getTokenIconUrl(tokenIn);
+    const tokenOutIcon = getTokenIconUrl(tokenOut);
 
     return (
         <div className={styles.card}>
@@ -120,20 +142,34 @@ export const TransactionStatusCard: React.FC<TransactionStatusCardProps> = ({
                     <p className={styles.amountLabel}>Swap Amount</p>
                     <p className={styles.amountValue}>
                         {amountIn || '0.00'}
-                        <span className={styles.tokenSymbol}>{tokenIn}</span>
+                        <span className={styles.tokenPill}>
+                            {tokenInIcon ? (
+                                <img src={tokenInIcon} alt={tokenIn} className={styles.tokenPillIcon} />
+                            ) : (
+                                <span className={styles.tokenPillFallback}>{tokenIn.slice(0, 1)}</span>
+                            )}
+                            <span className={styles.tokenSymbol}>{tokenIn}</span>
+                        </span>
                     </p>
                 </div>
 
                 <div className={styles.divider} />
 
                 <div className={styles.amountBlock}>
-                    <p className={styles.amountLabel}>Estimated Receive</p>
+                    <p className={styles.amountLabel}>Receive</p>
                     {isLoading ? (
                         <div className={styles.skeletonRect} />
                     ) : (
                         <p className={clsx(styles.amountValue, styles.amountValueEst)}>
                             {amountOut || '0.00'}
-                            <span className={styles.tokenSymbol}>{tokenOut}</span>
+                            <span className={styles.tokenPill}>
+                                {tokenOutIcon ? (
+                                    <img src={tokenOutIcon} alt={tokenOut} className={styles.tokenPillIcon} />
+                                ) : (
+                                    <span className={styles.tokenPillFallback}>{tokenOut.slice(0, 1)}</span>
+                                )}
+                                <span className={styles.tokenSymbol}>{tokenOut}</span>
+                            </span>
                         </p>
                     )}
                 </div>

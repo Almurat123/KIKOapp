@@ -17,10 +17,10 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { TrendingCast } from '../types/social.js';
+import prisma from '../db/prisma.js';
 import { saveTrendingCasts, getLastUpdateTime, getPostsForRefresh, updateCastStats, recalculateHeatScores } from '../repositories/socialRepository.js';
 import { env } from '../config/env.js';
 import snapchainService, { QUALITY_FIDS } from '../services/snapchainService.js';
-import * as neynarService from '../services/neynarService.js';
 import { baseAppService } from '../services/baseAppService.js';
 import { zoraService } from '../services/zoraService.js';
 import qualityUsersRepo from '../repositories/qualityUsersRepository.js';
@@ -55,6 +55,90 @@ function resolveRealHotUsersPath(): string {
 }
 
 const REAL_HOT_USERS_PATH = resolveRealHotUsersPath();
+
+function extractUrlsFromCast(cast: any): string[] {
+  const result = new Set<string>();
+  const textUrls = (cast?.text || '').match(/https?:\/\/[^\s)]+/g) || [];
+  for (const u of textUrls) result.add(u.trim());
+
+  const embeds = Array.isArray(cast?.embeds) ? cast.embeds : [];
+  for (const embed of embeds) {
+    if (embed?.url && typeof embed.url === 'string') {
+      result.add(embed.url.trim());
+    }
+    if (embed?.cast?.text && typeof embed.cast.text === 'string') {
+      const quotedUrls = embed.cast.text.match(/https?:\/\/[^\s)]+/g) || [];
+      for (const u of quotedUrls) result.add(u.trim());
+    }
+  }
+
+  return Array.from(result);
+}
+
+async function prefetchOgpForCasts(casts: any[]): Promise<void> {
+  const allUrls = new Set<string>();
+  for (const cast of casts) {
+    for (const url of extractUrlsFromCast(cast)) {
+      allUrls.add(url);
+    }
+  }
+
+  const urls = Array.from(allUrls);
+  if (urls.length === 0) return;
+
+  const concurrency = 8;
+  for (let i = 0; i < urls.length; i += concurrency) {
+    const batch = urls.slice(i, i + concurrency);
+    await Promise.allSettled(batch.map(async (url) => {
+      try {
+        await ogpService.fetchOGP(url);
+      } catch {
+        // best-effort prefetch
+      }
+    }));
+  }
+}
+
+type DiscoveryStatus = 'idle' | 'running' | 'success' | 'error' | 'skipped';
+
+export interface SocialDiscoveryJobStatus {
+  status: DiscoveryStatus;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastDurationMs: number | null;
+  lastError: string | null;
+  lastForce: boolean;
+  lastExistingCount: number;
+  lastFetchedCount: number;
+  lastSavedCount: number;
+  latestFetchedCastTimestamp: string | null;
+  source: string;
+  note: string | null;
+}
+
+const discoveryJobStatus: SocialDiscoveryJobStatus = {
+  status: 'idle',
+  lastStartedAt: null,
+  lastFinishedAt: null,
+  lastDurationMs: null,
+  lastError: null,
+  lastForce: false,
+  lastExistingCount: 0,
+  lastFetchedCount: 0,
+  lastSavedCount: 0,
+  latestFetchedCastTimestamp: null,
+  source: 'hub',
+  note: null,
+};
+let discoveryInFlight = false;
+
+function setDiscoveryStatus(patch: Partial<SocialDiscoveryJobStatus>) {
+  Object.assign(discoveryJobStatus, patch);
+}
+
+export function getSocialDiscoveryJobStatus(): SocialDiscoveryJobStatus {
+  return { ...discoveryJobStatus };
+}
 
 /**
  * Get real hot users FIDs from analysis JSON file
@@ -144,22 +228,50 @@ async function getQualityUserFids(): Promise<number[]> {
  * Preserves existing data if refresh fails
  */
 export async function runDiscoveryJob(force = false): Promise<void> {
-  const REFRESH_10M_MS = 9.5 * 60 * 1000; // 9.5 minutes
-
-  if (!force) {
-    const lastUpdate = await getLastUpdateTime();
-    if (lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_10M_MS) {
-      console.log('[SocialJob] Trending casts are fresh, skipping Snapchain API call');
-      return;
-    }
+  if (discoveryInFlight) {
+    console.log('[SocialJob] Discovery job already running, skipping overlapping trigger');
+    return;
   }
+  discoveryInFlight = true;
 
-  let newCasts: TrendingCast[] = [];
-
-  // Clear Zora in-memory cache at start of each refresh cycle
-  zoraService.clearCache();
+  const startedAt = Date.now();
+  const REFRESH_10M_MS = 9.5 * 60 * 1000; // 9.5 minutes
+  const existingCount = await prisma.trendingCast.count();
+  const isDbEmpty = existingCount === 0;
+  setDiscoveryStatus({
+    status: 'running',
+    lastStartedAt: new Date(startedAt).toISOString(),
+    lastForce: force,
+    lastError: null,
+    lastExistingCount: existingCount,
+    lastFetchedCount: 0,
+    lastSavedCount: 0,
+    latestFetchedCastTimestamp: null,
+    source: 'hub',
+    note: null,
+  });
 
   try {
+    if (!force) {
+      const lastUpdate = await getLastUpdateTime();
+      if (!isDbEmpty && lastUpdate && (Date.now() - lastUpdate.getTime()) < REFRESH_10M_MS) {
+        console.log('[SocialJob] Trending casts are fresh, skipping Snapchain API call');
+        setDiscoveryStatus({
+          status: 'skipped',
+          lastFinishedAt: new Date().toISOString(),
+          lastDurationMs: Date.now() - startedAt,
+          note: 'skip_fresh_data',
+        });
+        return;
+      }
+    }
+
+    let newCasts: TrendingCast[] = [];
+
+    // Clear Zora in-memory cache at start of each refresh cycle
+    zoraService.clearCache();
+
+    try {
     // ===== STEP 1: Get quality users from local storage (no Dune API call) =====
     const qualityFids = await getQualityUserFids();
 
@@ -168,19 +280,34 @@ export async function runDiscoveryJob(force = false): Promise<void> {
       const { getTrendingCasts: getExistingCasts } = await import('../repositories/socialRepository.js');
       const existingCasts = await getExistingCasts(50);
       if (existingCasts.length > 0) {
+        setDiscoveryStatus({
+          status: 'skipped',
+          lastFinishedAt: new Date().toISOString(),
+          lastDurationMs: Date.now() - startedAt,
+          note: 'skip_no_quality_fids_keep_existing',
+        });
         return;
       }
+      setDiscoveryStatus({
+        status: 'error',
+        lastFinishedAt: new Date().toISOString(),
+        lastDurationMs: Date.now() - startedAt,
+        lastError: 'No quality FIDs available',
+        note: 'no_quality_fids',
+      });
       return;
     }
 
     // ===== STEP 2: Fetch casts from Snapchain Hub =====
-    // Target: 1000 casts total for better coverage
-    const TARGET_CASTS = 1000;
-    const CASTS_PER_USER = 8; // Increased from 6 to get more casts per user
+    // Empty DB bootstrap mode: widen time window + smaller target for faster first-fill
+    const TARGET_CASTS = isDbEmpty ? 300 : 1000;
+    const CASTS_PER_USER = isDbEmpty ? 4 : 8;
+    const MAX_AGE_DAYS = isDbEmpty ? 365 : 30;
+    const FETCH_FIDS = isDbEmpty ? qualityFids.slice(0, Math.min(120, qualityFids.length)) : qualityFids;
 
     try {
       // Use the quality users list (from Dune or hardcoded fallback)
-      const snapchainResults = await fetchCastsFromUsers(qualityFids, 30, 1, TARGET_CASTS, CASTS_PER_USER);
+      const snapchainResults = await fetchCastsFromUsers(FETCH_FIDS, MAX_AGE_DAYS, 1, TARGET_CASTS, CASTS_PER_USER);
 
       if (snapchainResults.length > 0) {
         // Convert Snapchain format to TrendingCast format (take up to TARGET_CASTS)
@@ -209,42 +336,74 @@ export async function runDiscoveryJob(force = false): Promise<void> {
       }
     } catch (snapchainError) {
       console.error('[SocialJob] Snapchain fetch error:', snapchainError);
-      // Continue to Neynar fallback
-    }
-
-    // ===== STEP 2.5: Neynar API Fallback (when Hub fails) =====
-    if (newCasts.length === 0) {
-      console.log('[SocialJob] Hub returned 0 casts, trying Neynar fallback...');
-      try {
-        const neynarService = (await import('../services/neynarService.js')).default;
-        const neynarCasts = await neynarService.getTrendingFeed(100);
-
-        if (neynarCasts.length > 0) {
-          console.log(`[SocialJob] ✅ Neynar fallback success: ${neynarCasts.length} casts`);
-          newCasts = neynarCasts.map((cast: any) => ({
-            hash: cast.hash,
-            fid: cast.fid,
-            author: cast.author,
-            text: cast.text,
-            timestamp: cast.timestamp,
-            embeds: cast.embeds || [],
-            parentCastId: undefined,
-            stats: cast.stats,
-            heatScore: cast.heatScore || 0,
-            mentions: cast.mentions || [],
-          } as TrendingCast));
-        }
-      } catch (neynarError) {
-        console.error('[SocialJob] Neynar fallback also failed:', neynarError);
-      }
+      // Hub fetch failed; recovery path below will handle bootstrap safely
     }
 
     // ===== ERROR HANDLING: Only save if we got new data =====
     if (newCasts.length === 0) {
+      // Empty DB is a distinct failure mode: force a lightweight recovery sweep.
+      if (isDbEmpty) {
+        console.warn('[SocialJob] DB is empty and primary fetch returned 0, entering recovery mode...');
+        const recoveryFids = Array.from(new Set([3, 129, 239, 5650, 2, 4, 5, 20, 194, ...QUALITY_FIDS.slice(0, 40)]));
+        // Recovery mode for empty DB must tolerate stale upstream sources.
+        const recoveryResults = await fetchCastsFromUsers(recoveryFids, 1095, 0, 200, 4);
+        if (recoveryResults.length > 0) {
+          newCasts = recoveryResults
+            .map(result => snapchainService.snapchainToTrendingCast(result))
+            .filter((converted): converted is any => converted !== null)
+            .map(converted => ({
+              hash: converted.hash,
+              fid: converted.fid,
+              author: {
+                fid: converted.author.fid,
+                username: converted.author.username,
+                displayName: converted.author.displayName,
+                avatar: converted.author.avatar,
+                verified: converted.author.verified,
+                bio: converted.author.bio,
+              },
+              text: converted.text,
+              timestamp: converted.timestamp,
+              embeds: converted.embeds,
+              parentCastId: undefined,
+              stats: converted.stats,
+              heatScore: converted.heatScore,
+              mentions: converted.mentions,
+            } as TrendingCast));
+          console.log(`[SocialJob] Recovery mode loaded ${newCasts.length} casts`);
+        }
+      }
+    }
+
+    if (newCasts.length === 0) {
       // No new casts fetched - keep existing database data as-is
-      console.log('[SocialJob] No new casts from Hub or Neynar, preserving existing database data');
+      console.log('[SocialJob] No new casts from Hub, preserving existing database data');
+      setDiscoveryStatus({
+        status: 'skipped',
+        lastFinishedAt: new Date().toISOString(),
+        lastDurationMs: Date.now() - startedAt,
+        lastFetchedCount: 0,
+        lastSavedCount: 0,
+        source: 'hub',
+        note: 'skip_no_new_casts',
+      });
       return;
     }
+
+    const latestFetchedTs = newCasts.reduce<number | null>((maxTs, cast) => {
+      const ts = typeof cast.timestamp === 'number'
+        ? cast.timestamp
+        : new Date(cast.timestamp as any).getTime();
+      if (!Number.isFinite(ts)) return maxTs;
+      return maxTs === null ? ts : Math.max(maxTs, ts);
+    }, null);
+    const latestFetchedIso = latestFetchedTs ? new Date(latestFetchedTs).toISOString() : null;
+    setDiscoveryStatus({
+      lastFetchedCount: newCasts.length,
+      latestFetchedCastTimestamp: latestFetchedIso,
+      source: 'hub',
+      note: null,
+    });
 
     // === OPTIMIZE: Load quality users ONCE ===
     const allQualityUsers = await qualityUsersRepo.getQualityUsers(2000);
@@ -333,6 +492,13 @@ export async function runDiscoveryJob(force = false): Promise<void> {
 
     await saveTrendingCasts(newCasts);
     console.log(`[SocialJob] Casts refreshed: ${newCasts.length} saved`);
+    setDiscoveryStatus({
+      status: 'success',
+      lastFinishedAt: new Date().toISOString(),
+      lastDurationMs: Date.now() - startedAt,
+      lastSavedCount: newCasts.length,
+      note: null,
+    });
 
     // ===== STEP 3: OGP Prefetching (Background) =====
     // Trigger OGP fetch for new casts to populate cache before users see them
@@ -341,37 +507,29 @@ export async function runDiscoveryJob(force = false): Promise<void> {
 
     console.log(`[SocialJob] 🚀 Triggering OGP Prefetch for top ${castsToPrefetch.length} casts...`);
 
-    // Process OGP prefetch in background batches
-    const ogpBatchSize = 5;
-    for (let i = 0; i < castsToPrefetch.length; i += ogpBatchSize) {
-      const batch = castsToPrefetch.slice(i, i + ogpBatchSize);
-      // Don't await the results, let it run in background
-      Promise.all(batch.map(async (cast) => {
-        const urls = cast.text.match(/https?:\/\/[^\s]+/g);
-        if (urls && urls.length > 0) {
-          try {
-            // First URL only per cast
-            await ogpService.fetchOGP(urls[0]);
-          } catch (e) {
-            // Background errors ignore
-          }
-        }
-      })).catch(() => { });
-
-      // Small pause between batches to prevent CPU spikes
-      await new Promise(r => setTimeout(r, 200));
+    // Important: finish prefetch before ending this run, so user first-open is warm.
+    await prefetchOgpForCasts(castsToPrefetch);
+    console.log('[SocialJob] ✅ OGP prefetch completed');
+    } catch (error) {
+      console.error('[SocialJob] Error:', error instanceof Error ? error.message : error);
+      setDiscoveryStatus({
+        status: 'error',
+        lastFinishedAt: new Date().toISOString(),
+        lastDurationMs: Date.now() - startedAt,
+        lastError: error instanceof Error ? error.message : String(error),
+        note: 'run_discovery_failed',
+      });
     }
-  } catch (error) {
-    console.error('[SocialJob] Error:', error instanceof Error ? error.message : error);
+  } finally {
+    discoveryInFlight = false;
   }
 }
 
 /**
  * Fetch casts from a list of user FIDs via Snapchain Hub
- * OPTIMIZED: Respects Neynar rate limits (300 RPM for Starter)
- * [Logic]: batchSize=2 + 500ms delay = ~240 RPM max
- * [Ref]: Neynar Starter plan = 300 RPM
- * [Risk]: Too aggressive fetching will trigger 429
+ * OPTIMIZED: Conservative batching for Hub stability
+ * [Logic]: small batch + delay prevents network saturation and timeout spikes
+ * [Risk]: Too aggressive fetching increases timeout probability
  * 
  * @param fids - List of user FIDs to fetch from
  * @param maxAgeDays - Maximum age of casts in days (default: 30 for 1 month coverage)
@@ -391,9 +549,8 @@ async function fetchCastsFromUsers(
   const now = Date.now();
   const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
 
-  // [Logic]: Optimized for Neynar Growth plan (600 RPM)
-  // Each user triggers ~5 API calls: getCastsByFid + getUserDataByFid + getReactionsByCast x N
-  // batchSize=3 * 5 calls = 15 calls/batch, 500ms delay = 30 batches/min = 450 RPM (safe for 600 RPM)
+  // Each user triggers multiple Hub calls: getCastsByFid + getUserDataByFid + getReactionsByCast x N
+  // batchSize=3 keeps latency and timeout risk acceptable in practice.
   const batchSize = 3;
   let usersProcessed = 0;
 
@@ -598,4 +755,3 @@ export function startSocialDataJobs(): void {
     runDiscoveryJob();
   }, 5000); // Wait 5 seconds for services to be ready
 }
-

@@ -63,7 +63,9 @@ export class ToolRegistry {
     }
 
     getDefinitions(): ToolDefinition[] {
-        return this.getAllTools().map(t => t.definition);
+        return this.getAllTools()
+            .map(t => t.definition)
+            .sort((a, b) => a.name.localeCompare(b.name));
     }
 
     getAllDefinitions(): ToolDefinition[] {

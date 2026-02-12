@@ -64,6 +64,20 @@ const COMMON_TOKENS: Record<number, Array<{ address: string; symbol: string; dec
     ],
 };
 
+interface TaskState {
+    id: string;
+    status: string;
+    [key: string]: unknown;
+}
+
+interface SwapActionData {
+    tokenIn: string;
+    tokenOut: string;
+    amountIn: string;
+    chainId: number;
+    slippage?: number;
+}
+
 interface ChatInterfaceProps {
     conversationId?: string | null;
     initialMessages?: Message[];
@@ -73,15 +87,37 @@ interface ChatInterfaceProps {
     onNewChat?: () => void;
     pendingAIPrompt?: string | null;
     onAIPromptSet?: () => void;
-    activeTask?: any | null; // Active task from backend
-    onTaskUpdate?: (task: any | null) => void; // Callback to update task state
+    activeTask?: TaskState | null; // Active task from backend
+    onTaskUpdate?: (task: TaskState | null) => void; // Callback to update task state
 }
+
+const ACTION_CARD_TYPE_MAP: Record<string, 'text' | 'strategy-card' | 'chart-card' | 'transaction-status-card'> = {
+    show_strategy_card: 'strategy-card',
+    show_chart_card: 'chart-card',
+    show_transaction_status_card: 'transaction-status-card',
+    show_cross_chain_status_card: 'transaction-status-card',
+};
 
 // Helper to extract EVM addresses from text
 const extractAddresses = (text: string): string[] => {
     // Regex for EVM address (0x followed by 40 hex chars)
     const matches = text.match(/0x[a-fA-F0-9]{40}/gi);
     return matches ? Array.from(new Set(matches)) : [];
+};
+
+const replaceMessageAtIndex = (messages: Message[], idx: number, nextMessage: Message): Message[] => {
+    if (idx < 0 || idx >= messages.length) return messages;
+    if (messages[idx] === nextMessage) return messages;
+    const updated = [...messages];
+    updated[idx] = nextMessage;
+    return updated;
+};
+
+const findLastAssistantIndex = (messages: Message[]): number => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') return i;
+    }
+    return -1;
 };
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -201,11 +237,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     // Delegation state for instant trades (delegation is handled by DelegatedActionRequest component)
     const [showDelegationModal, setShowDelegationModal] = useState(false);
-    const [pendingSwapAction, setPendingSwapAction] = useState<any>(null);
+    const [pendingSwapAction, setPendingSwapAction] = useState<SwapActionData | null>(null);
 
     const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [customSettings, setCustomSettings] = useState<any | null>(null);
+    const [customSettings, setCustomSettings] = useState<Record<string, unknown> | null>(null);
 
     // Farcaster Follow Modal state
     const [showFollowModal, setShowFollowModal] = useState(false);
@@ -233,9 +269,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             // 3. Try to get Farcaster FID from Privy
             const farcasterAccount = user.linkedAccounts?.find(
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
             );
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
 
             if (fid) {
@@ -265,9 +303,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             if (!user) return;
 
             const farcasterAccount = user.linkedAccounts?.find(
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (acc: any) => acc.type === 'farcaster' || (acc.type === 'wallet' && acc.chainType === 'farcaster')
             );
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const fid = (farcasterAccount as any)?.fid || (user as any).farcaster?.fid;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const username = (farcasterAccount as any)?.username || (user as any).farcaster?.username;
 
             if (fid) {
@@ -411,7 +452,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         }
                     });
                     break;
-                case 'task_status':
+                case 'task_status': {
                     // CRITICAL: Only trigger thinking for text-type tasks, not card/swap tasks
                     // taskType defaults to 'text' for backward compatibility
                     const taskType = event.data.taskType || 'text';
@@ -467,6 +508,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         toast.error('AI Task failed: ' + (event.data.error || 'Unknown error'));
                     }
                     break;
+                }
                 case 'usage':
                     logger.debug('Received usage event:', event.data);
                     // Update message with token usage data
@@ -525,17 +567,31 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         sidebar.refreshUsageSummary();
                     }
                     break;
-                case 'client_action':
-                    logger.debug('Received client action:', event.data.action);
+                case 'client_action': {
+                    // Backward compatibility: some backends emit {type,payload} directly
+                    const normalizedAction = event.data?.action || (
+                        event.data?.type
+                            ? {
+                                type: event.data.type,
+                                data: event.data.data ?? event.data.payload,
+                                payload: event.data.payload ?? event.data.data,
+                            }
+                            : null
+                    );
+                    if (!normalizedAction?.type) {
+                        logger.warn('Received malformed client_action event:', event.data);
+                        break;
+                    }
+                    logger.debug('Received client action:', normalizedAction);
 
-                    if (event.data.action.type === 'execute_swap_instant') {
+                    if (normalizedAction.type === 'execute_swap_instant') {
                         // DIRECT SERVER EXECUTION - NO UI CARD
                         // This bypasses SwapCard completely for instant/allowance trades
-                        const actionData = event.data.action.payload || event.data.action.data;
+                        const actionData = normalizedAction.payload || normalizedAction.data;
                         const targetChainId = actionData.chainId || actionData.chain_id || chainId;
 
                         // Helper to resolve token address from symbol or object
-                        const resolveTokenAddress = (symbolOrObj: any): string => {
+                        const resolveTokenAddress = (symbolOrObj: string | { address?: string; symbol?: string; name?: string } | null | undefined): string => {
                             if (!symbolOrObj) return '';
 
                             // If it's an object with address, use that
@@ -595,7 +651,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         });
 
                         // CREATE NEW MESSAGE for transaction status
-                        const getSymbol = (token: any): string => {
+                        const getSymbol = (token: string | { symbol?: string; name?: string } | null | undefined): string => {
                             if (typeof token === 'string') return token;
                             return token?.symbol || token?.name || 'Unknown';
                         };
@@ -623,15 +679,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         setActiveTaskId(null);
                         setMessages(prev => [...prev, txCardMsg]);
 
+                        const patchTransactionCard = (patch: Record<string, unknown>) => {
+                            setMessages(prev => {
+                                const idx = prev.findIndex(m => m.id === txCardMsg.id && m.type === 'transaction-status-card');
+                                if (idx === -1) return prev;
+                                const current = prev[idx];
+                                const nextMessage: Message = {
+                                    ...current,
+                                    data: {
+                                        ...(current.data || {}),
+                                        ...patch,
+                                    },
+                                };
+                                return replaceMessageAtIndex(prev, idx, nextMessage);
+                            });
+                        };
+
                         // Call executeSwapInstant directly
                         import('../../services/swapService').then(({ executeSwapInstant }) => {
                             // Update to sending state before API call
-                            setMessages(prev => prev.map(m =>
-                                m.id === txCardMsg.id && m.type === 'transaction-status-card' ? {
-                                    ...m,
-                                    data: { ...m.data, status: 'sending' }
-                                } : m
-                            ));
+                            patchTransactionCard({ status: 'sending' });
 
                             // Start swap execution
                             const swapPromise = executeSwapInstant({
@@ -643,66 +710,37 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             });
 
                             // Update to pending immediately - backend is now waiting for on-chain confirmation
-                            setMessages(prev => prev.map(m =>
-                                m.id === txCardMsg.id && m.type === 'transaction-status-card' ? {
-                                    ...m,
-                                    data: { ...m.data, status: 'pending' }
-                                } : m
-                            ));
+                            patchTransactionCard({ status: 'pending' });
 
                             swapPromise.then(result => {
                                 if (result.success && result.txHash) {
                                     // Find the transaction card we created and update it
-                                    setMessages(prev => {
-                                        return prev.map(m =>
-                                            m.id === txCardMsg.id && m.type === 'transaction-status-card' ? {
-                                                ...m,
-                                                data: {
-                                                    ...m.data,
-                                                    status: 'success',
-                                                    txHash: result.txHash,
-                                                    isLoading: false
-                                                }
-                                            } : m
-                                        );
+                                    patchTransactionCard({
+                                        status: 'success',
+                                        txHash: result.txHash,
+                                        isLoading: false,
                                     });
                                 } else {
                                     // Update with error
-                                    setMessages(prev => {
-                                        return prev.map(m =>
-                                            m.id === txCardMsg.id && m.type === 'transaction-status-card' ? {
-                                                ...m,
-                                                data: {
-                                                    ...m.data,
-                                                    status: 'failed',
-                                                    errorMessage: result.error,
-                                                    isLoading: false
-                                                }
-                                            } : m
-                                        );
+                                    patchTransactionCard({
+                                        status: 'failed',
+                                        errorMessage: result.error,
+                                        isLoading: false,
                                     });
                                 }
                             }).catch(err => {
                                 // Update with error
-                                setMessages(prev => {
-                                    return prev.map(m =>
-                                        m.id === txCardMsg.id && m.type === 'transaction-status-card' ? {
-                                            ...m,
-                                            data: {
-                                                ...m.data,
-                                                status: 'failed',
-                                                errorMessage: err.message,
-                                                isLoading: false
-                                            }
-                                        } : m
-                                    );
+                                patchTransactionCard({
+                                    status: 'failed',
+                                    errorMessage: err.message,
+                                    isLoading: false,
                                 });
                             });
                         });
 
 
                         // DEPRECATED: show_swap_card removed from chat interface (kept in WalletPage)
-                    } else if (event.data.action.type === 'show_strategy_card') {
+                    } else if (normalizedAction.type === 'show_strategy_card') {
                         // For strategy cards, trigger an immediate refresh of the strategies list
                         // This helps avoid the "deleted" race condition
                         if (refreshStrategies) {
@@ -731,32 +769,42 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             }
                             return prev;
                         });
-                    } else if (['show_chart_card', 'show_transaction_status_card'].includes(event.data.action.type)) {
-                        const targetMessageId = event.data.targetMessageId;
-                        const actionType = event.data.action.type;
+                    } else if (['show_chart_card', 'show_transaction_status_card', 'show_cross_chain_status_card'].includes(normalizedAction.type)) {
+                        const targetMessageId = event.data.targetMessageId || event.data.message_id || event.data.messageId;
+                        const actionType = normalizedAction.type;
+                        const actionData = normalizedAction.data || normalizedAction.payload || {};
+                        const normalizedData = actionType === 'show_cross_chain_status_card'
+                            ? {
+                                status: actionData.status === 'submitted' || actionData.status === 'pending_bridge'
+                                    ? 'pending'
+                                    : actionData.status,
+                                tokenInSymbol: actionData.tokenInSymbol || actionData.fromToken,
+                                tokenOutSymbol: actionData.tokenOutSymbol || actionData.toToken,
+                                amountIn: actionData.amountIn || actionData.amount,
+                                amountOut: actionData.amountOut,
+                                chainId: actionData.chainId || actionData.fromChain || chainId,
+                                txHash: actionData.txHash,
+                                message: actionData.message,
+                                errorMessage: actionData.errorMessage || actionData.error,
+                                isLoading: actionData.isLoading ?? !['success', 'failed', 'cancelled'].includes(actionData.status),
+                            }
+                            : actionData;
                         logger.debug('Handling card action:', { type: actionType, targetMsgId: targetMessageId });
 
                         setMessages(prev => {
                             // First, try to find by ID
                             const targetIdx = targetMessageId ? prev.findIndex(m => m.id === targetMessageId) : -1;
-
-                            const getCardType = (type: string) => {
-                                switch (type) {
-                                    case 'show_strategy_card': return 'strategy-card';
-                                    case 'show_chart_card': return 'chart-card';
-                                    case 'show_transaction_status_card': return 'transaction-status-card';
-                                    default: return 'text';
-                                }
-                            };
-                            const newCardType = getCardType(actionType);
+                            const newCardType = ACTION_CARD_TYPE_MAP[actionType] || 'text';
 
                             if (targetIdx !== -1) {
                                 logger.debug('✅ Found target message, updating card:', targetMessageId);
-                                return prev.map((m, idx) => idx === targetIdx ? {
-                                    ...m,
-                                    type: newCardType as any,
-                                    data: event.data.action.data
-                                } : m);
+                                const targetMessage = prev[targetIdx];
+                                const nextMessage: Message = {
+                                    ...targetMessage,
+                                    type: newCardType as Message['type'],
+                                    data: normalizedData
+                                };
+                                return replaceMessageAtIndex(prev, targetIdx, nextMessage);
                             }
 
                             // Race condition fix: If message ID provided but not found, CREATE IT
@@ -770,14 +818,34 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     reasoning_content: '',
                                     status: 'complete', // Mark complete since we have the final card
                                     timestamp: new Date().toISOString(),
-                                    type: newCardType as any,
-                                    data: event.data.action.data
+                                    type: newCardType as Message['type'],
+                                    data: normalizedData
                                 } as Message];
                             }
 
                             // CRITICAL FIX: For transaction/swap cards with no targetMessageId,
-                            // ALWAYS create a new message instead of falling back to last assistant message
+                            // prefer updating the existing card by txHash; otherwise create a new message
                             if (['transaction-status-card', 'swap-card'].includes(newCardType)) {
+                                const incomingTxHash = normalizedData?.txHash;
+                                if (incomingTxHash) {
+                                    const existingTxIdx = prev.findIndex(m =>
+                                        m.type === 'transaction-status-card' &&
+                                        m.data?.txHash &&
+                                        String(m.data.txHash).toLowerCase() === String(incomingTxHash).toLowerCase()
+                                    );
+                                    if (existingTxIdx !== -1) {
+                                        const targetMessage = prev[existingTxIdx];
+                                        const nextMessage: Message = {
+                                            ...targetMessage,
+                                            type: newCardType as Message['type'],
+                                            data: {
+                                                ...(targetMessage.data || {}),
+                                                ...normalizedData,
+                                            },
+                                        };
+                                        return replaceMessageAtIndex(prev, existingTxIdx, nextMessage);
+                                    }
+                                }
                                 logger.debug('No targetMessageId for transaction/swap card, creating new message');
                                 return [...prev, {
                                     id: `assistant-${Date.now()}`,
@@ -786,28 +854,29 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                     reasoning_content: '',
                                     status: 'complete',
                                     timestamp: new Date().toISOString(),
-                                    type: newCardType as any,
-                                    data: event.data.action.data
+                                    type: newCardType as Message['type'],
+                                    data: normalizedData
                                 } as Message];
                             }
 
                             // For other safe card types, find or create
-                            const lastMsgIdx = [...prev].reverse().findIndex(m => m.role === 'assistant');
+                            const lastMsgIdx = findLastAssistantIndex(prev);
                             if (lastMsgIdx !== -1) {
-                                const actualIdx = prev.length - 1 - lastMsgIdx;
-                                return prev.map((m, idx) => idx === actualIdx ? {
-                                    ...m,
-                                    type: newCardType as any,
-                                    data: event.data.action.data
-                                } : m);
+                                const targetMessage = prev[lastMsgIdx];
+                                const nextMessage: Message = {
+                                    ...targetMessage,
+                                    type: newCardType as Message['type'],
+                                    data: normalizedData
+                                };
+                                return replaceMessageAtIndex(prev, lastMsgIdx, nextMessage);
                             }
 
                             return prev;
                         });
 
                         // If a transaction card reports completion, force-stop thinking/streaming.
-                        if (actionType === 'show_transaction_status_card') {
-                            const status = event.data.action?.data?.status;
+                        if (actionType === 'show_transaction_status_card' || actionType === 'show_cross_chain_status_card') {
+                            const status = normalizedData?.status;
                             if (status === 'success' || status === 'failed') {
                                 setIsThinking(false);
                                 setIsStreaming(false);
@@ -819,6 +888,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         }
                     }
                     break;
+                }
                 case 'content_block':
                     // Handle atomic content blocks (e.g. from AI analysis)
                     // Treat similar to chunk but usually larger/complete blocks
@@ -857,7 +927,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     setIsStreaming(false);
                     setActiveTaskId(null);
 
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     if (event.data.messageId || event.data.message_id || (event as any).messageId || (event as any).message_id) {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         const mid = event.data.messageId || event.data.message_id || (event as any).messageId || (event as any).message_id;
                         setMessages(prev => {
                             const exists = prev.some(m => m.id === mid);
@@ -1668,6 +1740,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 }
 
                 // Add assistant message placeholder (WebSocket will stream content to this ID)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const createdAt = (assistantMessage as any).created_at ?? assistantMessage.timestamp ?? Date.now();
                 setMessages(prev => {
                     const exists = prev.some(m => m.id === assistantMessage.id);
@@ -1697,16 +1770,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                 // WebSocket will handle the chunks and status updates
             } else {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const errorMessage = (resp as any).error || (resp as any).message || 'Failed to send message';
                 throw new Error(errorMessage);
             }
-        } catch (error: any) {
-            logger.error('Error sending message:', error);
+        } catch (error: unknown) {
+            const err = error as Error;
+            logger.error('Error sending message:', err);
             setIsThinking(false);
             const errorMsg: Message = {
                 id: Date.now().toString(),
                 role: 'assistant',
-                content: `Error: ${error.message || 'Failed to connect to backend'}`,
+                content: `Error: ${err.message || 'Failed to connect to backend'}`,
                 status: 'error',
                 type: 'text',
                 timestamp: new Date().toLocaleTimeString(),
@@ -1727,7 +1802,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const handleKeyDown = (e: React.KeyboardEvent) => {
         // Don't send if user is composing text with IME (input method editor)
         // Check BOTH the state and the native event property for maximum compatibility
-        const isCurrentlyComposing = isComposing || (e.nativeEvent as any).isComposing;
+        const isCurrentlyComposing = isComposing || (e.nativeEvent as unknown as { isComposing?: boolean }).isComposing;
 
         if (e.key === 'Enter' && !e.shiftKey) {
             // If composing with IME, completely block Enter key and don't proceed
@@ -2105,6 +2180,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                                 return updated;
                                             });
                                         } else if (action === 'strategy-details') {
+                                            // TODO: Navigate to strategy details
                                         }
                                     }}
                                 />
@@ -2136,6 +2212,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                             <button
                                 className={styles.jumpToBottom}
                                 onClick={() => scrollToBottom()}
+                                aria-label="Scroll to bottom"
                             >
                                 <ArrowDown size={20} />
                             </button>

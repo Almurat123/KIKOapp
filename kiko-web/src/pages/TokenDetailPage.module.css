@@ -762,38 +762,6 @@
     color: var(--text-primary);
 }
 
-/* Launchpad Logo - top right corner of token icon */
-.launchpadLogo {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    width: 18px;
-    height: 18px;
-    object-fit: contain;
-    border-radius: 50%;
-    border: 2px solid #18181b;
-    background: #18181b;
-}
-
-@media (min-width: 769px) {
-    .launchpadLogo {
-        width: 22px;
-        height: 22px;
-        top: -5px;
-        right: -5px;
-    }
-}
-
-:global(.dark) .launchpadLogo {
-    border-color: #18181b;
-    background: #18181b;
-}
-
-.light .launchpadLogo {
-    border-color: #FAF7F2;
-    background: #FAF7F2;
-}
-
 /* Security Prompt Styles */
 /* Extreme Minimalist Security Section - Fixed */
 .securitySectionCompact {

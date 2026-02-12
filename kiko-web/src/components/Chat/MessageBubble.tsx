@@ -111,7 +111,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
     const { resolvedTheme } = useThemeContext();
 
     // Thinking timer state
-    const [elapsedTime, setElapsedTime] = useState(0);
+    const [elapsedTenths, setElapsedTenths] = useState(0);
     const startTimeRef = useRef<number | null>(null);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -122,16 +122,23 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
         // 2. Reasoning phase (reasoning_content exists, no final content yet)
         const isComplete = message.status === 'complete' || message.status === 'error';
         const isStuck = message.timestamp && (Date.now() - new Date(message.timestamp).getTime() > 5 * 60 * 1000);
+        const hasContent = !!(message.content && message.content.trim().length > 0);
+        const hasReasoning = !!(message.reasoning_content && message.reasoning_content.trim().length > 0);
 
-        const isInitialThinking = thinkingText && !message.content && !message.reasoning_content;
-        const isReasoningPhase = message.reasoning_content &&
-            (!message.content || message.content.trim().length === 0) &&
+        const isInitialThinking = !!thinkingText && !hasContent && !hasReasoning;
+        const isReasoningPhase = hasReasoning &&
+            !hasContent &&
             !isComplete &&
             !isStuck;
 
         const shouldRunTimer = isInitialThinking || isReasoningPhase;
 
         if (shouldRunTimer) {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
+
             // Use server-side timestamp for persistence across page reloads
             // Determine start time: timestamp > local ref > now
             let startTime = 0;
@@ -145,12 +152,13 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                 startTime = startTimeRef.current;
             }
 
-            // Calculate initial elapsed time
-            setElapsedTime((Date.now() - startTime) / 1000);
+            const computeTenths = () => Math.max(0, Math.floor((Date.now() - startTime) / 100));
+            setElapsedTenths(computeTenths());
 
             // Update elapsed time every 100ms for smooth display
             intervalRef.current = setInterval(() => {
-                setElapsedTime((Date.now() - startTime) / 1000);
+                const nextTenths = computeTenths();
+                setElapsedTenths(prev => (prev === nextTenths ? prev : nextTenths));
             }, 100);
         } else {
             // Stop timer when thinking is complete
@@ -165,9 +173,18 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
         return () => {
             if (intervalRef.current) {
                 clearInterval(intervalRef.current);
+                intervalRef.current = null;
             }
         };
-    }, [thinkingText, message.reasoning_content, message.content, message.status, message.timestamp]);
+    }, [
+        thinkingText,
+        message.status,
+        message.timestamp,
+        !!(message.content && message.content.trim().length > 0),
+        !!(message.reasoning_content && message.reasoning_content.trim().length > 0),
+    ]);
+
+    const elapsedTime = (elapsedTenths / 10).toFixed(1);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(message.content);
@@ -300,7 +317,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                 {((!message.content || message.content.trim().length === 0) && message.status !== 'complete') ? (
                                     // 思考中：显示shimmer Thinking标签 + 计时器 + 当前状态
                                     <span className={clsx(styles.reasoningLabel, styles.thinking)}>
-                                        {thinkingText || 'Thinking'} ({elapsedTime.toFixed(1)}s)
+                                        {thinkingText || 'Thinking'} ({elapsedTime}s)
                                     </span>
                                 ) : (
                                     // 思考完成：显示可展开的Thinking按钮
@@ -310,7 +327,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                         title={showReasoning ? 'Collapse thinking' : 'Expand thinking'}
                                     >
                                         <span className={styles.reasoningLabel}>
-                                            Thinking ({elapsedTime.toFixed(1)}s)
+                                            Thinking ({elapsedTime}s)
                                             {showReasoning ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                         </span>
                                     </button>
@@ -331,7 +348,7 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, isGroup
                                 {thinkingText && !message.content && !message.reasoning_content && (
                                     <div className={styles.thinkingBubble}>
                                         <span className={styles.thinkingText}>
-                                            {thinkingText} ({elapsedTime.toFixed(1)}s)
+                                            {thinkingText} ({elapsedTime}s)
                                         </span>
                                     </div>
                                 )}

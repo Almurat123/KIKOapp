@@ -226,9 +226,10 @@ export async function fetchJson<T = any>(options: FetchJsonOptions): Promise<T> 
 
   // Final failure
   if (!suppressError) {
-    logger.error(LogCode.API_FETCH_FAILED, `${endpointName} failed after ${maxRetries + 1} attempts`, {
+      const logUrl = url.includes('api.coinbase.com') ? url : url.substring(0, 60);
+      logger.error(LogCode.API_FETCH_FAILED, `${endpointName} failed after ${maxRetries + 1} attempts`, {
       error: lastError?.message,
-      url: url.substring(0, 60)
+      url: logUrl
     });
   }
 

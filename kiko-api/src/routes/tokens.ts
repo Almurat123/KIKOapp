@@ -73,8 +73,20 @@ function sanitizeTrendingPayload(chain: string, rows: any[]): any[] {
   return rows.filter((token) => validateTrendingTokenForListing(chain, token).ok);
 }
 
+function stripLaunchMultiples(rows: any[]): any[] {
+  return rows;
+}
+
 function tokenMetaCacheKey(chain: string, address: string): string {
   return `token:meta:v2:${chain}:${address.toLowerCase()}`;
+}
+
+function tokenMetaLegacyCacheKey(chain: string, address: string): string {
+  return `token:meta:v1:${chain}:${address.toLowerCase()}`;
+}
+
+function initialPoolCacheKey(chain: string, address: string): string {
+  return `token:initial_pool:v2:${chain}:${address.toLowerCase()}`;
 }
 
 async function hydrateTrendingMetadata(chain: string, rows: any[]): Promise<any[]> {
@@ -85,15 +97,33 @@ async function hydrateTrendingMetadata(chain: string, rows: any[]): Promise<any[
       if (!row || typeof row !== 'object') return;
       const address = typeof row.address === 'string' ? row.address : '';
       if (!address) return;
-      if (row.creatorAddress && row.creatorUrl) return;
 
-      const raw = await get(tokenMetaCacheKey(chain, address));
-      if (!raw) return;
-      const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; cacheVersion?: number };
-      if (meta?.creatorAddress && !row.creatorAddress) row.creatorAddress = meta.creatorAddress;
-      if (meta?.creatorUrl && !row.creatorUrl) row.creatorUrl = meta.creatorUrl;
-      if (meta?.creatorLabel && !row.creatorLabel) row.creatorLabel = meta.creatorLabel;
-      // launchMultiple comes from repository/DB-trusted baseline path only.
+      let raw = await get(tokenMetaCacheKey(chain, address));
+      if (!raw) raw = await get(tokenMetaLegacyCacheKey(chain, address));
+      if (raw) {
+        const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; cacheVersion?: number };
+        if (!(row.creatorAddress && row.creatorUrl)) {
+          if (meta?.creatorAddress && !row.creatorAddress) row.creatorAddress = meta.creatorAddress;
+          if (meta?.creatorUrl && !row.creatorUrl) row.creatorUrl = meta.creatorUrl;
+          if (meta?.creatorLabel && !row.creatorLabel) row.creatorLabel = meta.creatorLabel;
+        }
+      }
+      const initialPoolRaw = await get(initialPoolCacheKey(chain, address));
+      if (initialPoolRaw) {
+        const initialPool = JSON.parse(initialPoolRaw) as {
+          initialPoolAddress?: string;
+          initialPoolCreatedAt?: string;
+          initialLiquidityUsd?: number;
+          source?: string;
+          capturedAt?: number;
+        };
+        if (initialPool?.initialPoolAddress) row.initialPoolAddress = initialPool.initialPoolAddress;
+        if (initialPool?.initialPoolCreatedAt) row.initialPoolCreatedAt = initialPool.initialPoolCreatedAt;
+        if (Number.isFinite(Number(initialPool?.initialLiquidityUsd || 0)) && Number(initialPool?.initialLiquidityUsd || 0) > 0) {
+          row.initialLiquidityUsd = Number(initialPool?.initialLiquidityUsd);
+        }
+        if (initialPool?.source) row.initialPoolSource = initialPool.source;
+      }
     } catch {
       // best-effort hydration only
     }
@@ -103,6 +133,20 @@ async function hydrateTrendingMetadata(chain: string, rows: any[]): Promise<any[
 }
 
 export async function tokenRoutes(fastify: FastifyInstance) {
+  const REFRESH_WAIT_TIMEOUT_MS = Math.max(
+    5000,
+    Number(process.env.TRENDING_REFRESH_WAIT_TIMEOUT_MS || '25000')
+  );
+  async function refreshWithTimeout(chain: string, force: boolean): Promise<boolean | null> {
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), REFRESH_WAIT_TIMEOUT_MS);
+    });
+    const task = refreshSingleChain(chain, force)
+      .then((ok) => ok)
+      .catch(() => false);
+    return Promise.race([task, timeout]);
+  }
+
   // GET /api/tokens/chains - Get list of supported chains
   fastify.get('/chains', async (request, reply) => {
     return reply.send({
@@ -121,7 +165,12 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         chain?: string;
         duration?: string;
         limit?: string;
+        strict?: string;
       };
+      const strictRaw = String((request.query as any)?.strict || '').toLowerCase();
+      // Default to strict to prevent stale cache payloads from leaking into UI.
+      // Explicit strict=0/false can re-enable cache for debugging/perf checks.
+      const strictMode = !(strictRaw === '0' || strictRaw === 'false');
 
       // Validate duration
       const validDuration = SUPPORTED_DURATIONS.includes(duration as TrendingDuration)
@@ -132,28 +181,31 @@ export async function tokenRoutes(fastify: FastifyInstance) {
 
       // Step 1: Check Redis cache first (fastest path)
       const cacheKey = `trending:live:${chain}:${validDuration}`;
-      const cached = await get(cacheKey);
-
-      if (cached) {
-        const tokens = sanitizeTrendingPayload(chain, JSON.parse(cached));
-        await hydrateTrendingMetadata(chain, tokens);
-        if (tokens.length > 0) {
-          await set(cacheKey, JSON.stringify(tokens), 180);
-          return reply.send({
-            success: true,
-            data: tokens.slice(0, tokenLimit),
-            count: Math.min(tokens.length, tokenLimit),
-            duration: validDuration,
-            chain: chain,
-            cached: true,
-            source: 'cache',
-          });
+      if (!strictMode) {
+        const cached = await get(cacheKey);
+        if (cached) {
+          const tokens = sanitizeTrendingPayload(chain, JSON.parse(cached));
+          await hydrateTrendingMetadata(chain, tokens);
+          if (tokens.length > 0) {
+            stripLaunchMultiples(tokens);
+            await set(cacheKey, JSON.stringify(tokens), 180);
+            return reply.send({
+              success: true,
+              data: tokens.slice(0, tokenLimit),
+              count: Math.min(tokens.length, tokenLimit),
+              duration: validDuration,
+              chain: chain,
+              cached: true,
+              source: 'cache',
+            });
+          }
         }
       }
 
       // Step 2: Fallback to PostgreSQL database (populated by background job)
-      let dbTokens = await getTrendingTokens(chain, tokenLimit);
+      let dbTokens = await getTrendingTokens(chain, tokenLimit, { bypassMemoryCache: strictMode });
       await hydrateTrendingMetadata(chain, dbTokens);
+      stripLaunchMultiples(dbTokens);
 
       // Step 2.5: Fallback to 5m cache if DB is empty but refresh job filled short-term cache
       if (dbTokens.length > 0) {
@@ -171,13 +223,14 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         });
       }
 
-      if (validDuration !== '5m') {
+      if (!strictMode && validDuration !== '5m') {
         const fallbackKey = `trending:live:${chain}:5m`;
         const fallback = await get(fallbackKey);
         if (fallback) {
           const tokens = sanitizeTrendingPayload(chain, JSON.parse(fallback));
           await hydrateTrendingMetadata(chain, tokens);
           if (tokens.length > 0) {
+            stripLaunchMultiples(tokens);
             await set(cacheKey, JSON.stringify(tokens), 180);
             return reply.send({
               success: true,
@@ -196,9 +249,12 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       const lastUpdate = await getTrendingUpdateTime(chain);
       const isStale = !lastUpdate || (Date.now() - lastUpdate.getTime()) > 10 * 60 * 1000;
       if (isStale) {
-        await refreshSingleChain(chain);
-        dbTokens = await getTrendingTokens(chain, tokenLimit);
+        // Do not block request path on full-chain refresh.
+        // Kick off background refresh and return current DB state.
+        void refreshSingleChain(chain).catch(() => undefined);
+        dbTokens = await getTrendingTokens(chain, tokenLimit, { bypassMemoryCache: strictMode });
         await hydrateTrendingMetadata(chain, dbTokens);
+        stripLaunchMultiples(dbTokens);
       }
 
       if (dbTokens.length > 0) {
@@ -290,9 +346,10 @@ export async function tokenRoutes(fastify: FastifyInstance) {
   fastify.post('/trending/refresh', async (request, reply) => {
     try {
       const body = (request.body || {}) as { chain?: string };
-      const query = (request.query || {}) as { chain?: string };
+      const query = (request.query || {}) as { chain?: string; wait?: string | boolean };
       const chain = (query.chain || body.chain || 'eth').toLowerCase();
       const force = String((query as any).force || (body as any).force || 'true').toLowerCase() === 'true';
+      const wait = String((query as any).wait || (body as any).wait || 'false').toLowerCase() === 'true';
 
       // Validate chain
       const supportedChains = getSupportedChains();
@@ -304,11 +361,38 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Use the job's refresh function
-      const success = await refreshSingleChain(chain, force);
+      // Default mode is async trigger, so this endpoint never hits request timeout.
+      if (!wait) {
+        void refreshSingleChain(chain, force).catch(() => undefined);
+        return reply.status(202).send({
+          success: true,
+          accepted: true,
+          message: `Refresh triggered for ${chain}`,
+          chain,
+          wait: false,
+        });
+      }
+
+      // Optional blocking mode for debugging (bounded by timeout).
+      const success = await refreshWithTimeout(chain, force);
+      if (success === null) {
+        return reply.status(202).send({
+          success: true,
+          accepted: true,
+          message: `Refresh still running for ${chain}; timed out waiting at ${REFRESH_WAIT_TIMEOUT_MS}ms`,
+          chain,
+          wait: true,
+          timeoutMs: REFRESH_WAIT_TIMEOUT_MS,
+        });
+      }
 
       if (!success) {
-        throw new AppError(500, `Failed to refresh trending tokens for chain: ${chain}`, 'REFRESH_ERROR');
+        return reply.status(409).send({
+          success: false,
+          error: 'Refresh skipped or failed',
+          message: `No DB update was written for chain: ${chain}. Another refresh may be in progress or upstream data was unavailable.`,
+          chain,
+        });
       }
 
       // Get the refreshed tokens count
@@ -432,6 +516,7 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         const dexToken = await getDexTokenDetails(chainId, address);
 
         if (dexToken) {
+          const dexTokenAny = dexToken as any;
           // Convert DexScreener format to TokenSearchResult format
           const dexResult = {
             address: dexToken.address,
@@ -446,6 +531,9 @@ export async function tokenRoutes(fastify: FastifyInstance) {
             socials: dexToken.socials,
             websites: dexToken.websites,
             imageUrl: dexToken.imageUrl,
+            poolAddress: dexToken.poolAddress,
+            poolId: dexTokenAny.poolId,
+            pairCreatedAt: dexTokenAny.pairCreatedAt,
           };
 
           if (!token) {
@@ -455,6 +543,9 @@ export async function tokenRoutes(fastify: FastifyInstance) {
             if (dexResult.socials && dexResult.socials.length > 0) token.socials = dexResult.socials;
             if (dexResult.websites && dexResult.websites.length > 0) token.websites = dexResult.websites;
             if (!token.imageUrl && dexResult.imageUrl) token.imageUrl = dexResult.imageUrl;
+            if (!token.poolAddress && dexResult.poolAddress) token.poolAddress = dexResult.poolAddress;
+            if (!token.poolId && dexResult.poolId) token.poolId = dexResult.poolId;
+            if (!(token as any).pairCreatedAt && dexResult.pairCreatedAt) (token as any).pairCreatedAt = dexResult.pairCreatedAt;
           }
         }
       } catch (e) {
@@ -464,13 +555,9 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       // Fetch holder count (Enrichment)
       if (token) {
         try {
-          console.log(`[TokenDetails] Fetching holder count for ${address} on ${network}...`);
           const holders = await getHolderCount(network, address);
           if (holders) {
-            console.log(`[TokenDetails] Got ${holders} holders for ${address}`);
             token.holders = holders;
-          } else {
-            console.log(`[TokenDetails] No holder count returned for ${address}`);
           }
         } catch (e) {
           console.warn('[TokenDetails] Failed to fetch holders from GoPlus:', e);
@@ -501,11 +588,6 @@ export async function tokenRoutes(fastify: FastifyInstance) {
     const timeframe = query.timeframe || 'h1';
     const limit = query.limit || '500';
 
-    console.log(`[ChartAPI] ===== Request received =====`);
-    console.log(`[ChartAPI] Network: ${network}, Address: ${address}`);
-    console.log(`[ChartAPI] Query params:`, query);
-    console.log(`[ChartAPI] Parsed: timeframe=${timeframe}, limit=${limit}`);
-
     // Validate inputs
     try {
       validateNetwork(network);
@@ -525,7 +607,6 @@ export async function tokenRoutes(fastify: FastifyInstance) {
     try {
       const cached = await get(cacheKey);
       if (cached) {
-        console.log(`[ChartAPI] ✓ Cache hit for ${cacheKey}`);
         return reply.send({
           success: true,
           data: cached,
@@ -534,7 +615,6 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       }
     } catch (cacheError: any) {
       // Cache error is not critical, continue with API call
-      console.warn(`[ChartAPI] Cache read error (non-critical):`, cacheError.message);
     }
 
     // Network mapping (used in multiple places)
@@ -642,13 +722,6 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       // Step 4: Fetch candlestick data
       const limitNum = Math.min(Math.max(parseInt(limit, 10) || 500, 1), 1000);
 
-      console.log(`[ChartAPI] ===== Fetching chart data =====`);
-      console.log(`[ChartAPI] Network: ${network} -> ${networkMap[network.toLowerCase()] || network}`);
-      console.log(`[ChartAPI] Address: ${address}`);
-      console.log(`[ChartAPI] PairAddress: ${pairAddress}`);
-      console.log(`[ChartAPI] Timeframe: ${timeframe} (from query: ${query.timeframe || 'default'})`);
-      console.log(`[ChartAPI] Limit: ${limitNum} (from query: ${query.limit || 'default'})`);
-
       // Try Gecko Terminal first
       let chartData: any[] = [];
       let geckoError: any = null;
@@ -663,21 +736,9 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         );
         if (chartData && chartData.length > 0) {
           dataSource = 'gecko';
-          console.log(`[ChartAPI] ✓ Gecko Terminal returned ${chartData.length} candles`);
-        } else {
-          console.log(`[ChartAPI] Gecko Terminal returned empty data`);
         }
       } catch (error: any) {
         geckoError = error;
-        // Check error type - network/timeout errors should trigger fallback
-        if (error.type === 'network' || error.type === 'timeout') {
-          console.warn(`[ChartAPI] Gecko Terminal ${error.type} error, will try DexScreener:`, error.message);
-        } else {
-          console.error(`[ChartAPI] Gecko Terminal error:`, error.message);
-          if (error.stack) {
-            console.error(`[ChartAPI] Gecko Terminal stack:`, error.stack);
-          }
-        }
       }
 
       // If Gecko Terminal returns empty data or network/timeout error, try DexScreener as fallback
@@ -685,7 +746,6 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         const shouldFallback = !geckoError || geckoError.type === 'network' || geckoError.type === 'timeout';
 
         if (shouldFallback) {
-          console.log(`[ChartAPI] Trying DexScreener as fallback...`);
           try {
             const dexData = await getDexCandlestickData(
               network,
@@ -694,38 +754,21 @@ export async function tokenRoutes(fastify: FastifyInstance) {
               limitNum
             );
             if (dexData && Array.isArray(dexData) && dexData.length > 0) {
-              console.log(`[ChartAPI] ✓ DexScreener returned ${dexData.length} candles`);
               chartData = dexData;
               dataSource = 'dexscreener';
-            } else {
-              console.warn(`[ChartAPI] DexScreener also returned empty data (${dexData?.length || 0} candles)`);
             }
           } catch (dexError: any) {
-            console.error(`[ChartAPI] DexScreener fallback failed:`, dexError.message);
-            if (dexError.stack) {
-              console.error(`[ChartAPI] DexScreener stack:`, dexError.stack);
-            }
+            // fallback failure: return Gecko result if any, else empty data
           }
         }
       }
 
-      // Log final result
-      if (!chartData || chartData.length === 0) {
-        console.warn(`[ChartAPI] ⚠ No chart data available after trying both sources`);
-        console.warn(`[ChartAPI] This might mean:`);
-        console.warn(`  - Token ${address} on ${network} has no trading history`);
-        console.warn(`  - Pool ${pairAddress} is too new or inactive`);
-        console.warn(`  - Both APIs are temporarily unavailable`);
-      } else {
-        console.log(`[ChartAPI] ✓ Returning ${chartData.length} candles from ${dataSource}`);
-
-        // Cache successful results (30 seconds TTL for chart data)
+      // Cache successful results (30 seconds TTL for chart data)
+      if (chartData && chartData.length > 0) {
         try {
           await set(cacheKey, JSON.stringify(chartData), 30);
-          console.log(`[ChartAPI] Cached result for ${cacheKey}`);
-        } catch (cacheError: any) {
+        } catch {
           // Cache error is not critical
-          console.warn(`[ChartAPI] Cache write error (non-critical):`, cacheError.message);
         }
       }
 

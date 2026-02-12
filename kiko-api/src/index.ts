@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { prisma } from './db/prisma.js';
 import { env } from './config/env.js';
-import { logger } from './utils/logger.js';
+import { installConsoleInterception, logger } from './utils/logger.js';
 import { LogCode } from './config/logRegistry.js';
 import { testConnection } from './db/connection.js';
 import { initRedis } from './cache/redis.js';
@@ -63,6 +63,9 @@ const fastify = Fastify({
     connectionTimeout: env.apiConfig.requestTimeout,
     bodyLimit: env.apiConfig.maxRequestSize,
 });
+
+// Capture stray console logs into the structured logger in production (or when LOG_INTERCEPT_CONSOLE=true)
+installConsoleInterception();
 
 // Register CORS
 const corsOrigins = env.corsOrigin.split(',').map(o => o.trim());

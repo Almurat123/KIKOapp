@@ -8,8 +8,14 @@
 
 import cron from 'node-cron';
 import { getTrendingTokens } from '../services/geckoTerminal.js';
-import { getTrendingTokensPremium, getCandlestickData as getDexCandlestickData, getTokenPairsByAddress } from '../services/dexscreener.js';
-import { saveTrendingTokens, getLastUpdateTime, getTrendingTokens as getStoredTrendingTokens } from '../repositories/tokenRepository.js';
+import { getTrendingTokensPremium, getCandlestickData as getDexCandlestickData, getTokenPairsByAddress, getTokenDetails as getDexTokenDetails } from '../services/dexscreener.js';
+import {
+  saveTrendingTokens,
+  getLastUpdateTime,
+  getTrendingTokens as getStoredTrendingTokens,
+  saveTrendingTokenCreator,
+  saveTokenLaunchpadProfile
+} from '../repositories/tokenRepository.js';
 import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { validateTrendingTokenForListing } from '../services/trendingValidation.js';
 import { detectLaunchpadToken } from '../services/ai/launchpadDetector.js';
@@ -25,6 +31,7 @@ import { getRpcEndpointsWithStrategy } from '../config/apiEndpoints.js';
 import { getNativeTokenPriceUsd } from '../services/onChainPriceService.js';
 import { getEvmLogs } from '../config/unifiedScanService.js';
 import prisma from '../db/prisma.js';
+import { Prisma } from '@prisma/client';
 
 /**
  * Supported chains configuration
@@ -91,11 +98,28 @@ const TOKEN_BASELINE_CACHE_TTL_SECONDS = Math.max(
 );
 const BASELINE_EXTERNAL_FETCH_BUDGET_PER_RUN = Math.max(
   6,
-  Number(process.env.BASELINE_EXTERNAL_FETCH_BUDGET_PER_RUN || '120')
+  Number(process.env.BASELINE_EXTERNAL_FETCH_BUDGET_PER_RUN || '48')
 );
 const BASELINE_EXTERNAL_RETRY_TTL_SECONDS = Math.max(
-  30 * 60,
-  Number(process.env.BASELINE_EXTERNAL_RETRY_TTL_SECONDS || `${6 * 60 * 60}`)
+  2 * 60,
+  Number(process.env.BASELINE_EXTERNAL_RETRY_TTL_SECONDS || `${10 * 60}`)
+);
+const BASELINE_SWEEP_INTERVAL_SECONDS = Math.max(
+  20,
+  Number(process.env.BASELINE_SWEEP_INTERVAL_SECONDS || '45')
+);
+const BASELINE_SWEEP_MAX_PER_CHAIN = Math.max(
+  12,
+  Number(process.env.BASELINE_SWEEP_MAX_PER_CHAIN || '40')
+);
+const BASELINE_SWEEP_ENABLED = String(process.env.BASELINE_SWEEP_ENABLED || 'true').toLowerCase() !== 'false';
+const BASELINE_SWEEP_CHAINS = String(process.env.BASELINE_SWEEP_CHAINS || 'eth,base,bsc,solana')
+  .split(',')
+  .map((v) => v.trim().toLowerCase())
+  .filter(Boolean);
+const BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA = Math.max(
+  8,
+  Number(process.env.BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA || '20')
 );
 const GECKO_CANDLE_BACKOFF_MS = Math.max(
   5 * 60 * 1000,
@@ -147,6 +171,11 @@ type TokenBaselineMeta = {
 type ExternalBaselineResult = {
   price: number;
   source: string;
+  blockNumber?: number;
+  txHash?: string;
+  poolAddress?: string;
+  nativeUsd?: number;
+  quotedAt?: Date;
 };
 
 type BaselinePoolCandidate = {
@@ -154,11 +183,20 @@ type BaselinePoolCandidate = {
   poolCreatedAt?: string;
   liquidityUsd?: number;
 };
+const TRUSTED_BASELINE_SOURCES = ['rpc_stable_first_swap', 'rpc_native_first_swap', 'rpc_v4_initialize', 'solana_public_rpc'] as const;
+const pendingBaselineInFlight = new Map<string, Promise<{ queued: number; processed: number }>>();
+const multipleEnrichmentInFlight = new Map<string, Promise<void>>();
+let baselineSweepInProgress = false;
 
 const geckoCandleBackoffByChain = new Map<string, number>();
 let geckoNextCandleAtMs = 0;
 const poolCandidatesCache = new Map<string, { items: BaselinePoolCandidate[]; expiresAt: number }>();
 const historicalNativeUsdByDate = new Map<string, number>();
+const missingHistoricalNativeUsdUntil = new Map<string, number>();
+const NATIVE_USD_MISS_TTL_SECONDS = Math.max(
+  30 * 60,
+  Number(process.env.NATIVE_USD_MISS_TTL_SECONDS || `${6 * 60 * 60}`)
+);
 const RPC_LOG_MAX_BLOCK_RANGE = Math.max(
   200,
   Number(process.env.RPC_LOG_MAX_BLOCK_RANGE || '500')
@@ -169,25 +207,32 @@ const OLD_TOKEN_SCAN_MIN_DAYS = Math.max(
 );
 const SOL_RPC_SIGNATURE_PAGE_LIMIT = Math.max(
   100,
-  Number(process.env.SOL_RPC_SIGNATURE_PAGE_LIMIT || '250')
+  Number(process.env.SOL_RPC_SIGNATURE_PAGE_LIMIT || '120')
 );
 const SOL_RPC_SIGNATURE_MAX_PAGES = Math.max(
   2,
-  Number(process.env.SOL_RPC_SIGNATURE_MAX_PAGES || '10')
+  Number(process.env.SOL_RPC_SIGNATURE_MAX_PAGES || '3')
 );
 const SOL_RPC_EARLIEST_CANDIDATES = Math.max(
   1,
   Number(process.env.SOL_RPC_EARLIEST_CANDIDATES || '3')
 );
+const SOL_RPC_MAX_SIGNATURES_TO_INSPECT = Math.max(
+  20,
+  Number(process.env.SOL_RPC_MAX_SIGNATURES_TO_INSPECT || '80')
+);
+const SOL_RPC_MIN_INTERVAL_MS = Math.max(
+  150,
+  Number(process.env.SOL_RPC_MIN_INTERVAL_MS || '400')
+);
 const SOL_RPC_MIN_QUOTE_USD = Math.max(
-  1,
-  Number(process.env.SOL_RPC_MIN_QUOTE_USD || '25')
+  0,
+  Number(process.env.SOL_RPC_MIN_QUOTE_USD || '0')
 );
 const SOL_RPC_MIN_TARGET_AMOUNT = Math.max(
   0,
   Number(process.env.SOL_RPC_MIN_TARGET_AMOUNT || '100')
 );
-
 function getCoinbaseSymbolByChainId(chainId: number): string | null {
   if (chainId === 56) return 'BNB';
   if (chainId === 137) return 'MATIC';
@@ -218,6 +263,20 @@ async function getNativeUsdOnDate(chainId: number, tsSec?: number): Promise<numb
 
   const date = toUtcDate(Number(tsSec));
   const key = `${chainId}:${date}`;
+  const now = Date.now();
+  const missingUntil = missingHistoricalNativeUsdUntil.get(key) || 0;
+  if (missingUntil > now) return null;
+  try {
+    const rawMiss = await getRedisCache(nativeUsdMissCacheKey(chainId, date));
+    const redisUntil = Number(rawMiss || 0);
+    if (Number.isFinite(redisUntil) && redisUntil > now) {
+      missingHistoricalNativeUsdUntil.set(key, redisUntil);
+      return null;
+    }
+  } catch {
+    // ignore cache read errors
+  }
+
   const cached = historicalNativeUsdByDate.get(key);
   if (Number.isFinite(cached || NaN) && (cached || 0) > 0) return Number(cached);
 
@@ -230,10 +289,19 @@ async function getNativeUsdOnDate(chainId: number, tsSec?: number): Promise<numb
     const px = Number(data?.data?.amount || 0);
     if (Number.isFinite(px) && px > 0) {
       historicalNativeUsdByDate.set(key, px);
+      missingHistoricalNativeUsdUntil.delete(key);
+      try { await setRedisCache(nativeUsdMissCacheKey(chainId, date), '0', 1); } catch {}
       return px;
     }
+    // Unexpected non-error empty price: avoid hammering the same date repeatedly.
+    const until = now + NATIVE_USD_MISS_TTL_SECONDS * 1000;
+    missingHistoricalNativeUsdUntil.set(key, until);
+    try { await setRedisCache(nativeUsdMissCacheKey(chainId, date), String(until), NATIVE_USD_MISS_TTL_SECONDS); } catch {}
   } catch {
-    // fallback below
+    // Failed historical fetch: cache miss for a while to avoid repeated 404/rate-not-found storms.
+    const until = now + NATIVE_USD_MISS_TTL_SECONDS * 1000;
+    missingHistoricalNativeUsdUntil.set(key, until);
+    try { await setRedisCache(nativeUsdMissCacheKey(chainId, date), String(until), NATIVE_USD_MISS_TTL_SECONDS); } catch {}
   }
 
   // Only use spot as fallback when the requested date is recent (within 48h).
@@ -243,6 +311,8 @@ async function getNativeUsdOnDate(chainId: number, tsSec?: number): Promise<numb
     const spot = await getNativeTokenPriceUsd(chainId);
     if (Number.isFinite(spot) && spot > 0) {
       historicalNativeUsdByDate.set(key, spot);
+      missingHistoricalNativeUsdUntil.delete(key);
+      try { await setRedisCache(nativeUsdMissCacheKey(chainId, date), '0', 1); } catch {}
       return spot;
     }
   } else {
@@ -269,6 +339,10 @@ function tokenMetaCacheKey(chainId: string, address: string): string {
   return `token:meta:v2:${chainId}:${address.toLowerCase()}`;
 }
 
+function tokenMetaLegacyCacheKey(chainId: string, address: string): string {
+  return `token:meta:v1:${chainId}:${address.toLowerCase()}`;
+}
+
 function tokenBaselineCacheKey(chainId: string, address: string): string {
   return `token:baseline:v1:${chainId}:${address.toLowerCase()}`;
 }
@@ -277,8 +351,27 @@ function tokenBaselineRetryKey(chainId: string, address: string): string {
   return `token:baseline:retry:v1:${chainId}:${address.toLowerCase()}`;
 }
 
+function initialPoolCacheKey(chainId: string, address: string): string {
+  return `token:initial_pool:v2:${chainId}:${address.toLowerCase()}`;
+}
+
+function buildAddressVariants(addresses: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of addresses) {
+    const v = String(raw || '').trim();
+    if (!v) continue;
+    out.add(v);
+    out.add(v.toLowerCase());
+  }
+  return Array.from(out);
+}
+
 function geckoCandleBackoffKey(chainId: string): string {
   return `token:meta:candle_backoff:v1:${chainId}`;
+}
+
+function nativeUsdMissCacheKey(chainId: number, date: string): string {
+  return `token:native_usd:miss:v1:${chainId}:${date}`;
 }
 
 async function readGeckoCandleBackoff(chainId: string): Promise<number> {
@@ -313,13 +406,18 @@ async function writeGeckoCandleBackoff(chainId: string, until: number): Promise<
 
 async function readTokenMetaCache(chainId: string, address: string): Promise<EnrichedTokenMeta | null> {
   try {
-    const raw = await getRedisCache(tokenMetaCacheKey(chainId, address));
+    let raw = await getRedisCache(tokenMetaCacheKey(chainId, address));
+    let fromLegacy = false;
+    if (!raw) {
+      raw = await getRedisCache(tokenMetaLegacyCacheKey(chainId, address));
+      fromLegacy = !!raw;
+    }
     if (!raw) return null;
     const parsed = JSON.parse(raw) as EnrichedTokenMeta & { cacheVersion?: number };
     if (!parsed || typeof parsed !== 'object') return null;
     // Ignore legacy/unversioned multiple values to avoid stale carry-over after deploy.
     const cacheVersion = Number(parsed?.cacheVersion || 0);
-    if (cacheVersion < 2) {
+    if (fromLegacy || cacheVersion < 2) {
       return {
         creatorAddress: parsed.creatorAddress,
         creatorUrl: parsed.creatorUrl,
@@ -408,7 +506,14 @@ async function writeTokenBaselineCache(
   chainId: string,
   address: string,
   baselinePrice: number,
-  baselineSource: string = 'unknown'
+  baselineSource: string = 'unknown',
+  meta?: {
+    blockNumber?: number;
+    txHash?: string;
+    poolAddress?: string;
+    nativeUsd?: number;
+    quotedAt?: Date;
+  }
 ): Promise<void> {
   if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) return;
   const lower = address.toLowerCase();
@@ -417,7 +522,8 @@ async function writeTokenBaselineCache(
 
   // Stabilize baseline:
   // 1) Never downgrade a display-trusted baseline to weaker sources.
-  // 2) Once display-trusted exists, keep it immutable to avoid day-to-day drift.
+  // 2) Prefer higher-confidence sources; allow same-source replacement only when
+  //    prior value is likely poisoned by old parser behavior.
   try {
     const existing = await prisma.tokenLaunchBaseline.findUnique({
       where: {
@@ -433,15 +539,30 @@ async function writeTokenBaselineCache(
     const existingSource = String(existing?.baselineSource || '');
     const existingIsDisplayTrusted = isDisplayTrustedBaselineSource(existingSource);
     if (existingIsDisplayTrusted && !incomingIsDisplayTrusted) return;
-    if (existingIsDisplayTrusted && incomingIsDisplayTrusted && Number.isFinite(existingPrice) && existingPrice > 0) {
-      // Keep first trusted baseline; do not rewrite with another "trusted" candidate.
-      return;
+    if (Number.isFinite(existingPrice) && existingPrice > 0) {
+      const existingRank = baselineSourceRank(existingSource);
+      const incomingRank = baselineSourceRank(baselineSource);
+      if (incomingRank < existingRank) return;
+      if (incomingRank === existingRank) {
+        if (existingSource !== baselineSource) return;
+        const ratio = Math.max(existingPrice / baselinePrice, baselinePrice / existingPrice);
+        const canSelfHealSameSource = (
+          baselineSource === 'rpc_stable_first_swap'
+          || baselineSource === 'rpc_native_first_swap'
+          || baselineSource === 'rpc_v4_initialize'
+          || baselineSource === 'solana_public_rpc'
+          || baselineSource === 'bsc_token_manager_purchase'
+        );
+        if (!(canSelfHealSameSource && Number.isFinite(ratio) && ratio >= 3)) {
+          return;
+        }
+      }
     }
   } catch {
     // best-effort guard; continue with write path below
   }
 
-  const status = baselineSource === 'first_seen_fallback' ? 'fallback' : 'verified';
+  const status = isDisplayTrustedBaselineSource(baselineSource) ? 'verified' : 'pending';
   try {
     await setRedisCache(
       tokenBaselineCacheKey(chainId, lower),
@@ -464,6 +585,11 @@ async function writeTokenBaselineCache(
         baselinePrice,
         baselineSource,
         status,
+        baselineBlockNumber: Number.isFinite(Number(meta?.blockNumber || 0)) ? BigInt(Number(meta?.blockNumber || 0)) : null,
+        baselineTxHash: meta?.txHash || null,
+        baselinePoolAddress: meta?.poolAddress || null,
+        baselineNativeUsd: Number.isFinite(Number(meta?.nativeUsd || 0)) && Number(meta?.nativeUsd || 0) > 0 ? Number(meta?.nativeUsd || 0) : null,
+        baselineQuotedAt: meta?.quotedAt || null,
         lastCheckedAt: new Date(now),
         lastError: null,
       },
@@ -473,6 +599,11 @@ async function writeTokenBaselineCache(
         baselinePrice,
         baselineSource,
         status,
+        baselineBlockNumber: Number.isFinite(Number(meta?.blockNumber || 0)) ? BigInt(Number(meta?.blockNumber || 0)) : null,
+        baselineTxHash: meta?.txHash || null,
+        baselinePoolAddress: meta?.poolAddress || null,
+        baselineNativeUsd: Number.isFinite(Number(meta?.nativeUsd || 0)) && Number(meta?.nativeUsd || 0) > 0 ? Number(meta?.nativeUsd || 0) : null,
+        baselineQuotedAt: meta?.quotedAt || null,
         firstSeenAt: new Date(now),
         lastCheckedAt: new Date(now),
       },
@@ -483,23 +614,31 @@ async function writeTokenBaselineCache(
 }
 
 function isTrustedBaselineSource(source?: string): boolean {
-  return source === 'gecko_launch_window'
-    || source === 'dex_candles'
-    || source === 'rpc_stable_first_swap'
+  return source === 'rpc_stable_first_swap'
     || source === 'rpc_native_first_swap'
     || source === 'rpc_v4_initialize'
     || source === 'solana_public_rpc'
-    || source === 'derived_change_proxy'
-    || source === 'first_seen_fallback';
+    || source === 'bsc_token_manager_purchase';
+}
+
+function baselineSourceRank(source?: string): number {
+  if (!source) return 0;
+  if (
+    source === 'rpc_stable_first_swap'
+    || source === 'rpc_native_first_swap'
+    || source === 'rpc_v4_initialize'
+    || source === 'solana_public_rpc'
+    || source === 'bsc_token_manager_purchase'
+  ) return 4;
+  return 0;
 }
 
 function isDisplayTrustedBaselineSource(source?: string): boolean {
-  return source === 'gecko_launch_window'
-    || source === 'dex_candles'
-    || source === 'rpc_stable_first_swap'
+  return source === 'rpc_stable_first_swap'
     || source === 'rpc_native_first_swap'
     || source === 'rpc_v4_initialize'
-    || source === 'solana_public_rpc';
+    || source === 'solana_public_rpc'
+    || source === 'bsc_token_manager_purchase';
 }
 
 /**
@@ -539,7 +678,7 @@ function sanitizeMultiple(
     allowedMax = 200_000;
   }
 
-  const multiple = Math.max(1, multipleRaw);
+  const multiple = multipleRaw;
 
   if (multiple > allowedMax) {
     console.warn(
@@ -607,6 +746,41 @@ async function writeBaselineRetryCooldown(chainId: string, address: string): Pro
   }
 }
 
+async function writeBaselineAttemptError(
+  chainId: string,
+  address: string,
+  message: string,
+  poolAddress?: string
+): Promise<void> {
+  try {
+    const lower = address.toLowerCase();
+    await prisma.tokenLaunchBaseline.upsert({
+      where: {
+        chain_address: {
+          chain: chainId,
+          address: lower,
+        },
+      },
+      update: {
+        lastError: message.slice(0, 400),
+        lastCheckedAt: new Date(),
+        baselinePoolAddress: poolAddress || undefined,
+      },
+      create: {
+        chain: chainId,
+        address: lower,
+        status: 'pending',
+        firstSeenAt: new Date(),
+        lastCheckedAt: new Date(),
+        lastError: message.slice(0, 400),
+        baselinePoolAddress: poolAddress || undefined,
+      },
+    });
+  } catch {
+    // best-effort only
+  }
+}
+
 async function ensureBaselineTrackingRows(
   chainId: string,
   tokens: Array<{ address?: string }>
@@ -639,6 +813,99 @@ async function ensureBaselineTrackingRows(
   }
 }
 
+async function cacheInitialPoolSnapshots(
+  chainId: string,
+  tokens: Array<{ address?: string; launchpad?: string; poolAddress?: string; poolCreatedAt?: string; liquidity?: number }>
+): Promise<void> {
+  const sourceRank = (source?: string): number => {
+    if (source === 'clanker_launch_model') return 2;
+    if (source === 'trending_first_seen') return 1;
+    return 0;
+  };
+
+  const estimateInitialLiquidity = async (
+    token: { address?: string; launchpad?: string; poolCreatedAt?: string; liquidity?: number }
+  ): Promise<{ value?: number; source: string }> => {
+    const current = Number(token.liquidity || 0);
+    // Default fallback: keep first seen liquidity snapshot.
+    let fallbackValue = Number.isFinite(current) && current > 0 ? current : undefined;
+
+    const addressLower = String(token.address || '').toLowerCase();
+    const isClankerByLaunchpad = String(token.launchpad || '').toLowerCase() === 'clanker';
+    const isClankerBySuffix = chainId === 'base' && addressLower.endsWith('b07');
+
+    // Base/Clanker heuristic: launch liquidity tends to be around 34k or 68k USD.
+    if (chainId === 'base' && (isClankerByLaunchpad || isClankerBySuffix)) {
+      const createdSec = token.poolCreatedAt ? Math.floor(Date.parse(token.poolCreatedAt) / 1000) : 0;
+      const ts = createdSec > 0 ? createdSec : Math.floor(Date.now() / 1000);
+      let ethUsd = await getNativeUsdOnDate(8453, ts);
+      if (!Number.isFinite(Number(ethUsd || 0)) || Number(ethUsd || 0) <= 0) {
+        ethUsd = await getNativeTokenPriceUsd(8453);
+      }
+      if (Number.isFinite(Number(ethUsd || 0)) && Number(ethUsd || 0) > 0) {
+        const nativeUsd = Number(ethUsd || 0);
+        const c1 = 10 * nativeUsd;
+        const c2 = 20 * nativeUsd;
+        // Pull dynamic estimates toward known launch bands (about 34k / 68k).
+        const band1 = 34000;
+        const band2 = 68000;
+        const normalizedC1 = Math.abs(c1 - band1) <= Math.abs(c1 - band2) ? band1 : band2;
+        const normalizedC2 = Math.abs(c2 - band1) <= Math.abs(c2 - band2) ? band1 : band2;
+        const target = Number.isFinite(current) && current > 0 ? current : normalizedC1;
+        const chosen = Math.abs(target - normalizedC1) <= Math.abs(target - normalizedC2) ? normalizedC1 : normalizedC2;
+        if (Number.isFinite(chosen) && chosen > 0) {
+          return { value: chosen, source: 'clanker_launch_model' };
+        }
+      }
+      // If ETH USD is unavailable, keep a deterministic clanker fallback.
+      return { value: 34000, source: 'clanker_launch_model' };
+    }
+
+    return { value: fallbackValue, source: 'trending_first_seen' };
+  };
+
+  const limiter = pLimit(12);
+  await Promise.all(tokens.map((token) => limiter(async () => {
+    try {
+      const address = String(token.address || '').toLowerCase();
+      if (!address) return;
+      const poolAddress = String(token.poolAddress || '').trim();
+      const poolCreatedAt = typeof token.poolCreatedAt === 'string' ? token.poolCreatedAt : undefined;
+      if (!poolAddress && !poolCreatedAt) return;
+
+      const key = initialPoolCacheKey(chainId, address);
+      const existing = await getRedisCache(key);
+      let existingParsed: any = null;
+      if (existing) {
+        try { existingParsed = JSON.parse(existing); } catch {}
+      }
+
+      const estimated = await estimateInitialLiquidity(token);
+      const payload = {
+        initialPoolAddress: poolAddress || undefined,
+        initialPoolCreatedAt: poolCreatedAt || undefined,
+        initialLiquidityUsd: Number.isFinite(Number(estimated.value || 0)) && Number(estimated.value || 0) > 0
+          ? Number(estimated.value || 0)
+          : undefined,
+        capturedAt: Date.now(),
+        source: estimated.source,
+      };
+
+      if (existingParsed) {
+        const oldRank = sourceRank(String(existingParsed?.source || ''));
+        const newRank = sourceRank(payload.source);
+        // Keep better source. For same rank, preserve older snapshot.
+        if (newRank < oldRank) return;
+        if (newRank === oldRank) return;
+      }
+
+      await setRedisCache(key, JSON.stringify(payload), 30 * 24 * 60 * 60);
+    } catch {
+      // best-effort snapshot only
+    }
+  })));
+}
+
 function toIsoMaybe(ts?: number): string | undefined {
   if (!Number.isFinite(Number(ts)) || Number(ts) <= 0) return undefined;
   return new Date(Number(ts)).toISOString();
@@ -658,6 +925,26 @@ async function getBaselinePoolCandidates(
     return primaryPoolAddress ? [{ poolAddress: primaryPoolAddress, poolCreatedAt: primaryPoolCreatedAt }] : [];
   }
 
+  if (!primaryPoolAddress) {
+    try {
+      const initialRaw = await getRedisCache(initialPoolCacheKey(chainId, tokenAddress));
+      if (initialRaw) {
+        const parsed = JSON.parse(initialRaw) as {
+          initialPoolAddress?: string;
+          initialPoolCreatedAt?: string;
+        };
+        if (typeof parsed?.initialPoolAddress === 'string' && parsed.initialPoolAddress.trim()) {
+          primaryPoolAddress = parsed.initialPoolAddress.trim();
+        }
+        if (typeof parsed?.initialPoolCreatedAt === 'string' && parsed.initialPoolCreatedAt.trim()) {
+          primaryPoolCreatedAt = parsed.initialPoolCreatedAt.trim();
+        }
+      }
+    } catch {
+      // best effort only
+    }
+  }
+
   const key = cacheKeyForPoolCandidates(chainId, tokenAddress);
   const cached = poolCandidatesCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
@@ -665,6 +952,7 @@ async function getBaselinePoolCandidates(
   }
 
   const unique = new Map<string, BaselinePoolCandidate>();
+  let hadDexFailure = false;
 
   if (primaryPoolAddress) {
     unique.set(primaryPoolAddress.toLowerCase(), {
@@ -704,7 +992,24 @@ async function getBaselinePoolCandidates(
       unique.set(lower, merged);
     }
   } catch {
-    // best-effort only
+    hadDexFailure = true;
+  }
+
+  // Fallback: token-details endpoint occasionally returns pool info
+  // even when pair search is rate-limited or sparse.
+  if (!primaryPoolAddress && unique.size === 0) {
+    try {
+      const details = await getDexTokenDetails(chainId, tokenAddress);
+      const poolAddress = String(details?.poolAddress || '').trim();
+      if (poolAddress) {
+        unique.set(poolAddress.toLowerCase(), {
+          poolAddress,
+          poolCreatedAt: toIsoMaybe(details?.pairCreatedAt),
+        });
+      }
+    } catch {
+      hadDexFailure = true;
+    }
   }
 
   const items = Array.from(unique.values())
@@ -716,14 +1021,17 @@ async function getBaselinePoolCandidates(
     })
     .slice(0, 14);
 
-  poolCandidatesCache.set(key, { items, expiresAt: Date.now() + 2 * 60 * 60 * 1000 });
+  const ttlMs = (hadDexFailure || items.length === 0)
+    ? 60 * 1000
+    : 2 * 60 * 60 * 1000;
+  poolCandidatesCache.set(key, { items, expiresAt: Date.now() + ttlMs });
   return items;
 }
 
 async function fetchExternalBaselinePrice(
   chainId: string,
   geckoNetwork: string,
-  token: { address?: string; poolAddress?: string; poolCreatedAt?: string }
+  token: { address?: string; launchpad?: string; poolAddress?: string; poolCreatedAt?: string }
 ): Promise<ExternalBaselineResult | null> {
   const candidates = await getBaselinePoolCandidates(
       chainId,
@@ -734,11 +1042,12 @@ async function fetchExternalBaselinePrice(
   if (candidates.length === 0) return null;
 
   for (const pool of candidates) {
-      const result = await fetchExternalBaselinePriceForPool(chainId, geckoNetwork, token.address, pool);
+    const result = await fetchExternalBaselinePriceForPool(chainId, geckoNetwork, token.address, token.launchpad, pool);
     if (result && Number.isFinite(result.price) && result.price > 0) {
       return result;
     }
   }
+
   return null;
 }
 
@@ -746,103 +1055,36 @@ async function fetchExternalBaselinePriceForPool(
   chainId: string,
   geckoNetwork: string,
   tokenAddress: string | undefined,
+  launchpad: string | undefined,
   pool: BaselinePoolCandidate
 ): Promise<ExternalBaselineResult | null> {
+  void geckoNetwork;
   if (!pool.poolAddress) return null;
-  const createdMs = pool.poolCreatedAt ? Date.parse(pool.poolCreatedAt) : NaN;
-  const ageHours = Number.isFinite(createdMs) && createdMs > 0 ? (Date.now() - createdMs) / (1000 * 60 * 60) : NaN;
-  const ageDays = Number.isFinite(createdMs) && createdMs > 0 ? (Date.now() - createdMs) / (1000 * 60 * 60 * 24) : NaN;
-  const createdSec = Number.isFinite(createdMs) && createdMs > 0 ? Math.floor(createdMs / 1000) : 0;
 
   // Solana: RPC first swap is more reliable for baseline than candle windows.
   if (chainId === 'solana') {
       const solRpcBaseline = await fetchSolanaRpcBaselineUsd(tokenAddress, pool.poolAddress, pool.poolCreatedAt);
     if (typeof solRpcBaseline === 'number' && Number.isFinite(solRpcBaseline) && solRpcBaseline > 0) {
-      return { price: solRpcBaseline, source: 'solana_public_rpc' };
+      return { price: solRpcBaseline, source: 'solana_public_rpc', poolAddress: pool.poolAddress };
     }
   }
 
-  // 1) Dex candles (fast) only when candle window still covers launch period.
-  {
-    const timeframe: 'm5' | 'h1' | 'd1' =
-      !Number.isFinite(ageHours) ? 'h1'
-      : ageHours <= 12 ? 'm5'
-      : ageDays <= 14 ? 'h1'
-      : 'd1';
-    const limit = timeframe === 'm5' ? 180 : timeframe === 'h1' ? 240 : 180;
-    const timeframeSec = timeframe === 'm5' ? 5 * 60 : timeframe === 'h1' ? 60 * 60 : 24 * 60 * 60;
-    const historyCoverageSec = timeframeSec * limit;
-    const launchSlackSec = timeframeSec * 3;
-    const hasCreatedAt = createdSec > 0;
-    const allowDexCandleBaseline = hasCreatedAt && (Math.floor(Date.now() / 1000) - createdSec) <= (historyCoverageSec + launchSlackSec);
-    const dexCandles = await getDexCandlestickData(chainId, pool.poolAddress, timeframe, limit);
-    if (allowDexCandleBaseline && Array.isArray(dexCandles) && dexCandles.length >= 2) {
-      const candles = dexCandles
-        .map((c: any) => ({ time: Number(c?.time), open: Number(c?.open) }))
-        .filter((c: any) => Number.isFinite(c.time) && Number.isFinite(c.open) && c.open > 0)
-        .sort((a: any, b: any) => a.time - b.time);
-      if (candles.length >= 2 && candles[candles.length - 1].time > candles[0].time) {
-        const oldestTs = Number(candles[0].time || 0);
-        if (oldestTs > 0 && hasCreatedAt && oldestTs <= (createdSec + launchSlackSec)) {
-          return { price: candles[0].open, source: 'dex_candles' };
-        }
+  // 1) EVM: RPC first-swap / v4 initialize baseline only.
+  if (chainId !== 'solana') {
+    const rpcAttempts = Math.max(1, Number(process.env.BASELINE_EVM_RPC_ATTEMPTS || '3'));
+    for (let i = 0; i < rpcAttempts; i++) {
+      const rpcBaseline = await fetchRpcStableSwapBaselineUsd(chainId, tokenAddress, pool.poolAddress, pool.poolCreatedAt);
+      if (rpcBaseline && Number.isFinite(rpcBaseline.price) && rpcBaseline.price > 0) {
+        return rpcBaseline;
       }
     }
   }
 
-  // 2) RPC first-swap / v4 initialize baseline.
-  {
-    const rpcBaseline = await fetchRpcStableSwapBaselineUsd(chainId, tokenAddress, pool.poolAddress, pool.poolCreatedAt);
-    if (rpcBaseline && Number.isFinite(rpcBaseline.price) && rpcBaseline.price > 0) {
-      return rpcBaseline;
-    }
-  }
-
-  // 3) Solana fallback from public RPC (2nd chance after generic RPC path).
+  // 2) Solana fallback from public RPC (2nd chance).
   if (chainId === 'solana') {
     const solRpcBaseline = await fetchSolanaRpcBaselineUsd(tokenAddress, pool.poolAddress, pool.poolCreatedAt);
     if (typeof solRpcBaseline === 'number' && Number.isFinite(solRpcBaseline) && solRpcBaseline > 0) {
-      return { price: solRpcBaseline, source: 'solana_public_rpc' };
-    }
-  }
-
-  // 4) Gecko only when pool looks like a real pool address and age is within public history limits.
-  if (isHexPoolId(pool.poolAddress)) {
-    return null;
-  }
-  if (!Number.isFinite(ageDays) || ageDays > 179 || !Number.isFinite(createdMs) || createdMs <= 0) {
-    return null;
-  }
-
-  const windows: Array<{ timeframe: 'minute' | 'hour'; windowSeconds: number; limit: number }> = [
-    { timeframe: 'minute', windowSeconds: 12 * 3600, limit: 720 },
-    { timeframe: 'hour', windowSeconds: 14 * 24 * 3600, limit: 336 },
-  ];
-
-  for (const w of windows) {
-    const beforeTs = Math.floor(Math.min(Date.now() / 1000 - 60, createdSec + w.windowSeconds));
-    if (beforeTs <= createdSec) continue;
-    const url = `https://api.geckoterminal.com/api/v2/networks/${geckoNetwork}/pools/${pool.poolAddress}/ohlcv/${w.timeframe}?aggregate=1&before_timestamp=${beforeTs}&limit=${w.limit}`;
-    try {
-      await waitForGeckoCandleSlot();
-      const data = await fetchJson<any>({
-        url,
-        headers: { Accept: 'application/json', 'User-Agent': 'KiKo/1.0' },
-      });
-      const list = data?.data?.attributes?.ohlcv_list;
-      if (!Array.isArray(list) || list.length === 0) continue;
-      const candles = list
-        .map((item: any) => ({ time: Number(item?.[0]), open: Number(item?.[1]) }))
-        .filter((c: any) => Number.isFinite(c.time) && Number.isFinite(c.open) && c.open > 0)
-        .sort((a: any, b: any) => a.time - b.time);
-      if (candles.length === 0) continue;
-      const launch = candles.find((c: any) => c.time >= createdSec - 300) || candles[0];
-      if (Number.isFinite(launch?.open) && launch.open > 0) {
-        return { price: launch.open, source: 'gecko_launch_window' };
-      }
-    } catch (error) {
-      if (isRateLimitError(error)) throw error;
-      continue;
+      return { price: solRpcBaseline, source: 'solana_public_rpc', poolAddress: pool.poolAddress };
     }
   }
 
@@ -859,24 +1101,27 @@ const CHAIN_SLUG_TO_ID: Record<string, number> = {
 };
 
 const publicProviderCache = new Map<string, ethers.JsonRpcProvider>();
+const publicRpcCursorByChain = new Map<string, number>();
 const solRpcBackoffUntilByUrl = new Map<string, number>();
+const solRpcLastCallByUrl = new Map<string, number>();
 let solRpcRoundRobinCursor = 0;
 
 function getPublicRpcUrl(chainSlug: string): string | null {
-  try {
-    const endpoints = getRpcEndpointsWithStrategy(chainSlug, 'cheap');
-    const publicEndpoint = endpoints.find((ep) => ep.type === 'public' && !!ep.url);
-    return publicEndpoint?.url || null;
-  } catch {
-    return null;
-  }
+  const urls = getPublicRpcUrls(chainSlug);
+  if (urls.length === 0) return null;
+  const cursor = publicRpcCursorByChain.get(chainSlug) || 0;
+  const idx = cursor % urls.length;
+  publicRpcCursorByChain.set(chainSlug, (idx + 1) % urls.length);
+  return urls[idx] || null;
 }
 
 function getPublicRpcUrls(chainSlug: string): string[] {
   try {
+    // Safety-first default: baseline/multiple pipeline must stay on free RPC unless explicitly opted in.
+    const includePremium = String(process.env.BASELINE_INCLUDE_PREMIUM_RPC || 'false').toLowerCase() === 'true';
     const endpoints = getRpcEndpointsWithStrategy(chainSlug, 'cheap');
     const urls = endpoints
-      .filter((ep) => (ep.type === 'public' || ep.type === 'fallback') && !!ep.url)
+      .filter((ep) => !!ep.url && (includePremium || ep.type === 'public' || ep.type === 'fallback'))
       .map((ep) => ep.url.trim())
       .filter(Boolean);
     return Array.from(new Set(urls));
@@ -891,7 +1136,8 @@ function getPublicEvmProvider(chainSlug: string): ethers.JsonRpcProvider | null 
   const cacheKey = `${chainSlug}:${url}`;
   const cached = publicProviderCache.get(cacheKey);
   if (cached) return cached;
-  const provider = new ethers.JsonRpcProvider(url, undefined, { staticNetwork: true });
+  const chainId = CHAIN_SLUG_TO_ID[chainSlug];
+  const provider = new ethers.JsonRpcProvider(url, Number.isFinite(chainId) ? chainId : undefined, { staticNetwork: true });
   publicProviderCache.set(cacheKey, provider);
   return provider;
 }
@@ -907,6 +1153,7 @@ const ERC20_IFACE = new ethers.Interface([
 
 const V2_SWAP_TOPIC = ethers.id('Swap(address,uint256,uint256,uint256,uint256,address)');
 const V3_SWAP_TOPIC = ethers.id('Swap(address,address,int256,int256,uint160,uint128,int24)');
+const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
 const V4_INIT_TOPIC = ethers.id('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)');
 
 const V2_SWAP_IFACE = new ethers.Interface([
@@ -915,6 +1162,15 @@ const V2_SWAP_IFACE = new ethers.Interface([
 
 const V3_SWAP_IFACE = new ethers.Interface([
   'event Swap(address indexed sender,address indexed recipient,int256 amount0,int256 amount1,uint160 sqrtPriceX96,uint128 liquidity,int24 tick)',
+]);
+const FOURMEME_V2_IFACE = new ethers.Interface([
+  'event TokenPurchase(address token,address account,uint256 price,uint256 amount,uint256 cost,uint256 fee,uint256 offers,uint256 funds)',
+]);
+const FOURMEME_V1_IFACE = new ethers.Interface([
+  'event TokenPurchase(address token,address account,uint256 tokenAmount,uint256 etherAmount)',
+]);
+const ERC20_TRANSFER_IFACE = new ethers.Interface([
+  'event Transfer(address indexed from,address indexed to,uint256 value)',
 ]);
 const V4_INIT_IFACE = new ethers.Interface([
   'event Initialize(bytes32 indexed id,address indexed currency0,address indexed currency1,uint24 fee,int24 tickSpacing,address hooks,uint160 sqrtPriceX96,int24 tick)',
@@ -929,6 +1185,10 @@ const V4_INIT_FROM_BLOCK_BY_CHAIN_ID: Partial<Record<number, number>> = {
   1: 21688329,
   8453: 41642655,
 };
+const FOURMEME_TOKEN_MANAGER_V2 = '0x5c952063c7fc8610ffdb798152d69f0b9550762b';
+const FOURMEME_TOKEN_MANAGER_V1 = '0xec4549cadce5da21df6e6422d448034b5233bfbc';
+const FOURMEME_PURCHASE_V2_TOPIC = ethers.id('TokenPurchase(address,address,uint256,uint256,uint256,uint256,uint256,uint256)');
+const FOURMEME_PURCHASE_V1_TOPIC = ethers.id('TokenPurchase(address,address,uint256,uint256)');
 
 function isHexPoolId(value?: string): boolean {
   return typeof value === 'string' && /^0x[a-fA-F0-9]{64}$/.test(value);
@@ -1014,6 +1274,19 @@ function estimateStartBlockByTime(chainSlug: string, latestBlock: number, latest
   return Math.max(1, latestBlock - deltaBlocks);
 }
 
+function estimateBlocksForSeconds(chainSlug: string, windowSec: number): number {
+  const avgBlockSec: Record<string, number> = {
+    eth: 12,
+    base: 2,
+    bsc: 3,
+    arbitrum: 1,
+    optimism: 2,
+    polygon: 2,
+  };
+  const secPerBlock = avgBlockSec[chainSlug] || 3;
+  return Math.max(100, Math.floor(windowSec / secPerBlock));
+}
+
 const timestampBlockHintCache = new Map<string, number>();
 
 async function findBlockByTimestamp(
@@ -1065,9 +1338,64 @@ type FirstSwapData = {
   targetRaw: bigint;
   quoteRaw: bigint;
   blockNumber: number;
+  txHash?: string;
 };
 
+const EVM_BASELINE_MIN_QUOTE_USD = Math.max(0, Number(process.env.EVM_BASELINE_MIN_QUOTE_USD || '0'));
+const EVM_BASELINE_MAX_CANDIDATE_SWAPS = Math.max(5, Number(process.env.EVM_BASELINE_MAX_CANDIDATE_SWAPS || '40'));
+const EVM_SCAN_FIRST_ENABLED = String(process.env.EVM_SCAN_FIRST_ENABLED || 'false').toLowerCase() === 'true';
+const EVM_BASELINE_FALLBACK_MAX_SWAPS = Math.max(10, Number(process.env.EVM_BASELINE_FALLBACK_MAX_SWAPS || '50'));
+const EVM_BASELINE_FALLBACK_WINDOW_SECONDS = Math.max(600, Number(process.env.EVM_BASELINE_FALLBACK_WINDOW_SECONDS || '1800'));
+const BSC_RECEIPT_SCAN_MAX_BLOCKS = Math.max(3000, Number(process.env.BSC_RECEIPT_SCAN_MAX_BLOCKS || '15000'));
+const BSC_RECEIPT_SCAN_MAX_TX_PER_BLOCK = Math.max(20, Number(process.env.BSC_RECEIPT_SCAN_MAX_TX_PER_BLOCK || '220'));
+const BSC_RECEIPT_SCAN_CONCURRENCY = Math.max(1, Number(process.env.BSC_RECEIPT_SCAN_CONCURRENCY || '12'));
+
 function parseFirstSwapLog(
+  log: ethers.Log,
+  target: string,
+  token0: string,
+  token1: string
+): { targetRaw: bigint; quoteRaw: bigint } | null {
+  // Baseline should be anchored to the first BUY of target token:
+  // target out, quote in. Avoid using early sells/dust flips as launch price.
+  if (log.topics[0] === V2_SWAP_TOPIC) {
+    const parsed = V2_SWAP_IFACE.parseLog({ topics: log.topics, data: log.data });
+    if (!parsed) return null;
+    const amount0In = BigInt(parsed.args.amount0In.toString());
+    const amount1In = BigInt(parsed.args.amount1In.toString());
+    const amount0Out = BigInt(parsed.args.amount0Out.toString());
+    const amount1Out = BigInt(parsed.args.amount1Out.toString());
+
+    if (target === token0) {
+      // BUY token0 => token0 out, token1 in
+      if (amount0Out > 0n && amount1In > 0n) return { targetRaw: amount0Out, quoteRaw: amount1In };
+      return null;
+    }
+
+    // BUY token1 => token1 out, token0 in
+    if (amount1Out > 0n && amount0In > 0n) return { targetRaw: amount1Out, quoteRaw: amount0In };
+    return null;
+  }
+
+  if (log.topics[0] === V3_SWAP_TOPIC) {
+    const parsed = V3_SWAP_IFACE.parseLog({ topics: log.topics, data: log.data });
+    if (!parsed) return null;
+    const amount0 = BigInt(parsed.args.amount0.toString());
+    const amount1 = BigInt(parsed.args.amount1.toString());
+    // In Uniswap V3 event amounts are pool deltas:
+    // >0 token in to pool, <0 token out from pool.
+    if (target === token0) {
+      if (amount0 < 0n && amount1 > 0n) return { targetRaw: absBig(amount0), quoteRaw: amount1 };
+      return null;
+    }
+    if (amount1 < 0n && amount0 > 0n) return { targetRaw: absBig(amount1), quoteRaw: amount0 };
+    return null;
+  }
+
+  return null;
+}
+
+function parseAnySwapLog(
   log: ethers.Log,
   target: string,
   token0: string,
@@ -1080,31 +1408,69 @@ function parseFirstSwapLog(
     const amount1In = BigInt(parsed.args.amount1In.toString());
     const amount0Out = BigInt(parsed.args.amount0Out.toString());
     const amount1Out = BigInt(parsed.args.amount1Out.toString());
-
     if (target === token0) {
-      if (amount0In > 0n && amount1Out > 0n) return { targetRaw: amount0In, quoteRaw: amount1Out };
-      if (amount0Out > 0n && amount1In > 0n) return { targetRaw: amount0Out, quoteRaw: amount1In };
-      return null;
+      const targetAbs = amount0Out > 0n ? amount0Out : amount0In;
+      const quoteAbs = amount0Out > 0n ? amount1In : amount1Out;
+      return targetAbs > 0n && quoteAbs > 0n ? { targetRaw: targetAbs, quoteRaw: quoteAbs } : null;
     }
-
-    if (amount1In > 0n && amount0Out > 0n) return { targetRaw: amount1In, quoteRaw: amount0Out };
-    if (amount1Out > 0n && amount0In > 0n) return { targetRaw: amount1Out, quoteRaw: amount0In };
-    return null;
+    const targetAbs = amount1Out > 0n ? amount1Out : amount1In;
+    const quoteAbs = amount1Out > 0n ? amount0In : amount0Out;
+    return targetAbs > 0n && quoteAbs > 0n ? { targetRaw: targetAbs, quoteRaw: quoteAbs } : null;
   }
 
   if (log.topics[0] === V3_SWAP_TOPIC) {
     const parsed = V3_SWAP_IFACE.parseLog({ topics: log.topics, data: log.data });
     if (!parsed) return null;
-    const amount0 = absBig(BigInt(parsed.args.amount0.toString()));
-    const amount1 = absBig(BigInt(parsed.args.amount1.toString()));
-    if (target === token0) return amount0 > 0n && amount1 > 0n ? { targetRaw: amount0, quoteRaw: amount1 } : null;
-    return amount1 > 0n && amount0 > 0n ? { targetRaw: amount1, quoteRaw: amount0 } : null;
+    const amount0Abs = absBig(BigInt(parsed.args.amount0.toString()));
+    const amount1Abs = absBig(BigInt(parsed.args.amount1.toString()));
+    if (amount0Abs <= 0n || amount1Abs <= 0n) return null;
+    if (target === token0) return { targetRaw: amount0Abs, quoteRaw: amount1Abs };
+    return { targetRaw: amount1Abs, quoteRaw: amount0Abs };
   }
 
   return null;
 }
 
-async function findFirstSwapData(
+function shouldSplitLogRange(error: unknown): boolean {
+  const msg = String((error as any)?.message || error || '').toLowerCase();
+  return msg.includes('query returned more than')
+    || msg.includes('too many results')
+    || msg.includes('limit exceeded')
+    || msg.includes('block range')
+    || msg.includes('response size exceeded');
+}
+
+async function getLogsAdaptive(
+  provider: ethers.JsonRpcProvider,
+  params: { address?: string; topics?: Array<string | Array<string> | null>; fromBlock: number; toBlock: number },
+  minChunk: number = 40
+): Promise<ethers.Log[]> {
+  const out: ethers.Log[] = [];
+  const stack: Array<{ from: number; to: number }> = [{ from: params.fromBlock, to: params.toBlock }];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    if (cur.to < cur.from) continue;
+    try {
+      const logs = await provider.getLogs({
+        address: params.address,
+        topics: params.topics,
+        fromBlock: cur.from,
+        toBlock: cur.to,
+      });
+      if (Array.isArray(logs) && logs.length > 0) out.push(...logs);
+    } catch (error) {
+      const span = cur.to - cur.from + 1;
+      if (span > minChunk && shouldSplitLogRange(error)) {
+        const mid = Math.floor((cur.from + cur.to) / 2);
+        stack.push({ from: cur.from, to: mid });
+        stack.push({ from: mid + 1, to: cur.to });
+      }
+    }
+  }
+  return out;
+}
+
+async function findBuySwapSamples(
   provider: ethers.JsonRpcProvider,
   chainSlug: string,
   poolAddress: string,
@@ -1112,9 +1478,9 @@ async function findFirstSwapData(
   target: string,
   token0: string,
   token1: string
-): Promise<FirstSwapData | null> {
+): Promise<FirstSwapData[]> {
   const latest = await provider.getBlock('latest');
-  if (!latest || !Number.isFinite(Number(latest.number)) || !Number.isFinite(Number(latest.timestamp))) return null;
+  if (!latest || !Number.isFinite(Number(latest.number)) || !Number.isFinite(Number(latest.timestamp))) return [];
   const latestBlock = Number(latest.number);
   const latestTs = Number(latest.timestamp);
   const binaryStart = await findBlockByTimestamp(provider, chainSlug, createdSec, latestBlock, latestTs);
@@ -1126,13 +1492,79 @@ async function findFirstSwapData(
     { from: Math.max(1, startBlock - 20000), to: startBlock + 150000 },
     { from: Math.max(1, startBlock - 80000), to: startBlock + 400000 },
   ];
+  const out: FirstSwapData[] = [];
+  const seen = new Set<string>();
+  const tokenAgeDays = Math.max(0, (Date.now() / 1000 - createdSec) / 86400);
+  const canUseScan = !!CHAIN_SLUG_TO_ID[chainSlug] && (
+    chainSlug === 'bsc' || tokenAgeDays >= OLD_TOKEN_SCAN_MIN_DAYS
+  );
+
+  // Optional scan-first path.
+  // Default is RPC-first for stability/cost; enable scan-first only if explicitly requested.
+  if (canUseScan && EVM_SCAN_FIRST_ENABLED) {
+    try {
+      const latestBlock = Number(latest.number || 0);
+      if (latestBlock > 0) {
+        const [scanV2Earliest, scanV3Earliest] = await Promise.all([
+          getEvmLogs(CHAIN_SLUG_TO_ID[chainSlug], chainSlug, {
+            address: poolAddress,
+            topic0: V2_SWAP_TOPIC,
+            fromBlock: 0,
+            toBlock: latestBlock,
+            page: 1,
+            offset: 150,
+            sort: 'asc',
+          }).catch(() => []),
+          getEvmLogs(CHAIN_SLUG_TO_ID[chainSlug], chainSlug, {
+            address: poolAddress,
+            topic0: V3_SWAP_TOPIC,
+            fromBlock: 0,
+            toBlock: latestBlock,
+            page: 1,
+            offset: 150,
+            sort: 'asc',
+          }).catch(() => []),
+        ]);
+
+        const earliestLogs = [...scanV2Earliest, ...scanV3Earliest]
+          .map((l: any) => ({
+            topics: l.topics,
+            data: l.data,
+            blockNumber: Number(l.blockNumber),
+            index: Number(l.logIndex || 0),
+            transactionHash: l.transactionHash || l.hash || undefined,
+          }))
+          .sort((a: any, b: any) => {
+            if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+            return Number(a.index) - Number(b.index);
+          });
+
+        for (const log of earliestLogs) {
+          const parsed = parseFirstSwapLog(log as any, target, token0, token1) || parseAnySwapLog(log as any, target, token0, token1);
+          if (!parsed) continue;
+          const key = `${log.blockNumber}:${Number(log.index)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({
+            ...parsed,
+            blockNumber: Number(log.blockNumber),
+            txHash: (log as any).transactionHash || undefined
+          });
+          if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) break;
+        }
+      }
+      if (out.length > 0) return out.sort((a, b) => a.blockNumber - b.blockNumber);
+    } catch {
+      // fall through to RPC path
+    }
+  }
 
   for (const r of ranges) {
     for (let from = r.from; from <= r.to; from += RPC_LOG_MAX_BLOCK_RANGE) {
       const to = Math.min(r.to, from + RPC_LOG_MAX_BLOCK_RANGE - 1);
       const [v2Logs, v3Logs] = await Promise.all([
-        provider.getLogs({ address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }).catch(() => [] as ethers.Log[]),
-        provider.getLogs({ address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }).catch(() => [] as ethers.Log[]),
+        getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }),
+        getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }),
       ]);
 
       const logs = [...v2Logs, ...v3Logs].sort((a, b) => {
@@ -1142,15 +1574,21 @@ async function findFirstSwapData(
       for (const log of logs) {
         const parsed = parseFirstSwapLog(log, target, token0, token1);
         if (!parsed) continue;
-        return { ...parsed, blockNumber: Number(log.blockNumber) };
+        const key = `${log.blockNumber}:${Number(log.index)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ ...parsed, blockNumber: Number(log.blockNumber), txHash: (log as any).transactionHash || undefined });
+        if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) {
+          return out.sort((a, b) => a.blockNumber - b.blockNumber);
+        }
       }
     }
   }
 
-  // Old token fallback: use explorer scan APIs (Etherscan/Basescan family) only for aged pools.
-  const tokenAgeDays = Math.max(0, (Date.now() / 1000 - createdSec) / 86400);
-  const canUseScan = tokenAgeDays >= OLD_TOKEN_SCAN_MIN_DAYS && !!CHAIN_SLUG_TO_ID[chainSlug];
-  if (!canUseScan) return null;
+  // Explorer fallback:
+  // - always enabled on BSC (public RPC getLogs is less stable across many pools)
+  // - enabled on other EVM chains for older pools only (cost control)
+  if (!canUseScan) return out.sort((a, b) => a.blockNumber - b.blockNumber);
 
   try {
     const latestBlock = Number(latest.number || 0);
@@ -1191,12 +1629,17 @@ async function findFirstSwapData(
       for (const log of earliestLogs) {
         const parsed = parseFirstSwapLog(log as any, target, token0, token1);
         if (!parsed) continue;
-        return { ...parsed, blockNumber: Number(log.blockNumber) };
+        const key = `${log.blockNumber}:${Number(log.index)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ ...parsed, blockNumber: Number(log.blockNumber), txHash: (log as any).transactionHash || undefined });
+        if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) {
+          return out.sort((a, b) => a.blockNumber - b.blockNumber);
+        }
       }
     }
 
     for (const r of ranges) {
-      let bestFromScan: FirstSwapData | null = null;
       for (let to = r.to; to >= r.from; to -= 5000) {
         const from = Math.max(r.from, to - 4999);
         const [scanV2, scanV3] = await Promise.all([
@@ -1235,19 +1678,386 @@ async function findFirstSwapData(
         for (const log of logs) {
           const parsed = parseFirstSwapLog(log as any, target, token0, token1);
           if (!parsed) continue;
-          const candidate: FirstSwapData = { ...parsed, blockNumber: Number(log.blockNumber) };
-          if (!bestFromScan || candidate.blockNumber < bestFromScan.blockNumber) {
-            bestFromScan = candidate;
+          const key = `${log.blockNumber}:${Number(log.index)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ ...parsed, blockNumber: Number(log.blockNumber), txHash: (log as any).transactionHash || (log as any).hash || undefined });
+          if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) {
+            return out.sort((a, b) => a.blockNumber - b.blockNumber);
           }
         }
       }
-      if (bestFromScan) return bestFromScan;
     }
   } catch {
     // best-effort fallback only
   }
 
-  return null;
+  // Last chance: use first swap in absolute terms (buy/sell agnostic).
+  if (out.length === 0) {
+    try {
+      for (const r of ranges) {
+        for (let from = r.from; from <= r.to; from += RPC_LOG_MAX_BLOCK_RANGE) {
+          const to = Math.min(r.to, from + RPC_LOG_MAX_BLOCK_RANGE - 1);
+          const [v2Logs, v3Logs] = await Promise.all([
+            getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }),
+            getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }),
+          ]);
+          const logs = [...v2Logs, ...v3Logs].sort((a, b) => {
+            if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+            return Number(a.index) - Number(b.index);
+          });
+          for (const log of logs) {
+            const parsed = parseAnySwapLog(log, target, token0, token1);
+            if (!parsed) continue;
+            const key = `${log.blockNumber}:${Number(log.index)}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ ...parsed, blockNumber: Number(log.blockNumber), txHash: (log as any).transactionHash || undefined });
+            if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) {
+              return out.sort((a, b) => a.blockNumber - b.blockNumber);
+            }
+          }
+        }
+      }
+    } catch {
+      // best-effort only
+    }
+  }
+
+  return out.sort((a, b) => a.blockNumber - b.blockNumber);
+}
+
+async function findBuyTransferSamples(
+  provider: ethers.JsonRpcProvider,
+  chainSlug: string,
+  poolAddress: string,
+  createdSec: number,
+  targetToken: string,
+  quoteToken: string
+): Promise<FirstSwapData[]> {
+  const latest = await provider.getBlock('latest').catch(() => null);
+  if (!latest || !Number.isFinite(Number(latest.number)) || !Number.isFinite(Number(latest.timestamp))) return [];
+  const latestBlock = Number(latest.number);
+  const latestTs = Number(latest.timestamp);
+  const binaryStart = await findBlockByTimestamp(provider, chainSlug, createdSec, latestBlock, latestTs);
+  const startBlock = binaryStart && Number.isFinite(binaryStart) && binaryStart > 0
+    ? binaryStart
+    : estimateStartBlockByTime(chainSlug, latestBlock, latestTs, createdSec);
+
+  const poolLower = poolAddress.toLowerCase();
+  const poolTopic = ethers.zeroPadValue(poolAddress as `0x${string}`, 32).toLowerCase();
+  const ranges: Array<{ from: number; to: number }> = [
+    { from: Math.max(1, startBlock - 2000), to: startBlock + 20000 },
+    { from: Math.max(1, startBlock - 20000), to: startBlock + 150000 },
+    { from: Math.max(1, startBlock - 80000), to: startBlock + 400000 },
+  ];
+  const out: FirstSwapData[] = [];
+  const seenTx = new Set<string>();
+
+  for (const r of ranges) {
+    for (let from = r.from; from <= r.to; from += RPC_LOG_MAX_BLOCK_RANGE) {
+      const to = Math.min(r.to, from + RPC_LOG_MAX_BLOCK_RANGE - 1);
+      const targetOutLogs = await getLogsAdaptive(
+        provider,
+        {
+          address: targetToken,
+          topics: [ERC20_TRANSFER_TOPIC, poolTopic],
+          fromBlock: from,
+          toBlock: to,
+        }
+      );
+
+      for (const log of targetOutLogs.sort((a, b) => {
+        if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+        return Number(a.index) - Number(b.index);
+      })) {
+        const txHash = String((log as any).transactionHash || '').toLowerCase();
+        if (!txHash || seenTx.has(txHash)) continue;
+        seenTx.add(txHash);
+        const targetRaw = BigInt(log.data || '0x0');
+        if (targetRaw <= 0n) continue;
+
+        const receipt = await provider.getTransactionReceipt(txHash).catch(() => null);
+        if (!receipt || !Array.isArray(receipt.logs)) continue;
+
+        let quoteRaw = 0n;
+        for (const rl of receipt.logs as any[]) {
+          if (String(rl?.address || '').toLowerCase() !== quoteToken) continue;
+          if (!Array.isArray(rl?.topics) || String(rl.topics[0] || '').toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
+          try {
+            const parsed = ERC20_TRANSFER_IFACE.parseLog({ topics: rl.topics, data: rl.data });
+            const fromAddr = String(parsed?.args?.from || '').toLowerCase();
+            const toAddr = String(parsed?.args?.to || '').toLowerCase();
+            const amount = BigInt(parsed?.args?.value?.toString?.() || '0');
+            if (amount <= 0n) continue;
+            // Buy path: quote token flows into pool from non-pool address.
+            if (toAddr === poolLower && fromAddr !== poolLower && amount > quoteRaw) {
+              quoteRaw = amount;
+            }
+          } catch {
+            continue;
+          }
+        }
+
+        if (quoteRaw <= 0n) continue;
+        out.push({
+          targetRaw,
+          quoteRaw,
+          blockNumber: Number(log.blockNumber),
+          txHash: String((log as any).transactionHash || undefined),
+        });
+        if (out.length >= EVM_BASELINE_MAX_CANDIDATE_SWAPS) {
+          return out.sort((a, b) => a.blockNumber - b.blockNumber);
+        }
+      }
+    }
+  }
+
+  return out.sort((a, b) => a.blockNumber - b.blockNumber);
+}
+
+async function findEarlyAnySwapSamples(
+  provider: ethers.JsonRpcProvider,
+  chainSlug: string,
+  poolAddress: string,
+  createdSec: number,
+  target: string,
+  token0: string,
+  token1: string
+): Promise<FirstSwapData[]> {
+  const latest = await provider.getBlock('latest').catch(() => null);
+  if (!latest || !Number.isFinite(Number(latest.number)) || !Number.isFinite(Number(latest.timestamp))) return [];
+  const latestBlock = Number(latest.number);
+  const latestTs = Number(latest.timestamp);
+  const binaryStart = await findBlockByTimestamp(provider, chainSlug, createdSec, latestBlock, latestTs);
+  const startBlock = binaryStart && Number.isFinite(binaryStart) && binaryStart > 0
+    ? binaryStart
+    : estimateStartBlockByTime(chainSlug, latestBlock, latestTs, createdSec);
+
+  const windowBlocks = estimateBlocksForSeconds(chainSlug, EVM_BASELINE_FALLBACK_WINDOW_SECONDS);
+  const fromBlock = Math.max(1, startBlock - 300);
+  const toBlock = Math.max(fromBlock, startBlock + windowBlocks + 500);
+  const out: FirstSwapData[] = [];
+  const seen = new Set<string>();
+
+  for (let from = fromBlock; from <= toBlock; from += RPC_LOG_MAX_BLOCK_RANGE) {
+    const to = Math.min(toBlock, from + RPC_LOG_MAX_BLOCK_RANGE - 1);
+    const [v2Logs, v3Logs] = await Promise.all([
+      getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }),
+      getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }),
+    ]);
+    const logs = [...v2Logs, ...v3Logs].sort((a, b) => {
+      if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+      return Number(a.index) - Number(b.index);
+    });
+    for (const log of logs) {
+      const parsed = parseAnySwapLog(log, target, token0, token1);
+      if (!parsed) continue;
+      const key = `${log.blockNumber}:${Number(log.index)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        ...parsed,
+        blockNumber: Number(log.blockNumber),
+        txHash: (log as any).transactionHash || undefined,
+      });
+      if (out.length >= EVM_BASELINE_FALLBACK_MAX_SWAPS) {
+        return out.sort((a, b) => a.blockNumber - b.blockNumber);
+      }
+    }
+  }
+
+  return out.sort((a, b) => a.blockNumber - b.blockNumber);
+}
+
+async function findBuySwapSamplesByReceipts(
+  provider: ethers.JsonRpcProvider,
+  chainSlug: string,
+  poolAddress: string,
+  createdSec: number,
+  target: string,
+  token0: string,
+  token1: string
+): Promise<FirstSwapData[]> {
+  const latest = await provider.getBlock('latest').catch(() => null);
+  if (!latest || !Number.isFinite(Number(latest.number)) || !Number.isFinite(Number(latest.timestamp))) return [];
+  const latestBlock = Number(latest.number);
+  const latestTs = Number(latest.timestamp);
+  const binaryStart = await findBlockByTimestamp(provider, chainSlug, createdSec, latestBlock, latestTs);
+  const startBlock = binaryStart && Number.isFinite(binaryStart) && binaryStart > 0
+    ? binaryStart
+    : estimateStartBlockByTime(chainSlug, latestBlock, latestTs, createdSec);
+
+  const fromBlock = Math.max(1, startBlock - 500);
+  const toBlock = Math.min(latestBlock, startBlock + BSC_RECEIPT_SCAN_MAX_BLOCKS);
+  const poolLower = poolAddress.toLowerCase();
+  const out: FirstSwapData[] = [];
+  const seen = new Set<string>();
+  const receiptLimiter = pLimit(BSC_RECEIPT_SCAN_CONCURRENCY);
+
+  for (let blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
+    const block = await provider.getBlock(blockNumber).catch(() => null);
+    const txs = Array.isArray(block?.transactions) ? block.transactions.slice(0, BSC_RECEIPT_SCAN_MAX_TX_PER_BLOCK) : [];
+    if (txs.length === 0) continue;
+
+    const receipts = await Promise.all(
+      txs.map((hash) =>
+        receiptLimiter(() => provider.getTransactionReceipt(String(hash)).catch(() => null))
+      )
+    );
+
+    for (const receipt of receipts) {
+      if (!receipt || !Array.isArray((receipt as any).logs)) continue;
+      for (const rawLog of (receipt as any).logs as Array<ethers.Log>) {
+        if (String((rawLog as any)?.address || '').toLowerCase() !== poolLower) continue;
+        const topic0 = String((rawLog as any)?.topics?.[0] || '').toLowerCase();
+        if (topic0 !== V2_SWAP_TOPIC.toLowerCase() && topic0 !== V3_SWAP_TOPIC.toLowerCase()) continue;
+        const parsed = parseFirstSwapLog(rawLog, target, token0, token1) || parseAnySwapLog(rawLog, target, token0, token1);
+        if (!parsed) continue;
+        const key = `${Number((rawLog as any).blockNumber)}:${Number((rawLog as any).index)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          ...parsed,
+          blockNumber: Number((rawLog as any).blockNumber),
+          txHash: String((rawLog as any).transactionHash || (receipt as any).hash || ''),
+        });
+        if (out.length >= EVM_BASELINE_FALLBACK_MAX_SWAPS) {
+          return out.sort((a, b) => a.blockNumber - b.blockNumber);
+        }
+      }
+    }
+  }
+
+  return out.sort((a, b) => a.blockNumber - b.blockNumber);
+}
+
+async function fetchBscTokenManagerPurchaseBaselineUsd(
+  provider: ethers.JsonRpcProvider,
+  targetToken: string,
+  createdSec: number
+): Promise<ExternalBaselineResult | null> {
+  const target = targetToken.toLowerCase();
+  const decimalsMaybe = await readTokenDecimals(provider, target);
+  if (!Number.isFinite(decimalsMaybe)) return null;
+  const tokenDecimals = Number(decimalsMaybe);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const anchorSec = Number.isFinite(createdSec) && createdSec > 0 ? createdSec : nowSec;
+  const latest = await provider.getBlock('latest').catch(() => null);
+  const latestBlock = Number(latest?.number || 0);
+  const latestTs = Number(latest?.timestamp || 0);
+  if (!latestBlock || !latestTs) return null;
+
+  const startHint = await findBlockByTimestamp(provider, 'bsc', anchorSec, latestBlock, latestTs);
+  const anchorBlock = startHint && Number.isFinite(startHint) && startHint > 0
+    ? startHint
+    : estimateStartBlockByTime('bsc', latestBlock, latestTs, anchorSec);
+
+  const windows = [
+    { before: estimateBlocksForSeconds('bsc', 12 * 60 * 60), after: estimateBlocksForSeconds('bsc', 36 * 60 * 60) },
+    { before: estimateBlocksForSeconds('bsc', 3 * 24 * 60 * 60), after: estimateBlocksForSeconds('bsc', 7 * 24 * 60 * 60) },
+  ];
+
+  type Candidate = { priceUsd: number; blockNumber: number; txHash?: string; nativeUsd?: number; quotedAt?: Date };
+  const candidates: Candidate[] = [];
+
+  const managers: Array<{ address: string; topic: string; kind: 'v1' | 'v2' }> = [
+    { address: FOURMEME_TOKEN_MANAGER_V2, topic: FOURMEME_PURCHASE_V2_TOPIC, kind: 'v2' },
+    { address: FOURMEME_TOKEN_MANAGER_V1, topic: FOURMEME_PURCHASE_V1_TOPIC, kind: 'v1' },
+  ];
+
+  for (const w of windows) {
+    const fromBound = Math.max(1, anchorBlock - w.before);
+    const toBound = Math.min(latestBlock, anchorBlock + w.after);
+
+    for (const manager of managers) {
+      for (let from = fromBound; from <= toBound; from += RPC_LOG_MAX_BLOCK_RANGE) {
+        const to = Math.min(toBound, from + RPC_LOG_MAX_BLOCK_RANGE - 1);
+        const logs = await provider.getLogs({
+          address: manager.address,
+          topics: [manager.topic],
+          fromBlock: from,
+          toBlock: to,
+        }).catch(() => [] as ethers.Log[]);
+
+        for (const log of logs) {
+          try {
+            if (manager.kind === 'v2') {
+              const parsed = FOURMEME_V2_IFACE.parseLog({ topics: log.topics, data: log.data });
+              if (!parsed) continue;
+              const eventToken = String(parsed.args.token || '').toLowerCase();
+              if (eventToken !== target) continue;
+              const amount = BigInt(parsed.args.amount?.toString?.() || '0');
+              const cost = BigInt(parsed.args.cost?.toString?.() || '0');
+              if (amount <= 0n || cost <= 0n) continue;
+              const quotePerTargetNative = quotePerToken(amount, cost, tokenDecimals, 18);
+              if (!quotePerTargetNative) continue;
+              const blk = await provider.getBlock(Number(log.blockNumber)).catch(() => null);
+              const ts = Number(blk?.timestamp || 0);
+              const nativeUsd = await getNativeUsdOnDate(56, ts);
+              if (!nativeUsd || !Number.isFinite(nativeUsd) || nativeUsd <= 0) continue;
+              const priceUsd = quotePerTargetNative * nativeUsd;
+              if (!Number.isFinite(priceUsd) || priceUsd <= 0) continue;
+              candidates.push({
+                priceUsd,
+                blockNumber: Number(log.blockNumber),
+                txHash: (log as any).transactionHash || undefined,
+                nativeUsd: Number(nativeUsd),
+                quotedAt: ts > 0 ? new Date(ts * 1000) : undefined,
+              });
+              continue;
+            }
+
+            const parsed = FOURMEME_V1_IFACE.parseLog({ topics: log.topics, data: log.data });
+            if (!parsed) continue;
+            const eventToken = String(parsed.args.token || '').toLowerCase();
+            if (eventToken !== target) continue;
+            const tokenAmount = BigInt(parsed.args.tokenAmount?.toString?.() || '0');
+            const etherAmount = BigInt(parsed.args.etherAmount?.toString?.() || '0');
+            if (tokenAmount <= 0n || etherAmount <= 0n) continue;
+            const quotePerTargetNative = quotePerToken(tokenAmount, etherAmount, tokenDecimals, 18);
+            if (!quotePerTargetNative) continue;
+            const blk = await provider.getBlock(Number(log.blockNumber)).catch(() => null);
+            const ts = Number(blk?.timestamp || 0);
+            const nativeUsd = await getNativeUsdOnDate(56, ts);
+            if (!nativeUsd || !Number.isFinite(nativeUsd) || nativeUsd <= 0) continue;
+            const priceUsd = quotePerTargetNative * nativeUsd;
+            if (!Number.isFinite(priceUsd) || priceUsd <= 0) continue;
+            candidates.push({
+              priceUsd,
+              blockNumber: Number(log.blockNumber),
+              txHash: (log as any).transactionHash || undefined,
+              nativeUsd: Number(nativeUsd),
+              quotedAt: ts > 0 ? new Date(ts * 1000) : undefined,
+            });
+          } catch {
+            continue;
+          }
+
+          if (candidates.length >= EVM_BASELINE_FALLBACK_MAX_SWAPS) break;
+        }
+        if (candidates.length >= EVM_BASELINE_FALLBACK_MAX_SWAPS) break;
+      }
+      if (candidates.length >= EVM_BASELINE_FALLBACK_MAX_SWAPS) break;
+    }
+    if (candidates.length > 0) break;
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.blockNumber - b.blockNumber || a.priceUsd - b.priceUsd);
+  const prices = candidates.map((c) => c.priceUsd).sort((a, b) => a - b);
+  const medianPrice = prices[Math.floor(prices.length / 2)];
+  const first = candidates[0];
+
+  return {
+    price: medianPrice,
+    source: 'bsc_token_manager_purchase',
+    blockNumber: first?.blockNumber,
+    txHash: first?.txHash,
+    poolAddress: FOURMEME_TOKEN_MANAGER_V2,
+    nativeUsd: first?.nativeUsd,
+    quotedAt: first?.quotedAt,
+  };
 }
 
 async function fetchRpcStableSwapBaselineUsd(
@@ -1347,7 +2157,16 @@ async function fetchRpcStableSwapBaselineUsd(
     if (!Number.isFinite(quotePerTarget) || quotePerTarget <= 0) return null;
     const px = quotePerTarget * quoteUsd;
     if (!Number.isFinite(px) || px <= 0) return null;
-    return { price: px, source: 'rpc_v4_initialize' };
+    const initBlock = await provider.getBlock(Number(initLog.blockNumber)).catch(() => null);
+    return {
+      price: px,
+      source: 'rpc_v4_initialize',
+      blockNumber: Number(initLog.blockNumber),
+      txHash: (initLog as any).transactionHash || undefined,
+      poolAddress,
+      nativeUsd: quoteToken === wrapped ? quoteUsd : undefined,
+      quotedAt: initBlock ? new Date(Number(initBlock.timestamp || 0) * 1000) : undefined,
+    };
   }
 
   const [token0, token1] = await Promise.all([
@@ -1372,7 +2191,7 @@ async function fetchRpcStableSwapBaselineUsd(
   const targetDecimals = Number(targetDecimalsMaybe);
   const quoteDecimals = Number(quoteDecimalsMaybe);
 
-  const firstSwap = await findFirstSwapData(
+  let buySwaps = await findBuySwapSamples(
     provider,
     chainSlug,
     poolAddress,
@@ -1381,33 +2200,157 @@ async function fetchRpcStableSwapBaselineUsd(
     token0,
     token1
   );
-  if (!firstSwap) return null;
+  if (!buySwaps || buySwaps.length === 0) {
+    if (chainSlug === 'bsc') {
+      buySwaps = await findBuySwapSamplesByReceipts(
+        provider,
+        chainSlug,
+        poolAddress,
+        createdSec > 0 ? createdSec : Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
+        target,
+        token0,
+        token1
+      );
+    }
+  }
+  if (!buySwaps || buySwaps.length === 0) {
+    buySwaps = await findBuyTransferSamples(
+      provider,
+      chainSlug,
+      poolAddress,
+      createdSec > 0 ? createdSec : Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
+      target,
+      quoteToken
+    );
+  }
+  if (!buySwaps || buySwaps.length === 0) {
+    buySwaps = await findEarlyAnySwapSamples(
+      provider,
+      chainSlug,
+      poolAddress,
+      createdSec > 0 ? createdSec : Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
+      target,
+      token0,
+      token1
+    );
+  }
+  if (!buySwaps || buySwaps.length === 0) {
+    if (chainSlug === 'bsc') {
+      const bscFallback = await fetchBscTokenManagerPurchaseBaselineUsd(
+        provider,
+        target,
+        createdSec > 0 ? createdSec : Math.floor(Date.now() / 1000) - 30 * 24 * 3600
+      );
+      if (bscFallback && Number.isFinite(bscFallback.price) && bscFallback.price > 0) {
+        return bscFallback;
+      }
+    }
+    return null;
+  }
 
   if (stablecoins.has(quoteToken)) {
-    const px = quotePerToken(firstSwap.targetRaw, firstSwap.quoteRaw, targetDecimals, quoteDecimals);
-    return px && Number.isFinite(px) && px > 0
-      ? { price: px, source: 'rpc_stable_first_swap' }
-      : null;
+    const candidates = buySwaps
+      .map((swap) => {
+        const px = quotePerToken(swap.targetRaw, swap.quoteRaw, targetDecimals, quoteDecimals);
+        const quoteAmount = Number(ethers.formatUnits(swap.quoteRaw, quoteDecimals));
+        const quoteUsd = Number.isFinite(quoteAmount) ? quoteAmount : 0;
+        return (px && Number.isFinite(px) && px > 0 && quoteUsd >= EVM_BASELINE_MIN_QUOTE_USD)
+          ? { price: px, blockNumber: swap.blockNumber, txHash: swap.txHash }
+          : null;
+      })
+      .filter((v) => !!v) as Array<{ price: number; blockNumber: number; txHash?: string }>;
+
+    let picked: { price: number; blockNumber: number; txHash?: string } | null = null;
+    if (candidates.length > 0) {
+      const sorted = candidates.slice().sort((a, b) => a.price - b.price);
+      picked = sorted[Math.floor(sorted.length / 2)] || null;
+    } else {
+      const fallbackPx = quotePerToken(buySwaps[0].targetRaw, buySwaps[0].quoteRaw, targetDecimals, quoteDecimals);
+      if (Number.isFinite(fallbackPx || NaN) && (fallbackPx || 0) > 0) {
+        picked = { price: Number(fallbackPx), blockNumber: buySwaps[0].blockNumber, txHash: buySwaps[0].txHash };
+      }
+    }
+
+    if (!picked || !Number.isFinite(picked.price) || picked.price <= 0) return null;
+    const pickedBlock = await provider.getBlock(picked.blockNumber).catch(() => null);
+    return {
+      price: picked.price,
+      source: 'rpc_stable_first_swap',
+      blockNumber: picked.blockNumber,
+      txHash: picked.txHash,
+      poolAddress,
+      quotedAt: pickedBlock ? new Date(Number(pickedBlock.timestamp || 0) * 1000) : undefined,
+    };
   }
 
   const wrapped = getChainConfig(chainId).wrappedNativeAddress.toLowerCase();
   if (quoteToken !== wrapped) return null;
 
-  const quotePerTargetNative = quotePerToken(firstSwap.targetRaw, firstSwap.quoteRaw, targetDecimals, quoteDecimals);
-  if (!quotePerTargetNative) return null;
-  // Reuse shared native-price cache path (onChainPriceService) instead of local hardcoded WETH/USD logic.
-  const firstSwapBlock = await provider.getBlock(firstSwap.blockNumber).catch(() => null);
-  const firstSwapTs = Number(firstSwapBlock?.timestamp || 0);
-  const nativeUsd = await getNativeUsdOnDate(chainId, firstSwapTs);
-  if (!nativeUsd || !Number.isFinite(nativeUsd) || nativeUsd <= 0) return null;
-  const px = quotePerTargetNative * nativeUsd;
-  if (!Number.isFinite(px) || px <= 0) return null;
-  return { price: px, source: 'rpc_native_first_swap' };
+  const nativeCandidates: Array<{ price: number; blockNumber: number; txHash?: string; nativeUsd: number; quotedAt?: Date }> = [];
+  for (const swap of buySwaps) {
+    const quotePerTargetNative = quotePerToken(swap.targetRaw, swap.quoteRaw, targetDecimals, quoteDecimals);
+    if (!quotePerTargetNative) continue;
+    const block = await provider.getBlock(swap.blockNumber).catch(() => null);
+    const ts = Number(block?.timestamp || 0);
+    const nativeUsd = await getNativeUsdOnDate(chainId, ts);
+    if (!nativeUsd || !Number.isFinite(nativeUsd) || nativeUsd <= 0) continue;
+    const quoteAmountNative = Number(ethers.formatUnits(swap.quoteRaw, quoteDecimals));
+    const quoteUsd = quoteAmountNative * nativeUsd;
+    if (!Number.isFinite(quoteUsd) || quoteUsd < EVM_BASELINE_MIN_QUOTE_USD) continue;
+    const px = quotePerTargetNative * nativeUsd;
+    if (Number.isFinite(px) && px > 0) {
+      nativeCandidates.push({
+        price: px,
+        blockNumber: swap.blockNumber,
+        txHash: swap.txHash,
+        nativeUsd: Number(nativeUsd),
+        quotedAt: ts > 0 ? new Date(ts * 1000) : undefined,
+      });
+    }
+  }
+
+  let picked: { price: number; blockNumber?: number; txHash?: string; nativeUsd?: number; quotedAt?: Date } | null = null;
+  if (nativeCandidates.length > 0) {
+    const sorted = nativeCandidates.sort((a, b) => a.price - b.price);
+    picked = sorted[Math.floor(sorted.length / 2)] || null;
+  } else {
+    const first = buySwaps[0];
+    const quotePerTargetNative = quotePerToken(first.targetRaw, first.quoteRaw, targetDecimals, quoteDecimals);
+    if (quotePerTargetNative) {
+      const firstSwapBlock = await provider.getBlock(first.blockNumber).catch(() => null);
+      const firstSwapTs = Number(firstSwapBlock?.timestamp || 0);
+      const nativeUsd = await getNativeUsdOnDate(chainId, firstSwapTs);
+      if (nativeUsd && Number.isFinite(nativeUsd) && nativeUsd > 0) {
+        const px = quotePerTargetNative * nativeUsd;
+        if (Number.isFinite(px) && px > 0) {
+          picked = {
+            price: px,
+            blockNumber: first.blockNumber,
+            txHash: first.txHash,
+            nativeUsd: Number(nativeUsd),
+            quotedAt: firstSwapTs > 0 ? new Date(firstSwapTs * 1000) : undefined,
+          };
+        }
+      }
+    }
+  }
+
+  if (!picked || !Number.isFinite(picked.price) || picked.price <= 0) return null;
+  return {
+    price: picked.price,
+    source: 'rpc_native_first_swap',
+    blockNumber: picked.blockNumber,
+    txHash: picked.txHash,
+    poolAddress,
+    nativeUsd: picked.nativeUsd,
+    quotedAt: picked.quotedAt,
+  };
 }
 
 type SolRpcTokenBalance = {
   accountIndex?: number;
   mint?: string;
+  owner?: string;
   uiTokenAmount?: {
     uiAmount?: number | null;
     uiAmountString?: string;
@@ -1467,6 +2410,96 @@ function tokenDeltaMap(
   return deltas;
 }
 
+type SolOwnerTokenDelta = {
+  owner: string;
+  mint: string;
+  delta: number;
+};
+
+function normalizeAccountKey(input: any): string {
+  if (!input) return '';
+  if (typeof input === 'string') return input;
+  if (typeof input?.pubkey === 'string') return input.pubkey;
+  return '';
+}
+
+function tokenDeltaRowsByOwner(
+  pre: SolRpcTokenBalance[] | undefined,
+  post: SolRpcTokenBalance[] | undefined,
+  accountKeysRaw: any[] | undefined
+): SolOwnerTokenDelta[] {
+  const byKey = new Map<string, { pre?: number; post?: number; mint: string; owner: string }>();
+
+  const resolveOwner = (b: SolRpcTokenBalance): string => {
+    const explicit = String((b as any)?.owner || '').trim();
+    if (explicit) return explicit;
+    const idx = typeof b.accountIndex === 'number' ? b.accountIndex : -1;
+    if (idx >= 0 && Array.isArray(accountKeysRaw) && idx < accountKeysRaw.length) {
+      return normalizeAccountKey(accountKeysRaw[idx]);
+    }
+    return '';
+  };
+
+  for (const b of pre || []) {
+    if (typeof b.accountIndex !== 'number' || !b.mint) continue;
+    const mint = b.mint.toLowerCase();
+    const key = `${b.accountIndex}:${mint}`;
+    const ui = parseSolUiAmount(b.uiTokenAmount);
+    if (ui === null) continue;
+    const owner = resolveOwner(b);
+    byKey.set(key, { ...(byKey.get(key) || { mint, owner }), pre: ui, mint, owner: owner || (byKey.get(key)?.owner || '') });
+  }
+
+  for (const b of post || []) {
+    if (typeof b.accountIndex !== 'number' || !b.mint) continue;
+    const mint = b.mint.toLowerCase();
+    const key = `${b.accountIndex}:${mint}`;
+    const ui = parseSolUiAmount(b.uiTokenAmount);
+    if (ui === null) continue;
+    const owner = resolveOwner(b);
+    byKey.set(key, { ...(byKey.get(key) || { mint, owner }), post: ui, mint, owner: owner || (byKey.get(key)?.owner || '') });
+  }
+
+  const out: SolOwnerTokenDelta[] = [];
+  for (const row of byKey.values()) {
+    const preUi = Number.isFinite(row.pre || NaN) ? Number(row.pre) : 0;
+    const postUi = Number.isFinite(row.post || NaN) ? Number(row.post) : 0;
+    const delta = postUi - preUi;
+    if (!Number.isFinite(delta) || delta === 0) continue;
+    if (!row.owner) continue;
+    out.push({ owner: row.owner, mint: row.mint, delta });
+  }
+  return out;
+}
+
+function lamportSpendByOwner(
+  tx: any,
+  poolAddrLower: string
+): Map<string, number> {
+  const preLamports: number[] = Array.isArray(tx?.meta?.preBalances) ? tx.meta.preBalances : [];
+  const postLamports: number[] = Array.isArray(tx?.meta?.postBalances) ? tx.meta.postBalances : [];
+  const accountKeysRaw: any[] = Array.isArray(tx?.transaction?.message?.accountKeys)
+    ? tx.transaction.message.accountKeys
+    : [];
+  const out = new Map<string, number>();
+  const feeSol = Number(tx?.meta?.fee || 0) / 1e9;
+
+  for (let i = 0; i < Math.min(preLamports.length, postLamports.length); i++) {
+    const owner = normalizeAccountKey(accountKeysRaw[i]);
+    if (!owner) continue;
+    if (poolAddrLower && owner.toLowerCase() === poolAddrLower) continue;
+    const deltaLamports = Number(postLamports[i] || 0) - Number(preLamports[i] || 0);
+    const deltaSol = deltaLamports / 1e9;
+    // Spend side only: negative lamports means SOL left this owner account.
+    if (!Number.isFinite(deltaSol) || deltaSol >= 0) continue;
+    const spend = Math.max(0, Math.abs(deltaSol) - feeSol);
+    if (!Number.isFinite(spend) || spend <= 0) continue;
+    const prev = out.get(owner) || 0;
+    if (spend > prev) out.set(owner, spend);
+  }
+  return out;
+}
+
 async function callPublicSolRpc<T = any>(method: string, params: any[]): Promise<T | null> {
   const urls = getPublicRpcUrls('solana');
   if (urls.length === 0) return null;
@@ -1479,6 +2512,13 @@ async function callPublicSolRpc<T = any>(method: string, params: any[]): Promise
 
   for (let i = 0; i < ordered.length; i++) {
     const url = ordered[i];
+    const nowCall = Date.now();
+    const lastCallAt = solRpcLastCallByUrl.get(url) || 0;
+    const waitMs = Math.max(0, SOL_RPC_MIN_INTERVAL_MS - (nowCall - lastCallAt));
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    solRpcLastCallByUrl.set(url, Date.now());
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 12000);
     try {
@@ -1495,7 +2535,10 @@ async function callPublicSolRpc<T = any>(method: string, params: any[]): Promise
       });
 
       if (!resp.ok) {
-        const penaltyMs = resp.status === 429 ? 60_000 : resp.status >= 500 ? 20_000 : 10_000;
+        const retryAfterHeader = Number(resp.headers.get('retry-after') || 0);
+        const penaltyMs = resp.status === 429
+          ? Math.max(120_000, Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader * 1000 : 0)
+          : resp.status >= 500 ? 20_000 : 10_000;
         solRpcBackoffUntilByUrl.set(url, Date.now() + penaltyMs);
         continue;
       }
@@ -1510,7 +2553,7 @@ async function callPublicSolRpc<T = any>(method: string, params: any[]): Promise
           continue;
         }
         if (msg.includes('rate limit') || code === 429 || msg.includes('too many requests')) {
-          solRpcBackoffUntilByUrl.set(url, Date.now() + 90_000);
+          solRpcBackoffUntilByUrl.set(url, Date.now() + 5 * 60 * 1000);
           continue;
         }
         solRpcBackoffUntilByUrl.set(url, Date.now() + 15_000);
@@ -1535,8 +2578,9 @@ async function fetchSolanaRpcBaselineUsd(
   poolAddress?: string,
   poolCreatedAt?: string
 ): Promise<number | null> {
-  if (!tokenAddress || !poolAddress) return null;
+  if (!tokenAddress) return null;
   const target = tokenAddress.toLowerCase();
+  const poolAddrLower = String(poolAddress || '').toLowerCase();
   const chainCfg = getChainConfig(900);
   const stableMints = new Set((chainCfg.stablecoins || []).map((x) => x.toLowerCase()));
   const wrappedNative = String(chainCfg.wrappedNativeAddress || '').toLowerCase();
@@ -1544,28 +2588,44 @@ async function fetchSolanaRpcBaselineUsd(
   const stopBeforeSec = createdSec > 0 ? Math.max(0, createdSec - 3 * 24 * 3600) : 0;
 
   const signatures: any[] = [];
-  let before: string | undefined;
-  for (let page = 0; page < SOL_RPC_SIGNATURE_MAX_PAGES; page++) {
-    const pageResult = await callPublicSolRpc<any[]>(
-      'getSignaturesForAddress',
-      [poolAddress, { limit: SOL_RPC_SIGNATURE_PAGE_LIMIT, before, commitment: 'confirmed' }]
-    );
-    if (!Array.isArray(pageResult) || pageResult.length === 0) break;
-    signatures.push(...pageResult);
-    const last = pageResult[pageResult.length - 1];
-    if (stopBeforeSec > 0 && Number(last?.blockTime || 0) > 0 && Number(last.blockTime) <= stopBeforeSec) {
-      break;
+  const signatureSources = Array.from(new Set([
+    String(poolAddress || '').trim(),
+    String(tokenAddress || '').trim(),
+  ].filter(Boolean)));
+  const maxPages = Math.max(2, Math.min(SOL_RPC_SIGNATURE_MAX_PAGES, 12));
+  const pageLimit = Math.max(80, Math.min(SOL_RPC_SIGNATURE_PAGE_LIMIT, 250));
+  for (const sourceAddress of signatureSources) {
+    let before: string | undefined;
+    for (let page = 0; page < maxPages; page++) {
+      const pageResult = await callPublicSolRpc<any[]>(
+        'getSignaturesForAddress',
+        [sourceAddress, { limit: pageLimit, before, commitment: 'confirmed' }]
+      );
+      if (!Array.isArray(pageResult) || pageResult.length === 0) break;
+      signatures.push(...pageResult);
+      const last = pageResult[pageResult.length - 1];
+      if (stopBeforeSec > 0 && Number(last?.blockTime || 0) > 0 && Number(last.blockTime) <= stopBeforeSec) {
+        break;
+      }
+      before = typeof last?.signature === 'string' ? last.signature : undefined;
+      if (!before) break;
     }
-    before = typeof last?.signature === 'string' ? last.signature : undefined;
-    if (!before) break;
   }
   if (signatures.length === 0) return null;
 
   type SolBaselineCandidate = { ts: number; price: number };
   const candidates: SolBaselineCandidate[] = [];
+  const dedupSig = new Set<string>();
   const ordered = signatures
     .filter((s: any) => typeof s?.signature === 'string')
-    .sort((a: any, b: any) => Number(a?.blockTime || 0) - Number(b?.blockTime || 0));
+    .filter((s: any) => {
+      const sig = String(s.signature);
+      if (dedupSig.has(sig)) return false;
+      dedupSig.add(sig);
+      return true;
+    })
+    .sort((a: any, b: any) => Number(a?.blockTime || 0) - Number(b?.blockTime || 0))
+    .slice(0, SOL_RPC_MAX_SIGNATURES_TO_INSPECT);
 
   for (const row of ordered) {
     const sig = row.signature;
@@ -1577,57 +2637,95 @@ async function fetchSolanaRpcBaselineUsd(
     const post = tx?.meta?.postTokenBalances as SolRpcTokenBalance[] | undefined;
     if (!Array.isArray(pre) && !Array.isArray(post)) continue;
 
+    const accountKeysRaw: any[] = Array.isArray(tx?.transaction?.message?.accountKeys)
+      ? tx.transaction.message.accountKeys
+      : [];
+    const ownerRows = tokenDeltaRowsByOwner(pre, post, accountKeysRaw);
     const deltas = tokenDeltaMap(pre, post);
-    const targetAbs = Math.abs(deltas.get(target) || 0);
-    if (!Number.isFinite(targetAbs) || targetAbs <= 0) continue;
-    if (targetAbs < SOL_RPC_MIN_TARGET_AMOUNT) continue;
 
-    let bestStableAbs = 0;
-    let bestNativeAbs = 0;
-    for (const [mint, delta] of deltas.entries()) {
-      const abs = Math.abs(delta);
-      if (!Number.isFinite(abs) || abs <= 0 || mint === target) continue;
-      if (stableMints.has(mint) && abs > bestStableAbs) bestStableAbs = abs;
-      if (mint === wrappedNative && abs > bestNativeAbs) bestNativeAbs = abs;
+    const ownerMintMap = new Map<string, Map<string, number>>();
+    for (const rowDelta of ownerRows) {
+      const m = ownerMintMap.get(rowDelta.owner) || new Map<string, number>();
+      m.set(rowDelta.mint, (m.get(rowDelta.mint) || 0) + rowDelta.delta);
+      ownerMintMap.set(rowDelta.owner, m);
     }
 
-    if (bestNativeAbs <= 0) {
-      const preLamports: number[] = Array.isArray(tx?.meta?.preBalances) ? tx.meta.preBalances : [];
-      const postLamports: number[] = Array.isArray(tx?.meta?.postBalances) ? tx.meta.postBalances : [];
-      const accountKeysRaw: any[] = Array.isArray(tx?.transaction?.message?.accountKeys)
-        ? tx.transaction.message.accountKeys
-        : [];
-      let lamportsAbs = 0;
-      for (let i = 0; i < Math.min(preLamports.length, postLamports.length); i++) {
-        const keyRow = accountKeysRaw[i];
-        const key = typeof keyRow === 'string'
-          ? keyRow
-          : typeof keyRow?.pubkey === 'string'
-            ? keyRow.pubkey
-            : '';
-        if (!key || key.toLowerCase() === poolAddress.toLowerCase()) continue;
-        const deltaLamports = Number(postLamports[i] || 0) - Number(preLamports[i] || 0);
-        const abs = Math.abs(deltaLamports) / 1e9;
-        if (Number.isFinite(abs) && abs > lamportsAbs) lamportsAbs = abs;
+    const targetOwners = Array.from(ownerMintMap.entries())
+      .map(([owner, mintMap]) => ({ owner, targetDelta: Number(mintMap.get(target) || 0), mintMap }))
+      .filter((x) => Number.isFinite(x.targetDelta) && x.targetDelta > 0);
+    if (targetOwners.length === 0) continue;
+
+    const targetAbs = Math.max(...targetOwners.map((x) => x.targetDelta));
+    if (!Number.isFinite(targetAbs) || targetAbs <= 0) continue;
+    const minTargetAmountStrict = Math.max(
+      1,
+      Math.min(
+        SOL_RPC_MIN_TARGET_AMOUNT,
+        Number.isFinite(createdSec) && createdSec > 0 && (Date.now() / 1000 - createdSec) <= 2 * 24 * 3600
+          ? 10
+          : 25
+      )
+    );
+    if (targetAbs < minTargetAmountStrict && targetAbs < 1) continue;
+
+    const lamportsByOwner = lamportSpendByOwner(tx, poolAddrLower);
+    let bestQuoteUsdAbs = 0;
+    let bestQuoteNativeAbs = 0;
+    for (const ownerRow of targetOwners) {
+      let ownerStableSpend = 0;
+      let ownerWrappedSpend = 0;
+      for (const [mint, delta] of ownerRow.mintMap.entries()) {
+        if (mint === target) continue;
+        if (stableMints.has(mint)) {
+          const spend = -delta;
+          if (Number.isFinite(spend) && spend > ownerStableSpend) ownerStableSpend = spend;
+        } else if (mint === wrappedNative) {
+          const spend = -delta;
+          if (Number.isFinite(spend) && spend > ownerWrappedSpend) ownerWrappedSpend = spend;
+        }
       }
-      if (lamportsAbs > 0) bestNativeAbs = lamportsAbs;
+
+      if (ownerStableSpend > bestQuoteUsdAbs) bestQuoteUsdAbs = ownerStableSpend;
+      if (ownerWrappedSpend > bestQuoteNativeAbs) bestQuoteNativeAbs = ownerWrappedSpend;
+
+      if (bestQuoteUsdAbs <= 0 && bestQuoteNativeAbs <= 0) {
+        const lamportSpend = Number(lamportsByOwner.get(ownerRow.owner) || 0);
+        if (Number.isFinite(lamportSpend) && lamportSpend > bestQuoteNativeAbs) {
+          bestQuoteNativeAbs = lamportSpend;
+        }
+      }
+    }
+
+    // fallback aggregate path for unusual tx layouts
+    if (bestQuoteUsdAbs <= 0 && bestQuoteNativeAbs <= 0) {
+      for (const [mint, delta] of deltas.entries()) {
+        if (mint === target) continue;
+        if (stableMints.has(mint)) {
+          const spend = Math.max(0, -delta);
+          if (spend > bestQuoteUsdAbs) bestQuoteUsdAbs = spend;
+        } else if (mint === wrappedNative) {
+          const spend = Math.max(0, -delta);
+          if (spend > bestQuoteNativeAbs) bestQuoteNativeAbs = spend;
+        }
+      }
     }
 
     let quoteUsdAbs = 0;
-    if (bestStableAbs > 0) {
-      quoteUsdAbs = bestStableAbs;
-    } else if (bestNativeAbs > 0) {
+    if (bestQuoteUsdAbs > 0) {
+      quoteUsdAbs = bestQuoteUsdAbs;
+    } else if (bestQuoteNativeAbs > 0) {
       const ts = Number(tx?.blockTime || row?.blockTime || 0);
       const nativeUsd = await getNativeUsdOnDate(900, ts > 0 ? ts : undefined);
       if (nativeUsd && Number.isFinite(nativeUsd) && nativeUsd > 0) {
-        quoteUsdAbs = bestNativeAbs * nativeUsd;
+        quoteUsdAbs = bestQuoteNativeAbs * nativeUsd;
       }
     }
     if (!Number.isFinite(quoteUsdAbs) || quoteUsdAbs <= 0) continue;
-    if (quoteUsdAbs < SOL_RPC_MIN_QUOTE_USD) continue;
+    const minQuoteUsd = Math.max(0, SOL_RPC_MIN_QUOTE_USD);
+    if (quoteUsdAbs < minQuoteUsd && quoteUsdAbs < 1) continue;
 
     const p = quoteUsdAbs / targetAbs;
-    if (!Number.isFinite(p) || p <= 0 || p > 1e8) continue;
+    if (!Number.isFinite(p) || p <= 0 || p > 1e6) continue;
     candidates.push({ ts: Number(tx?.blockTime || row?.blockTime || 0) || 0, price: p });
     if (candidates.length >= SOL_RPC_EARLIEST_CANDIDATES) break;
   }
@@ -1641,11 +2739,179 @@ async function fetchSolanaRpcBaselineUsd(
   return Number.isFinite(chosen.price) && chosen.price > 0 ? chosen.price : null;
 }
 
+export async function processPendingBaselines(
+  chainId: string,
+  geckoNetwork: string,
+  maxRowsOverride?: number,
+  ignoreRetryAfter: boolean = false
+): Promise<{ queued: number; processed: number }> {
+  const existing = pendingBaselineInFlight.get(chainId);
+  if (existing) {
+    try {
+      await existing;
+    } catch {
+      // best-effort wait
+    }
+    return { queued: 0, processed: 0 };
+  }
+
+  const task = (async (): Promise<{ queued: number; processed: number }> => {
+    let processed = 0;
+    try {
+      const maxRows = Math.max(1, Number(maxRowsOverride || Number(process.env.PENDING_BASELINE_MAX_PER_RUN || '40')));
+      const trendingUniverse = await prisma.trendingToken.findMany({
+        where: { chain: chainId },
+        orderBy: [{ rank: 'asc' }],
+        take: Math.max(maxRows * 3, maxRows),
+        select: {
+          address: true,
+          launchpad: true,
+          poolCreatedAt: true,
+          price: true,
+        },
+      });
+      if (trendingUniverse.length === 0) return { queued: 0, processed: 0 };
+
+      const addressSet = new Set(trendingUniverse.map((r) => String(r.address || '').toLowerCase()).filter(Boolean));
+      if (addressSet.size === 0) return { queued: 0, processed: 0 };
+
+      const addressList = Array.from(addressSet);
+      const baselineRows = await prisma.tokenLaunchBaseline.findMany({
+        where: {
+          chain: chainId,
+          address: { in: addressList },
+        },
+        select: {
+          address: true,
+          baselinePrice: true,
+          baselineSource: true,
+          retryAfter: true,
+          lastCheckedAt: true,
+          firstSeenAt: true,
+        },
+      });
+      const baselineByAddress = new Map(
+        baselineRows.map((r) => [String(r.address || '').toLowerCase(), r])
+      );
+      const nowMs = Date.now();
+      const prioritized = trendingUniverse
+        .map((row, idx) => ({ row, idx }))
+        .filter(({ row }) => {
+          const key = String(row.address || '').toLowerCase();
+          const baseline = baselineByAddress.get(key);
+          if (!baseline) return true;
+          if (!ignoreRetryAfter && baseline.retryAfter && baseline.retryAfter.getTime() > nowMs) return false;
+          const source = String(baseline.baselineSource || '');
+          const baselinePrice = Number(baseline.baselinePrice || 0);
+          if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) return true;
+          return !TRUSTED_BASELINE_SOURCES.includes(source as (typeof TRUSTED_BASELINE_SOURCES)[number]);
+        })
+        .sort((a, b) => {
+          const aBase = baselineByAddress.get(String(a.row.address || '').toLowerCase());
+          const bBase = baselineByAddress.get(String(b.row.address || '').toLowerCase());
+          const aLast = aBase?.lastCheckedAt?.getTime() || 0;
+          const bLast = bBase?.lastCheckedAt?.getTime() || 0;
+          if (aLast !== bLast) return aLast - bLast;
+          const aFirst = aBase?.firstSeenAt?.getTime() || 0;
+          const bFirst = bBase?.firstSeenAt?.getTime() || 0;
+          if (aFirst !== bFirst) return aFirst - bFirst;
+          return a.idx - b.idx;
+        })
+        .slice(0, maxRows)
+        .map((x) => x.row);
+
+      if (prioritized.length === 0) return { queued: 0, processed: 0 };
+      await ensureBaselineTrackingRows(chainId, prioritized.map((p) => ({ address: p.address })));
+
+      const tokenMap = new Map<string, {
+        address: string;
+        launchpad?: string;
+        poolAddress?: string;
+        poolCreatedAt?: string;
+        price?: number;
+        launchMultiple?: number;
+        creatorAddress?: string;
+        creatorUrl?: string;
+        creatorLabel?: string;
+      }>();
+      for (const row of prioritized) {
+        tokenMap.set(String(row.address).toLowerCase(), {
+          address: row.address,
+          launchpad: (row as any).launchpad || undefined,
+          poolCreatedAt: row.poolCreatedAt ? row.poolCreatedAt.toISOString() : undefined,
+          price: Number.isFinite(Number(row.price || 0)) ? Number(row.price || 0) : undefined,
+        });
+      }
+
+      const dexPoolLookupLimiter = pLimit(Math.max(1, Number(process.env.PENDING_BASELINE_DEX_LOOKUP_CONCURRENCY || '2')));
+      const withPools = await Promise.all(
+        Array.from(tokenMap.values()).map(async (t) => {
+          try {
+            const initialRaw = await getRedisCache(initialPoolCacheKey(chainId, t.address));
+            if (initialRaw) {
+              const parsed = JSON.parse(initialRaw) as {
+                initialPoolAddress?: string;
+                initialPoolCreatedAt?: string;
+              };
+              if (!t.poolAddress && typeof parsed?.initialPoolAddress === 'string' && parsed.initialPoolAddress.trim()) {
+                t.poolAddress = parsed.initialPoolAddress.trim();
+              }
+              if (!t.poolCreatedAt && typeof parsed?.initialPoolCreatedAt === 'string' && parsed.initialPoolCreatedAt.trim()) {
+                t.poolCreatedAt = parsed.initialPoolCreatedAt.trim();
+              }
+            }
+          } catch {
+            // best effort
+          }
+
+          if (!t.poolAddress) {
+            await dexPoolLookupLimiter(async () => {
+              try {
+                const details = await getDexTokenDetails(chainId, t.address);
+                if (details?.poolAddress) t.poolAddress = details.poolAddress;
+                if (!t.poolCreatedAt && details?.pairCreatedAt && Number.isFinite(Number(details.pairCreatedAt))) {
+                  t.poolCreatedAt = new Date(Number(details.pairCreatedAt)).toISOString();
+                }
+              } catch {
+                // best effort
+              }
+            });
+          }
+          return t;
+        })
+      );
+
+      const baselineOut = await runWithTimeout(
+        applyBaselineMultiples(chainId, geckoNetwork, withPools),
+        Math.max(LAUNCH_MULTIPLE_ENRICH_TIMEOUT_MS, 120_000),
+        `Pending baseline apply for ${chainId}`
+      );
+      if (baselineOut === null) {
+        return { queued: prioritized.length, processed: 0 };
+      }
+      processed = withPools.length;
+      return { queued: prioritized.length, processed };
+    } catch (error) {
+      logger.warn(LogCode.API_FETCH_FAILED, `Pending baseline processor failed for ${chainId}`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // non-blocking pending processor
+      return { queued: 0, processed };
+    }
+  })().finally(() => {
+    pendingBaselineInFlight.delete(chainId);
+  });
+
+  pendingBaselineInFlight.set(chainId, task);
+  return task;
+}
+
 async function applyBaselineMultiples(
   chainId: string,
   geckoNetwork: string,
   tokens: Array<{
     address: string;
+    launchpad?: string;
     poolAddress?: string;
     poolCreatedAt?: string;
     price?: number;
@@ -1660,7 +2926,7 @@ async function applyBaselineMultiples(
 ): Promise<void> {
   const baselineSnapshot = new Map<string, TokenBaselineMeta>();
   try {
-    const addresses = Array.from(new Set(tokens.map((t) => String(t.address || '').toLowerCase()).filter(Boolean)));
+    const addresses = buildAddressVariants(tokens.map((t) => String(t.address || '')));
     if (addresses.length > 0) {
       const rows = await prisma.tokenLaunchBaseline.findMany({
         where: {
@@ -1696,12 +2962,28 @@ async function applyBaselineMultiples(
     const fromSnap = baselineSnapshot.get(key);
     if (fromSnap) return fromSnap;
     const fromCache = await readTokenBaselineCache(chainId, key);
-    if (fromCache) baselineSnapshot.set(key, fromCache);
+    if (fromCache) {
+      baselineSnapshot.set(key, fromCache);
+      // Self-heal path: old deployments may have baseline in Redis but missing DB row.
+      if (
+        isTrustedBaselineSource(fromCache.baselineSource) &&
+        isDisplayTrustedBaselineSource(fromCache.baselineSource) &&
+        Number.isFinite(fromCache.baselinePrice) &&
+        fromCache.baselinePrice > 0
+      ) {
+        await writeTokenBaselineCache(chainId, key, fromCache.baselinePrice, fromCache.baselineSource || 'rpc_native_first_swap').catch(() => undefined);
+      }
+    }
     return fromCache;
   };
 
-  const setBaseline = async (address: string, price: number, source: string): Promise<void> => {
-    await writeTokenBaselineCache(chainId, address, price, source);
+  const setBaseline = async (
+    address: string,
+    price: number,
+    source: string,
+    meta?: { blockNumber?: number; txHash?: string; poolAddress?: string; nativeUsd?: number; quotedAt?: Date }
+  ): Promise<void> => {
+    await writeTokenBaselineCache(chainId, address, price, source, meta);
     const refreshed = await readTokenBaselineCache(chainId, address);
     if (refreshed) baselineSnapshot.set(address.toLowerCase(), refreshed);
   };
@@ -1739,34 +3021,64 @@ async function applyBaselineMultiples(
     if (!Number.isFinite(current) || current <= 0) return null;
     const baseline = await getBaseline(t.address);
     if (!baseline || !isTrustedBaselineSource(baseline.baselineSource)) {
-      return { token: t, baselineSource: undefined as string | undefined };
+      return { token: t, baselineSource: undefined as string | undefined, forceRevalidate: false };
     }
     if (!isDisplayTrustedBaselineSource(baseline.baselineSource)) {
-      return { token: t, baselineSource: baseline.baselineSource };
+      return { token: t, baselineSource: baseline.baselineSource, forceRevalidate: false };
+    }
+
+    const source = String(baseline.baselineSource || '');
+    const raw = current / baseline.baselinePrice;
+    const createdMs = t.poolCreatedAt ? Date.parse(t.poolCreatedAt) : NaN;
+    const ageDays = Number.isFinite(createdMs) && createdMs > 0
+      ? Math.max(0, (Date.now() - createdMs) / (1000 * 60 * 60 * 24))
+      : NaN;
+    const launchpadKnown = typeof t.launchpad === 'string' && t.launchpad.trim().length > 0;
+    const isDisplaySource = isDisplayTrustedBaselineSource(source);
+    const tooLowLikelyWrong = Number.isFinite(raw) && raw > 0 && raw <= 0.85 && (
+      launchpadKnown || !Number.isFinite(ageDays) || ageDays <= 45
+    );
+    const tooHighLikelyWrong = Number.isFinite(raw) && raw >= 20_000;
+    const geckoLikelyWrong = source === 'gecko_launch_window' && Number.isFinite(raw) && raw > 0 && raw <= 0.7;
+    const shouldForceRevalidateTrusted = isDisplaySource && (tooLowLikelyWrong || tooHighLikelyWrong || geckoLikelyWrong);
+    if (shouldForceRevalidateTrusted) {
+      return { token: t, baselineSource: baseline.baselineSource, forceRevalidate: true };
     }
     return null;
-  }))).filter(Boolean) as Array<{ token: typeof tokens[number]; baselineSource?: string }>;
+  }))).filter(Boolean) as Array<{ token: typeof tokens[number]; baselineSource?: string; forceRevalidate?: boolean }>;
 
   if (externalCandidates.length === 0) return;
 
   const targets = pickVerifyTargets(externalCandidates, BASELINE_EXTERNAL_FETCH_BUDGET_PER_RUN);
-  const limiter = pLimit(4);
+  const externalConcurrency = chainId === 'solana'
+    ? Math.max(1, Number(process.env.BASELINE_EXTERNAL_CONCURRENCY_SOL || '2'))
+    : Math.max(4, Number(process.env.BASELINE_EXTERNAL_CONCURRENCY || '8'));
+  const limiter = pLimit(externalConcurrency);
   await Promise.all(targets.map((candidate) => limiter(async () => {
-    const token = candidate.token;
-    try {
-      const hasCooldown = await readBaselineRetryCooldown(chainId, token.address);
-      const isFallbackBaseline = candidate.baselineSource === 'first_seen_fallback';
-      // Keep retrying first-seen fallback baselines so x1 can self-heal quickly.
-      if (hasCooldown && !isFallbackBaseline) return;
+      const token = candidate.token;
+      try {
+        const hasCooldown = await readBaselineRetryCooldown(chainId, token.address);
+        const forceRevalidate = !!candidate.forceRevalidate;
+        // Recheck cache in case another worker already wrote baseline.
+        const cachedBaseline = await getBaseline(token.address);
+        const hasDisplayTrustedCachedBaseline = !!(
+          cachedBaseline &&
+          isTrustedBaselineSource(cachedBaseline.baselineSource) &&
+          isDisplayTrustedBaselineSource(cachedBaseline.baselineSource) &&
+          Number.isFinite(cachedBaseline.baselinePrice) &&
+          cachedBaseline.baselinePrice > 0
+        );
+        // Keep retrying when baseline is missing. Cooldown should only throttle
+        // expensive retries after we already have a trusted visible baseline.
+        if (hasCooldown && !forceRevalidate && hasDisplayTrustedCachedBaseline) return;
 
-      // Recheck cache in case another worker already wrote baseline.
-      const cachedBaseline = await getBaseline(token.address);
       if (
         cachedBaseline &&
         isTrustedBaselineSource(cachedBaseline.baselineSource) &&
         isDisplayTrustedBaselineSource(cachedBaseline.baselineSource) &&
         Number.isFinite(cachedBaseline.baselinePrice) &&
-        cachedBaseline.baselinePrice > 0
+        cachedBaseline.baselinePrice > 0 &&
+        !forceRevalidate
       ) {
         const current = Number(token.price || 0);
         if (!Number.isFinite(current) || current <= 0) return;
@@ -1784,38 +3096,15 @@ async function applyBaselineMultiples(
         return;
       }
 
-      const externalBaseline = await fetchExternalBaselinePrice(chainId, geckoNetwork, token);
+      const externalTimeoutMs = Math.max(
+        3000,
+        Number(process.env.BASELINE_EXTERNAL_PER_TOKEN_TIMEOUT_MS || '10000')
+      );
+      const externalBaseline = await Promise.race<ExternalBaselineResult | null>([
+        fetchExternalBaselinePrice(chainId, geckoNetwork, token),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), externalTimeoutMs)),
+      ]);
       const current = Number(token.price || 0);
-      const maybeWriteDerivedProxy = async () => {
-        if (chainId !== 'solana') return false;
-        if (!Number.isFinite(current) || current <= 0) return false;
-
-        const createdMs = token.poolCreatedAt ? Date.parse(token.poolCreatedAt) : NaN;
-        const ageHours = Number.isFinite(createdMs) ? Math.max(0, (Date.now() - createdMs) / (1000 * 60 * 60)) : NaN;
-        const c1h = Number(token.priceChange1h || 0);
-        const c6h = Number(token.priceChange6h || 0);
-        const c24h = Number(token.priceChange24h || 0);
-
-        let pct: number | null = null;
-        if (Number.isFinite(ageHours) && ageHours <= 2 && Number.isFinite(c1h) && c1h > 0) pct = c1h;
-        else if (Number.isFinite(ageHours) && ageHours <= 8 && Number.isFinite(c6h) && c6h > 0) pct = c6h;
-        else if (Number.isFinite(c24h) && c24h > 0) pct = c24h;
-        if (!Number.isFinite(pct || NaN) || (pct || 0) <= 0) return false;
-
-        const growth = 1 + Number(pct) / 100;
-        if (!Number.isFinite(growth) || growth <= 1) return false;
-        const derivedBaseline = current / growth;
-        if (!Number.isFinite(derivedBaseline) || derivedBaseline <= 0) return false;
-
-        await setBaseline(token.address, derivedBaseline, 'derived_change_proxy');
-        // Keep derived baseline for later upgrades, but do not expose multiple as "accurate".
-        await writeTokenMetaCache(chainId, token.address, {
-          creatorAddress: token.creatorAddress,
-          creatorUrl: token.creatorUrl,
-          creatorLabel: token.creatorLabel,
-        });
-        return true;
-      };
 
       if (externalBaseline && Number.isFinite(externalBaseline.price) && externalBaseline.price > 0) {
         const tentativeMultiple = Number.isFinite(current) && current > 0 ? (current / externalBaseline.price) : NaN;
@@ -1837,8 +3126,14 @@ async function applyBaselineMultiples(
             return;
           }
         }
-        const externalSource = externalBaseline.source || 'gecko_launch_window';
-        await setBaseline(token.address, externalBaseline.price, externalSource);
+        const externalSource = externalBaseline.source || 'rpc_native_first_swap';
+        await setBaseline(token.address, externalBaseline.price, externalSource, {
+          blockNumber: externalBaseline.blockNumber,
+          txHash: externalBaseline.txHash,
+          poolAddress: externalBaseline.poolAddress || token.poolAddress,
+          nativeUsd: externalBaseline.nativeUsd,
+          quotedAt: externalBaseline.quotedAt,
+        });
         if (isDisplayTrustedBaselineSource(externalSource) && Number.isFinite(current) && current > 0) {
           const multipleRaw = current / externalBaseline.price;
           if (Number.isFinite(multipleRaw) && multipleRaw > 0) {
@@ -1857,10 +3152,13 @@ async function applyBaselineMultiples(
         return;
       }
 
-      // Coverage fallback for Solana: derive baseline from already-fetched short-term price change.
-      if (await maybeWriteDerivedProxy()) return;
-
       // External baseline unavailable now: set cooldown to avoid hammering.
+      await writeBaselineAttemptError(
+        chainId,
+        token.address,
+        `baseline_not_found pool=${token.poolAddress || 'n/a'} created=${token.poolCreatedAt || 'n/a'}`,
+        token.poolAddress
+      );
       await writeBaselineRetryCooldown(chainId, token.address);
 
       // Keep displaying a stable value even when external enrichment is unavailable.
@@ -1888,47 +3186,16 @@ async function applyBaselineMultiples(
           }
         }
       }
-    } catch {
+    } catch (error) {
+      await writeBaselineAttemptError(
+        chainId,
+        token.address,
+        `baseline_fetch_error ${(error instanceof Error ? error.message : String(error)).slice(0, 250)}`,
+        token.poolAddress
+      );
       // best-effort only
     }
   })));
-
-  // 3) Coverage fallback:
-  // after external attempts, any remaining token without baseline gets first-seen baseline x1.
-  await Promise.all(tokens.map(async (token) => {
-    try {
-      if (Number.isFinite(token.launchMultiple || NaN) && (token.launchMultiple || 0) > 0) return;
-      const baseline = await getBaseline(token.address);
-      if (
-        baseline &&
-        isTrustedBaselineSource(baseline.baselineSource) &&
-        isDisplayTrustedBaselineSource(baseline.baselineSource) &&
-        Number.isFinite(baseline.baselinePrice) &&
-        baseline.baselinePrice > 0
-      ) {
-        const current = Number(token.price || 0);
-        if (!Number.isFinite(current) || current <= 0) return;
-        const multipleRaw = current / baseline.baselinePrice;
-        if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return;
-        const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: baseline.baselineSource, address: token.address });
-        if (multiple === null) return;
-        token.launchMultiple = multiple;
-        await writeTokenMetaCache(chainId, token.address, {
-          creatorAddress: token.creatorAddress,
-          creatorUrl: token.creatorUrl,
-          creatorLabel: token.creatorLabel,
-          launchMultiple: multiple
-        });
-        return;
-      }
-
-      const current = Number(token.price || 0);
-      if (!Number.isFinite(current) || current <= 0) return;
-      await setBaseline(token.address, current, 'first_seen_fallback');
-    } catch {
-      // best-effort only
-    }
-  }));
 }
 
 function pickCreatorAddress(detected: any): string | undefined {
@@ -2176,6 +3443,30 @@ async function enrichLaunchpadsForTrending(
 ): Promise<void> {
   if (tokens.length === 0) return;
 
+  const persistLaunchpad = async (
+    token: { address: string; launchpad?: string; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string },
+    source: string
+  ) => {
+    try {
+      await saveTokenLaunchpadProfile(chainId, token.address, {
+        launchpad: token.launchpad,
+        creatorAddress: token.creatorAddress,
+        creatorUrl: token.creatorUrl,
+        creatorLabel: token.creatorLabel,
+        source,
+      });
+      if (token.creatorAddress || token.creatorUrl || token.creatorLabel) {
+        await saveTrendingTokenCreator(chainId, token.address, {
+          creatorAddress: token.creatorAddress,
+          creatorUrl: token.creatorUrl,
+          creatorLabel: token.creatorLabel,
+        });
+      }
+    } catch {
+      // non-blocking persistence path
+    }
+  };
+
   // Warm from metadata cache first (keeps creator/multiple stable across DB reloads)
   await Promise.all(tokens.map(async (token) => {
     const cached = await readTokenMetaCache(chainId, token.address);
@@ -2188,6 +3479,13 @@ async function enrichLaunchpadsForTrending(
   // Step 1: deterministic suffix detection
   for (const token of tokens) {
     token.launchpad = detectBySuffix(chainId, token.address) || undefined;
+  }
+  const deterministic = tokens.filter((t) => !!t.launchpad);
+  if (deterministic.length > 0) {
+    const persistLimiter = pLimit(10);
+    await Promise.all(deterministic.map((token) => persistLimiter(async () => {
+      await persistLaunchpad(token as any, 'deterministic_suffix');
+    })));
   }
 
   // Step 2: BSC flap verification for suffix-matched candidates
@@ -2216,6 +3514,7 @@ async function enrichLaunchpadsForTrending(
             creatorLabel: (token as any).creatorLabel,
             launchMultiple: token.launchMultiple
           });
+          await persistLaunchpad(token as any, 'detector_flap');
           if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
             token.imageUrl = (detected as any).data.imageUrl;
           }
@@ -2255,6 +3554,7 @@ async function enrichLaunchpadsForTrending(
             creatorLabel: (token as any).creatorLabel,
             launchMultiple: token.launchMultiple
           });
+          await persistLaunchpad(token as any, 'detector_base');
           if (!token.imageUrl && typeof (detected as any)?.data?.imageUrl === 'string') {
             token.imageUrl = (detected as any).data.imageUrl;
           }
@@ -2311,6 +3611,7 @@ async function enrichLaunchpadsForTrending(
         creatorLabel: (token as any).creatorLabel,
         launchMultiple: token.launchMultiple
       });
+      await persistLaunchpad(token as any, 'detector_backfill');
     } catch {
       // Best-effort metadata backfill only.
     }
@@ -2352,6 +3653,7 @@ async function enrichLaunchpadsForTrending(
             creatorLabel: (token as any).creatorLabel,
             launchMultiple: token.launchMultiple
           });
+          await persistLaunchpad(token as any, 'detector_discovery');
         } catch {
           // best-effort creator discovery only
         }
@@ -2366,103 +3668,35 @@ async function enrichLaunchMultiplesForTrending(
   tokens: Array<{ address: string; launchpad?: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }>
 ): Promise<void> {
   if (!LAUNCH_MULTIPLE_ENRICH_ENABLED) return;
-  if (tokens.length === 0) return;
-
-  // Cheapest mode: no external historical API calls.
-  // Store first-seen price per token and derive multiple from current/baseline.
-  if (LAUNCH_MULTIPLE_BASELINE_ONLY) {
-    await applyBaselineMultiples(chainId, geckoNetwork, tokens);
-    return;
-  }
-
-  const backoffUntil = await readGeckoCandleBackoff(chainId);
-  if (Date.now() < backoffUntil) {
-    return;
-  }
-
-  const candidates = tokens
-    .filter((t) => typeof t.price === 'number' && t.price > 0 && !!t.poolAddress)
-    .sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
-
-  if (candidates.length === 0) return;
-
-  const targets = pickVerifyTargets(candidates, LAUNCH_MULTIPLE_BUDGET_PER_RUN);
-  for (const token of targets) {
-    try {
-      const cached = await readTokenMetaCache(chainId, token.address);
-      if (cached) {
-        if (!token.creatorAddress && cached.creatorAddress) token.creatorAddress = cached.creatorAddress;
-        if (!token.creatorUrl && cached.creatorUrl) token.creatorUrl = cached.creatorUrl;
-        if (!token.creatorLabel && cached.creatorLabel) token.creatorLabel = cached.creatorLabel;
-      }
-      const dynamicBackoffUntil = await readGeckoCandleBackoff(chainId);
-      if (Date.now() < dynamicBackoffUntil) break;
-
-      const now = Date.now();
-      const createdMs = token.poolCreatedAt ? Date.parse(token.poolCreatedAt) : NaN;
-      const ageHours = Number.isFinite(createdMs) ? Math.max(0, (now - createdMs) / (1000 * 60 * 60)) : NaN;
-
-      let timeframe: 'm5' | 'h1' | 'h6' | 'd1' = 'h1';
-      let limit = 96;
-      if (Number.isFinite(ageHours) && ageHours <= 12) {
-        timeframe = 'm5';
-        limit = Math.min(180, Math.max(36, Math.ceil((ageHours * 60) / 5) + 12));
-      } else if (Number.isFinite(ageHours) && ageHours >= 24) {
-        // Prefer daily candles for older pools; first daily candle is a better launch proxy
-        // than short-range hourly windows, while keeping API cost bounded.
-        timeframe = 'd1';
-        limit = Math.min(365, Math.max(14, Math.ceil(ageHours / 24) + 3));
-      } else if (Number.isFinite(ageHours)) {
-        timeframe = 'h1';
-        limit = Math.min(180, Math.max(36, Math.ceil(ageHours) + 12));
-      }
-
-      await waitForGeckoCandleSlot();
-      let candles = await getDexCandlestickData(chainId, token.poolAddress!, timeframe, limit);
-      if ((!Array.isArray(candles) || candles.length < 2) && LAUNCH_MULTIPLE_USE_GECKO_FALLBACK) {
-        candles = await getGeckoCandlestickData(geckoNetwork, token.poolAddress!, timeframe, limit);
-      }
-      if (!Array.isArray(candles) || candles.length === 0) continue;
-
-      const first = candles[0];
-      const last = candles[candles.length - 1];
-      const open = typeof first?.open === 'number' ? first.open : Number(first?.open || 0);
-      const geckoCurrent = typeof last?.close === 'number' ? last.close : Number(last?.close || 0);
-      const current = Number.isFinite(geckoCurrent) && geckoCurrent > 0
-        ? geckoCurrent
-        : Number(token.price || 0);
-      if (!Number.isFinite(open) || open <= 0 || !Number.isFinite(current) || current <= 0) continue;
-
-      const multipleRaw = current / open;
-      if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) continue;
-
-      const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: 'candle_open', address: token.address });
-      if (multiple === null) continue;
-
-      token.launchMultiple = multiple;
-      await writeTokenMetaCache(chainId, token.address, {
-        creatorAddress: token.creatorAddress,
-        creatorUrl: token.creatorUrl,
-        creatorLabel: token.creatorLabel,
-        launchMultiple: multiple
-      });
-    } catch (error) {
-      if (isRateLimitError(error)) {
-        const until = Date.now() + GECKO_CANDLE_BACKOFF_MS;
-        await writeGeckoCandleBackoff(chainId, until);
-        break;
-      }
-      // keep token without multiple when upstream API is unavailable
-    }
-  }
-
-  // Optional synthetic fallback:
-  // use first seen price as baseline when no on-chain launch baseline is available.
-  if (!LAUNCH_MULTIPLE_ALLOW_SYNTHETIC_BASELINE) {
-    return;
-  }
-
+  if (!Array.isArray(tokens) || tokens.length === 0) return;
   await applyBaselineMultiples(chainId, geckoNetwork, tokens);
+}
+
+const onDemandMultipleInFlight = new Map<string, Promise<void>>();
+
+export async function enrichLaunchMultiplesOnDemand(
+  chainId: string,
+  tokens: Array<{ address: string; launchpad?: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }>
+): Promise<void> {
+  if (!LAUNCH_MULTIPLE_ENRICH_ENABLED) return;
+  if (!Array.isArray(tokens) || tokens.length === 0) return;
+
+  const key = `${chainId}:on_demand`;
+  const existing = onDemandMultipleInFlight.get(key);
+  if (existing) {
+    await existing.catch(() => undefined);
+    return;
+  }
+
+  const geckoNetwork = chainId === 'ethereum' ? 'eth' : chainId;
+  const task = (async () => {
+    await applyBaselineMultiples(chainId, geckoNetwork, tokens);
+  })().finally(() => {
+    onDemandMultipleInFlight.delete(key);
+  });
+
+  onDemandMultipleInFlight.set(key, task);
+  await task;
 }
 
 // Global rate limiter to prevent API abuse
@@ -2498,6 +3732,34 @@ import { randomUUID } from 'node:crypto';
 // In-memory lock to prevent concurrent refreshes for the same chain
 // This prevents race conditions where multiple jobs/API calls try to delete/insert for the same chain simultaneously
 const refreshLocks = new Map<string, boolean>();
+const LAUNCHPAD_ENRICH_TIMEOUT_MS = Math.max(
+  10_000,
+  Number(process.env.LAUNCHPAD_ENRICH_TIMEOUT_MS || '25000')
+);
+const LAUNCH_MULTIPLE_ENRICH_TIMEOUT_MS = Math.max(
+  20_000,
+  Number(process.env.LAUNCH_MULTIPLE_ENRICH_TIMEOUT_MS || '90000')
+);
+
+async function runWithTimeout<T>(task: Promise<T>, timeoutMs: number, label: string): Promise<T | null> {
+  let timeoutId: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) => {
+    timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+  });
+  const result = await Promise.race([
+    task.then((value) => ({ kind: 'ok' as const, value })).catch((error) => ({ kind: 'error' as const, error })),
+    timeoutPromise
+  ]);
+  if (timeoutId) clearTimeout(timeoutId);
+  if (result && (result as any).kind === 'timeout') {
+    logger.warn(LogCode.API_FETCH_FAILED, `${label} timed out`, { timeoutMs });
+    return null;
+  }
+  if (result && (result as any).kind === 'error') {
+    throw (result as any).error;
+  }
+  return (result as any).value as T;
+}
 
 async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = false): Promise<void> {
   // Check if a refresh is already in progress for this chain
@@ -2571,29 +3833,16 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
       logger.warn(LogCode.API_FETCH_FAILED, `New list too small (${tokens.length}) for ${chain.name}; keeping existing (${existing.length})`);
       return;
     }
-    // Launchpad enrichment: suffix first, then API verification where needed.
-    try {
-      await enrichLaunchpadsForTrending(
-        chain.id,
-        tokens as Array<{ address: string; launchpad?: string; imageUrl?: string; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; poolAddress?: string; poolCreatedAt?: string; price?: number }>
-      );
-    } catch (error) {
-      logger.warn(LogCode.API_FETCH_FAILED, `Launchpad enrichment failed for ${chain.name}`, {
-        error: error instanceof Error ? error.message : String(error)
-      });
+    // Fast deterministic hinting before DB write (cheap, no external calls).
+    for (const token of tokens as Array<{ address: string; launchpad?: string }>) {
+      if (!token.launchpad) token.launchpad = detectBySuffix(chain.id, token.address) || undefined;
     }
 
-    try {
-      await enrichLaunchMultiplesForTrending(
-        chain.id,
-        chain.geckoNetwork,
-        tokens as Array<{ address: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }>
-      );
-    } catch (error) {
-      logger.warn(LogCode.API_FETCH_FAILED, `Launch multiple enrichment failed for ${chain.name}`, {
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
+    // Capture initial pool snapshot once per token (address/time/liquidity-at-first-seen).
+    await cacheInitialPoolSnapshots(
+      chain.id,
+      tokens as Array<{ address?: string; launchpad?: string; poolAddress?: string; poolCreatedAt?: string; liquidity?: number }>
+    );
 
     // Save to PostgreSQL database (best-effort)
     let savedTokens: typeof tokens = [];
@@ -2606,14 +3855,6 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     }
 
     const cachedTokens = savedTokens.length > 0 ? savedTokens : tokens;
-
-    try {
-      await ensureBaselineTrackingRows(chain.id, cachedTokens as Array<{ address?: string }>);
-    } catch (error) {
-      logger.warn(LogCode.API_FETCH_FAILED, `Baseline tracking setup failed for ${chain.name}`, {
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
 
     // Memory cache is already updated inside saveTrendingTokens() with merged creator/launchpad data.
     // Only update cache here if saveTrendingTokens failed (savedTokens is empty).
@@ -2633,6 +3874,64 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     }
 
     logger.info(LogCode.SYS_INFO, `Saved ${cachedTokens.length} tokens for ${chain.name} to DB + cache`);
+
+    const runLaunchpadEnrichment = async (): Promise<void> => {
+      const result = await runWithTimeout(
+        enrichLaunchpadsForTrending(
+          chain.id,
+          tokens as Array<{ address: string; launchpad?: string; imageUrl?: string; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; poolAddress?: string; poolCreatedAt?: string; price?: number }>
+        ),
+        LAUNCHPAD_ENRICH_TIMEOUT_MS,
+        `Launchpad enrichment for ${chain.name}`
+      );
+      if (result === null) return;
+      await saveTrendingTokens(chain.id, tokens);
+    };
+
+    const runLaunchMultipleEnrichment = async (): Promise<void> => {
+      if (!LAUNCH_MULTIPLE_ENRICH_ENABLED) return;
+      const result = await runWithTimeout(
+        enrichLaunchMultiplesForTrending(
+          chain.id,
+          chain.geckoNetwork,
+          tokens as Array<{ address: string; launchpad?: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }>
+        ),
+        LAUNCH_MULTIPLE_ENRICH_TIMEOUT_MS,
+        `Launch multiple enrichment for ${chain.name}`
+      );
+      if (result === null) return;
+      await saveTrendingTokens(chain.id, tokens);
+    };
+
+    if (force) {
+      // Force refresh is used for manual repair/debug: wait for enrichments so caller sees complete data.
+      try {
+        await runLaunchpadEnrichment();
+      } catch (error) {
+        logger.warn(LogCode.API_FETCH_FAILED, `Launchpad enrichment failed for ${chain.name}`, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      try {
+        await runLaunchMultipleEnrichment();
+      } catch (error) {
+        logger.warn(LogCode.API_FETCH_FAILED, `Launch multiple enrichment failed for ${chain.name}`, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    } else {
+      // Cron mode: keep refresh latency low and run enrichments in background.
+      void runLaunchpadEnrichment().catch((error) => {
+        logger.warn(LogCode.API_FETCH_FAILED, `Launchpad enrichment failed for ${chain.name}`, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+      void runLaunchMultipleEnrichment().catch((error) => {
+        logger.warn(LogCode.API_FETCH_FAILED, `Launch multiple enrichment failed for ${chain.name}`, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
 
   } catch (error) {
     logger.error(LogCode.SYS_ERROR, `Error refreshing ${chain.name}`, { error: error instanceof Error ? error.message : error });
@@ -2697,8 +3996,12 @@ export async function refreshSingleChain(chainId: string, force = false): Promis
     return false;
   }
 
+  const before = await getLastUpdateTime(chain.id);
   await refreshChainTokens(chain, force);
-  return true;
+  const after = await getLastUpdateTime(chain.id);
+  if (!after) return false;
+  if (!before) return true;
+  return after.getTime() > before.getTime();
 }
 
 /**
@@ -2706,6 +4009,40 @@ export async function refreshSingleChain(chainId: string, force = false): Promis
  */
 export function getSupportedChains(): string[] {
   return SUPPORTED_CHAINS.map(c => c.id);
+}
+
+async function runBaselineSweepTick(): Promise<void> {
+  if (!BASELINE_SWEEP_ENABLED) return;
+  if (baselineSweepInProgress) return;
+  baselineSweepInProgress = true;
+
+  try {
+    const targets = BASELINE_SWEEP_CHAINS
+      .map((id) => SUPPORTED_CHAINS.find((c) => c.id === id))
+      .filter(Boolean) as Array<{ id: string; name: string; geckoNetwork: string }>;
+    if (targets.length === 0) return;
+
+    for (const chain of targets) {
+      try {
+        const maxRows = chain.id === 'solana'
+          ? BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA
+          : BASELINE_SWEEP_MAX_PER_CHAIN;
+        const out = await processPendingBaselines(chain.id, chain.geckoNetwork, maxRows, false);
+        logger.info(LogCode.SYS_INFO, 'Baseline sweep tick', {
+          chain: chain.id,
+          queued: out.queued,
+          processed: out.processed,
+          maxRows,
+        });
+      } catch (error) {
+        logger.warn(LogCode.API_FETCH_FAILED, `Baseline sweep failed for ${chain.id}`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  } finally {
+    baselineSweepInProgress = false;
+  }
 }
 
 /**
@@ -2724,6 +4061,21 @@ export function startTokenDataJobs(): void {
 
   logger.info(LogCode.SYS_INFO, `Scheduled: Primary chains every ${PRIMARY_REFRESH_INTERVAL_MINUTES}min (${PRIMARY_CHAINS.map(c => c.name).join(', ')})`);
   logger.info(LogCode.SYS_INFO, `Scheduled: Secondary chains every ${SECONDARY_REFRESH_INTERVAL_HOURS}h (${SECONDARY_CHAINS.map(c => c.name).join(', ')})`);
+
+  if (BASELINE_SWEEP_ENABLED) {
+    setInterval(() => {
+      void runBaselineSweepTick();
+    }, BASELINE_SWEEP_INTERVAL_SECONDS * 1000);
+    setTimeout(() => {
+      void runBaselineSweepTick();
+    }, 15_000);
+    logger.info(LogCode.SYS_INFO, 'Scheduled: Baseline sweep queue', {
+      intervalSeconds: BASELINE_SWEEP_INTERVAL_SECONDS,
+      chains: BASELINE_SWEEP_CHAINS,
+      solanaMaxPerTick: BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA,
+      defaultMaxPerTick: BASELINE_SWEEP_MAX_PER_CHAIN,
+    });
+  }
 
   // Run initial refresh on startup (with delay for services to be ready)
   setTimeout(() => {

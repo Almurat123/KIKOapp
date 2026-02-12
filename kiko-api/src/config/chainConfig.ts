@@ -88,7 +88,10 @@ export const CHAINS: Record<number, ChainConfig> = {
         stablecoins: [
             '0x55d398326f99059ff775485246999027b3197955', // USDT
             '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d', // USDC
-            '0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3'  // DAI
+            '0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3', // DAI
+            '0xe9e7cea3dedca5984780bafc599bd69add087d56', // BUSD
+            '0xc5f0f7b66764f6ec8c8dff7ba683102295e16409', // FDUSD
+            '0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d'  // USD1
         ],
         explorerUrl: 'https://bscscan.com',
         contracts: {

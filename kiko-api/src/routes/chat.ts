@@ -25,6 +25,11 @@ interface SendMessageBody {
     model?: string;
     walletAddress?: string;
     chainId?: number;
+    farcaster?: {
+        followsKiko?: boolean;
+        kikoHandle?: string;
+        profileUrl?: string;
+    };
     toolConfig?: any;
     allowanceMode?: string;
     balance?: any;
@@ -218,6 +223,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     model,
                     walletAddress,
                     chainId,
+                    farcaster,
                     toolConfig,
                     balance,
                     nativeBalance,
@@ -372,6 +378,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         sessionId, // Add sessionId to toolContext for backend execution
                         walletAddress: resolvedWalletAddress,
                         chainId,
+                        farcaster,
                         toolConfig,
                         allowanceMode,
                         balance: resolvedBalance,
@@ -447,6 +454,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
                                         sessionId,
                                         walletAddress: resolvedWalletAddress,
                                         chainId,
+                                        farcaster,
                                         toolConfig,
                                         allowanceMode,
                                         balance: hydrated,

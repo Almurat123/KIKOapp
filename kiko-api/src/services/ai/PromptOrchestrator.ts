@@ -1,5 +1,4 @@
 import { V2_PROMPT_MODULES } from './prompts/v2/index.js';
-import { generateToolList } from './toolPromptGenerator.js';
 import type { IntentType, ModelType, OrchestratorOptions, UserContext } from './types.js';
 import { skillRegistryExec } from '../../skills/registry.js';
 import { logger } from '../../utils/logger.js';
@@ -35,15 +34,15 @@ export class PromptOrchestrator {
             : V2_PROMPT_MODULES.CORE_EXECUTION;
         modules.push(coreModule);
         if (mode === 'thinking') {
-            // High-freedom analysis/chat: keep the system prompt minimal, let the model express itself.
-            modules.push(V2_PROMPT_MODULES.ANALYST_POLICY);
+            // Thinking mode: choose policy by model.
+            // Grok performs best with the evidence-first AnalystPolicy; other models use the lighter general thinking policy.
+            const policyModule = model === 'grok'
+                ? V2_PROMPT_MODULES.ANALYST_POLICY
+                : V2_PROMPT_MODULES.GENERAL_THINKING_POLICY;
+            modules.push(policyModule);
             logger.debug(LogCode.AI_SKILLS_ATTACHED, 'PromptOrchestrator: no skills attached for thinking mode', { intent });
         } else {
-            // TOOL LIST (keep system prompt small; full schemas are sent via requestBody.tools)
-            modules.push(generateToolList());
-
             // Execution mode: strong policies + skills + output policy.
-            modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
             if (intent === 'TRADING') {
                 modules.push(V2_PROMPT_MODULES.TRADING_POLICY);
             }
@@ -62,6 +61,9 @@ export class PromptOrchestrator {
             } else {
                 logger.debug(LogCode.SYS_INFO, 'PromptOrchestrator: No skills matched intent', { intent });
             }
+
+            // Place intent/disambiguation policy AFTER skill prompts so it cannot be overridden by skill-specific instructions.
+            modules.push(V2_PROMPT_MODULES.INTENT_POLICY);
 
         }
 
@@ -137,6 +139,21 @@ USER_QUERY_END
             parts.push(`- Chain: ${ctx.chainName} (${ctx.chainId})`);
         }
         if (ctx.nativeBalance) parts.push(`- Native Balance: ${ctx.nativeBalance}`);
+
+        if (ctx.farcaster) {
+            const handle = (ctx.farcaster.kikoHandle || '').trim();
+            if (handle) {
+                parts.push(`- Farcaster (KiKo): @${handle.replace(/^@/, '')}`);
+            }
+            if (ctx.farcaster.profileUrl) {
+                parts.push(`- Farcaster Profile: ${ctx.farcaster.profileUrl}`);
+            }
+            if (ctx.farcaster.followsKiko === true) {
+                parts.push(`- Farcaster Follow: Following KiKo`);
+            } else if (ctx.farcaster.followsKiko === false) {
+                parts.push(`- Farcaster Follow: NOT following KiKo (Follow to get real-time order notifications)`);
+            }
+        }
 
 
         if (ctx.balance && Object.keys(ctx.balance).length > 0) {

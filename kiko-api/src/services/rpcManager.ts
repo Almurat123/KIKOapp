@@ -20,6 +20,7 @@ const RPC_TIMEOUT_FAST_MS = Number(process.env.RPC_TIMEOUT_FAST_MS || '2500');
 const RPC_TIMEOUT_CRITICAL_MS = Number(process.env.RPC_TIMEOUT_CRITICAL_MS || '1500');
 const RPC_CRITICAL_HEDGE_ENABLED = (process.env.RPC_CRITICAL_HEDGE_ENABLED || 'true') === 'true';
 const RPC_CRITICAL_HEDGE_STAGGER_MS = Number(process.env.RPC_CRITICAL_HEDGE_STAGGER_MS || '60');
+const RPC_CRITICAL_HEDGE_FANOUT = Math.max(2, Math.min(4, Number(process.env.RPC_CRITICAL_HEDGE_FANOUT || '3')));
 const HEALTH_CHECK_INTERVAL = 60000; // Check endpoint health every 60s
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Open circuit after 5 consecutive failures (more tolerant)
 const CIRCUIT_BREAKER_RESET_TIME = 30000; // Try again after 30s
@@ -194,6 +195,20 @@ function resolveRpcTimeoutMs(
     return RPC_TIMEOUT_MS;
 }
 
+function isNonRetryableRpcErrorMessage(message: string): boolean {
+    const msg = String(message || '').toLowerCase();
+    if (!msg) return false;
+    return (
+        msg.includes('execution reverted')
+        || msg.includes('invalid opcode')
+        || msg.includes('out of gas')
+        || msg.includes('insufficient funds for gas * price + value')
+        || msg.includes('insufficient funds')
+        || msg.includes('nonce too low')
+        || msg.includes('replacement transaction underpriced')
+    );
+}
+
 interface EndpointUsage {
     url: string;
     inFlight: number;
@@ -342,10 +357,11 @@ export async function callRpc<T = any>(
         };
 
         try {
-            const hedged = await Promise.any([
-                runHedgeAttempt(sortedEndpoints[0], 0),
-                runHedgeAttempt(sortedEndpoints[1], Math.max(0, RPC_CRITICAL_HEDGE_STAGGER_MS))
-            ]);
+            const fanout = Math.min(RPC_CRITICAL_HEDGE_FANOUT, sortedEndpoints.length);
+            const attempts = Array.from({ length: fanout }, (_, idx) =>
+                runHedgeAttempt(sortedEndpoints[idx], Math.max(0, RPC_CRITICAL_HEDGE_STAGGER_MS) * idx)
+            );
+            const hedged = await Promise.any(attempts);
 
             if (isCacheable(method)) {
                 const cacheKey = buildCacheKey(chainIdOrName, method, params);
@@ -442,10 +458,7 @@ export async function callRpc<T = any>(
 
             // ⚡ FAST FAIL: Contract errors should NOT be retried on other endpoints
             // These are logic errors, not network errors
-            const isContractError = error.message?.includes('execution reverted') ||
-                error.message?.includes('revert') ||
-                error.message?.includes('invalid opcode') ||
-                error.message?.includes('out of gas');
+            const isContractError = isNonRetryableRpcErrorMessage(error?.message || '');
 
             if (isContractError) {
                 // Don't retry - throw immediately to save time
@@ -606,10 +619,7 @@ export async function callRpcCustom<T = any>(
         } catch (error: any) {
             lastError = error;
 
-            const isContractError = error.message?.includes('execution reverted') ||
-                error.message?.includes('revert') ||
-                error.message?.includes('invalid opcode') ||
-                error.message?.includes('out of gas');
+            const isContractError = isNonRetryableRpcErrorMessage(error?.message || '');
 
             if (isContractError) {
                 throw error;
@@ -770,10 +780,7 @@ export async function callRpcRaw<T = any>(
         } catch (error: any) {
             lastError = error;
 
-            const isContractError = error.message?.includes('execution reverted') ||
-                error.message?.includes('revert') ||
-                error.message?.includes('invalid opcode') ||
-                error.message?.includes('out of gas');
+            const isContractError = isNonRetryableRpcErrorMessage(error?.message || '');
 
             if (isContractError) {
                 throw error;

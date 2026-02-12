@@ -43,7 +43,8 @@ export const GeckoTerminalChart: React.FC<GeckoTerminalChartProps> = ({
                 try {
                     setLoading(true);
                     const { tokenApi } = await import('../../services/api');
-                    const details = await tokenApi.getDetails(chain, address);
+                    const normalizedChain = NETWORK_MAP[chain.toLowerCase()] || chain.toLowerCase();
+                    const details = await tokenApi.getDetails(normalizedChain, address);
                     if (details?.poolAddress) {
                         setResolvedPoolAddress(details.poolAddress);
                     }

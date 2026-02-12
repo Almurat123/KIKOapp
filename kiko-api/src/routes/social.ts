@@ -15,6 +15,8 @@ import { env } from '../config/env.js';
 import snapchainService from '../services/snapchainService.js';
 import { ogpService } from '../services/ogpService.js';
 import { handleDatabaseError, handleExternalApiError } from '../middleware/errorHandler.js';
+import prisma from '../db/prisma.js';
+import { getSocialDiscoveryJobStatus } from '../jobs/socialDataJob.js';
 
 export async function socialRoutes(fastify: FastifyInstance) {
   // GET /api/social/trending
@@ -147,9 +149,11 @@ export async function socialRoutes(fastify: FastifyInstance) {
       }
 
       const metadata = await ogpService.fetchOGP(decodedUrl(url), request.headers.origin);
+      reply.header('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
       return reply.send({ success: true, data: metadata });
     } catch (error) {
       // Silent fail or minimal error
+      reply.header('Cache-Control', 'public, max-age=60');
       return reply.send({ success: false, data: null });
     }
   });
@@ -201,6 +205,13 @@ export async function socialRoutes(fastify: FastifyInstance) {
   // GET /api/social/health
   fastify.get('/health', async (request, reply) => {
     try {
+      const jobStatus = getSocialDiscoveryJobStatus();
+      const latestCast = await prisma.trendingCast.findFirst({
+        orderBy: { updatedAt: 'desc' },
+        select: { hash: true, timestamp: true, updatedAt: true }
+      });
+      const totalCasts = await prisma.trendingCast.count();
+
       // Check Snapchain Hub status
       let snapchainStatus = 'unknown';
       let hubInfo = null;
@@ -213,6 +224,7 @@ export async function socialRoutes(fastify: FastifyInstance) {
 
       return reply.send({
         success: true,
+        status: jobStatus.status,
         dataSources: {
           snapchain: {
             status: snapchainStatus,
@@ -221,6 +233,16 @@ export async function socialRoutes(fastify: FastifyInstance) {
             messages: hubInfo?.dbStats?.numMessages,
             users: hubInfo?.dbStats?.numFidRegistrations,
           },
+        },
+        discoveryJob: jobStatus,
+        storage: {
+          totalCasts,
+          latestCastHash: latestCast?.hash || null,
+          latestCastTimestamp: latestCast?.timestamp?.toISOString?.() || null,
+          latestCastUpdatedAt: latestCast?.updatedAt?.toISOString?.() || null,
+          minutesSinceLatestUpdate: latestCast?.updatedAt
+            ? Math.floor((Date.now() - latestCast.updatedAt.getTime()) / 60000)
+            : null,
         },
         primarySource: 'Snapchain Hub',
       });
@@ -395,4 +417,3 @@ export async function socialRoutes(fastify: FastifyInstance) {
     }
   });
 }
-

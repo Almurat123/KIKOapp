@@ -40,6 +40,26 @@ const CHAIN_SLUG_TO_ID: Record<string, number> = {
     'solana': 900
 };
 
+const CHAIN_ID_TO_SLUG: Record<number, string> = {
+    1: 'ethereum',
+    8453: 'base',
+    56: 'bsc',
+    42161: 'arbitrum',
+    10: 'optimism',
+    137: 'polygon',
+    900: 'solana',
+};
+
+const CHAIN_ID_TO_NAME: Record<number, string> = {
+    1: 'Ethereum',
+    8453: 'Base',
+    56: 'BSC',
+    42161: 'Arbitrum',
+    10: 'Optimism',
+    137: 'Polygon',
+    900: 'Solana',
+};
+
 /**
  * Find token on any chain using DexScreener global search
  */
@@ -103,22 +123,12 @@ export async function findTokenOnAnyChain(address: string): Promise<TokenInfo | 
         }
 
         const chainId = CHAIN_SLUG_TO_ID[match.chainId] || 1;
-        const chainNameMap: Record<number, string> = {
-            1: 'Ethereum',
-            8453: 'Base',
-            56: 'BSC',
-            42161: 'Arbitrum',
-            10: 'Optimism',
-            137: 'Polygon',
-            900: 'Solana'
-        };
-
         const tokenInfo: TokenInfo = {
             address: match.baseToken.address,
             symbol: match.baseToken.symbol,
             name: match.baseToken.name,
             chainId,
-            chainName: chainNameMap[chainId] || 'Unknown',
+            chainName: CHAIN_ID_TO_NAME[chainId] || 'Unknown',
             price: match.priceUsd ? parseFloat(match.priceUsd) : undefined,
             priceChange24h: match.priceChange24h,
             volume24h: match.volume24h,
@@ -154,17 +164,7 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
     const timerLabel = `get_token_info_${address}_${chainId}`;
     logger.startTimer(timerLabel);
     try {
-        const chainMap: Record<number, string> = {
-            1: 'ethereum',
-            8453: 'base',
-            56: 'bsc',
-            42161: 'arbitrum',
-            10: 'optimism',
-            137: 'polygon',
-            900: 'solana'
-        };
-
-        const chainSlug = chainMap[chainId];
+        const chainSlug = CHAIN_ID_TO_SLUG[chainId];
         if (!chainSlug) {
             logger.error(LogCode.SYS_ERROR, 'TokenDetector: Unsupported chainId', { chainId });
             logger.endTimer(timerLabel, LogCode.AI_TOKEN_DETECTED, { address, chainId, error: 'Unsupported chain' });
@@ -180,7 +180,7 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
                     symbol: geckoData.symbol,
                     name: geckoData.name,
                     chainId,
-                    chainName: chainMap[chainId] || 'Unknown',
+                    chainName: CHAIN_ID_TO_NAME[chainId] || 'Unknown',
                     price: geckoData.price,
                     priceChange24h: geckoData.priceChange24h,
                     volume24h: geckoData.volume24h,
@@ -217,15 +217,15 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
         const dexData = await getDexTokenDetails(chainSlug, address);
         if (dexData) {
             const tokenInfo: TokenInfo = {
-                address: dexData.address,
-                symbol: dexData.symbol,
-                name: dexData.name,
-                chainId,
-                chainName: chainMap[chainId] || 'Unknown',
-                price: dexData.price,
-                priceChange24h: dexData.priceChange24h,
-                volume24h: dexData.volume24h,
-                marketCap: dexData.fdv,
+                    address: dexData.address,
+                    symbol: dexData.symbol,
+                    name: dexData.name,
+                    chainId,
+                    chainName: CHAIN_ID_TO_NAME[chainId] || 'Unknown',
+                    price: dexData.price,
+                    priceChange24h: dexData.priceChange24h,
+                    volume24h: dexData.volume24h,
+                    marketCap: dexData.fdv,
             };
 
             // Check if this is a launchpad token
@@ -261,7 +261,7 @@ export async function getTokenInfo(address: string, chainId: number): Promise<To
                 symbol: launchpadResult.data.symbol || 'UNKNOWN',
                 name: launchpadResult.data.name || 'Unknown Token',
                 chainId: launchpadResult.chainId,
-                chainName: chainMap[launchpadResult.chainId] || 'Unknown',
+                chainName: CHAIN_ID_TO_NAME[launchpadResult.chainId] || 'Unknown',
                 launchpad: {
                     provider: launchpadResult.provider,
                     data: launchpadResult.data,

@@ -8,7 +8,7 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { DecodedSwap } from './txDecoder.js';
 import { onSwapDetected } from './watcherService.js';
 import { enqueueCopyTradeTask } from './copyTradeQueue.js';
-import { MainSwapService } from './MainSwapService.js';
+import { MainSwapService, type DirectSwapHint } from './MainSwapService.js';
 import { detectLaunchpadToken } from './ai/launchpadDetector.js';
 import { zoraSniperService } from './zoraSniperService.js';
 import { fourMemeService } from './fourMemeService.js';
@@ -101,6 +101,7 @@ const recentSwaps = new Map<string, number>(); // swapKey -> timestamp
 const SWAP_DEDUP_WINDOW_MS = 60000; // 1 minute
 const LAUNCHPAD_DET_TIMEOUT_MS = Number(process.env.LAUNCHPAD_DET_TIMEOUT_MS || '500');
 const COPYTRADE_MAX_DELAY_MS = Number(process.env.COPYTRADE_MAX_DELAY_MS || '5000');
+const COPYTRADE_TURBO_MAX_DELAY_MS = Number(process.env.COPYTRADE_TURBO_MAX_DELAY_MS || '2500');
 const COPYTRADE_PRICE_CHECK_TIMEOUT_MS = Number(process.env.COPYTRADE_PRICE_CHECK_TIMEOUT_MS || '1200');
 const ALLOWED_LAUNCHPAD_PROVIDERS = new Set(['zora', 'fourmeme']);
 const CHAIN_LAUNCHPAD_PROVIDERS: Record<number, Set<string>> = {
@@ -125,6 +126,21 @@ function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
         return raw;
     }
     return config?.disableTokenInfo === true ? 'turbo' : 'balanced';
+}
+
+function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefined {
+    const sourceTxHash = String(swap?.txHash || '').toLowerCase();
+    const sourceRouter = String(swap?.router || '').toLowerCase();
+    const sourceDexName = String(swap?.dexName || '').trim();
+    if (!sourceTxHash && !sourceRouter && !sourceDexName && !swap?.resolvedPoolHint) return undefined;
+
+    return {
+        sourceDexName: sourceDexName || undefined,
+        sourceRouter: sourceRouter || undefined,
+        sourceTxHash: sourceTxHash || undefined,
+        resolvedPoolHint: swap?.resolvedPoolHint,
+        bypassReferencePrice: true
+    };
 }
 
 /**
@@ -647,6 +663,55 @@ async function processBuyWithInfo(
     // We record it once for the leader, regardless of how many users copy it
     recordNewTrade(targetWallet, chainId, 'buy', targetSwapValueUsd);
 
+    // TURBO FAST LANE:
+    // Skip batch analytics/caching/delays and execute immediately for all-turbo configs.
+    const turboConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) === 'turbo');
+    const normalConfigs = configs.filter((c) => resolveExecutionModeForConfig(c) !== 'turbo');
+
+    if (turboConfigs.length > 0) {
+        const quickNativePrice = await getNativeTokenPriceUsd(chainId).catch(() => 0);
+        logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo fast lane enabled', {
+            userCount: turboConfigs.length,
+            token: tokenToBuy,
+            chainId
+        });
+
+        const turboResults = await Promise.allSettled(
+            turboConfigs.map((config) =>
+                processSingleUserBuy(
+                    config,
+                    null,
+                    targetWallet,
+                    tokenToBuy,
+                    swap,
+                    chainId,
+                    tokenInfo,
+                    targetSwapValueUsd,
+                    isFallbackMode,
+                    1.0,
+                    quickNativePrice,
+                    launchpadPromise,
+                    tokenInfoCache,
+                    detectedAt
+                )
+            )
+        );
+
+        const successCount = turboResults.filter((r) => r.status === 'fulfilled').length;
+        const failCount = turboResults.length - successCount;
+        logger.info(LogCode.EXE_TX_CONFIRMED, '[CopyTrade] Turbo fast lane complete', {
+            userCount: turboConfigs.length,
+            success: successCount,
+            failed: failCount,
+            totalMs: Date.now() - tStart
+        });
+    }
+
+    if (normalConfigs.length === 0) {
+        return;
+    }
+    const workingConfigs = normalConfigs;
+
     // =================================================================
     // 🚀 SMART BATCH EXECUTION ENGINE
     // Handles 200+ users with liquidity awareness and adaptive batching
@@ -657,7 +722,7 @@ async function processBuyWithInfo(
     const [userSettingsMap, sharedNativePrice] = await Promise.all([
         // 1. 批量预热用户设置缓存
         cacheHub.warmupUserSettings(
-            configs.map(c => c.userId).filter(Boolean),
+            workingConfigs.map(c => c.userId).filter(Boolean),
             async (userId) => prisma.userSettings.findUnique({ where: { userId } })
         ),
         // 2. 获取 Native 价格（通过缓存中心）
@@ -669,6 +734,7 @@ async function processBuyWithInfo(
 
     logger.debug(LogCode.EXE_QUOTE_FETCHED, '⚡ Shared data fetched via Cache Hub', {
         userCount: configs.length,
+        userCountTurboBypassed: turboConfigs.length,
         nativePrice: sharedNativePrice,
         settingsFetched: userSettingsMap.size
     });
@@ -677,7 +743,7 @@ async function processBuyWithInfo(
     // 🚀 100 users: 500ms (serial) → ~5ms (parallel)
     const filterStart = Date.now();
     const filterResults = await Promise.all(
-        configs.map(async (config) => {
+        workingConfigs.map(async (config) => {
             const userSettings = userSettingsMap.get(config.userId);
             const universalSlippageBps = getSlippageBps(userSettings);
             const effectiveConfig = {
@@ -707,6 +773,7 @@ async function processBuyWithInfo(
 
     logger.info(LogCode.EXE_QUOTE_FETCHED, '🔍 Batch filter complete (PARALLEL)', {
         total: configs.length,
+        totalTurboBypassed: turboConfigs.length,
         eligible: eligibleConfigs.length,
         skipped: skippedUsers.length
     });
@@ -898,7 +965,7 @@ async function processBuyWithInfo(
     logger.info(LogCode.EXE_TX_CONFIRMED, `✅ Smart batch execution complete`, {
         targetWallet,
         token: tokenToBuy,
-        totalUsers: configs.length,
+        totalUsers: workingConfigs.length + turboConfigs.length,
         success: successCount,
         failed: failCount,
         scalingFactor: scalingFactor.toFixed(3),
@@ -939,13 +1006,18 @@ async function processSingleUserBuy(
 ): Promise<void> {
     return withTradeLock(config.userId, async () => {
         let judgeDecisionId: string | null = null;
+        const executionMode = resolveExecutionModeForConfig(config);
+        const turboMode = executionMode === 'turbo';
 
         try {
-            if (detectedAt && Date.now() - detectedAt > COPYTRADE_MAX_DELAY_MS) {
+            const effectiveMaxDelayMs = turboMode ? COPYTRADE_TURBO_MAX_DELAY_MS : COPYTRADE_MAX_DELAY_MS;
+            if (detectedAt && Date.now() - detectedAt > effectiveMaxDelayMs) {
                 logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: copytrade delay exceeded', {
                     userId: config.userId,
                     token: tokenToBuy,
-                    delayMs: Date.now() - detectedAt
+                    delayMs: Date.now() - detectedAt,
+                    maxDelayMs: effectiveMaxDelayMs,
+                    turboMode
                 });
                 return;
             }
@@ -1054,8 +1126,10 @@ async function processSingleUserBuy(
             }
         }
 
-        const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
-        if (cooldownMinutes > 0) {
+            const cooldownMinutes = turboMode
+                ? 0
+                : (config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60);
+            if (cooldownMinutes > 0) {
             // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
             // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
             // If the target paid significantly more than Oracle price, we should be cautious.
@@ -1298,7 +1372,8 @@ async function processSingleUserBuy(
 
 
             // SPECIALIZED ZORA INTERACTION - Use async launchpad detection (non-blocking)
-            const launchpad = await resolveLaunchpad(launchpadPromise, chainId);
+            // Turbo mode skips launchpad detection on critical path for lower latency.
+            const launchpad = turboMode ? null : await resolveLaunchpad(launchpadPromise, chainId);
             const isFastExecutionEnabled = userSettings?.fastSwapMode === true;
 
             let useStandardSwap = true;
@@ -1377,7 +1452,6 @@ async function processSingleUserBuy(
                         eth: baseAmount.toFixed(6),
                         timingMs: Date.now() - timingDetectedAt
                     });
-                    const executionMode = resolveExecutionModeForConfig(config);
                     const fastSwapOverride = executionMode !== 'safe';
                     const result1 = await MainSwapService.executeSwap({
                         userId: effectiveConfig.user.privyDid,
@@ -1390,6 +1464,7 @@ async function processSingleUserBuy(
                         slippageBps: baseSlippage,
                         mode: 'copytrade',
                         feeBpsOverride: copyTradeFeeBpsOverride,
+                        directSwapHint: buildDirectSwapHintFromSwap(swap),
                         userSettings: {
                             fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                             copyTradeExecutionMode: executionMode
@@ -1405,6 +1480,14 @@ async function processSingleUserBuy(
                     });
                 } catch (buyErr1: any) {
                     logger.warn(LogCode.EXE_TX_REVERTED, 'Buy Step 1 failed', { userId: config.userId, error: buyErr1.message });
+                    if (turboMode) {
+                        logger.warn(LogCode.EXE_TX_REVERTED, 'Turbo mode: skip slow multi-step retries after step1 failure', {
+                            userId: config.userId,
+                            token: tokenToBuy,
+                            error: buyErr1.message
+                        });
+                        return;
+                    }
 
                     // CHECK: Conservative vs Aggressive Retry Mode
                     // If checkTokenBeforeSwap is TRUE (Conservative), we re-check price stability.
@@ -1445,7 +1528,6 @@ async function processSingleUserBuy(
                         const amount99 = baseAmount * 0.99;
                         const slippage2 = 2000; // 20% (baseSlippage is now 15%, so we bump +5%)
                         logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 2: 99% amount, 20% slippage', { userId: effectiveConfig.userId, eth: amount99.toFixed(6) });
-                        const executionMode = resolveExecutionModeForConfig(config);
                         const fastSwapOverride = executionMode !== 'safe';
                         const result2 = await MainSwapService.executeSwap({
                             userId: effectiveConfig.user.privyDid,
@@ -1458,6 +1540,7 @@ async function processSingleUserBuy(
                             slippageBps: slippage2,
                             mode: 'copytrade',
                             feeBpsOverride: copyTradeFeeBpsOverride,
+                            directSwapHint: buildDirectSwapHintFromSwap(swap),
                             userSettings: {
                                 fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                                 copyTradeExecutionMode: executionMode
@@ -1474,7 +1557,6 @@ async function processSingleUserBuy(
                             const amount98 = baseAmount * 0.98;
                             const slippage3 = 2500; // 25% (maximum tolerance for volatile new tokens)
                             logger.info(LogCode.EXE_TX_BROADCAST, 'Buy Step 3: 98% amount, 25% slippage', { userId: effectiveConfig.userId, eth: amount98.toFixed(6) });
-                            const executionMode = resolveExecutionModeForConfig(config);
                             const fastSwapOverride = executionMode !== 'safe';
                             const result3 = await MainSwapService.executeSwap({
                                 userId: effectiveConfig.user.privyDid,
@@ -1487,6 +1569,7 @@ async function processSingleUserBuy(
                                 slippageBps: slippage3,
                                 mode: 'copytrade',
                                 feeBpsOverride: copyTradeFeeBpsOverride,
+                                directSwapHint: buildDirectSwapHintFromSwap(swap),
                                 userSettings: {
                                     fastSwapMode: fastSwapOverride || userSettings?.fastSwapMode,
                                     copyTradeExecutionMode: executionMode

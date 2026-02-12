@@ -29,6 +29,7 @@ interface CreateConfigBody {
 }
 
 const MAX_COPY_TRADE_USD = 1_000_000;
+const SUPPORTED_COPYTRADE_CHAINS = new Set([1, 10, 56, 137, 8453, 42161, 900]);
 type CopyTradeExecutionMode = 'safe' | 'balanced' | 'turbo';
 
 function coerceExecutionMode(mode: unknown): CopyTradeExecutionMode | null {
@@ -58,6 +59,12 @@ function resolveExecutionMode(args: {
     }
 
     return { mode: args.fallback, valid: true };
+}
+
+function isNullableFiniteNumber(value: unknown): boolean {
+    if (value === null || value === undefined) return true;
+    const n = Number(value);
+    return Number.isFinite(n);
 }
 
 export default async function copyTradeRoutes(fastify: FastifyInstance) {
@@ -171,6 +178,9 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             } else {
                 chainId = 8453; // Default Base for EVM
             }
+        }
+        if (!Number.isInteger(chainId) || !SUPPORTED_COPYTRADE_CHAINS.has(chainId)) {
+            return reply.status(400).send({ error: 'Unsupported chainId for copy trade' });
         }
 
         // Normalize target wallet based on chain
@@ -453,7 +463,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
         console.log(`[CopyTrade] PATCH /config/${request.params.id} - User ${userId}`, request.body);
 
         const { id } = request.params;
-        const updates = request.body;
+        const updates = (request.body || {}) as Record<string, unknown>;
 
         try {
             const user = await prisma.user.findUnique({
@@ -473,8 +483,33 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 return reply.status(404).send({ error: 'Config not found' });
             }
 
-            // Update
-            if (updates.targetWallet) {
+            const allowedPatchKeys = new Set([
+                'targetWallet',
+                'buyAmountUsd',
+                'maxSlippageBps',
+                'minMarketCapUsd',
+                'minLiquidityUsd',
+                'minTargetValueUsd',
+                'copyTradeTokenCooldownMinutes',
+                'executionMode',
+                'disableTokenInfo',
+                'takeProfitPct',
+                'stopLossPct',
+                'mirrorSell',
+            ]);
+            const updateKeys = Object.keys(updates);
+            const unknownKeys = updateKeys.filter((k) => !allowedPatchKeys.has(k));
+            if (unknownKeys.length > 0) {
+                return reply.status(400).send({
+                    error: `Unsupported update field(s): ${unknownKeys.join(', ')}`,
+                });
+            }
+
+            if ((updates as any).chainId !== undefined) {
+                return reply.status(400).send({ error: 'chainId cannot be updated via this endpoint' });
+            }
+
+            if (updates.targetWallet !== undefined) {
                 const nextTarget = String(updates.targetWallet).trim();
                 if (!validateAddress(nextTarget)) {
                     return reply.status(400).send({ error: 'Invalid targetWallet address' });
@@ -498,7 +533,42 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 }
             }
 
-            const { userId: _, ...allowedUpdates } = updates as any;
+            if (updates.maxSlippageBps !== undefined) {
+                const next = Number(updates.maxSlippageBps);
+                if (!Number.isInteger(next) || next <= 0 || next > 5000) {
+                    return reply.status(400).send({ error: 'maxSlippageBps must be an integer between 1 and 5000' });
+                }
+            }
+
+            if (updates.copyTradeTokenCooldownMinutes !== undefined) {
+                const v = updates.copyTradeTokenCooldownMinutes;
+                if (v !== null) {
+                    const n = Number(v);
+                    if (!Number.isInteger(n) || n < 0 || n > 10080) {
+                        return reply.status(400).send({ error: 'copyTradeTokenCooldownMinutes must be between 0 and 10080 or null' });
+                    }
+                }
+            }
+
+            if (!isNullableFiniteNumber(updates.minMarketCapUsd) || Number(updates.minMarketCapUsd) < 0) {
+                return reply.status(400).send({ error: 'minMarketCapUsd must be a non-negative number or null' });
+            }
+            if (!isNullableFiniteNumber(updates.minLiquidityUsd) || Number(updates.minLiquidityUsd) < 0) {
+                return reply.status(400).send({ error: 'minLiquidityUsd must be a non-negative number or null' });
+            }
+            if (!isNullableFiniteNumber(updates.minTargetValueUsd) || Number(updates.minTargetValueUsd) < 0) {
+                return reply.status(400).send({ error: 'minTargetValueUsd must be a non-negative number or null' });
+            }
+            if (!isNullableFiniteNumber(updates.takeProfitPct)) {
+                return reply.status(400).send({ error: 'takeProfitPct must be a finite number or null' });
+            }
+            if (!isNullableFiniteNumber(updates.stopLossPct)) {
+                return reply.status(400).send({ error: 'stopLossPct must be a finite number or null' });
+            }
+            if (updates.mirrorSell !== undefined && typeof updates.mirrorSell !== 'boolean') {
+                return reply.status(400).send({ error: 'mirrorSell must be a boolean' });
+            }
+
             const existingMode =
                 coerceExecutionMode((existing as any).executionMode) ||
                 ((existing as any).disableTokenInfo === true ? 'turbo' : 'balanced');
@@ -511,18 +581,28 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 return reply.status(400).send({ error: 'executionMode must be one of: safe, balanced, turbo' });
             }
 
+            const dataToUpdate: Record<string, unknown> = {
+                executionMode: resolvedMode.mode,
+                disableTokenInfo: resolvedMode.mode === 'turbo',
+            };
+            if (updates.targetWallet !== undefined) dataToUpdate.targetWallet = normalizeAddress(String(updates.targetWallet));
+            if (updates.buyAmountUsd !== undefined) dataToUpdate.buyAmountUsd = Number(updates.buyAmountUsd);
+            if (updates.maxSlippageBps !== undefined) dataToUpdate.maxSlippageBps = Number(updates.maxSlippageBps);
+            if (updates.minMarketCapUsd !== undefined) dataToUpdate.minMarketCapUsd = updates.minMarketCapUsd === null ? null : Number(updates.minMarketCapUsd);
+            if (updates.minLiquidityUsd !== undefined) dataToUpdate.minLiquidityUsd = updates.minLiquidityUsd === null ? null : Number(updates.minLiquidityUsd);
+            if (updates.minTargetValueUsd !== undefined) dataToUpdate.minTargetValueUsd = updates.minTargetValueUsd === null ? null : Number(updates.minTargetValueUsd);
+            if (updates.copyTradeTokenCooldownMinutes !== undefined) dataToUpdate.copyTradeTokenCooldownMinutes = updates.copyTradeTokenCooldownMinutes === null ? null : Number(updates.copyTradeTokenCooldownMinutes);
+            if (updates.takeProfitPct !== undefined) dataToUpdate.takeProfitPct = updates.takeProfitPct === null ? null : Number(updates.takeProfitPct);
+            if (updates.stopLossPct !== undefined) dataToUpdate.stopLossPct = updates.stopLossPct === null ? null : Number(updates.stopLossPct);
+            if (updates.mirrorSell !== undefined) dataToUpdate.mirrorSell = updates.mirrorSell;
+
             const config = await prisma.copyTradeConfig.update({
                 where: { id },
-                data: {
-                    ...allowedUpdates,
-                    targetWallet: updates.targetWallet ? normalizeAddress(updates.targetWallet) : undefined,
-                    executionMode: resolvedMode.mode,
-                    disableTokenInfo: resolvedMode.mode === 'turbo',
-                },
+                data: dataToUpdate as any,
             });
 
-            if (updates.targetWallet && normalizeAddress(updates.targetWallet) !== existing.targetWallet) {
-                const normalizedNextTarget = normalizeAddress(updates.targetWallet);
+            if (updates.targetWallet && normalizeAddress(String(updates.targetWallet)) !== existing.targetWallet) {
+                const normalizedNextTarget = normalizeAddress(String(updates.targetWallet));
                 // Update tracking: decrement old (composite key)
                 await prisma.trackedWallet.update({
                     where: { address_chainId: { address: existing.targetWallet, chainId: config.chainId } },

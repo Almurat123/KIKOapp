@@ -1,23 +1,26 @@
 import prisma from '../db/prisma.js';
-import { callRpc } from './rpcManager.js';
+import { callRpc, callRpcCustom } from './rpcManager.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { markCopyTradeTxState, markPendingPredecodedSwap, markPendingTxHint } from './copyTradeTxStateService.js';
 import { normalizeAddress } from '../utils/address.js';
 import { fetchTransactionReceipt } from './watcherService.js';
 import { parseSwapTransaction } from './txDecoder.js';
+import { getVerifiedFreeEndpoints, RpcEndpointConfig } from '../config/apiEndpoints.js';
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
-const POLL_INTERVAL_MS = Number(process.env.COPYTRADE_PENDING_POLL_MS || 450);
+const POLL_INTERVAL_MS = Number(process.env.COPYTRADE_PENDING_POLL_MS || 120);
 const EVM_CHAIN_IDS = [1, 8453, 56, 137, 42161, 10];
 const LOCAL_DEDUP_TTL_MS = Number(process.env.COPYTRADE_PENDING_DEDUP_TTL_MS || 60_000);
 const PREFETCH_ENABLED = (process.env.COPYTRADE_PENDING_PREFETCH_ENABLED || 'true') === 'true';
-const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_WAIT_MS || 1600);
-const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 120);
+const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_WAIT_MS || 700);
+const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 80);
 const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 16);
+const PENDING_RPC_MODE = String(process.env.COPYTRADE_PENDING_RPC_MODE || 'free').trim().toLowerCase(); // free | auto
 
 let running = false;
+let tickInFlight = false;
 let refreshTimer: NodeJS.Timeout | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 let chainIndex = 0;
@@ -25,6 +28,15 @@ let chainIndex = 0;
 const trackedByChain = new Map<number, Set<string>>();
 const seenPendingLocal = new Map<string, number>();
 const prefetchInFlight = new Set<string>();
+
+const CHAIN_SLUG_BY_ID: Record<number, string> = {
+    1: 'eth',
+    8453: 'base',
+    56: 'bsc',
+    137: 'polygon',
+    42161: 'arbitrum',
+    10: 'optimism'
+};
 
 function pendingDedupKey(chainId: number, txHash: string): string {
     return `${chainId}:${txHash.toLowerCase()}`;
@@ -139,10 +151,28 @@ async function pollOneChainPending(chainId: number): Promise<void> {
     const tracked = trackedByChain.get(chainId);
     if (!tracked || tracked.size === 0) return;
 
-    const block = await callRpc<any>(chainId, 'eth_getBlockByNumber', ['pending', true], {
-        strategy: 'fast',
-        importance: 'critical'
-    }).catch(() => null);
+    const block = await (async () => {
+        if (PENDING_RPC_MODE === 'free') {
+            const slug = CHAIN_SLUG_BY_ID[chainId];
+            const free = slug ? getVerifiedFreeEndpoints(slug) : [];
+            if (free.length > 0) {
+                const freeEndpoints: RpcEndpointConfig[] = free.map((ep, i) => ({
+                    name: ep.name,
+                    url: ep.url,
+                    priority: i + 1,
+                    requiresAuth: false,
+                    type: 'public'
+                }));
+                return callRpcCustom<any>(freeEndpoints, 'eth_getBlockByNumber', ['pending', true], {
+                    importance: 'normal'
+                }).catch(() => null);
+            }
+        }
+        return callRpc<any>(chainId, 'eth_getBlockByNumber', ['pending', true], {
+            strategy: 'cheap',
+            importance: 'normal'
+        }).catch(() => null);
+    })();
 
     const txs = Array.isArray(block?.transactions) ? block.transactions : [];
     if (!txs.length) return;
@@ -170,12 +200,22 @@ async function pollOneChainPending(chainId: number): Promise<void> {
 
 async function tick(): Promise<void> {
     if (!running) return;
+    if (tickInFlight) return;
+    tickInFlight = true;
     cleanupLocalDedup();
-    const chains = Array.from(trackedByChain.keys());
-    if (chains.length > 0) {
-        const chainId = chains[chainIndex % chains.length];
-        chainIndex += 1;
-        await pollOneChainPending(chainId).catch(() => { });
+    try {
+        const chains = Array.from(trackedByChain.keys());
+        if (chains.length === 0) return;
+
+        // Poll all active chains per tick to reduce cross-chain scan lag.
+        const ordered = chains
+            .slice(chainIndex % chains.length)
+            .concat(chains.slice(0, chainIndex % chains.length));
+        chainIndex = (chainIndex + 1) % chains.length;
+
+        await Promise.allSettled(ordered.map((chainId) => pollOneChainPending(chainId)));
+    } finally {
+        tickInFlight = false;
     }
 }
 
@@ -204,7 +244,8 @@ export async function startCopyTradePendingWatcher(): Promise<void> {
 
     logger.info(LogCode.SYS_STARTUP, '[CopyTradePending] Pending watcher started', {
         pollIntervalMs: POLL_INTERVAL_MS,
-        refreshWalletsMs: REFRESH_WALLETS_MS
+        refreshWalletsMs: REFRESH_WALLETS_MS,
+        rpcMode: PENDING_RPC_MODE
     });
 }
 

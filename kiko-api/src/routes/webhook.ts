@@ -42,6 +42,56 @@ const NETWORK_TO_CHAIN_ID: Record<string, number> = {
 
 const IS_PRODUCTION = env.nodeEnv === 'production' || env.nodeEnv === 'prod';
 let lastMissingAlchemySecretWarnAt = 0;
+const WEBHOOK_FETCH_PARSE_BUDGET_MS = Math.max(250, Number(process.env.COPYTRADE_WEBHOOK_FETCH_PARSE_BUDGET_MS || 900));
+const WEBHOOK_FULL_TX_TIMEOUT_MS = Math.max(120, Number(process.env.COPYTRADE_WEBHOOK_FULL_TX_TIMEOUT_MS || 450));
+const WEBHOOK_PARSE_TIMEOUT_MS = Math.max(120, Number(process.env.COPYTRADE_WEBHOOK_PARSE_TIMEOUT_MS || 350));
+const WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS = Math.max(1000, Number(process.env.COPYTRADE_WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS || 20_000));
+const localTxInflight = new Map<string, number>();
+
+function normalizeTxHash(txHash: string): string {
+    return String(txHash || '').toLowerCase();
+}
+
+function localInflightKey(chainId: number, txHash: string): string {
+    return `${chainId}:${normalizeTxHash(txHash)}`;
+}
+
+function tryClaimLocalInflight(chainId: number, txHash: string): boolean {
+    const now = Date.now();
+    for (const [key, ts] of localTxInflight) {
+        if (now - ts > WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS) localTxInflight.delete(key);
+    }
+    const key = localInflightKey(chainId, txHash);
+    if (localTxInflight.has(key)) return false;
+    localTxInflight.set(key, now);
+    return true;
+}
+
+function releaseLocalInflight(chainId: number, txHash: string): void {
+    localTxInflight.delete(localInflightKey(chainId, txHash));
+}
+
+function logWebhookTiming(scope: string, txHash: string, timings: Record<string, number | string | boolean | undefined>): void {
+    const printable = Object.entries(timings)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ');
+    console.log(`[WebhookTiming][${scope}] tx=${txHash.slice(0, 12)} ${printable}`);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | null = null;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`timeout_${label}_${ms}ms`)), ms);
+            })
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
 
 function parseAlchemyNetworkFromRawBody(rawBody: string): string | undefined {
     try {
@@ -134,8 +184,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
         }
 
         const { wallet, txHash, network } = request.body;
+        const txHashNormalized = normalizeTxHash(txHash);
 
-        if (!wallet || !txHash || !network) {
+        if (!wallet || !txHashNormalized || !network) {
             return reply.status(400).send({ error: 'wallet, txHash, and network are required' });
         }
 
@@ -146,15 +197,28 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return reply.status(400).send({ error: `Unknown network: ${network}` });
         }
 
-        console.log(`[Webhook] Processing tx from Go service: wallet=${wallet.slice(0, 10)}, tx=${txHash.slice(0, 16)}, chain=${chainId}`);
+        if (!tryClaimLocalInflight(chainId, txHashNormalized)) {
+            return reply.send({ success: true, skipped: true, reason: 'local_inflight_dedupe' });
+        }
+        console.log(`[Webhook] Processing tx from Go service: wallet=${wallet.slice(0, 10)}, tx=${txHashNormalized.slice(0, 16)}, chain=${chainId}`);
 
         let txLockValue: string | null = null;
         try {
-            txLockValue = await claimTxProcessingLockDistributed(txHash, chainId);
+            const t0 = Date.now();
+            let tClaim = 0;
+            let tExisting = 0;
+            let tPredecoded = 0;
+            let tReceipt = 0;
+            let tParseSkeleton = 0;
+            let tFullTx = 0;
+            let tParseFull = 0;
+            let tEnqueue = 0;
+            txLockValue = await claimTxProcessingLockDistributed(txHashNormalized, chainId);
+            tClaim = Date.now() - t0;
             if (!txLockValue) {
                 return reply.send({ success: true, skipped: true, reason: 'already_processing_or_processed' });
             }
-            if (await isTxProcessedDistributed(txHash, chainId)) {
+            if (await isTxProcessedDistributed(txHashNormalized, chainId)) {
                 return reply.send({ success: true, skipped: true, reason: 'already_processed_cache' });
             }
 
@@ -163,36 +227,69 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 where: {
                     chainId,
                     OR: [
-                        { leaderTxHash: txHash },
-                        { entryTxHash: txHash }
+                        { leaderTxHash: txHashNormalized },
+                        { entryTxHash: txHashNormalized }
                     ]
                 }
             });
+            tExisting = Date.now() - t0 - tClaim;
             if (existingPosition) {
-                console.log(`[Webhook] Tx already processed: ${txHash.slice(0, 16)}`);
-                await markTxAsProcessedDistributed(txHash, chainId);
+                console.log(`[Webhook] Tx already processed: ${txHashNormalized.slice(0, 16)}`);
+                await markTxAsProcessedDistributed(txHashNormalized, chainId);
                 return reply.send({ success: true, skipped: true, reason: 'already_processed' });
             }
 
-            // Fetch transaction details
-            const [tx, receipt] = await Promise.all([
-                fetchTransaction(txHash, chainId),
-                fetchTransactionReceipt(txHash, chainId),
-            ]);
+            const predecodedStart = Date.now();
+            const predecoded = await getPendingPredecodedSwap(chainId, txHashNormalized, wallet).catch(() => null);
+            tPredecoded = Date.now() - predecodedStart;
+            if (predecoded?.swap) {
+                const enqueueStart = Date.now();
+                await markCopyTradeTxState(chainId, txHashNormalized, 'swap_decoded', {
+                    wallet,
+                    dex: predecoded.swap.dexName,
+                    source: 'pending_prefetch'
+                }).catch(() => { });
+                const pendingHint = await getPendingTxHint(chainId, txHashNormalized).catch(() => null);
+                const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
+                enqueueCopyTradeTask(wallet, predecoded.swap, chainId, {
+                    detectedAt: pendingHint?.detectedAt || predecoded.detectedAt
+                });
+                await markTxAsProcessedDistributed(txHashNormalized, chainId);
+                tEnqueue = Date.now() - enqueueStart;
+                logWebhookTiming('process-tx', txHashNormalized, {
+                    path: 'pending_prefetch',
+                    claimMs: tClaim,
+                    existingMs: tExisting,
+                    predecodedMs: tPredecoded,
+                    enqueueMs: tEnqueue,
+                    totalMs: Date.now() - t0
+                });
+                return reply.send({ success: true, swap: { tokenIn: predecoded.swap.tokenIn, tokenOut: predecoded.swap.tokenOut } });
+            }
 
-            if (!tx || !receipt) {
-                console.warn(`[Webhook] Could not fetch tx/receipt: ${txHash.slice(0, 16)}`);
+            const budgetStart = Date.now();
+            // Fetch receipt first (cheaper + enough for most swap decodes), fetch full tx only on demand.
+            const receiptStart = Date.now();
+            const receipt = await withTimeout(
+                fetchTransactionReceipt(txHashNormalized, chainId),
+                WEBHOOK_FETCH_PARSE_BUDGET_MS,
+                'receipt_fetch'
+            );
+            tReceipt = Date.now() - receiptStart;
+            if (!receipt) {
+                console.warn(`[Webhook] Could not fetch tx/receipt: ${txHashNormalized.slice(0, 16)}`);
                 return reply.status(404).send({ error: 'Transaction not found' });
             }
 
             // Parse as swap
-            const swap = await parseSwapTransaction(
+            const parseSkeletonStart = Date.now();
+            let swap = await parseSwapTransaction(
                 {
-                    hash: txHash,
-                    from: tx.from,
-                    to: tx.to,
-                    input: tx.input,
-                    value: tx.value,
+                    hash: txHashNormalized,
+                    from: '',
+                    to: '',
+                    input: '0x',
+                    value: '0x0',
                 },
                 {
                     logs: receipt.logs,
@@ -201,10 +298,37 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 chainId,
                 wallet
             );
+            tParseSkeleton = Date.now() - parseSkeletonStart;
+
+            if (!swap && Date.now() - budgetStart < WEBHOOK_FETCH_PARSE_BUDGET_MS) {
+                const remaining = Math.max(120, Math.min(WEBHOOK_FULL_TX_TIMEOUT_MS, WEBHOOK_FETCH_PARSE_BUDGET_MS - (Date.now() - budgetStart)));
+                const fullTxStart = Date.now();
+                const tx = await withTimeout(fetchTransaction(txHashNormalized, chainId), remaining, 'tx_fetch').catch(() => null);
+                tFullTx = Date.now() - fullTxStart;
+                if (tx) {
+                    const parseFullStart = Date.now();
+                    swap = await parseSwapTransaction(
+                        {
+                            hash: txHashNormalized,
+                            from: tx.from,
+                            to: tx.to,
+                            input: tx.input,
+                            value: tx.value,
+                        },
+                        {
+                            logs: receipt.logs,
+                            status: parseInt(receipt.status, 16),
+                        },
+                        chainId,
+                        wallet
+                    );
+                    tParseFull = Date.now() - parseFullStart;
+                }
+            }
 
             if (!swap) {
-                console.log(`[Webhook] Not a swap tx: ${txHash.slice(0, 16)}`);
-                await markTxAsProcessedDistributed(txHash, chainId);
+                console.log(`[Webhook] Not a swap tx: ${txHashNormalized.slice(0, 16)}`);
+                await markTxAsProcessedDistributed(txHashNormalized, chainId);
                 return reply.send({ success: true, skipped: true, reason: 'not_a_swap' });
             }
 
@@ -214,19 +338,33 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                 tokenOut: swap.tokenOut,
                 dex: swap.dexName,
             });
-            await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
+            await markCopyTradeTxState(chainId, txHashNormalized, 'swap_decoded', {
                 wallet,
                 dex: swap.dexName,
                 source: 'internal_process_tx'
             }).catch(() => { });
-            const pendingHint = await getPendingTxHint(chainId, txHash).catch(() => null);
+            const pendingHint = await getPendingTxHint(chainId, txHashNormalized).catch(() => null);
 
             // Enqueue copy trade for async execution
+            const enqueueStart = Date.now();
             const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
             enqueueCopyTradeTask(wallet, swap, chainId, {
                 detectedAt: pendingHint?.detectedAt
             });
-            await markTxAsProcessedDistributed(txHash, chainId);
+            await markTxAsProcessedDistributed(txHashNormalized, chainId);
+            tEnqueue = Date.now() - enqueueStart;
+            logWebhookTiming('process-tx', txHashNormalized, {
+                path: 'receipt_decode',
+                claimMs: tClaim,
+                existingMs: tExisting,
+                predecodedMs: tPredecoded,
+                receiptMs: tReceipt,
+                parseSkeletonMs: tParseSkeleton,
+                fullTxMs: tFullTx || undefined,
+                parseFullMs: tParseFull || undefined,
+                enqueueMs: tEnqueue,
+                totalMs: Date.now() - t0
+            });
 
             return reply.send({ success: true, swap: { tokenIn: swap.tokenIn, tokenOut: swap.tokenOut } });
         } catch (error: any) {
@@ -234,8 +372,9 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
             return reply.status(500).send({ error: 'Failed to process transaction' });
         } finally {
             if (txLockValue) {
-                await releaseTxProcessingLockDistributed(txHash, chainId, txLockValue);
+                await releaseTxProcessingLockDistributed(txHashNormalized, chainId, txLockValue);
             }
+            releaseLocalInflight(chainId, txHashNormalized);
         }
     });
 
@@ -434,9 +573,17 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                     console.log(`[Webhook] No recognizable activity or transaction array in eventData`);
                 }
 
+                const payloadTxDedup = new Set<string>();
                 const processItem = async (item: any) => {
+                    const itemStart = Date.now();
                     let txHash = '';
                     let candidates: string[] = [];
+                    let receiptMs = 0;
+                    let fullTxMs = 0;
+                    let parseSkeletonMs = 0;
+                    let parseFullMs = 0;
+                    let swapsDetected = 0;
+                    let usedPredecoded = 0;
 
                     if (isSolanaItems) {
                         // Solana Structure: Handle cases where transaction/message might be arrays (Alchemy Test Hook)
@@ -462,21 +609,31 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                         candidates = [fromAddr, toAddr].filter(Boolean);
                     }
 
+                    txHash = normalizeTxHash(txHash);
                     if (!txHash) return;
+                    if (payloadTxDedup.has(txHash)) return;
+                    payloadTxDedup.add(txHash);
+                    if (!tryClaimLocalInflight(chainId, txHash)) {
+                        console.log(`[Webhook] Tx already local in-flight: ${txHash.slice(0, 16)}`);
+                        return;
+                    }
 
                     // FAST in-memory deduplication check (shared with watcher)
                     if (await isTxProcessedDistributed(txHash, chainId)) {
                         console.log(`[Webhook] Tx already in processedTxs cache: ${txHash.slice(0, 16)}`);
+                        releaseLocalInflight(chainId, txHash);
                         return;
                     }
                     const txLockValue = await claimTxProcessingLockDistributed(txHash, chainId);
                     if (!txLockValue) {
                         console.log(`[Webhook] Tx already in-flight: ${txHash.slice(0, 16)}`);
+                        releaseLocalInflight(chainId, txHash);
                         return;
                     }
                     await markCopyTradeTxState(chainId, txHash, 'confirmed_seen', { source: 'alchemy_webhook' }).catch(() => { });
 
                     try {
+                        const pendingHint = await getPendingTxHint(chainId, txHash).catch(() => null);
                         const trackedWallets = await prisma.trackedWallet.findMany({
                             where: {
                                 address: { in: candidates, mode: 'insensitive' },
@@ -569,28 +726,41 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                                 .map((r) => [r.wallet.toLowerCase(), r.predecoded!])
                         );
 
+                        const decodeStart = Date.now();
+                        const decodeDeadline = decodeStart + WEBHOOK_FETCH_PARSE_BUDGET_MS;
                         let receipt: any = null;
                         if (predecodedByWallet.size !== trackedWallets.length) {
                             const fetchReceiptWithRetry = async () => {
-                                const maxAttempts = 3;
+                                const maxAttempts = Math.max(1, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_MAX_ATTEMPTS || 2));
+                                const baseDelayMs = Math.max(40, Number(process.env.COPYTRADE_WEBHOOK_RECEIPT_RETRY_BASE_MS || 120));
                                 let current: any = null;
                                 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                                    current = await fetchTransactionReceipt(txHash, chainId);
+                                    if (Date.now() > decodeDeadline) break;
+                                    const remaining = Math.max(120, Math.min(WEBHOOK_FULL_TX_TIMEOUT_MS, decodeDeadline - Date.now()));
+                                    current = await withTimeout(fetchTransactionReceipt(txHash, chainId), remaining, 'receipt_fetch').catch(() => null);
                                     if (current) break;
-                                    if (attempt < maxAttempts) {
-                                        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+                                    if (attempt < maxAttempts && Date.now() < decodeDeadline) {
+                                        await new Promise((resolve) => setTimeout(resolve, baseDelayMs * attempt));
                                     }
                                 }
                                 return { receipt: current, attempts: maxAttempts };
                             };
+                            const receiptStart = Date.now();
                             const fetched = await fetchReceiptWithRetry();
+                            receiptMs = Date.now() - receiptStart;
                             receipt = fetched.receipt;
                             if (!receipt) {
-                                console.warn(`[Webhook] Could not fetch receipt after retries: ${txHash.slice(0, 16)}`, {
-                                    receiptMissing: true,
-                                    attempts: fetched.attempts
+                                if (predecodedByWallet.size === 0) {
+                                    console.warn(`[Webhook] Could not fetch receipt after retries: ${txHash.slice(0, 16)}`, {
+                                        receiptMissing: true,
+                                        attempts: fetched.attempts
+                                    });
+                                    return;
+                                }
+                                console.warn(`[Webhook] Receipt missing, continuing with pending predecode only: ${txHash.slice(0, 16)}`, {
+                                    cachedWallets: predecodedByWallet.size,
+                                    trackedWallets: trackedWallets.length
                                 });
-                                return;
                             }
                         } else {
                             console.log(`[Webhook] Pending predecode hit for all tracked wallets: tx=${txHash.slice(0, 12)}`);
@@ -598,14 +768,27 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
 
                         // Mark as processed only after confirmed path is ready
                         await markTxAsProcessedDistributed(txHash, chainId);
+                        let fullTxPromise: Promise<any | null> | null = null;
+                        const fetchFullTxOnce = () => {
+                            if (!fullTxPromise) {
+                                const fullTxStart = Date.now();
+                                const remaining = Math.max(120, Math.min(WEBHOOK_FULL_TX_TIMEOUT_MS, decodeDeadline - Date.now()));
+                                fullTxPromise = withTimeout(fetchTransaction(txHash, chainId), remaining, 'tx_fetch')
+                                    .catch(() => null)
+                                    .finally(() => { fullTxMs = Date.now() - fullTxStart; });
+                            }
+                            return fullTxPromise;
+                        };
 
                         await Promise.allSettled(trackedWallets.map(async (walletRecord) => {
                             const trackedTarget = walletRecord.address;
                             const cached = predecodedByWallet.get(trackedTarget.toLowerCase());
                             let swap = cached?.swap || null;
+                            if (cached?.swap) usedPredecoded += 1;
 
                             if (!swap && receipt) {
-                                swap = await parseSwapTransaction(
+                                const parseSkeletonStart = Date.now();
+                                swap = await withTimeout(parseSwapTransaction(
                                     txSkeleton,
                                     {
                                         logs: receipt.logs,
@@ -613,27 +796,35 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                                     },
                                     chainId,
                                     trackedTarget
-                                );
+                                ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_skeleton').catch(() => null);
+                                parseSkeletonMs += Date.now() - parseSkeletonStart;
 
                                 // Fallback: only fetch full tx when skeleton-based decode misses swap.
                                 if (!swap) {
-                                    const fullTx = await fetchTransaction(txHash, chainId);
-                                    if (fullTx) {
-                                        swap = await parseSwapTransaction(
-                                            {
-                                                hash: txHash,
-                                                from: fullTx.from,
-                                                to: fullTx.to,
-                                                input: fullTx.input,
-                                                value: fullTx.value,
-                                            },
-                                            {
-                                                logs: receipt.logs,
-                                                status: parseInt(receipt.status, 16),
-                                            },
-                                            chainId,
-                                            trackedTarget
-                                        );
+                                    const skipFullTxFallback = Boolean(cached || pendingHint);
+                                    if (!skipFullTxFallback && Date.now() < decodeDeadline) {
+                                        const fullTx = await fetchFullTxOnce();
+                                        if (fullTx) {
+                                            const parseFullStart = Date.now();
+                                            swap = await withTimeout(parseSwapTransaction(
+                                                {
+                                                    hash: txHash,
+                                                    from: fullTx.from,
+                                                    to: fullTx.to,
+                                                    input: fullTx.input,
+                                                    value: fullTx.value,
+                                                },
+                                                {
+                                                    logs: receipt.logs,
+                                                    status: parseInt(receipt.status, 16),
+                                                },
+                                                chainId,
+                                                trackedTarget
+                                            ), WEBHOOK_PARSE_TIMEOUT_MS, 'parse_fulltx').catch(() => null);
+                                            parseFullMs += Date.now() - parseFullStart;
+                                        }
+                                    } else {
+                                        console.log(`[Webhook] Skip full tx fallback: tx=${txHash.slice(0, 12)} source=${cached ? 'pending_predecode' : 'pending_hint'}`);
                                     }
                                 }
                             }
@@ -646,6 +837,7 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                                 return;
                             }
 
+                            if (swap) swapsDetected += 1;
                             console.log(`[Webhook] ✅ Swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
                                 tokenIn: swap.tokenIn,
                                 tokenOut: swap.tokenOut,
@@ -658,14 +850,24 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                                 source: cached ? 'pending_prefetch' : 'webhook_decode'
                             }).catch(() => { });
 
-                            const pendingHint = await getPendingTxHint(chainId, txHash).catch(() => null);
                             const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
                             enqueueCopyTradeTask(trackedTarget, swap, chainId, {
                                 detectedAt: pendingHint?.detectedAt || cached?.detectedAt
                             });
                         }));
+                        logWebhookTiming('alchemy', txHash, {
+                            wallets: trackedWallets.length,
+                            swaps: swapsDetected,
+                            predecoded: usedPredecoded,
+                            receiptMs: receiptMs || undefined,
+                            parseSkeletonMs: parseSkeletonMs || undefined,
+                            fullTxMs: fullTxMs || undefined,
+                            parseFullMs: parseFullMs || undefined,
+                            totalMs: Date.now() - itemStart
+                        });
                     } finally {
                         await releaseTxProcessingLockDistributed(txHash, chainId, txLockValue);
+                        releaseLocalInflight(chainId, txHash);
                     }
                 };
 

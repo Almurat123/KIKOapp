@@ -22,6 +22,7 @@ import { recordUsage } from '../services/usageCounter.js';
 import { randomUUID } from 'crypto';
 import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
 import { GENERAL_THINKING_POLICY } from '../services/ai/prompts/v2/policies/GeneralThinkingPolicy.js';
+import { buildDailyMarketContext } from '../services/ai/dailyMarketContext.js';
 
 interface ChatMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
@@ -61,7 +62,7 @@ const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/
 
 function buildThinkingSystemPrompt(model: string): string {
     if (model.startsWith('grok')) {
-        return `${GENERAL_THINKING_POLICY}\n\n${AnalystPolicy}`;
+        return AnalystPolicy;
     }
     return GENERAL_THINKING_POLICY;
 }
@@ -436,6 +437,11 @@ export async function aiRoutes(fastify: FastifyInstance) {
                             ? buildThinkingSystemPrompt('grok')
                             : promptOrchestrator.getSystemPrompt('grok', intentType, { routingMode });
 
+                        let dailyMarketContext: string | null = null;
+                        if (intentType === 'MARKET_ANALYSIS') {
+                            dailyMarketContext = await buildDailyMarketContext({ chainName: request.body.chain_context?.chainName });
+                        }
+
                         const contextLines: string[] = [];
                         if (routingMode !== 'thinking') {
                             if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
@@ -449,6 +455,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                         const systemMessages: ChatMessage[] = [
                             { role: 'system', content: systemPrompt },
+                            ...(dailyMarketContext ? [{ role: 'system' as const, content: dailyMarketContext }] : []),
                             ...(contextBlock ? [{ role: 'system' as const, content: contextBlock }] : [])
                         ];
 
@@ -612,6 +619,11 @@ export async function aiRoutes(fastify: FastifyInstance) {
                     ? buildThinkingSystemPrompt(normalizedModel)
                     : promptOrchestrator.getSystemPrompt('deepseek', intentType, { routingMode });
 
+                let dailyMarketContext: string | null = null;
+                if (intentType === 'MARKET_ANALYSIS') {
+                    dailyMarketContext = await buildDailyMarketContext({ chainName: request.body.chain_context?.chainName });
+                }
+
                 const contextLines: string[] = [];
                 if (routingMode !== 'thinking') {
                     if (request.body.walletAddress) contextLines.push(`- Wallet: ${request.body.walletAddress}`);
@@ -625,6 +637,7 @@ export async function aiRoutes(fastify: FastifyInstance) {
 
                 const systemMessages: ChatMessage[] = [
                     { role: 'system', content: systemPrompt },
+                    ...(dailyMarketContext ? [{ role: 'system' as const, content: dailyMarketContext }] : []),
                     ...(contextBlock ? [{ role: 'system' as const, content: contextBlock }] : [])
                 ];
 

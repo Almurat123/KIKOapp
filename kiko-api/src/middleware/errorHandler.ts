@@ -59,11 +59,10 @@ function logError(error: any, request: any) {
         },
     });
 
-    // Log to console (in production, should use proper logging service)
     if (error.isOperational === false || error.statusCode === 500) {
-        console.error('[Error Handler]', JSON.stringify(errorInfo, null, 2));
+        logger.error(LogCode.SYS_ERROR, 'Unhandled API error', errorInfo);
     } else {
-        console.warn('[Error Handler]', JSON.stringify(errorInfo, null, 2));
+        logger.warn(LogCode.SYS_ERROR, 'Operational API error', errorInfo);
     }
 }
 

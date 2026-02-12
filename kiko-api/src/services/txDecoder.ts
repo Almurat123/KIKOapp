@@ -28,6 +28,7 @@ const DEX_SIGNATURES = {
     exactInput: '0xc04b8d59',
     exactOutput: '0xf28c0498',
     multicall: '0xac9650d8',
+    universalExecute: '0x3593564c',
 
     // 0x Protocol
     transformERC20: '0x415565b0',
@@ -40,6 +41,13 @@ const DEX_SIGNATURES = {
 
     // Aerodrome / V2 Forks
     swapExactInput: '0xb80c2f09', // Often used by Aerodrome/Velodrome router proxies
+    swapExactTokensForTokensSupportingFeeOnTransferTokens: '0x5c11d795',
+    swapExactETHForTokensSupportingFeeOnTransferTokens: '0xb6f9de95',
+    swapExactTokensForETHSupportingFeeOnTransferTokens: '0x791ac947',
+    exactInputSingleV3Alt: '0x04e45aaf',
+    exactInputV3Alt: '0xb858183f',
+    exactOutputSingleV3Alt: '0x5023b4df',
+    exactOutputV3Alt: '0x09b81346',
 };
 
 
@@ -634,6 +642,10 @@ export function getDexName(routerAddress: string, chainId: number): string {
             '0x2626664c2603336e57b271c5c0b26f421741e481': 'Uniswap V3',
             '0x6ff5693b99212da76ad316178a184ab56d299b43': 'Uniswap Universal Router (v4)',
             '0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap v4 PoolManager',
+            '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43': 'Aerodrome Router',
+            '0x420dd381b31aef6683db6b902084cb0ffece40da': 'Aerodrome Slipstream Router',
+            '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24': 'BaseSwap Router',
+            '0x1111111254eeb25477b68fb85ed929f73a960582': '1inch Router',
             '0x6131b5fae19ea4f9d964eac0408e4408b66337b5': 'KyberSwap',
             '0x0000000000001ff3684f28c67538d4d072c22734': '0x Protocol',
             '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae': 'LiFi',
@@ -645,6 +657,10 @@ export function getDexName(routerAddress: string, chainId: number): string {
     if (chainId === 56) {
         const bscRouters: Record<string, string> = {
             '0x10ed43c718714eb63d5aa57b78b54704e256024e': 'PancakeSwap V2',
+            '0x13f4ea83d0bd40e75c8222255bc855a974568dd4': 'PancakeSwap Smart Router',
+            '0x1b81d678ffb9c0263b24a97847620c99d213eb14': 'Pancake Universal Router',
+            '0x1111111254eeb25477b68fb85ed929f73a960582': '1inch Router',
+            '0x6352a56caadc4f1e25cd6c75970fa768a3304e64': 'OpenOcean Router',
             '0xdef1c0ded9bec7f1a1670819833240faca6db2a2': '0x Protocol',
         };
         return bscRouters[address] || 'Unknown DEX';

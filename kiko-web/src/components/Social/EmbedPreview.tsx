@@ -19,6 +19,43 @@ interface OGPData {
     originalImage?: string;
 }
 
+const ogpDataCache = new Map<string, OGPData | null>();
+const ogpInFlightCache = new Map<string, Promise<OGPData | null>>();
+const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
+function normalizePreviewImageUrl(src?: string): string | undefined {
+    if (!src) return src;
+    if (src.startsWith('/api/') && API_URL) {
+        return `${API_URL}${src}`;
+    }
+    return src;
+}
+
+async function fetchOGPWithDedupe(url: string): Promise<OGPData | null> {
+    if (ogpDataCache.has(url)) {
+        return ogpDataCache.get(url) ?? null;
+    }
+
+    const existing = ogpInFlightCache.get(url);
+    if (existing) return existing;
+
+    const requestPromise = fetch(`${API_URL}/api/social/ogp?url=${encodeURIComponent(url)}`)
+        .then(async (res) => {
+            if (!res.ok) return null;
+            const json = await res.json();
+            const data = json?.success ? (json.data as OGPData | null) : null;
+            ogpDataCache.set(url, data ?? null);
+            return data ?? null;
+        })
+        .catch(() => null)
+        .finally(() => {
+            ogpInFlightCache.delete(url);
+        });
+
+    ogpInFlightCache.set(url, requestPromise);
+    return requestPromise;
+}
+
 export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
     const [data, setData] = useState<OGPData | null>(null);
     const [imgSrc, setImgSrc] = useState<string | undefined>(undefined);
@@ -51,14 +88,10 @@ export const EmbedPreview: React.FC<EmbedPreviewProps> = ({ url, isDark }) => {
                     return;
                 }
 
-                const API_URL = import.meta.env.VITE_API_URL || '';
-                const res = await fetch(`${API_URL}/api/social/ogp?url=${encodeURIComponent(url)}`);
-                if (res.ok) {
-                    const json = await res.json();
-                    if (json.success && json.data) {
-                        setData(json.data);
-                        setImgSrc(json.data.image);
-                    }
+                const ogpData = await fetchOGPWithDedupe(url);
+                if (ogpData) {
+                    setData(ogpData);
+                    setImgSrc(normalizePreviewImageUrl(ogpData.image));
                 }
             } catch (e) {
                 if (import.meta.env.DEV) {

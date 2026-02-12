@@ -91,10 +91,9 @@ export async function runCleanup() {
                     deletedCount = chunkResult.count;
                     break;
                 case 'TrendingCast':
-                    // TrendingCast uses 'updatedAt' for recency usually, or we can use timestamp
-                    // Schema: timestamp DateTime
+                    // Use updatedAt to avoid accidental mass-deletion when upstream timestamps are malformed.
                     const castResult = await prisma.trendingCast.deleteMany({
-                        where: { timestamp: { lt: cutoffDate } }
+                        where: { updatedAt: { lt: cutoffDate } }
                     });
                     deletedCount = castResult.count;
                     break;

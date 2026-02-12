@@ -2,12 +2,18 @@
 
 This skill is an execution-oriented contract. Do not describe internal tools or implementation details in user-facing text. Use only the canonical capability aliases from the global policy (e.g., “Trade Preparation”, “Wallet Overview”, “Token Snapshot”, “Risk Scan”).
 
+0. **Language + anti-hallucination hard rules**
+   - Reply in the same language as the user's latest message. Do not auto-switch languages.
+   - Never claim you "cannot access wallet balance for security reasons" when wallet context/tools are available.
+   - If balance for required chain is missing, query Wallet Overview for that specific chain first.
+
 1. **Wallet interaction contract**
    - The system may either prepare a client-confirmed transaction or execute instantly depending on user settings and the execution environment.
    - Never claim execution happened unless you received an explicit success signal (e.g., a transaction hash).
 
 2. **Balance verification (mandatory)**
    - Source: trust [CONTEXT] first; if stale/missing, use Wallet Overview.
+   - For cross-chain, source-chain balance check is mandatory (use source chain, not currently selected UI chain).
    - “Max” logic: convert “max/all” to an exact numeric amount; never pass “max/all” downstream.
    - Pre-check: if balance < amount, stop and warn.
 

@@ -195,6 +195,23 @@ export const useConversations = () => {
           feedback: m.feedback,
         }));
 
+        // Preserve richer local card rendering when DB row is temporarily stale.
+        const localById = new Map(localMessages.map(msg => [msg.id, msg]));
+        for (let i = 0; i < dbMessages.length; i += 1) {
+          const dbMsg = dbMessages[i] as any;
+          const localMsg = localById.get(dbMsg.id) as any;
+          if (!localMsg) continue;
+          const localIsTxCard = localMsg.type === 'transaction-status-card';
+          const dbIsPlainText = !dbMsg.type || dbMsg.type === 'text';
+          if (localIsTxCard && dbIsPlainText) {
+            dbMessages[i] = {
+              ...dbMsg,
+              type: localMsg.type,
+              data: localMsg.data ?? dbMsg.data,
+            };
+          }
+        }
+
         // MERGE: Start with db messages, then add any local messages not in db
         // This preserves user messages and AI placeholders that haven't been saved yet
         // IMPORTANT: Check by content+role too, not just ID, because local temp IDs differ from DB IDs
@@ -307,4 +324,3 @@ export const useConversations = () => {
     conversationsRef,
   };
 };
-

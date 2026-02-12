@@ -9,6 +9,12 @@ import { LogCode, LogRole } from '../config/logRegistry.js';
 let browserInstance: any = null;
 let requestCount = 0;
 const MAX_REQUESTS_PER_BROWSER = 100;
+const OGP_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
+const OGP_NEGATIVE_CACHE_TTL_SECONDS = 10 * 60;
+const OGP_HTML_TIMEOUT_MS = 5000;
+const OGP_MICROLINK_TIMEOUT_MS = 5000;
+const OGP_PUPPETEER_TIMEOUT_MS = 9000;
+const inFlightFetches = new Map<string, Promise<OGPMetadata | null>>();
 
 async function getBrowser() {
     if (browserInstance && requestCount >= MAX_REQUESTS_PER_BROWSER) {
@@ -79,20 +85,38 @@ export interface OGPMetadata {
     originalImage?: string;
 }
 
+interface MiniAppAction {
+    type?: string;
+    url?: string;
+    name?: string;
+    splashImageUrl?: string;
+    splashBackgroundColor?: string;
+}
+
+interface MiniAppEmbed {
+    version?: string;
+    imageUrl?: string;
+    button?: {
+        title?: string;
+        action?: MiniAppAction;
+    };
+}
+
 /**
  * Sanitizes and prepares metadata for the frontend
  */
 function sanitizeMetadata(metadata: OGPMetadata, origin?: string): OGPMetadata {
-    const PROXY_BASE_URL = origin || process.env.API_URL || '';
+    const PROXY_BASE_URL = process.env.API_URL || origin || '';
 
     // [FIX]: Capture original image before any processing
     if (metadata.image && !metadata.originalImage) {
         metadata.originalImage = metadata.image;
     }
 
-    // 1. Skip generic X/Twitter placeholders
-    if (metadata.image && (
-        metadata.image.includes('og/image.png') ||
+    // 1. Skip generic X/Twitter placeholders only for X/Twitter-like URLs
+    const sourceUrl = metadata.url || '';
+    const sourceIsX = /(^https?:\/\/)?([^/]+\.)?(x\.com|twitter\.com|fxtwitter\.com|vxtwitter\.com)\//i.test(sourceUrl);
+    if (metadata.image && sourceIsX && (
         metadata.image.includes('twitter_logo') ||
         metadata.image.includes('abs.twimg.com/rweb/ssr/default/v2/og/image.png') ||
         metadata.image.includes('twitter-card')
@@ -102,6 +126,22 @@ function sanitizeMetadata(metadata: OGPMetadata, origin?: string): OGPMetadata {
 
     // 2. Proxify image if it exists
     if (metadata.image && !metadata.image.startsWith('data:')) {
+        // Already proxied absolute URL: normalize to current API_URL if configured.
+        const proxiedAbsoluteMatch = metadata.image.match(/^https?:\/\/[^/]+(\/api\/images\/token\?url=.*)$/i);
+        if (proxiedAbsoluteMatch) {
+            if (PROXY_BASE_URL) {
+                metadata.image = `${PROXY_BASE_URL}${proxiedAbsoluteMatch[1]}`;
+            }
+            return metadata;
+        }
+        // Already proxied relative URL: only absolutize if possible
+        if (metadata.image.startsWith('/api/images/token?url=')) {
+            metadata.image = PROXY_BASE_URL
+                ? `${PROXY_BASE_URL}${metadata.image}`
+                : metadata.image;
+            return metadata;
+        }
+
         const encodedUrl = encodeURIComponent(metadata.image);
         metadata.image = PROXY_BASE_URL
             ? `${PROXY_BASE_URL}/api/images/token?url=${encodedUrl}`
@@ -111,21 +151,126 @@ function sanitizeMetadata(metadata: OGPMetadata, origin?: string): OGPMetadata {
     return metadata;
 }
 
+function cloneMetadata<T extends OGPMetadata>(metadata: T): T {
+    return { ...metadata };
+}
+
+function normalizeUrl(input: string): string {
+    try {
+        const parsed = new URL(input.trim());
+        parsed.hash = '';
+        return parsed.toString();
+    } catch {
+        return input.trim();
+    }
+}
+
+function buildCacheKey(url: string): string {
+    return `ogp:v2:${normalizeUrl(url)}`;
+}
+
+function absolutizeUrl(maybeUrl: string | undefined, baseUrl: string): string | undefined {
+    if (!maybeUrl) return maybeUrl;
+    try {
+        return new URL(maybeUrl, baseUrl).toString();
+    } catch {
+        return maybeUrl;
+    }
+}
+
+function tryParseMiniAppEmbed(raw?: string): MiniAppEmbed | null {
+    if (!raw || typeof raw !== 'string') return null;
+    const candidates = [
+        raw.trim(),
+        raw.replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/&amp;/g, '&').trim(),
+        raw.replace(/\\"/g, '"').trim(),
+    ];
+
+    for (const candidate of candidates) {
+        try {
+            const parsed = JSON.parse(candidate);
+            if (parsed && typeof parsed === 'object') return parsed as MiniAppEmbed;
+        } catch {
+            // try next candidate
+        }
+    }
+    return null;
+}
+
+function extractMiniAppMetadataFromCheerio($: cheerio.CheerioAPI, url: string): OGPMetadata | null {
+    const miniRaw = $('meta[name="fc:miniapp"]').attr('content')
+        || $('meta[property="fc:miniapp"]').attr('content')
+        || $('meta[name="fc:frame"]').attr('content')
+        || $('meta[property="fc:frame"]').attr('content');
+
+    const mini = tryParseMiniAppEmbed(miniRaw);
+    const legacyImage = $('meta[name="fc:frame:image"]').attr('content')
+        || $('meta[property="fc:frame:image"]').attr('content');
+    const legacyButton = $('meta[name="fc:frame:button:1"]').attr('content')
+        || $('meta[property="fc:frame:button:1"]').attr('content');
+
+    if (!mini && !legacyImage && !legacyButton) return null;
+
+    const image = mini?.imageUrl || legacyImage;
+    const title = mini?.button?.title || mini?.button?.action?.name || legacyButton || 'Farcaster Mini App';
+    const actionUrl = mini?.button?.action?.url;
+    const actionType = mini?.button?.action?.type;
+
+    return {
+        url: actionUrl || url,
+        title,
+        description: actionType ? `Mini App (${actionType})` : 'Farcaster Mini App',
+        image,
+        siteName: 'Farcaster Mini App',
+        type: 'miniapp',
+    };
+}
+
 export const ogpService = {
     /**
      * Fetch OGP metadata for a given URL
      * Tries simple fetch first, then fallback services
      */
     async fetchOGP(url: string, origin?: string): Promise<OGPMetadata | null> {
-        // [FIX]: Optimize X/Twitter fetching via vxtwitter
-        let fetchUrl = url;
-        if (url.includes('twitter.com') || url.includes('x.com')) {
-            fetchUrl = url.replace(/(twitter\.com|x\.com)/, 'vxtwitter.com');
+        const normalizedUrl = normalizeUrl(url);
+        const cacheKey = buildCacheKey(normalizedUrl);
+
+        const existingRequest = inFlightFetches.get(cacheKey);
+        if (existingRequest) {
+            return existingRequest;
         }
 
-        const cached = await redis.get(`ogp:${url}`);
+        const task = fetchOGPInternal(normalizedUrl, origin, cacheKey);
+        inFlightFetches.set(cacheKey, task);
+        try {
+            return await task;
+        } finally {
+            inFlightFetches.delete(cacheKey);
+        }
+    },
+};
+
+async function fetchOGPInternal(url: string, origin: string | undefined, cacheKey: string): Promise<OGPMetadata | null> {
+    const startedAt = Date.now();
+
+        // [FIX]: Optimize X/Twitter fetching via FxTwitter metadata bridge
+        let fetchUrl = url;
+        if (url.includes('twitter.com') || url.includes('x.com')) {
+            fetchUrl = url.replace(/(twitter\.com|x\.com)/, 'fxtwitter.com');
+        }
+        const isFxTwitter = fetchUrl.includes('fxtwitter.com');
+        const htmlUserAgent = isFxTwitter
+            ? 'Discordbot/2.0'
+            : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+        const cached = await redis.get(cacheKey) || await redis.get(`ogp:${url}`);
         if (cached) {
-            try { return JSON.parse(cached); } catch (e) { }
+            try {
+                const parsed = JSON.parse(cached);
+                // Negative cache marker
+                if (parsed && parsed.__empty === true) return null;
+                return sanitizeMetadata(cloneMetadata(parsed), origin);
+            } catch (e) { }
         }
 
         // [FIX]: Handle direct media links (m3u8, mp4, images)
@@ -144,19 +289,18 @@ export const ogpService = {
                 video: isVideoExt ? url : undefined,
                 siteName: isVideoExt ? 'Media Stream' : 'Direct Image'
             };
-            const sanitized = sanitizeMetadata(metadata, origin);
-            await redis.set(`ogp:${url}`, JSON.stringify(sanitized), 7 * 24 * 60 * 60);
-            return sanitized;
+            await redis.set(cacheKey, JSON.stringify(metadata), OGP_CACHE_TTL_SECONDS);
+            return sanitizeMetadata(cloneMetadata(metadata), origin);
         }
 
         // 1. Try simple fetch with cheerio (fast)
         try {
             const res = await fetch(fetchUrl, {
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'User-Agent': htmlUserAgent,
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                 },
-                signal: AbortSignal.timeout(8000)
+                signal: AbortSignal.timeout(OGP_HTML_TIMEOUT_MS)
             });
 
             if (res.ok) {
@@ -177,10 +321,51 @@ export const ogpService = {
                     siteName: getMeta('og:site_name') || $(`meta[name="twitter:site"]`).attr('content') || (url.includes('x.com') || url.includes('twitter.com') ? 'X' : undefined)
                 };
 
-                if (metadata.title) {
-                    const sanitized = sanitizeMetadata(metadata, origin);
-                    await redis.set(`ogp:${url}`, JSON.stringify(sanitized), 7 * 24 * 60 * 60);
-                    return sanitized;
+                const miniAppMeta = extractMiniAppMetadataFromCheerio($, url);
+                const resolved: OGPMetadata = {
+                    ...metadata,
+                    ...(miniAppMeta || {}),
+                    // If mini app tags exist, prioritize mini app payload over generic page tags.
+                    title: miniAppMeta?.title || metadata.title,
+                    description: miniAppMeta?.description || metadata.description,
+                    image: miniAppMeta?.image || metadata.image,
+                    siteName: miniAppMeta?.siteName || metadata.siteName,
+                    type: miniAppMeta?.type || metadata.type,
+                    url: miniAppMeta?.url || metadata.url || url,
+                };
+
+                resolved.image = absolutizeUrl(resolved.image, fetchUrl);
+                resolved.url = absolutizeUrl(resolved.url, fetchUrl) || url;
+
+                if (resolved.title || resolved.image) {
+                    await redis.set(cacheKey, JSON.stringify(resolved), OGP_CACHE_TTL_SECONDS);
+                    return sanitizeMetadata(cloneMetadata(resolved), origin);
+                }
+
+                // Fallback for pages that expose only oEmbed (common in app-link hubs).
+                const oEmbedUrl = $('link[type="application/json+oembed"]').attr('href')
+                    || $('link[rel="alternate"][type="application/json+oembed"]').attr('href');
+                if (oEmbedUrl) {
+                    try {
+                        const absoluteOEmbed = absolutizeUrl(oEmbedUrl, fetchUrl) || oEmbedUrl;
+                        const oRes = await fetch(absoluteOEmbed, { signal: AbortSignal.timeout(3000) });
+                        if (oRes.ok) {
+                            const oJson: any = await oRes.json();
+                            const oMeta: OGPMetadata = {
+                                url,
+                                title: oJson?.title || oJson?.author_name || 'Embedded Content',
+                                description: oJson?.author_name || oJson?.provider_name,
+                                image: absolutizeUrl(oJson?.thumbnail_url, fetchUrl),
+                                siteName: oJson?.provider_name,
+                            };
+                            if (oMeta.title || oMeta.image) {
+                                await redis.set(cacheKey, JSON.stringify(oMeta), OGP_CACHE_TTL_SECONDS);
+                                return sanitizeMetadata(cloneMetadata(oMeta), origin);
+                            }
+                        }
+                    } catch {
+                        // ignore oEmbed fallback errors
+                    }
                 }
             }
         } catch (e: any) {
@@ -194,7 +379,7 @@ export const ogpService = {
         // 2. Fallback: microlink.io
         try {
             const mlRes = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`, {
-                signal: AbortSignal.timeout(8000)
+                signal: AbortSignal.timeout(OGP_MICROLINK_TIMEOUT_MS)
             });
 
             if (mlRes.ok) {
@@ -209,9 +394,8 @@ export const ogpService = {
                     };
 
                     if (metadata.title) {
-                        const sanitized = sanitizeMetadata(metadata, origin);
-                        await redis.set(`ogp:${url}`, JSON.stringify(sanitized), 7 * 24 * 60 * 60);
-                        return sanitized;
+                        await redis.set(cacheKey, JSON.stringify(metadata), OGP_CACHE_TTL_SECONDS);
+                        return sanitizeMetadata(cloneMetadata(metadata), origin);
                     }
                 }
             }
@@ -229,8 +413,17 @@ export const ogpService = {
             const page = await browser.newPage();
             try {
                 await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-                await new Promise(r => setTimeout(r, 1000));
+                await page.setRequestInterception(true);
+                page.on('request', (req: any) => {
+                    const type = req.resourceType();
+                    if (type === 'image' || type === 'font' || type === 'media') {
+                        req.abort();
+                    } else {
+                        req.continue();
+                    }
+                });
+                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: OGP_PUPPETEER_TIMEOUT_MS });
+                await new Promise(r => setTimeout(r, 500));
 
                 const metadata = await page.evaluate((targetUrl: string) => {
                     const getTag = (sel: string) => document.querySelector(sel)?.getAttribute('content');
@@ -244,9 +437,10 @@ export const ogpService = {
                 }, url);
 
                 if (metadata.title || metadata.image) {
-                    const sanitized = sanitizeMetadata(metadata, origin);
-                    await redis.set(`ogp:${url}`, JSON.stringify(sanitized), 7 * 24 * 60 * 60);
-                    return sanitized;
+                    metadata.image = absolutizeUrl(metadata.image, url);
+                    metadata.url = absolutizeUrl(metadata.url, url);
+                    await redis.set(cacheKey, JSON.stringify(metadata), OGP_CACHE_TTL_SECONDS);
+                    return sanitizeMetadata(cloneMetadata(metadata), origin);
                 }
             } finally {
                 await page.close();
@@ -259,6 +453,12 @@ export const ogpService = {
             });
         }
 
-        return null;
-    }
-};
+        // Negative cache to avoid repeated expensive retries for known-bad URLs.
+        await redis.set(cacheKey, JSON.stringify({ __empty: true }), OGP_NEGATIVE_CACHE_TTL_SECONDS);
+        logger.info(LogCode.API_FETCH_FAILED, `[OGPService] No metadata resolved`, {
+            url,
+            durationMs: Date.now() - startedAt,
+            role: LogRole.METRIC
+        });
+    return null;
+}

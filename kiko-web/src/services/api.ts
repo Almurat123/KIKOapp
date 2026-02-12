@@ -210,6 +210,8 @@ const pendingRequests = new Map<string, Promise<unknown>>();
  * Get cache TTL based on endpoint
  */
 function getCacheTime(endpoint: string): number {
+    // Live trending must always be fresh to avoid showing tokens that are no longer in DB
+    if (endpoint.includes('/tokens/trending/live')) return 0;
     // Chains data: NO CACHE - always fetch fresh data
     if (endpoint.includes('/market/chains')) return 0;
     // Market data: 5 seconds (Reduced from 30s to satisfy user refresh expectation)
@@ -424,10 +426,13 @@ export const tokenApi = {
     async getTrendingLive(
         chain: string = 'eth',
         duration: TrendingDuration = '24h',
-        limit: number = 100
+        limit: number = 100,
+        strict: boolean = true
     ): Promise<TokenSearchResult[]> {
+        const strictParam = strict ? '&strict=1' : '';
+        const nonce = `&_t=${Date.now()}`;
         return fetchApi<TokenSearchResult[]>(
-            `/api/tokens/trending/live?chain=${chain}&duration=${duration}&limit=${limit}`
+            `/api/tokens/trending/live?chain=${chain}&duration=${duration}&limit=${limit}${strictParam}${nonce}`
         );
     },
 

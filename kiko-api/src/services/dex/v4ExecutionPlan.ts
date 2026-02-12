@@ -1,5 +1,5 @@
 import { V4PoolKey } from './uniswapV4.js';
-import { buildClankerHookData, isClankerHook } from './v4Hooks.js';
+import { buildV4HookDataCandidates, resolveV4HookProfile, V4HookFamily } from './v4Hooks.js';
 
 const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const WETH_ADDRESSES: Record<number, string> = {
@@ -29,6 +29,8 @@ export interface V4ExecutionPlan {
     normalizedOut: string;
     zeroForOne: boolean;
     hookData: string;
+    hookDataCandidates: string[];
+    hookFamily: V4HookFamily;
     poolId: string;
     poolKey: V4PoolKey;
 }
@@ -48,7 +50,14 @@ export function buildV4ExecutionPlan(params: {
     const normalizedOut = isNativeOut ? (WETH_ADDRESSES[chainId] || tokenOut) : tokenOut;
     const poolKey = pool.poolKey;
     const zeroForOne = poolKey.currency0.toLowerCase() === normalizedIn.toLowerCase();
-    const hookData = isClankerHook(chainId, poolKey.hooks) ? buildClankerHookData(walletAddress) : '0x';
+    const hookProfile = resolveV4HookProfile(chainId, poolKey.hooks);
+    const hookDataCandidates = buildV4HookDataCandidates({
+        chainId,
+        hookAddress: poolKey.hooks,
+        walletAddress,
+        stage: 'execute'
+    });
+    const hookData = hookDataCandidates[0] || '0x';
 
     return {
         isNativeIn,
@@ -57,6 +66,8 @@ export function buildV4ExecutionPlan(params: {
         normalizedOut,
         zeroForOne,
         hookData,
+        hookDataCandidates,
+        hookFamily: hookProfile.family,
         poolId: pool.poolId,
         poolKey
     };

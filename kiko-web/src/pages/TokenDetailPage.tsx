@@ -13,7 +13,6 @@ import { favoriteApi } from '../services/favoriteService';
 import { usePrivy } from '@privy-io/react-auth';
 import { useSidebar } from '../components/Layout/Layout';
 import { proxyImageUrl } from '../utils/imageProxy';
-import { detectLaunchpadByAddress, LAUNCHPAD_LOGOS, getLaunchpadDisplayName } from '../utils/launchpadLogos';
 
 import { GeckoTerminalChart } from '../components/Chart/GeckoTerminalChart';
 import { useThemeContext } from '../contexts/ThemeContext';
@@ -127,9 +126,6 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
 
   const [copied, setCopied] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
-
-  // Detect launchpad
-  const launchpad = detectLaunchpadByAddress(token.address, token.chain);
 
   // Quick Trade Handler
   const handleTradeAction = (action: 'buy' | 'sell') => {
@@ -391,17 +387,6 @@ export const TokenDetailPage: React.FC<TokenDetailPageProps> = ({ token, onBack 
                   }
                 }}
               />
-              {/* Launchpad Logo - top right corner */}
-              {launchpad && LAUNCHPAD_LOGOS[launchpad] && (
-                <img
-                  src={LAUNCHPAD_LOGOS[launchpad]}
-                  alt={getLaunchpadDisplayName(launchpad)}
-                  className={styles.launchpadLogo}
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-              )}
             </div>
             <div className={styles.tokenNameWrapper}>
               <h1 className={styles.tokenSymbol}>{token.symbol}</h1>

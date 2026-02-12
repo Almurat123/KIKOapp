@@ -15,16 +15,17 @@ import * as neynarService from './neynarService.js';
 import { fetchJson } from '../config/unifiedApiService.js';
 import * as qualityUsersRepo from '../repositories/qualityUsersRepository.js';
 
-// [Logic]: Triple fallback for maximum reliability
-// [Ref]: All three are free Farcaster Hubs/APIs
-// Primary: Pinata Hub (raw Hub data)
-// Fallback 1: Merv.fun Hub (raw Hub data)
-// Fallback 2: Litecast API (enriched data, best UX)
+// [Logic]: Multi-hub fallback for reliability.
+// Primary: configured SNAPCHAIN_HUB_URL (or Pinata default)
+// Secondary: public community / bootstrap hubs.
 const PRIMARY_HUB_URL = process.env.SNAPCHAIN_HUB_URL || 'https://hub.pinata.cloud';
 const FALLBACK_HUB_URL = 'https://hub.merv.fun';
-const FALLBACK_HUB_URL_2 = 'https://litecast.xyz'; // Enriched API
 const HUB_URL = PRIMARY_HUB_URL; // Backward compatibility
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
+const FARCASTER_EPOCH_SECONDS = 1609459200; // 2021-01-01 UTC
+const FARCASTER_EPOCH_MS = FARCASTER_EPOCH_SECONDS * 1000;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_REASONABLE_FARCASTER_SECONDS = 500_000_000; // ~2036 in farcaster-seconds scale
 
 /**
  * Fetch with timeout wrapper with fallback support
@@ -49,48 +50,52 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout = 15000)
 
 /**
  * Fetch from Hub with parallel racing strategy
- * [Logic]: Race all three Hubs simultaneously, return fastest valid response
+ * [Logic]: Race available Hubs simultaneously, return fastest valid response
  * [Ref]: Maximizes speed and distributes load across free Hubs
  * [Risk]: May consume more bandwidth, but ensures fastest response
  */
 async function fetchFromHubWithFallback(endpoint: string, timeout = 10000): Promise<any> {
-  const hubs = [
-    { name: 'Pinata', url: `${PRIMARY_HUB_URL}${endpoint}` },
-    { name: 'Merv.fun', url: `${FALLBACK_HUB_URL}${endpoint}` },
-    { name: 'Litecast', url: `${FALLBACK_HUB_URL_2}${endpoint}` },
+  const hubCandidates: Array<{ name: string; base: string }> = [
+    { name: 'Primary', base: PRIMARY_HUB_URL },
+    { name: 'Merv.fun', base: FALLBACK_HUB_URL },
+    // Official bootstrap peers (publicly reachable HTTP API on :3381 in some networks)
+    { name: 'Bootstrap-54.236.164.51', base: 'http://54.236.164.51:3381' },
+    { name: 'Bootstrap-54.87.204.167', base: 'http://54.87.204.167:3381' },
+    { name: 'Bootstrap-44.197.255.20', base: 'http://44.197.255.20:3381' },
+    { name: 'Bootstrap-54.157.62.17', base: 'http://54.157.62.17:3381' },
+    { name: 'Bootstrap-34.195.157.114', base: 'http://34.195.157.114:3381' },
+    { name: 'Bootstrap-107.20.169.236', base: 'http://107.20.169.236:3381' },
   ];
 
-  // Race all Hubs in parallel - silent mode to reduce log spam
-  const promises = hubs.map(async (hub) => {
-    try {
+  // Dedupe by base URL while preserving order.
+  const seen = new Set<string>();
+  const hubs = hubCandidates
+    .filter((h) => {
+      const key = h.base.replace(/\/+$/, '');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((h) => ({ name: h.name, url: `${h.base.replace(/\/+$/, '')}${endpoint}` }));
+
+  // True race: resolve as soon as first hub returns valid payload.
+  const attempts = hubs.map((hub) =>
+    (async () => {
       const result = await fetchWithTimeout(hub.url, {}, timeout);
-      // [Logic]: Accept both messages array (for list endpoints) and data object (for castById)
-      // [Ref]: castById returns {hash, data: {...}}, others return {messages: [...]}
-      if (result && !result.error) {
-        const hasMessages = result.messages && result.messages.length > 0;
-        const hasData = result.data && result.data.castAddBody;
-        if (hasMessages || hasData) {
-          return { success: true, data: result, hub: hub.name };
-        }
-      }
-      return { success: false, hub: hub.name, reason: 'empty or error' };
-    } catch (e: any) {
-      return { success: false, hub: hub.name, reason: e.message || 'timeout' };
-    }
-  });
+      if (!result || result.error) throw new Error('empty_or_error');
+      // Accept both list payloads and castById payloads
+      const hasMessages = Array.isArray((result as any).messages);
+      const hasData = !!(result as any).data?.castAddBody;
+      if (!hasMessages && !hasData) throw new Error('invalid_shape');
+      return result;
+    })()
+  );
 
-  // Wait for first successful response, or all to fail
-  const results = await Promise.allSettled(promises);
-
-  // Find first successful result
-  for (const result of results) {
-    if (result.status === 'fulfilled' && result.value.success) {
-      return result.value.data;
-    }
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return null;
   }
-
-  // All failed - silent (don't log every failure, too noisy)
-  return null;
 }
 
 /**
@@ -605,8 +610,50 @@ export async function getTrendingCasts(
 }
 
 export function farcasterToUnixTimestamp(farcasterTimestamp: number): number {
-  const FARCASTER_EPOCH = 1609459200; // 2021-01-01 00:00:00 UTC
-  return (farcasterTimestamp + FARCASTER_EPOCH) * 1000;
+  if (!Number.isFinite(farcasterTimestamp)) {
+    return Date.now();
+  }
+
+  const now = Date.now();
+  const maxFutureMs = now + (365 * ONE_DAY_MS); // tolerate at most +1y
+
+  // Case 1: already Unix milliseconds
+  if (farcasterTimestamp >= 1e12) {
+    // Guard for poisoned future timestamps (e.g. 2062) - fallback to now
+    if (farcasterTimestamp > maxFutureMs) {
+      logger.throttled(LogCode.SYS_INFO, 'Snapchain timestamp anomaly: unix ms too far in future', {
+        rawTs: farcasterTimestamp,
+      });
+      return now;
+    }
+    return farcasterTimestamp;
+  }
+
+  // Case 2: Unix seconds (buggy source occasionally returns this)
+  // Farcaster seconds in 2026 are around 160M; values much bigger are almost certainly unix seconds.
+  if (farcasterTimestamp >= FARCASTER_EPOCH_SECONDS || farcasterTimestamp > MAX_REASONABLE_FARCASTER_SECONDS) {
+    const unixMs = farcasterTimestamp * 1000;
+    if (unixMs > maxFutureMs) {
+      logger.throttled(LogCode.SYS_INFO, 'Snapchain timestamp anomaly: unix seconds too far in future', {
+        rawTs: farcasterTimestamp,
+      });
+      return now;
+    }
+    logger.throttled(LogCode.SYS_INFO, 'Snapchain timestamp normalized from unix seconds', {
+      rawTs: farcasterTimestamp,
+    });
+    return unixMs;
+  }
+
+  // Case 3: Farcaster seconds (correct format)
+  const farcasterMs = (farcasterTimestamp + FARCASTER_EPOCH_SECONDS) * 1000;
+  if (farcasterMs > maxFutureMs) {
+    logger.throttled(LogCode.SYS_INFO, 'Snapchain timestamp anomaly: farcaster seconds produced future date', {
+      rawTs: farcasterTimestamp,
+    });
+    return now;
+  }
+  return farcasterMs;
 }
 
 /**

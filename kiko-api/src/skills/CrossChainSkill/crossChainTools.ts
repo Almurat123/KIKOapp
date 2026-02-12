@@ -5,6 +5,7 @@ import { LogCode } from '../../config/logRegistry.js';
 import { parseUnits, Interface } from 'ethers';
 import { getErc20Allowance, getTransactionReceipt } from '../../services/rpcManager.js';
 import { chatWS } from '../../services/chatWebSocket.js';
+import { updateMessage } from '../../repositories/chatRepository.js';
 
 /**
  * [Configuration]: Supported Chains & Wrapped Tokens
@@ -373,6 +374,292 @@ async function fetchWithRetry(url: string, params: any, retries = 3): Promise<an
     }
 }
 
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function broadcastTxCardUpdate(
+    userId: string,
+    sessionId: string | undefined,
+    messageId: string | undefined,
+    data: Record<string, any>,
+): void {
+    if (!sessionId) {
+        logger.warn(LogCode.WS_MESSAGE_SENT, '[CARD-BACKLOG] cross-chain skipped WS broadcast (missing sessionId)', {
+            userId,
+            messageId: messageId || null,
+            status: data?.status || null,
+            txHash: data?.txHash || null,
+        });
+        return;
+    }
+    logger.info(LogCode.WS_MESSAGE_SENT, '[CARD-BACKLOG] cross-chain WS tx card update', {
+        userId,
+        sessionId,
+        messageId: messageId || null,
+        status: data?.status || null,
+        txHash: data?.txHash || null,
+        chainId: data?.chainId || null,
+    });
+    chatWS.broadcastToUser(userId, {
+        type: 'client_action',
+        sessionId,
+        data: {
+            message_id: messageId,
+            targetMessageId: messageId,
+            action: {
+                type: 'show_transaction_status_card',
+                data,
+            },
+        },
+    });
+}
+
+async function persistTxCardUpdate(messageId: string | undefined, data: Record<string, any>): Promise<void> {
+    if (!messageId) {
+        logger.warn(LogCode.AI_API_CALL, '[CARD-BACKLOG] cross-chain skipped DB persist (missing messageId)', {
+            status: data?.status || null,
+            txHash: data?.txHash || null,
+        });
+        return;
+    }
+    await updateMessage(messageId, {
+        type: 'transaction-status-card',
+        data,
+        transactionStatus: data.status,
+        transactionHash: data.txHash,
+    });
+    logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] cross-chain persisted tx card update', {
+        messageId,
+        status: data?.status || null,
+        txHash: data?.txHash || null,
+        chainId: data?.chainId || null,
+    });
+}
+
+function normalizeLiFiTerminalStatus(payload: any): { terminal: boolean; success: boolean; rawStatus: string; message?: string } {
+    const candidates = [
+        payload?.status,
+        payload?.bridgeStatus,
+        payload?.execution?.status,
+        payload?.result?.status,
+        payload?.data?.status,
+        payload?.transaction?.status,
+    ].filter(Boolean).map((s: any) => String(s).toUpperCase());
+
+    const joined = candidates.join(' | ');
+    if (!joined) return { terminal: false, success: false, rawStatus: 'UNKNOWN' };
+
+    const successPatterns = ['DONE', 'SUCCESS', 'COMPLETED', 'CONFIRMED', 'FINISHED'];
+    const failedPatterns = ['FAILED', 'ERROR', 'CANCELLED', 'INVALID', 'REVERTED'];
+
+    if (successPatterns.some(p => joined.includes(p))) {
+        return { terminal: true, success: true, rawStatus: joined, message: payload?.substatus || payload?.message };
+    }
+    if (failedPatterns.some(p => joined.includes(p))) {
+        return { terminal: true, success: false, rawStatus: joined, message: payload?.substatus || payload?.message || payload?.error?.message };
+    }
+    return { terminal: false, success: false, rawStatus: joined, message: payload?.substatus || payload?.message };
+}
+
+async function monitorCrossChainLifecycle(params: {
+    userId: string;
+    sessionId?: string;
+    messageId?: string;
+    txHash: string;
+    fromChainId: string;
+    toChainId: string;
+    fromToken: string;
+    toToken: string;
+    amountIn: string;
+    amountOut?: string;
+    bridgeTool?: string;
+}) {
+    const {
+        userId,
+        sessionId,
+        messageId,
+        txHash,
+        fromChainId,
+        toChainId,
+        fromToken,
+        toToken,
+        amountIn,
+        amountOut,
+        bridgeTool,
+    } = params;
+    if (!sessionId) {
+        logger.warn(LogCode.AI_API_CALL, '[CARD-BACKLOG] monitor aborted (missing sessionId)', {
+            userId,
+            messageId: messageId || null,
+            txHash,
+        });
+        return;
+    }
+    logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] monitor started', {
+        userId,
+        sessionId,
+        messageId: messageId || null,
+        txHash,
+        fromChainId,
+        toChainId,
+        bridgeTool: bridgeTool || null,
+    });
+
+    const baseCard = {
+        tokenInSymbol: fromToken,
+        tokenOutSymbol: toToken,
+        amountIn,
+        amountOut,
+        chainId: Number(fromChainId),
+        txHash,
+        bridgeTool,
+        explorerLink: `https://scan.li.fi/tx/${txHash}`,
+    };
+
+    const lifiApiKey = process.env.LIFI_API_KEY;
+    let sourceConfirmed = false;
+    let lastPendingMessage = '';
+
+    for (let i = 0; i < 90; i++) {
+        await delay(i === 0 ? 5000 : 10000);
+
+        if (!sourceConfirmed) {
+            try {
+                const sourceReceipt = await getTransactionReceipt(Number(fromChainId), txHash);
+                if (sourceReceipt?.status === 1) {
+                    sourceConfirmed = true;
+                    lastPendingMessage = 'Source transaction confirmed. Waiting for bridge settlement...';
+                    logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] source tx confirmed', {
+                        sessionId,
+                        messageId: messageId || null,
+                        txHash,
+                        fromChainId,
+                    });
+                    const payload = {
+                        ...baseCard,
+                        status: 'pending',
+                        isLoading: true,
+                        message: lastPendingMessage,
+                    };
+                    broadcastTxCardUpdate(userId, sessionId, messageId, payload);
+                    await persistTxCardUpdate(messageId, payload);
+                } else if (sourceReceipt?.status === 0) {
+                    logger.warn(LogCode.AI_API_CALL, '[CARD-BACKLOG] source tx failed', {
+                        sessionId,
+                        messageId: messageId || null,
+                        txHash,
+                        fromChainId,
+                    });
+                    const payload = {
+                        ...baseCard,
+                        status: 'failed',
+                        isLoading: false,
+                        errorMessage: 'Source-chain transaction failed.',
+                    };
+                    broadcastTxCardUpdate(userId, sessionId, messageId, payload);
+                    await persistTxCardUpdate(messageId, payload);
+                    return;
+                }
+            } catch {
+                // best-effort only
+            }
+        }
+
+        try {
+            const statusResp = await axios.get('https://li.quest/v1/status', {
+                params: {
+                    txHash,
+                    fromChain: fromChainId,
+                    toChain: toChainId,
+                    bridge: bridgeTool,
+                },
+                headers: lifiApiKey ? { 'x-lifi-api-key': lifiApiKey } : undefined,
+                timeout: 8000,
+            });
+            const statusPayload = statusResp?.data || {};
+            const normalized = normalizeLiFiTerminalStatus(statusPayload);
+
+            if (normalized.terminal && normalized.success) {
+                logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] bridge terminal success', {
+                    sessionId,
+                    messageId: messageId || null,
+                    txHash,
+                    rawStatus: normalized.rawStatus,
+                });
+                const payload = {
+                    ...baseCard,
+                    status: 'success',
+                    isLoading: false,
+                    message: normalized.message || 'Bridge settlement complete.',
+                };
+                broadcastTxCardUpdate(userId, sessionId, messageId, payload);
+                await persistTxCardUpdate(messageId, payload);
+                return;
+            }
+            if (normalized.terminal && !normalized.success) {
+                logger.warn(LogCode.AI_API_CALL, '[CARD-BACKLOG] bridge terminal failed', {
+                    sessionId,
+                    messageId: messageId || null,
+                    txHash,
+                    rawStatus: normalized.rawStatus,
+                    errorMessage: normalized.message || null,
+                });
+                const payload = {
+                    ...baseCard,
+                    status: 'failed',
+                    isLoading: false,
+                    errorMessage: normalized.message || `Bridge failed (${normalized.rawStatus}).`,
+                };
+                broadcastTxCardUpdate(userId, sessionId, messageId, payload);
+                await persistTxCardUpdate(messageId, payload);
+                return;
+            }
+
+            const progressMessage = normalized.message
+                ? `Bridge in progress: ${normalized.message}`
+                : (sourceConfirmed
+                    ? 'Source confirmed. Waiting for destination settlement...'
+                    : 'Waiting for bridge status update...');
+            if (progressMessage !== lastPendingMessage && i % 2 === 0) {
+                lastPendingMessage = progressMessage;
+                const payload = {
+                    ...baseCard,
+                    status: 'pending',
+                    isLoading: true,
+                    message: progressMessage,
+                };
+                broadcastTxCardUpdate(userId, sessionId, messageId, payload);
+                await persistTxCardUpdate(messageId, payload);
+            }
+        } catch {
+            // LI.FI status can be delayed; keep monitoring
+            if (i === 0 || i % 6 === 0) {
+                logger.warn(LogCode.API_FETCH_FAILED, '[CARD-BACKLOG] monitor status polling failed', {
+                    sessionId,
+                    messageId: messageId || null,
+                    txHash,
+                    pollRound: i + 1,
+                });
+            }
+        }
+    }
+
+    logger.info(LogCode.AI_API_CALL, '[CARD-BACKLOG] monitor timeout fallback', {
+        sessionId,
+        messageId: messageId || null,
+        txHash,
+    });
+    const payload = {
+        ...baseCard,
+        status: 'pending',
+        isLoading: true,
+        message: 'Still processing across chains. You can continue tracking from hash.',
+    };
+    broadcastTxCardUpdate(userId, sessionId, messageId, payload);
+    await persistTxCardUpdate(messageId, payload);
+}
+
 /**
  * PrepareCrossChainTxTool
  * [Logic]: The EXECUTION step with Approval Handling via __client_action.
@@ -465,6 +752,15 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                 return { error: 'No transaction data returned. Route unavailable.' };
             }
 
+            const buildTxCardData = (status: string, extra: Record<string, any> = {}) => ({
+                status,
+                tokenInSymbol: args.fromToken,
+                tokenOutSymbol: args.toToken,
+                amountIn: args.fromAmount,
+                chainId: Number(fromChainId),
+                ...extra,
+            });
+
             // [Flow]: Check if Approval is needed
             // Native tokens (0x0... / 111...) do not need approval.
             // ERC20/SPL tokens DO need approval.
@@ -498,14 +794,14 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                         // [UX Update] Broadcast "Approving" status card
                         chatWS.broadcastToUser(userId, {
                             type: 'client_action',
+                            sessionId: context?.sessionId,
                             data: {
-                                type: 'show_cross_chain_status_card',
-                                payload: {
-                                    status: 'approving',
-                                    chainId: fromChainId,
-                                    tokenInSymbol: args.fromToken,
-                                    tokenOutSymbol: args.toToken,
-                                    amountIn: args.fromAmount
+                                action: {
+                                    type: 'show_transaction_status_card',
+                                    data: buildTxCardData('approving', {
+                                        message: 'Approval transaction sent. Waiting for confirmation...',
+                                        isLoading: true,
+                                    }),
                                 }
                             }
                         });
@@ -557,14 +853,14 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                             // [UX Update] Broadcast "Bridge Pending" (Executing Swap) status
                             chatWS.broadcastToUser(userId, {
                                 type: 'client_action',
+                                sessionId: context?.sessionId,
                                 data: {
-                                    type: 'show_cross_chain_status_card',
-                                    payload: {
-                                        status: 'pending_bridge',
-                                        chainId: fromChainId,
-                                        tokenInSymbol: args.fromToken,
-                                        tokenOutSymbol: args.toToken,
-                                        amountIn: args.fromAmount
+                                    action: {
+                                        type: 'show_transaction_status_card',
+                                        data: buildTxCardData('pending', {
+                                            message: 'Approval confirmed. Submitting cross-chain transaction...',
+                                            isLoading: true,
+                                        }),
                                     }
                                 }
                             });
@@ -602,26 +898,39 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                         });
                     }
 
-                    return {
+                    const resultPayload = {
                         success: true,
                         txHash: txHash,
                         summary: `✅ Cross-chain transaction submitted! ${args.fromAmount} ${args.fromToken} -> ${args.toToken}. Track status below.`,
                         __client_action: {
-                            type: 'show_cross_chain_status_card',
-                            payload: {
-                                status: 'submitted',
-                                txHash: txHash,
-                                chainId: fromChainId,
-                                tokenInSymbol: args.fromToken,
-                                tokenOutSymbol: args.toToken,
-                                amountIn: args.fromAmount,
-                                amountOut: quote.estimate.toAmount, // Add expected output
+                            type: 'show_transaction_status_card',
+                            data: buildTxCardData('pending', {
+                                txHash,
+                                amountOut: quote.estimate.toAmount,
                                 bridgeTool: quote.tool,
                                 estimatedDuration: quote.estimate.executionDuration,
-                                explorerLink: `https://scan.li.fi/tx/${txHash}` // Generic LI.FI explorer
-                            }
+                                explorerLink: `https://scan.li.fi/tx/${txHash}`,
+                                message: 'Cross-chain transaction submitted. Waiting for bridge confirmation...',
+                                isLoading: true,
+                            }),
                         }
                     };
+                    void monitorCrossChainLifecycle({
+                        userId,
+                        sessionId: context?.sessionId,
+                        messageId: context?.messageId,
+                        txHash,
+                        fromChainId,
+                        toChainId,
+                        fromToken: args.fromToken,
+                        toToken: args.toToken,
+                        amountIn: args.fromAmount,
+                        amountOut: quote.estimate.toAmount,
+                        bridgeTool: quote.tool,
+                    }).catch((monitorErr) => {
+                        logger.warn(LogCode.SYS_ERROR, `[CrossChain] monitor failed: ${monitorErr?.message || monitorErr}`);
+                    });
+                    return resultPayload;
 
                 } catch (execError: any) {
                     logger.warn(LogCode.EXE_TX_BROADCAST, 'Server-Side Execution failed', { error: execError.message });
@@ -632,59 +941,31 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                         error: execError.message,
                         summary: `❌ Transaction failed: ${execError.message}`,
                         __client_action: {
-                            type: 'show_cross_chain_status_card',
-                            payload: {
-                                status: 'failed',
-                                error: execError.message,
+                            type: 'show_transaction_status_card',
+                            data: buildTxCardData('failed', {
+                                errorMessage: execError.message,
                                 fromChain: fromChainId,
                                 toChain: toChainId,
-                                fromToken: args.fromToken,
-                                toToken: args.toToken,
-                                amount: args.fromAmount
-                            }
+                                amount: args.fromAmount,
+                                isLoading: false,
+                            }),
                         }
                     };
                 }
             }
 
-            // [Client Action]: Fallback or Manual Requirement
-            // Return structured data for Frontend/Privy (Manual Execution)
-            const confirmationMsg = userId?.includes('did:privy')
-                ? `Prepared cross-chain swap for ${args.fromToken}. Since this is an ERC20 token, it requires approval. Please click 'Confirm' in the transaction card below to execute.`
-                : `Prepared cross-chain swap. Please confirm in your wallet.`;
-
             return {
-                summary: confirmationMsg,
+                success: false,
+                error: 'Approval is required but could not be auto-completed.',
+                summary: `❌ Cross-chain swap requires token approval and auto-approval did not complete. Please retry in a moment.`,
                 __client_action: {
-                    type: 'execute_cross_chain_swap',
-                    payload: {
-                        // ... (existing payload)
-                        bridgeTransaction: {
-                            to: quote.transactionRequest.to,
-                            data: quote.transactionRequest.data,
-                            value: quote.transactionRequest.value,
-                            chainId: quote.transactionRequest.chainId,
-                            gasLimit: quote.transactionRequest.gasLimit
-                        },
-                        approval: requiresApproval ? {
-                            token: fromToken,
-                            spender: approvalAddress,
-                            amount: args.fromAmount
-                        } : undefined,
-                        routeDetails: {
-                            tool: quote.tool,
-                            estimatedTime: quote.estimate.executionDuration
-                        },
-                        // Add status card metadata for frontend to show "Pending" card initially
-                        cardMetadata: {
-                            status: 'pending_signature',
-                            fromChain: fromChainId,
-                            toChain: toChainId,
-                            fromToken: args.fromToken,
-                            toToken: args.toToken,
-                            amount: args.fromAmount
-                        }
-                    }
+                    type: 'show_transaction_status_card',
+                    data: buildTxCardData('failed', {
+                        errorMessage: 'Approval is required but auto-approval was not completed.',
+                        fromChain: fromChainId,
+                        toChain: toChainId,
+                        isLoading: false,
+                    }),
                 }
             };
 
@@ -695,13 +976,18 @@ export const PrepareCrossChainTxTool: Tool<CrossChainArgs> = {
                 success: false,
                 error: `Failed to prepare: ${error.message}`,
                 __client_action: {
-                    type: 'show_cross_chain_status_card',
-                    payload: {
+                    type: 'show_transaction_status_card',
+                    data: {
                         status: 'failed',
-                        error: error.message || 'Route unavailable or API error',
+                        tokenInSymbol: args.fromToken,
+                        tokenOutSymbol: args.toToken,
+                        amountIn: args.fromAmount,
+                        chainId: Number(resolveChainId(args.fromChain || '8453')),
+                        errorMessage: error.message || 'Route unavailable or API error',
                         fromChain: args.fromChain,
-                        toChain: args.toChain
-                    }
+                        toChain: args.toChain,
+                        isLoading: false,
+                    },
                 }
             };
         }

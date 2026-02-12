@@ -40,13 +40,10 @@ function parseSleepMs(): number {
 }
 
 function trusted(source?: string): boolean {
-  return source === 'gecko_launch_window'
-    || source === 'dex_candles'
-    || source === 'rpc_stable_first_swap'
+  return source === 'rpc_stable_first_swap'
     || source === 'rpc_native_first_swap'
     || source === 'rpc_v4_initialize'
-    || source === 'solana_public_rpc'
-    || source === 'derived_change_proxy';
+    || source === 'solana_public_rpc';
 }
 
 function isPrismaConnError(error: any): boolean {

@@ -28,13 +28,23 @@ function tokenMetaCacheKey(chain: string, address: string): string {
   return `token:meta:v2:${chain}:${address.toLowerCase()}`;
 }
 
-function isDisplayTrustedBaselineSource(source?: string): boolean {
-  return source === 'gecko_launch_window'
-    || source === 'dex_candles'
-    || source === 'rpc_stable_first_swap'
-    || source === 'rpc_native_first_swap'
-    || source === 'rpc_v4_initialize'
-    || source === 'solana_public_rpc';
+function tokenMetaLegacyCacheKey(chain: string, address: string): string {
+  return `token:meta:v1:${chain}:${address.toLowerCase()}`;
+}
+
+function initialPoolCacheKey(chain: string, address: string): string {
+  return `token:initial_pool:v2:${chain}:${address.toLowerCase()}`;
+}
+
+function buildAddressVariants(addresses: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of addresses) {
+    const v = String(raw || '').trim();
+    if (!v) continue;
+    out.add(v);
+    out.add(v.toLowerCase());
+  }
+  return Array.from(out);
 }
 
 function launchpadCacheKey(chain: string, address: string): string {
@@ -173,6 +183,10 @@ let trendingCreatorColumnCache:
   | { checkedAt: number; exists: boolean }
   | null = null;
 
+let tokenLaunchpadProfileTableCache:
+  | { checkedAt: number; exists: boolean }
+  | null = null;
+
 async function hasTrendingLaunchpadColumn(): Promise<boolean> {
   const now = Date.now();
   if (trendingLaunchpadColumnCache && now - trendingLaunchpadColumnCache.checkedAt < 10 * 60 * 1000) {
@@ -225,6 +239,30 @@ async function hasTrendingCreatorColumns(): Promise<boolean> {
   }
 }
 
+async function hasTokenLaunchpadProfileTable(): Promise<boolean> {
+  const now = Date.now();
+  if (tokenLaunchpadProfileTableCache && now - tokenLaunchpadProfileTableCache.checkedAt < 10 * 60 * 1000) {
+    return tokenLaunchpadProfileTableCache.exists;
+  }
+
+  try {
+    const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = 'TokenLaunchpadProfile'
+      ) AS "exists"
+    `;
+    const exists = !!rows?.[0]?.exists;
+    tokenLaunchpadProfileTableCache = { checkedAt: now, exists };
+    return exists;
+  } catch {
+    tokenLaunchpadProfileTableCache = { checkedAt: now, exists: false };
+    return false;
+  }
+}
+
 function isMissingLaunchpadColumnError(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
   if (error.code !== 'P2022') return false;
@@ -246,10 +284,35 @@ export async function saveTrendingTokenCreator(
 ): Promise<void> {
   try {
     if (!creator.creatorAddress && !creator.creatorUrl && !creator.creatorLabel) return;
+    const lower = address.toLowerCase();
+
+    const canWriteProfile = await hasTokenLaunchpadProfileTable();
+    if (canWriteProfile) {
+      await prisma.tokenLaunchpadProfile.upsert({
+        where: { chain_address: { chain, address: lower } },
+        update: {
+          creatorAddress: creator.creatorAddress || undefined,
+          creatorUrl: creator.creatorUrl || undefined,
+          creatorLabel: creator.creatorLabel || undefined,
+          lastCheckedAt: new Date(),
+          verifiedAt: new Date(),
+          lastError: null,
+        },
+        create: {
+          chain,
+          address: lower,
+          creatorAddress: creator.creatorAddress || undefined,
+          creatorUrl: creator.creatorUrl || undefined,
+          creatorLabel: creator.creatorLabel || undefined,
+          source: 'launchpad_detector',
+          verifiedAt: new Date(),
+          lastCheckedAt: new Date(),
+        },
+      });
+    }
+
     const canWriteCreator = await hasTrendingCreatorColumns();
     if (!canWriteCreator) return;
-
-    const lower = address.toLowerCase();
     const existing = await prisma.trendingToken.findUnique({
       where: { chain_address: { chain, address: lower } },
       select: { creatorAddress: true, creatorUrl: true, creatorLabel: true },
@@ -272,6 +335,45 @@ export async function saveTrendingTokenCreator(
       return;
     }
     // best-effort only
+  }
+}
+
+export async function saveTokenLaunchpadProfile(
+  chain: string,
+  address: string,
+  profile: { launchpad?: string; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; source?: string }
+): Promise<void> {
+  try {
+    const lower = address.toLowerCase();
+    const canWriteProfile = await hasTokenLaunchpadProfileTable();
+    if (!canWriteProfile) return;
+
+    await prisma.tokenLaunchpadProfile.upsert({
+      where: { chain_address: { chain, address: lower } },
+      update: {
+        launchpad: profile.launchpad || undefined,
+        creatorAddress: profile.creatorAddress || undefined,
+        creatorUrl: profile.creatorUrl || undefined,
+        creatorLabel: profile.creatorLabel || undefined,
+        source: profile.source || 'launchpad_detector',
+        verifiedAt: new Date(),
+        lastCheckedAt: new Date(),
+        lastError: null,
+      },
+      create: {
+        chain,
+        address: lower,
+        launchpad: profile.launchpad || undefined,
+        creatorAddress: profile.creatorAddress || undefined,
+        creatorUrl: profile.creatorUrl || undefined,
+        creatorLabel: profile.creatorLabel || undefined,
+        source: profile.source || 'launchpad_detector',
+        verifiedAt: new Date(),
+        lastCheckedAt: new Date(),
+      },
+    });
+  } catch {
+    // best-effort profile persistence
   }
 }
 
@@ -430,19 +532,19 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
  * Get trending tokens from cache or database
  * Returns TokenSearchResult[] (without chain and rank) for API compatibility
  */
-export async function getTrendingTokens(chain: string = 'eth', limit: number = 50): Promise<TokenSearchResult[]> {
+export async function getTrendingTokens(
+  chain: string = 'eth',
+  limit: number = 50,
+  opts?: { bypassMemoryCache?: boolean }
+): Promise<TokenSearchResult[]> {
   try {
     const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain);
-    const cached = memoryCache.get<TokenSearchResult[]>(cacheKey);
-    if (cached && cached.length > 0) {
-      return cached
-        .filter(shouldKeepListedToken)
-        .slice(0, limit);
-    }
+    const cached = opts?.bypassMemoryCache ? null : memoryCache.get<TokenSearchResult[]>(cacheKey);
 
     const canReadLaunchpad = await hasTrendingLaunchpadColumn();
     const canReadCreator = await hasTrendingCreatorColumns();
-    const result = await prisma.trendingToken.findMany({
+    const result = (!cached || cached.length === 0)
+      ? await prisma.trendingToken.findMany({
       where: { chain },
       orderBy: { rank: 'asc' },
       take: limit,
@@ -463,9 +565,14 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
         ...(canReadLaunchpad ? { launchpad: true } : {}),
         ...(canReadCreator ? { creatorAddress: true, creatorUrl: true, creatorLabel: true } : {}),
       },
-    });
+    })
+      : [];
 
-    const tokens: TokenSearchResult[] = result.map((row) => ({
+    const tokens: TokenSearchResult[] = (cached && cached.length > 0)
+      ? cached
+        .slice(0, limit)
+        .map((t) => ({ ...t }))
+      : result.map((row) => ({
       address: row.address,
       name: row.name,
       symbol: row.symbol,
@@ -488,64 +595,84 @@ export async function getTrendingTokens(chain: string = 'eth', limit: number = 5
       creatorLabel: (row as any).creatorLabel || undefined,
     }));
 
-    // DB fallback for launch multiple:
-    // when Redis metadata is missing/expired, use persisted baseline source-of-truth.
-    const trustedBaselineMap = new Map<string, { price: number; source?: string }>();
     try {
-      const addresses = tokens.map((t) => t.address.toLowerCase());
-      if (addresses.length > 0) {
-        const baselines = await prisma.tokenLaunchBaseline.findMany({
-          where: {
-            chain,
-            address: { in: addresses },
-            status: { in: ['verified', 'estimated', 'fallback'] },
-            baselinePrice: { not: null },
-          },
+      const canReadProfile = await hasTokenLaunchpadProfileTable();
+      if (canReadProfile && tokens.length > 0) {
+        const addresses = buildAddressVariants(tokens.map((t) => t.address));
+        const profiles = await prisma.tokenLaunchpadProfile.findMany({
+          where: { chain, address: { in: addresses } },
           select: {
             address: true,
-            baselinePrice: true,
-            baselineSource: true,
+            launchpad: true,
+            creatorAddress: true,
+            creatorUrl: true,
+            creatorLabel: true,
           },
         });
-        for (const b of baselines) {
-          const price = toOptionalNumber(b.baselinePrice);
-          if (!Number.isFinite(price || NaN) || (price || 0) <= 0) continue;
-          if (!isDisplayTrustedBaselineSource(b.baselineSource || undefined)) continue;
-          trustedBaselineMap.set(b.address.toLowerCase(), { price: Number(price), source: b.baselineSource || undefined });
-        }
-
+        const byAddress = new Map(
+          profiles.map((p) => [p.address.toLowerCase(), p])
+        );
         for (const token of tokens) {
-          if (Number.isFinite((token as any).launchMultiple || NaN)) continue;
-          const current = toOptionalNumber(token.price);
-          if (!Number.isFinite(current || NaN) || (current || 0) <= 0) continue;
-          const baseline = trustedBaselineMap.get(token.address.toLowerCase());
-          if (!baseline || !Number.isFinite(baseline.price) || baseline.price <= 0) continue;
-          const raw = Number(current) / baseline.price;
-          if (!Number.isFinite(raw) || raw <= 0) continue;
-          // Sanity cap: suppress absurdly high multiples from bad baselines.
-          // Even the most explosive tokens rarely exceed x200k legitimately.
-          const capped = Math.max(1, raw);
-          if (capped > 200_000) {
-            console.warn(`[TokenRepo] Suspicious launch multiple x${capped.toFixed(0)} for ${token.address.slice(0, 10)}… (baseline=$${baseline.price}, current=$${current}) — suppressed`);
-            continue;
-          }
-          (token as any).launchMultiple = capped;
+          const profile = byAddress.get(token.address.toLowerCase());
+          if (!profile) continue;
+          if (!token.launchpad && profile.launchpad) token.launchpad = profile.launchpad;
+          if (!token.creatorAddress && profile.creatorAddress) token.creatorAddress = profile.creatorAddress;
+          if (!(token as any).creatorUrl && profile.creatorUrl) (token as any).creatorUrl = profile.creatorUrl;
+          if (!(token as any).creatorLabel && profile.creatorLabel) (token as any).creatorLabel = profile.creatorLabel;
         }
       }
     } catch {
-      // best-effort only
+      // best-effort merge only
     }
+
+    // Launch multiple is intentionally disabled; keep backend payload stable without x-metrics.
 
     await Promise.all(tokens.map(async (token) => {
       try {
-        const raw = await getRedisCache(tokenMetaCacheKey(chain, token.address));
+        let raw = await getRedisCache(tokenMetaCacheKey(chain, token.address));
+        let fromLegacy = false;
+        if (!raw) {
+          raw = await getRedisCache(tokenMetaLegacyCacheKey(chain, token.address));
+          fromLegacy = !!raw;
+        }
         if (!raw) return;
-        const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number };
+        const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; cacheVersion?: number };
         if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
         if (meta?.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = meta.creatorUrl;
         if (meta?.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = meta.creatorLabel;
+        // Prefer v2 meta cache launchMultiple produced by baseline pipeline.
+        // Ignore legacy cache to avoid leaking stale values.
+        const multiple = Number(meta?.launchMultiple || 0);
+        const cacheVersion = Number(meta?.cacheVersion || 0);
+        if (!fromLegacy && cacheVersion >= 2 && Number.isFinite(multiple) && multiple > 0 && multiple <= 200_000) {
+          (token as any).launchMultiple = multiple;
+        }
       } catch {
         // ignore metadata cache parse/read errors
+      }
+    }));
+
+    await Promise.all(tokens.map(async (token) => {
+      try {
+        const raw = await getRedisCache(initialPoolCacheKey(chain, token.address));
+        if (!raw) return;
+        const meta = JSON.parse(raw) as {
+          initialPoolAddress?: string;
+          initialPoolCreatedAt?: string;
+          initialLiquidityUsd?: number;
+          source?: string;
+        };
+        if (meta?.initialPoolAddress) (token as any).initialPoolAddress = meta.initialPoolAddress;
+        if (meta?.initialPoolCreatedAt) (token as any).initialPoolCreatedAt = meta.initialPoolCreatedAt;
+        // Reuse initial-pool snapshot as enrichment hint for on-demand baseline fill.
+        if (!(token as any).poolAddress && meta?.initialPoolAddress) (token as any).poolAddress = meta.initialPoolAddress;
+        if (!(token as any).poolCreatedAt && meta?.initialPoolCreatedAt) (token as any).poolCreatedAt = meta.initialPoolCreatedAt;
+        if (Number.isFinite(Number(meta?.initialLiquidityUsd || 0)) && Number(meta?.initialLiquidityUsd || 0) > 0) {
+          (token as any).initialLiquidityUsd = Number(meta?.initialLiquidityUsd);
+        }
+        if (meta?.source) (token as any).initialPoolSource = meta.source;
+      } catch {
+        // ignore initial-pool cache parse/read errors
       }
     }));
 

@@ -918,22 +918,30 @@
 }
 
 .multipleX1000 {
-    color: #ffffff;
-    filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.9));
-    animation: rainbowPulse 1.8s linear infinite;
+    background: linear-gradient(90deg,
+            #ff3b30 0%,
+            #ff9500 16%,
+            #ffcc00 32%,
+            #34c759 48%,
+            #0a84ff 64%,
+            #5856d6 80%,
+            #ff2d55 100%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: rainbowShift 1.8s linear infinite;
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.15);
 }
 
-@keyframes rainbowPulse {
+@keyframes rainbowShift {
     0% {
-        filter: hue-rotate(0deg) saturate(1.2) drop-shadow(0 0 1px rgba(255, 0, 0, 0.7));
-    }
-
-    50% {
-        filter: hue-rotate(180deg) saturate(1.4) drop-shadow(0 0 1px rgba(0, 255, 255, 0.7));
+        background-position: 0% 50%;
     }
 
     100% {
-        filter: hue-rotate(360deg) saturate(1.2) drop-shadow(0 0 1px rgba(255, 0, 0, 0.7));
+        background-position: 220% 50%;
     }
 }
 

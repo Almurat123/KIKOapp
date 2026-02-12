@@ -6,13 +6,25 @@ import * as path from 'path';
 
 export const logStorage = new AsyncLocalStorage<LogMetadata>();
 
-// Ensure logs directory exists
 const LOG_DIR = path.join(process.cwd(), 'logs');
 if (!fs.existsSync(LOG_DIR)) {
     fs.mkdirSync(LOG_DIR, { recursive: true });
 }
-const LOG_FILE_PATH = path.join(LOG_DIR, 'app.log');
-const logStream = fs.createWriteStream(LOG_FILE_PATH, { flags: 'a' });
+
+const APP_LOG_PATH = path.join(LOG_DIR, 'app.log');
+const ERROR_LOG_PATH = path.join(LOG_DIR, 'error.log');
+const AUDIT_LOG_PATH = path.join(LOG_DIR, 'audit.log');
+
+const appLogStream = fs.createWriteStream(APP_LOG_PATH, { flags: 'a' });
+const errorLogStream = fs.createWriteStream(ERROR_LOG_PATH, { flags: 'a' });
+const auditLogStream = fs.createWriteStream(AUDIT_LOG_PATH, { flags: 'a' });
+
+const rawConsole = {
+    log: console.log.bind(console),
+    info: console.info.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+};
 
 export enum LogLevel {
     DEBUG = 0,
@@ -21,7 +33,6 @@ export enum LogLevel {
     ERROR = 3,
 }
 
-// [Logic]: Mapping internal LogLevel to shorthand symbols for brevity. [Ref]: backend.txt
 const LEVEL_SHORTHAND: Record<LogLevel, string> = {
     [LogLevel.DEBUG]: 'dbg',
     [LogLevel.INFO]: 'inf',
@@ -29,19 +40,99 @@ const LEVEL_SHORTHAND: Record<LogLevel, string> = {
     [LogLevel.ERROR]: 'err',
 };
 
+type LogPayload = {
+    timestamp: string;
+    level: string;
+    role: LogRole;
+    code: LogCode;
+    message: string;
+    metadata: Record<string, unknown>;
+    service: string;
+    env: string | undefined;
+};
+
+class ConsoleRateLimiter {
+    private tokens: number;
+    private readonly maxTokens: number;
+    private readonly refillPerSec: number;
+    private readonly dropSummaryIntervalMs: number;
+    private lastRefillAt = Date.now();
+    private dropped = 0;
+    private lastSummaryAt = Date.now();
+
+    constructor(maxPerSecond: number, dropSummaryIntervalMs: number) {
+        const safeRate = Math.max(1, maxPerSecond);
+        this.maxTokens = safeRate;
+        this.refillPerSec = safeRate;
+        this.tokens = safeRate;
+        this.dropSummaryIntervalMs = Math.max(1000, dropSummaryIntervalMs);
+    }
+
+    public allow(): boolean {
+        this.refill();
+        if (this.tokens >= 1) {
+            this.tokens -= 1;
+            return true;
+        }
+        this.dropped += 1;
+        return false;
+    }
+
+    public maybeEmitDropSummary(emit: (line: string) => void) {
+        if (this.dropped === 0) return;
+        const now = Date.now();
+        if (now - this.lastSummaryAt < this.dropSummaryIntervalMs) return;
+        emit(JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: 'WARN',
+            role: LogRole.EVENT,
+            code: 'SYS-LOG-DROP',
+            message: 'Console logs dropped by rate limiter',
+            metadata: { dropped: this.dropped, intervalMs: now - this.lastSummaryAt },
+            service: 'kiko-api',
+            env: process.env.NODE_ENV,
+        }));
+        this.dropped = 0;
+        this.lastSummaryAt = now;
+    }
+
+    private refill() {
+        const now = Date.now();
+        const elapsedMs = now - this.lastRefillAt;
+        if (elapsedMs <= 0) return;
+        this.lastRefillAt = now;
+        const refill = (elapsedMs / 1000) * this.refillPerSec;
+        this.tokens = Math.min(this.maxTokens, this.tokens + refill);
+    }
+}
+
 class Logger {
     private logLevel: LogLevel;
     private throttleMap: Map<string, { count: number; lastTime: number }> = new Map();
     private aggregator: LogAggregator;
     private timers: Map<string, number> = new Map();
-    private THROTTLE_WINDOW_MS = 5000;
+    private readonly throttleWindowMs: number;
+    private readonly consoleLimiter: ConsoleRateLimiter;
+    private readonly maxConsolePerSecond: number;
+
     constructor() {
         this.logLevel = this.parseLogLevel(env.logLevel || 'info');
-        this.aggregator = new LogAggregator(this);
+        this.throttleWindowMs = this.parsePositiveInt(process.env.LOG_THROTTLE_WINDOW_MS, 5000);
+        const defaultConsoleRps = process.env.NODE_ENV === 'production' ? 60 : 5000;
+        this.maxConsolePerSecond = this.parsePositiveInt(process.env.LOG_MAX_PER_SECOND, defaultConsoleRps);
+        const dropSummaryIntervalMs = this.parsePositiveInt(process.env.LOG_DROP_SUMMARY_INTERVAL_MS, 10000);
+        this.consoleLimiter = new ConsoleRateLimiter(this.maxConsolePerSecond, dropSummaryIntervalMs);
+        this.aggregator = new LogAggregator(this, this.parsePositiveInt(process.env.LOG_AGGREGATE_INTERVAL_MS, 15 * 60 * 1000));
     }
 
     private get isProduction(): boolean {
         return process.env.NODE_ENV === 'production';
+    }
+
+    private parsePositiveInt(input: string | undefined, fallback: number): number {
+        const parsed = Number(input);
+        if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+        return Math.floor(parsed);
     }
 
     private parseLogLevel(level: string): LogLevel {
@@ -54,162 +145,79 @@ class Logger {
         }
     }
 
-    private format(level: LogLevel, code: LogCode, message: string, metadata?: LogMetadata): string {
-        const timestamp = new Date().toISOString();
-        const levelName = LogLevel[level];
-        const levelShort = LEVEL_SHORTHAND[level];
-
-        // Merge with storage metadata
-        const storageMeta = logStorage.getStore() || {};
-        const combinedMeta = { ...storageMeta, ...metadata };
-
-        // [Logic]: Default role based on code prefix or explicit meta.
-        const role = combinedMeta.role || this.getDefaultRole(code);
-        combinedMeta.role = role;
-
-        // [Logic]: Dual-Channel Logging
-        // 1. File Output: Standard JSON (Full Data)
-        const filePayload = JSON.stringify({
-            timestamp,
-            level: levelName,
-            role,
-            code,
-            message,
-            metadata: combinedMeta,
-            service: 'kiko-api',
-            env: process.env.NODE_ENV
-        });
-
-        // Write to file asynchronously to avoid blocking event loop
-        logStream.write(filePayload + '\n');
-
-        // 2. Console Output: Human-Readable "Monitor" Mode
-        // [Logic]: Production stays JSON for machine parsing (CloudWatch etc)
-        if (this.isProduction) {
-            return filePayload;
-        }
-
-        // [Logic]: Development - Concise "Key=Value" format
-        // Format: [TIME] [lvl] [ROLE] [CODE] Message | key=value key2=value2
-
-        // Time & Header
-        const timeShort = timestamp.split('T')[1].split('.')[0];
-        const header = `[${timeShort}] [${levelShort}] [${role}] [${code}]`;
-
-        // Process Metadata for Console
-        // [Logic]: Extract error reason, flatten others to k=v
-        let reason = message;
-        let contextKV: string[] = [];
-
-        const { traceId, durationMs, role: _, ...rest } = combinedMeta;
-
-        // Error handling (Console: simplified, File: full stack in JSON)
-        if (rest.error && rest.error instanceof Error) {
-            const simplified = this.simplifyError(rest.error);
-            reason = `${message} : ${simplified.message}`;
-            delete rest.error;
-        } else if (rest.err && rest.err instanceof Error) {
-            const simplified = this.simplifyError(rest.err);
-            reason = `${message} : ${simplified.message}`;
-            delete rest.err;
-        }
-
-        // Flatten remaining context to K=V
-        contextKV = this.formatContextToKV(rest);
-
-        if (traceId) contextKV.unshift(`tid=${traceId}`);
-        if (durationMs) contextKV.push(`dur=${durationMs}ms`);
-
-        // Assemble
-        const kvString = contextKV.length > 0 ? ` | ${contextKV.join(' ')}` : '';
-        const fullLine = `${header} ${reason}${kvString}`;
-
-        return fullLine; // No truncation, let terminal wrap
+    private writeStream(stream: fs.WriteStream, line: string) {
+        stream.write(`${line}\n`);
     }
 
-    // [Logic]: Helper to format object into k=v pairs
-    private formatContextToKV(meta: any): string[] {
+    private formatConsoleLine(level: LogLevel, payload: LogPayload): string {
+        if (this.isProduction) {
+            return JSON.stringify(payload);
+        }
+        const levelShort = LEVEL_SHORTHAND[level];
+        const timeShort = payload.timestamp.split('T')[1]?.split('.')[0] || payload.timestamp;
+        const header = `[${timeShort}] [${levelShort}] [${payload.role}] [${payload.code}]`;
+        const context = this.formatContextToKV(payload.metadata);
+        return context.length > 0
+            ? `${header} ${payload.message} | ${context.join(' ')}`
+            : `${header} ${payload.message}`;
+    }
+
+    private formatContextToKV(meta: Record<string, unknown>): string[] {
         const values: string[] = [];
         for (const [key, value] of Object.entries(meta)) {
             if (value === null || value === undefined) continue;
-
-            let strVal = '';
-            if (typeof value === 'object') {
-                if (value instanceof Date) strVal = value.toISOString();
-                else if (Array.isArray(value)) strVal = `[${value.length}]`;
-                else {
-                    // Start with simple identification
-                    const v = value as any;
-                    if (v.id) strVal = `id:${v.id}`;
-                    else if (v.symbol) strVal = v.symbol;
-                    else if (v.address) strVal = v.address;
-                    else {
-                        try {
-                            strVal = JSON.stringify(value);
-                            // If it's too long, just say Object
-                            if (strVal.length > 50) strVal = '{Obj}';
-                        }
-                        catch { strVal = '{Cycle}'; }
-                    }
-                }
-            } else {
-                strVal = String(value);
+            if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                values.push(`${key}=${String(value)}`);
+                continue;
             }
-            values.push(`${key}=${strVal}`);
+            if (value instanceof Date) {
+                values.push(`${key}=${value.toISOString()}`);
+                continue;
+            }
+            if (Array.isArray(value)) {
+                values.push(`${key}=[${value.length}]`);
+                continue;
+            }
+            try {
+                const str = JSON.stringify(value);
+                values.push(`${key}=${str.length > 80 ? '{Obj}' : str}`);
+            } catch {
+                values.push(`${key}={Obj}`);
+            }
         }
         return values;
     }
 
-
-
-
-
-
-
-    /**
-     * [Logic]: Processes metadata to simplify Errors and prevent circular refs.
-     */
-    private processMetadata(meta: any): any {
-        const processed: any = {};
+    private processMetadata(meta: Record<string, unknown>): Record<string, unknown> {
+        const processed: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(meta)) {
             if (value instanceof Error) {
                 processed[key] = this.simplifyError(value);
-            } else if (typeof value === 'object' && value !== null) {
-                // Shallow clone/stringify to avoid circularity issues in simple logger
-                try { processed[key] = JSON.parse(JSON.stringify(value)); }
-                catch (e) { processed[key] = '[Circular/Complex Object]'; }
-            } else {
-                processed[key] = value;
+                continue;
             }
+            if (typeof value === 'object' && value !== null) {
+                try {
+                    processed[key] = JSON.parse(JSON.stringify(value));
+                } catch {
+                    processed[key] = '[Circular/Complex Object]';
+                }
+                continue;
+            }
+            processed[key] = value;
         }
         return processed;
     }
 
-    /**
-     * [Logic]: Extracts critical info from Error objects. [Ref]: implementation_plan.md
-     */
-    private simplifyError(err: Error): any {
+    private simplifyError(err: Error): Record<string, string> {
         const stack = err.stack || '';
         const businessFrame = stack.split('\n').find(line => line.includes('/src/') && !line.includes('node_modules')) || stack.split('\n')[1] || '';
         return {
             name: err.name,
             message: err.message,
-            at: businessFrame.trim()
+            at: businessFrame.trim(),
         };
     }
 
-    /**
-     * [Logic]: Truncates string to keep it within 2 lines. [Ref]: Google/Microsoft specs
-     */
-    private truncatePayload(str: string, limit: number = 160): string {
-        if (str.length <= limit) return str;
-        const half = Math.floor((limit - 20) / 2);
-        return `${str.slice(0, half)}...[truncated ${str.length - limit} chars]...${str.slice(-half)}`;
-    }
-
-    /**
-     * [Logic]: Heuristic to assign roles based on LogCode prefixes.
-     */
     private getDefaultRole(code: LogCode): LogRole {
         if (code.startsWith('EXE-') || code === LogCode.WTC_SWAP_DETECTED) return LogRole.AUDIT;
         if (code.startsWith('API-') || code.startsWith('PRF-') || code.startsWith('CH-')) return LogRole.METRIC;
@@ -217,30 +225,65 @@ class Logger {
         return LogRole.TRACE;
     }
 
-    /**
-     * Start a timer for performance tracking
-     */
+    private buildPayload(level: LogLevel, code: LogCode, message: string, metadata?: LogMetadata): LogPayload {
+        const timestamp = new Date().toISOString();
+        const storageMeta = logStorage.getStore() || {};
+        const combinedMeta = this.processMetadata({ ...storageMeta, ...(metadata || {}) });
+        const role = (combinedMeta.role as LogRole | undefined) || this.getDefaultRole(code);
+        combinedMeta.role = role;
+
+        return {
+            timestamp,
+            level: LogLevel[level],
+            role,
+            code,
+            message,
+            metadata: combinedMeta,
+            service: 'kiko-api',
+            env: process.env.NODE_ENV,
+        };
+    }
+
+    private emit(level: LogLevel, code: LogCode, message: string, metadata?: LogMetadata) {
+        const payload = this.buildPayload(level, code, message, metadata);
+        const line = JSON.stringify(payload);
+
+        this.writeStream(appLogStream, line);
+        if (level >= LogLevel.WARN) this.writeStream(errorLogStream, line);
+        if (payload.role === LogRole.AUDIT) this.writeStream(auditLogStream, line);
+
+        this.consoleLimiter.maybeEmitDropSummary((summary) => rawConsole.warn(summary));
+        if (!this.consoleLimiter.allow()) return;
+
+        const consoleLine = this.formatConsoleLine(level, payload);
+        switch (level) {
+            case LogLevel.ERROR:
+                rawConsole.error(consoleLine);
+                break;
+            case LogLevel.WARN:
+                rawConsole.warn(consoleLine);
+                break;
+            case LogLevel.INFO:
+                rawConsole.info(consoleLine);
+                break;
+            default:
+                rawConsole.log(consoleLine);
+                break;
+        }
+    }
+
     public startTimer(label: string) {
         this.timers.set(label, Date.now());
     }
 
-    /**
-     * Stop a timer and log the duration
-     */
     public endTimer(label: string, code: LogCode = LogCode.PERF_METRIC, metadata: LogMetadata = {}) {
         const startTime = this.timers.get(label);
         if (!startTime) return;
-
         const durationMs = Date.now() - startTime;
         this.timers.delete(label);
-
         this.info(code, `Timer finished: ${label}`, { ...metadata, durationMs, timerLabel: label });
     }
 
-    /**
-     * Check if a log should be throttled
-     * Returns true if it should be suppressed
-     */
     private shouldThrottle(code: LogCode, message: string): boolean {
         const key = `${code}:${message}`;
         const now = Date.now();
@@ -251,43 +294,36 @@ class Logger {
             return false;
         }
 
-        if (now - entry.lastTime < this.THROTTLE_WINDOW_MS) {
+        if (now - entry.lastTime < this.throttleWindowMs) {
             entry.count++;
-            return true; // Throttle
+            return true;
         }
 
-        const repeats = entry.count;
+        if (entry.count > 1) {
+            this.emit(LogLevel.INFO, LogCode.SYS_INFO, 'Suppressed repeated logs', {
+                repeated: entry.count,
+                original: key,
+                windowMs: this.throttleWindowMs,
+            });
+        }
+
         this.throttleMap.set(key, { count: 1, lastTime: now });
-
-        if (repeats > 1) {
-            const throttleMsg = this.isProduction
-                ? JSON.stringify({
-                    level: 'INFO',
-                    code: 'SYS-THROTTLE',
-                    message: `Repeated x${repeats}: ${key}`,
-                    timestamp: new Date().toISOString(),
-                    metadata: logStorage.getStore() || {}
-                })
-                : `[REPEATED x${repeats}] PREVIOUS LOG ${key}`;
-            process.stdout.write(`${throttleMsg}\n`);
-        }
         return false;
     }
 
     public debug(code: LogCode, message: string, metadata?: LogMetadata) {
         if (this.logLevel > LogLevel.DEBUG) return;
-        console.log(this.format(LogLevel.DEBUG, code, message, metadata));
+        this.emit(LogLevel.DEBUG, code, message, metadata);
     }
 
     public info(code: LogCode, message: string, metadata?: LogMetadata) {
         if (this.logLevel > LogLevel.INFO) return;
-        // Don't throttle important info logs if they contain unique metadata
-        console.log(this.format(LogLevel.INFO, code, message, metadata));
+        this.emit(LogLevel.INFO, code, message, metadata);
     }
 
     public warn(code: LogCode, message: string, metadata?: LogMetadata) {
         if (this.logLevel > LogLevel.WARN) return;
-        console.warn(this.format(LogLevel.WARN, code, message, metadata));
+        this.emit(LogLevel.WARN, code, message, metadata);
     }
 
     public error(code: LogCode, message: string, metadata?: LogMetadata) {
@@ -295,99 +331,103 @@ class Logger {
 
         const storageMeta = logStorage.getStore() || {};
         const combinedMeta = { ...storageMeta, ...metadata };
-
-        // Enhance error logs with an Action Guideline if available
         if (combinedMeta.action) {
             message = `${message} | ACTION REQUIRED: ${combinedMeta.action}`;
         }
 
-        console.error(this.format(LogLevel.ERROR, code, message, metadata));
+        this.emit(LogLevel.ERROR, code, message, metadata);
     }
 
-    /**
-     * Specialized method for high-frequency logs (e.g., polling)
-     */
     public throttled(code: LogCode, message: string, metadata?: LogMetadata) {
         if (this.logLevel > LogLevel.INFO) return;
         if (this.shouldThrottle(code, message)) return;
-        console.log(this.format(LogLevel.INFO, code, message, metadata));
+        this.emit(LogLevel.INFO, code, message, metadata);
     }
-    /**
-     * Aggregates repetitive logs and reports them periodically
-     */
+
     public aggregate(code: LogCode, message: string, metadata?: LogMetadata) {
         if (this.logLevel > LogLevel.INFO) return;
         this.aggregator.add(code, message, metadata);
     }
 }
 
-/**
- * Log Aggregator
- * Collects high-frequency logs and reports summarized stats periodically
- */
 class LogAggregator {
-    private logs: Map<string, { count: number; firstTime: number; lastTime: number; metadata: any }> = new Map();
-    private readonly REPORT_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
-    // private readonly REPORT_INTERVAL_MS = 60 * 1000; // 1 minute (For testing)
+    private logs: Map<string, { count: number; firstTime: number; lastTime: number; metadata: LogMetadata | undefined }> = new Map();
     private timer: NodeJS.Timeout;
     private logger: Logger;
 
-    constructor(logger: Logger) {
+    constructor(logger: Logger, intervalMs: number) {
         this.logger = logger;
-        this.timer = setInterval(() => this.flush(), this.REPORT_INTERVAL_MS);
-        // Ensure timer doesn't prevent process exit
+        this.timer = setInterval(() => this.flush(), intervalMs);
         this.timer.unref();
     }
 
     public add(code: LogCode, message: string, metadata?: LogMetadata) {
         const key = `${code}|${message}`;
         const now = Date.now();
-
-        if (!this.logs.has(key)) {
+        const entry = this.logs.get(key);
+        if (!entry) {
             this.logs.set(key, {
                 count: 1,
                 firstTime: now,
                 lastTime: now,
-                metadata: metadata // Keep sample metadata from first occurrence
+                metadata,
             });
-        } else {
-            const entry = this.logs.get(key)!;
-            entry.count++;
-            entry.lastTime = now;
-            // Optionally update usage stats in metadata if needed, but keeping it simple for now
+            return;
         }
+        entry.count += 1;
+        entry.lastTime = now;
     }
 
     public flush() {
         if (this.logs.size === 0) return;
 
-        const report: string[] = [];
-        const now = new Date().toISOString();
-
-        report.push(`📊 [Log Aggregation Report] ${now}`);
-        report.push(`----------------------------------------`);
-
         this.logs.forEach((stats, key) => {
-            const [code, message] = key.split('|');
-            const durationSec = ((stats.lastTime - stats.firstTime) / 1000).toFixed(1);
-            const rate = (stats.count / (Math.max(1, stats.lastTime - stats.firstTime) / 60000)).toFixed(1); // logs per minute
-
-            report.push(`• [${code}] "${message}"`);
-            report.push(`  Count: ${stats.count} | Span: ${durationSec}s | Rate: ~${rate}/min`);
+            const [code, ...rest] = key.split('|');
+            const message = rest.join('|');
+            const spanMs = Math.max(1, stats.lastTime - stats.firstTime);
+            const ratePerMin = Number((stats.count / (spanMs / 60000)).toFixed(2));
+            this.logger.info(LogCode.SYS_AGG_REPORT, 'Aggregated repetitive logs', {
+                code,
+                message,
+                count: stats.count,
+                spanMs,
+                ratePerMin,
+                sample: stats.metadata,
+            });
         });
 
-        report.push(`----------------------------------------`);
-
-        // Print directly to stdout to bypass logger formatting/filtering logic for the report itself
-        // Or use logger.info with a special code
-        // [Ref]: Use console.log with shorthand inf for the report.
-        console.log(`[${now}] [inf] [AUDIT] [${LogCode.SYS_AGG_REPORT}] 📊 [Log Aggregation Report]`);
-        console.log(report.join('\n'));
-
-        // Clear aggregation buffer
         this.logs.clear();
     }
 }
 
 export const logger = new Logger();
 export default logger;
+
+let consoleInterceptInstalled = false;
+
+function stringifyConsoleArgs(args: unknown[]): string {
+    return args.map((arg) => {
+        if (typeof arg === 'string') return arg;
+        if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
+        try {
+            return JSON.stringify(arg);
+        } catch {
+            return String(arg);
+        }
+    }).join(' ');
+}
+
+export function installConsoleInterception() {
+    if (consoleInterceptInstalled) return;
+
+    const captureEnabled = (process.env.LOG_INTERCEPT_CONSOLE || '').toLowerCase();
+    const enabled = captureEnabled === '1' || captureEnabled === 'true' || (captureEnabled === '' && process.env.NODE_ENV === 'production');
+    if (!enabled) return;
+
+    consoleInterceptInstalled = true;
+
+    console.log = (...args: unknown[]) => logger.throttled(LogCode.SYS_INFO, stringifyConsoleArgs(args), { role: LogRole.TRACE, source: 'console.log' });
+    console.info = (...args: unknown[]) => logger.throttled(LogCode.SYS_INFO, stringifyConsoleArgs(args), { role: LogRole.TRACE, source: 'console.info' });
+    console.warn = (...args: unknown[]) => logger.throttled(LogCode.SYS_INFO, stringifyConsoleArgs(args), { role: LogRole.EVENT, source: 'console.warn' });
+    console.error = (...args: unknown[]) => logger.error(LogCode.SYS_ERROR, stringifyConsoleArgs(args), { role: LogRole.EVENT, source: 'console.error' });
+}

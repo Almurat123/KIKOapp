@@ -149,7 +149,7 @@ export const AuthorizationPromptModal: React.FC = () => {
     return (
         <div className={styles.overlay}>
             <div className={styles.modal}>
-                <button className={styles.closeButton} onClick={handleDismiss}>
+                <button className={styles.closeButton} onClick={handleDismiss} aria-label="Close">
                     <X size={20} />
                 </button>
 

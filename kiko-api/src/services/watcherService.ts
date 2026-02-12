@@ -30,30 +30,38 @@ const lastProcessedBlock: Map<string, number> = new Map();
 const processedTxs: Set<string> = new Set();
 const PROCESSED_TX_TTL_SECONDS = Number(process.env.COPYTRADE_PROCESSED_TX_TTL_SEC || 24 * 60 * 60);
 const TX_INFLIGHT_LOCK_TTL_SECONDS = Number(process.env.COPYTRADE_TX_INFLIGHT_TTL_SEC || 45);
+const COPYTRADE_TX_FETCH_CACHE_TTL_MS = Number(process.env.COPYTRADE_TX_FETCH_CACHE_TTL_MS || 8000);
+const txByHashCache = new Map<string, { value: any; ts: number }>();
+const txReceiptCache = new Map<string, { value: any; ts: number }>();
+
+function normalizeTxHash(txHash: string): string {
+    return String(txHash || '').toLowerCase();
+}
 
 function txProcessedCacheKey(txHash: string, chainId: number): string {
-    return `copytrade:processed:${chainId}:${txHash.toLowerCase()}`;
+    return `copytrade:processed:${chainId}:${normalizeTxHash(txHash)}`;
 }
 
 function txInflightLockKey(txHash: string, chainId: number): string {
-    return `copytrade:inflight:${chainId}:${txHash.toLowerCase()}`;
+    return `copytrade:inflight:${chainId}:${normalizeTxHash(txHash)}`;
 }
 
 /**
  * Check if a transaction has already been processed
  */
 export function isTxProcessed(txHash: string): boolean {
-    return processedTxs.has(txHash);
+    return processedTxs.has(normalizeTxHash(txHash));
 }
 
 export async function isTxProcessedDistributed(txHash: string, chainId: number): Promise<boolean> {
-    if (processedTxs.has(txHash)) {
+    const normalized = normalizeTxHash(txHash);
+    if (processedTxs.has(normalized)) {
         return true;
     }
 
     const cached = await cacheGet(txProcessedCacheKey(txHash, chainId));
     if (cached) {
-        processedTxs.add(txHash);
+        processedTxs.add(normalized);
         return true;
     }
     return false;
@@ -63,11 +71,11 @@ export async function isTxProcessedDistributed(txHash: string, chainId: number):
  * Mark a transaction as processed
  */
 export function markTxAsProcessed(txHash: string): void {
-    processedTxs.add(txHash);
+    processedTxs.add(normalizeTxHash(txHash));
 }
 
 export async function markTxAsProcessedDistributed(txHash: string, chainId: number): Promise<void> {
-    processedTxs.add(txHash);
+    processedTxs.add(normalizeTxHash(txHash));
     await cacheSet(txProcessedCacheKey(txHash, chainId), '1', PROCESSED_TX_TTL_SECONDS).catch(() => { });
 }
 
@@ -120,8 +128,16 @@ import { getChainConfig } from '../config/chainConfig.js';
  */
 export async function fetchTransaction(txHash: string, chainId: number): Promise<any | null> {
     const start = Date.now();
+    const key = `${chainId}:${normalizeTxHash(txHash)}`;
+    const hit = txByHashCache.get(key);
+    if (hit && Date.now() - hit.ts < COPYTRADE_TX_FETCH_CACHE_TTL_MS) {
+        return hit.value;
+    }
     try {
         const result = await rpcCall(chainId, 'eth_getTransactionByHash', [txHash], { strategy: 'fast', importance: 'critical' });
+        if (result) {
+            txByHashCache.set(key, { value: result, ts: Date.now() });
+        }
         if (PROFILE) {
             logger.info(LogCode.SYS_INFO, '[Profile] fetchTransaction', {
                 chainId,
@@ -141,8 +157,16 @@ export async function fetchTransaction(txHash: string, chainId: number): Promise
  */
 export async function fetchTransactionReceipt(txHash: string, chainId: number): Promise<any | null> {
     const start = Date.now();
+    const key = `${chainId}:${normalizeTxHash(txHash)}`;
+    const hit = txReceiptCache.get(key);
+    if (hit && Date.now() - hit.ts < COPYTRADE_TX_FETCH_CACHE_TTL_MS) {
+        return hit.value;
+    }
     try {
         const result = await rpcCall(chainId, 'eth_getTransactionReceipt', [txHash], { strategy: 'fast', importance: 'critical' });
+        if (result) {
+            txReceiptCache.set(key, { value: result, ts: Date.now() });
+        }
         if (PROFILE) {
             logger.info(LogCode.SYS_INFO, '[Profile] fetchReceipt', {
                 chainId,
