@@ -237,8 +237,12 @@ export async function getTokenDetails(chainId: string, address: string): Promise
 
     logger.debug(LogCode.API_FETCH_SUCCESS, 'Pairs found for token', { count: data.pairs.length, address });
 
-    // Get the most liquid pair
-    const pair = data.pairs.sort((a: any, b: any) =>
+    const normalizedChain = CHAIN_ID_MAP[chainId.toLowerCase()] || chainId.toLowerCase();
+    const chainPairs = data.pairs.filter((p: any) => String(p?.chainId || '').toLowerCase() === normalizedChain);
+    const candidatePairs = chainPairs.length > 0 ? chainPairs : data.pairs;
+
+    // Get the most liquid pair on target chain (fallback to global if unavailable)
+    const pair = candidatePairs.sort((a: any, b: any) =>
       parseFloat(b.liquidity?.usd || '0') - parseFloat(a.liquidity?.usd || '0')
     )[0];
 

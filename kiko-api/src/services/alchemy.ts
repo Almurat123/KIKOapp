@@ -29,6 +29,32 @@ const ALCHEMY_NETWORKS: Record<string, string> = {
   sol: 'solana-mainnet',
 };
 
+const ALCHEMY_USAGE_LOG_INTERVAL_MS = Number(process.env.ALCHEMY_USAGE_LOG_INTERVAL_MS || 60_000);
+const alchemyUsageCounters = new Map<string, { total: number; ok: number; err: number }>();
+let lastAlchemyUsageLogAt = Date.now();
+
+function trackAlchemyUsage(op: string, source: string, ok: boolean): void {
+  const key = `${source || 'unknown'}:${op}`;
+  const prev = alchemyUsageCounters.get(key) || { total: 0, ok: 0, err: 0 };
+  prev.total += 1;
+  if (ok) prev.ok += 1;
+  else prev.err += 1;
+  alchemyUsageCounters.set(key, prev);
+
+  const now = Date.now();
+  if (now - lastAlchemyUsageLogAt < ALCHEMY_USAGE_LOG_INTERVAL_MS) return;
+  lastAlchemyUsageLogAt = now;
+
+  const top = Array.from(alchemyUsageCounters.entries())
+    .sort((a, b) => b[1].total - a[1].total)
+    .slice(0, 12)
+    .map(([k, v]) => `${k}=${v.total} (ok:${v.ok},err:${v.err})`);
+  logger.info(LogCode.API_FETCH_SUCCESS, '[AlchemyUsage] rolling usage snapshot', {
+    intervalMs: ALCHEMY_USAGE_LOG_INTERVAL_MS,
+    groups: top
+  });
+}
+
 /**
  * Get SPL token symbol from mint address
  * Uses local registry first, then returns shortened address as fallback
@@ -157,8 +183,10 @@ export async function getAssetTransfers(
     category?: ('external' | 'internal' | 'erc20' | 'erc721' | 'erc1155' | 'spl')[];
     order?: 'asc' | 'desc';
     contractAddresses?: string[];
+    source?: string;
   } = {}
 ): Promise<AssetTransfer[]> {
+  const source = options.source || 'unknown';
   const tryAlchemy = async () => {
     try {
       const url = getAlchemyUrl(chain);
@@ -216,11 +244,14 @@ export async function getAssetTransfers(
           });
 
           if (data.error) {
+            trackAlchemyUsage('asset_transfers_contract_query', source, false);
             logger.error(LogCode.API_FETCH_FAILED, 'Alchemy RPC Error', { error: data.error });
           }
+          trackAlchemyUsage('asset_transfers_contract_query', source, !data.error);
           logger.info(LogCode.API_FETCH_SUCCESS, 'Alchemy transfers received', { count: data.result?.transfers?.length || 0 });
           return data.result?.transfers || [];
         } catch (error: any) {
+          trackAlchemyUsage('asset_transfers_contract_query', source, false);
           logger.error(LogCode.API_FETCH_FAILED, 'Alchemy API error', { error: error.message });
           return null;
         }
@@ -287,16 +318,19 @@ export async function getAssetTransfers(
             keepalive: true
           })
         ]);
+        trackAlchemyUsage('asset_transfers_wallet_query', source, true);
 
         const incomingTransfers: AssetTransfer[] = incomingData.result?.transfers || [];
         const outgoingTransfers: AssetTransfer[] = outgoingData.result?.transfers || [];
 
         return [...incomingTransfers, ...outgoingTransfers];
       } catch (e: any) {
+        trackAlchemyUsage('asset_transfers_wallet_query', source, false);
         logger.error(LogCode.API_FETCH_FAILED, 'Error fetching asset transfers from Alchemy', { error: e.message });
         return null;
       }
     } catch (e: any) {
+      trackAlchemyUsage('asset_transfers_wallet_query', source, false);
       logger.error(LogCode.API_FETCH_FAILED, 'Error in tryAlchemy', { error: e.message });
       return null;
     }
@@ -956,16 +990,18 @@ async function enrichSolanaTransactionSymbols(transactions: WalletTransaction[])
  */
 export async function getWalletTransactions(
   address: string,
-  chainOrOptions: string | { chain: string; limit?: number } = 'eth',
+  chainOrOptions: string | { chain: string; limit?: number; source?: string } = 'eth',
   limitArg: number = 50
 ): Promise<WalletTransaction[]> {
   // Normalize arguments
   let chain = 'eth';
   let limit = limitArg;
+  let source = 'wallet_transactions';
 
   if (typeof chainOrOptions === 'object') {
     chain = chainOrOptions.chain || 'eth';
     limit = chainOrOptions.limit || limitArg;
+    source = chainOrOptions.source || source;
   } else {
     chain = chainOrOptions;
   }
@@ -980,6 +1016,7 @@ export async function getWalletTransactions(
         maxCount: limit,
         category: ['external', 'spl'] as any,
         order: 'desc',
+        source
       });
       if (transfers && transfers.length > 0) {
         transactions = convertToWalletTransactions(transfers, address, chain);
@@ -1006,6 +1043,7 @@ export async function getWalletTransactions(
       maxCount: limit,
       category: ['external', 'erc20'],
       order: 'desc',
+      source
     });
 
     if (!transfers || transfers.length === 0) {

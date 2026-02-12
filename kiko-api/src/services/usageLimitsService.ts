@@ -2,6 +2,10 @@ import { env } from '../config/env.js';
 import { getEmbeddedWalletAddress } from './privyWallet.js';
 import { callRpc } from './rpcManager.js';
 
+const USAGE_LIMIT_CACHE_TTL_MS = Number(process.env.USAGE_LIMIT_CACHE_TTL_MS || '30000');
+const usageLimitCache = new Map<string, { expiresAt: number; value: { limit: number; tokenBalance: number } }>();
+const usageLimitInflight = new Map<string, Promise<{ limit: number; tokenBalance: number }>>();
+
 function encodeBalanceOf(walletAddress: string): string {
     const address = walletAddress.toLowerCase().replace(/^0x/, '').padStart(64, '0');
     return `0x70a08231${address}`;
@@ -50,7 +54,27 @@ export async function getUserTokenBalance(params: { userId: string }): Promise<n
 }
 
 export async function getUserDailyLimit(params: { userId: string }): Promise<{ limit: number; tokenBalance: number }> {
-    const tokenBalance = await getUserTokenBalance({ userId: params.userId });
-    const limit = computeDailyLimitFromBalance(tokenBalance);
-    return { limit, tokenBalance };
+    const now = Date.now();
+    const cached = usageLimitCache.get(params.userId);
+    if (cached && cached.expiresAt > now) {
+        return cached.value;
+    }
+
+    const inflight = usageLimitInflight.get(params.userId);
+    if (inflight) return inflight;
+
+    const request = (async () => {
+        const tokenBalance = await getUserTokenBalance({ userId: params.userId });
+        const limit = computeDailyLimitFromBalance(tokenBalance);
+        const value = { limit, tokenBalance };
+        usageLimitCache.set(params.userId, { expiresAt: Date.now() + USAGE_LIMIT_CACHE_TTL_MS, value });
+        return value;
+    })();
+
+    usageLimitInflight.set(params.userId, request);
+    try {
+        return await request;
+    } finally {
+        usageLimitInflight.delete(params.userId);
+    }
 }

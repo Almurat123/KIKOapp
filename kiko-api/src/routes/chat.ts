@@ -8,6 +8,7 @@ import { requireAuth } from '../middleware/auth.js';
 import * as chatRepo from '../repositories/chatRepository.js';
 import { trackChatMessage } from '../services/userActivityService.js';
 import { chatWS } from '../services/chatWebSocket.js';
+import { chatWorker } from '../jobs/chatWorker.js';
 import prisma from '../db/prisma.js';
 import { sanitizedErrorResponse } from '../utils/securityUtils.js';
 import { evaluateUsageAccess } from '../services/usageAccess.js';
@@ -245,24 +246,25 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     return reply.code(403).send({ error: 'Access denied' });
                 }
 
-                // Check for active task (prevent concurrent messages)
-                const activeTask = await chatRepo.getSessionActiveTask(sessionId);
-                if (activeTask) {
-                    return reply.code(409).send({
-                        error: 'An AI task is already running for this session',
-                        taskId: activeTask.id,
-                        status: activeTask.status,
-                    });
-                }
-
                 const taskModel = normalizeTaskModel(model || session.model || 'deepseek-chat');
                 let billingContext: { isFree: boolean; modelCategory: string } | undefined;
 
                 try {
-                    const usageDecision = await evaluateUsageAccess({
-                        userId,
-                        model: taskModel
-                    });
+                    const [activeTask, usageDecision] = await Promise.all([
+                        chatRepo.getSessionActiveTask(sessionId),
+                        evaluateUsageAccess({
+                            userId,
+                            model: taskModel
+                        })
+                    ]);
+
+                    if (activeTask) {
+                        return reply.code(409).send({
+                            error: 'An AI task is already running for this session',
+                            taskId: activeTask.id,
+                            status: activeTask.status,
+                        });
+                    }
 
                     if (!usageDecision.allowed) {
                         return reply.code(429).send({
@@ -411,6 +413,10 @@ export async function chatRoutes(fastify: FastifyInstance) {
                         role: 'assistant',
                         model: taskModel
                     }
+                });
+                // Wake the worker immediately so we do not wait for next poll tick.
+                chatWorker.wake().catch((err: any) => {
+                    fastify.log.warn({ err }, 'Chat worker wake failed');
                 });
 
                 if (shouldHydrateWalletSnapshot && resolvedWalletAddress) {

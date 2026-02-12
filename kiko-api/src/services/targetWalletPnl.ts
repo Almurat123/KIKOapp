@@ -1,3 +1,6 @@
+import { getTokenDetails } from './dexscreener.js';
+import { getTokenMetadata } from './rpcService.js';
+
 export interface TargetBuySellRow {
   id?: number;
   txType: 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL';
@@ -24,6 +27,20 @@ export interface TargetPnlAggregate {
   ignoredTxCount: number;
   unmatchedSellCount: number;
   unmatchedSellUsd: number;
+}
+
+export interface TargetPnlSummary extends TargetPnlAggregate {
+  targetUnrealizedPnlUsd: number;
+  targetTotalPnlUsd: number;
+  openPositionCostUsd: number;
+  openPositionValueUsd: number;
+  pricedOpenTokenCount: number;
+  unpricedOpenTokenCount: number;
+}
+
+export interface TargetPnlSummaryOptions extends TargetPnlOptions {
+  chain: string;
+  chainId: number;
 }
 
 const EPS = 1e-12;
@@ -136,5 +153,161 @@ export function calculateTargetRealizedPnl(
     ignoredTxCount,
     unmatchedSellCount,
     unmatchedSellUsd,
+  };
+}
+
+async function getCurrentTokenPriceUsd(chain: string, tokenAddress: string): Promise<number> {
+  try {
+    const details = await getTokenDetails(chain, tokenAddress);
+    const price = Number(details?.price || 0);
+    return Number.isFinite(price) && price > 0 ? price : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function getTokenDecimals(chainId: number, tokenAddress: string): Promise<number> {
+  try {
+    const meta = await getTokenMetadata(chainId, tokenAddress, { rpcStrategy: 'cheap' });
+    const decimals = Number(meta?.decimals ?? 0);
+    if (Number.isFinite(decimals) && decimals >= 0 && decimals <= 30) {
+      return decimals;
+    }
+    return chainId === 900 ? 9 : 18;
+  } catch {
+    return chainId === 900 ? 9 : 18;
+  }
+}
+
+export async function calculateTargetPnlSummary(
+  rows: TargetBuySellRow[],
+  options: TargetPnlSummaryOptions
+): Promise<TargetPnlSummary> {
+  const lots = new Map<string, Array<{ qty: number; unitCostUsd: number }>>();
+
+  let buyCount = 0;
+  let sellCount = 0;
+  let buyVolumeUsd = 0;
+  let sellVolumeUsd = 0;
+  let targetRealizedPnlUsd = 0;
+  let targetRealizedProfitUsd = 0;
+  let targetRealizedLossUsd = 0;
+  let ignoredTxCount = 0;
+  let unmatchedSellCount = 0;
+  let unmatchedSellUsd = 0;
+
+  for (const row of sortRows(rows)) {
+    const tokenAddress = row.tokenAddress?.trim().toLowerCase() || '';
+    const usd = safeNum(row.valueUsd);
+    const qty = safePositive(row.amount);
+    const isUsdPlausible = usd >= options.minTxUsd && usd <= options.maxTxUsd;
+
+    if (!tokenAddress || !isUsdPlausible || qty <= EPS) {
+      ignoredTxCount += 1;
+      continue;
+    }
+
+    if (row.txType === 'TARGET_BUY' || row.txType === 'BUY') {
+      buyCount += 1;
+      buyVolumeUsd += usd;
+      const unitCostUsd = usd / qty;
+      const tokenLots = lots.get(tokenAddress) || [];
+      tokenLots.push({ qty, unitCostUsd });
+      lots.set(tokenAddress, tokenLots);
+      continue;
+    }
+
+    sellCount += 1;
+    sellVolumeUsd += usd;
+
+    const proceedsPerUnit = usd / qty;
+    const tokenLots = lots.get(tokenAddress) || [];
+    let remaining = qty;
+    let matchedQty = 0;
+    let matchedCostUsd = 0;
+
+    while (remaining > EPS && tokenLots.length > 0) {
+      const head = tokenLots[0];
+      const takeQty = Math.min(remaining, head.qty);
+
+      matchedQty += takeQty;
+      matchedCostUsd += takeQty * head.unitCostUsd;
+      remaining -= takeQty;
+      head.qty -= takeQty;
+
+      if (head.qty <= EPS) tokenLots.shift();
+    }
+
+    if (matchedQty > EPS) {
+      const matchedProceedsUsd = matchedQty * proceedsPerUnit;
+      const pnl = matchedProceedsUsd - matchedCostUsd;
+      targetRealizedPnlUsd += pnl;
+      if (pnl >= 0) {
+        targetRealizedProfitUsd += pnl;
+      } else {
+        targetRealizedLossUsd += Math.abs(pnl);
+      }
+    }
+
+    if (remaining > EPS) {
+      unmatchedSellCount += 1;
+      unmatchedSellUsd += remaining * proceedsPerUnit;
+    }
+  }
+
+  const tokenExposure: Array<{ tokenAddress: string; qty: number; costUsd: number }> = [];
+  for (const [tokenAddress, tokenLots] of lots.entries()) {
+    const qty = tokenLots.reduce((acc, lot) => acc + lot.qty, 0);
+    const costUsd = tokenLots.reduce((acc, lot) => acc + lot.qty * lot.unitCostUsd, 0);
+    if (qty > EPS && costUsd > EPS) {
+      tokenExposure.push({ tokenAddress, qty, costUsd });
+    }
+  }
+
+  let targetUnrealizedPnlUsd = 0;
+  let openPositionCostUsd = 0;
+  let openPositionValueUsd = 0;
+  let pricedOpenTokenCount = 0;
+  let unpricedOpenTokenCount = 0;
+  const decimalsCache = new Map<string, number>();
+
+  for (const pos of tokenExposure) {
+    openPositionCostUsd += pos.costUsd;
+    let decimals = decimalsCache.get(pos.tokenAddress);
+    if (decimals === undefined) {
+      decimals = await getTokenDecimals(options.chainId, pos.tokenAddress);
+      decimalsCache.set(pos.tokenAddress, decimals);
+    }
+    const priceUsd = await getCurrentTokenPriceUsd(options.chain, pos.tokenAddress);
+    if (priceUsd <= 0) {
+      unpricedOpenTokenCount += 1;
+      continue;
+    }
+
+    const qtyHuman = pos.qty / Math.pow(10, decimals);
+    const valueUsd = qtyHuman * priceUsd;
+    openPositionValueUsd += valueUsd;
+    targetUnrealizedPnlUsd += (valueUsd - pos.costUsd);
+    pricedOpenTokenCount += 1;
+  }
+
+  return {
+    buyCount,
+    sellCount,
+    buyVolumeUsd,
+    sellVolumeUsd,
+    netFlowUsd: sellVolumeUsd - buyVolumeUsd,
+    targetRealizedPnlUsd,
+    targetRealizedProfitUsd,
+    targetRealizedLossUsd,
+    ignoredTxCount,
+    unmatchedSellCount,
+    unmatchedSellUsd,
+    targetUnrealizedPnlUsd,
+    targetTotalPnlUsd: targetRealizedPnlUsd + targetUnrealizedPnlUsd,
+    openPositionCostUsd,
+    openPositionValueUsd,
+    pricedOpenTokenCount,
+    unpricedOpenTokenCount,
   };
 }

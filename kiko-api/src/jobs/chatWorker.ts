@@ -945,7 +945,7 @@ export class ChatWorker {
     /**
      * Start the worker polling loop
      */
-    start(intervalMs = 3000) {
+    start(intervalMs = Math.max(100, parseInt(process.env.CHAT_WORKER_POLL_MS || '250', 10) || 250)) {
         if (this.isRunning) return;
         this.isRunning = true;
 
@@ -970,6 +970,14 @@ export class ChatWorker {
         };
 
         runLoop();
+    }
+
+    /**
+     * Wake the worker to process queue immediately (bypass next poll tick)
+     */
+    async wake() {
+        if (!this.isRunning) return;
+        await this.processQueuedTasks();
     }
 
     /**
@@ -2531,6 +2539,12 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             }
             const normalizedRequestModel = String(requestBody.model || '').toLowerCase();
             const useOpenAI = normalizedRequestModel.startsWith('gpt');
+            const providerLabel = useOpenAI ? 'OpenAI' : 'DeepSeek';
+            // chat.completions path does not require metadata for our flow.
+            // Strip it to avoid provider-side validation differences.
+            if (requestBody.metadata) {
+                delete requestBody.metadata;
+            }
             if (useOpenAI) {
                 // OpenAI only returns usage in streaming when include_usage is enabled.
                 requestBody.stream_options = { include_usage: true };
@@ -2573,12 +2587,12 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                     // If not ok, throw to trigger retry unless it's a 4xx error (client error)
                     if (response.status >= 400 && response.status < 500) {
                         const err: any = await response.json().catch(() => ({ error: { message: response?.statusText } }));
-                        throw new Error(`DeepSeek API error: ${err.error?.message || response?.statusText}`);
+                        throw new Error(`${providerLabel} API error: ${err.error?.message || response?.statusText}`);
                     }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 } catch (error: any) {
                     retryCount++;
-                    console.warn(`[ChatWorker] DeepSeek API attempt ${retryCount} failed:`, error.message);
+                    console.warn(`[ChatWorker] ${providerLabel} API attempt ${retryCount} failed:`, error.message);
                     if (retryCount === maxRetries) throw error;
                     // Exponential backoff: 1s, 2s, 4s
                     await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1)));
@@ -2587,13 +2601,13 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
 
             if (!response || !response.ok) {
                 // Try to get error details if response exists
-                let errorMessage = `DeepSeek API failed after ${maxRetries} attempts`;
+                let errorMessage = `${providerLabel} API failed after ${maxRetries} attempts`;
                 if (response) {
                     try {
                         const err: any = await response.json();
-                        errorMessage = `DeepSeek API error: ${err.error?.message || response.statusText}`;
+                        errorMessage = `${providerLabel} API error: ${err.error?.message || response.statusText}`;
                     } catch (e) {
-                        errorMessage = `DeepSeek API error: ${response.statusText}`;
+                        errorMessage = `${providerLabel} API error: ${response.statusText}`;
                     }
                 }
                 throw new Error(errorMessage);
@@ -4351,17 +4365,26 @@ Status: unavailable (balance data not available from cache).`;
         const decoder = new TextDecoder();
         let buffer = '';
         let newResponseId: string | null = null;
+        let grokChunkReadCount = 0;
+        const GROK_CANCEL_CHECK_INTERVAL = 30;
 
         while (true) {
-            // Check if task was cancelled
-            const currentTask = await this.repo.getTask(task.id);
-            if (currentTask?.status === 'cancelled') {
-                console.log(`[ChatWorker] Task ${task.id} was cancelled by user`);
-                return;
-            }
-
             const { done, value } = await reader.read();
             if (done) break;
+            grokChunkReadCount++;
+
+            // Avoid DB hit on every chunk; periodic cancellation checks are enough.
+            if (grokChunkReadCount % GROK_CANCEL_CHECK_INTERVAL === 0) {
+                try {
+                    const currentTask = await this.repo.getTaskStatus(task.id);
+                    if (currentTask?.status === 'cancelled') {
+                        console.log(`[ChatWorker] Task ${task.id} was cancelled by user`);
+                        return;
+                    }
+                } catch (chkErr: any) {
+                    console.warn(`[ChatWorker] Grok cancellation check failed (non-critical): ${chkErr?.message || chkErr}`);
+                }
+            }
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');

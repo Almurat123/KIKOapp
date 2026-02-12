@@ -53,6 +53,15 @@ function stableSortTools(tools: Array<{ type: 'function'; function: ToolDefiniti
     return [...tools].sort((a, b) => a.function.name.localeCompare(b.function.name));
 }
 
+function normalizeMetadata(metadata?: Record<string, any>): Record<string, string> | undefined {
+    if (!metadata) return undefined;
+    const entries = Object.entries(metadata)
+        .filter(([, value]) => value !== undefined && value !== null)
+        .map(([key, value]) => [key, String(value)] as const);
+    if (entries.length === 0) return undefined;
+    return Object.fromEntries(entries);
+}
+
 export class ModelGateway {
     prepareRequest(req: GatewayRequest): GatewayResponse {
         const sortedTools = stableSortTools(req.tools).map(t => ({
@@ -64,6 +73,7 @@ export class ModelGateway {
         const finalTools = allowedSet.size > 0
             ? sortedTools.filter(t => allowedSet.has(t.function.name))
             : sortedTools;
+        const normalizedMetadata = normalizeMetadata(req.metadata);
 
         const base: Record<string, any> = {
             model: req.model,
@@ -81,17 +91,16 @@ export class ModelGateway {
             // Keep state hints in metadata while we still interop with chat.completions.
             if (req.conversationRef?.previousResponseId) {
                 base.metadata = {
-                    ...(req.metadata || {}),
+                    ...(normalizedMetadata || {}),
                     previous_response_id: req.conversationRef.previousResponseId,
                 };
-            } else if (req.metadata) {
-                base.metadata = req.metadata;
+            } else if (normalizedMetadata) {
+                base.metadata = normalizedMetadata;
             }
         }
 
-        if (req.provider === 'deepseek' && req.metadata) {
-            base.metadata = req.metadata;
-        }
+        // DeepSeek rejects metadata unless store=true; we don't use store in chat flow.
+        // Keep metadata disabled for DeepSeek requests to avoid hard API errors.
 
         return {
             provider: req.provider,

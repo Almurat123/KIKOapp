@@ -296,7 +296,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 });
 
             // Bootstrap target wallet history so trade card has context immediately.
-            bootstrapTrackedWalletHistory(normalizedTarget, chainId).catch((err) => {
+            bootstrapTrackedWalletHistory(normalizedTarget, chainId, 120, { force: true, source: 'copytrade_create' }).catch((err) => {
                 console.warn('[CopyTrade] Failed to bootstrap target history:', err.message);
             });
 
@@ -621,7 +621,7 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 addAddressToWebhook(normalizedNextTarget, config.chainId).catch(err => {
                     console.warn('[CopyTrade] Failed to add new webhook address on update:', err.message);
                 });
-                bootstrapTrackedWalletHistory(normalizedNextTarget, config.chainId).catch((err) => {
+                bootstrapTrackedWalletHistory(normalizedNextTarget, config.chainId, 120, { force: true, source: 'copytrade_update' }).catch((err) => {
                     console.warn('[CopyTrade] Failed to bootstrap target history on update:', err.message);
                 });
             }

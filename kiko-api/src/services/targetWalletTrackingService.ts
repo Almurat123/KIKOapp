@@ -2,10 +2,14 @@ import prisma from '../db/prisma.js';
 import { withRetry } from '../db/prisma.js';
 import { normalizeAddress } from '../utils/address.js';
 import { getWalletTransactions } from './alchemy.js';
-import { calculateTargetRealizedPnl } from './targetWalletPnl.js';
+import { calculateTargetPnlSummary } from './targetWalletPnl.js';
+import { setIfNotExists } from '../cache/redis.js';
+import { logger } from '../utils/logger.js';
+import { LogCode } from '../config/logRegistry.js';
 
 const TARGET_STATUS_MIN_TX_USD = Number(process.env.TARGET_STATUS_MIN_TX_USD || 0.000001);
 const TARGET_STATUS_MAX_TX_USD = Number(process.env.TARGET_STATUS_MAX_TX_USD || 250000);
+const TARGET_HISTORY_REFRESH_TTL_SEC = Number(process.env.TARGET_HISTORY_REFRESH_TTL_SEC || 180);
 
 function chainIdToLabel(chainId: number): string {
   if (chainId === 8453) return 'base';
@@ -74,11 +78,31 @@ export async function persistTargetSwapEvent(params: {
   }), 4, 250);
 }
 
-export async function bootstrapTrackedWalletHistory(walletAddressRaw: string, chainId: number, limit = 120): Promise<void> {
+export async function bootstrapTrackedWalletHistory(
+  walletAddressRaw: string,
+  chainId: number,
+  limit = 120,
+  options?: { force?: boolean; source?: string }
+): Promise<void> {
   const walletAddress = normalizeAddress(walletAddressRaw);
   const chain = chainIdToLabel(chainId);
+  const source = options?.source || 'target_history';
 
-  const txs = await getWalletTransactions(walletAddress, { chain, limit }).catch((err: any) => {
+  if (!options?.force) {
+    const lockKey = `target_tracking:history_refresh:${chainId}:${walletAddress.toLowerCase()}`;
+    const claimed = await setIfNotExists(lockKey, String(Date.now()), Math.max(30, TARGET_HISTORY_REFRESH_TTL_SEC)).catch(() => true);
+    if (!claimed) {
+      logger.debug(LogCode.API_FETCH_FAILED, '[TargetTracking] History refresh throttled', {
+        walletAddress,
+        chainId,
+        ttlSec: TARGET_HISTORY_REFRESH_TTL_SEC,
+        source
+      });
+      return;
+    }
+  }
+
+  const txs = await getWalletTransactions(walletAddress, { chain, limit, source }).catch((err: any) => {
     console.warn('[TargetTracking] Failed to fetch wallet history:', err?.message || err);
     return [];
   });
@@ -165,11 +189,14 @@ export async function getTargetWalletStatus(params: {
 
   const walletAddress = normalizeAddress(cfg.targetWallet);
   const chain = chainIdToLabel(cfg.chainId);
-  const since = cfg.createdAt;
+  const monthAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+  const since = cfg.createdAt > monthAgo ? cfg.createdAt : monthAgo;
   const recentLimit = params.recentLimit ?? 80;
 
   // Refresh latest wallet activity before aggregating so card data stays current.
-  await bootstrapTrackedWalletHistory(walletAddress, cfg.chainId, Math.max(120, recentLimit)).catch(() => undefined);
+  await bootstrapTrackedWalletHistory(walletAddress, cfg.chainId, Math.max(120, recentLimit), {
+    source: 'target_status'
+  }).catch(() => undefined);
 
   const [leaderStats, recentTx, copiedPositions, targetBuySellTxs, targetTokenSwapCount] = await Promise.all([
     prisma.leaderWalletStats.findUnique({
@@ -227,9 +254,11 @@ export async function getTargetWalletStatus(params: {
       blockTimestamp: row.blockTimestamp,
     }));
 
-  const pnl = calculateTargetRealizedPnl(buySellRows, {
+  const pnl = await calculateTargetPnlSummary(buySellRows, {
     minTxUsd: TARGET_STATUS_MIN_TX_USD,
     maxTxUsd: TARGET_STATUS_MAX_TX_USD,
+    chain,
+    chainId: cfg.chainId,
   });
   const trackedTxCount = pnl.buyCount + pnl.sellCount + tokenSwaps;
 
@@ -242,6 +271,9 @@ export async function getTargetWalletStatus(params: {
       status: cfg.status,
     },
     aggregate: {
+      windowStartAt: since,
+      windowEndAt: new Date(),
+      windowDays: 30,
       trackedTxCount,
       buyCount: pnl.buyCount,
       sellCount: pnl.sellCount,
@@ -252,6 +284,12 @@ export async function getTargetWalletStatus(params: {
       targetRealizedPnlUsd: pnl.targetRealizedPnlUsd,
       targetRealizedProfitUsd: pnl.targetRealizedProfitUsd,
       targetRealizedLossUsd: pnl.targetRealizedLossUsd,
+      targetUnrealizedPnlUsd: pnl.targetUnrealizedPnlUsd,
+      targetTotalPnlUsd: pnl.targetTotalPnlUsd,
+      openPositionCostUsd: pnl.openPositionCostUsd,
+      openPositionValueUsd: pnl.openPositionValueUsd,
+      pricedOpenTokenCount: pnl.pricedOpenTokenCount,
+      unpricedOpenTokenCount: pnl.unpricedOpenTokenCount,
       ignoredTxCount: pnl.ignoredTxCount,
       unmatchedSellCount: pnl.unmatchedSellCount,
       unmatchedSellUsd: pnl.unmatchedSellUsd,

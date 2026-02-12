@@ -51,7 +51,7 @@ export class ModerationClient {
                     text,
                     context
                 }),
-                timeout: 3000
+                timeout: Number(process.env.MODERATION_TIMEOUT_MS || '800')
             });
 
             logger.info(LogCode.SYS_INFO, 'Moderation Input check result', { safe: response.safe, action: response.action, userId: userId ?? undefined });
@@ -79,7 +79,7 @@ export class ModerationClient {
                 body: JSON.stringify({
                     text
                 }),
-                timeout: 3000
+                timeout: Number(process.env.MODERATION_TIMEOUT_MS || '800')
             });
 
             logger.info(LogCode.SYS_INFO, 'Moderation Output check result', { safe: response.safe, userId: userId ?? undefined });

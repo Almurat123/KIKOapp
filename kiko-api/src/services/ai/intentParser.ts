@@ -954,6 +954,8 @@ async function parseDetailedIntentAI(
                 max_tokens: 500,
                 enable_search: false, // Disable search tools for intent parsing
             }),
+            requestTimeout: Number(process.env.INTENT_PARSER_TIMEOUT_MS || '1200'),
+            retry: { retries: 0 },
         });
 
         const content = data.choices[0]?.message?.content || '{}';
