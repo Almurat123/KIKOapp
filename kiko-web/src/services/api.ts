@@ -747,7 +747,19 @@ export interface FeedItem {
  * Chat System API
  * Note: Chat routes return custom response format (e.g., { success, sessions } instead of { success, data })
  */
-const CHAT_API_BASE = import.meta.env.VITE_CHAT_API_URL || 'http://localhost:8100';
+function resolveChatApiBase(): string {
+    const explicit = (import.meta.env.VITE_CHAT_API_URL || '').trim();
+    if (explicit) return explicit.replace(/\/+$/, '');
+
+    // Production safety: never fallback to localhost from an https origin.
+    if (typeof window !== 'undefined' && window.location?.origin) {
+        return window.location.origin.replace(/\/+$/, '');
+    }
+
+    return 'http://localhost:8100';
+}
+
+const CHAT_API_BASE = resolveChatApiBase();
 
 async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const doRequest = async (token: string | null) => {

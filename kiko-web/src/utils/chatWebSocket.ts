@@ -4,7 +4,20 @@
  */
 import { getAuthToken, clearAuthTokenCache } from './authToken';
 
-const WS_BASE_URL = import.meta.env.VITE_CHAT_WS_URL || import.meta.env.VITE_WS_URL || 'ws://localhost:8100';
+function resolveWsBaseUrl(): string {
+    const explicit = (import.meta.env.VITE_CHAT_WS_URL || import.meta.env.VITE_WS_URL || '').trim();
+    if (explicit) return explicit.replace(/\/+$/, '');
+
+    // Production safety: derive from current page origin to avoid ws://localhost fallback.
+    if (typeof window !== 'undefined' && window.location?.origin) {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${proto}//${window.location.host}`;
+    }
+
+    return 'ws://localhost:8100';
+}
+
+const WS_BASE_URL = resolveWsBaseUrl();
 
 export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics';
 
