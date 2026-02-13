@@ -36,8 +36,8 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const { resolvedTheme } = useThemeContext();
   const [isWalletCopied, setIsWalletCopied] = React.useState(false);
   const [targetTradeCount, setTargetTradeCount] = React.useState<number>(0);
-  const [targetTotalProfit, setTargetTotalProfit] = React.useState<number>(0);
-  const [targetTotalLoss, setTargetTotalLoss] = React.useState<number>(0);
+  const [targetTotalPnl, setTargetTotalPnl] = React.useState<number>(0);
+  const [targetUnrealizedPnl, setTargetUnrealizedPnl] = React.useState<number>(0);
   const isMobile = useIsMobile();
 
   const isCopyTrade = strategy.type === 'copy_trade';
@@ -56,11 +56,13 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
   const status = (strategy.status || 'paused').toUpperCase();
   const isDeleted = status === 'DELETED';
   const executionCount = (strategy.executionHistory || []).length;
+  const displayedTradeCount = isCopyTrade ? targetTradeCount : executionCount;
 
   const formatMoney = (val?: number) => val ? `$${val.toLocaleString()}` : '$0';
-  const formatUsdCompact = (val?: number) => {
+  const formatSignedUsdCompact = (val?: number) => {
     const n = Number(val || 0);
-    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    const abs = Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return `${n >= 0 ? '+' : '-'}$${abs}`;
   };
 
   React.useEffect(() => {
@@ -73,14 +75,14 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         if (cancelled) return;
         const agg = res?.aggregate;
         setTargetTradeCount(Number(agg?.trackedTxCount || 0));
-        setTargetTotalProfit(Number(agg?.targetRealizedProfitUsd || 0));
-        setTargetTotalLoss(Number(agg?.targetRealizedLossUsd || 0));
+        setTargetTotalPnl(Number(agg?.targetTotalPnlUsd ?? agg?.targetRealizedPnlUsd ?? 0));
+        setTargetUnrealizedPnl(Number(agg?.targetUnrealizedPnlUsd || 0));
       })
       .catch(() => {
         if (cancelled) return;
         setTargetTradeCount(0);
-        setTargetTotalProfit(0);
-        setTargetTotalLoss(0);
+        setTargetTotalPnl(0);
+        setTargetUnrealizedPnl(0);
       });
 
     return () => {
@@ -146,16 +148,32 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
         {isCopyTrade ? (
           <div className={styles.targetStatsRow}>
             <div className={clsx(styles.targetStat, styles.targetStatLeft)}>
-              <span className={styles.targetStatLabel}>Trades</span>
+              <span className={styles.targetStatLabel}>Trades (30D)</span>
               <span className={styles.targetStatValue}>{targetTradeCount}</span>
             </div>
             <div className={clsx(styles.targetStat, styles.targetStatCenter)}>
-              <span className={styles.targetStatLabel}>Total Profit</span>
-              <span className={clsx(styles.targetStatValue, styles.successText)}>{formatUsdCompact(targetTotalProfit)}</span>
+              <span className={styles.targetStatLabel}>PnL (30D)</span>
+              <span
+                className={clsx(
+                  styles.targetStatValue,
+                  targetTotalPnl > 0 && styles.successText,
+                  targetTotalPnl < 0 && styles.dangerText
+                )}
+              >
+                {formatSignedUsdCompact(targetTotalPnl)}
+              </span>
             </div>
             <div className={clsx(styles.targetStat, styles.targetStatRight)}>
-              <span className={styles.targetStatLabel}>Total Loss</span>
-              <span className={clsx(styles.targetStatValue, styles.dangerText)}>{formatUsdCompact(targetTotalLoss)}</span>
+              <span className={styles.targetStatLabel}>Unrealized</span>
+              <span
+                className={clsx(
+                  styles.targetStatValue,
+                  targetUnrealizedPnl > 0 && styles.successText,
+                  targetUnrealizedPnl < 0 && styles.dangerText
+                )}
+              >
+                {formatSignedUsdCompact(targetUnrealizedPnl)}
+              </span>
             </div>
           </div>
         ) : null}
@@ -211,7 +229,7 @@ export const StrategyCard: React.FC<StrategyCardProps> = ({
 
         <div className={styles.footerInfo}>
           <Info size={10} />
-          <span>Executed {executionCount} trades</span>
+          <span>Executed {displayedTradeCount} trades</span>
         </div>
       </div>
 

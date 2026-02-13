@@ -2,10 +2,11 @@
  * Chat WebSocket Client
  * Manages connection to backend chat WebSocket
  */
+import { getAuthToken, clearAuthTokenCache } from './authToken';
 
-const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+const WS_BASE_URL = import.meta.env.VITE_CHAT_WS_URL || import.meta.env.VITE_WS_URL || 'ws://localhost:8100';
 
-export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete';
+export type ChatEventType = 'chunk' | 'content_block' | 'task_status' | 'message_complete' | 'message_start' | 'error' | 'pong' | 'usage' | 'citations' | 'client_action' | 'sync_complete' | 'transaction_update' | 'transaction_confirmed' | 'transaction_complete' | 'latency_metrics';
 
 export interface ChatEvent {
     type: ChatEventType;
@@ -44,8 +45,11 @@ export class ChatWebSocketClient {
             this.connectionResolver = resolve;
         });
 
-        // Use query param for token as standard WebSocket API doesn't support headers during handshake
-        const url = `${WS_BASE_URL}/api/chat/ws?token=${encodeURIComponent(token)}`;
+        // Use query params because browser WebSocket does not allow custom headers during handshake
+        const appKey = import.meta.env.VITE_APP_KEY || '';
+        const qs = new URLSearchParams({ token });
+        if (appKey) qs.set('appKey', appKey);
+        const url = `${WS_BASE_URL}/v2/chat/ws?${qs.toString()}`;
         console.log(`[ChatWS] Connecting to user WebSocket...`);
 
         this.socket = new WebSocket(url);
@@ -66,7 +70,9 @@ export class ChatWebSocketClient {
 
         this.socket.onmessage = (event) => {
             try {
-                const data = JSON.parse(event.data) as ChatEvent;
+                const raw = JSON.parse(event.data);
+                const data = this.normalizeIncomingEvent(raw);
+                if (!data) return;
 
                 // Track sequence number and send ACK
                 if (data.seq !== undefined && data.sessionId) {
@@ -90,15 +96,97 @@ export class ChatWebSocketClient {
         this.socket.onclose = (event) => {
             console.log(`[ChatWS] Disconnected (code: ${event.code}, reason: ${event.reason})`);
             this.stopHeartbeat();
-            // Auto-reconnect if token is still valid
-            if (this.token === token && event.code !== 1008) { // 1008 is policy violation (usually auth failure)
-                this.reconnectTimeout = setTimeout(() => this.connect(token), 3000);
+            if (this.token === token) {
+                this.reconnectTimeout = setTimeout(async () => {
+                    // Always attempt to refresh token on reconnect to avoid loops on expired JWT.
+                    if (event.code === 1008 || event.code === 1006) {
+                        clearAuthTokenCache();
+                    }
+                    const fresh = await getAuthToken();
+                    const nextToken = fresh || token;
+                    this.connect(nextToken);
+                }, 3000);
             }
         };
 
         this.socket.onerror = (error) => {
             console.error('[ChatWS] WebSocket error:', error);
         };
+    }
+
+    private normalizeIncomingEvent(raw: any): ChatEvent | null {
+        // Legacy format passthrough
+        if (raw?.type && raw?.data && raw?.sessionId) return raw as ChatEvent;
+
+        // New unified format from chat-v2
+        if (!raw?.type || !raw?.session_id) return null;
+        const t = raw.type as string;
+        const sessionId = raw.session_id as string;
+        const messageId = raw.message_id as string | undefined;
+        const payload = raw.payload || {};
+        const seq = raw.seq as number | undefined;
+
+        if (t === 'message_start') {
+            return {
+                type: 'message_start',
+                sessionId,
+                seq,
+                data: {
+                    message_id: payload.message_id || messageId,
+                    messageId: payload.message_id || messageId,
+                    task_id: payload.task_id,
+                    taskId: payload.taskId || payload.task_id,
+                }
+            };
+        }
+        if (t === 'status') {
+            const normalizedStatus =
+                payload.status === 'completed' ? 'done'
+                    : payload.status === 'stopped' ? 'done'
+                        : payload.status;
+            return {
+                type: 'task_status',
+                sessionId,
+                seq,
+                data: {
+                    status: normalizedStatus,
+                    message: payload.message,
+                    error: payload.error,
+                    task_id: payload.task_id,
+                    taskId: payload.taskId || payload.task_id,
+                }
+            };
+        }
+        if (t === 'delta_text') {
+            const txt = payload.text || '';
+            return { type: 'chunk', sessionId, seq, data: { message_id: messageId, messageId, type: 'content', content: txt, delta: txt } };
+        }
+        if (t === 'delta_reasoning') {
+            const txt = payload.text || '';
+            return { type: 'chunk', sessionId, seq, data: { message_id: messageId, messageId, type: 'reasoning', reasoning_content: txt } };
+        }
+        if (t === 'tool_call') {
+            return { type: 'client_action', sessionId, seq, data: { message_id: messageId, action: { type: 'tool_call', payload } } };
+        }
+        if (t === 'tool_result') {
+            return { type: 'client_action', sessionId, seq, data: { message_id: messageId, action: { type: 'tool_result', payload } } };
+        }
+        if (t === 'usage') {
+            return { type: 'usage', sessionId, seq, data: { message_id: messageId, messageId, usage: payload.usage || payload } };
+        }
+        if (t === 'citation') {
+            return { type: 'citations', sessionId, seq, data: { message_id: messageId, messageId, citations: payload.citations || [] } };
+        }
+        if (t === 'message_complete') {
+            return { type: 'message_complete', sessionId, seq, data: { message_id: payload.message_id || messageId, messageId: payload.message_id || messageId } };
+        }
+        if (t === 'error') {
+            return { type: 'error', sessionId, seq, data: { error: payload.message || 'Unknown error' } };
+        }
+        if (t === 'latency_metrics') {
+            return { type: 'latency_metrics', sessionId, seq, data: payload };
+        }
+        return null;
     }
 
     // Wait for connection to be established

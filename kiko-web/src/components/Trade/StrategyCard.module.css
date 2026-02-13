@@ -325,6 +325,14 @@
   color: #a1a1aa;
 }
 
+:global(.light) .targetStatLabel {
+  color: #a1a1aa;
+}
+
+:global(.light) .targetStatValue {
+  color: #111827;
+}
+
 :global(.light) .walletBadge {
   background: #f4f4f5;
   border-color: #e4e4e7;
@@ -340,6 +348,10 @@
 
 :global(.light) .value {
   color: #000000;
+}
+
+:global(.light) .footerInfo {
+  color: #71717a;
 }
 
 :global(.light) .footer {
@@ -358,8 +370,4 @@
 
 :global(.light) .deleteBtn:hover {
   color: #ef4444;
-}
-
-:global(.light) .footerInfo {
-  color: #a1a1aa;
 }

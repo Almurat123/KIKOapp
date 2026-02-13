@@ -120,6 +120,14 @@ const BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA = Math.max(
   8,
   Number(process.env.BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA || '20')
 );
+const BASELINE_SWEEP_MAX_CHAINS_PER_TICK = Math.max(
+  1,
+  Number(process.env.BASELINE_SWEEP_MAX_CHAINS_PER_TICK || '1')
+);
+const BASELINE_SWEEP_IDLE_BACKOFF_SECONDS = Math.max(
+  60,
+  Number(process.env.BASELINE_SWEEP_IDLE_BACKOFF_SECONDS || '300')
+);
 const GECKO_CANDLE_BACKOFF_MS = Math.max(
   5 * 60 * 1000,
   Number(process.env.GECKO_CANDLE_BACKOFF_MS || `${15 * 60 * 1000}`)
@@ -167,6 +175,44 @@ type TokenBaselineMeta = {
   baselineSource?: string;
 };
 
+type BaselineFetchFailureReason =
+  | 'rpc_history_pruned'
+  | 'rpc_rate_limited'
+  | 'rpc_method_unavailable'
+  | 'rpc_block_range_limited'
+  | 'sol_rpc_rate_limited'
+  | 'sol_rpc_method_unavailable'
+  | 'sol_rpc_access_denied'
+  | 'sol_rpc_non_json';
+
+class BaselineFetchFailure extends Error {
+  readonly reason: BaselineFetchFailureReason;
+  readonly cooldownSeconds: number;
+
+  constructor(reason: BaselineFetchFailureReason, message: string, cooldownSeconds: number) {
+    super(message);
+    this.reason = reason;
+    this.cooldownSeconds = cooldownSeconds;
+    this.name = 'BaselineFetchFailure';
+  }
+}
+
+type EvmRpcProbeStats = {
+  historyPruned: number;
+  rateLimited: number;
+  methodUnavailable: number;
+  blockRangeLimited: number;
+  other: number;
+};
+
+type SolRpcProbeStats = {
+  rateLimited: number;
+  methodUnavailable: number;
+  accessDenied: number;
+  nonJson: number;
+  network: number;
+};
+
 type ExternalBaselineResult = {
   price: number;
   source: string;
@@ -192,6 +238,8 @@ const TRUSTED_BASELINE_SOURCES = [
 const pendingBaselineInFlight = new Map<string, Promise<{ queued: number; processed: number }>>();
 const multipleEnrichmentInFlight = new Map<string, Promise<void>>();
 let baselineSweepInProgress = false;
+let baselineSweepChainCursor = 0;
+const baselineSweepIdleBackoffUntilByChain = new Map<string, number>();
 
 const geckoCandleBackoffByChain = new Map<string, number>();
 let geckoNextCandleAtMs = 0;
@@ -704,13 +752,18 @@ async function readBaselineRetryCooldown(chainId: string, address: string): Prom
   }
 }
 
-async function writeBaselineRetryCooldown(chainId: string, address: string): Promise<void> {
+async function writeBaselineRetryCooldown(
+  chainId: string,
+  address: string,
+  ttlSeconds: number = BASELINE_EXTERNAL_RETRY_TTL_SECONDS
+): Promise<void> {
+  const safeTtl = Math.max(60, Math.floor(ttlSeconds));
   try {
-    const until = Date.now() + BASELINE_EXTERNAL_RETRY_TTL_SECONDS * 1000;
+    const until = Date.now() + safeTtl * 1000;
     await setRedisCache(
       tokenBaselineRetryKey(chainId, address),
       JSON.stringify({ until }),
-      BASELINE_EXTERNAL_RETRY_TTL_SECONDS
+      safeTtl
     );
   } catch {
     // ignore
@@ -718,7 +771,7 @@ async function writeBaselineRetryCooldown(chainId: string, address: string): Pro
 
   try {
     const lower = address.toLowerCase();
-    const until = new Date(Date.now() + BASELINE_EXTERNAL_RETRY_TTL_SECONDS * 1000);
+    const until = new Date(Date.now() + safeTtl * 1000);
     await prisma.tokenLaunchBaseline.upsert({
       where: {
         chain_address: {
@@ -1042,13 +1095,23 @@ async function fetchExternalBaselinePrice(
   );
   if (candidates.length === 0) return null;
 
+  let lastFailure: BaselineFetchFailure | null = null;
   for (const pool of candidates) {
-    const result = await fetchExternalBaselinePriceForPool(chainId, geckoNetwork, token.address, token.launchpad, pool);
-    if (result && Number.isFinite(result.price) && result.price > 0) {
-      return result;
+    try {
+      const result = await fetchExternalBaselinePriceForPool(chainId, geckoNetwork, token.address, token.launchpad, pool);
+      if (result && Number.isFinite(result.price) && result.price > 0) {
+        return result;
+      }
+    } catch (error) {
+      if (error instanceof BaselineFetchFailure) {
+        lastFailure = error;
+        continue;
+      }
+      throw error;
     }
   }
 
+  if (lastFailure) throw lastFailure;
   return null;
 }
 
@@ -1440,10 +1503,32 @@ function shouldSplitLogRange(error: unknown): boolean {
     || msg.includes('response size exceeded');
 }
 
+function classifyEvmRpcError(message: string): BaselineFetchFailureReason | null {
+  const msg = String(message || '').toLowerCase();
+  if (!msg) return null;
+  if (msg.includes('history has been pruned') || msg.includes('pruned for this block')) return 'rpc_history_pruned';
+  if (msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('429')) return 'rpc_rate_limited';
+  if (msg.includes('method not found') || msg.includes('method is not available') || msg.includes('unsupported method')) return 'rpc_method_unavailable';
+  if (msg.includes('block range') || msg.includes('range') && msg.includes('limit exceeded') || msg.includes('exceed maximum block range')) return 'rpc_block_range_limited';
+  return null;
+}
+
+function recordEvmRpcError(stats: EvmRpcProbeStats | undefined, error: unknown): void {
+  if (!stats) return;
+  const msg = String((error as any)?.message || error || '');
+  const reason = classifyEvmRpcError(msg);
+  if (reason === 'rpc_history_pruned') stats.historyPruned += 1;
+  else if (reason === 'rpc_rate_limited') stats.rateLimited += 1;
+  else if (reason === 'rpc_method_unavailable') stats.methodUnavailable += 1;
+  else if (reason === 'rpc_block_range_limited') stats.blockRangeLimited += 1;
+  else stats.other += 1;
+}
+
 async function getLogsAdaptive(
   provider: ethers.JsonRpcProvider,
   params: { address?: string; topics?: Array<string | Array<string> | null>; fromBlock: number; toBlock: number },
-  minChunk: number = 40
+  minChunk: number = 40,
+  stats?: EvmRpcProbeStats
 ): Promise<ethers.Log[]> {
   const out: ethers.Log[] = [];
   const stack: Array<{ from: number; to: number }> = [{ from: params.fromBlock, to: params.toBlock }];
@@ -1459,6 +1544,7 @@ async function getLogsAdaptive(
       });
       if (Array.isArray(logs) && logs.length > 0) out.push(...logs);
     } catch (error) {
+      recordEvmRpcError(stats, error);
       const span = cur.to - cur.from + 1;
       if (span > minChunk && shouldSplitLogRange(error)) {
         const mid = Math.floor((cur.from + cur.to) / 2);
@@ -1477,7 +1563,8 @@ async function findBuySwapSamples(
   createdSec: number,
   target: string,
   token0: string,
-  token1: string
+  token1: string,
+  stats?: EvmRpcProbeStats
 ): Promise<FirstSwapData[]> {
   const latest = await provider.getBlock('latest');
   if (!latest || !Number.isFinite(Number(latest.number)) || !Number.isFinite(Number(latest.timestamp))) return [];
@@ -1499,8 +1586,8 @@ async function findBuySwapSamples(
     for (let from = r.from; from <= r.to; from += RPC_LOG_MAX_BLOCK_RANGE) {
       const to = Math.min(r.to, from + RPC_LOG_MAX_BLOCK_RANGE - 1);
       const [v2Logs, v3Logs] = await Promise.all([
-        getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }),
-        getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }),
+        getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }, 40, stats),
+        getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }, 40, stats),
       ]);
 
       const logs = [...v2Logs, ...v3Logs].sort((a, b) => {
@@ -1530,8 +1617,8 @@ async function findBuySwapSamples(
         for (let from = r.from; from <= r.to; from += RPC_LOG_MAX_BLOCK_RANGE) {
           const to = Math.min(r.to, from + RPC_LOG_MAX_BLOCK_RANGE - 1);
           const [v2Logs, v3Logs] = await Promise.all([
-            getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }),
-            getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }),
+            getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }, 40, stats),
+            getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }, 40, stats),
           ]);
           const logs = [...v2Logs, ...v3Logs].sort((a, b) => {
             if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
@@ -1564,7 +1651,8 @@ async function findBuyTransferSamples(
   poolAddress: string,
   createdSec: number,
   targetToken: string,
-  quoteToken: string
+  quoteToken: string,
+  stats?: EvmRpcProbeStats
 ): Promise<FirstSwapData[]> {
   const latest = await provider.getBlock('latest').catch(() => null);
   if (!latest || !Number.isFinite(Number(latest.number)) || !Number.isFinite(Number(latest.timestamp))) return [];
@@ -1595,7 +1683,9 @@ async function findBuyTransferSamples(
           topics: [ERC20_TRANSFER_TOPIC, poolTopic],
           fromBlock: from,
           toBlock: to,
-        }
+        },
+        40,
+        stats
       );
 
       for (const log of targetOutLogs.sort((a, b) => {
@@ -1654,7 +1744,8 @@ async function findEarlyAnySwapSamples(
   createdSec: number,
   target: string,
   token0: string,
-  token1: string
+  token1: string,
+  stats?: EvmRpcProbeStats
 ): Promise<FirstSwapData[]> {
   const latest = await provider.getBlock('latest').catch(() => null);
   if (!latest || !Number.isFinite(Number(latest.number)) || !Number.isFinite(Number(latest.timestamp))) return [];
@@ -1674,8 +1765,8 @@ async function findEarlyAnySwapSamples(
   for (let from = fromBlock; from <= toBlock; from += RPC_LOG_MAX_BLOCK_RANGE) {
     const to = Math.min(toBlock, from + RPC_LOG_MAX_BLOCK_RANGE - 1);
     const [v2Logs, v3Logs] = await Promise.all([
-      getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }),
-      getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }),
+      getLogsAdaptive(provider, { address: poolAddress, topics: [V2_SWAP_TOPIC], fromBlock: from, toBlock: to }, 40, stats),
+      getLogsAdaptive(provider, { address: poolAddress, topics: [V3_SWAP_TOPIC], fromBlock: from, toBlock: to }, 40, stats),
     ]);
     const logs = [...v2Logs, ...v3Logs].sort((a, b) => {
       if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
@@ -1906,6 +1997,13 @@ async function fetchRpcStableSwapBaselineUsd(
 
   const provider = getPublicEvmProvider(chainSlug);
   if (!provider) return null;
+  const rpcStats: EvmRpcProbeStats = {
+    historyPruned: 0,
+    rateLimited: 0,
+    methodUnavailable: 0,
+    blockRangeLimited: 0,
+    other: 0,
+  };
 
   // Uniswap v4 poolId path (0x + 64 hex), common on Base.
   if (!ethers.isAddress(poolAddress) && isHexPoolId(poolAddress)) {
@@ -2029,7 +2127,8 @@ async function fetchRpcStableSwapBaselineUsd(
     createdSec > 0 ? createdSec : Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
     target,
     token0,
-    token1
+    token1,
+    rpcStats
   );
   if (!buySwaps || buySwaps.length === 0) {
     if (chainSlug === 'bsc') {
@@ -2051,7 +2150,8 @@ async function fetchRpcStableSwapBaselineUsd(
       poolAddress,
       createdSec > 0 ? createdSec : Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
       target,
-      quoteToken
+      quoteToken,
+      rpcStats
     );
   }
   if (!buySwaps || buySwaps.length === 0) {
@@ -2062,10 +2162,39 @@ async function fetchRpcStableSwapBaselineUsd(
       createdSec > 0 ? createdSec : Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
       target,
       token0,
-      token1
+      token1,
+      rpcStats
     );
   }
   if (!buySwaps || buySwaps.length === 0) {
+    if (rpcStats.historyPruned > 0) {
+      throw new BaselineFetchFailure(
+        'rpc_history_pruned',
+        `rpc_history_pruned pool=${poolAddress} chain=${chainSlug}`,
+        6 * 60 * 60
+      );
+    }
+    if (rpcStats.rateLimited > 0) {
+      throw new BaselineFetchFailure(
+        'rpc_rate_limited',
+        `rpc_rate_limited pool=${poolAddress} chain=${chainSlug}`,
+        30 * 60
+      );
+    }
+    if (rpcStats.methodUnavailable > 0) {
+      throw new BaselineFetchFailure(
+        'rpc_method_unavailable',
+        `rpc_method_unavailable pool=${poolAddress} chain=${chainSlug}`,
+        6 * 60 * 60
+      );
+    }
+    if (rpcStats.blockRangeLimited > 0) {
+      throw new BaselineFetchFailure(
+        'rpc_block_range_limited',
+        `rpc_block_range_limited pool=${poolAddress} chain=${chainSlug}`,
+        2 * 60 * 60
+      );
+    }
     if (chainSlug === 'bsc') {
       const bscFallback = await fetchBscTokenManagerPurchaseBaselineUsd(
         provider,
@@ -2331,7 +2460,11 @@ function lamportSpendByOwner(
   return out;
 }
 
-async function callPublicSolRpc<T = any>(method: string, params: any[]): Promise<T | null> {
+async function callPublicSolRpc<T = any>(
+  method: string,
+  params: any[],
+  stats?: SolRpcProbeStats
+): Promise<T | null> {
   const urls = getPublicRpcUrls('solana');
   if (urls.length === 0) return null;
 
@@ -2366,6 +2499,15 @@ async function callPublicSolRpc<T = any>(method: string, params: any[]): Promise
       });
 
       if (!resp.ok) {
+        const bodyText = await resp.text().catch(() => '');
+        const bodyLower = String(bodyText || '').toLowerCase();
+        if (resp.status === 429 || bodyLower.includes('rate limit') || bodyLower.includes('too many requests')) {
+          if (stats) stats.rateLimited += 1;
+        } else if (resp.status === 403) {
+          if (stats) stats.accessDenied += 1;
+        } else {
+          if (stats) stats.network += 1;
+        }
         const retryAfterHeader = Number(resp.headers.get('retry-after') || 0);
         const penaltyMs = resp.status === 429
           ? Math.max(120_000, Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader * 1000 : 0)
@@ -2374,18 +2516,33 @@ async function callPublicSolRpc<T = any>(method: string, params: any[]): Promise
         continue;
       }
 
-      const json: any = await resp.json();
+      const text = await resp.text();
+      let json: any = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        if (stats) stats.nonJson += 1;
+        solRpcBackoffUntilByUrl.set(url, Date.now() + 5 * 60 * 1000);
+        continue;
+      }
       if (json?.error) {
         const msg = String(json.error?.message || '').toLowerCase();
         const code = Number(json.error?.code || 0);
         // dRPC free tier often returns this for unsupported methods.
         if (msg.includes('method is not available on freetier') || code === 35) {
+          if (stats) stats.methodUnavailable += 1;
           solRpcBackoffUntilByUrl.set(url, Date.now() + 6 * 60 * 60 * 1000);
           continue;
         }
         if (msg.includes('rate limit') || code === 429 || msg.includes('too many requests')) {
+          if (stats) stats.rateLimited += 1;
           solRpcBackoffUntilByUrl.set(url, Date.now() + 5 * 60 * 1000);
           continue;
+        }
+        if (code === 403 || msg.includes('forbidden') || msg.includes('unauthorized')) {
+          if (stats) stats.accessDenied += 1;
+        } else {
+          if (stats) stats.network += 1;
         }
         solRpcBackoffUntilByUrl.set(url, Date.now() + 15_000);
         continue;
@@ -2394,6 +2551,7 @@ async function callPublicSolRpc<T = any>(method: string, params: any[]): Promise
       solRpcRoundRobinCursor = (start + i + 1) % candidates.length;
       return (json?.result ?? null) as T | null;
     } catch {
+      if (stats) stats.network += 1;
       solRpcBackoffUntilByUrl.set(url, Date.now() + 20_000);
       continue;
     } finally {
@@ -2417,6 +2575,13 @@ async function fetchSolanaRpcBaselineUsd(
   const wrappedNative = String(chainCfg.wrappedNativeAddress || '').toLowerCase();
   const createdSec = poolCreatedAt ? Math.floor(Date.parse(poolCreatedAt) / 1000) : 0;
   const stopBeforeSec = createdSec > 0 ? Math.max(0, createdSec - 3 * 24 * 3600) : 0;
+  const rpcStats: SolRpcProbeStats = {
+    rateLimited: 0,
+    methodUnavailable: 0,
+    accessDenied: 0,
+    nonJson: 0,
+    network: 0,
+  };
 
   const signatures: any[] = [];
   const signatureSources = Array.from(new Set([
@@ -2430,7 +2595,8 @@ async function fetchSolanaRpcBaselineUsd(
     for (let page = 0; page < maxPages; page++) {
       const pageResult = await callPublicSolRpc<any[]>(
         'getSignaturesForAddress',
-        [sourceAddress, { limit: pageLimit, before, commitment: 'confirmed' }]
+        [sourceAddress, { limit: pageLimit, before, commitment: 'confirmed' }],
+        rpcStats
       );
       if (!Array.isArray(pageResult) || pageResult.length === 0) break;
       signatures.push(...pageResult);
@@ -2442,7 +2608,21 @@ async function fetchSolanaRpcBaselineUsd(
       if (!before) break;
     }
   }
-  if (signatures.length === 0) return null;
+  if (signatures.length === 0) {
+    if (rpcStats.rateLimited > 0) {
+      throw new BaselineFetchFailure('sol_rpc_rate_limited', `sol_rpc_rate_limited token=${tokenAddress}`, 30 * 60);
+    }
+    if (rpcStats.methodUnavailable > 0) {
+      throw new BaselineFetchFailure('sol_rpc_method_unavailable', `sol_rpc_method_unavailable token=${tokenAddress}`, 6 * 60 * 60);
+    }
+    if (rpcStats.accessDenied > 0) {
+      throw new BaselineFetchFailure('sol_rpc_access_denied', `sol_rpc_access_denied token=${tokenAddress}`, 6 * 60 * 60);
+    }
+    if (rpcStats.nonJson > 0) {
+      throw new BaselineFetchFailure('sol_rpc_non_json', `sol_rpc_non_json token=${tokenAddress}`, 30 * 60);
+    }
+    return null;
+  }
 
   type SolBaselineCandidate = { ts: number; price: number };
   const candidates: SolBaselineCandidate[] = [];
@@ -2462,7 +2642,8 @@ async function fetchSolanaRpcBaselineUsd(
     const sig = row.signature;
     const tx = await callPublicSolRpc<any>(
       'getTransaction',
-      [sig, { encoding: 'jsonParsed', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }]
+      [sig, { encoding: 'jsonParsed', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }],
+      rpcStats
     );
     const pre = tx?.meta?.preTokenBalances as SolRpcTokenBalance[] | undefined;
     const post = tx?.meta?.postTokenBalances as SolRpcTokenBalance[] | undefined;
@@ -2561,7 +2742,21 @@ async function fetchSolanaRpcBaselineUsd(
     if (candidates.length >= SOL_RPC_EARLIEST_CANDIDATES) break;
   }
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    if (rpcStats.rateLimited > 0) {
+      throw new BaselineFetchFailure('sol_rpc_rate_limited', `sol_rpc_rate_limited token=${tokenAddress}`, 30 * 60);
+    }
+    if (rpcStats.methodUnavailable > 0) {
+      throw new BaselineFetchFailure('sol_rpc_method_unavailable', `sol_rpc_method_unavailable token=${tokenAddress}`, 6 * 60 * 60);
+    }
+    if (rpcStats.accessDenied > 0) {
+      throw new BaselineFetchFailure('sol_rpc_access_denied', `sol_rpc_access_denied token=${tokenAddress}`, 6 * 60 * 60);
+    }
+    if (rpcStats.nonJson > 0) {
+      throw new BaselineFetchFailure('sol_rpc_non_json', `sol_rpc_non_json token=${tokenAddress}`, 30 * 60);
+    }
+    return null;
+  }
   candidates.sort((a, b) => a.ts - b.ts || a.price - b.price);
   const picked = candidates.slice(0, Math.min(candidates.length, Math.max(3, SOL_RPC_EARLIEST_CANDIDATES)));
   const prices = picked.map((c) => c.price).sort((a, b) => a - b);
@@ -2931,8 +3126,17 @@ async function applyBaselineMultiples(
         3000,
         Number(process.env.BASELINE_EXTERNAL_PER_TOKEN_TIMEOUT_MS || '10000')
       );
+      let externalHintReason: BaselineFetchFailureReason | null = null;
+      let externalHintCooldown: number | null = null;
       const externalBaseline = await Promise.race<ExternalBaselineResult | null>([
-        fetchExternalBaselinePrice(chainId, geckoNetwork, token),
+        fetchExternalBaselinePrice(chainId, geckoNetwork, token).catch((error) => {
+          if (error instanceof BaselineFetchFailure) {
+            externalHintReason = error.reason;
+            externalHintCooldown = error.cooldownSeconds;
+            return null;
+          }
+          throw error;
+        }),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), externalTimeoutMs)),
       ]);
       const current = Number(token.price || 0);
@@ -2987,10 +3191,16 @@ async function applyBaselineMultiples(
       await writeBaselineAttemptError(
         chainId,
         token.address,
-        `baseline_not_found pool=${token.poolAddress || 'n/a'} created=${token.poolCreatedAt || 'n/a'}`,
+        externalHintReason
+          ? `${externalHintReason} pool=${token.poolAddress || 'n/a'} created=${token.poolCreatedAt || 'n/a'}`
+          : `baseline_not_found pool=${token.poolAddress || 'n/a'} created=${token.poolCreatedAt || 'n/a'}`,
         token.poolAddress
       );
-      await writeBaselineRetryCooldown(chainId, token.address);
+      await writeBaselineRetryCooldown(
+        chainId,
+        token.address,
+        externalHintCooldown ?? BASELINE_EXTERNAL_RETRY_TTL_SECONDS
+      );
 
       // Keep displaying a stable value even when external enrichment is unavailable.
       if (
@@ -3563,6 +3773,8 @@ import { randomUUID } from 'node:crypto';
 // In-memory lock to prevent concurrent refreshes for the same chain
 // This prevents race conditions where multiple jobs/API calls try to delete/insert for the same chain simultaneously
 const refreshLocks = new Map<string, boolean>();
+let refreshPrimaryChainsInProgress = false;
+let refreshPrimaryChainsStartedAt = 0;
 const LAUNCHPAD_ENRICH_TIMEOUT_MS = Math.max(
   10_000,
   Number(process.env.LAUNCHPAD_ENRICH_TIMEOUT_MS || '25000')
@@ -3780,20 +3992,34 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
  * Called every 5 minutes
  */
 async function refreshPrimaryChains(force = false): Promise<void> {
-  const startTime = Date.now();
-
-  for (let i = 0; i < PRIMARY_CHAINS.length; i++) {
-    const chain = PRIMARY_CHAINS[i];
-    await refreshChainTokens(chain, force);
-
-    // Add delay between chains (串行执行)
-    if (i < PRIMARY_CHAINS.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, PRIMARY_CHAIN_DELAY_MS));
-    }
+  if (refreshPrimaryChainsInProgress) {
+    logger.warn(LogCode.SYS_INFO, 'Skipping primary chain refresh - previous run still in progress', {
+      force,
+      runningForSec: Math.round((Date.now() - refreshPrimaryChainsStartedAt) / 1000),
+    });
+    return;
   }
 
-  const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-  logger.info(LogCode.SYS_INFO, `Refreshed ${PRIMARY_CHAINS.length} primary chains in ${duration}s`);
+  refreshPrimaryChainsInProgress = true;
+  refreshPrimaryChainsStartedAt = Date.now();
+  const startTime = refreshPrimaryChainsStartedAt;
+
+  try {
+    for (let i = 0; i < PRIMARY_CHAINS.length; i++) {
+      const chain = PRIMARY_CHAINS[i];
+      await refreshChainTokens(chain, force);
+
+      // Add delay between chains (串行执行)
+      if (i < PRIMARY_CHAINS.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, PRIMARY_CHAIN_DELAY_MS));
+      }
+    }
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    logger.info(LogCode.SYS_INFO, `Refreshed ${PRIMARY_CHAINS.length} primary chains in ${duration}s`);
+  } finally {
+    refreshPrimaryChainsInProgress = false;
+  }
 }
 
 /**
@@ -3848,9 +4074,24 @@ async function runBaselineSweepTick(): Promise<void> {
   baselineSweepInProgress = true;
 
   try {
-    const targets = BASELINE_SWEEP_CHAINS
+    const allTargets = BASELINE_SWEEP_CHAINS
       .map((id) => SUPPORTED_CHAINS.find((c) => c.id === id))
       .filter(Boolean) as Array<{ id: string; name: string; geckoNetwork: string }>;
+    if (allTargets.length === 0) return;
+
+    const now = Date.now();
+    const targets: Array<{ id: string; name: string; geckoNetwork: string }> = [];
+    let scanned = 0;
+    while (targets.length < BASELINE_SWEEP_MAX_CHAINS_PER_TICK && scanned < allTargets.length) {
+      const idx = (baselineSweepChainCursor + scanned) % allTargets.length;
+      const chain = allTargets[idx];
+      const backoffUntil = baselineSweepIdleBackoffUntilByChain.get(chain.id) || 0;
+      if (backoffUntil <= now) {
+        targets.push(chain);
+      }
+      scanned += 1;
+    }
+    baselineSweepChainCursor = (baselineSweepChainCursor + Math.max(1, scanned)) % allTargets.length;
     if (targets.length === 0) return;
 
     for (const chain of targets) {
@@ -3859,11 +4100,22 @@ async function runBaselineSweepTick(): Promise<void> {
           ? BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA
           : BASELINE_SWEEP_MAX_PER_CHAIN;
         const out = await processPendingBaselines(chain.id, chain.geckoNetwork, maxRows, false);
+        if ((out.queued || 0) === 0 && (out.processed || 0) === 0) {
+          baselineSweepIdleBackoffUntilByChain.set(
+            chain.id,
+            Date.now() + BASELINE_SWEEP_IDLE_BACKOFF_SECONDS * 1000
+          );
+        } else {
+          baselineSweepIdleBackoffUntilByChain.delete(chain.id);
+        }
         logger.info(LogCode.SYS_INFO, 'Baseline sweep tick', {
           chain: chain.id,
           queued: out.queued,
           processed: out.processed,
           maxRows,
+          idleBackoffSec: (out.queued || 0) === 0 && (out.processed || 0) === 0
+            ? BASELINE_SWEEP_IDLE_BACKOFF_SECONDS
+            : 0,
         });
       } catch (error) {
         logger.warn(LogCode.API_FETCH_FAILED, `Baseline sweep failed for ${chain.id}`, {

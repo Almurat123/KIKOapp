@@ -2015,23 +2015,30 @@ async def chat_completions(
                                         # Only send content if no tool calls detected (to avoid showing partial response before tool execution)
                                         if not has_tool_calls_this_turn:
                                             content_sent_this_turn = True
-                                            chunk_data = {
-                                                "id": f"chatcmpl-{hash(str(request.messages))}",
-                                                "object": "chat.completion.chunk",
-                                                "created": int(__import__('time').time()),
-                                                "model": request.model,
-                                                "choices": [{
-                                                    "index": 0,
-                                                    "delta": {
-                                                        "content": content_str
-                                                    },
-                                                    "finish_reason": None
-                                                }]
-                                            }
-                                            try:
-                                                yield f"data: {json.dumps(chunk_data)}\n\n"
-                                            except (BrokenPipeError, ConnectionResetError, OSError):
-                                                return
+                                            # Some providers may emit larger text deltas; split them into
+                                            # smaller SSE chunks for smoother UI rendering (especially mobile).
+                                            slice_chars = max(1, int(os.getenv("GROK_STREAM_SLICE_CHARS", "48")))
+                                            for i in range(0, len(content_str), slice_chars):
+                                                piece = content_str[i:i + slice_chars]
+                                                if not piece:
+                                                    continue
+                                                chunk_data = {
+                                                    "id": f"chatcmpl-{hash(str(request.messages))}",
+                                                    "object": "chat.completion.chunk",
+                                                    "created": int(__import__('time').time()),
+                                                    "model": request.model,
+                                                    "choices": [{
+                                                        "index": 0,
+                                                        "delta": {
+                                                            "content": piece
+                                                        },
+                                                        "finish_reason": None
+                                                    }]
+                                                }
+                                                try:
+                                                    yield f"data: {json.dumps(chunk_data)}\n\n"
+                                                except (BrokenPipeError, ConnectionResetError, OSError):
+                                                    return
                                         # else:
 
                                 # Special handling for prepare_swap_transaction

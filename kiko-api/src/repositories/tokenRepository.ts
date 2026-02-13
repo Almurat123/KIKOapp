@@ -5,6 +5,10 @@ import { hasMeaningfulActivity } from '../services/trendingValidation.js';
 import { get as getRedisCache } from '../cache/redis.js';
 import { Prisma } from '@prisma/client';
 
+const TRENDING_SAVE_TX_MAX_WAIT_MS = Math.max(1_000, Number(process.env.TRENDING_SAVE_TX_MAX_WAIT_MS || '10000'));
+const TRENDING_SAVE_TX_TIMEOUT_MS = Math.max(10_000, Number(process.env.TRENDING_SAVE_TX_TIMEOUT_MS || '30000'));
+const TRENDING_SAVE_BATCH_SIZE = Math.max(25, Number(process.env.TRENDING_SAVE_BATCH_SIZE || '120'));
+
 export interface TrendingToken extends TokenSearchResult {
   chain: string;
   rank: number;
@@ -22,6 +26,14 @@ function toOptionalNumber(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }
 
 function tokenMetaCacheKey(chain: string, address: string): string {
@@ -470,38 +482,45 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
 
         // 2. Insert new tokens with rank in bulk
         if (mergedTokens.length > 0) {
-          await tx.trendingToken.createMany({
-            data: mergedTokens.map((token, index) => {
-              const baseData: Record<string, unknown> = {
-                chain,
-                address: token.address,
-                name: token.name,
-                symbol: token.symbol,
-                imageUrl: token.imageUrl || null,
-                poolCreatedAt: token.poolCreatedAt ? new Date(token.poolCreatedAt) : null,
-                price: toOptionalNumber(token.price) ?? null,
-                priceChange5m: toOptionalNumber(token.priceChange5m) ?? null,
-                priceChange1h: toOptionalNumber(token.priceChange1h) ?? null,
-                priceChange6h: toOptionalNumber(token.priceChange6h) ?? null,
-                priceChange24h: toOptionalNumber(token.priceChange24h) ?? null,
-                volume24h: toOptionalNumber(token.volume24h) ?? null,
-                liquidity: toOptionalNumber(token.liquidity) ?? null,
-                fdv: toOptionalNumber(token.fdv) ?? null,
-                rank: index + 1,
-              };
-              if (canWriteLaunchpad) {
-                baseData.launchpad = (token as any).launchpad || null;
-              }
-              if (canWriteCreator) {
-                baseData.creatorAddress = (token as any).creatorAddress || null;
-                baseData.creatorUrl = (token as any).creatorUrl || null;
-                baseData.creatorLabel = (token as any).creatorLabel || null;
-              }
-              return baseData as any;
-            }),
-            skipDuplicates: true
+          const mappedRows = mergedTokens.map((token, index) => {
+            const baseData: Record<string, unknown> = {
+              chain,
+              address: token.address,
+              name: token.name,
+              symbol: token.symbol,
+              imageUrl: token.imageUrl || null,
+              poolCreatedAt: token.poolCreatedAt ? new Date(token.poolCreatedAt) : null,
+              price: toOptionalNumber(token.price) ?? null,
+              priceChange5m: toOptionalNumber(token.priceChange5m) ?? null,
+              priceChange1h: toOptionalNumber(token.priceChange1h) ?? null,
+              priceChange6h: toOptionalNumber(token.priceChange6h) ?? null,
+              priceChange24h: toOptionalNumber(token.priceChange24h) ?? null,
+              volume24h: toOptionalNumber(token.volume24h) ?? null,
+              liquidity: toOptionalNumber(token.liquidity) ?? null,
+              fdv: toOptionalNumber(token.fdv) ?? null,
+              rank: index + 1,
+            };
+            if (canWriteLaunchpad) {
+              baseData.launchpad = (token as any).launchpad || null;
+            }
+            if (canWriteCreator) {
+              baseData.creatorAddress = (token as any).creatorAddress || null;
+              baseData.creatorUrl = (token as any).creatorUrl || null;
+              baseData.creatorLabel = (token as any).creatorLabel || null;
+            }
+            return baseData as any;
           });
+          const batches = chunkArray(mappedRows, TRENDING_SAVE_BATCH_SIZE);
+          for (const batch of batches) {
+            await tx.trendingToken.createMany({
+              data: batch,
+              skipDuplicates: true
+            });
+          }
         }
+      }, {
+        maxWait: TRENDING_SAVE_TX_MAX_WAIT_MS,
+        timeout: TRENDING_SAVE_TX_TIMEOUT_MS,
       });
     });
 
@@ -535,7 +554,7 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
 export async function getTrendingTokens(
   chain: string = 'eth',
   limit: number = 50,
-  opts?: { bypassMemoryCache?: boolean }
+  opts?: { bypassMemoryCache?: boolean; lightweight?: boolean }
 ): Promise<TokenSearchResult[]> {
   try {
     const cacheKey = CACHE_KEYS.TRENDING_TOKENS_BY_CHAIN(chain);
@@ -627,68 +646,70 @@ export async function getTrendingTokens(
 
     // Launch multiple is intentionally disabled; keep backend payload stable without x-metrics.
 
-    await Promise.all(tokens.map(async (token) => {
-      try {
-        let raw = await getRedisCache(tokenMetaCacheKey(chain, token.address));
-        let fromLegacy = false;
-        if (!raw) {
-          raw = await getRedisCache(tokenMetaLegacyCacheKey(chain, token.address));
-          fromLegacy = !!raw;
+    if (!opts?.lightweight) {
+      await Promise.all(tokens.map(async (token) => {
+        try {
+          let raw = await getRedisCache(tokenMetaCacheKey(chain, token.address));
+          let fromLegacy = false;
+          if (!raw) {
+            raw = await getRedisCache(tokenMetaLegacyCacheKey(chain, token.address));
+            fromLegacy = !!raw;
+          }
+          if (!raw) return;
+          const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; cacheVersion?: number };
+          if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
+          if (meta?.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = meta.creatorUrl;
+          if (meta?.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = meta.creatorLabel;
+          // Prefer v2 meta cache launchMultiple produced by baseline pipeline.
+          // Ignore legacy cache to avoid leaking stale values.
+          const multiple = Number(meta?.launchMultiple || 0);
+          const cacheVersion = Number(meta?.cacheVersion || 0);
+          if (!fromLegacy && cacheVersion >= 2 && Number.isFinite(multiple) && multiple > 0 && multiple <= 200_000) {
+            (token as any).launchMultiple = multiple;
+          }
+        } catch {
+          // ignore metadata cache parse/read errors
         }
-        if (!raw) return;
-        const meta = JSON.parse(raw) as { creatorAddress?: string; creatorUrl?: string; creatorLabel?: string; launchMultiple?: number; cacheVersion?: number };
-        if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
-        if (meta?.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = meta.creatorUrl;
-        if (meta?.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = meta.creatorLabel;
-        // Prefer v2 meta cache launchMultiple produced by baseline pipeline.
-        // Ignore legacy cache to avoid leaking stale values.
-        const multiple = Number(meta?.launchMultiple || 0);
-        const cacheVersion = Number(meta?.cacheVersion || 0);
-        if (!fromLegacy && cacheVersion >= 2 && Number.isFinite(multiple) && multiple > 0 && multiple <= 200_000) {
-          (token as any).launchMultiple = multiple;
-        }
-      } catch {
-        // ignore metadata cache parse/read errors
-      }
-    }));
+      }));
 
-    await Promise.all(tokens.map(async (token) => {
-      try {
-        const raw = await getRedisCache(initialPoolCacheKey(chain, token.address));
-        if (!raw) return;
-        const meta = JSON.parse(raw) as {
-          initialPoolAddress?: string;
-          initialPoolCreatedAt?: string;
-          initialLiquidityUsd?: number;
-          source?: string;
-        };
-        if (meta?.initialPoolAddress) (token as any).initialPoolAddress = meta.initialPoolAddress;
-        if (meta?.initialPoolCreatedAt) (token as any).initialPoolCreatedAt = meta.initialPoolCreatedAt;
-        // Reuse initial-pool snapshot as enrichment hint for on-demand baseline fill.
-        if (!(token as any).poolAddress && meta?.initialPoolAddress) (token as any).poolAddress = meta.initialPoolAddress;
-        if (!(token as any).poolCreatedAt && meta?.initialPoolCreatedAt) (token as any).poolCreatedAt = meta.initialPoolCreatedAt;
-        if (Number.isFinite(Number(meta?.initialLiquidityUsd || 0)) && Number(meta?.initialLiquidityUsd || 0) > 0) {
-          (token as any).initialLiquidityUsd = Number(meta?.initialLiquidityUsd);
+      await Promise.all(tokens.map(async (token) => {
+        try {
+          const raw = await getRedisCache(initialPoolCacheKey(chain, token.address));
+          if (!raw) return;
+          const meta = JSON.parse(raw) as {
+            initialPoolAddress?: string;
+            initialPoolCreatedAt?: string;
+            initialLiquidityUsd?: number;
+            source?: string;
+          };
+          if (meta?.initialPoolAddress) (token as any).initialPoolAddress = meta.initialPoolAddress;
+          if (meta?.initialPoolCreatedAt) (token as any).initialPoolCreatedAt = meta.initialPoolCreatedAt;
+          // Reuse initial-pool snapshot as enrichment hint for on-demand baseline fill.
+          if (!(token as any).poolAddress && meta?.initialPoolAddress) (token as any).poolAddress = meta.initialPoolAddress;
+          if (!(token as any).poolCreatedAt && meta?.initialPoolCreatedAt) (token as any).poolCreatedAt = meta.initialPoolCreatedAt;
+          if (Number.isFinite(Number(meta?.initialLiquidityUsd || 0)) && Number(meta?.initialLiquidityUsd || 0) > 0) {
+            (token as any).initialLiquidityUsd = Number(meta?.initialLiquidityUsd);
+          }
+          if (meta?.source) (token as any).initialPoolSource = meta.source;
+        } catch {
+          // ignore initial-pool cache parse/read errors
         }
-        if (meta?.source) (token as any).initialPoolSource = meta.source;
-      } catch {
-        // ignore initial-pool cache parse/read errors
-      }
-    }));
+      }));
 
-    await Promise.all(tokens.map(async (token) => {
-      if (token.creatorAddress && (token as any).creatorUrl) return;
-      try {
-        const raw = await getRedisCache(launchpadCacheKey(chain, token.address));
-        if (!raw) return;
-        const creator = pickCreatorMetaFromLaunchpadCache(raw);
-        if (creator.creatorAddress && !token.creatorAddress) token.creatorAddress = creator.creatorAddress;
-        if (creator.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = creator.creatorUrl;
-        if (creator.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = creator.creatorLabel;
-      } catch {
-        // ignore launchpad cache parse/read errors
-      }
-    }));
+      await Promise.all(tokens.map(async (token) => {
+        if (token.creatorAddress && (token as any).creatorUrl) return;
+        try {
+          const raw = await getRedisCache(launchpadCacheKey(chain, token.address));
+          if (!raw) return;
+          const creator = pickCreatorMetaFromLaunchpadCache(raw);
+          if (creator.creatorAddress && !token.creatorAddress) token.creatorAddress = creator.creatorAddress;
+          if (creator.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = creator.creatorUrl;
+          if (creator.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = creator.creatorLabel;
+        } catch {
+          // ignore launchpad cache parse/read errors
+        }
+      }));
+    }
 
     const listedTokens = tokens.filter(shouldKeepListedToken);
 

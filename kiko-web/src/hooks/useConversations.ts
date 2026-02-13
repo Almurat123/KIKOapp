@@ -35,7 +35,7 @@ export interface Conversation {
   model?: string;
   activeTask?: {
     id: string;
-    status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+    status: 'queued' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
     [key: string]: any;
   } | null;
 }

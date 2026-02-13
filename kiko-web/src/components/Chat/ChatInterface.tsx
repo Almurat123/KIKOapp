@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { flushSync } from 'react-dom';
 import { ArrowDown, ChevronDown, Settings, ArrowUp } from 'lucide-react';
 import { LiquidGlassEffect } from '../Effects/LiquidGlassEffect';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -77,6 +76,11 @@ interface SwapActionData {
     chainId: number;
     slippage?: number;
 }
+
+type PendingChunk = {
+    content: string;
+    reasoning: string;
+};
 
 interface ChatInterfaceProps {
     conversationId?: string | null;
@@ -242,6 +246,57 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [customSettings, setCustomSettings] = useState<Record<string, unknown> | null>(null);
+    const pendingChunksRef = useRef<Map<string, PendingChunk>>(new Map());
+    const chunkFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const CHUNK_FLUSH_INTERVAL_MS = 33; // ~30fps, smoother on mobile
+
+    const flushPendingChunks = useCallback(() => {
+        if (chunkFlushTimerRef.current) {
+            clearTimeout(chunkFlushTimerRef.current);
+            chunkFlushTimerRef.current = null;
+        }
+        const pending = pendingChunksRef.current;
+        if (pending.size === 0) return;
+        const entries = Array.from(pending.entries());
+        pending.clear();
+
+        setMessages(prev => {
+            let next = prev;
+            for (const [chunkMessageId, payload] of entries) {
+                const idx = next.findIndex(m => m.id === chunkMessageId);
+                if (idx === -1) {
+                    next = [
+                        ...next,
+                        {
+                            id: chunkMessageId,
+                            role: 'assistant',
+                            content: payload.content,
+                            reasoning_content: payload.reasoning,
+                            status: 'streaming',
+                            timestamp: new Date().toISOString(),
+                            type: 'text',
+                        } as Message,
+                    ];
+                    continue;
+                }
+                const existing = next[idx];
+                const updated: Message = {
+                    ...existing,
+                    content: (existing.content || '') + payload.content,
+                    reasoning_content: (existing.reasoning_content || '') + payload.reasoning,
+                };
+                next = replaceMessageAtIndex(next, idx, updated);
+            }
+            return next;
+        });
+    }, []);
+
+    const scheduleChunkFlush = useCallback(() => {
+        if (chunkFlushTimerRef.current) return;
+        chunkFlushTimerRef.current = setTimeout(() => {
+            flushPendingChunks();
+        }, CHUNK_FLUSH_INTERVAL_MS);
+    }, [flushPendingChunks]);
 
     // Farcaster Follow Modal state
     const [showFollowModal, setShowFollowModal] = useState(false);
@@ -396,68 +451,38 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         logger.warn('Received chunk without data:', event);
                         break;
                     }
+                    {
+                        // Database returns snake_case field names
+                        const chunkMessageId = event.data.message_id || event.data.messageId;
+                        if (!chunkMessageId) break;
 
-                    // Use flushSync to force immediate DOM update for typewriter effect
-                    // This prevents React 18's automatic batching from grouping chunks
-                    flushSync(() => {
-                        setMessages(prev => {
-                            // Database returns snake_case field names
-                            const chunkMessageId = event.data.message_id || event.data.messageId;
+                        const deltaContent = event.data.content || '';
+                        const deltaReasoning = event.data.reasoning_content || '';
+                        const existing = pendingChunksRef.current.get(chunkMessageId) || { content: '', reasoning: '' };
+                        existing.content += deltaContent;
+                        existing.reasoning += deltaReasoning;
+                        pendingChunksRef.current.set(chunkMessageId, existing);
+                        const pendingChars = (existing.content?.length || 0) + (existing.reasoning?.length || 0);
+                        if (pendingChars >= 160) {
+                            flushPendingChunks();
+                        } else {
+                            scheduleChunkFlush();
+                        }
 
-                            // DEBUG: Log chunk info - COMMENTED OUT TO REDUCE NOISE
-                            // if (hasReasoning) {
-                            //    logger.debug('Got reasoning chunk:', event.data.reasoning_content.substring(0, 30));
-                            // }
-
-                            if (!chunkMessageId) return prev;
-
-                            const idx = prev.findIndex(m => m.id === chunkMessageId);
-                            const deltaContent = event.data.content || '';
-                            const deltaReasoning = event.data.reasoning_content || '';
-
-                            if (idx === -1) {
-                                return [
-                                    ...prev,
-                                    {
-                                        id: chunkMessageId,
-                                        role: 'assistant',
-                                        content: deltaContent,
-                                        reasoning_content: deltaReasoning,
-                                        status: 'streaming',
-                                        timestamp: new Date().toISOString(),
-                                        type: 'text',
-                                    },
-                                ];
-                            }
-
-                            return prev.map(m =>
-                                m.id === chunkMessageId
-                                    ? {
-                                        ...m,
-                                        content: (m.content || '') + deltaContent,
-                                        reasoning_content: (m.reasoning_content || '') + deltaReasoning,
-                                    }
-                                    : m
-                            );
-                        });
-
-                        // CRITICAL FIX: Update thinking/streaming state INSIDE flushSync
-                        // to ensure immediate UI update when content arrives
-                        if (event.data.content && event.data.content.length > 0) {
+                        if (deltaContent.length > 0) {
                             setIsThinking(false);
                             setIsStreaming(true);
-                        } else if (event.data.reasoning_content) {
-                            // Still in thinking/reasoning phase
+                        } else if (deltaReasoning.length > 0) {
                             setThinkingText('Thinking');
                         }
-                    });
+                    }
                     break;
                 case 'task_status': {
                     // CRITICAL: Only trigger thinking for text-type tasks, not card/swap tasks
                     // taskType defaults to 'text' for backward compatibility
                     const taskType = event.data.taskType || 'text';
 
-                    if (event.data.status === 'running' && taskType === 'text') {
+                    if ((event.data.status === 'running' || event.data.status === 'pending') && taskType === 'text') {
                         setIsThinking(true);
                         setThinkingText(event.data.message || 'Thinking');
                         setActiveTaskId(event.data.taskId || null);
@@ -465,7 +490,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         // This prevents setting propActiveTask to { id: undefined, status: 'running' }
                         // which would cause the UI state restoration to keep resetting isThinking
                         if (onTaskUpdate && event.data.taskId) {
-                            onTaskUpdate({ id: event.data.taskId, status: 'running' });
+                            onTaskUpdate({ id: event.data.taskId, status: event.data.status });
                         }
                         if (sidebar?.setGeneratingConversationId) {
                             sidebar.setGeneratingConversationId(conversationId || null);
@@ -554,6 +579,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     }
                     break;
                 case 'message_complete':
+                    flushPendingChunks();
                     // CRITICAL: Reset ALL streaming states to prevent stuck UI
                     setIsThinking(false);
                     setIsStreaming(false);
@@ -959,13 +985,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         });
 
         return () => {
+            flushPendingChunks();
             isMounted = false;  // Mark as unmounted BEFORE unsubscribe
             unsubscribe();
             // We don't necessarily want to close WS here if it's used elsewhere, 
             // but for simplicity we can
             // chatWSClient.close();
         };
-    }, [conversationId]);
+    }, [conversationId, flushPendingChunks, scheduleChunkFlush]);
 
     // Sync with localStorage on mount and when it changes externally
     useEffect(() => {
@@ -1016,6 +1043,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         return () => {
             window.removeEventListener('kiko-model-changed', handleModelChange as EventListener);
             window.removeEventListener('storage', syncModelFromStorage);
+        };
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (chunkFlushTimerRef.current) {
+                clearTimeout(chunkFlushTimerRef.current);
+                chunkFlushTimerRef.current = null;
+            }
         };
     }, []);
 
@@ -1210,7 +1246,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             const task = propActiveTask;
 
             // If task is still running, restore UI state
-            if (task.status === 'queued' || task.status === 'running') {
+            if (task.status === 'queued' || task.status === 'pending' || task.status === 'running') {
                 // logger.debug('Restoring UI state for active task:', task.id, task.status);
 
                 // Set active task ID

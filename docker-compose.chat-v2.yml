@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: kiko-v2-postgres
+    environment:
+      POSTGRES_USER: almurat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-almurat}
+      POSTGRES_DB: kiko_db
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_v2_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: kiko-v2-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  llm-gateway:
+    build:
+      context: ./kiko-python
+      dockerfile: Dockerfile
+    container_name: kiko-v2-llm-gateway
+    command: ["python", "llm_gateway_server.py"]
+    environment:
+      - LLM_GATEWAY_PORT=8101
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - GROK_SERVICE_URL=${GROK_SERVICE_URL:-http://host.docker.internal:8000/grok}
+      - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
+      - SKIP_AUTH=${SKIP_AUTH:-true}
+    ports:
+      - "8101:8101"
+    depends_on:
+      - redis
+
+  tool-runtime:
+    build:
+      context: ./kiko-python
+      dockerfile: Dockerfile
+    container_name: kiko-v2-tool-runtime
+    command: ["python", "tool_runtime_server.py"]
+    environment:
+      - TOOL_RUNTIME_PORT=8102
+      - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
+      - SKIP_AUTH=${SKIP_AUTH:-true}
+    ports:
+      - "8102:8102"
+    depends_on:
+      - redis
+
+  chat-api:
+    build:
+      context: ./kiko-python
+      dockerfile: Dockerfile
+    container_name: kiko-v2-chat-api
+    command: ["python", "chat_api_server.py"]
+    environment:
+      - CHAT_API_PORT=8100
+      - DATABASE_URL=postgresql://almurat:${POSTGRES_PASSWORD:-almurat}@postgres:5432/kiko_db
+      - REDIS_URL=redis://redis:6379/0
+      - LLM_GATEWAY_URL=http://llm-gateway:8101
+      - TOOL_RUNTIME_URL=http://tool-runtime:8102
+      - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
+      - SKIP_AUTH=${SKIP_AUTH:-true}
+      - PRIVY_APP_ID=${PRIVY_APP_ID:-}
+      - PRIVY_JWKS_URL=${PRIVY_JWKS_URL:-https://auth.privy.io/api/v1/keys}
+    ports:
+      - "8100:8100"
+    depends_on:
+      - postgres
+      - redis
+      - llm-gateway
+      - tool-runtime
+
+volumes:
+  postgres_v2_data:

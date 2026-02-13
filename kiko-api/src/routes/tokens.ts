@@ -203,8 +203,10 @@ export async function tokenRoutes(fastify: FastifyInstance) {
       }
 
       // Step 2: Fallback to PostgreSQL database (populated by background job)
-      let dbTokens = await getTrendingTokens(chain, tokenLimit, { bypassMemoryCache: strictMode });
-      await hydrateTrendingMetadata(chain, dbTokens);
+      let dbTokens = await getTrendingTokens(chain, tokenLimit, {
+        bypassMemoryCache: strictMode,
+        lightweight: true,
+      });
       stripLaunchMultiples(dbTokens);
 
       // Step 2.5: Fallback to 5m cache if DB is empty but refresh job filled short-term cache
@@ -252,8 +254,10 @@ export async function tokenRoutes(fastify: FastifyInstance) {
         // Do not block request path on full-chain refresh.
         // Kick off background refresh and return current DB state.
         void refreshSingleChain(chain).catch(() => undefined);
-        dbTokens = await getTrendingTokens(chain, tokenLimit, { bypassMemoryCache: strictMode });
-        await hydrateTrendingMetadata(chain, dbTokens);
+        dbTokens = await getTrendingTokens(chain, tokenLimit, {
+          bypassMemoryCache: strictMode,
+          lightweight: true,
+        });
         stripLaunchMultiples(dbTokens);
       }
 
@@ -295,7 +299,9 @@ export async function tokenRoutes(fastify: FastifyInstance) {
 
       // Fetch tokens from all chains in parallel
       const chainPromises = SUPPORTED_CHAINS_INFO.map(async (chain) => {
-        const tokens = await getTrendingTokens(chain.id, tokenLimit);
+        const tokens = await getTrendingTokens(chain.id, tokenLimit, {
+          lightweight: true,
+        });
         return {
           chain: chain.id,
           chainName: chain.name,

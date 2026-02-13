@@ -199,7 +199,7 @@ interface ApiResponse<T> {
  * Fetch with error handling
  */
 import { apiCache } from '../utils/apiCache';
-import { getAuthToken } from '../utils/authToken';
+import { getAuthToken, clearAuthTokenCache } from '../utils/authToken';
 
 /**
  * Request deduplication map
@@ -747,19 +747,32 @@ export interface FeedItem {
  * Chat System API
  * Note: Chat routes return custom response format (e.g., { success, sessions } instead of { success, data })
  */
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const CHAT_API_BASE = import.meta.env.VITE_CHAT_API_URL || 'http://localhost:8100';
 
 async function chatFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    try {
-        const token = await getAuthToken();
-        const response = await fetch(`${API_BASE}${endpoint}`, {
+    const doRequest = async (token: string | null) => {
+        const appKey = import.meta.env.VITE_APP_KEY || '';
+        return fetch(`${CHAT_API_BASE}${endpoint}`, {
             ...options,
             headers: {
+                ...(appKey ? { 'X-App-Key': appKey } : {}),
                 ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 ...options?.headers,
             },
         });
+    };
+
+    try {
+        let token = await getAuthToken();
+        let response = await doRequest(token);
+
+        // Common auth race/expiry path: refresh token and retry once.
+        if (response.status === 401) {
+            clearAuthTokenCache();
+            token = await getAuthToken();
+            response = await doRequest(token);
+        }
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
@@ -778,7 +791,7 @@ export const chatApi = {
      * Create a new chat session
      */
     async createSession(title?: string, model?: string): Promise<{ success: boolean; session: ChatSession }> {
-        return chatFetch<{ success: boolean; session: ChatSession }>('/api/chat/sessions', {
+        return chatFetch<{ success: boolean; session: ChatSession }>('/v2/chat/sessions', {
             method: 'POST',
             body: JSON.stringify({ title, model }),
         });
@@ -788,7 +801,7 @@ export const chatApi = {
      * List user sessions
      */
     async getSessions(limit = 50, offset = 0): Promise<ChatSession[]> {
-        const resp = await chatFetch<{ success: boolean; sessions: ChatSession[] }>(`/api/chat/sessions?limit=${limit}&offset=${offset}`);
+        const resp = await chatFetch<{ success: boolean; sessions: ChatSession[] }>(`/v2/chat/sessions?limit=${limit}&offset=${offset}`);
         return resp?.sessions || [];
     },
 
@@ -796,14 +809,14 @@ export const chatApi = {
      * Get a specific session with messages
      */
     async getSession(sessionId: string): Promise<{ success: boolean; session: ChatSession; messages: ChatMessage[]; activeTask?: ChatTask }> {
-        return chatFetch<{ success: boolean; session: ChatSession; messages: ChatMessage[]; activeTask?: ChatTask }>(`/api/chat/sessions/${sessionId}`);
+        return chatFetch<{ success: boolean; session: ChatSession; messages: ChatMessage[]; activeTask?: ChatTask }>(`/v2/chat/sessions/${sessionId}`);
     },
 
     /**
      * Update session (title, model, status)
      */
     async updateSession(sessionId: string, updates: Partial<ChatSession>): Promise<{ success: boolean; session: ChatSession }> {
-        return chatFetch<{ success: boolean; session: ChatSession }>(`/api/chat/sessions/${sessionId}`, {
+        return chatFetch<{ success: boolean; session: ChatSession }>(`/v2/chat/sessions/${sessionId}`, {
             method: 'PATCH',
             body: JSON.stringify(updates),
         });
@@ -813,7 +826,7 @@ export const chatApi = {
      * Delete session
      */
     async deleteSession(sessionId: string): Promise<{ success: boolean }> {
-        return chatFetch<{ success: boolean }>(`/api/chat/sessions/${sessionId}`, {
+        return chatFetch<{ success: boolean }>(`/v2/chat/sessions/${sessionId}`, {
             method: 'DELETE',
         });
     },
@@ -822,7 +835,7 @@ export const chatApi = {
      * Rate a message (Like/Dislike)
      */
     async rateMessage(sessionId: string, messageId: string, feedback: 'like' | 'dislike' | null): Promise<{ success: boolean }> {
-        return chatFetch<{ success: boolean }>(`/api/chat/sessions/${sessionId}/messages/${messageId}/feedback`, {
+        return chatFetch<{ success: boolean }>(`/v2/chat/sessions/${sessionId}/messages/${messageId}/feedback`, {
             method: 'PUT',
             body: JSON.stringify({ feedback }),
         });
@@ -832,7 +845,7 @@ export const chatApi = {
      * Send a message to a session (starts AI task)
      */
     async sendMessage(sessionId: string, content: string, options: Record<string, unknown> = {}): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
-        return chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/api/chat/sessions/${sessionId}/messages`, {
+        return chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/v2/chat/sessions/${sessionId}/messages`, {
             method: 'POST',
             body: JSON.stringify({ content, ...options }),
         });
@@ -842,7 +855,7 @@ export const chatApi = {
      * Get messages for a session
      */
     async getMessages(sessionId: string, after?: number): Promise<ChatMessage[]> {
-        const url = `/api/chat/sessions/${sessionId}/messages${after !== undefined ? `?after=${after}` : ''}`;
+        const url = `/v2/chat/sessions/${sessionId}/messages${after !== undefined ? `?after=${after}` : ''}`;
         const resp = await chatFetch<{ success: boolean; messages: ChatMessage[] }>(url);
         return resp?.messages || [];
     },
@@ -851,14 +864,14 @@ export const chatApi = {
      * Get task status
      */
     async getTaskStatus(taskId: string): Promise<ChatTask> {
-        return chatFetch<ChatTask>(`/api/chat/tasks/${taskId}`);
+        return chatFetch<ChatTask>(`/v2/chat/tasks/${taskId}`);
     },
 
     /**
      * Stop/cancel a task
      */
     async stopTask(taskId: string): Promise<{ success: boolean }> {
-        return chatFetch<{ success: boolean }>(`/api/chat/tasks/${taskId}/stop`, {
+        return chatFetch<{ success: boolean }>(`/v2/chat/tasks/${taskId}/cancel`, {
             method: 'POST',
             body: JSON.stringify({}), // Fastify requires body when Content-Type is JSON
         });
@@ -868,7 +881,7 @@ export const chatApi = {
      * Poll for message chunks
      */
     async getMessageChunks(messageId: string, after?: number): Promise<{ success: boolean; chunks: unknown[] }> {
-        const url = `/api/chat/messages/${messageId}/chunks${after !== undefined ? `?after=${after}` : ''}`;
+        const url = `/v2/chat/messages/${messageId}/chunks${after !== undefined ? `?after=${after}` : ''}`;
         return chatFetch<{ success: boolean; chunks: unknown[] }>(url);
     },
 
@@ -876,7 +889,7 @@ export const chatApi = {
      * Get personalized suggestions
      */
     async getSuggestions(): Promise<{ success: boolean; suggestions: string[] }> {
-        return chatFetch<{ success: boolean; suggestions: string[] }>('/api/chat/suggestions');
+        return chatFetch<{ success: boolean; suggestions: string[] }>('/v2/chat/suggestions');
     },
 
     /**
@@ -889,7 +902,7 @@ export const chatApi = {
         sessionId?: string | null;
         model?: string | null;
     }): Promise<unknown> {
-        return chatFetch<unknown>('/api/chat/moderation/log', {
+        return chatFetch<unknown>('/v2/chat/moderation/log', {
             method: 'POST',
             body: JSON.stringify(data),
         });

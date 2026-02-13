@@ -53,6 +53,9 @@ export interface CopyTradeTargetStatusResponse {
         status: string;
     };
     aggregate: {
+        windowStartAt: string;
+        windowEndAt: string;
+        windowDays: number;
         trackedTxCount: number;
         buyCount: number;
         sellCount: number;
@@ -63,6 +66,12 @@ export interface CopyTradeTargetStatusResponse {
         targetRealizedPnlUsd: number;
         targetRealizedProfitUsd: number;
         targetRealizedLossUsd: number;
+        targetUnrealizedPnlUsd: number;
+        targetTotalPnlUsd: number;
+        openPositionCostUsd: number;
+        openPositionValueUsd: number;
+        pricedOpenTokenCount: number;
+        unpricedOpenTokenCount: number;
         copyPositionsCount: number;
         latestTxAt: string | null;
     };

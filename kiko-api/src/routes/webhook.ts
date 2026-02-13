@@ -46,7 +46,12 @@ const WEBHOOK_FETCH_PARSE_BUDGET_MS = Math.max(250, Number(process.env.COPYTRADE
 const WEBHOOK_FULL_TX_TIMEOUT_MS = Math.max(120, Number(process.env.COPYTRADE_WEBHOOK_FULL_TX_TIMEOUT_MS || 450));
 const WEBHOOK_PARSE_TIMEOUT_MS = Math.max(120, Number(process.env.COPYTRADE_WEBHOOK_PARSE_TIMEOUT_MS || 350));
 const WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS = Math.max(1000, Number(process.env.COPYTRADE_WEBHOOK_LOCAL_TX_INFLIGHT_TTL_MS || 20_000));
+const WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS = String(process.env.COPYTRADE_WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS || '1200,3000,7000')
+    .split(',')
+    .map((v) => Number(v.trim()))
+    .filter((v) => Number.isFinite(v) && v > 0);
 const localTxInflight = new Map<string, number>();
+const receiptRecoveryInflight = new Set<string>();
 
 function normalizeTxHash(txHash: string): string {
     return String(txHash || '').toLowerCase();
@@ -77,6 +82,100 @@ function logWebhookTiming(scope: string, txHash: string, timings: Record<string,
         .map(([k, v]) => `${k}=${v}`)
         .join(' ');
     console.log(`[WebhookTiming][${scope}] tx=${txHash.slice(0, 12)} ${printable}`);
+}
+
+function waitMs(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function attemptReceiptRecovery(
+    chainId: number,
+    txHash: string,
+    trackedWallets: string[],
+    detectedAt?: number
+): Promise<{ recovered: boolean; swaps: number; reason?: string }> {
+    const receipt = await fetchTransactionReceipt(txHash, chainId);
+    if (!receipt) return { recovered: false, swaps: 0, reason: 'receipt_missing' };
+
+    const status = Number.parseInt(String(receipt.status || '0x0'), 16);
+    if (status !== 1) {
+        await markTxAsProcessedDistributed(txHash, chainId).catch(() => { });
+        return { recovered: false, swaps: 0, reason: `receipt_status_${status}` };
+    }
+
+    const fullTx = await fetchTransaction(txHash, chainId);
+    if (!fullTx) return { recovered: false, swaps: 0, reason: 'tx_missing' };
+
+    let swaps = 0;
+    const { enqueueCopyTradeTask } = await import('../services/copyTradeQueue.js');
+    for (const trackedTarget of trackedWallets) {
+        const swap = await parseSwapTransaction(
+            {
+                hash: txHash,
+                from: fullTx.from,
+                to: fullTx.to,
+                input: fullTx.input,
+                value: fullTx.value
+            },
+            {
+                logs: receipt.logs || [],
+                status
+            },
+            chainId,
+            trackedTarget
+        ).catch(() => null);
+
+        if (!swap) continue;
+        swaps += 1;
+        console.log(`[Webhook] ✅ Recovery swap detected for tracked wallet ${trackedTarget.slice(0, 10)}:`, {
+            tokenIn: swap.tokenIn,
+            tokenOut: swap.tokenOut,
+            dex: swap.dexName,
+            source: 'receipt_recovery'
+        });
+        await markCopyTradeTxState(chainId, txHash, 'swap_decoded', {
+            wallet: trackedTarget,
+            dex: swap.dexName,
+            source: 'receipt_recovery'
+        }).catch(() => { });
+        enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt });
+    }
+
+    await markTxAsProcessedDistributed(txHash, chainId).catch(() => { });
+    return { recovered: swaps > 0, swaps, reason: swaps > 0 ? undefined : 'no_swap' };
+}
+
+function scheduleReceiptRecovery(
+    chainId: number,
+    txHash: string,
+    trackedWallets: string[],
+    detectedAt?: number
+): void {
+    if (!trackedWallets.length) return;
+    const key = `${chainId}:${normalizeTxHash(txHash)}`;
+    if (receiptRecoveryInflight.has(key)) return;
+    receiptRecoveryInflight.add(key);
+
+    void (async () => {
+        try {
+            for (const delay of WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS) {
+                await waitMs(delay);
+                if (await isTxProcessedDistributed(txHash, chainId).catch(() => false)) {
+                    return;
+                }
+                const result = await attemptReceiptRecovery(chainId, txHash, trackedWallets, detectedAt);
+                if (result.recovered) {
+                    console.log(`[Webhook] Receipt recovery succeeded: tx=${txHash.slice(0, 12)} swaps=${result.swaps} delayMs=${delay}`);
+                    return;
+                }
+            }
+            console.warn(`[Webhook] Receipt recovery exhausted: tx=${txHash.slice(0, 12)} delays=${WEBHOOK_RECEIPT_RECOVERY_DELAYS_MS.join(',')}`);
+        } catch (err: any) {
+            console.warn(`[Webhook] Receipt recovery error: tx=${txHash.slice(0, 12)} err=${err?.message || String(err)}`);
+        } finally {
+            receiptRecoveryInflight.delete(key);
+        }
+    })();
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -755,6 +854,12 @@ export default async function webhookRoutes(fastify: FastifyInstance) {
                                         receiptMissing: true,
                                         attempts: fetched.attempts
                                     });
+                                    scheduleReceiptRecovery(
+                                        chainId,
+                                        txHash,
+                                        trackedWallets.map((w) => w.address),
+                                        pendingHint?.detectedAt
+                                    );
                                     return;
                                 }
                                 console.warn(`[Webhook] Receipt missing, continuing with pending predecode only: ${txHash.slice(0, 16)}`, {

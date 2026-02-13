@@ -3460,8 +3460,7 @@
 }
 
 .light .reasoningContent {
-    background: rgba(0, 0, 0, 0.03);
-    border-left-color: rgba(0, 0, 0, 0.1);
+    background: transparent;
 }
 
 .reasoningText {
@@ -3512,6 +3511,13 @@
     max-width: 100%;
     min-width: 0;
     background: transparent;
+}
+
+.reasoningContent .markdownContent,
+.reasoningContent .markdownContent *,
+.reasoningText .markdownContent,
+.reasoningText .markdownContent * {
+    background: transparent !important;
 }
 
 .light .reasoningText {

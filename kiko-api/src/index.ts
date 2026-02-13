@@ -34,6 +34,7 @@ import { zoraRoutes } from './routes/zora.js';
 import { rpcRoutes } from './routes/rpc.js';
 import { zoraProxyRoutes } from './routes/zora-proxy.js';
 import { aiRoutes } from './routes/ai.js';
+import { internalToolsRoutes } from './routes/internalTools.js';
 import { imageRoutes } from './routes/images.js';
 import { billingRoutes } from './routes/billing.js';
 import { initAutoTradeService, stopAutoTradeService } from './services/autoTradeService.js';
@@ -143,7 +144,7 @@ fastify.addHook('preHandler', async (request, reply) => {
     // - /health: health check
     // - /api/chat/ws: WebSocket (uses JWT token in URL)
     // - /api/webhook/: server-to-server webhooks (have HMAC verification)
-    const skipPaths = ['/health', '/api/chat/ws', '/api/webhook/', '/webhook/', '/api/images'];
+    const skipPaths = ['/health', '/api/chat/ws', '/v2/chat/ws', '/api/webhook/', '/webhook/', '/api/images', '/internal/tools/'];
     if (skipPaths.some(p => request.url === p || request.url.startsWith(p))) {
         return;
     }
@@ -231,6 +232,7 @@ fastify.register(async (fastify) => {
     fastify.register(imageRoutes, { prefix: '/api/images' });
     fastify.register(billingRoutes, { prefix: '/api/billing' });
     fastify.register(aiRoutes, { prefix: '/api/ai' });
+    fastify.register(internalToolsRoutes);
     registerUserRoutes(fastify); // User settings routes
 });
 

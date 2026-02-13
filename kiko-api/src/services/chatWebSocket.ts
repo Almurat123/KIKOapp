@@ -257,8 +257,7 @@ export const chatWS = ChatWebSocketService.getInstance();
  * Fastify plugin to set up WebSocket route
  */
 export async function chatWSRoutes(fastify: FastifyInstance) {
-    // New endpoint for user-level WebSocket
-    fastify.get('/api/chat/ws', { websocket: true }, async (connection: any, req: any) => {
+    const handleUserWs = async (connection: any, req: any) => {
         // Extract token from query params (e.g. /api/chat/ws?token=xxx)
         const token = req.query.token;
 
@@ -317,7 +316,12 @@ export async function chatWSRoutes(fastify: FastifyInstance) {
                 // Ignore parse errors
             }
         });
-    });
+    };
+
+    // New endpoint for user-level WebSocket
+    fastify.get('/api/chat/ws', { websocket: true }, handleUserWs);
+    // v2 compatibility path (frontend now uses /v2/chat/ws)
+    fastify.get('/v2/chat/ws', { websocket: true }, handleUserWs);
 
     // Legacy endpoint for backward compatibility during migration
     fastify.get('/api/chat/ws/:sessionId', { websocket: true }, (connection: any, req: any) => {

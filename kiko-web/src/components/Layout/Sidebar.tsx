@@ -423,7 +423,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
           >
             <div className={styles.userInfo}>
-              <span className={styles.userName}>{userName}</span>
+              <span
+                className={clsx(
+                  styles.userName,
+                  userName?.toLowerCase() === 'shoumoore' && styles.userNameShoumoore
+                )}
+              >
+                {userName}
+              </span>
               <span className={styles.userWallet}>{displayAddress}</span>
             </div>
             <div className={styles.avatar}>

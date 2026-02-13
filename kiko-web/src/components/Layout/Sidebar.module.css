@@ -550,6 +550,14 @@
     color: #1f2937;
 }
 
+.userNameShoumoore {
+    color: #3b82f6;
+}
+
+.light .userNameShoumoore {
+    color: #2563eb;
+}
+
 .userWallet {
     font-size: 12px;
     color: #71717a;

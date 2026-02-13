@@ -8,6 +8,20 @@ let inflight: Promise<string | null> | null = null;
 
 // Token cache duration: 5 minutes (Privy tokens are typically valid for 60 mins)
 const TOKEN_CACHE_DURATION_MS = 5 * 60 * 1000;
+const TOKEN_EXPIRY_SAFETY_MS = 30 * 1000;
+
+function getTokenExpiryMs(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    const exp = Number(payload?.exp);
+    if (!Number.isFinite(exp)) return null;
+    return exp * 1000;
+  } catch {
+    return null;
+  }
+}
 
 export function setAuthTokenProvider(provider: () => Promise<string | null>) {
   tokenProvider = provider;
@@ -21,8 +35,14 @@ export async function getAuthToken(): Promise<string | null> {
   // Check if cached token is still valid
   const now = Date.now();
   if (cachedToken && (now - cachedAt) < TOKEN_CACHE_DURATION_MS) {
+    const expMs = getTokenExpiryMs(cachedToken);
+    if (expMs && now >= (expMs - TOKEN_EXPIRY_SAFETY_MS)) {
+      cachedToken = null;
+      cachedAt = 0;
+    } else {
     // Using cached token
     return cachedToken;
+    }
   }
 
   if (!tokenProvider) {
@@ -37,6 +57,10 @@ export async function getAuthToken(): Promise<string | null> {
         // Fetching fresh token from Privy
         const t = await tokenProvider!();
         if (t) {
+          const expMs = getTokenExpiryMs(t);
+          if (expMs && Date.now() >= (expMs - TOKEN_EXPIRY_SAFETY_MS)) {
+            return null;
+          }
           cachedToken = t;
           cachedAt = Date.now();
           // Token obtained successfully

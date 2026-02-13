@@ -273,9 +273,11 @@ export class MainSwapService {
       const isSolana = request.chainId === SOLANA_CONFIG.CHAIN_ID;
       const isEvm = !isSolana;
 
+      const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
+
       // 4. LAUNCHPAD DETECTION (EVM only)
       // DISABLED: ClankerService not ready - use standard DEX (0x/Kyber) for all tokens
-      if (isEvm && !request.launchpadProvider) {
+      if (isEvm && !request.launchpadProvider && !isTurboCopytrade) {
         try {
           // Check both tokenOut (for BUY) and tokenIn (for SELL)
           const launchpadDetection = await this.detectLaunchpad(request.tokenOut, request.chainId)
@@ -298,6 +300,12 @@ export class MainSwapService {
           });
           // Continue with standard routing if detection fails
         }
+      } else if (isEvm && isTurboCopytrade) {
+        logger.debug(LogCode.SYS_INFO, trace('Turbo copytrade: skip launchpad detection on critical path'), {
+          chainId: request.chainId,
+          tokenIn: request.tokenIn,
+          tokenOut: request.tokenOut
+        });
       }
 
       // 5. ROUTE TO APPROPRIATE EXECUTOR
