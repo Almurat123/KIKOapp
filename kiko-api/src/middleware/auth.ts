@@ -100,7 +100,11 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   }
 
   // Check for internal service key (Server-to-Server Auth)
-  const serviceKey = (request.headers['x-service-key'] as string) || '';
+  // Accept both legacy and current header names for compatibility.
+  const serviceKey =
+    (request.headers['x-internal-service-key'] as string) ||
+    (request.headers['x-service-key'] as string) ||
+    '';
   const internalKey = process.env.INTERNAL_SERVICE_KEY;
   if (internalKey && serviceKey === internalKey) {
     // Grant access as system service

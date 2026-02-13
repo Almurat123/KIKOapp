@@ -34,7 +34,7 @@ import { getNativeTokenPriceUsd } from './onChainPriceService.js';
 import { normalizeAddress } from '../utils/address.js';
 import { moralisService } from './moralisService.js';
 import { warpcastService } from './warpcastService.js';
-import { notificationService } from './notificationService.js';
+import { notificationService, type TradeNotificationParams } from './notificationService.js';
 import { getTokenInfo } from './tokenService.js';
 import { getTokenMetadata } from './rpcService.js';
 import { getDexPrice } from './dexPriceService.js';
@@ -126,6 +126,25 @@ function resolveExecutionModeForConfig(config: any): CopyTradeExecutionMode {
         return raw;
     }
     return config?.disableTokenInfo === true ? 'turbo' : 'balanced';
+}
+
+function sendNotificationAsync(params: TradeNotificationParams, context: string): void {
+    void notificationService.sendNotification(params)
+        .then((sent) => {
+            if (!sent) {
+                logger.warn(LogCode.API_NOTIFY_FAILED, `[Notify] Notification not sent (${context})`, {
+                    userId: params.userId,
+                    type: params.type
+                });
+            }
+        })
+        .catch((error: any) => {
+            logger.error(LogCode.API_NOTIFY_FAILED, `[Notify] Notification failed (${context})`, {
+                userId: params.userId,
+                type: params.type,
+                error: error?.message || String(error)
+            });
+        });
 }
 
 function buildDirectSwapHintFromSwap(swap: DecodedSwap): DirectSwapHint | undefined {
@@ -615,8 +634,8 @@ async function processBuyWithInfo(
                 targetSwapValueUsd = formatTokenAmount(amountInBN, 18) * zoraInfo.price;
             }
         } else {
-            // ETH / WETH - use cached native price (fast & reliable)
-            const nativePrice = await getNativeTokenPriceUsd(chainId);
+            // ETH / WETH - use DataCacheHub native cache to keep this in low-latency path.
+            const nativePrice = await cacheHub.getNativePrice(chainId, async () => getNativeTokenPriceUsd(chainId));
             if (!nativePrice || nativePrice <= 0) {
                 logger.error(LogCode.API_FETCH_FAILED, 'Failed to fetch native token price, cannot calculate trade value', {
                     chainId
@@ -670,6 +689,11 @@ async function processBuyWithInfo(
 
     if (turboConfigs.length > 0) {
         const quickNativePrice = await getNativeTokenPriceUsd(chainId).catch(() => 0);
+        const turboUserIds = [...new Set(turboConfigs.map(c => c.userId).filter(Boolean))];
+        const turboUserSettingsMap = await cacheHub.warmupUserSettings(
+            turboUserIds,
+            async (userId) => prisma.userSettings.findUnique({ where: { userId } })
+        );
         logger.info(LogCode.EXE_QUOTE_FETCHED, '[CopyTrade] Turbo fast lane enabled', {
             userCount: turboConfigs.length,
             token: tokenToBuy,
@@ -680,7 +704,7 @@ async function processBuyWithInfo(
             turboConfigs.map((config) =>
                 processSingleUserBuy(
                     config,
-                    null,
+                    turboUserSettingsMap.get(config.userId),
                     targetWallet,
                     tokenToBuy,
                     swap,
@@ -1040,6 +1064,35 @@ async function processSingleUserBuy(
             maxSlippageBps: universalSlippageBps
         };
 
+        // Fast check for per-user target value guard (must apply in all modes, including turbo).
+        const minTargetValueUsd = Number(effectiveConfig.minTargetValueUsd || 0);
+        if (minTargetValueUsd > 0 && targetSwapValueUsd < minTargetValueUsd) {
+            logger.info(LogCode.WTC_TX_SKIPPED, 'Skipping trade: target value below user minimum', {
+                userId: config.userId,
+                token: tokenToBuy,
+                targetSwapValueUsd: Number(targetSwapValueUsd.toFixed(2)),
+                minTargetValueUsd
+            });
+
+            sendNotificationAsync({
+                userId: config.userId,
+                farcasterFid: config.user.farcasterFid,
+                type: 'COPY_TRADE_SKIPPED',
+                data: {
+                    tokenSymbol: tokenInfo.symbol || tokenToBuy.slice(0, 10),
+                    tokenAddress: tokenToBuy,
+                    targetWallet: targetWallet,
+                    chainId: chainId,
+                    skipReason: `Target buy value $${targetSwapValueUsd.toFixed(2)} < min $${minTargetValueUsd.toFixed(2)}`,
+                    targetBuyValue: targetSwapValueUsd > 0 ? targetSwapValueUsd.toFixed(2) : undefined,
+                    marketCap: tokenInfo.marketCap ? tokenInfo.marketCap.toFixed(0) : undefined,
+                    liquidity: tokenInfo.liquidity ? tokenInfo.liquidity.toFixed(0) : undefined,
+                }
+            }, 'copytrade_skip_min_target_value');
+
+            return;
+        }
+
         // 🛡️ SAFETY CHECK: Token Info must be valid (unless in Fast Mode)
         // If we failed to fetch token info (e.g. DexScreener down), we should NOT guess.
         // Fast Mode explicitly opts-out of this safety check for speed.
@@ -1126,9 +1179,7 @@ async function processSingleUserBuy(
             }
         }
 
-            const cooldownMinutes = turboMode
-                ? 0
-                : (config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60);
+            const cooldownMinutes = config.copyTradeTokenCooldownMinutes ?? userSettings?.copyTradeTokenCooldownMinutes ?? 60;
             if (cooldownMinutes > 0) {
             // 🛡️ PRICE DEVIATION CHECK (Anti-Spike)
             // Compare Oracle price vs the IMPLIED execution price from the TARGET wallet's trade.
@@ -1488,6 +1539,13 @@ async function processSingleUserBuy(
                             token: tokenToBuy,
                             error: buyErr1.message
                         });
+                        // Turbo fail-fast must release pending lock, otherwise mirror-sell/monitor won't see open positions
+                        // and stale pending rows can block subsequent buys.
+                        if (pendingPositionId) {
+                            await prisma.position.deleteMany({ where: { id: pendingPositionId } }).catch((e) =>
+                                logger.error(LogCode.SYS_ERROR, 'Failed to cleanup pending pos on turbo step1 failure', { error: e })
+                            );
+                        }
                         return;
                     }
 
@@ -1725,7 +1783,7 @@ ${analysis.rawAnalysis}
         // =================================================================
         // 🟣 Send Farcaster Direct Cast (Success)
         // =================================================================
-        await notificationService.sendNotification({
+        sendNotificationAsync({
             userId: config.user.privyDid,
             farcasterFid: config.user.farcasterFid,
             type: 'TRADE_SUCCESS_BUY',
@@ -1736,7 +1794,7 @@ ${analysis.rawAnalysis}
                 txHash: txHash,
                 chainId: chainId
             }
-        });
+        }, 'copytrade_buy_success');
 
     } catch (error: any) {
         logger.error(LogCode.SYS_ERROR, `Error processing trade configuration`, {
@@ -1749,7 +1807,7 @@ ${analysis.rawAnalysis}
         // =================================================================
         // 🟣 Send Farcaster Direct Cast (Failure)
         // =================================================================
-        await notificationService.sendNotification({
+        sendNotificationAsync({
             userId: config.userId,
             farcasterFid: config.user.farcasterFid,
             type: 'TRADE_FAILURE',
@@ -1759,7 +1817,7 @@ ${analysis.rawAnalysis}
                 targetWallet: targetWallet,
                 chainId: chainId
             }
-        });
+        }, 'copytrade_buy_failure');
     }
     });
 }

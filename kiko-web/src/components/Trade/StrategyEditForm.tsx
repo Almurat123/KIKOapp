@@ -78,6 +78,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
     };
     const currentExecutionMode: ExecutionMode =
         (formData.executionMode as ExecutionMode | undefined) ?? (formData.disableTokenInfo ? 'turbo' : 'balanced');
+    const isTurboMode = currentExecutionMode === 'turbo';
     const updateExecutionMode = (mode: ExecutionMode) => {
         updateFormData({
             executionMode: mode,
@@ -205,6 +206,7 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             onChange={e => handleNumberChange(e.target.value, 'minMarketCapUsd')}
                             className={styles.input}
                             placeholder="Optional"
+                            disabled={isTurboMode}
                         />
                     </div>
                     <div className={styles.inputGroup}>
@@ -216,9 +218,15 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                             onChange={e => handleNumberChange(e.target.value, 'minLiquidityUsd')}
                             className={styles.input}
                             placeholder="Optional"
+                            disabled={isTurboMode}
                         />
                     </div>
                 </div>
+                {isTurboMode && (
+                    <p className={styles.headerDesc}>
+                        Turbo mode ignores Market Cap and Liquidity filters to keep entry latency minimal.
+                    </p>
+                )}
 
                 <div className={styles.inputGroup} style={{ marginTop: '20px' }}>
                     <div className={styles.headerTitle}>Execution Mode</div>
@@ -238,6 +246,11 @@ export const StrategyEditForm: React.FC<StrategyEditFormProps> = ({ config, onSa
                     <p className={styles.headerDesc}>
                         {EXECUTION_MODE_OPTIONS.find(v => v.value === currentExecutionMode)?.desc}
                     </p>
+                    {isTurboMode && (
+                        <p className={styles.headerDesc}>
+                            In Turbo, Min Follow Amount and Repeat Buy Cooldown are still enforced.
+                        </p>
+                    )}
                 </div>
             </div>
 

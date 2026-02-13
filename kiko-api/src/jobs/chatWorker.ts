@@ -27,11 +27,15 @@ import { findTokenOnAnyChain, getTokenInfo } from '../services/ai/tokenDetector.
 import { contextBudgetManager } from '../services/ai/contextBudgetManager.js';
 import { modelGateway, type ConversationStateRef, type Provider } from '../services/ai/modelGateway.js';
 import { getTokenDetails as getDexTokenDetails } from '../services/dexscreener.js';
-import { ragClient } from '../services/ragClient.js';
+import { getCoinbaseSpotPrice } from '../services/coinbase.js';
 import { skillRegistryClean, skillRegistryExec } from '../skills/registry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getChainConfig } from '../config/chainConfig.js';
+import { processClaimedTasks } from './chat/taskClaimRunner.js';
+import { buildBalanceContextBlock } from './chat/balanceContextBuilder.js';
+import { buildLaunchpadContextBlock, buildTokenContextBlock } from './chat/contextBlockBuilder.js';
+import { getFastSwapDecision, prepareFastSwapExecution } from './chat/fastSwapExecutor.js';
 
 // Constants
 const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
@@ -72,7 +76,6 @@ const THINKING_TOOL_ALLOWLIST = new Set<string>([
     'check_token_risk',
     'get_trending_casts',
     'search_farcaster_casts',
-    'get_farcaster_user',
     'get_zora_trending',
     'get_zora_profile',
     'get_early_buyers',
@@ -136,6 +139,115 @@ export class ChatWorker {
 
     private buildToolKey(name: string, args: any): string {
         return `${name}:${this.stableStringify(args)}`;
+    }
+
+    private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string, fallback: T): Promise<T> {
+        let timer: NodeJS.Timeout | null = null;
+        try {
+            const timeoutPromise = new Promise<T>((resolve) => {
+                timer = setTimeout(() => {
+                    logger.warn(LogCode.AI_API_CALL, 'ChatWorker: timed out non-critical step', { label, timeoutMs });
+                    resolve(fallback);
+                }, timeoutMs);
+            });
+            return await Promise.race([promise, timeoutPromise]);
+        } catch (err: any) {
+            logger.warn(LogCode.AI_API_CALL, 'ChatWorker: non-critical step failed', {
+                label,
+                error: err?.message || String(err),
+            });
+            return fallback;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    }
+
+    private async resolveTokenContext(params: {
+        mode: 'deepseek' | 'grok';
+        task: AITask;
+        parsedIntent: any;
+        toolResultsCache: Map<string, any>;
+        userId?: string | null;
+        detectedChainId?: number;
+        detectedLaunchpadInfo?: { chainId: number; provider: string; data: any; address: string } | null;
+        broadcastScanningStatus?: boolean;
+    }): Promise<{
+        detectedChainId?: number;
+        detectedChainName?: string;
+        tokenInfo: any;
+        detectedLaunchpadInfo: { chainId: number; provider: string; data: any; address: string } | null;
+    }> {
+        let detectedChainId = params.detectedChainId ?? params.task.toolContext?.chainId;
+        let detectedChainName: string | undefined = detectedChainId
+            ? this.resolveChainNameForContext(detectedChainId)
+            : undefined;
+        let tokenInfo: any = null;
+        let detectedLaunchpadInfo = params.detectedLaunchpadInfo || null;
+
+        const contractAddress = params.parsedIntent?.contractAddress;
+        if (!contractAddress) {
+            return { detectedChainId, detectedChainName, tokenInfo, detectedLaunchpadInfo };
+        }
+
+        const tokenKey = `get_token_info:${this.stableStringify({
+            address: contractAddress,
+            chainId: detectedChainId || params.task.toolContext?.chainId
+        })}`;
+
+        if (params.toolResultsCache.has(tokenKey)) {
+            tokenInfo = params.toolResultsCache.get(tokenKey);
+            logger.throttled(LogCode.CACHE_HIT, `${params.mode}: cache hit token_info`);
+            if (tokenInfo && !tokenInfo.address) {
+                tokenInfo.address = contractAddress;
+                params.toolResultsCache.set(tokenKey, tokenInfo);
+            }
+        }
+
+        if (!tokenInfo) {
+            if (params.broadcastScanningStatus && params.task.sessionId) {
+                this.broadcastTaskStatus(params.userId || null, params.task, { status: 'running', message: 'Scanning tokens' });
+            }
+            const globalTokenInfo = await this.withTimeout(
+                findTokenOnAnyChain(contractAddress),
+                Math.max(250, parseInt(process.env.CHAT_TOKEN_DETECT_TIMEOUT_MS || '700', 10) || 700),
+                `${params.mode}_find_token_on_any_chain`,
+                null
+            );
+            if (globalTokenInfo) {
+                detectedChainId = globalTokenInfo.chainId;
+                detectedChainName = globalTokenInfo.chainName;
+                tokenInfo = globalTokenInfo;
+            } else if (detectedChainId) {
+                const specificTokenInfo = await this.withTimeout(
+                    getTokenInfo(contractAddress, detectedChainId),
+                    Math.max(250, parseInt(process.env.CHAT_TOKEN_DETECT_TIMEOUT_MS || '700', 10) || 700),
+                    `${params.mode}_get_token_info_fallback`,
+                    null
+                );
+                if (specificTokenInfo) {
+                    tokenInfo = specificTokenInfo;
+                    detectedChainName = specificTokenInfo.chainName;
+                }
+            }
+        }
+
+        const launchpadCacheKey = `launchpad_info:${this.stableStringify({
+            address: contractAddress,
+            chainId: detectedChainId || params.task.toolContext?.chainId
+        })}`;
+        if (!detectedLaunchpadInfo && params.toolResultsCache.has(launchpadCacheKey)) {
+            detectedLaunchpadInfo = params.toolResultsCache.get(launchpadCacheKey);
+        }
+        if (tokenInfo?.launchpad && !detectedLaunchpadInfo) {
+            detectedLaunchpadInfo = {
+                chainId: tokenInfo.chainId,
+                provider: tokenInfo.launchpad.provider,
+                data: tokenInfo.launchpad.data,
+                address: tokenInfo.address
+            };
+        }
+
+        return { detectedChainId, detectedChainName, tokenInfo, detectedLaunchpadInfo };
     }
 
     private stableStringify(value: any): string {
@@ -407,6 +519,73 @@ export class ChatWorker {
         return map;
     }
 
+    private findSnapshotBalanceForToken(task: AITask, tokenIn: string, chainName: string, isNative: boolean): number | null {
+        const nativeSymbolsByChain: Record<string, string[]> = {
+            eth: ['ETH'],
+            base: ['ETH'],
+            arbitrum: ['ETH'],
+            optimism: ['ETH'],
+            polygon: ['POL', 'MATIC'],
+            bsc: ['BNB'],
+            solana: ['SOL'],
+        };
+        const nativeSymbols = nativeSymbolsByChain[chainName] || ['ETH'];
+
+        if (isNative) {
+            const nativeBalance = Number(task.toolContext?.nativeBalance);
+            if (Number.isFinite(nativeBalance) && nativeBalance >= 0) return nativeBalance;
+        }
+
+        const entries = this.parseBalanceEntries(task.toolContext?.balance) || [];
+        if (entries.length === 0) return null;
+
+        const tokenLower = String(tokenIn || '').toLowerCase();
+        const tokenUpper = String(tokenIn || '').toUpperCase();
+        const tokenIsAddress = tokenLower.startsWith('0x') || tokenLower.length >= 32;
+
+        const match = entries.find((entry) => {
+            const symbolUpper = String(entry.symbol || '').toUpperCase();
+            const contractLower = String(entry.contractAddress || '').toLowerCase();
+            if (tokenIsAddress) return !!contractLower && contractLower === tokenLower;
+            if (isNative && nativeSymbols.includes(symbolUpper)) return true;
+            return symbolUpper === tokenUpper;
+        });
+        if (!match) return null;
+
+        const snapshotBalance = Number(match.balance);
+        return Number.isFinite(snapshotBalance) && snapshotBalance >= 0 ? snapshotBalance : null;
+    }
+
+    private async fetchOnchainBalanceForToken(
+        walletAddress: string,
+        chainName: string,
+        tokenIn: string,
+        isNative: boolean
+    ): Promise<number> {
+        if (isNative) {
+            const wallet = await alchemy.getWalletBalance(walletAddress, chainName);
+            const nativeBalance = Number(wallet?.ethBalanceFormatted || 0);
+            return Number.isFinite(nativeBalance) && nativeBalance >= 0 ? nativeBalance : 0;
+        }
+
+        if (chainName !== 'solana' && tokenIn.startsWith('0x')) {
+            const direct = await alchemy.getSpecificTokenBalance(walletAddress, chainName, tokenIn);
+            const directBalance = Number(direct?.formatted || 0);
+            return Number.isFinite(directBalance) && directBalance >= 0 ? directBalance : 0;
+        }
+
+        const balances = await alchemy.getTokenBalances(walletAddress, chainName);
+        const tokenLower = tokenIn.toLowerCase();
+        const tokenUpper = tokenIn.toUpperCase();
+        const found = balances.find((entry: any) => {
+            const contract = String(entry?.contractAddress || '').toLowerCase();
+            const symbol = String(entry?.symbol || '').toUpperCase();
+            return contract === tokenLower || symbol === tokenUpper;
+        });
+        const listedBalance = Number(found?.tokenBalance || 0);
+        return Number.isFinite(listedBalance) && listedBalance >= 0 ? listedBalance : 0;
+    }
+
     private buildToolFallbackMessage(toolResults: any[]): string | null {
         for (const res of toolResults) {
             const content = res?.content;
@@ -482,6 +661,7 @@ export class ChatWorker {
             currentPage: ctx.currentPage,
             pageContext: ctx.pageContext ? truncateText(String(ctx.pageContext), maxPageContextChars) : undefined,
             nativeBalance: ctx.nativeBalance,
+            balanceSnapshotAt: this.getBalanceSnapshotTimestamp(ctx),
             balance: ctx.balance,
             tokenSnapshot: (ctx as any).tokenSnapshot || (ctx as any).tokenContext || (ctx as any).tokenInfo,
             launchpad: (ctx as any).launchpad || (ctx as any).launchpadInfo,
@@ -541,7 +721,7 @@ export class ChatWorker {
         allowContracts: Set<string> = new Set()
     ) {
         if (!entries || entries.length === 0) return entries;
-        const nativeSymbols = new Set(['ETH', 'MATIC', 'POL', 'BNB', 'AVAX', 'SOL', 'ARB', 'OP']);
+        const nativeSymbols = new Set(['ETH', 'MATIC', 'POL', 'BNB','SOL',]);
         const isEvm = chainId !== 900 && chainId !== undefined;
         const scamKeywordPattern = /(t\.me|telegram|airdrop|reward|claim|visit|free|bonus|giveaway|promo|http|https|\.com|\.io)/i;
         const dustThreshold = 1e-6;
@@ -594,6 +774,150 @@ export class ChatWorker {
             lines: lines.slice(0, limit),
             hiddenCount: lines.length - limit,
         };
+    }
+
+    private buildBalanceContext(params: {
+        toolContext: any;
+        toolResultsCache: Map<string, any>;
+        nativeSymbol?: string;
+        nativePriceUsd?: number;
+        nativePriceSource?: string;
+        nativePriceFetchedAt?: string;
+        balanceSnapshotAt?: string;
+        requestedAddressSet?: Set<string>;
+        requestedTokens?: string[];
+        includePortfolioBlock?: boolean;
+        includeRequestedTokenBlock?: boolean;
+        includeExecutionRule?: boolean;
+        chainLabel?: string;
+    }): {
+        cacheHit: boolean;
+        tokenCount: number;
+        tokenContextBlock: string;
+        requestedTokenBlock: string;
+        tokensInPortfolio: string[];
+        requestedMatched: string[];
+        requestedMissing: string[];
+        resolvedBalances: Record<string, string>;
+    } {
+        return buildBalanceContextBlock({
+            ...params,
+            stableStringify: this.stableStringify.bind(this),
+            filterBalanceEntriesForAi: this.filterBalanceEntriesForAi.bind(this),
+            isStableSymbolForChain: this.isStableSymbolForChain.bind(this),
+            isNativeSymbol: this.isNativeSymbol.bind(this),
+            limitLines: this.limitLines.bind(this),
+        });
+    }
+
+    private getBalanceSnapshotTimestamp(toolContext: any): string | undefined {
+        return toolContext?.balanceSnapshotAt
+            || toolContext?.balanceFetchedAt
+            || toolContext?.balanceUpdatedAt
+            || toolContext?.balanceTimestamp
+            || undefined;
+    }
+
+    private requiresUsdPriceGuardrail(lastUserMessage: string, parsedIntent: any, routingMode: 'thinking' | 'execution'): boolean {
+        if (routingMode === 'thinking') return false;
+        const text = String(lastUserMessage || '');
+        if (/\$|usd|usdc|价值|美元|美金|worth|about/i.test(text)) return true;
+        const tIn = String(parsedIntent?.detailed?.token_in || parsedIntent?.swapIntent?.tokenIn || '').toUpperCase();
+        const tOut = String(parsedIntent?.detailed?.token_out || parsedIntent?.swapIntent?.tokenOut || '').toUpperCase();
+        if (['USDC', 'USDT', 'DAI'].includes(tIn) || ['USDC', 'USDT', 'DAI'].includes(tOut)) return true;
+        return false;
+    }
+
+    private ensureToolDefinitionPresent(toolDefinitions: any[], baseToolDefs: any[], toolName: string): any[] {
+        if (toolDefinitions.some(def => def?.function?.name === toolName)) return toolDefinitions;
+        const found = baseToolDefs.find(def => def?.name === toolName);
+        if (!found) return toolDefinitions;
+        return [...toolDefinitions, { type: 'function', function: found }];
+    }
+
+    private appendPriceGuardrailBlock(baseBlock: string, params: { nativeSymbol: string; hasNativePrice: boolean }): string {
+        if (params.hasNativePrice) return baseBlock;
+        return `${baseBlock}
+
+[PRICE_GUARDRAIL]
+Native price reference is unavailable for ${params.nativeSymbol}.
+CRITICAL: Before giving any USD valuation, you MUST fetch a trusted live price via tools (e.g. get_token_price) and cite that result.
+Do NOT estimate or guess USD values.`;
+    }
+
+    private resolveNativeSymbol(chainId?: number): string {
+        if (chainId === 56) return 'BNB';
+        if (chainId === 137) return 'POL';
+        if (chainId === 900) return 'SOL';
+        return 'ETH';
+    }
+
+    private async resolveNativePriceSnapshot(
+        chainId: number | undefined,
+        toolResultsCache: Map<string, any>
+    ): Promise<{ nativeSymbol: string; nativePriceUsd?: number; nativePriceSource?: string; nativePriceFetchedAt?: string }> {
+        const nativeSymbol = this.resolveNativeSymbol(chainId);
+        const cacheKey = `native_price_usd:${nativeSymbol}`;
+        const cached = toolResultsCache.get(cacheKey);
+        if (cached && Number.isFinite(cached.price) && cached.price > 0) {
+            return {
+                nativeSymbol,
+                nativePriceUsd: Number(cached.price),
+                nativePriceSource: cached.source || 'Coinbase',
+                nativePriceFetchedAt: cached.fetchedAt,
+            };
+        }
+
+        const priceData = await this.withTimeout(
+            getCoinbaseSpotPrice(nativeSymbol, 'USD'),
+            Math.max(200, parseInt(process.env.CHAT_NATIVE_PRICE_TIMEOUT_MS || '800', 10) || 800),
+            'native_price_coinbase',
+            null as any
+        );
+        if (priceData && Number.isFinite(priceData.price) && priceData.price > 0) {
+            const snapshot = {
+                price: Number(priceData.price),
+                source: 'Coinbase',
+                fetchedAt: new Date().toISOString(),
+            };
+            toolResultsCache.set(cacheKey, snapshot);
+            return {
+                nativeSymbol,
+                nativePriceUsd: snapshot.price,
+                nativePriceSource: snapshot.source,
+                nativePriceFetchedAt: snapshot.fetchedAt,
+            };
+        }
+
+        return { nativeSymbol };
+    }
+
+    private pruneToolsWithContextAvailability(
+        toolDefinitions: any[],
+        opts: { tokenContextAvailable?: boolean; launchpadContextAvailable?: boolean; providerLabel: 'ChatWorker' | 'Grok' }
+    ): any[] {
+        let next = toolDefinitions;
+        if (opts.tokenContextAvailable) {
+            const beforeCount = next.length;
+            next = next.filter(def => def.function?.name !== 'get_token_info');
+            if (next.length !== beforeCount) {
+                logger.info(LogCode.AI_API_CALL, `${opts.providerLabel}: removed get_token_info tool (token context present)`, {
+                    before: beforeCount,
+                    after: next.length,
+                });
+            }
+        }
+        if (opts.launchpadContextAvailable) {
+            const beforeCount = next.length;
+            next = next.filter(def => def.function?.name !== 'check_token_risk');
+            if (next.length !== beforeCount) {
+                logger.info(LogCode.AI_API_CALL, `${opts.providerLabel}: removed check_token_risk tool (launchpad context present)`, {
+                    before: beforeCount,
+                    after: next.length,
+                });
+            }
+        }
+        return next;
     }
 
     private isStableSymbolForChain(chainId: number | undefined, symbol: string): boolean {
@@ -692,10 +1016,32 @@ export class ChatWorker {
         intent: IntentType;
         extraBlocks?: string[];
     }): string {
-        const extra = (params.extraBlocks || []).filter(b => b && b.trim().length > 0).join('\n');
-        const ctx: UserContext = extra
-            ? { ...params.userContext, pageContext: [params.userContext.pageContext, extra].filter(Boolean).join('\n') }
-            : params.userContext;
+        const blocks = (params.extraBlocks || []).filter(b => b && b.trim().length > 0);
+        const extra = blocks.join('\n');
+        const isExecutionIntent = EXECUTION_INTENTS.has(params.intent);
+        const hasWalletBlock = blocks.some(b => b.includes('[USER_WALLET_CONTEXT]'));
+        const hasBalanceBlock = blocks.some(b => b.includes('[USER_BALANCE_CONTEXT]') || b.includes('[REQUESTED_TOKEN_BALANCE]'));
+
+        // Avoid sending the same wallet/balance payload via both [CONTEXT] and extra blocks.
+        // Keep execution-critical blocks, but de-duplicate equivalent fields.
+        let ctx: UserContext = { ...params.userContext };
+        if (isExecutionIntent) {
+            ctx.pageContext = undefined;
+            ctx.currentPage = undefined;
+        }
+        if (hasWalletBlock) {
+            ctx.userAddress = undefined;
+            ctx.chainId = undefined;
+            ctx.chainName = undefined;
+            ctx.nativeBalance = undefined;
+        }
+        if (hasBalanceBlock) {
+            ctx.balance = undefined;
+            ctx.nativeBalance = undefined;
+        }
+        if (extra) {
+            ctx.pageContext = [ctx.pageContext, extra].filter(Boolean).join('\n');
+        }
         return promptOrchestrator.buildPrompt(params.userQuery, ctx, params.intent);
     }
 
@@ -727,8 +1073,168 @@ export class ChatWorker {
             content,
             reasoning_content: reasoningContent,
             status: 'streaming'
-        }).catch(e => console.warn('[ChatWorker] Intermediate DB save failed (ignoring):', e.message));
+        }).catch(e => logger.warn(LogCode.DB_TRANSACTION_FAILED, 'Intermediate DB save failed (ignored)', { error: e.message }));
         return now;
+    }
+
+    private parseCardMessageData(rawData: any, messageId?: string): any {
+        if (!rawData) return {};
+        if (typeof rawData === 'string') {
+            try {
+                return JSON.parse(rawData);
+            } catch {
+                logger.warn(LogCode.SYS_ERROR, 'Failed to parse transaction message JSON', {
+                    messageId,
+                });
+                return {};
+            }
+        }
+        if (typeof rawData === 'object') return rawData;
+        return {};
+    }
+
+    private async updateAndBroadcastTransactionCard(params: {
+        messageId: string;
+        sessionId: string;
+        userId?: string | null;
+        data: any;
+        status?: string;
+    }): Promise<void> {
+        const { updateMessage } = await import('../repositories/chatRepository.js');
+        await updateMessage(params.messageId, {
+            data: params.data,
+            ...(params.status ? { status: params.status as any } : {}),
+        });
+        if (params.userId) {
+            this.ws.broadcastToUser(params.userId, {
+                type: 'client_action',
+                sessionId: params.sessionId,
+                data: {
+                    targetMessageId: params.messageId,
+                    action: {
+                        type: 'show_transaction_status_card',
+                        data: params.data,
+                    },
+                },
+            });
+        }
+    }
+
+    private broadcastAssistantMessageComplete(
+        userId: string | null | undefined,
+        sessionId: string,
+        messageId: string,
+        extraData: Record<string, any> = {}
+    ) {
+        if (!userId) return;
+        this.ws.broadcastToUser(userId, {
+            type: 'message_complete',
+            sessionId,
+            data: { messageId, ...extraData },
+        });
+    }
+
+    private applyContextBudgetWithMetrics(messages: any[], task: AITask, label: string): {
+        messages: any[];
+        compactedHistoryMessage?: string;
+        metrics: { inputTokensEstimated: number; historyKept: number; historyCompacted: number; compactionHits: number };
+    } {
+        const budget = contextBudgetManager.applyBudget(messages as any, {
+            recentWindow: CHAT_CONTEXT_RECENT_WINDOW,
+            maxInputTokens: CHAT_CONTEXT_MAX_INPUT_TOKENS,
+            reservedOutputTokens: CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS,
+        });
+        const metrics = {
+            inputTokensEstimated: budget.inputTokensEstimated,
+            historyKept: budget.historyKept,
+            historyCompacted: budget.historyCompacted,
+            compactionHits: budget.compactedSummary ? 1 : 0,
+        };
+        logger.info(LogCode.AI_API_CALL, `${label}: context budget applied`, {
+            taskId: task.id,
+            sessionId: task.sessionId,
+            inputTokensEstimated: budget.inputTokensEstimated,
+            historyKept: budget.historyKept,
+            historyCompacted: budget.historyCompacted,
+            hasCompaction: !!budget.compactedSummary,
+        });
+        return {
+            messages: budget.messages as any[],
+            compactedHistoryMessage: budget.compactedSummary,
+            metrics,
+        };
+    }
+
+    private ensureCriticalContextPinned(compactedMessages: any[], sourceMessages: any[]): any[] {
+        const criticalPatterns = ['[USER_BALANCE_CONTEXT]', '[REQUESTED_TOKEN_BALANCE]', '[NATIVE_PRICE_CONTEXT]', '[PRICE_GUARDRAIL]'];
+        const hasPattern = (msgs: any[], pattern: string) =>
+            msgs.some((m: any) => typeof m?.content === 'string' && m.content.includes(pattern));
+
+        let next = [...compactedMessages];
+        for (const pattern of criticalPatterns) {
+            if (hasPattern(next, pattern)) continue;
+            const source = [...sourceMessages].reverse().find((m: any) => typeof m?.content === 'string' && m.content.includes(pattern));
+            if (source) {
+                next.push({ role: 'system', content: source.content });
+            }
+        }
+        return next;
+    }
+
+    private async checkTaskCancelled(taskId: string, sourceLabel: string): Promise<boolean> {
+        try {
+            const currentTask = await this.repo.getTaskStatus(taskId);
+            return currentTask?.status === 'cancelled';
+        } catch (error: any) {
+            logger.warn(LogCode.DB_TRANSACTION_FAILED, `${sourceLabel}: cancellation check failed (non-critical)`, {
+                taskId,
+                error: error?.message || String(error),
+            });
+            return false;
+        }
+    }
+
+    private async persistAssistantMessageSafe(params: {
+        assistantMessageId: string;
+        patch: any;
+        logLabel: string;
+    }): Promise<void> {
+        try {
+            await this.repo.updateMessage(params.assistantMessageId, params.patch);
+        } catch (error: any) {
+            logger.error(LogCode.DB_TRANSACTION_FAILED, `${params.logLabel}: failed to persist assistant message`, {
+                assistantMessageId: params.assistantMessageId,
+                error: error?.message || String(error),
+            });
+        }
+    }
+
+    private attachFallbackSystemContext(params: {
+        messages: any[];
+        task: AITask;
+        didInjectUserContext: boolean;
+        routingMode: 'thinking' | 'execution';
+        balanceContextBlock?: string;
+        providerLabel: 'ChatWorker' | 'Grok';
+    }): any[] {
+        const next = [...params.messages];
+        if (params.didInjectUserContext || params.routingMode === 'thinking') return next;
+
+        const systemContext = this.buildSystemContextMessage(params.task);
+        if (systemContext) {
+            next.push({ role: 'system', content: systemContext });
+            logger.debug(LogCode.AI_API_CALL, `${params.providerLabel}: client context attached to system prompt`, {
+                taskId: params.task.id,
+            });
+        }
+
+        if (params.balanceContextBlock) {
+            next.push({ role: 'system', content: params.balanceContextBlock.trim() });
+            logger.info(LogCode.AI_API_CALL, `${params.providerLabel}: balance context attached to system prompt`, {
+                bytes: params.balanceContextBlock.length,
+            });
+        }
+        return next;
     }
 
     constructor(mocks?: { repo?: any; ws?: any }) {
@@ -768,7 +1274,10 @@ export class ChatWorker {
 
                 if (expectedToolCallIds.size > 0) {
                     // Missing tool results - strip tool_calls from this message
-                    console.warn(`[ChatWorker] Sanitizing orphaned tool_calls from message ${i} (missing ${expectedToolCallIds.size} tool results)`);
+                    logger.warn(LogCode.AI_API_CALL, 'Sanitizing orphaned tool_calls', {
+                        messageIndex: i,
+                        missingToolResults: expectedToolCallIds.size,
+                    });
                     sanitized.push({
                         role: msg.role,
                         content: msg.content || '(Tool call was interrupted)',
@@ -863,7 +1372,12 @@ export class ChatWorker {
 
         try {
             // Use findTokenOnAnyChain which is the most robust method (handles global search and launchpads)
-            const info = await findTokenOnAnyChain(token);
+            const info = await this.withTimeout(
+                findTokenOnAnyChain(token),
+                Math.max(250, parseInt(process.env.CHAT_TOKEN_DETECT_TIMEOUT_MS || '700', 10) || 700),
+                'resolve_symbol_find_token',
+                null
+            );
             if (info && info.symbol && info.symbol !== 'UNKNOWN') {
                 return info.symbol.toUpperCase();
             }
@@ -874,7 +1388,10 @@ export class ChatWorker {
                 return specificInfo.symbol.toUpperCase();
             }
         } catch (e) {
-            console.warn(`[ChatWorker] Failed to resolve symbol for ${token}:`, e);
+            logger.warn(LogCode.API_FETCH_FAILED, 'Failed to resolve token symbol', {
+                token,
+                error: (e as any)?.message || String(e),
+            });
         }
 
         // Fallback: shorten address if resolution fails
@@ -951,7 +1468,9 @@ export class ChatWorker {
 
         // Store interval for potential dynamic adjustment
         const pollConfig = { interval: intervalMs };
-        console.log(`[ChatWorker] Started polling for AI tasks (interval: ${pollConfig.interval}ms)`);
+        logger.info(LogCode.SYS_INFO, 'ChatWorker started polling', {
+            intervalMs: pollConfig.interval,
+        });
 
         const runLoop = async () => {
             if (!this.isRunning) return;
@@ -959,7 +1478,9 @@ export class ChatWorker {
             try {
                 await this.processQueuedTasks();
             } catch (error) {
-                console.error('[ChatWorker] runLoop crash:', error);
+                logger.error(LogCode.SYS_ERROR, 'ChatWorker runLoop crash', {
+                    error: (error as any)?.message || String(error),
+                });
                 // In a real app we might use logger.error here, but console.error is safe fallback
                 // We swallow the error to ensure the loop continues scheduling
             }
@@ -989,7 +1510,7 @@ export class ChatWorker {
             clearTimeout(this.pollInterval);
             this.pollInterval = null;
         }
-        console.log('[ChatWorker] Stopped');
+        logger.info(LogCode.SYS_INFO, 'ChatWorker stopped');
     }
 
     /**
@@ -997,31 +1518,17 @@ export class ChatWorker {
      */
     private async processQueuedTasks() {
         try {
-            const queuedTasks = await this.repo.getQueuedTasks(5);
-
-            for (const task of queuedTasks) {
-                if (this.runningTasks.has(task.id)) continue;
-                if (this.runningTasks.size >= this.maxConcurrentTasks) {
-                    logger.debug(LogCode.SYS_INFO, 'ChatWorker: concurrency limit reached', {
-                        maxConcurrentTasks: this.maxConcurrentTasks,
-                        running: this.runningTasks.size,
-                    });
-                    break;
-                }
-
-                this.runningTasks.add(task.id);
-                // Process each task asynchronously
-                // We do NOT await this to allow parallel processing of tasks, 
-                // BUT this means the next poll might occur while tasks are running.
-                // This is acceptable as long as we don't fetch the SAME tasks again (getQueuedTasks should handle that via status updates).
-                this.runTask(task).catch((err: any) => {
-                    console.error(`[ChatWorker] Fatal error in task ${task.id}:`, err);
-                }).finally(() => {
-                    this.runningTasks.delete(task.id);
-                });
-            }
+            await processClaimedTasks({
+                repo: this.repo,
+                runningTasks: this.runningTasks,
+                maxConcurrentTasks: this.maxConcurrentTasks,
+                claimLimit: 5,
+                runTask: async (task) => this.runTask(task as AITask),
+            });
         } catch (error) {
-            console.error('[ChatWorker] Error polling tasks:', error); // Simple log to avoid spamming
+            logger.error(LogCode.SYS_ERROR, 'ChatWorker error polling tasks', {
+                error: (error as any)?.message || String(error),
+            });
         }
     }
 
@@ -1033,10 +1540,7 @@ export class ChatWorker {
         let userId: string | null = null;
 
         try {
-            // 1. Mark as running
-            await this.repo.updateTaskStatus(task.id, 'running');
-
-            // 1.5 Fetch Session for User context
+            // 1. Session context
             const session = await this.repo.getSession(task.sessionId);
             userId = session?.userId || null;
 
@@ -1060,7 +1564,7 @@ export class ChatWorker {
             const lastUserContent = lastUserMsg?.content || '';
             const fastSwapCandidate =
                 (task.toolContext?.allowanceMode === 'instant' || task.toolContext?.toolConfig?.fastSwapMode) &&
-                /\b(swap|buy|sell|trade|exchange|convert|purchase|ape|买|卖|兑换|换)\b/i.test(lastUserContent);
+                /\b(swap|buy|sell|trade|买|卖|兑换)\b/i.test(lastUserContent);
             (task as any).fastSwapCandidate = fastSwapCandidate;
             const taskType = fastSwapCandidate ? 'card' : 'text';
 
@@ -1090,7 +1594,10 @@ export class ChatWorker {
             try {
                 await this.repo.updateTaskStatus(task.id, 'done');
             } catch (dbErr) {
-                console.error(`[ChatWorker] Failed to update task status for ${task.id}:`, dbErr);
+                logger.error(LogCode.DB_TRANSACTION_FAILED, 'Failed to update task status', {
+                    taskId: task.id,
+                    error: (dbErr as any)?.message || String(dbErr),
+                });
             }
 
             // Always broadcast success/completion to UI even if DB was flaky
@@ -1099,7 +1606,10 @@ export class ChatWorker {
             logger.debug(LogCode.AI_API_CALL, 'ChatWorker: task completed successfully', { taskId: task.id });
 
         } catch (error: any) {
-            console.error(`[ChatWorker] Task ${task.id} failed:`, error);
+            logger.error(LogCode.SYS_ERROR, 'Task failed', {
+                taskId: task.id,
+                error: (error as any)?.message || String(error),
+            });
 
             // 1. Always notify frontend of error so it can stop spinners
             try {
@@ -1112,7 +1622,10 @@ export class ChatWorker {
                     });
                 }
             } catch (wsErr) {
-                console.warn('[ChatWorker] Failed to broadcast error status', wsErr);
+                logger.warn(LogCode.WS_ERROR, 'Failed to broadcast error status', {
+                    taskId: task.id,
+                    error: (wsErr as any)?.message || String(wsErr),
+                });
             }
 
             // 2. Try to update DB status (might fail if DB is down)
@@ -1122,7 +1635,10 @@ export class ChatWorker {
                     await this.repo.updateMessage(task.assistantMessageId, { status: 'error' });
                 }
             } catch (dbErr) {
-                console.error(`[ChatWorker] Failed to record task error in DB for ${task.id}:`, dbErr);
+                logger.error(LogCode.DB_TRANSACTION_FAILED, 'Failed to record task error in DB', {
+                    taskId: task.id,
+                    error: (dbErr as any)?.message || String(dbErr),
+                });
             }
         }
     }
@@ -1246,7 +1762,10 @@ export class ChatWorker {
                 model: task.model
             }
         });
-        console.log(`[ChatWorker] Sent message_start for ${assistantMessageId}`);
+        logger.debug(LogCode.WS_MESSAGE_SENT, 'Sent message_start', {
+            assistantMessageId,
+            taskId: task.id,
+        });
 
         // Phase 5 Cache: Shared across all iterations of this task
         const toolResultsCache = new Map<string, any>();
@@ -1270,40 +1789,25 @@ export class ChatWorker {
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
         const baseToolDefs = toolRegistry.getAllDefinitions();
         let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));
-        console.log(`[ChatWorker] Base filtered to ${toolDefinitions.length} tools for message: "${lastUserMessage.slice(0, 50)}..."`);
-        const balanceContextAvailable = !!this.buildWalletInfoFromContext(task);
-        const balanceRefreshRequested = /\b(refresh|update|check balance|balance check|查询余额|查看余额|刷新余额)\b/i.test(lastUserMessage);
-
-        // RAG INTEGRATION: temporarily disabled
-        let ragContext = '';
-        const ragEnabled = false;
-        const informationalRegex = /(how|what|why|explain|tell me|介绍|是什么|怎么|如何|原理)/i;
-        console.log(`[ChatWorker] 🔍 RAG check for: "${lastUserMessage.slice(0, 50)}..."`);
-
-        if (ragEnabled && informationalRegex.test(lastUserMessage)) {
-            console.log(`[ChatWorker] 🎯 RAG: Match found! Query looks informational.`);
-            try {
-                this.broadcastTaskStatus(userId, task, { taskId: task.id, status: 'running', message: 'Searching knowledge base' });
-
-                ragContext = await ragClient.query(lastUserMessage);
-                if (ragContext) {
-                    console.log(`[ChatWorker] ✅ RAG: Context found (${ragContext.length} chars)`);
-                } else {
-                    console.log(`[ChatWorker] ℹ️ RAG: No relevant knowledge found in local base.`);
-                }
-            } catch (err) {
-                console.warn('[ChatWorker] ❌ RAG: Fetch error:', err);
-            }
-        } else {
-            console.log(`[ChatWorker] ⏭️ RAG: Skipped (RAG disabled or query not informational).`);
-        }
+        logger.debug(LogCode.AI_API_CALL, 'Base tools filtered', {
+            taskId: task.id,
+            toolCount: toolDefinitions.length,
+            messagePreview: lastUserMessage.slice(0, 50),
+        });
+        logger.debug(LogCode.AI_API_CALL, 'RAG skipped (disabled in chat worker path)', {
+            taskId: task.id,
+        });
 
         // Declare toolCalls outside main loop so it can be accessed in finally/cleanup
         let toolCalls: any[] = [];
 
         while (iteration < maxIterations) {
             iteration++;
-            console.log(`[ChatWorker] DeepSeek iteration ${iteration}/${maxIterations} for task ${task.id}`);
+            logger.debug(LogCode.AI_API_CALL, 'DeepSeek iteration', {
+                taskId: task.id,
+                iteration,
+                maxIterations,
+            });
 
             // Broadcast iteration status to frontend
             this.broadcastTaskStatus(userId, task, {
@@ -1316,7 +1820,7 @@ export class ChatWorker {
             // Check if task was cancelled
             const currentTask = await this.repo.getTask(task.id);
             if (currentTask?.status === 'cancelled') {
-                console.log(`[ChatWorker] Task ${task.id} was cancelled by user`);
+                logger.info(LogCode.AI_ORCHESTRATOR, 'Task cancelled by user', { taskId: task.id });
                 return;
             }
 
@@ -1443,7 +1947,12 @@ export class ChatWorker {
                     const gated = baseToolDefs.filter(def => allowedToolNames.has(def.name));
                     if (gated.length > 0) {
                         toolDefinitions = gated.map(def => ({ type: 'function', function: def }));
-                        console.log(`[ChatWorker] Skill-gated to ${toolDefinitions.length} tools for intent=${intentStr} skills=${matchedSkills.map(s => s.metadata.id).join(', ')}`);
+                        logger.info(LogCode.AI_ORCHESTRATOR, 'Skill-gated toolset applied', {
+                            taskId: task.id,
+                            toolCount: toolDefinitions.length,
+                            intent: intentStr,
+                            skills: matchedSkills.map(s => s.metadata.id),
+                        });
                         logger.info(LogCode.AI_SKILLS_ATTACHED, 'DeepSeek: skills attached', {
                             taskId: task.id,
                             sessionId: task.sessionId,
@@ -1455,7 +1964,10 @@ export class ChatWorker {
                             toolCount: toolDefinitions.length,
                         });
                     } else {
-                        console.warn(`[ChatWorker] Skill gating produced 0 tools for intent=${intentStr}; no fallback - skills control tool availability`);
+                        logger.warn(LogCode.AI_ORCHESTRATOR, 'Skill gating produced empty toolset', {
+                            taskId: task.id,
+                            intent: intentStr,
+                        });
                     }
                 }
             }
@@ -1466,12 +1978,15 @@ export class ChatWorker {
             // Start pre-fetching high-confidence tool results in parallel with the first LLM request
             if (iteration === 1) {
                 earlyPreFetchPromise = this.preFetchByIntent(task, parsedIntent, toolResultsCache).catch(err => {
-                    console.error('[ChatWorker] Early pre-fetch failed (safe to ignore):', err);
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Early pre-fetch failed (non-blocking)', {
+                        taskId: task.id,
+                        error: err?.message || String(err),
+                    });
                 });
             }
 
             // 🔧 DEBUG: Log user settings for diagnostics
-            console.log('[ChatWorker] User Settings:', {
+            logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker user settings snapshot', {
                 fastSwapMode: task.toolContext?.toolConfig?.fastSwapMode,
                 swapMethod: 'allowance_trade', // FORCED: Always allowance_trade
                 toolConfig: task.toolContext?.toolConfig ? Object.keys(task.toolContext.toolConfig) : 'none',
@@ -1479,33 +1994,16 @@ export class ChatWorker {
                 chainId: task.toolContext?.chainId,
             });
 
-            // ⚡ FAST SWAP BYPASS: Skip LLM if swap conditions met
-            // FORCED: All users use allowance_trade mode (swap_card removed from UI)
-            const fastSwapModeEnabled = task.toolContext?.toolConfig?.fastSwapMode === true;
-            const swapMethod = 'allowance_trade'; // FORCED: Always use allowance_trade, ignore database
-            const isAllowanceTradeMode = true; // FORCED: Always true
-            const showQuoteBeforeSwap = task.toolContext?.toolConfig?.showQuoteBeforeSwap === true;
+            const fastSwapDecision = getFastSwapDecision({
+                parsedIntent,
+                lastUserMessage,
+                toolContext: task.toolContext,
+            });
+            const fastSwapMode = fastSwapDecision.fastSwapMode;
+            const hasSwapTarget = fastSwapDecision.hasSwapTarget;
+            const hasExplicitSwapVerb = fastSwapDecision.hasExplicitSwapVerb;
 
-            // Fast swap ONLY triggers if explicit fastSwapMode is enabled
-            // CRITICAL: allowance_trade does NOT bypass LLM (AI calls tools normally)
-            const fastSwapMode = fastSwapModeEnabled;
-
-            const isSwapIntent = parsedIntent.detailed.action === 'swap';
-            const hasSwapTarget = !!parsedIntent.swapIntent?.tokenOut || !!parsedIntent.contractAddress;
-            const hasExplicitSwapVerb = /\b(swap|buy|sell|trade|exchange|convert|purchase|ape|买|卖|兑换|换)\b/i.test(lastUserMessage);
-
-            // Log fast swap decision
-            if (isSwapIntent && hasSwapTarget && hasExplicitSwapVerb) {
-                console.log('[ChatWorker] 🚀 Fast Swap Decision:', {
-                    fastSwapModeEnabled,
-                    willFastSwap: fastSwapMode,
-                    reason: fastSwapMode
-                        ? 'fastSwapMode=true (LLM bypassed)'
-                        : 'Normal LLM flow (AI will call tools)'
-                });
-            }
-
-            if (!fastSwapAttempted && fastSwapMode && isSwapIntent && hasSwapTarget && hasExplicitSwapVerb) {
+            if (!fastSwapAttempted && fastSwapDecision.shouldAttempt) {
                 fastSwapAttempted = true; // Mark as attempted to prevent loops
                 const assistantMessageId = task.assistantMessageId!;
 
@@ -1521,210 +2019,48 @@ export class ChatWorker {
                             model: task.model
                         }
                     });
-                    console.log(`[ChatWorker] 🚀 Fast swap: Sent message_start for ${assistantMessageId}`);
+                    logger.info(LogCode.AI_ORCHESTRATOR, 'Fast swap message_start broadcasted', {
+                        assistantMessageId,
+                        taskId: task.id,
+                    });
                 }
 
                 // ⚡ SKIP initial task_status - directly to swap execution
                 // Remove unnecessary "Analyzing swap request" broadcast
 
-                // Use parsed intent values which already handle buy/sell correctly
-                // intentParser.ts line 527-537 already detects sell operation:
-                // - SELL: tokenIn = contractAddress, tokenOut = ETH/SOL
-                // - BUY: tokenIn = ETH/SOL, tokenOut = contractAddress
-                let tokenIn = parsedIntent.swapIntent?.tokenIn || 'ETH';
-                let tokenOut = parsedIntent.swapIntent?.tokenOut || parsedIntent.contractAddress || '';
-                let amountIn = parsedIntent.swapIntent?.amount || '0.001';
-                const chainId = parsedIntent.chainId || task.toolContext?.chainId || 8453;
-
-                // CRITICAL FIX: Ensure tokenIn and tokenOut are different
-                // If they're the same (both are contract address), check user message to determine buy/sell
-                const tokenInLower = tokenIn.toLowerCase();
-                const tokenOutLower = tokenOut.toLowerCase();
-                if (tokenInLower === tokenOutLower || (tokenIn.startsWith('0x') && tokenOut.startsWith('0x') && tokenInLower === tokenOutLower)) {
-                    // Detect if this is a SELL or BUY operation from user message
-                    const isSellOperation = /\b(sell|卖)\b/i.test(lastUserMessage);
-                    const isBuyOperation = /\b(buy|买|purchase|get)\b/i.test(lastUserMessage);
-                    const isSolana = chainId === 900;
-                    const isBsc = chainId === 56 || /\bBNB\b/i.test(lastUserMessage);
-                    const isPolygon = chainId === 137;
-                    const nativeToken = isSolana ? 'SOL' : (isBsc ? 'BNB' : (isPolygon ? 'POL' : 'ETH'));
-
-                    if (isSellOperation && !isBuyOperation) {
-                        console.log('[ChatWorker] Detected tokenIn === tokenOut, fixing for SELL operation...');
-                        // SELL: contract address is tokenIn, native is tokenOut
-                        tokenIn = parsedIntent.contractAddress || tokenIn;
-                        tokenOut = nativeToken;
-                    } else {
-                        console.log('[ChatWorker] Detected tokenIn === tokenOut, fixing for BUY operation...');
-                        // BUY: native is tokenIn, contract address is tokenOut
-                        tokenIn = nativeToken;
-                        tokenOut = parsedIntent.contractAddress || tokenOut;
-                    }
-                }
-
-                console.log('[ChatWorker] Fast swap parameters:', {
-                    tokenIn: tokenIn.slice(0, 10) + (tokenIn.length > 10 ? '...' : ''),
-                    tokenOut: tokenOut.slice(0, 10) + (tokenOut.length > 10 ? '...' : ''),
-                    amountIn,
-                    chainId,
-                    swapIntent: parsedIntent.swapIntent
+                const prepared = await prepareFastSwapExecution({
+                    parsedIntent,
+                    lastUserMessage,
+                    taskToolContext: task.toolContext,
+                    chainIdMap: CHAIN_ID_MAP,
+                    findSnapshotBalance: (token, chain, isNative) =>
+                        this.findSnapshotBalanceForToken(task, token, chain, isNative),
+                    fetchOnchainBalance: (walletAddress, chain, token, isNative) =>
+                        this.fetchOnchainBalanceForToken(walletAddress, chain, token, isNative),
+                    resolveSolWallet: (uid) => privyWallet.getSolanaEmbeddedWalletAddress(uid),
+                    resolveEvmWallet: (uid) => privyWallet.getEmbeddedWalletAddress(uid),
                 });
+                let tokenIn = prepared.tokenIn;
+                let tokenOut = prepared.tokenOut;
+                let amountIn = prepared.amountIn;
+                const chainId = prepared.chainId;
+                const actualChainName = prepared.actualChainName;
+                const resolvedWalletAddress = prepared.resolvedWalletAddress;
 
-                // CRITICAL: Detect actual token chain from address format, NOT user's selected chain
-                // 0x... = EVM token, Base58 (no 0x, 32-44 chars) = Solana token
-                const isEvmToken = tokenIn.startsWith('0x');
-                const isSolanaToken = !isEvmToken && tokenIn.length >= 32 && tokenIn.length <= 44;
-
-                // Determine the ACTUAL chain for the token
-                let actualChainName: string;
-                if (isSolanaToken) {
-                    actualChainName = 'solana';
-                } else if (isEvmToken) {
-                    // For EVM tokens, use user's selected chain or try to detect from tokenOut
-                    const userChainName = CHAIN_ID_MAP[chainId] || 'base';
-                    if (userChainName === 'solana') {
-                        // User selected Solana but token is EVM - detect from tokenOut
-                        if (tokenOut === 'BNB') {
-                            actualChainName = 'bsc';
-                        } else if (tokenOut === 'ETH') {
-                            actualChainName = 'base'; // Default to Base for ETH
-                        } else {
-                            actualChainName = 'base'; // Fallback
-                        }
-                        console.log(`[ChatWorker] 🔄 Token is EVM but user on Solana, detected chain: ${actualChainName}`);
-                    } else {
-                        actualChainName = userChainName;
-                    }
-                } else {
-                    // Native token like ETH, BNB, SOL
-                    actualChainName = CHAIN_ID_MAP[chainId] || 'base';
-                }
-
-                console.log(`[ChatWorker] Chain detection: tokenIn=${tokenIn.slice(0, 10)}..., actualChain=${actualChainName}`);
-
-                // Ensure wallet address is available for fast swap execution
-                let resolvedWalletAddress = task.toolContext?.walletAddress;
-                const resolvedUserId = task.toolContext?.userId;
-                if (!resolvedWalletAddress && resolvedUserId) {
-                    try {
-                        if (actualChainName === 'solana') {
-                            const solAddress = await privyWallet.getSolanaEmbeddedWalletAddress(resolvedUserId);
-                            if (solAddress) {
-                                resolvedWalletAddress = solAddress;
-                            }
-                        } else {
-                            const evmAddress = await privyWallet.getEmbeddedWalletAddress(resolvedUserId);
-                            if (evmAddress) {
-                                resolvedWalletAddress = evmAddress;
-                            }
-                        }
-                        if (resolvedWalletAddress) {
-                            task.toolContext = {
-                                ...task.toolContext,
-                                walletAddress: resolvedWalletAddress
-                            };
-                        }
-                    } catch (err) {
-                        console.warn('[ChatWorker] Failed to resolve wallet address for fast swap:', (err as Error).message);
-                    }
-                }
-
-                // Handle percentage/all amounts
-                const amountInStr = String(amountIn);
-                if (amountInStr === 'all' || amountInStr.endsWith('%')) {
-                    console.log(`[ChatWorker] 🧮 Calculating ${amountIn} amount for ${tokenIn}`);
-                    // ⚡ SKIP status broadcast - directly fetch balance
-                    try {
-                        let walletAddress = task.toolContext?.walletAddress || resolvedWalletAddress;
-                        const userId = task.toolContext?.userId;
-
-                        // Use appropriate wallet for the detected chain
-                        if (actualChainName === 'solana' && userId) {
-                            try {
-                                const solAddress = await privyWallet.getSolanaEmbeddedWalletAddress(userId);
-                                if (solAddress) {
-                                    console.log(`[ChatWorker] 🌞 Switched to Solana wallet for balance check: ${solAddress}`);
-                                    walletAddress = solAddress;
-                                }
-                            } catch (e) {
-                                console.warn('[ChatWorker] Failed to fetch Solana wallet, using provided address:', e);
-                            }
-                        } else if (actualChainName !== 'solana' && userId) {
-                            // If we need an EVM balance but the current wallet is Solana, fetch the EVM wallet
-                            if (walletAddress && !walletAddress.startsWith('0x')) {
-                                try {
-                                    const evmAddress = await privyWallet.getEmbeddedWalletAddress(userId);
-                                    if (evmAddress) {
-                                        console.log(`[ChatWorker] 🔷 Switched to EVM wallet for balance check: ${evmAddress}`);
-                                        walletAddress = evmAddress;
-                                    }
-                                } catch (e) {
-                                    console.warn('[ChatWorker] Failed to fetch EVM wallet:', e);
-                                }
-                            }
-                            console.log(`[ChatWorker] 🔷 Using EVM wallet for balance check: ${walletAddress?.slice(0, 10)}...`);
-                        }
-
-                        if (!walletAddress) throw new Error('No wallet address available');
-
-                        const isNative = ['ETH', 'BNB', 'SOL'].includes(tokenIn.toUpperCase()) && !tokenIn.startsWith('0x');
-
-                        let balance = 0;
-
-                        // OPTIMIZED: Use smart balance cache instead of fetching full portfolio every time
-                        const { getBalanceOptimized } = await import('../services/balanceCache.js');
-
-                        if (isNative) {
-                            // Fetch native balance only (fast, cached)
-                            balance = await getBalanceOptimized(
-                                userId!,
-                                walletAddress,
-                                actualChainName
-                            );
-
-                            // If swapping "all" native token (Buy/Wrap), leave 5% for gas
-                            if (amountIn === 'all') {
-                                balance = balance * 0.95;
-                            }
-                        } else {
-                            // Fetch specific token balance (smart cache - only fetches if needed)
-                            balance = await getBalanceOptimized(
-                                userId!,
-                                walletAddress,
-                                actualChainName,
-                                tokenIn // Specific token address
-                            );
-                        }
-
-                        // Calculate amount
-                        if (amountIn === 'all') {
-                            // Use full balance - CRITICAL: Use original precision to avoid any rounding
-                            // Don't truncate or round - use the exact balance from the blockchain
-                            // This prevents ERC20InsufficientBalance errors
-                            amountIn = balance.toString();
-                            console.log(`[ChatWorker] SELL all: using exact balance ${amountIn}`);
-                        } else {
-                            // Percentage sell - we need to be careful not to exceed balance
-                            const percent = parseFloat(amountIn) || 0;
-                            const rawAmount = balance * (percent / 100);
-
-                            // CRITICAL: Don't hardcode decimals! Use 99.99% of calculated amount
-                            // This prevents rounding errors from exceeding balance while maintaining precision
-                            // The 0.01% buffer is negligible but prevents ERC20InsufficientBalance errors
-                            const safeAmount = rawAmount * 0.9999;
-                            amountIn = safeAmount.toString();
-                        }
-
-                        console.log(`[ChatWorker] Resolved amount: ${amountIn} ${tokenIn} (Balance: ${balance})`);
-                    } catch (err) {
-                        console.error('[ChatWorker] Failed to calculate balance:', err);
-                        amountIn = '0'; // Force fallback
-                    }
+                if (resolvedWalletAddress && task.toolContext?.walletAddress !== resolvedWalletAddress) {
+                    task.toolContext = {
+                        ...task.toolContext,
+                        walletAddress: resolvedWalletAddress,
+                    };
                 }
 
                 // Check if we have a valid amount to proceed
-                if (amountIn === 'all' || amountIn === '0' || parseFloat(amountIn) <= 0) {
-                    console.log('[ChatWorker] Could not resolve valid amount, using LLM fallback');
+                if (prepared.shouldFallbackToLlm) {
+                    logger.info(LogCode.AI_ORCHESTRATOR, 'Fast swap prepared amount invalid; fallback to LLM', {
+                        tokenIn,
+                        chain: actualChainName,
+                        amountIn,
+                    });
                     // Inject context about why it failed to help LLM guide the user
                     (task as any).systemInjection = `⚠️ BALANCE AUTO-RESOLUTION ISSUE:\nToken: ${tokenIn}\nChain: ${actualChainName}\nStatus: Not found in cached portfolio snapshot\n\nNEXT STEPS:\n1. Check if token balance appears in [USER_BALANCE_CONTEXT] or [REQUESTED_TOKEN_BALANCE] sections\n2. If balance shows as "not present" but user owns it, the swap can still proceed (they'll confirm amount)\n3. If balance is truly 0, inform user they don't hold this token\n4. DO NOT hallucinate or guess the balance - use only data from context blocks above`;
                     // Do not execute fast swap, fall through to LLM
@@ -1734,8 +2070,7 @@ export class ChatWorker {
                     const { MainSwapService } = await import('../services/MainSwapService.js');
 
                     // ⚡ Create transaction card message BEFORE executing swap
-                    const { createMessage, updateMessage } = await import('../repositories/chatRepository.js');
-                    const { chatWS } = await import('../services/chatWebSocket.js');
+                    const { createMessage } = await import('../repositories/chatRepository.js');
 
                     // Resolve token symbols for display
                     const tokenInSymbol = await this.resolveTokenSymbol(tokenIn, chainId);
@@ -1769,30 +2104,32 @@ export class ChatWorker {
                         taskId: task.id
                     });
 
-                    // Broadcast pending card to frontend via WebSocket
                     const taskUserId = task.toolContext?.userId || '';
+                    const pendingCardData = {
+                        status: 'pending',
+                        tokenIn,
+                        tokenOut,
+                        tokenInSymbol,
+                        tokenOutSymbol,
+                        amountIn,
+                        chainId,
+                        isLoading: true
+                    };
                     if (taskUserId) {
-                        chatWS.broadcast(taskUserId, {
+                        this.ws.broadcastToUser(taskUserId, {
                             type: 'client_action',
                             sessionId: task.sessionId,
                             data: {
                                 targetMessageId: transactionMessage.id,
                                 action: {
                                     type: 'show_transaction_status_card',
-                                    data: {
-                                        status: 'pending',
-                                        tokenIn,
-                                        tokenOut,
-                                        tokenInSymbol,
-                                        tokenOutSymbol,
-                                        amountIn,
-                                        chainId,
-                                        isLoading: true
-                                    }
+                                    data: pendingCardData
                                 }
                             }
                         });
                     }
+                    let cardData: any = this.parseCardMessageData(transactionMessage.data, transactionMessage.id);
+                    cardData = { ...cardData, ...pendingCardData };
 
                     let fastSwapFinalized = false;
 
@@ -1826,44 +2163,22 @@ export class ChatWorker {
                             const estimatedOut = quote?.data?.amountOut;
                             if (!estimatedOut || fastSwapFinalized) return;
 
-                            let messageData: any = {};
-                            if (transactionMessage.data) {
-                                if (typeof transactionMessage.data === 'string') {
-                                    try {
-                                        messageData = JSON.parse(transactionMessage.data);
-                                    } catch {
-                                        messageData = {};
-                                    }
-                                } else {
-                                    messageData = transactionMessage.data;
-                                }
-                            }
-
-                            const updatedData = {
-                                ...messageData,
+                            cardData = {
+                                ...cardData,
                                 amountOut: estimatedOut,
                                 isLoading: false
                             };
-
-                            await updateMessage(transactionMessage.id, {
-                                data: updatedData
+                            await this.updateAndBroadcastTransactionCard({
+                                messageId: transactionMessage.id,
+                                sessionId: task.sessionId,
+                                userId: taskUserId,
+                                data: cardData,
                             });
-
-                            if (taskUserId) {
-                                chatWS.broadcast(taskUserId, {
-                                    type: 'client_action',
-                                    sessionId: task.sessionId,
-                                    data: {
-                                        targetMessageId: transactionMessage.id,
-                                        action: {
-                                            type: 'show_transaction_status_card',
-                                            data: updatedData
-                                        }
-                                    }
-                                });
-                            }
                         } catch (err) {
-                            console.warn('[ChatWorker] Fast swap pre-quote failed:', (err as Error).message);
+                            logger.warn(LogCode.API_FETCH_FAILED, 'Fast swap pre-quote failed', {
+                                taskId: task.id,
+                                error: (err as Error).message,
+                            });
                         }
                     })().catch(() => { });
 
@@ -1889,58 +2204,26 @@ export class ChatWorker {
                         const errMessage = err?.message || 'Swap failed';
                         fastSwapFinalized = true;
 
-                        let messageData: any = {};
-                        if (transactionMessage.data) {
-                            if (typeof transactionMessage.data === 'string') {
-                                try {
-                                    messageData = JSON.parse(transactionMessage.data);
-                                } catch {
-                                    messageData = {};
-                                }
-                            } else {
-                                messageData = transactionMessage.data;
-                            }
-                        }
-
-                        const failureData = {
-                            ...messageData,
+                        cardData = {
+                            ...cardData,
                             status: 'failed',
                             error: errMessage,
                             errorMessage: errMessage,
                             completedAt: Date.now(),
-                            duration: Date.now() - (messageData.startedAt || Date.now()),
+                            duration: Date.now() - (cardData.startedAt || Date.now()),
                             message: `❌ Swap failed: ${errMessage}`,
                             isLoading: false
                         };
 
-                        await updateMessage(transactionMessage.id, {
-                            data: failureData,
-                            status: 'complete'
+                        await this.updateAndBroadcastTransactionCard({
+                            messageId: transactionMessage.id,
+                            sessionId: task.sessionId,
+                            userId: taskUserId,
+                            data: cardData,
+                            status: 'complete',
                         });
 
-                        if (taskUserId) {
-                            chatWS.broadcast(taskUserId, {
-                                type: 'client_action',
-                                sessionId: task.sessionId,
-                                data: {
-                                    targetMessageId: transactionMessage.id,
-                                    action: {
-                                        type: 'show_transaction_status_card',
-                                        data: failureData
-                                    }
-                                }
-                            });
-                        }
-
-                        if (taskUserId) {
-                            this.ws.broadcastToUser(taskUserId, {
-                                type: 'message_complete',
-                                sessionId: task.sessionId,
-                                data: {
-                                    messageId: assistantMessageId,
-                                },
-                            });
-                        }
+                        this.broadcastAssistantMessageComplete(taskUserId, task.sessionId, assistantMessageId);
 
                         await this.repo.updateTaskStatus(task.id, 'done');
                         this.broadcastTaskStatus(taskUserId || userId, task, { taskId: task.id, status: 'done' });
@@ -1949,81 +2232,35 @@ export class ChatWorker {
 
                     // ⚡ Update transaction message with final result
                     const finalStatus = swapResult.success ? 'success' : 'failed';
-                    let messageData: any = {};
-                    if (transactionMessage.data) {
-                        if (typeof transactionMessage.data === 'string') {
-                            try {
-                                messageData = JSON.parse(transactionMessage.data);
-                            } catch (err) {
-                                console.warn('[ChatWorker] Failed to parse transactionMessage.data JSON, using empty object');
-                                messageData = {};
-                            }
-                        } else {
-                            messageData = transactionMessage.data;
-                        }
-                    }
-                    const rawAmountOut = swapResult.amountOut ?? messageData.amountOut;
+                    const rawAmountOut = swapResult.amountOut ?? cardData.amountOut;
                     const formattedAmountOut = rawAmountOut
                         ? parseFloat(String(rawAmountOut)).toLocaleString('en-US', { maximumFractionDigits: 6 })
-                        : messageData.amountOut;
+                        : cardData.amountOut;
 
-                    await updateMessage(transactionMessage.id, {
-                        data: {
-                            ...messageData,
-                            status: finalStatus,
-                            txHash: swapResult.txHash,
-                            amountOut: formattedAmountOut,
-                            error: swapResult.error,
-                            errorMessage: swapResult.error,
-                            completedAt: Date.now(),
-                            duration: Date.now() - (messageData.startedAt || Date.now()),
-                            message: finalStatus === 'success'
-                                ? `✅ Fast swap completed! ${swapResult.txHash?.slice(0, 10)}...`
-                                : `❌ Swap failed: ${swapResult.error}`,
-                            isLoading: false
-                        },
-                        status: 'complete'
+                    cardData = {
+                        ...cardData,
+                        status: finalStatus,
+                        txHash: swapResult.txHash,
+                        amountOut: formattedAmountOut,
+                        error: swapResult.error,
+                        errorMessage: swapResult.error,
+                        completedAt: Date.now(),
+                        duration: Date.now() - (cardData.startedAt || Date.now()),
+                        message: finalStatus === 'success'
+                            ? `✅ Fast swap completed! ${swapResult.txHash?.slice(0, 10)}...`
+                            : `❌ Swap failed: ${swapResult.error}`,
+                        isLoading: false
+                    };
+                    await this.updateAndBroadcastTransactionCard({
+                        messageId: transactionMessage.id,
+                        sessionId: task.sessionId,
+                        userId: taskUserId,
+                        data: cardData,
+                        status: 'complete',
                     });
                     fastSwapFinalized = true;
 
-                    // Broadcast final status via WebSocket
-                    if (taskUserId) {
-                        chatWS.broadcast(taskUserId, {
-                            type: 'client_action',
-                            sessionId: task.sessionId,
-                            data: {
-                                targetMessageId: transactionMessage.id,
-                                action: {
-                                    type: 'show_transaction_status_card',
-                                    data: {
-                                        status: finalStatus,
-                                        txHash: swapResult.txHash,
-                                        amountOut: formattedAmountOut,
-                                        error: swapResult.error,
-                                        errorMessage: swapResult.error,
-                                        tokenIn,
-                                        tokenOut,
-                                        tokenInSymbol,
-                                        tokenOutSymbol,
-                                        amountIn,
-                                        chainId,
-                                        isLoading: false
-                                    }
-                                }
-                            }
-                        });
-                    }
-
-                    // Stop streaming indicator for the assistant message
-                    if (taskUserId) {
-                        this.ws.broadcastToUser(taskUserId, {
-                            type: 'message_complete',
-                            sessionId: task.sessionId,
-                            data: {
-                                messageId: assistantMessageId,
-                            },
-                        });
-                    }
+                    this.broadcastAssistantMessageComplete(taskUserId, task.sessionId, assistantMessageId);
 
                     // If swap was successful, complete the task and return
                     await this.repo.updateTaskStatus(task.id, 'done');
@@ -2037,7 +2274,10 @@ export class ChatWorker {
             // SAFE MODE: If user sends token address without explicit buy/sell intent, ask for confirmation
             // This applies when fast swap is enabled (either via fastSwapMode or allowance_trade)
             if (fastSwapMode && hasSwapTarget && !hasExplicitSwapVerb) {
-                console.log('[ChatWorker] 🛡️ Fast Swap Safe Mode: Token address detected without explicit trade intent');
+                logger.info(LogCode.AI_ORCHESTRATOR, 'Fast swap safe mode activated', {
+                    taskId: task.id,
+                    reason: 'token_detected_without_explicit_trade_verb',
+                });
                 (task as any).systemInjection = 'FAST SWAP SAFE MODE: User shared a token address without explicit trade intent. Ask a short confirmation question: trade now or analyze? Do not execute any trade without a clear buy/sell instruction.';
             } // end if (fastSwapMode && hasSwapTarget && !hasExplicitSwapVerb)
 
@@ -2054,74 +2294,38 @@ export class ChatWorker {
             let detectedChainId = task.toolContext?.chainId;
             let detectedChainName: string | undefined;
             let tokenInfo: any = null;
-
             if (parsedIntent.contractAddress) {
-                console.log(`[ChatWorker] Detected contract address: ${parsedIntent.contractAddress}`);
-
-                // Check cache first for token info
-                const tokenKey = `get_token_info:${this.stableStringify({
-                    address: parsedIntent.contractAddress,
-                    chainId: detectedChainId || task.toolContext?.chainId
-                })}`;
-
-                if (toolResultsCache.has(tokenKey)) {
-                    tokenInfo = toolResultsCache.get(tokenKey);
-                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_token_info for ${parsedIntent.contractAddress}`);
-                    // CRITICAL FIX: Ensure address is always set
-                    if (!tokenInfo.address && parsedIntent.contractAddress) {
-                        tokenInfo.address = parsedIntent.contractAddress;
-                        // Update cache with fixed data
-                        toolResultsCache.set(tokenKey, tokenInfo);
-                        console.log(`[ChatWorker] ⚡ Fixed and updated cached tokenInfo with address`);
-                    }
-                }
-
-                if (!tokenInfo) {
-                    // Try to find token on any chain
-                    if (task.sessionId) {
-                        this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Scanning tokens' });
-
-                    }
-                    const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
-                    if (globalTokenInfo) {
-                        detectedChainId = globalTokenInfo.chainId;
-                        detectedChainName = globalTokenInfo.chainName;
-                        tokenInfo = globalTokenInfo;
-                        console.log(`[ChatWorker] Found token ${globalTokenInfo.symbol} on ${globalTokenInfo.chainName} (${globalTokenInfo.chainId})`);
-                    } else if (detectedChainId) {
-                        // Fallback: try specific chain
-                        const specificTokenInfo = await getTokenInfo(parsedIntent.contractAddress, detectedChainId);
-                        if (specificTokenInfo) {
-                            tokenInfo = specificTokenInfo;
-                            detectedChainName = specificTokenInfo.chainName;
-                        }
-                    }
-                }
-
-                // Seed launchpad info from cache if available (upstream context)
-                const launchpadCacheKey = `launchpad_info:${this.stableStringify({
-                    address: parsedIntent.contractAddress,
-                    chainId: detectedChainId || task.toolContext?.chainId
-                })}`;
-                if (!detectedLaunchpadInfo && toolResultsCache.has(launchpadCacheKey)) {
-                    detectedLaunchpadInfo = toolResultsCache.get(launchpadCacheKey);
-                    console.log(`[ChatWorker] 📦 Launchpad info from cache for ${parsedIntent.contractAddress}`);
-                }
-
-
-                // Store launchpad info when first detected (so it persists across iterations)
-                if (tokenInfo && tokenInfo.launchpad && !detectedLaunchpadInfo) {
-                    detectedLaunchpadInfo = {
+                logger.info(LogCode.AI_API_CALL, 'Contract address detected in user intent', {
+                    taskId: task.id,
+                    contractAddress: parsedIntent.contractAddress,
+                });
+                const resolved = await this.resolveTokenContext({
+                    mode: 'deepseek',
+                    task,
+                    parsedIntent,
+                    toolResultsCache,
+                    userId,
+                    detectedChainId,
+                    detectedLaunchpadInfo,
+                    broadcastScanningStatus: true,
+                });
+                detectedChainId = resolved.detectedChainId;
+                detectedChainName = resolved.detectedChainName;
+                tokenInfo = resolved.tokenInfo;
+                detectedLaunchpadInfo = resolved.detectedLaunchpadInfo;
+                if (tokenInfo) {
+                    logger.info(LogCode.AI_API_CALL, 'Token context resolved', {
+                        taskId: task.id,
+                        symbol: tokenInfo.symbol,
+                        chainName: tokenInfo.chainName,
                         chainId: tokenInfo.chainId,
-                        provider: tokenInfo.launchpad.provider,
-                        data: tokenInfo.launchpad.data,
-                        address: tokenInfo.address
-                    };
-                    console.log(`[ChatWorker] 📦 Stored launchpad info: ${detectedLaunchpadInfo.provider} for ${detectedLaunchpadInfo.address}`);
+                    });
                 }
-
                 if (detectedLaunchpadInfo) {
-                    console.log(`[ChatWorker] Launchpad context available: ${detectedLaunchpadInfo.provider}`);
+                    logger.info(LogCode.AI_LAUNCHPAD_DETECTED, 'Launchpad context available', {
+                        taskId: task.id,
+                        provider: detectedLaunchpadInfo.provider,
+                    });
                 }
             }
 
@@ -2176,33 +2380,26 @@ export class ChatWorker {
                 if (isAddressLike(String(tokenIn || ''))) requestedAddressSet.add(String(tokenIn).toLowerCase());
                 if (isAddressLike(String(tokenOut || ''))) requestedAddressSet.add(String(tokenOut).toLowerCase());
 
-                if (tokenInfo) {
-                    const cacheStatus = toolResultsCache.has(`get_token_info:${this.stableStringify({ address: parsedIntent.contractAddress, chainId: detectedChainId || task.toolContext?.chainId })}`) ? '✅ FROM CACHE' : '🔄 FRESHLY FETCHED';
-                    tokenContextBlock = `\n\n[TOKEN_CONTEXT] ${cacheStatus}
-Detected Token: ${tokenInfo.symbol} (${tokenInfo.name})
-Address: ${tokenInfo.address}
-Chain: ${tokenInfo.chainName} (${tokenInfo.chainId})
-${tokenInfo.price ? `Current Price: $${tokenInfo.price.toFixed(6)}` : ''}
-${tokenInfo.priceChange24h !== undefined ? `24h Change: ${tokenInfo.priceChange24h > 0 ? '+' : ''}${tokenInfo.priceChange24h.toFixed(2)}%` : ''}
-${tokenInfo.volume24h ? `24h Volume: $${tokenInfo.volume24h.toLocaleString()}` : ''}
-${tokenInfo.marketCap ? `Market Cap: $${tokenInfo.marketCap.toLocaleString()}` : ''}
-${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperCase()} (DO NOT run active security scan on launchpad tokens).` : ''}
+                const cacheStatus = toolResultsCache.has(`get_token_info:${this.stableStringify({ address: parsedIntent.contractAddress, chainId: detectedChainId || task.toolContext?.chainId })}`)
+                    ? '✅ FROM CACHE'
+                    : '🔄 FRESHLY FETCHED';
+                const tokenBlock = buildTokenContextBlock({
+                    mode: 'deepseek',
+                    tokenInfo,
+                    contractAddress: parsedIntent?.contractAddress,
+                    cacheStatusLabel: cacheStatus,
+                });
+                tokenContextBlock = tokenBlock.tokenContextBlock;
+                tokenContextAvailable = tokenBlock.tokenContextAvailable;
 
-⚡ IMPORTANT: This token data is ALREADY AVAILABLE. DO NOT call get_token_info again for ${tokenInfo.symbol || tokenInfo.address}.
-`;
-                    tokenContextAvailable = true;
-                }
-                if (tokenInfo?.launchpad || detectedLaunchpadInfo) {
-                    const launchpad = tokenInfo?.launchpad || detectedLaunchpadInfo;
-                    launchpadContextBlock = `\n\n[LAUNCHPAD_CONTEXT]
-Token is a launchpad token.
-Provider: ${launchpad.provider?.toUpperCase?.() || launchpad.provider}
-Chain: ${launchpad.chainId || tokenInfo?.chainId}
-Address: ${launchpad.address || tokenInfo?.address}
-Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.
-If the user has not provided clear trade params, ask one concise follow-up for side/amount.`;
-                    launchpadContextAvailable = true;
-                }
+                const launchpadBlock = buildLaunchpadContextBlock({
+                    launchpadInfo: detectedLaunchpadInfo,
+                    tokenInfo,
+                    fallbackAddress: parsedIntent?.contractAddress,
+                    fallbackChainId: detectedChainId || task.toolContext?.chainId,
+                });
+                launchpadContextBlock = launchpadBlock.launchpadContextBlock;
+                launchpadContextAvailable = launchpadBlock.launchpadContextAvailable;
 
                 if (parsedIntent?.contractAddress) {
                     tokenContextBlock += `\n\n[USER_INPUT_CONTEXT]
@@ -2210,109 +2407,60 @@ Detected Contract Address: ${parsedIntent.contractAddress}
 `;
                 }
 
-                // Add balance info if pre-fetched
-                const balanceKey = `get_wallet_info:${this.stableStringify({
-                    address: task.toolContext?.walletAddress,
-                    chainId: task.toolContext?.chainId
-                })}`;
-                let tokensInPortfolio: string[] = [];
-                if (toolResultsCache.has(balanceKey)) {
-                    const balanceData = toolResultsCache.get(balanceKey);
-                    const filteredTokens = this.filterBalanceEntriesForAi(balanceData?.tokens || [], task.toolContext?.chainId, requestedAddressSet) || [];
-                    const tokenCount = filteredTokens.length || 0;
-                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_wallet_info (${tokenCount} tokens cached)`);
+                // Build balance context via a single balance pipeline.
+                const requestedTokens = new Set<string>();
+                if (tokenIn) requestedTokens.add(String(tokenIn));
+                if (tokenOut) requestedTokens.add(String(tokenOut));
+                if (tokenInfo?.address) requestedTokens.add(String(tokenInfo.address));
+                const nativePriceSnapshot = await this.resolveNativePriceSnapshot(task.toolContext?.chainId, toolResultsCache);
 
-                    // CRITICAL FIX: Show symbol, balance AND contract address so LLM knows both
-                    const portfolioLineItems = filteredTokens.length > 0 ? filteredTokens.map((t: any) => {
-                        const symbol = t.symbol || 'Unknown';
-                        const balance = t.balance || '0';
-                        const contract = t.contractAddress || t.contract;
-                        // Show contract address for tokens (not for native ETH)
-                        const contractInfo = contract && !contract.startsWith('0x0000000000000000000000000000000000000000')
-                            ? ` (${contract})`
-                            : '';
-                        return `- ${symbol}: ${balance}${contractInfo}`;
-                    }) : [];
-                    const limitedPortfolio = this.limitLines(portfolioLineItems, 12);
-                    const portfolioLines = limitedPortfolio.lines.join('\n')
-                        + (limitedPortfolio.hiddenCount > 0 ? `\n... (+${limitedPortfolio.hiddenCount} more)` : '');
+                const balanceContext = this.buildBalanceContext({
+                    toolContext: task.toolContext,
+                    toolResultsCache,
+                    nativeSymbol: nativePriceSnapshot.nativeSymbol,
+                    nativePriceUsd: nativePriceSnapshot.nativePriceUsd,
+                    nativePriceSource: nativePriceSnapshot.nativePriceSource,
+                    nativePriceFetchedAt: nativePriceSnapshot.nativePriceFetchedAt,
+                    balanceSnapshotAt: this.getBalanceSnapshotTimestamp(task.toolContext),
+                    requestedAddressSet,
+                    requestedTokens: Array.from(requestedTokens),
+                    // Keep DeepSeek path behavior focused: inject requested balances + availability only.
+                    includePortfolioBlock: false,
+                    includeRequestedTokenBlock: true,
+                    includeExecutionRule: false,
+                    chainLabel: String(task.toolContext?.chainId || 'Unknown'),
+                });
 
-                    const userBalanceBlock = `\n\n[USER_BALANCE_CONTEXT] ✅ CACHED DATA AVAILABLE
-User Wallet: ${task.toolContext?.walletAddress}
-Chain ID: ${task.toolContext?.chainId}
-Total Assets: ${tokenCount} tokens
-${portfolioLines ? `Portfolio Assets:\n${portfolioLines}` : ''}
-
-IMPORTANT:
-- This cached snapshot is for Chain ID ${task.toolContext?.chainId} only.
-- Do NOT call get_wallet_info again for the same chain unless user asks to refresh.
-- For cross-chain/source-chain checks on a different chain, you MUST call get_wallet_info for that specific chain.
-`;
-                    tokensInPortfolio = balanceData.tokens?.map((t: any) => (t.contractAddress || t.contract)?.toLowerCase()) || [];
-
-                    const requestedTokens = new Set<string>();
-                    if (tokenIn) requestedTokens.add(String(tokenIn));
-                    if (tokenOut) requestedTokens.add(String(tokenOut));
-                    if (tokenInfo?.address) requestedTokens.add(String(tokenInfo.address));
-
-                    if (requestedTokens.size > 0 && Array.isArray(balanceData.tokens)) {
-                        const requestedLines: string[] = [];
-                        const matched: string[] = [];
-                        const missing: string[] = [];
-                        const resolvedBalances: Record<string, string> = {};
-                        for (const request of requestedTokens) {
-                            const requestLower = request.toLowerCase();
-                            const requestIsAddress = isAddressLike(request);
-                            const requestSymbol = requestIsAddress ? '' : request.toUpperCase();
-                            if (!requestIsAddress && !this.isStableSymbolForChain(task.toolContext?.chainId, requestSymbol) && !this.isNativeSymbol(requestSymbol)) {
-                                requestedLines.push(`- ${request}: hidden (unverified token; provide contract address)`);
-                                missing.push(request);
-                                continue;
-                            }
-                            const aliasSymbols: string[] = (() => {
-                                if (!requestIsAddress && requestSymbol === 'USDC' && task.toolContext?.chainId === 137) {
-                                    return ['usdc', 'usdc.e'];
-                                }
-                                return [requestLower];
-                            })();
-
-                            const matches = balanceData.tokens.filter((t: any) => {
-                                const symbol = t.symbol ? String(t.symbol).toLowerCase() : '';
-                                const contract = (t.contractAddress || t.contract) ? String(t.contractAddress || t.contract).toLowerCase() : '';
-                                return aliasSymbols.includes(symbol) || contract === requestLower;
-                            });
-
-                            const match = matches.find((t: any) => Number(t.balance ?? t.tokenBalance ?? 0) > 0) || matches[0];
-                            if (match) {
-                                const matchBalance = match.balance ?? match.tokenBalance ?? '0';
-                                requestedLines.push(`- ${match.symbol || request}: ${matchBalance}${match.decimals !== undefined ? ` (decimals: ${match.decimals})` : ''}`);
-                                matched.push(match.symbol || request);
-                                resolvedBalances[match.symbol || request] = String(matchBalance);
-                            } else {
-                                requestedLines.push(`- ${request}: not present in provided balance snapshot`);
-                                missing.push(request);
-                            }
-                        }
-                        const requestedBalanceBlock = `\n\n[REQUESTED_TOKEN_BALANCE]
-${requestedLines.join('\n')}
-Rule: If a token is marked "not present", you must say the balance is unknown or zero and MUST NOT infer or guess.`;
-                        tokenContextBlock += requestedBalanceBlock;
-                        balanceContextBlock += requestedBalanceBlock;
-                        logger.info(LogCode.AI_API_CALL, 'ChatWorker: requested token balance resolved', {
-                            walletAddress: task.toolContext?.walletAddress,
-                            chainId: task.toolContext?.chainId,
-                            requested: Array.from(requestedTokens),
-                            matched,
-                            missing,
-                            resolvedBalances,
-                        });
+                let tokensInPortfolio: string[] = balanceContext.tokensInPortfolio;
+                if (balanceContext.cacheHit) {
+                    logger.debug(LogCode.CACHE_HIT, 'Wallet context cache hit', {
+                        taskId: task.id,
+                        tokenCount: balanceContext.tokenCount,
+                    });
+                }
+                tokenContextBlock += balanceContext.tokenContextBlock;
+                balanceContextBlock += balanceContext.tokenContextBlock;
+                const needUsdGuardrail = this.requiresUsdPriceGuardrail(lastUserMessage, parsedIntent, routingMode);
+                if (needUsdGuardrail) {
+                    const hasNativePrice = Number.isFinite(nativePriceSnapshot.nativePriceUsd || NaN) && (nativePriceSnapshot.nativePriceUsd || 0) > 0;
+                    tokenContextBlock = this.appendPriceGuardrailBlock(tokenContextBlock, {
+                        nativeSymbol: nativePriceSnapshot.nativeSymbol,
+                        hasNativePrice,
+                    });
+                    if (!hasNativePrice) {
+                        toolDefinitions = this.ensureToolDefinitionPresent(toolDefinitions, baseToolDefs, 'get_token_price');
                     }
-                } else if (task.toolContext?.walletAddress) {
-                    const unavailableBlock = `\n\n[USER_BALANCE_CONTEXT]
-User Wallet: ${task.toolContext?.walletAddress}
-Status: unavailable (balance data not available from cache).`;
-                    tokenContextBlock += unavailableBlock;
-                    balanceContextBlock += unavailableBlock;
+                }
+
+                if (balanceContext.requestedTokenBlock) {
+                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: requested token balance resolved', {
+                        walletAddress: task.toolContext?.walletAddress,
+                        chainId: task.toolContext?.chainId,
+                        requested: Array.from(requestedTokens),
+                        matched: balanceContext.requestedMatched,
+                        missing: balanceContext.requestedMissing,
+                        resolvedBalances: balanceContext.resolvedBalances,
+                    });
                 }
 
 
@@ -2322,7 +2470,7 @@ Status: unavailable (balance data not available from cache).`;
                     if (tokenInfo && tokenInfo.address && task.toolContext?.walletAddress) {
                         if (!tokensInPortfolio.includes(tokenInfo.address.toLowerCase())) {
                             try {
-                                console.log(`[ChatWorker] 🔍 Token not in portfolio, querying direct balance...`, {
+                                logger.info(LogCode.AI_API_CALL, 'Token not in portfolio; querying direct balance', {
                                     symbol: tokenInfo.symbol,
                                     address: tokenInfo.address,
                                     chainId: task.toolContext?.chainId,
@@ -2338,14 +2486,25 @@ Status: unavailable (balance data not available from cache).`;
                                     chainIdToName[task.toolContext?.chainId || 0] ||
                                     'base';
 
-                                console.log(`[ChatWorker] Querying balance on chain: ${chainName}`);
-                                const directBalance = await alchemy.getSpecificTokenBalance(
-                                    task.toolContext.walletAddress,
+                                logger.debug(LogCode.AI_API_CALL, 'Direct token balance query chain selected', {
                                     chainName,
-                                    tokenInfo.address
+                                    taskId: task.id,
+                                });
+                                const directBalance = await this.withTimeout(
+                                    alchemy.getSpecificTokenBalance(
+                                        task.toolContext.walletAddress,
+                                        chainName,
+                                        tokenInfo.address
+                                    ),
+                                    Math.max(250, parseInt(process.env.CHAT_DIRECT_BALANCE_TIMEOUT_MS || '700', 10) || 700),
+                                    'direct_token_balance_query',
+                                    null as any
                                 );
+                                if (!directBalance) {
+                                    throw new Error('direct balance query timed out');
+                                }
 
-                                console.log(`[ChatWorker] Direct balance result:`, {
+                                logger.debug(LogCode.AI_API_CALL, 'Direct token balance raw result', {
                                     raw: directBalance?.raw,
                                     decimals: directBalance?.decimals,
                                     formatted: directBalance?.formatted
@@ -2353,7 +2512,11 @@ Status: unavailable (balance data not available from cache).`;
 
                                 // CRITICAL FIX: directBalance returns {raw, decimals, formatted}, not a number
                                 const balanceNum = parseFloat(directBalance?.formatted || '0');
-                                console.log(`[ChatWorker] Parsed balance: ${balanceNum}`);
+                                logger.debug(LogCode.AI_API_CALL, 'Direct token balance parsed', {
+                                    taskId: task.id,
+                                    symbol: tokenInfo.symbol,
+                                    balanceNum,
+                                });
 
                                 if (balanceNum > 0) {
                                     // Initialize context block if not already present
@@ -2366,38 +2529,59 @@ Chain: ${task.toolContext?.chainId || chainName}
                                     tokenContextBlock += `\n⚠️ DETECTED TOKEN BALANCE (Direct Query):
 - ${tokenInfo.symbol} (${tokenInfo.address}): ${directBalance.formatted}${directBalance.decimals ? ` (decimals: ${directBalance.decimals})` : ''}
 `;
-                                    console.log(`[ChatWorker] ✅ Added direct balance for ${tokenInfo.symbol}: ${directBalance.formatted}`);
+                                    logger.info(LogCode.AI_API_CALL, 'Direct balance injected into token context', {
+                                        taskId: task.id,
+                                        symbol: tokenInfo.symbol,
+                                        balance: directBalance.formatted,
+                                    });
                                 } else {
-                                    console.log(`[ChatWorker] ⚠️ Direct balance for ${tokenInfo.symbol} is 0 or unavailable`);
+                                    logger.info(LogCode.AI_API_CALL, 'Direct balance unavailable or zero', {
+                                        taskId: task.id,
+                                        symbol: tokenInfo.symbol,
+                                    });
                                 }
                             } catch (e: any) {
-                                console.error(`[ChatWorker] ❌ Failed to add direct token balance:`, {
+                                logger.error(LogCode.SYS_ERROR, 'Failed to add direct token balance', {
+                                    taskId: task.id,
                                     error: e.message,
-                                    stack: e.stack?.split('\n').slice(0, 3).join('\n')
+                                    stack: e.stack?.split('\n').slice(0, 3).join('\n'),
                                 });
                             }
                         } else {
-                            console.log(`[ChatWorker] Token already in portfolio: ${tokenInfo.symbol}`);
+                            logger.debug(LogCode.CACHE_HIT, 'Token already present in portfolio cache', {
+                                taskId: task.id,
+                                symbol: tokenInfo.symbol,
+                            });
                         }
                     } else {
                         if (!tokenInfo) {
-                            console.log(`[ChatWorker] No tokenInfo available`);
+                            logger.debug(LogCode.AI_API_CALL, 'No tokenInfo available for direct balance injection', {
+                                taskId: task.id,
+                            });
                         } else {
-                            console.log(`[ChatWorker] Missing wallet address or token address`);
+                            logger.debug(LogCode.AI_API_CALL, 'Skipping direct balance injection due to missing wallet/token', {
+                                taskId: task.id,
+                            });
                         }
                     }
                 }
 
-                // Add social info if pre-fetched
-                const socialKey = `get_trending_casts:${this.stableStringify({})}`;
-                if (toolResultsCache.has(socialKey)) {
-                    console.log(`[ChatWorker] ⚡ [CACHE HIT]: get_trending_casts`);
-                    const socialData = toolResultsCache.get(socialKey);
-                    if (socialData && Array.isArray(socialData)) {
-                        tokenContextBlock += `\n\n[FARCASTER_TRENDING_CONTEXT]
+                const isExecutionIntent = EXECUTION_INTENTS.has(intent);
+                // For execution intents, keep prompt focused on trading-critical state.
+                if (!isExecutionIntent) {
+                    // Add social info if pre-fetched
+                    const socialKey = `get_trending_casts:${this.stableStringify({})}`;
+                    if (toolResultsCache.has(socialKey)) {
+                        logger.debug(LogCode.CACHE_HIT, 'Trending casts context cache hit', {
+                            taskId: task.id,
+                        });
+                        const socialData = toolResultsCache.get(socialKey);
+                        if (socialData && Array.isArray(socialData)) {
+                            tokenContextBlock += `\n\n[FARCASTER_TRENDING_CONTEXT]
 Recent Hot Casts:
 ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.slice(0, 100)}...`).join('\n')}
 `;
+                        }
                     }
                 }
 
@@ -2408,10 +2592,6 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                 const extraBlocks: string[] = [];
                 if (tokenContextBlock) extraBlocks.push(tokenContextBlock);
                 if (launchpadContextBlock) extraBlocks.push(launchpadContextBlock);
-                if (ragContext) {
-                    extraBlocks.push(`\n\n[RELEVANT DOCUMENTATION CONTEXT]:\n${ragContext}\n\n(Use the above context to answer if relevant)`);
-                    console.log(`[ChatWorker] 🧠 RAG: Injected ${ragContext.length} chars of local knowledge into prompt`);
-                }
 
                 const enrichedContent = routingMode === 'thinking'
                     ? [lastMsg.content, ...extraBlocks].filter(Boolean).join('\n\n')
@@ -2426,37 +2606,21 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                 // (We don't update DB history to keep it clean, only what the LLM sees)
                 finalMessages = this.injectEnrichedUserContent(finalMessages, lastUserIndex, enrichedContent);
                 didInjectUserContext = true;
-                if (ragContext) {
-                    console.log(`[ChatWorker] 🚀 DeepSeek request will include local knowledge context.`);
-                }
-                console.log(`[ChatWorker] Enriched user prompt with context for ${userContext.userAddress || 'guest'}`);
+                logger.debug(LogCode.AI_API_CALL, 'User prompt enriched with context', {
+                    taskId: task.id,
+                    userAddress: userContext.userAddress || 'guest',
+                });
             }
 
             // Apply context budget in unified orchestrator mode to reduce token cost.
             let compactedHistoryMessage: string | undefined;
             if (this.isUnifiedOrchestrator()) {
-                const budget = contextBudgetManager.applyBudget(finalMessages as any, {
-                    recentWindow: CHAT_CONTEXT_RECENT_WINDOW,
-                    maxInputTokens: CHAT_CONTEXT_MAX_INPUT_TOKENS,
-                    reservedOutputTokens: CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS,
-                });
-                finalMessages = budget.messages as any[];
-                compactedHistoryMessage = budget.compactedSummary;
-                lastBudgetMetrics = {
-                    inputTokensEstimated: budget.inputTokensEstimated,
-                    historyKept: budget.historyKept,
-                    historyCompacted: budget.historyCompacted,
-                    compactionHits: budget.compactedSummary ? 1 : 0,
-                };
-                logger.info(LogCode.AI_API_CALL, 'ChatWorker: context budget applied', {
-                    taskId: task.id,
-                    sessionId: task.sessionId,
-                    inputTokensEstimated: budget.inputTokensEstimated,
-                    historyKept: budget.historyKept,
-                    historyCompacted: budget.historyCompacted,
-                    hasCompaction: !!budget.compactedSummary,
-                });
-                if (budget.compactedSummary) {
+                const budgetSourceMessages = [...finalMessages];
+                const budgetResult = this.applyContextBudgetWithMetrics(finalMessages, task, 'ChatWorker');
+                finalMessages = this.ensureCriticalContextPinned(budgetResult.messages, budgetSourceMessages);
+                compactedHistoryMessage = budgetResult.compactedHistoryMessage;
+                lastBudgetMetrics = budgetResult.metrics;
+                if (budgetResult.compactedHistoryMessage) {
                     await this.persistConversationRef(task, {
                         compactionCursor: `cmp_${Date.now()}`,
                     });
@@ -2468,44 +2632,21 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             if (compactedHistoryMessage) {
                 messages.push({ role: 'system', content: compactedHistoryMessage });
             }
-            if (!didInjectUserContext && routingMode !== 'thinking') {
-                const systemContext = this.buildSystemContextMessage(task);
-                if (systemContext) {
-                    messages.push({ role: 'system', content: systemContext });
-                    console.log('[ChatWorker] Added client context to system prompt');
-                }
-                if (balanceContextBlock) {
-                    messages.push({ role: 'system', content: balanceContextBlock.trim() });
-                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: balance context attached to system prompt', {
-                        bytes: balanceContextBlock.length,
-                    });
-                }
-            }
+            const resolvedMessages = this.attachFallbackSystemContext({
+                messages,
+                task,
+                didInjectUserContext,
+                routingMode,
+                balanceContextBlock,
+                providerLabel: 'ChatWorker',
+            });
             // No additional guidance injected; only context is provided.
 
-            // [REMOVED] Do not filter get_wallet_info. 
-            // We want the AI to be able to check other chains even if current chain context is present.
-            // if (balanceContextAvailable && !balanceRefreshRequested) { ... }
-            if (tokenContextAvailable) {
-                const beforeCount = toolDefinitions.length;
-                toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'get_token_info');
-                if (toolDefinitions.length !== beforeCount) {
-                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: removed get_token_info tool (token context present)', {
-                        before: beforeCount,
-                        after: toolDefinitions.length,
-                    });
-                }
-            }
-            if (launchpadContextAvailable) {
-                const beforeCount = toolDefinitions.length;
-                toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'check_token_risk');
-                if (toolDefinitions.length !== beforeCount) {
-                    logger.info(LogCode.AI_API_CALL, 'ChatWorker: removed check_token_risk tool (launchpad context present)', {
-                        before: beforeCount,
-                        after: toolDefinitions.length,
-                    });
-                }
-            }
+            toolDefinitions = this.pruneToolsWithContextAvailability(toolDefinitions, {
+                tokenContextAvailable,
+                launchpadContextAvailable,
+                providerLabel: 'ChatWorker',
+            });
 
             const normalizedModelName = normalizeModel(task.model);
             const provider = this.resolveProvider(normalizedModelName);
@@ -2517,7 +2658,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                     model: normalizedModelName,
                     provider,
                     system: messages[0].content,
-                    messages: [...messages.slice(1), ...finalMessages],
+                    messages: [...resolvedMessages.slice(1), ...finalMessages],
                     tools: toolDefinitions as any,
                     allowedTools: { names: allowedToolNames },
                     conversationRef,
@@ -2531,7 +2672,7 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             } else {
                 requestBody = {
                     model: normalizedModelName,
-                    messages: [...messages, ...finalMessages],
+                    messages: [...resolvedMessages, ...finalMessages],
                     stream: true,
                     tools: toolDefinitions,
                     tool_choice: 'auto'
@@ -2560,7 +2701,10 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             // 1. message_start (already sent at line ~598)
             // 2. task_status: Thinking (this message)
             // 3. content chunks (sent during streaming)
-            console.log(`[ChatWorker] Broadcasting Thinking status for ${assistantMessageId}. Message order: message_start → Thinking → content_chunks`);
+            logger.debug(LogCode.WS_MESSAGE_SENT, 'Broadcasting thinking status', {
+                taskId: task.id,
+                assistantMessageId,
+            });
 
             this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Thinking' });
 
@@ -2592,7 +2736,12 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 } catch (error: any) {
                     retryCount++;
-                    console.warn(`[ChatWorker] ${providerLabel} API attempt ${retryCount} failed:`, error.message);
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Provider API attempt failed', {
+                        taskId: task.id,
+                        provider: providerLabel,
+                        retryCount,
+                        error: error.message,
+                    });
                     if (retryCount === maxRetries) throw error;
                     // Exponential backoff: 1s, 2s, 4s
                     await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1)));
@@ -2650,20 +2799,12 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                     // Periodic cancellation check (DB query is expensive/unstable, so handle gracefully)
                     chunkCounter++;
                     if (chunkCounter % CHECK_CANCEL_INTERVAL === 0) {
-                        try {
-                            const currentTask = await this.repo.getTaskStatus(task.id);
-                            if (currentTask && currentTask.status === 'cancelled') {
-                                console.log(`[ChatWorker] Task ${task.id} was cancelled by user - aborting generation.`);
-                                throw new Error('Task cancelled by user');
-                            }
-                        } catch (chkErr: any) {
-                            // If the check itself fails (e.g. DB error), treat it as a cancellation ONLY if it was the explicit cancellation error
-                            if (chkErr.message === 'Task cancelled by user') {
-                                throw chkErr;
-                            }
-                            // Otherwise, just log internal weakness and keep streaming.
-                            // Do NOT abort the stream just because we couldn't check if we should abort.
-                            console.warn(`[ChatWorker] Cancellation check failed (non-critical): ${chkErr.message}`);
+                        const cancelled = await this.checkTaskCancelled(task.id, 'DeepSeek');
+                        if (cancelled) {
+                            logger.info(LogCode.AI_ORCHESTRATOR, 'DeepSeek stream cancelled by user', {
+                                taskId: task.id,
+                            });
+                            throw new Error('Task cancelled by user');
                         }
                     }
 
@@ -2801,7 +2942,9 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
 
                                 // If tool calls are detected, start pre-fetching in parallel (Phase 5: Stream-based)
                                 if (!streamPreFetchPromise && toolCalls.length > 0) {
-                                    console.log('[ChatWorker] Detected tool calls in stream, starting pre-fetch...');
+                                    logger.debug(LogCode.AI_API_CALL, 'Detected tool calls in stream, starting pre-fetch', {
+                                        taskId: task.id,
+                                    });
                                     streamPreFetchPromise = this.preFetchFromStream(
                                         toolCalls,
                                         task.toolContext,
@@ -2822,9 +2965,14 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
                     // If strictly cancelled, we can silently return or just break.
                     // But typically we want to update the DB message to cancelled or partial.
                     // For now, allow it to fall through to the final DB update so we save what we generated so far.
-                    console.warn(`[ChatWorker] Aborting stream for task ${task.id} due to cancellation.`);
+                    logger.warn(LogCode.AI_ORCHESTRATOR, 'Aborting stream due to cancellation', {
+                        taskId: task.id,
+                    });
                 } else {
-                    console.warn(`[ChatWorker] Stream interrupted for task ${task.id}: ${err.message}`);
+                    logger.warn(LogCode.API_FETCH_FAILED, 'Stream interrupted', {
+                        taskId: task.id,
+                        error: err.message,
+                    });
                     // For meaningful interruptions (timeouts, network), show a message
                     if (!totalContent && !hasToolCalls && !iterContent) {
                         const fallbackMessage = '\n\n⚠️ *Generation interrupted. Please try again.*';
@@ -2858,7 +3006,9 @@ ${socialData.slice(0, 5).map((c: any) => `- @${c.author?.username}: ${c.text.sli
             // This occurs when the model fails to generate any content or tool calls
             // Common causes: ambiguous prompts, context too long, or model confusion
             if (!iterContent && !hasToolCalls && !totalContent && !streamError) {
-                console.warn(`[ChatWorker] DeepSeek returned empty output for task ${task.id}`);
+                logger.warn(LogCode.AI_API_CALL, 'DeepSeek returned empty output', {
+                    taskId: task.id,
+                });
                 const fallbackMessage = `I apologize, but I wasn't able to process that request. This can happen when:
 - The request is too complex or ambiguous
 - The AI is uncertain how to help
@@ -2887,19 +3037,18 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             }
 
             // Final message update with safeguard
-            try {
-                await this.repo.updateMessage(assistantMessageId, {
+            await this.persistAssistantMessageSafe({
+                assistantMessageId,
+                patch: {
                     content: totalContent,
                     reasoning_content: totalReasoning,
                     tool_calls: hasToolCalls ? toolCalls.filter(Boolean) : undefined,
                     usage: lastUsage || undefined,
                     citations: allCitations.length > 0 ? allCitations : undefined,
                     status: hasToolCalls ? 'streaming' : 'complete'
-                });
-            } catch (dbErr) {
-                console.error(`[ChatWorker] Failed to save final message ${assistantMessageId} to DB (Iteration):`, dbErr);
-                // Continue anyway - chunks were already broadcasted
-            }
+                },
+                logLabel: 'DeepSeek iteration update',
+            });
 
             // Process tool results
             if (hasToolCalls) {
@@ -3048,8 +3197,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         // CRITICAL FIX: Persist final message state for successful completion
         // Without this, status remains 'streaming' and data is lost on refresh
         if (iteration < maxIterations) {
-            try {
-                await this.repo.updateMessage(assistantMessageId, {
+            await this.persistAssistantMessageSafe({
+                assistantMessageId,
+                patch: {
                     content: totalContent,
                     reasoning_content: totalReasoning,
                     usage: lastUsage || undefined,
@@ -3061,22 +3211,21 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                         citationCount: allCitations.length,
                     },
                     status: 'complete'
-                });
-                logger.debug(LogCode.AI_API_CALL, 'ChatWorker: DeepSeek final message persisted', { assistantMessageId });
-                await this.persistBillingUsage({
-                    assistantMessageId,
-                    userId,
-                    model: task.model,
-                    usage: lastUsage,
-                    toolContext: task.toolContext,
-                    toolCallsCount: toolCalls.length
-                });
-            } catch (dbErr) {
-                console.error(`[ChatWorker] Failed to save final message ${assistantMessageId} to DB:`, dbErr);
-            }
+                },
+                logLabel: 'DeepSeek final update',
+            });
+            logger.debug(LogCode.AI_API_CALL, 'ChatWorker: DeepSeek final message persisted', { assistantMessageId });
+            await this.persistBillingUsage({
+                assistantMessageId,
+                userId,
+                model: task.model,
+                usage: lastUsage,
+                toolContext: task.toolContext,
+                toolCallsCount: toolCalls.length
+            });
 
             // CRITICAL: Broadcast message_complete to frontend so it stops showing "Thinking"
-            console.log(`[ChatWorker] Broadcasting message_complete for ${assistantMessageId}`);
+            logger.debug(LogCode.WS_MESSAGE_SENT, 'Broadcasting message_complete', { assistantMessageId, status: 'success' });
             this.broadcastLatencyMetrics(userId, task, {
                 latencyMs: Date.now() - taskProcessStartedAt,
                 inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
@@ -3089,26 +3238,25 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 historyKept: lastBudgetMetrics?.historyKept,
                 historyCompacted: lastBudgetMetrics?.historyCompacted,
             });
-            this.ws.broadcastToUser(userId!, {
-                type: 'message_complete',
-                sessionId: task.sessionId,
-                data: {
-                    messageId: assistantMessageId,
-                    status: 'success',
-                    totalIterations: iteration
-                }
+            this.broadcastAssistantMessageComplete(userId!, task.sessionId, assistantMessageId, {
+                status: 'success',
+                totalIterations: iteration,
             });
         }
 
         if (iteration >= maxIterations) {
-            console.log(`[ChatWorker] Max iterations (${maxIterations}) reached for task ${task.id}`);
+            logger.warn(LogCode.AI_ORCHESTRATOR, 'Max tool iterations reached', {
+                taskId: task.id,
+                maxIterations,
+            });
 
             // Append a notice to the content
             const maxIterError = '\n\n⚠️ *Note: Maximum tool iterations reached. Some operations may be incomplete.*';
             totalContent += maxIterError;
 
-            try {
-                await this.repo.updateMessage(assistantMessageId, {
+            await this.persistAssistantMessageSafe({
+                assistantMessageId,
+                patch: {
                     content: totalContent,
                     reasoning_content: totalReasoning,
                     usage: lastUsage || undefined,
@@ -3120,18 +3268,17 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                         citationCount: allCitations.length,
                     },
                     status: 'complete'
-                });
-                await this.persistBillingUsage({
-                    assistantMessageId,
-                    userId,
-                    model: task.model,
-                    usage: lastUsage,
-                    toolContext: task.toolContext,
-                    toolCallsCount: toolCalls.length
-                });
-            } catch (dbErr) {
-                console.error(`[ChatWorker] Failed to save final message ${assistantMessageId} to DB (MaxIter):`, dbErr);
-            }
+                },
+                logLabel: 'DeepSeek max-iteration update',
+            });
+            await this.persistBillingUsage({
+                assistantMessageId,
+                userId,
+                model: task.model,
+                usage: lastUsage,
+                toolContext: task.toolContext,
+                toolCallsCount: toolCalls.length
+            });
 
             // Broadcast error to frontend
             this.ws.broadcastToUser(userId!, {
@@ -3144,7 +3291,7 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             });
 
             // CRITICAL: Still broadcast message_complete so frontend stops showing "Thinking"
-            console.log(`[ChatWorker] Broadcasting message_complete (max iterations) for ${assistantMessageId}`);
+            logger.debug(LogCode.WS_MESSAGE_SENT, 'Broadcasting message_complete', { assistantMessageId, status: 'max_iterations' });
             this.broadcastLatencyMetrics(userId, task, {
                 latencyMs: Date.now() - taskProcessStartedAt,
                 inputTokensEstimated: lastBudgetMetrics?.inputTokensEstimated,
@@ -3157,14 +3304,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 historyKept: lastBudgetMetrics?.historyKept,
                 historyCompacted: lastBudgetMetrics?.historyCompacted,
             });
-            this.ws.broadcastToUser(userId!, {
-                type: 'message_complete',
-                sessionId: task.sessionId,
-                data: {
-                    messageId: assistantMessageId,
-                    status: 'max_iterations',
-                    totalIterations: iteration
-                }
+            this.broadcastAssistantMessageComplete(userId!, task.sessionId, assistantMessageId, {
+                status: 'max_iterations',
+                totalIterations: iteration,
             });
         }
     } // end processDeepSeekTask
@@ -3257,8 +3399,11 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 const cacheKey = `${toolName}:${this.stableStringify(args)}`;
                 resultsMap.set(cacheKey, result);
                 logger.debug(LogCode.AI_API_CALL, 'ChatWorker: early pre-fetch stored', { tool: toolName });
-            } catch (err) {
-                console.warn(`[ChatWorker] Early pre-fetch failed for ${toolName}:`, err);
+            } catch (err: any) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Early pre-fetch failed', {
+                    toolName,
+                    error: err?.message || String(err),
+                });
             }
         }
 
@@ -3282,7 +3427,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     }, task.toolContext).then(res => {
                         resultsMap.set(balanceKey, res);
                         logger.debug(LogCode.AI_API_CALL, 'ChatWorker: TRADING get_wallet_info stored');
-                    }).catch(err => console.warn('[ChatWorker] TRADING get_wallet_info pre-fetch failed:', err));
+                    }).catch(err => logger.warn(LogCode.API_FETCH_FAILED, 'TRADING get_wallet_info pre-fetch failed', {
+                        error: err?.message || String(err),
+                    }));
                 }
             }
         }
@@ -3299,7 +3446,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 }, task.toolContext).then(res => {
                     resultsMap.set(tokenKey, res);
                     logger.debug(LogCode.AI_API_CALL, 'ChatWorker: TRADING token_info stored');
-                }).catch(err => console.warn('[ChatWorker] TRADING token_info pre-fetch failed:', err));
+                }).catch(err => logger.warn(LogCode.API_FETCH_FAILED, 'TRADING token_info pre-fetch failed', {
+                    error: err?.message || String(err),
+                }));
             }
         }
 
@@ -3328,7 +3477,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     }, task.toolContext).then(res => {
                         resultsMap.set(balanceKey, res);
                         logger.debug(LogCode.AI_API_CALL, 'ChatWorker: proactive get_wallet_info pre-fetch stored');
-                    }).catch(err => console.warn('[ChatWorker] Proactive get_wallet_info pre-fetch failed:', err));
+                    }).catch(err => logger.warn(LogCode.API_FETCH_FAILED, 'Proactive get_wallet_info pre-fetch failed', {
+                        error: err?.message || String(err),
+                    }));
                 }
             }
         }
@@ -3355,7 +3506,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                     }, task.toolContext).then(res => {
                         resultsMap.set(balanceKey, res);
                         logger.debug(LogCode.AI_API_CALL, 'ChatWorker: TRADING get_wallet_info pre-fetch stored');
-                    }).catch(err => console.warn('[ChatWorker] TRADING get_wallet_info pre-fetch failed:', err));
+                    }).catch(err => logger.warn(LogCode.API_FETCH_FAILED, 'TRADING get_wallet_info pre-fetch failed', {
+                        error: err?.message || String(err),
+                    }));
                 }
             }
         }
@@ -3369,7 +3522,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 toolRegistry.execute('get_trending_casts', {}, task.toolContext).then(res => {
                     resultsMap.set(socialKey, res);
                     logger.debug(LogCode.AI_API_CALL, 'ChatWorker: proactive social pre-fetch stored');
-                }).catch(err => console.warn('[ChatWorker] Proactive social pre-fetch failed:', err));
+                }).catch(err => logger.warn(LogCode.API_FETCH_FAILED, 'Proactive social pre-fetch failed', {
+                    error: err?.message || String(err),
+                }));
             }
         }
     }
@@ -3750,7 +3905,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                                 action: clientAction
                             }
                         });
-                        console.log(`[ChatWorker] Broadcasted client action for tool ${tc.function.name}`);
+                        logger.debug(LogCode.WS_MESSAGE_SENT, 'Broadcasted client action for tool', {
+                            toolName: tc.function.name,
+                        });
                     }
 
                     // PERSIST: Map client action type to DB message type
@@ -4004,23 +4161,30 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         let detectedChainId = task.toolContext?.chainId;
         let detectedChainName: string | undefined = this.resolveChainNameForContext(detectedChainId);
         let tokenInfo: any = null;
+        let detectedLaunchpadInfo: { chainId: number; provider: string; data: any; address: string } | null = null;
         let xSeedHandles: string[] = [];
         let officialSites: string[] = [];
 
         if (parsedIntent.contractAddress) {
-            this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Scanning tokens' });
-
             logger.info(LogCode.AI_TOKEN_DETECTED, 'Grok: contract address detected', { contractAddress: parsedIntent.contractAddress });
-            const globalTokenInfo = await findTokenOnAnyChain(parsedIntent.contractAddress);
-            if (globalTokenInfo) {
-                detectedChainId = globalTokenInfo.chainId;
-                detectedChainName = globalTokenInfo.chainName;
-                tokenInfo = globalTokenInfo;
-
-                // Log launchpad info if detected
-                if (globalTokenInfo.launchpad) {
-                    logger.info(LogCode.AI_LAUNCHPAD_DETECTED, 'Grok: launchpad token detected', { provider: globalTokenInfo.launchpad.provider });
-                }
+            const resolved = await this.resolveTokenContext({
+                mode: 'grok',
+                task,
+                parsedIntent,
+                toolResultsCache,
+                userId,
+                detectedChainId,
+                detectedLaunchpadInfo,
+                broadcastScanningStatus: true,
+            });
+            detectedChainId = resolved.detectedChainId;
+            detectedChainName = resolved.detectedChainName;
+            tokenInfo = resolved.tokenInfo;
+            detectedLaunchpadInfo = resolved.detectedLaunchpadInfo;
+            if (detectedLaunchpadInfo) {
+                logger.info(LogCode.AI_LAUNCHPAD_DETECTED, 'Grok: launchpad token detected', {
+                    provider: detectedLaunchpadInfo.provider
+                });
             }
 
             // Extract official socials/websites for execution mode only.
@@ -4112,53 +4276,25 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 }
             }
 
-            if (tokenInfo) {
-                tokenContextBlock = `\n\n[TOKEN_CONTEXT]
-Detected Token: ${tokenInfo.symbol} (${tokenInfo.name})
-Address: ${tokenInfo.address}
-Chain: ${tokenInfo.chainName} (${tokenInfo.chainId})
-${tokenInfo.price ? `Current Price: $${tokenInfo.price.toFixed(6)}` : ''}
-${tokenInfo.priceChange24h !== undefined ? `24h Change: ${tokenInfo.priceChange24h > 0 ? '+' : ''}${tokenInfo.priceChange24h.toFixed(2)}%` : ''}
-${tokenInfo.volume24h ? `24h Volume: $${tokenInfo.volume24h.toLocaleString()}` : ''}
-${tokenInfo.marketCap ? `Market Cap: $${tokenInfo.marketCap.toLocaleString()}` : ''}
-${tokenInfo.launchpad ? `🚀 Launchpad: ${tokenInfo.launchpad.provider.toUpperCase()} - This token was launched on a launchpad platform.` : ''}
-${xSeedHandles.length > 0 ? `Official X (seed): ${xSeedHandles.join(', ')}` : ''}
-${officialSites.length > 0 ? `Official Sites (seed): ${officialSites.join(', ')}` : ''}
-`;
-                tokenContextAvailable = true;
-            } else if (parsedIntent?.contractAddress) {
-                tokenContextBlock = `\n\n[TOKEN_CONTEXT]
-Token metadata unavailable for ${parsedIntent.contractAddress}.
-Rule: Do not repeatedly query metadata in this turn; proceed with best-effort info.`;
-            }
+            const tokenBlock = buildTokenContextBlock({
+                mode: 'grok',
+                tokenInfo,
+                contractAddress: parsedIntent?.contractAddress,
+                xSeedHandles,
+                officialSites,
+            });
+            tokenContextBlock = tokenBlock.tokenContextBlock;
+            tokenContextAvailable = tokenBlock.tokenContextAvailable;
+
             let launchpadContextBlock = '';
-            if (!tokenInfo) {
-                const launchpadCacheKey = `launchpad_info:${this.stableStringify({
-                    address: parsedIntent.contractAddress || parsedIntent.detailed.token_address,
-                    chainId: parsedIntent.chainId || task.toolContext?.chainId
-                })}`;
-                if (toolResultsCache.has(launchpadCacheKey)) {
-                    const cachedLaunchpad = toolResultsCache.get(launchpadCacheKey);
-                    launchpadContextBlock = `\n\n[LAUNCHPAD_CONTEXT]
-Token is a launchpad token.
-Provider: ${cachedLaunchpad.provider?.toUpperCase?.() || cachedLaunchpad.provider}
-Chain: ${cachedLaunchpad.chainId || task.toolContext?.chainId}
-Address: ${cachedLaunchpad.address || parsedIntent.contractAddress}
-Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.
-If the user has not provided clear trade params, ask one concise follow-up for side/amount.`;
-                    launchpadContextAvailable = true;
-                }
-            }
-            if (tokenInfo?.launchpad) {
-                launchpadContextBlock = `\n\n[LAUNCHPAD_CONTEXT]
-Token is a launchpad token.
-Provider: ${tokenInfo.launchpad.provider?.toUpperCase?.() || tokenInfo.launchpad.provider}
-Chain: ${tokenInfo.chainId}
-Address: ${tokenInfo.address}
-Rule: Skip check_token_risk for launchpad tokens. Do NOT run active security scans.
-If the user has not provided clear trade params, ask one concise follow-up for side/amount.`;
-                launchpadContextAvailable = true;
-            }
+            const launchpadBlock = buildLaunchpadContextBlock({
+                launchpadInfo: detectedLaunchpadInfo,
+                tokenInfo,
+                fallbackAddress: parsedIntent?.contractAddress,
+                fallbackChainId: task.toolContext?.chainId,
+            });
+            launchpadContextBlock = launchpadBlock.launchpadContextBlock;
+            launchpadContextAvailable = launchpadBlock.launchpadContextAvailable;
 
             if (routingMode !== 'thinking' && task.toolContext?.walletAddress) {
                 const chainId = task.toolContext?.chainId;
@@ -4169,42 +4305,33 @@ Chain: ${chainName}${chainId ? ` (${chainId})` : ''}
 `;
             }
 
-            // Add balance info if pre-fetched (TRADING intent stability)
+            // Add balance info via unified balance pipeline (TRADING intent stability).
             if (routingMode !== 'thinking') {
-                const balanceKey = `get_wallet_info:${this.stableStringify({
-                    address: task.toolContext?.walletAddress,
-                    chainId: task.toolContext?.chainId
-                })}`;
-                if (toolResultsCache.has(balanceKey)) {
-                    const balanceData = toolResultsCache.get(balanceKey);
-                    if (balanceData) {
-                        // CRITICAL FIX: Show symbol, balance AND contract address
-                        const portfolioLineItems = balanceData.tokens ? balanceData.tokens.map((t: any) => {
-                            const symbol = t.symbol || 'Unknown';
-                            const balance = t.balance || '0';
-                            const contract = t.contractAddress || t.contract;
-                            const contractInfo = contract && !contract.startsWith('0x0000000000000000000000000000000000000000')
-                                ? ` (${contract})`
-                                : '';
-                            return `- ${symbol}: ${balance}${contractInfo}`;
-                        }) : [];
-                        const limitedPortfolio = this.limitLines(portfolioLineItems, 12);
-                        const portfolioLines = limitedPortfolio.lines.join('\n')
-                            + (limitedPortfolio.hiddenCount > 0 ? `\n... (+${limitedPortfolio.hiddenCount} more)` : '');
-
-                        tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
-User Wallet: ${task.toolContext?.walletAddress}
-Chain: ${task.toolContext?.chainId || 'Unknown'}
-Native Balance: ${balanceData.ethBalance || 'Unknown'}
-${portfolioLines ? `\nToken Holdings:\n${portfolioLines}` : '\nNo tokens found.'}
-
-CRITICAL: When user says "sell all 0xABC..." or "sell SYMBOL", extract the balance from above and use it as amount_in (NOT "all").
-`;
+                const nativePriceSnapshot = await this.resolveNativePriceSnapshot(task.toolContext?.chainId, toolResultsCache);
+                const balanceContext = this.buildBalanceContext({
+                    toolContext: task.toolContext,
+                    toolResultsCache,
+                    nativeSymbol: nativePriceSnapshot.nativeSymbol,
+                    nativePriceUsd: nativePriceSnapshot.nativePriceUsd,
+                    nativePriceSource: nativePriceSnapshot.nativePriceSource,
+                    nativePriceFetchedAt: nativePriceSnapshot.nativePriceFetchedAt,
+                    balanceSnapshotAt: this.getBalanceSnapshotTimestamp(task.toolContext),
+                    includePortfolioBlock: true,
+                    includeRequestedTokenBlock: false,
+                    includeExecutionRule: true,
+                    chainLabel: String(task.toolContext?.chainId || 'Unknown'),
+                });
+                tokenContextBlock += balanceContext.tokenContextBlock;
+                const needUsdGuardrail = this.requiresUsdPriceGuardrail(lastUserMessage, parsedIntent, routingMode);
+                if (needUsdGuardrail) {
+                    const hasNativePrice = Number.isFinite(nativePriceSnapshot.nativePriceUsd || NaN) && (nativePriceSnapshot.nativePriceUsd || 0) > 0;
+                    tokenContextBlock = this.appendPriceGuardrailBlock(tokenContextBlock, {
+                        nativeSymbol: nativePriceSnapshot.nativeSymbol,
+                        hasNativePrice,
+                    });
+                    if (!hasNativePrice) {
+                        toolDefinitions = this.ensureToolDefinitionPresent(toolDefinitions, baseToolDefs, 'get_token_price');
                     }
-                } else if (task.toolContext?.walletAddress) {
-                    tokenContextBlock += `\n\n[USER_BALANCE_CONTEXT]
-User Wallet: ${task.toolContext?.walletAddress}
-Status: unavailable (balance data not available from cache).`;
                 }
             }
 
@@ -4223,70 +4350,39 @@ Status: unavailable (balance data not available from cache).`;
             didInjectUserContext = true;
         }
 
-        if (tokenContextAvailable) {
-            const beforeCount = toolDefinitions.length;
-            toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'get_token_info');
-            if (toolDefinitions.length !== beforeCount) {
-                logger.info(LogCode.AI_API_CALL, 'Grok: removed get_token_info tool (token context present)', {
-                    before: beforeCount,
-                    after: toolDefinitions.length,
-                });
-            }
-        }
-        if (launchpadContextAvailable) {
-            const beforeCount = toolDefinitions.length;
-            toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'check_token_risk');
-            if (toolDefinitions.length !== beforeCount) {
-                logger.info(LogCode.AI_API_CALL, 'Grok: removed check_token_risk tool (launchpad context present)', {
-                    before: beforeCount,
-                    after: toolDefinitions.length,
-                });
-            }
-        }
+        toolDefinitions = this.pruneToolsWithContextAvailability(toolDefinitions, {
+            tokenContextAvailable,
+            launchpadContextAvailable,
+            providerLabel: 'Grok',
+        });
 
         let compactedHistoryMessage: string | undefined;
         if (this.isUnifiedOrchestrator()) {
-            const budget = contextBudgetManager.applyBudget(enrichedHistory as any, {
-                recentWindow: CHAT_CONTEXT_RECENT_WINDOW,
-                maxInputTokens: CHAT_CONTEXT_MAX_INPUT_TOKENS,
-                reservedOutputTokens: CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS,
-            });
-            enrichedHistory = budget.messages as any[];
-            compactedHistoryMessage = budget.compactedSummary;
-            lastBudgetMetrics = {
-                inputTokensEstimated: budget.inputTokensEstimated,
-                historyKept: budget.historyKept,
-                historyCompacted: budget.historyCompacted,
-                compactionHits: budget.compactedSummary ? 1 : 0,
-            };
-            logger.info(LogCode.AI_API_CALL, 'Grok: context budget applied', {
-                taskId: task.id,
-                sessionId: task.sessionId,
-                inputTokensEstimated: budget.inputTokensEstimated,
-                historyKept: budget.historyKept,
-                historyCompacted: budget.historyCompacted,
-                hasCompaction: !!budget.compactedSummary,
-            });
-            if (budget.compactedSummary) {
+            const budgetSourceMessages = [...enrichedHistory];
+            const budgetResult = this.applyContextBudgetWithMetrics(enrichedHistory, task, 'Grok');
+            enrichedHistory = this.ensureCriticalContextPinned(budgetResult.messages, budgetSourceMessages);
+            compactedHistoryMessage = budgetResult.compactedHistoryMessage;
+            lastBudgetMetrics = budgetResult.metrics;
+            if (budgetResult.compactedHistoryMessage) {
                 await this.persistConversationRef(task, {
                     compactionCursor: `cmp_${Date.now()}`,
                 });
             }
         }
 
-        const grokMessages = [
+        let grokMessages = [
             { role: 'system', content: systemPrompt },
         ];
         if (compactedHistoryMessage) {
             grokMessages.push({ role: 'system', content: compactedHistoryMessage });
         }
-        if (!didInjectUserContext && routingMode !== 'thinking') {
-            const grokSystemContext = this.buildSystemContextMessage(task);
-            if (grokSystemContext) {
-                grokMessages.push({ role: 'system', content: grokSystemContext });
-                console.log('[ChatWorker] Added client context to Grok system prompt');
-            }
-        }
+        grokMessages = this.attachFallbackSystemContext({
+            messages: grokMessages,
+            task,
+            didInjectUserContext,
+            routingMode,
+            providerLabel: 'Grok',
+        });
         grokMessages.push(...this.sanitizeGrokHistory(enrichedHistory));
 
         const isLikelyCaAnalysis = (() => {
@@ -4375,14 +4471,12 @@ Status: unavailable (balance data not available from cache).`;
 
             // Avoid DB hit on every chunk; periodic cancellation checks are enough.
             if (grokChunkReadCount % GROK_CANCEL_CHECK_INTERVAL === 0) {
-                try {
-                    const currentTask = await this.repo.getTaskStatus(task.id);
-                    if (currentTask?.status === 'cancelled') {
-                        console.log(`[ChatWorker] Task ${task.id} was cancelled by user`);
-                        return;
-                    }
-                } catch (chkErr: any) {
-                    console.warn(`[ChatWorker] Grok cancellation check failed (non-critical): ${chkErr?.message || chkErr}`);
+                const cancelled = await this.checkTaskCancelled(task.id, 'Grok');
+                if (cancelled) {
+                    logger.info(LogCode.AI_ORCHESTRATOR, 'Grok stream cancelled by user', {
+                        taskId: task.id,
+                    });
+                    return;
                 }
             }
 
@@ -4526,9 +4620,9 @@ Status: unavailable (balance data not available from cache).`;
         }
         fullContent = this.redactToolNames(fullContent);
 
-        // Final message update with safeguard
-        try {
-            await this.repo.updateMessage(assistantMessageId, {
+        await this.persistAssistantMessageSafe({
+            assistantMessageId,
+            patch: {
                 content: fullContent,
                 usage: lastUsage || undefined,
                 citations: allCitations.length > 0 ? allCitations : undefined,
@@ -4539,10 +4633,9 @@ Status: unavailable (balance data not available from cache).`;
                     citationCount: allCitations.length,
                 },
                 status: 'complete'
-            });
-        } catch (dbErr) {
-            logger.error(LogCode.DB_TRANSACTION_FAILED, 'Grok: failed to save final message', { assistantMessageId, error: (dbErr as any)?.message || dbErr });
-        }
+            },
+            logLabel: 'Grok final update',
+        });
 
         try {
             const existing = await this.repo.getMessage(assistantMessageId);
@@ -4585,6 +4678,7 @@ Status: unavailable (balance data not available from cache).`;
             historyKept: lastBudgetMetrics?.historyKept,
             historyCompacted: lastBudgetMetrics?.historyCompacted,
         });
+        this.broadcastAssistantMessageComplete(userId, task.sessionId, assistantMessageId, { status: 'success', totalIterations: 1 });
 
         logger.throttled(LogCode.AI_API_CALL, 'Grok: task completed', { taskId: task.id, chunks: chunkIndex });
     }

@@ -370,6 +370,43 @@ export async function chatRoutes(fastify: FastifyInstance) {
                     chainId !== 900 &&
                     (needsTokenBalances || needsNativeBalance);
 
+                if (shouldHydrateWalletSnapshot && resolvedWalletAddress) {
+                    try {
+                        const chainName = chainIdToName[chainId] || 'eth';
+                        const walletSnapshot = await getWalletBalance(resolvedWalletAddress, chainName);
+                        const tokenBalances = walletSnapshot?.tokens || [];
+                        const hydrated: Record<string, string> = needsTokenBalances ? {} : { ...(resolvedBalance || {}) };
+
+                        if (walletSnapshot?.ethBalanceFormatted !== undefined) {
+                            const nativeSymbol = nativeSymbolMap[chainId] || 'ETH';
+                            hydrated[nativeSymbol] = String(walletSnapshot.ethBalanceFormatted);
+                            resolvedNativeBalance = String(walletSnapshot.ethBalanceFormatted);
+                        }
+
+                        if (needsTokenBalances) {
+                            for (const token of tokenBalances || []) {
+                                const decimals = typeof token.decimals === 'number' ? token.decimals : 18;
+                                let formatted = '0';
+                                try {
+                                    formatted = ethers.formatUnits(token.tokenBalance || '0', decimals);
+                                } catch {
+                                    formatted = '0';
+                                }
+                                if (token.symbol) {
+                                    hydrated[token.symbol] = formatted;
+                                }
+                                if (token.contractAddress) {
+                                    hydrated[token.contractAddress.toLowerCase()] = formatted;
+                                }
+                            }
+                        }
+
+                        resolvedBalance = hydrated;
+                    } catch (e) {
+                        fastify.log.warn({ err: e }, 'Failed to hydrate wallet balance for chat task');
+                    }
+                }
+
                 const task = await chatRepo.createTask(
                     sessionId,
                     taskModel,
@@ -418,65 +455,6 @@ export async function chatRoutes(fastify: FastifyInstance) {
                 chatWorker.wake().catch((err: any) => {
                     fastify.log.warn({ err }, 'Chat worker wake failed');
                 });
-
-                if (shouldHydrateWalletSnapshot && resolvedWalletAddress) {
-                    (async () => {
-                        try {
-                            const chainName = chainIdToName[chainId] || 'eth';
-                            const walletSnapshot = await getWalletBalance(resolvedWalletAddress, chainName);
-                            const tokenBalances = walletSnapshot?.tokens || [];
-                            const hydrated: Record<string, string> = needsTokenBalances ? {} : { ...(resolvedBalance || {}) };
-
-                            let nextNativeBalance = resolvedNativeBalance;
-                            if (walletSnapshot?.ethBalanceFormatted !== undefined) {
-                                const nativeSymbol = nativeSymbolMap[chainId] || 'ETH';
-                                hydrated[nativeSymbol] = String(walletSnapshot.ethBalanceFormatted);
-                                nextNativeBalance = String(walletSnapshot.ethBalanceFormatted);
-                            }
-
-                            if (needsTokenBalances) {
-                                for (const token of tokenBalances || []) {
-                                    const decimals = typeof token.decimals === 'number' ? token.decimals : 18;
-                                    let formatted = '0';
-                                    try {
-                                        formatted = ethers.formatUnits(token.tokenBalance || '0', decimals);
-                                    } catch {
-                                        formatted = '0';
-                                    }
-                                    if (token.symbol) {
-                                        hydrated[token.symbol] = formatted;
-                                    }
-                                    if (token.contractAddress) {
-                                        hydrated[token.contractAddress.toLowerCase()] = formatted;
-                                    }
-                                }
-                            }
-
-                            await prisma.aITask.update({
-                                where: { id: task.id },
-                                data: {
-                                    toolContext: JSON.stringify({
-                                        userId,
-                                        sessionId,
-                                        walletAddress: resolvedWalletAddress,
-                                        chainId,
-                                        farcaster,
-                                        toolConfig,
-                                        allowanceMode,
-                                        balance: hydrated,
-                                        nativeBalance: nextNativeBalance,
-                                        accessToken,
-                                        currentPage,
-                                        pageContext: normalizedPageContext,
-                                        billing: billingContext,
-                                    })
-                                }
-                            });
-                        } catch (e) {
-                            fastify.log.warn({ err: e }, 'Failed to hydrate wallet balance for chat task');
-                        }
-                    })();
-                }
 
                 // Update session model if different
                 if (model && model !== session.model) {

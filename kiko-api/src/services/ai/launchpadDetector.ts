@@ -1127,13 +1127,15 @@ export async function detectLaunchpadToken(
         return null;
     }
 
-    // 6.0s Global Timeout for all detection
+    // Cheap mode must stay lightweight to avoid API/log storms.
+    const globalTimeoutMs = mode === 'cheap' ? 1500 : 6000;
+    // Global timeout for all detection
     let timeoutId: NodeJS.Timeout | null = null;
     const timeoutPromise = new Promise<null>((resolve) => {
         timeoutId = setTimeout(() => {
             logger.info(LogCode.API_TIMEOUT, 'LaunchpadDetector: Global timeout reached', { address });
             resolve(null);
-        }, 6000);
+        }, globalTimeoutMs);
     });
 
     const timerLabel = `launchpad_det_${address}`;
@@ -1171,6 +1173,7 @@ async function handleDetection(
   const isSolana = address.length > 40 && !address.startsWith('0x');
   const isEVM = address.startsWith('0x') && address.length === 42;
   const lowerAddress = address.toLowerCase();
+  const cheapMode = (options.mode || 'full') === 'cheap' && !options.requireCreator;
 
     if (!isSolana && !isEVM) {
         return null;
@@ -1227,7 +1230,7 @@ async function handleDetection(
 
         // Fast suffix rules (no API call needed)
         if (bscPlatforms && FOURMEME_SUFFIXES.some((s) => lowerAddress.endsWith(s))) {
-            if (options.requireCreator || (options.mode || 'full') === 'full') {
+            if (!cheapMode && (options.requireCreator || (options.mode || 'full') === 'full')) {
                 try {
                     const fourmemeResult = await getFourMemeToken(address);
                     if (fourmemeResult) {
@@ -1259,40 +1262,51 @@ async function handleDetection(
             return result;
         }
         if (bscPlatforms && FLAP_SUFFIXES.some((s) => lowerAddress.endsWith(s))) {
-            try {
-                const flapResult = await getFlapToken(address);
-                if (flapResult) {
-                    const result: LaunchpadResult = {
-                        provider: 'flap',
-                        data: {
-                            ...flapResult,
-                            vanitySuffix: lowerAddress.endsWith('7777') ? '7777' : '8888'
-                        },
-                        chainId: 56
-                    };
-                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                    return result;
+            if (!cheapMode) {
+                try {
+                    const flapResult = await getFlapToken(address);
+                    if (flapResult) {
+                        const result: LaunchpadResult = {
+                            provider: 'flap',
+                            data: {
+                                ...flapResult,
+                                vanitySuffix: lowerAddress.endsWith('7777') ? '7777' : '8888'
+                            },
+                            chainId: 56
+                        };
+                        DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                        return result;
+                    }
+                } catch {
+                    // flap verify failed, continue to other checks
                 }
-            } catch {
-                // flap verify failed, continue to other checks
             }
+            const result: LaunchpadResult = {
+                provider: 'flap',
+                data: { address, source: 'suffix' },
+                chainId: 56
+            };
+            DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+            return result;
         }
 
         // Clanker must take precedence for b07 addresses to avoid Zora over-labeling.
         if (basePlatforms && lowerAddress.endsWith(CLANKER_SUFFIX)) {
-            try {
-                const clankerResult = await getClankerToken(address);
-                if (clankerResult) {
-                    const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
-                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
-                    return result;
+            if (!cheapMode) {
+                try {
+                    const clankerResult = await getClankerToken(address);
+                    if (clankerResult) {
+                        const result: LaunchpadResult = { provider: 'clanker', data: clankerResult, chainId: 8453 };
+                        DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                        return result;
+                    }
+                } catch {
+                    // Clanker API check failed
                 }
-            } catch {
-                // Clanker API check failed
             }
 
             // Fallback: keep Clanker provider but borrow creator metadata from Zora coin data when available.
-            if (basePlatforms && !isProviderBackoffActive('zora')) {
+            if (!cheapMode && basePlatforms && !isProviderBackoffActive('zora')) {
                 try {
                     const zoraResult = await zoraService.getCoinByAddress(address);
                     if (zoraResult) {
@@ -1343,6 +1357,11 @@ async function handleDetection(
             };
             DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
             return result;
+        }
+
+        // Soft mode: stop here for EVM. Keep it deterministic/cache-only.
+        if (cheapMode) {
+            return null;
         }
 
         // === PRIORITY-BASED DETECTION with Early Return ===

@@ -299,18 +299,34 @@ export async function getTaskStatus(taskId: string): Promise<{ status: string } 
     return task;
 }
 
-// For queue processing - simplistic approach
-// Note: Prisma doesn't support 'FOR UPDATE SKIP LOCKED' easily without raw queries.
-// We'll stick to raw query for the queue fetch to ensure concurrency safety.
-export async function getQueuedTasks(limit = 10): Promise<AITask[]> {
-    const tasks = await withRetry(async () => {
-        return prisma.aITask.findMany({
-            where: { status: 'queued' },
-            orderBy: { createdAt: 'asc' },
-            take: limit
+/**
+ * Atomically claim queued tasks and mark them as running.
+ * Uses Postgres row locking to avoid multi-worker duplicate processing.
+ */
+export async function claimQueuedTasks(limit = 10): Promise<AITask[]> {
+    const rows = await withRetry(async () => {
+        return prisma.$transaction(async (tx) => {
+            const claimed = await tx.$queryRawUnsafe<any[]>(`
+                WITH picked AS (
+                    SELECT id
+                    FROM "AITask"
+                    WHERE status = 'queued'
+                    ORDER BY "createdAt" ASC
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT $1
+                )
+                UPDATE "AITask" t
+                SET
+                    status = 'running',
+                    "startedAt" = NOW()
+                FROM picked
+                WHERE t.id = picked.id
+                RETURNING t.*;
+            `, limit);
+            return claimed;
         });
     });
-    return tasks.map(mapPrismaTask);
+    return rows.map(mapPrismaTask);
 }
 
 export async function updateTaskStatus(

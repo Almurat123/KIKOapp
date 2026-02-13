@@ -9,7 +9,7 @@ type InternalToolExecBody = {
 
 function requireInternalServiceKey(fastify: FastifyInstance, req: any, reply: any): boolean {
     const expected = process.env.INTERNAL_SERVICE_KEY || '';
-    const got = (req.headers['x-service-key'] as string) || '';
+    const got = (req.headers['x-internal-service-key'] as string) || (req.headers['x-service-key'] as string) || '';
     if (!expected || got !== expected) {
         reply.status(401).send({ success: false, error: 'Unauthorized internal request' });
         return false;
@@ -52,4 +52,3 @@ export async function internalToolsRoutes(fastify: FastifyInstance) {
         }
     });
 }
-

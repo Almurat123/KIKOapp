@@ -661,6 +661,8 @@ async def execute_custom_tool(tool_name: str, arguments: dict, auth_token: str =
     internal_key = os.getenv("INTERNAL_SERVICE_KEY", "")
     if internal_key:
         headers["X-Internal-Service-Key"] = internal_key
+        # Compatibility with middleware that still reads legacy header name
+        headers["X-Service-Key"] = internal_key
     app_key = os.getenv("KIKO_WEB_APP_KEY", "")
     if app_key:
         headers["X-App-Key"] = app_key
@@ -1318,11 +1320,15 @@ def normalize_model_name(model: str) -> str:
     Normalize model name to xai-sdk compatible format.
     Maps frontend model names to actual API model names.
     """
+    default_model = os.getenv("GROK_DEFAULT_MODEL", "grok-4-1-fast-reasoning")
     model_map = {
+        "grok": default_model,
+        "grok-fast": "grok-4-1-fast-non-reasoning",
+        "grok-reasoning": "grok-4-1-fast-reasoning",
         "grok-4-reasoning": "grok-4-1-fast-reasoning",
         "grok-4-non-reasoning": "grok-4-1-fast-non-reasoning",
     }
-    normalized = model_map.get(model, model)
+    normalized = model_map.get((model or "").strip(), (model or "").strip())
     print(f"[Model] Original: {model} -> Normalized: {normalized}")
     return normalized
 

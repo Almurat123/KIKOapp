@@ -55,9 +55,15 @@ export class NotificationService {
      */
     public async sendNotification(params: TradeNotificationParams): Promise<boolean> {
         const { farcasterFid, type, data } = params;
+        const mustNotifyTypes = new Set<TradeNotificationParams['type']>([
+            'TRADE_SUCCESS_BUY',
+            'TRADE_SUCCESS_SELL',
+            'TRADE_FAILURE',
+            'COPY_TRADE_SKIPPED'
+        ]);
 
         if (!farcasterFid) {
-            if (type === 'COPY_TRADE_SKIPPED' || type === 'TRADE_FAILURE') {
+            if (mustNotifyTypes.has(type)) {
                 logger.warn(LogCode.API_NOTIFY_FAILED, 'No Farcaster FID provided, critical notification not sent', {
                     userId: params.userId,
                     type,
@@ -70,7 +76,10 @@ export class NotificationService {
         }
 
         if (!warpcastService.isConfigured()) {
-            logger.warn(LogCode.API_NOTIFY_FAILED, 'Warpcast service not configured, skipping notification');
+            logger.warn(LogCode.API_NOTIFY_FAILED, 'Warpcast service not configured, skipping notification', {
+                userId: params.userId,
+                type
+            });
             return false;
         }
 

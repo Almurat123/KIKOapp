@@ -17,9 +17,23 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || (
 export function getOptimizedImageUrl(url: string, width?: number, quality?: number): string {
     if (!url) return '';
 
-    // Skip proxy for already optimized CDNs or trusted low-latency sources
-    if (url.includes('wrpcd.net') || url.includes('imagedelivery.net') || url.includes('vxtwitter.com')) {
-        return url;
+    // Skip proxy for trusted image CDNs to reduce backend egress/cost.
+    try {
+        const host = new URL(url).hostname.toLowerCase();
+        const directHosts = new Set([
+            'wrpcd.net',
+            'imagedelivery.net',
+            'vxtwitter.com',
+            'cdn.dexscreener.com',
+            'raw.githubusercontent.com',
+            'assets.coingecko.com',
+            'coin-images.coingecko.com',
+            'pbs.twimg.com',
+            'i.imgur.com',
+        ]);
+        if (directHosts.has(host)) return url;
+    } catch {
+        // Keep proxy fallback for malformed/non-absolute URLs.
     }
 
     const params = new URLSearchParams({ url });
@@ -780,7 +794,7 @@ function resolveChatApiBase(): string {
         }
     }
 
-    return 'http://localhost:8100';
+    return 'http://localhost:3001';
 }
 
 const CHAT_API_BASE = resolveChatApiBase();
@@ -827,7 +841,7 @@ export const chatApi = {
      * Create a new chat session
      */
     async createSession(title?: string, model?: string): Promise<{ success: boolean; session: ChatSession }> {
-        return chatFetch<{ success: boolean; session: ChatSession }>('/v2/chat/sessions', {
+        return chatFetch<{ success: boolean; session: ChatSession }>('/api/chat/sessions', {
             method: 'POST',
             body: JSON.stringify({ title, model }),
         });
@@ -837,7 +851,7 @@ export const chatApi = {
      * List user sessions
      */
     async getSessions(limit = 50, offset = 0): Promise<ChatSession[]> {
-        const resp = await chatFetch<{ success: boolean; sessions: ChatSession[] }>(`/v2/chat/sessions?limit=${limit}&offset=${offset}`);
+        const resp = await chatFetch<{ success: boolean; sessions: ChatSession[] }>(`/api/chat/sessions?limit=${limit}&offset=${offset}`);
         return resp?.sessions || [];
     },
 
@@ -845,14 +859,14 @@ export const chatApi = {
      * Get a specific session with messages
      */
     async getSession(sessionId: string): Promise<{ success: boolean; session: ChatSession; messages: ChatMessage[]; activeTask?: ChatTask }> {
-        return chatFetch<{ success: boolean; session: ChatSession; messages: ChatMessage[]; activeTask?: ChatTask }>(`/v2/chat/sessions/${sessionId}`);
+        return chatFetch<{ success: boolean; session: ChatSession; messages: ChatMessage[]; activeTask?: ChatTask }>(`/api/chat/sessions/${sessionId}`);
     },
 
     /**
      * Update session (title, model, status)
      */
     async updateSession(sessionId: string, updates: Partial<ChatSession>): Promise<{ success: boolean; session: ChatSession }> {
-        return chatFetch<{ success: boolean; session: ChatSession }>(`/v2/chat/sessions/${sessionId}`, {
+        return chatFetch<{ success: boolean; session: ChatSession }>(`/api/chat/sessions/${sessionId}`, {
             method: 'PATCH',
             body: JSON.stringify(updates),
         });
@@ -862,7 +876,7 @@ export const chatApi = {
      * Delete session
      */
     async deleteSession(sessionId: string): Promise<{ success: boolean }> {
-        return chatFetch<{ success: boolean }>(`/v2/chat/sessions/${sessionId}`, {
+        return chatFetch<{ success: boolean }>(`/api/chat/sessions/${sessionId}`, {
             method: 'DELETE',
         });
     },
@@ -871,7 +885,7 @@ export const chatApi = {
      * Rate a message (Like/Dislike)
      */
     async rateMessage(sessionId: string, messageId: string, feedback: 'like' | 'dislike' | null): Promise<{ success: boolean }> {
-        return chatFetch<{ success: boolean }>(`/v2/chat/sessions/${sessionId}/messages/${messageId}/feedback`, {
+        return chatFetch<{ success: boolean }>(`/api/chat/sessions/${sessionId}/messages/${messageId}/feedback`, {
             method: 'PUT',
             body: JSON.stringify({ feedback }),
         });
@@ -881,7 +895,7 @@ export const chatApi = {
      * Send a message to a session (starts AI task)
      */
     async sendMessage(sessionId: string, content: string, options: Record<string, unknown> = {}): Promise<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }> {
-        return chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/v2/chat/sessions/${sessionId}/messages`, {
+        return chatFetch<{ success: boolean; userMessage: ChatMessage; assistantMessage: ChatMessage; task: ChatTask }>(`/api/chat/sessions/${sessionId}/messages`, {
             method: 'POST',
             body: JSON.stringify({ content, ...options }),
         });
@@ -891,7 +905,7 @@ export const chatApi = {
      * Get messages for a session
      */
     async getMessages(sessionId: string, after?: number): Promise<ChatMessage[]> {
-        const url = `/v2/chat/sessions/${sessionId}/messages${after !== undefined ? `?after=${after}` : ''}`;
+        const url = `/api/chat/sessions/${sessionId}/messages${after !== undefined ? `?after=${after}` : ''}`;
         const resp = await chatFetch<{ success: boolean; messages: ChatMessage[] }>(url);
         return resp?.messages || [];
     },
@@ -900,14 +914,14 @@ export const chatApi = {
      * Get task status
      */
     async getTaskStatus(taskId: string): Promise<ChatTask> {
-        return chatFetch<ChatTask>(`/v2/chat/tasks/${taskId}`);
+        return chatFetch<ChatTask>(`/api/chat/tasks/${taskId}`);
     },
 
     /**
      * Stop/cancel a task
      */
     async stopTask(taskId: string): Promise<{ success: boolean }> {
-        return chatFetch<{ success: boolean }>(`/v2/chat/tasks/${taskId}/cancel`, {
+        return chatFetch<{ success: boolean }>(`/api/chat/tasks/${taskId}/stop`, {
             method: 'POST',
             body: JSON.stringify({}), // Fastify requires body when Content-Type is JSON
         });
@@ -917,7 +931,7 @@ export const chatApi = {
      * Poll for message chunks
      */
     async getMessageChunks(messageId: string, after?: number): Promise<{ success: boolean; chunks: unknown[] }> {
-        const url = `/v2/chat/messages/${messageId}/chunks${after !== undefined ? `?after=${after}` : ''}`;
+        const url = `/api/chat/messages/${messageId}/chunks${after !== undefined ? `?after=${after}` : ''}`;
         return chatFetch<{ success: boolean; chunks: unknown[] }>(url);
     },
 
@@ -925,7 +939,7 @@ export const chatApi = {
      * Get personalized suggestions
      */
     async getSuggestions(): Promise<{ success: boolean; suggestions: string[] }> {
-        return chatFetch<{ success: boolean; suggestions: string[] }>('/v2/chat/suggestions');
+        return chatFetch<{ success: boolean; suggestions: string[] }>('/api/chat/suggestions');
     },
 
     /**
@@ -938,7 +952,7 @@ export const chatApi = {
         sessionId?: string | null;
         model?: string | null;
     }): Promise<unknown> {
-        return chatFetch<unknown>('/v2/chat/moderation/log', {
+        return chatFetch<unknown>('/api/chat/moderation/log', {
             method: 'POST',
             body: JSON.stringify(data),
         });

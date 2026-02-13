@@ -102,6 +102,27 @@ interface MiniAppEmbed {
     };
 }
 
+const DIRECT_IMAGE_HOSTS = new Set([
+    'cdn.dexscreener.com',
+    'raw.githubusercontent.com',
+    'assets.coingecko.com',
+    'coin-images.coingecko.com',
+    'wrpcd.net',
+    'imagedelivery.net',
+    'vxtwitter.com',
+    'pbs.twimg.com',
+    'i.imgur.com',
+]);
+
+function shouldProxyImage(imageUrl: string): boolean {
+    try {
+        const host = new URL(imageUrl).hostname.toLowerCase();
+        return !DIRECT_IMAGE_HOSTS.has(host);
+    } catch {
+        return true;
+    }
+}
+
 /**
  * Sanitizes and prepares metadata for the frontend
  */
@@ -126,6 +147,9 @@ function sanitizeMetadata(metadata: OGPMetadata, origin?: string): OGPMetadata {
 
     // 2. Proxify image if it exists
     if (metadata.image && !metadata.image.startsWith('data:')) {
+        if (!shouldProxyImage(metadata.image)) {
+            return metadata;
+        }
         // Already proxied absolute URL: normalize to current API_URL if configured.
         const proxiedAbsoluteMatch = metadata.image.match(/^https?:\/\/[^/]+(\/api\/images\/token\?url=.*)$/i);
         if (proxiedAbsoluteMatch) {

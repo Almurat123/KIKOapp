@@ -17,6 +17,12 @@ const VALID_APP_KEYS = new Set([
  * [Risk]: Empty VALID_APP_KEYS set will block all requests
  */
 export async function requireAppKey(request: FastifyRequest, _reply: FastifyReply) {
+    const internalKey = process.env.INTERNAL_SERVICE_KEY;
+    const requestInternalKey = (request.headers['x-internal-service-key'] as string) || (request.headers['x-service-key'] as string) || '';
+    if (internalKey && requestInternalKey === internalKey) {
+        return;
+    }
+
     // [Logic]: Allow bypass in development if no keys configured
     // [Risk]: Production deployment without keys will allow all traffic
     if (VALID_APP_KEYS.size === 0) {

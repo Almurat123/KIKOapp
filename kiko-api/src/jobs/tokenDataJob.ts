@@ -63,11 +63,14 @@ const SECONDARY_CHAIN_DELAY_MS = 60000; // 60 seconds between secondary chains
 
 // Number of tokens to fetch per chain
 const TOKENS_PER_CHAIN = 100;
-const LAUNCHPAD_DETECT_CONCURRENCY = 6;
+const LAUNCHPAD_DETECT_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.LAUNCHPAD_DETECT_CONCURRENCY || '2')
+);
 const LAUNCH_MULTIPLE_ENRICH_ENABLED = true;
 const LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN = Math.max(
-  48,
-  Number(process.env.LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN || '80')
+  8,
+  Number(process.env.LAUNCHPAD_API_VERIFY_BUDGET_PER_RUN || '24')
 );
 const LAUNCH_MULTIPLE_BUDGET_PER_RUN = Math.max(
   4,

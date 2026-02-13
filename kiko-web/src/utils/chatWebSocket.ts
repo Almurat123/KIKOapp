@@ -42,7 +42,7 @@ function resolveWsBaseUrl(): string {
         }
     }
 
-    return 'ws://localhost:8100';
+    return 'ws://localhost:3001';
 }
 
 const WS_BASE_URL = resolveWsBaseUrl();
@@ -90,7 +90,7 @@ export class ChatWebSocketClient {
         const appKey = import.meta.env.VITE_APP_KEY || '';
         const qs = new URLSearchParams({ token });
         if (appKey) qs.set('appKey', appKey);
-        const url = `${WS_BASE_URL}/v2/chat/ws?${qs.toString()}`;
+        const url = `${WS_BASE_URL}/api/chat/ws?${qs.toString()}`;
         console.log(`[ChatWS] Connecting to user WebSocket...`);
 
         this.socket = new WebSocket(url);

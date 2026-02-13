@@ -544,6 +544,7 @@ export class MainSwapService {
     const TURBO_TOTAL_BUDGET_MS = Number(process.env.COPYTRADE_TURBO_TOTAL_BUDGET_MS || '2200');
     const TURBO_DIRECT_ATTEMPT_TIMEOUT_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_ATTEMPT_TIMEOUT_MS || '1400');
     const TURBO_SKIP_FALLBACK_ON_TIMEOUT = (process.env.COPYTRADE_TURBO_SKIP_FALLBACK_ON_TIMEOUT || 'true') === 'true';
+    const TURBO_DIRECT_LATE_SETTLE_MS = Number(process.env.COPYTRADE_TURBO_DIRECT_LATE_SETTLE_MS || '2200');
     const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
       return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`timeout_${label}_${ms}ms`)), ms);
@@ -555,6 +556,10 @@ export class MainSwapService {
           reject(e);
         });
       });
+    };
+    const isTimeoutError = (err: unknown): boolean => {
+      const msg = String((err as any)?.message || '').toLowerCase();
+      return msg.includes('timeout_');
     };
 
     const normalizedTokenIn = this.normalizeEvmTokenInput(request.tokenIn, request.chainId);
@@ -645,6 +650,7 @@ export class MainSwapService {
       });
       let lastDirectResult: Awaited<ReturnType<typeof executeDirectSwap>> | null = null;
       let lastDirectError: any = null;
+      let inflightDirectPromise: Promise<Awaited<ReturnType<typeof executeDirectSwap>>> | null = null;
       try {
         for (let attempt = 1; attempt <= DIRECT_SWAP_MAX_ATTEMPTS; attempt++) {
           const remainingTurboBudget = TURBO_TOTAL_BUDGET_MS - (Date.now() - turboBudgetStart);
@@ -652,7 +658,7 @@ export class MainSwapService {
             lastDirectError = new Error(`timeout_turbo_budget_${TURBO_TOTAL_BUDGET_MS}ms`);
             break;
           }
-          const directPromise = executeDirectSwap({
+          inflightDirectPromise = executeDirectSwap({
             userId: request.userId,
             accessToken: request.accessToken || '',
             walletAddress: request.walletAddress,
@@ -664,13 +670,49 @@ export class MainSwapService {
             hint: request.directSwapHint,
             executionMode: request.userSettings?.copyTradeExecutionMode
           });
-          const directResult = isTurboCopytrade
-            ? await withTimeout(
-              directPromise,
-              Math.max(200, Math.min(TURBO_DIRECT_ATTEMPT_TIMEOUT_MS, remainingTurboBudget)),
-              'direct_swap'
-            )
-            : await directPromise;
+          let directResult: Awaited<ReturnType<typeof executeDirectSwap>>;
+          if (isTurboCopytrade) {
+            const timeoutMs = Math.max(200, Math.min(TURBO_DIRECT_ATTEMPT_TIMEOUT_MS, remainingTurboBudget));
+            try {
+              directResult = await withTimeout(
+                inflightDirectPromise,
+                timeoutMs,
+                'direct_swap'
+              );
+            } catch (timeoutErr: any) {
+              if (!isTimeoutError(timeoutErr)) {
+                throw timeoutErr;
+              }
+              if (!TURBO_SKIP_FALLBACK_ON_TIMEOUT) {
+                throw timeoutErr;
+              }
+
+              logger.warn(LogCode.SYS_INFO, trace('Turbo direct timeout; waiting late-settle window'), {
+                attempt,
+                timeoutMs,
+                lateSettleMs: TURBO_DIRECT_LATE_SETTLE_MS
+              });
+
+              const lateResult = await Promise.race([
+                inflightDirectPromise,
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), TURBO_DIRECT_LATE_SETTLE_MS))
+              ]);
+
+              if (lateResult) {
+                directResult = lateResult;
+                logger.info(LogCode.SYS_INFO, trace('Turbo direct late-settle succeeded'), {
+                  attempt,
+                  provider: directResult.provider,
+                  txHash: directResult.txHash
+                });
+              } else {
+                lastDirectError = timeoutErr;
+                break;
+              }
+            }
+          } else {
+            directResult = await inflightDirectPromise;
+          }
           lastDirectResult = directResult;
 
           if (directResult.success) {
@@ -737,12 +779,13 @@ export class MainSwapService {
       if (
         isTurboCopytrade &&
         TURBO_SKIP_FALLBACK_ON_TIMEOUT &&
-        String(lastDirectError?.message || '').toLowerCase().includes('timeout_')
+        isTimeoutError(lastDirectError)
       ) {
         logger.warn(LogCode.SYS_INFO, trace('Turbo direct path timed out, skipping fallback by policy'), {
           error: lastDirectError?.message,
           budgetMs: TURBO_TOTAL_BUDGET_MS,
-          attemptTimeoutMs: TURBO_DIRECT_ATTEMPT_TIMEOUT_MS
+          attemptTimeoutMs: TURBO_DIRECT_ATTEMPT_TIMEOUT_MS,
+          lateSettleMs: TURBO_DIRECT_LATE_SETTLE_MS
         });
         return {
           success: false,

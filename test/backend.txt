@@ -1,3 +1,14 @@
+[api] [17:10:15] [inf] [TRACE] [WS-8001] ChatWS Client connected | traceId=02778209-8d5f-48d8-b2d0-90f3ce9348e2 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 totalConnections=1 role=TRACE
+[api] [17:10:15] [inf] [TRACE] [WS-8001] ChatWS: User connected | traceId=02778209-8d5f-48d8-b2d0-90f3ce9348e2 userId=did:privy:cmj0a3j3f005fl2... tokenExp=1771002868 role=TRACE
+[api] [MarketJob] Running startup staleness check...
+[api] [17:10:17] [inf] [EVENT] [SYS-1001] No open positions to monitor | role=EVENT
+[api] [Job] ✅ Loaded 436 real hot users from /Users/almurat/KiKo/kiko-api/data/real_hot_users.json
+[api] [Job] ✅ Using 436 real hot users from analysis
+[api] [SocialJob] fetchCastsFromUsers starting with 436 FIDs, target: 1000
+[api] [17:10:18] [inf] [TRACE] [WS-8001] ChatWS Client connected | traceId=9cef9fe9-049d-4f71-a9a3-bd823fa5f3e6 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 totalConnections=1 role=TRACE
+[api] [17:10:18] [inf] [TRACE] [WS-8001] ChatWS: User connected | traceId=9cef9fe9-049d-4f71-a9a3-bd823fa5f3e6 userId=did:privy:cmj0a3j3f005fl2... tokenExp=1771006218 role=TRACE
+[api] [CopyTrade] GET /configs - Fetching configs for user did:privy:cmj0a3j3f005fl20c4xkl7195
+[api] [CopyTrade] GET /positions - Fetching positions for did:privy:cmj0a3j3f005fl20c4xkl7195
 [api] [verifyAccess] Checking access: {
 [api]   userId: 'did:privy:cmj0a3j3f005fl20c4xkl7195',
 [api]   userIdLength: 35,
@@ -5,91 +16,108 @@
 [api]   requestedAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E'
 [api] }
 [api] [verifyAccess] ✅ Access granted
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/080263c9-d043-46b8-a87e-dd6bca7a6ea3 HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "GET /v2/chat/sessions/080263c9-d043-46b8-a87e-dd6bca7a6ea3 HTTP/1.1" 200 OK
-[api] [14:40:46] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=e0458907-3eff-455b-be67-4c6c5a00649e duration=1800 role=METRIC
-[api] [14:40:47] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=f83f749c-2198-4746-bc2d-48d7d822265c duration=1492 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/080263c9-d043-46b8-a87e-dd6bca7a6ea3 HTTP/1.1" 200 OK
-[api] [14:40:48] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/e0b25401-2e3a-4269-bdb8-7cad08b67dbc HTTP/1.1" 200 OK
-[api] [14:40:49] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=a899913c-0238-4647-9b73-8a7e6bda4a16 duration=1075 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "GET /v2/chat/sessions/e0b25401-2e3a-4269-bdb8-7cad08b67dbc HTTP/1.1" 200 OK
-[api] [14:40:50] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=ebbf15bd-65ba-4f4f-94e9-622f2f591c7b duration=329 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/e0b25401-2e3a-4269-bdb8-7cad08b67dbc HTTP/1.1" 200 OK
-[api] [14:40:50] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=a899913c-0238-4647-9b73-8a7e6bda4a16 chain=base token=USDC amount=0.181557 role=METRIC
-[api] [14:40:50] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=ebbf15bd-65ba-4f4f-94e9-622f2f591c7b chain=base token=USDC amount=0.181557 role=METRIC
-[api] [14:40:50] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=3e8f8032-36df-49d4-a38a-e12bf0effef0 duration=329 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/b4399acc-9139-42f9-99d9-036c6cd2bfb8 HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/b4399acc-9139-42f9-99d9-036c6cd2bfb8 HTTP/1.1" 200 OK
-[api] [14:40:51] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=bfb7cf7c-53fb-4658-86e3-1f486342f676 duration=445 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/5c687627-5259-4d9f-a0ed-4a756f2e6bdf HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/5c687627-5259-4d9f-a0ed-4a756f2e6bdf HTTP/1.1" 200 OK
-[api] [14:40:51] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=3e8f8032-36df-49d4-a38a-e12bf0effef0 chain=base token=USDC amount=0.181557 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/3f0e9447-4bde-41a0-b566-34a9cc1f132b HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/3f0e9447-4bde-41a0-b566-34a9cc1f132b HTTP/1.1" 200 OK
-[api] [14:40:52] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=b2426b53-af9a-4f74-b8f3-0d7a5ea75189 duration=362 role=METRIC
-[api] [14:40:52] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=6952cd53-80d3-4975-b4f1-5ce2157ee85f duration=951 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/408bd464-37c7-4359-9d6b-bdf47a4f326e HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/408bd464-37c7-4359-9d6b-bdf47a4f326e HTTP/1.1" 200 OK
-[api] [14:40:52] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=bfb7cf7c-53fb-4658-86e3-1f486342f676 chain=base token=USDC amount=0.181557 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/a4bde43c-7cce-46e2-aa32-10dd22ec2a5d HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/a4bde43c-7cce-46e2-aa32-10dd22ec2a5d HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/a966bf94-f209-4e85-a039-be112e0e590e HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/a966bf94-f209-4e85-a039-be112e0e590e HTTP/1.1" 200 OK
-[api] [14:40:53] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=b2426b53-af9a-4f74-b8f3-0d7a5ea75189 chain=base token=USDC amount=0.181557 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/d6cfa2b0-1a13-4582-aae0-61c356e1bb0a HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/d6cfa2b0-1a13-4582-aae0-61c356e1bb0a HTTP/1.1" 200 OK
-[api] [14:40:53] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=e0458907-3eff-455b-be67-4c6c5a00649e error=fetch failed url=https://api.g.alchemy.com/prices/v1/Cmrwi0FonoT_sPwZhJXou/to role=METRIC
-[api] [14:40:53] [wrn] [METRIC] [API-5002] Alchemy Prices API failed | traceId=e0458907-3eff-455b-be67-4c6c5a00649e error=fetch failed network=base-mainnet role=METRIC
-[api] [14:40:53] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=e0458907-3eff-455b-be67-4c6c5a00649e error=fetch failed url=https://api.g.alchemy.com/prices/v1/Cmrwi0FonoT_sPwZhJXou/to role=METRIC
-[api] [14:40:53] [wrn] [METRIC] [API-5002] Alchemy Prices API failed | traceId=e0458907-3eff-455b-be67-4c6c5a00649e error=fetch failed network=base-mainnet role=METRIC
-[api] [14:40:53] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=e0458907-3eff-455b-be67-4c6c5a00649e chain=base token=USDC amount=0.181557 role=METRIC
-[api] [14:40:53] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=f83f749c-2198-4746-bc2d-48d7d822265c error=fetch failed url=https://api.g.alchemy.com/prices/v1/Cmrwi0FonoT_sPwZhJXou/to role=METRIC
-[api] [14:40:53] [wrn] [METRIC] [API-5002] Alchemy Prices API failed | traceId=f83f749c-2198-4746-bc2d-48d7d822265c error=fetch failed network=base-mainnet role=METRIC
-[api] [14:40:53] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=f83f749c-2198-4746-bc2d-48d7d822265c error=fetch failed url=https://api.g.alchemy.com/prices/v1/Cmrwi0FonoT_sPwZhJXou/to role=METRIC
-[api] [14:40:53] [wrn] [METRIC] [API-5002] Alchemy Prices API failed | traceId=f83f749c-2198-4746-bc2d-48d7d822265c error=fetch failed network=base-mainnet role=METRIC
-[api] [14:40:53] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=f83f749c-2198-4746-bc2d-48d7d822265c chain=base token=USDC amount=0.181557 role=METRIC
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/3c340144-edd6-4843-a384-ed6217670898 HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/3c340144-edd6-4843-a384-ed6217670898 HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/3773963e-e1ff-4a01-9959-16c41709aa59 HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "DELETE /v2/chat/sessions/3773963e-e1ff-4a01-9959-16c41709aa59 HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/moderation/log HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:51292 - "OPTIONS /v2/chat/sessions HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "POST /v2/chat/moderation/log HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:51292 - "POST /v2/chat/sessions HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/b7e43adb-f90e-4157-ba80-f506c579a3d8 HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:51292 - "GET /v2/chat/sessions/b7e43adb-f90e-4157-ba80-f506c579a3d8 HTTP/1.1" 200 OK
-[python] INFO:     127.0.0.1:50191 - "OPTIONS /v2/chat/sessions/b7e43adb-f90e-4157-ba80-f506c579a3d8/messages HTTP/1.1" 200 OK
-[python] INFO:chat_v2.app:send_message context session_id=b7e43adb-f90e-4157-ba80-f506c579a3d8 user_id=did:privy:cmj0a3j3f005fl20c4xkl7195 wallet=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E chain=8453 nativeBalance=0.00286423 balance_keys=['ETH', 'USDC', '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca', 'USDbC', '0x4200000000000000000000000000000000000006', 'WETH'] context_keys=['walletAddress', 'chainId', 'chainName', 'isWalletConnected', 'balance', 'nativeBalance', 'currentPage', 'pageContext', 'farcaster']
-[python] INFO:     127.0.0.1:51292 - "POST /v2/chat/sessions/b7e43adb-f90e-4157-ba80-f506c579a3d8/messages HTTP/1.1" 200 OK
-[python] INFO:chat_v2.worker:chat task start task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea session_id=b7e43adb-f90e-4157-ba80-f506c579a3d8 user_id=did:privy:cmj0a3j3f005fl20c4xkl7195 model=deepseek-chat wallet=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E chain=8453
-[python] INFO:chat_v2.worker:intent parsed task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea intent=TRADING routing=execution confidence=0.88 detail={"version": "1.0", "origin": "chat", "action": "swap", "token_in": null, "token_out": null, "amount": null, "amount_semantic": "input", "chain_id": 8453, "token_address": null, "query": "Sell all USDC to ETH"}
-[python] INFO:httpx:HTTP Request: GET http://127.0.0.1:3001/internal/tools/definitions "HTTP/1.1 200 OK"
-[python] INFO:     127.0.0.1:51319 - "GET /tool-runtime/internal/v1/tool/definitions HTTP/1.1" 200 OK
-[python] INFO:httpx:HTTP Request: GET http://127.0.0.1:8001/tool-runtime/internal/v1/tool/definitions "HTTP/1.1 200 OK"
-[python] INFO:chat_v2.worker:tool selection task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea intent=TRADING mode=execution allowed=['analyze_wallet_pnl', 'check_token_risk', 'get_cross_chain_quote', 'get_token_info', 'get_user_favorites', 'list_token_alerts', 'prepare_cross_chain_tx', 'prepare_swap_transaction', 'remove_token_alert', 'set_token_alert', 'simulate_swap'] selected=['analyze_wallet_pnl', 'check_token_risk', 'get_cross_chain_quote', 'get_token_info', 'get_user_favorites', 'list_token_alerts', 'prepare_cross_chain_tx', 'prepare_swap_transaction', 'remove_token_alert', 'set_token_alert', 'simulate_swap']
-[python] INFO:chat_v2.worker:llm round start task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea round=1/10 tool_trace_calls=0
-[python] INFO:chat_v2.worker:llm request task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea round=1 model=deepseek-chat tools=['analyze_wallet_pnl', 'check_token_risk', 'get_cross_chain_quote', 'get_token_info', 'get_user_favorites', 'list_token_alerts', 'prepare_cross_chain_tx', 'prepare_swap_transaction', 'remove_token_alert', 'set_token_alert', 'simulate_swap'] msg_count=5
-[python] INFO:     127.0.0.1:51319 - "POST /llm-gateway/internal/v1/generate HTTP/1.1" 200 OK
-[python] INFO:httpx:HTTP Request: POST http://127.0.0.1:8001/llm-gateway/internal/v1/generate "HTTP/1.1 200 OK"
-[api] [14:40:57] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=6952cd53-80d3-4975-b4f1-5ce2157ee85f error=fetch failed url=https://api.g.alchemy.com/prices/v1/Cmrwi0FonoT_sPwZhJXou/to role=METRIC
-[api] [14:40:57] [wrn] [METRIC] [API-5002] Alchemy Prices API failed | traceId=6952cd53-80d3-4975-b4f1-5ce2157ee85f error=fetch failed network=base-mainnet role=METRIC
-[api] [14:40:58] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=270b2303-0daa-4af5-b464-c8b166f798b8 duration=1123 role=METRIC
-[api] [14:40:58] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=98cb289c-07c5-4056-988c-562c2ea7e657 duration=1010 role=METRIC
-[api] [14:40:58] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
-[api] [14:40:58] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=6952cd53-80d3-4975-b4f1-5ce2157ee85f chain=base token=USDC amount=0.181557 role=METRIC
-[python] INFO:httpx:HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
-[api] [14:41:00] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=98cb289c-07c5-4056-988c-562c2ea7e657 chain=base token=USDC amount=0.181557 role=METRIC
-[api] [14:41:00] [inf] [METRIC] [API-5001] Hybrid Fetch recovered missing token | traceId=270b2303-0daa-4af5-b464-c8b166f798b8 chain=base token=USDC amount=0.181557 role=METRIC
-[python] INFO:chat_v2.worker:llm usage task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea round=1 usage={"prompt_tokens": 5853, "completion_tokens": 212, "total_tokens": 6065, "prompt_tokens_details": {"cached_tokens": 2752}, "prompt_cache_hit_tokens": 2752, "prompt_cache_miss_tokens": 3101}
-[python] INFO:chat_v2.worker:round tool_calls merged task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea round=1 count=1 calls=[{"id": "call_00_id5eVfxT7mXyquvmOj2lekVx", "name": "simulate_swap", "args": ""}]
-[python] INFO:chat_v2.worker:tool execute start task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea round=1 tool=simulate_swap raw_args=""
-[python] WARNING:chat_v2.worker:tool blocked missing args task=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea tool=simulate_swap missing=['token_in', 'token_out', 'amount_in'] args={"chain_id": 8453, "token_in": null, "token_out": null}
-[python] INFO:chat_v2.worker:tool execute done task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea round=1 tool=simulate_swap status=error result=null error="missing required arguments: token_in, token_out, amount_in"
-[python] WARNING:chat_v2.worker:tool loop stopped by limit task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea stop_reasons=['tool_missing_args:simulate_swap'] counts={}
-[python] INFO:chat_v2.worker:chat task complete task_id=249f8c80-2eaf-4cfa-aaf9-9c2c219406ea session_id=b7e43adb-f90e-4157-ba80-f506c579a3d8 end_to_end_ms=9971 first_token_ms=3170 tool_counts={} stop_reasons=['tool_missing_args:simulate_swap']
-[python] INFO:     127.0.0.1:51391 - "GET /v2/chat/sessions/b7e43adb-f90e-4157-ba80-f506c579a3d8 HTTP/1.1" 200 OK
-[api] [14:41:08] [inf] [EVENT] [SYS-1007] Starting initial token refresh... | role=EVENT
-[api] [14:41:08] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
-[api] [14:41:13] [inf] [EVENT] [SYS-1001] No open positions to monitor | role=EVENT
-[api] [14:41:18] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[api] [17:10:22] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[api] [17:10:23] [wrn] [METRIC] [API-5002] Failed to fetch Coinbase price | traceId=afa256aa-164a-44e4-bfec-ce99845b8ddd symbol=SOL error=fetch failed role=METRIC
+[api] [17:10:23] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=afa256aa-164a-44e4-bfec-ce99845b8ddd duration=5006 role=METRIC
+[api] [17:10:27] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=571d523e-c1b4-4fcd-a458-87390161acc6 duration=1139 role=METRIC
+[api] [17:10:29] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=5baafe4e-5bb4-4b2e-aa85-d96a0fb73c89 duration=457 role=METRIC
+[api] [17:10:30] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=c14e5d4d-4d3e-4ab1-a34e-2115b54a1725 duration=2612 role=METRIC
+[api] [17:10:31] [wrn] [METRIC] [API-5002] Failed to fetch native prices from DexScreener | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb error=fetch failed role=METRIC
+[api] [17:10:31] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb duration=5004 role=METRIC
+[api] [17:10:32] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_start connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start role=TRACE
+[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[python] INFO:moderation.router:Moderating input: Buy 3 USDC use ETH...
+[api] [17:10:34] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb error=This operation was aborted url=http://localhost:8000/moderation/input role=METRIC
+[api] [17:10:34] [wrn] [METRIC] [API-5002] Input moderation request failed, defaulting to safe | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb error=This operation was aborted role=METRIC
+[api] [17:10:34] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_start connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start role=TRACE
+[api] [17:10:34] [inf] [TRACE] [AI-6007] Grok: message_start sent | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb assistantMessageId=cmll58kn0001v3e7wr9zsepzg taskId=cmll58q0e002p3e7wylvscw78 role=TRACE
+[api] [17:10:34] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:10:34] [inf] [TRACE] [AI-6001] Timer finished: intent_parsing_debc55eb | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userAddress=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E intent=swap highLevelIntent=TRADING hasAI=false confidence=0.95 routingStage=rule hardRule=TRADING slotsComplete=true labels=[3] durationMs=7 timerLabel=intent_parsing_debc55eb role=TRACE
+[api] [17:10:34] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:10:34] [inf] [TRACE] [AI-6009] Grok: routed to mode | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb taskId=cmll58q0e002p3e7wylvscw78 sessionId=cmll58kit001p3e7ws17zowip model=grok-4-1-fast-non-reasoning intent=TRADING routingMode=execution hardRule={"label":"TRADING","reason":"action + slots complete"} confidence=0.95 role=TRACE
+[api] [17:10:34] [inf] [TRACE] [AI-6006] Grok: tool list gated by skills | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb count=13 intent=TRADING skills=[4] routingMode=execution skillVersion=exec role=TRACE
+[api] [17:10:34] [inf] [TRACE] [AI-6010] Grok: skills attached | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb taskId=cmll58q0e002p3e7wylvscw78 sessionId=cmll58kit001p3e7ws17zowip model=grok-4-1-fast-non-reasoning intent=TRADING routingMode=execution skillVersion=exec skills=[4] toolCount=13 role=TRACE
+[api] [17:10:34] [inf] [TRACE] [AI-6007] ChatWorker: seeded get_wallet_info from client context | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb chainId=8453 tokenCount=141 hasNativeBalance=true role=TRACE
+[api] [17:10:34] [inf] [TRACE] [AI-6006] PromptOrchestrator: Intent matched skills | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb intent=TRADING count=4 skills=[4] role=TRACE
+[api] [17:10:34] [inf] [TRACE] [AI-6003] Timer finished: prompt_gen_TRADING_grok | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb model=grok intent=TRADING length=11842 durationMs=0 timerLabel=prompt_gen_TRADING_grok role=TRACE
+[api] [17:10:34] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:10:35] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=2414c82e-e689-4c88-bc26-3ccc152f490d duration=1132 role=METRIC
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+[python] INFO:     127.0.0.1:54285 - "POST /moderation/input HTTP/1.1" 200 OK
+[api] [17:10:35] [wrn] [TRACE] [AI-6007] ChatWorker: timed out non-critical step | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb label=native_price_coinbase timeoutMs=800 role=TRACE
+[api] [17:10:35] [inf] [TRACE] [AI-6007] Grok: context budget applied | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb taskId=cmll58q0e002p3e7wylvscw78 sessionId=cmll58kit001p3e7ws17zowip inputTokensEstimated=546 historyKept=2 historyCompacted=0 hasCompaction=false role=TRACE
+[api] [17:10:35] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[python] [Model] Original: grok-4-1-fast-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
+[python] INFO:     127.0.0.1:54392 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[python] [Custom Tool] Executing get_token_info...
+[python] [Tool Execution] Executing tool: get_token_info with args: {'address': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', 'chain': 'base'}
+[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
+[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/api/ai/tools/execute
+[api] [originRestriction] Internal service call authenticated
+[api] [GetTokenInfo] Attempting DexScreener fallback...
+[api] [17:10:42] [inf] [EVENT] [SYS-1007] Starting initial token refresh... | role=EVENT
+[api] [17:10:42] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[api] [17:10:42] [inf] [METRIC] [API-5001] Fetching premium trending tokens | chain=ethereum limit=100 role=METRIC
+[python] INFO:httpx:HTTP Request: POST http://localhost:3001/api/ai/tools/execute "HTTP/1.1 200 OK"
+[python] [Custom Tool] get_token_info returned: 869 chars
+[python] [Custom Tool] Buffering tool result: {
+[python]   "source": "DexScreener",
+[python]   "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+[python]   "name": "C...
+[python] [Custom Tool] Added tool result to chat, will call Grok again
+[python] [Custom Tool] Executing get_wallet_info...
+[python] [Tool Execution] Executing tool: get_wallet_info with args: {'address': '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E', 'chain': 'base', 'includeHistory': False}
+[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
+[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/api/ai/tools/execute
+[api] [originRestriction] Internal service call authenticated
+[api] [GetWalletInfo] Attempting Alchemy...
+[api] [17:10:43] [inf] [AUDIT] [WTC-2002] WS addresses discovered | wsCount=188 chain=ethereum role=AUDIT
+[api] [17:10:44] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=d09ba052-e9ed-48cb-9ad7-82720bec85eb duration=1175 role=METRIC
+[api] [17:10:47] [inf] [EVENT] [SYS-1001] No open positions to monitor | role=EVENT
+[api] [17:10:47] [inf] [METRIC] [API-5001] Processed DexScreener trending candidates | candidates=26 limit=200 role=METRIC
+[python] INFO:httpx:HTTP Request: POST http://localhost:3001/api/ai/tools/execute "HTTP/1.1 200 OK"
+[python] [Custom Tool] get_wallet_info returned: 19769 chars
+[python] [Custom Tool] Buffering tool result: {
+[python]   "address": "0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E",
+[python]   "chain": "base",
+[python]   "ethBalance": "0.0...
+[python] [Custom Tool] Added tool result to chat, will call Grok again
+[python] [Tool Turn] Tool call detected, continuing to turn 2
+[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
+[api] [17:10:50] [wrn] [METRIC] [API-5004] GeckoTerminal 429 triggered backoff | backoffMs=60000 role=METRIC
+[python] [Tool Turn] Tool call detected, continuing to turn 3
+[api] [17:10:51] [wrn] [METRIC] [API-5004] GeckoTerminal 429 triggered backoff | backoffMs=60000 role=METRIC
+[api] [17:10:52] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
+[api] [17:10:53] [wrn] [METRIC] [API-5004] GeckoTerminal 429 triggered backoff | backoffMs=60000 role=METRIC
+[python] [Tool Turn] Tool call detected, continuing to turn 4
+[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
+[python] [Tool Turn] Tool call detected, continuing to turn 5
+[api] [17:10:58] [wrn] [METRIC] [API-5004] GeckoTerminal 429 triggered backoff | backoffMs=60000 role=METRIC
+[api] [17:10:58] [err] [METRIC] [API-5002] GeckoTerminal API error after retries | endpoint=/networks/eth/trending_pools?page=5&include=base_token&duration=5m error=Rate limit hit, backing off for 60000ms role=METRIC
+[api] [17:10:58] [err] [METRIC] [API-5002] Error fetching trending tokens | network=eth error=Rate limit hit, backing off for 60000ms role=METRIC
+[api] [17:10:58] [inf] [METRIC] [API-5001] Premium trending tokens fetch complete | count=89 chain=ethereum durationMs=16322 source=WebSocket wsOriginal=188 role=METRIC
+[api] [17:10:58] [inf] [METRIC] [API-5001] Got 89 trending tokens for Ethereum | role=METRIC
+[api] [17:10:58] [inf] [METRIC] [API-5001] Filtered out 4 invalid tokens for Ethereum | role=METRIC
+[api] Saved 85/85 trending tokens for eth to database and memory cache
+[api] [17:10:58] [inf] [EVENT] [SYS-1007] Saved 85 tokens for Ethereum to DB + cache | role=EVENT
+[api] Saved 85/85 trending tokens for eth to database and memory cache
+[api] Saved 85/85 trending tokens for eth to database and memory cache
+[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
+[python] [Tool Turn] Tool call detected, continuing to turn 6
+[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
+[api] [17:11:02] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[python] [Tool Turn] Tool call detected, continuing to turn 7
+[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=usage connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage role=TRACE
+[python] INFO:moderation.router:Moderating output: ...
+[python] INFO:     127.0.0.1:54918 - "POST /moderation/output HTTP/1.1" 200 OK
+[api] [17:11:03] [inf] [EVENT] [SYS-1007] Moderation Output check result | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb safe=true userId=did:privy:cmj0a3j3f005fl20c4xkl7195 role=EVENT
+[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_latency_metrics | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=latency_metrics connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_latency_metrics role=TRACE
+[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_complete connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete role=TRACE
+[api] [17:11:03] [inf] [TRACE] [AI-6007] Grok: task completed | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb taskId=cmll58q0e002p3e7wylvscw78 chunks=0 role=TRACE
+[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_complete connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete role=TRACE

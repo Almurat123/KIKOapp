@@ -10,13 +10,13 @@ import { getVerifiedFreeEndpoints, RpcEndpointConfig } from '../config/apiEndpoi
 
 const ENABLED = (process.env.COPYTRADE_PENDING_WATCH_ENABLED || 'true') === 'true';
 const REFRESH_WALLETS_MS = Number(process.env.COPYTRADE_PENDING_WALLET_REFRESH_MS || 10000);
-const POLL_INTERVAL_MS = Number(process.env.COPYTRADE_PENDING_POLL_MS || 120);
+const POLL_INTERVAL_MS = Number(process.env.COPYTRADE_PENDING_POLL_MS || 800);
 const EVM_CHAIN_IDS = [1, 8453, 56, 137, 42161, 10];
 const LOCAL_DEDUP_TTL_MS = Number(process.env.COPYTRADE_PENDING_DEDUP_TTL_MS || 60_000);
 const PREFETCH_ENABLED = (process.env.COPYTRADE_PENDING_PREFETCH_ENABLED || 'true') === 'true';
-const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_WAIT_MS || 700);
-const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 80);
-const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 16);
+const PREFETCH_MAX_WAIT_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_WAIT_MS || 500);
+const PREFETCH_POLL_MS = Number(process.env.COPYTRADE_PENDING_PREFETCH_POLL_MS || 120);
+const PREFETCH_MAX_INFLIGHT = Number(process.env.COPYTRADE_PENDING_PREFETCH_MAX_INFLIGHT || 4);
 const PENDING_RPC_MODE = String(process.env.COPYTRADE_PENDING_RPC_MODE || 'free').trim().toLowerCase(); // free | auto
 
 let running = false;
@@ -207,13 +207,10 @@ async function tick(): Promise<void> {
         const chains = Array.from(trackedByChain.keys());
         if (chains.length === 0) return;
 
-        // Poll all active chains per tick to reduce cross-chain scan lag.
-        const ordered = chains
-            .slice(chainIndex % chains.length)
-            .concat(chains.slice(0, chainIndex % chains.length));
+        // Poll one chain per tick (round-robin) to cap RPC load.
+        const chainId = chains[chainIndex % chains.length];
         chainIndex = (chainIndex + 1) % chains.length;
-
-        await Promise.allSettled(ordered.map((chainId) => pollOneChainPending(chainId)));
+        await pollOneChainPending(chainId);
     } finally {
         tickInFlight = false;
     }
