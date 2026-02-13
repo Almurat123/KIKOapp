@@ -2,6 +2,7 @@ import { Tool, ToolContext } from '../../../tooling/registry.js';
 import { TradeContext, getTradeContext } from '../../../services/TradeContext.js';
 import { getTokenData } from '../../../services/UnifiedDataLayer.js';
 import { buildSignedHeaders } from '../../../utils/requestSigningClient.js';
+import { getChainConfig } from '../../../config/chainConfig.js';
 // Note: swapAggregator import removed - using internal API call instead
 
 interface SwapArgs {
@@ -11,6 +12,76 @@ interface SwapArgs {
     chain_id: number;
     slippage?: number; // percentage, e.g. 0.5
     execute?: boolean; // If true, execute the swap directly (instant trading)
+}
+
+const NATIVE_PLACEHOLDER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+function isAddressLike(token: string): boolean {
+    return /^0x[0-9a-fA-F]{40}$/.test(token);
+}
+
+function normalizeTokenForMatch(token: string, chainId: number): string {
+    const raw = String(token || '').trim().toLowerCase();
+    if (!raw) return '';
+    const nativeSymbol = getChainConfig(chainId).nativeCurrency.symbol.toLowerCase();
+    if (raw === NATIVE_PLACEHOLDER || raw === nativeSymbol || raw === 'eth') return `native:${chainId}`;
+    return raw;
+}
+
+function parseSimulateSwapArgs(argsKey: string): SwapArgs | null {
+    const idx = argsKey.indexOf(':');
+    if (idx <= 0) return null;
+    try {
+        const parsed = JSON.parse(argsKey.slice(idx + 1));
+        return {
+            token_in: parsed?.token_in,
+            token_out: parsed?.token_out,
+            amount_in: parsed?.amount_in,
+            chain_id: parsed?.chain_id,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function findRecentSimulatedSwap(messages: any[], windowMs: number): SwapArgs | null {
+    const now = Date.now();
+    const sorted = [...messages].sort((a, b) => (a.messageIndex || 0) - (b.messageIndex || 0));
+    for (let i = sorted.length - 1; i >= 0; i -= 1) {
+        const msg = sorted[i];
+        if (msg.role !== 'assistant') continue;
+        const createdAt = msg.created_at || msg.createdAt;
+        const createdMs = createdAt ? new Date(createdAt).getTime() : 0;
+        if (createdMs && now - createdMs > windowMs) continue;
+        const toolCalls = msg.data?.toolTrace?.toolCalls || [];
+        for (let j = toolCalls.length - 1; j >= 0; j -= 1) {
+            const call = toolCalls[j];
+            if (call?.tool !== 'simulate_swap' || call?.status !== 'success') continue;
+            const parsed = parseSimulateSwapArgs(call?.argsKey || '');
+            if (!parsed?.token_in || !parsed?.token_out || !parsed?.amount_in || !parsed?.chain_id) continue;
+            return parsed;
+        }
+    }
+    return null;
+}
+
+async function resolveDisplaySymbol(token: string, chainId: number): Promise<string> {
+    const raw = String(token || '').trim();
+    if (!raw) return 'UNKNOWN';
+    const lower = raw.toLowerCase();
+    const nativeSymbol = getChainConfig(chainId).nativeCurrency.symbol.toUpperCase();
+    if (lower === NATIVE_PLACEHOLDER || lower === 'eth' || lower === nativeSymbol.toLowerCase()) return nativeSymbol;
+    if (!isAddressLike(raw)) return raw.toUpperCase();
+    const knownSymbols: Record<string, string> = {
+        '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 'USDC',
+        '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC',
+        '0xdac17f958d2ee523a2206206994597c13d831ec7': 'USDT',
+        '0x6b175474e89094c44da98b954eedeac495271d0f': 'DAI',
+        '0x50c5725949a6f0c72e6c4a641f24049a917db0cb': 'DAI',
+        '0x4200000000000000000000000000000000000006': 'WETH',
+    };
+    if (knownSymbols[lower]) return knownSymbols[lower];
+    return `${raw.slice(0, 6)}...${raw.slice(-4)}`;
 }
 
 export const PrepareSwapTransactionTool: Tool<SwapArgs> = {
@@ -76,6 +147,30 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
     handler: async (args, context) => {
         try {
             console.log('[PrepareSwapTransaction] Preparing swap:', args);
+
+            // Guard confirmation flow: pin execute amount to latest simulate_swap result for same pair/chain.
+            if (args.execute === true && context?.sessionId) {
+                try {
+                    const { getSessionMessages } = await import('../../../repositories/chatRepository.js');
+                    const sessionMessages = await getSessionMessages(context.sessionId);
+                    const simulated = findRecentSimulatedSwap(sessionMessages, 2 * 60 * 1000);
+                    if (simulated) {
+                        const sameChain = Number(simulated.chain_id) === Number(args.chain_id);
+                        const sameTokenIn = normalizeTokenForMatch(simulated.token_in, args.chain_id) === normalizeTokenForMatch(args.token_in, args.chain_id);
+                        const sameTokenOut = normalizeTokenForMatch(simulated.token_out, args.chain_id) === normalizeTokenForMatch(args.token_out, args.chain_id);
+                        if (sameChain && sameTokenIn && sameTokenOut && simulated.amount_in !== args.amount_in) {
+                            console.log('[PrepareSwapTransaction] Using pinned amount from latest simulation', {
+                                requestedAmount: args.amount_in,
+                                pinnedAmount: simulated.amount_in,
+                                chainId: args.chain_id,
+                            });
+                            args.amount_in = String(simulated.amount_in);
+                        }
+                    }
+                } catch (pinErr: any) {
+                    console.warn('[PrepareSwapTransaction] Failed to pin amount from simulation:', pinErr?.message || pinErr);
+                }
+            }
 
             // ========== ⚡ TRADE CONTEXT OPTIMIZATION ⚡ ==========
             // Get or create TradeContext for caching token data across the swap flow
@@ -259,7 +354,10 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
             // 1. args.execute is explicitly true (AI decision), OR
             // 2. fastSwapMode is enabled (for Zora fast swap)
             // CRITICAL: Respect args.execute=false for simulation/quote mode
-            const shouldExecute = args.execute === true || fastSwapMode;
+            const shouldExecute =
+                args.execute === true ||
+                context?.allowanceMode === 'instant' ||
+                fastSwapMode;
 
             console.log('[PrepareSwapTransaction] Execution Decision:', {
                 argsExecute: args.execute,
@@ -300,6 +398,10 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                 // ⚡ STEP 1: Create persistent transaction card message IMMEDIATELY
                 const { createMessage, updateMessage } = await import('../../../repositories/chatRepository.js');
                 const { chatWS } = await import('../../../services/chatWebSocket.js');
+                const [tokenInSymbol, tokenOutSymbol] = await Promise.all([
+                    resolveDisplaySymbol(args.token_in, args.chain_id),
+                    resolveDisplaySymbol(args.token_out, args.chain_id),
+                ]);
 
                 const transactionMessage = await createMessage(
                     sessionId,
@@ -312,8 +414,8 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                             swapType: 'buy',
                             tokenIn: args.token_in,
                             tokenOut: args.token_out,
-                            tokenInSymbol: args.token_in,
-                            tokenOutSymbol: args.token_out,
+                            tokenInSymbol,
+                            tokenOutSymbol,
                             amountIn: args.amount_in,
                             chainId: args.chain_id,
                             slippage: args.slippage || 0.5,
@@ -339,8 +441,8 @@ For ALLOWANCE TRADE MODE (default for all users): Always set execute=true`,
                                 status: 'sending',
                                 tokenIn: args.token_in,
                                 tokenOut: args.token_out,
-                                tokenInSymbol: args.token_in,
-                                tokenOutSymbol: args.token_out,
+                                tokenInSymbol,
+                                tokenOutSymbol,
                                 amountIn: args.amount_in,
                                 chainId: args.chain_id,
                                 slippage: args.slippage || 0.5,

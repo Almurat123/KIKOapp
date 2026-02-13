@@ -5,7 +5,7 @@ import { NewsTrendingData } from './trendingCollector.js';
 
 // Configuration
 const OUTPUT_DIR = path.resolve(process.cwd(), '../kiko-web/public/news-covers');
-const LOGO_PATH = path.resolve(process.cwd(), '../kiko-web/public/kiko-logo.png');
+const LOGO_PATH = path.resolve(process.cwd(), '../kiko-web/public/kiko-logo-dark.png');
 
 // Chain Logo Map (using high quality CDN images)
 const CHAIN_LOGOS: Record<string, string> = {

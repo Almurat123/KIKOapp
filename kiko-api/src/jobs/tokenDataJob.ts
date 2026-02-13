@@ -3176,6 +3176,7 @@ async function enrichLaunchpadsForTrending(
   // This keeps request cost bounded while repairing "launchpad exists but creator missing".
   const chainIdNum = chainId === 'base' ? 8453 : chainId === 'bsc' ? 56 : null;
   const isSolana = chainId === 'solana';
+  const isLowCostEvm = chainId === 'base' || chainId === 'bsc';
   if (!chainIdNum && !isSolana) return;
 
   const backfillCandidates = tokens.filter((t) => {
@@ -3194,8 +3195,8 @@ async function enrichLaunchpadsForTrending(
   await Promise.all(backfillTargets.map((token) => backfillLimiter(async () => {
     try {
       const detected = await detectLaunchpadToken(token.address, chainIdNum || undefined, {
-        mode: 'full',
-        requireCreator: true
+        mode: isLowCostEvm ? 'cheap' : 'full',
+        requireCreator: !isLowCostEvm
       });
       if (!detected) return;
 
@@ -3226,7 +3227,7 @@ async function enrichLaunchpadsForTrending(
 
   // Step 5: proactive creator discovery for Base tokens missing creator.
   // This is budgeted and runs in job context (not request path) to keep UI stable.
-  if (chainId === 'base' || chainId === 'solana') {
+  if (chainId === 'solana') {
     const unresolvedCreator = tokens.filter((t) => {
       const missingCreator = !t.creatorAddress && !(t as any).creatorUrl && !(t as any).creatorLabel;
       if (!missingCreator) return false;
@@ -3240,7 +3241,7 @@ async function enrichLaunchpadsForTrending(
       const creatorLimiter = pLimit(2);
       await Promise.all(creatorTargets.map((token) => creatorLimiter(async () => {
         try {
-          const detected = await detectLaunchpadToken(token.address, chainId === 'base' ? 8453 : undefined, {
+          const detected = await detectLaunchpadToken(token.address, undefined, {
             mode: 'full',
             requireCreator: true
           });
@@ -3426,7 +3427,8 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
     apiRateLimiter.dexScreener.lastCall = Date.now();
 
     // Use DexScreener Premium (WebSocket-based) as primary source
-    let tokens = await getTrendingTokensPremium(chain.id, 100);
+    const disableGeckoFill = chain.id === 'base' || chain.id === 'bsc';
+    let tokens = await getTrendingTokensPremium(chain.id, 100, { disableGeckoFill });
 
     // Note: GeckoTerminal fallback removed
     // GeckoTerminal is only used for pool price/time data, not token metadata

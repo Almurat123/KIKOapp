@@ -2317,6 +2317,44 @@ async function handleTargetSell(
     logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: configs.length, targetWallet });
 
     await Promise.all(configs.map(async (config) => {
+        // Reconcile rare turbo race: tx settled on-chain but position stayed pending.
+        try {
+            const pendingPositions = await prisma.position.findMany({
+                where: { userId: config.userId, tokenAddress: tokenToSell, chainId, status: 'pending' },
+                orderBy: { createdAt: 'desc' },
+                take: 3
+            });
+            if (pendingPositions.length > 0 && config.user?.walletAddress) {
+                const onChainBal = chainId === 900
+                    ? 0n
+                    : await getErc20Balance(tokenToSell, config.user.walletAddress, chainId);
+                if (onChainBal > 0n) {
+                    const pendingIds = pendingPositions.map((p) => p.id);
+                    await prisma.position.updateMany({
+                        where: { id: { in: pendingIds }, status: 'pending' },
+                        data: {
+                            status: 'open',
+                            entryTxHash: `RECOVERED_ONCHAIN_${Date.now()}`
+                        }
+                    });
+                    logger.warn(LogCode.SYS_INFO, 'Recovered pending positions to open by on-chain balance (mirror sell path)', {
+                        userId: config.userId,
+                        chainId,
+                        token: tokenToSell,
+                        pendingCount: pendingPositions.length,
+                        recoveredIds: pendingIds
+                    });
+                }
+            }
+        } catch (reconcileErr: any) {
+            logger.warn(LogCode.SYS_ERROR, 'Failed pending->open reconciliation in mirror sell', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId,
+                error: reconcileErr?.message || String(reconcileErr)
+            });
+        }
+
         const [positions, tokenInfo] = await Promise.all([
             prisma.position.findMany({
                 where: { userId: config.userId, tokenAddress: tokenToSell, status: 'open' },
@@ -2324,7 +2362,14 @@ async function handleTargetSell(
             getTokenInfo(tokenToSell, chainId, { priority: 'high', rpcStrategy: 'fast', fastMode: true })
         ]);
 
-        if (positions.length === 0) return;
+        if (positions.length === 0) {
+            logger.info(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: no open positions after reconciliation', {
+                userId: config.userId,
+                token: tokenToSell,
+                chainId
+            });
+            return;
+        }
 
         // Leader stat tracking (only for mirror sell)
         const balanceUsdForStats = positions.reduce((sum, p) => sum + (p.entryUsdValue || 0), 0);
@@ -2419,6 +2464,42 @@ async function cleanupPendingPositions() {
  * Check and execute take profit / stop loss for open positions
  */
 export async function checkPositionsForExits(): Promise<void> {
+    // STEP -1: Reconcile pending positions that already hold token on-chain.
+    // This protects TP/SL and mirror-sell flows from rare turbo timeout races.
+    const pendingForReconcile = await prisma.position.findMany({
+        where: {
+            status: 'pending',
+            createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } // recent 30m only
+        },
+        include: { user: true },
+        orderBy: { createdAt: 'desc' },
+        take: 30
+    });
+    if (pendingForReconcile.length > 0) {
+        await Promise.allSettled(
+            pendingForReconcile.map(async (p) => {
+                if (!p.user?.walletAddress || p.chainId === 900) return;
+                const bal = await getErc20Balance(p.tokenAddress, p.user.walletAddress, p.chainId);
+                if (bal <= 0n) return;
+                await prisma.position.updateMany({
+                    where: { id: p.id, status: 'pending' },
+                    data: {
+                        status: 'open',
+                        entryTxHash: p.entryTxHash?.startsWith('PENDING_')
+                            ? `RECOVERED_ONCHAIN_${Date.now()}`
+                            : p.entryTxHash
+                    }
+                });
+                logger.warn(LogCode.SYS_INFO, 'Recovered pending position to open in monitor path', {
+                    positionId: p.id,
+                    userId: p.userId,
+                    token: p.tokenAddress,
+                    chainId: p.chainId
+                });
+            })
+        );
+    }
+
     // 🔄 STEP 0: Retry failed exit attempts (Mirror Sell, Take Profit, Stop Loss)
     // Check for positions with exitRetry Count > 0 and retry them if cooldown has passed
     const RETRY_COOLDOWN_MS = 60 * 1000; // 1 minute (Reduced from 5min for faster emergency exit)

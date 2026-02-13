@@ -4,7 +4,8 @@ import { MessageSquare, Newspaper, BarChart2, Layers, Plus, PanelLeftClose, Chev
 import { usePrivy } from '@privy-io/react-auth';
 import type { WalletWithMetadata } from '@privy-io/react-auth';
 import clsx from 'clsx';
-import kikoLogo from '../../assets/images/kiko-logo.png';
+import kikoLogoDark from '../../assets/images/KIKOdark.png';
+import kikoLogoLight from '../../assets/images/KIKOlight.png';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { ThemeToggle } from '../ThemeToggle/ThemeToggle';
 import { getUserInfo } from '../../utils/privyUtils';
@@ -225,7 +226,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }}
             style={{ cursor: 'pointer' }}
           >
-            <img src={kikoLogo} alt="KIKO" className={styles.logoImage} />
+            <img src={resolvedTheme === 'dark' ? kikoLogoDark : kikoLogoLight} alt="KIKO" className={styles.logoImage} />
             <span className={styles.logoText}>KIKO</span>
             <ThemeToggle />
           </div>

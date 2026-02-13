@@ -946,7 +946,8 @@ export async function getCandlestickData(
  */
 export async function getTrendingTokensPremium(
   chainId: string,
-  limit: number = 50
+  limit: number = 50,
+  options?: { disableGeckoFill?: boolean }
 ): Promise<TokenSearchResult[]> {
   const startTime = Date.now();
   const normalizedChainId = CHAIN_ID_MAP[chainId.toLowerCase()] || chainId.toLowerCase();
@@ -1159,7 +1160,7 @@ export async function getTrendingTokensPremium(
         logger.warn(LogCode.API_FETCH_FAILED, 'DexScreener Premium fill error', { error: fallbackError.message });
       }
 
-      if (finalTokens.length < limit) {
+      if (finalTokens.length < limit && !options?.disableGeckoFill) {
         try {
           const geckoTokens = await getGeckoTrendingTokens(chainId, limit * 2, '5m', 1000, 10);
           for (const token of geckoTokens) {

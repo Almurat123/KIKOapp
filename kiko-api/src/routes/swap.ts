@@ -1099,7 +1099,18 @@ export async function swapRoutes(fastify: FastifyInstance) {
                 });
 
                 if (!swapResult.success) {
-                    throw new AppError(500, swapResult.error || 'Swap execution failed', 'SWAP_FAILED');
+                    const rawError = swapResult.error || 'Swap execution failed';
+                    const insufficientMatch = /insufficient_native_balance_precheck:\s*have=([0-9.]+)\s*required=([0-9.]+)/i.exec(rawError);
+                    if (insufficientMatch) {
+                        const have = insufficientMatch[1];
+                        const required = insufficientMatch[2];
+                        throw new AppError(
+                            400,
+                            `Insufficient native balance for amount + gas. Have ${have}, require ${required}.`,
+                            'INSUFFICIENT_NATIVE_BALANCE'
+                        );
+                    }
+                    throw new AppError(500, rawError, 'SWAP_FAILED');
                 }
 
                 // Compatible response for downstream logic

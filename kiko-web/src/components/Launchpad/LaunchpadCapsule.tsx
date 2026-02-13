@@ -1,7 +1,9 @@
 import React, { useMemo } from 'react';
 import { getLaunchpadDisplayName, LAUNCHPAD_LOGOS } from '../../utils/launchpadLogos';
 import styles from './LaunchpadCapsule.module.css';
-import kikoLogo from '../../assets/images/kiko-logo.png';
+import kikoLogoDark from '../../assets/images/KIKOdark.png';
+import kikoLogoLight from '../../assets/images/KIKOlight.png';
+import { useThemeContext } from '../../contexts/ThemeContext';
 
 interface LaunchpadCapsuleProps {
     address: string;
@@ -22,6 +24,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
     creatorLabel,
     onAskAI
 }) => {
+    const { resolvedTheme } = useThemeContext();
 
     // 1. Determine Launchpad (Backend priority, then local fallback if needed)
     // Since backend does the heave lifting, we primarily rely on the prop.
@@ -122,7 +125,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
 
     // 4. Render Launchpad Capsule
     const providerKey = detectedLaunchpad.toLowerCase().replace('.', ''); // e.g. pumpfun
-    const logo = LAUNCHPAD_LOGOS[detectedLaunchpad.toLowerCase()] || kikoLogo;
+    const logo = LAUNCHPAD_LOGOS[detectedLaunchpad.toLowerCase()] || (resolvedTheme === 'dark' ? kikoLogoDark : kikoLogoLight);
     const displayName = getLaunchpadDisplayName(detectedLaunchpad.toLowerCase());
 
     return (

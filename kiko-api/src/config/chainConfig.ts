@@ -75,7 +75,7 @@ export const CHAINS: Record<number, ChainConfig> = {
             kyberRouter: '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5'
         },
         apiUrl: process.env.ALCHEMY_BASE_URL,
-        gasReserve: '0.002',
+        gasReserve: '0.001',
         slugs: { dexScreener: 'base', geckoTerminal: 'base' }
     },
     // BNB Smart Chain

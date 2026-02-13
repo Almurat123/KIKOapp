@@ -1,123 +1,77 @@
-[api] [17:10:15] [inf] [TRACE] [WS-8001] ChatWS Client connected | traceId=02778209-8d5f-48d8-b2d0-90f3ce9348e2 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 totalConnections=1 role=TRACE
-[api] [17:10:15] [inf] [TRACE] [WS-8001] ChatWS: User connected | traceId=02778209-8d5f-48d8-b2d0-90f3ce9348e2 userId=did:privy:cmj0a3j3f005fl2... tokenExp=1771002868 role=TRACE
-[api] [MarketJob] Running startup staleness check...
-[api] [17:10:17] [inf] [EVENT] [SYS-1001] No open positions to monitor | role=EVENT
-[api] [Job] ✅ Loaded 436 real hot users from /Users/almurat/KiKo/kiko-api/data/real_hot_users.json
-[api] [Job] ✅ Using 436 real hot users from analysis
-[api] [SocialJob] fetchCastsFromUsers starting with 436 FIDs, target: 1000
-[api] [17:10:18] [inf] [TRACE] [WS-8001] ChatWS Client connected | traceId=9cef9fe9-049d-4f71-a9a3-bd823fa5f3e6 userId=did:privy:cmj0a3j3f005fl20c4xkl7195 totalConnections=1 role=TRACE
-[api] [17:10:18] [inf] [TRACE] [WS-8001] ChatWS: User connected | traceId=9cef9fe9-049d-4f71-a9a3-bd823fa5f3e6 userId=did:privy:cmj0a3j3f005fl2... tokenExp=1771006218 role=TRACE
-[api] [CopyTrade] GET /configs - Fetching configs for user did:privy:cmj0a3j3f005fl20c4xkl7195
-[api] [CopyTrade] GET /positions - Fetching positions for did:privy:cmj0a3j3f005fl20c4xkl7195
-[api] [verifyAccess] Checking access: {
-[api]   userId: 'did:privy:cmj0a3j3f005fl20c4xkl7195',
-[api]   userIdLength: 35,
-[api]   userIdPrefix: 'did:privy:cmj0a3j3f0',
-[api]   requestedAddress: '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E'
-[api] }
-[api] [verifyAccess] ✅ Access granted
-[api] [17:10:22] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
-[api] [17:10:23] [wrn] [METRIC] [API-5002] Failed to fetch Coinbase price | traceId=afa256aa-164a-44e4-bfec-ce99845b8ddd symbol=SOL error=fetch failed role=METRIC
-[api] [17:10:23] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=afa256aa-164a-44e4-bfec-ce99845b8ddd duration=5006 role=METRIC
-[api] [17:10:27] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=571d523e-c1b4-4fcd-a458-87390161acc6 duration=1139 role=METRIC
-[api] [17:10:29] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=5baafe4e-5bb4-4b2e-aa85-d96a0fb73c89 duration=457 role=METRIC
-[api] [17:10:30] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=c14e5d4d-4d3e-4ab1-a34e-2115b54a1725 duration=2612 role=METRIC
-[api] [17:10:31] [wrn] [METRIC] [API-5002] Failed to fetch native prices from DexScreener | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb error=fetch failed role=METRIC
-[api] [17:10:31] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb duration=5004 role=METRIC
-[api] [17:10:32] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
-[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
-[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_start connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start role=TRACE
-[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
-[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
-[api] [17:10:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
-[python] INFO:moderation.router:Moderating input: Buy 3 USDC use ETH...
-[api] [17:10:34] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb error=This operation was aborted url=http://localhost:8000/moderation/input role=METRIC
-[api] [17:10:34] [wrn] [METRIC] [API-5002] Input moderation request failed, defaulting to safe | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb error=This operation was aborted role=METRIC
-[api] [17:10:34] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_start connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start role=TRACE
-[api] [17:10:34] [inf] [TRACE] [AI-6007] Grok: message_start sent | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb assistantMessageId=cmll58kn0001v3e7wr9zsepzg taskId=cmll58q0e002p3e7wylvscw78 role=TRACE
-[api] [17:10:34] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
-[api] [17:10:34] [inf] [TRACE] [AI-6001] Timer finished: intent_parsing_debc55eb | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userAddress=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E intent=swap highLevelIntent=TRADING hasAI=false confidence=0.95 routingStage=rule hardRule=TRADING slotsComplete=true labels=[3] durationMs=7 timerLabel=intent_parsing_debc55eb role=TRACE
-[api] [17:10:34] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
-[api] [17:10:34] [inf] [TRACE] [AI-6009] Grok: routed to mode | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb taskId=cmll58q0e002p3e7wylvscw78 sessionId=cmll58kit001p3e7ws17zowip model=grok-4-1-fast-non-reasoning intent=TRADING routingMode=execution hardRule={"label":"TRADING","reason":"action + slots complete"} confidence=0.95 role=TRACE
-[api] [17:10:34] [inf] [TRACE] [AI-6006] Grok: tool list gated by skills | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb count=13 intent=TRADING skills=[4] routingMode=execution skillVersion=exec role=TRACE
-[api] [17:10:34] [inf] [TRACE] [AI-6010] Grok: skills attached | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb taskId=cmll58q0e002p3e7wylvscw78 sessionId=cmll58kit001p3e7ws17zowip model=grok-4-1-fast-non-reasoning intent=TRADING routingMode=execution skillVersion=exec skills=[4] toolCount=13 role=TRACE
-[api] [17:10:34] [inf] [TRACE] [AI-6007] ChatWorker: seeded get_wallet_info from client context | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb chainId=8453 tokenCount=141 hasNativeBalance=true role=TRACE
-[api] [17:10:34] [inf] [TRACE] [AI-6006] PromptOrchestrator: Intent matched skills | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb intent=TRADING count=4 skills=[4] role=TRACE
-[api] [17:10:34] [inf] [TRACE] [AI-6003] Timer finished: prompt_gen_TRADING_grok | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb model=grok intent=TRADING length=11842 durationMs=0 timerLabel=prompt_gen_TRADING_grok role=TRACE
-[api] [17:10:34] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
-[api] [17:10:35] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=2414c82e-e689-4c88-bc26-3ccc152f490d duration=1132 role=METRIC
+[api] [17:55:19] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=6d1ddf7a-7737-4edd-8053-e3d18e4528e9 duration=414 role=METRIC
+[api] [17:55:20] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d duration=1232 role=METRIC
+[api] [17:55:21] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:55:21] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_start connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start role=TRACE
+[api] [17:55:21] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:55:21] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:55:21] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[python] INFO:moderation.router:Moderating input: 我在什么链？...
+[api] [17:55:21] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=9d27c9d9-e677-441f-b02e-e3c3635faf9a duration=480 role=METRIC
+[api] [17:55:21] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=491bb097-efb8-447f-a29f-9c3f4e6ab73f duration=701 role=METRIC
+[api] [17:55:21] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d error=This operation was aborted url=http://localhost:8000/moderation/input role=METRIC
+[api] [17:55:21] [wrn] [METRIC] [API-5002] Input moderation request failed, defaulting to safe | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d error=This operation was aborted role=METRIC
+[api] [17:55:21] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_start connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_start role=TRACE
+[api] [17:55:21] [inf] [TRACE] [AI-6007] Grok: message_start sent | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d assistantMessageId=cmll6u9qw00a5etww4hqsckn0 taskId=cmll6ubfr00afetww2z3qm1ag role=TRACE
+[api] [17:55:21] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:55:22] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=c09b6217-01cc-48e0-9cf4-801f0dec6307 duration=382 role=METRIC
 [python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
-[python] INFO:     127.0.0.1:54285 - "POST /moderation/input HTTP/1.1" 200 OK
-[api] [17:10:35] [wrn] [TRACE] [AI-6007] ChatWorker: timed out non-critical step | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb label=native_price_coinbase timeoutMs=800 role=TRACE
-[api] [17:10:35] [inf] [TRACE] [AI-6007] Grok: context budget applied | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb taskId=cmll58q0e002p3e7wylvscw78 sessionId=cmll58kit001p3e7ws17zowip inputTokensEstimated=546 historyKept=2 historyCompacted=0 hasCompaction=false role=TRACE
-[api] [17:10:35] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[python] INFO:     127.0.0.1:50736 - "POST /moderation/input HTTP/1.1" 200 OK
+[api] [17:55:22] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=b4405d4e-ffe7-44e6-a4e7-676b0dc42f56 duration=387 role=METRIC
+[api] [17:55:23] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d error=This operation was aborted url=https://api.deepseek.com/v1/chat/completions role=METRIC
+[api] [17:55:23] [err] [TRACE] [AI-6002] IntentParser: Error parsing intent with AI | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d error=This operation was aborted role=TRACE
+[api] [17:55:23] [inf] [TRACE] [AI-6001] Timer finished: intent_parsing_dc2ac1ea | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userAddress=0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E intent=general_query highLevelIntent=GENERAL_CHAT hasAI=true confidence=0.3 routingStage=hybrid conflict=multi slotsComplete=false labels=[3] durationMs=1213 timerLabel=intent_parsing_dc2ac1ea role=TRACE
+[api] [17:55:23] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:55:23] [inf] [TRACE] [AI-6009] Grok: routed to mode | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d taskId=cmll6ubfr00afetww2z3qm1ag sessionId=cmll6u9q3009zetww7w6wr0ro model=grok-4-1-fast-non-reasoning intent=GENERAL_CHAT routingMode=thinking confidence=0.3 role=TRACE
+[api] [17:55:23] [inf] [TRACE] [AI-6006] Grok: tool list gated by skills | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d count=23 intent=GENERAL_CHAT skills=[3] routingMode=thinking skillVersion=clean role=TRACE
+[api] [17:55:23] [inf] [TRACE] [AI-6010] Grok: skills attached | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d taskId=cmll6ubfr00afetww2z3qm1ag sessionId=cmll6u9q3009zetww7w6wr0ro model=grok-4-1-fast-non-reasoning intent=GENERAL_CHAT routingMode=thinking skillVersion=clean skills=[3] toolCount=23 role=TRACE
+[api] [17:55:23] [inf] [TRACE] [AI-6007] ChatWorker: seeded get_wallet_info from client context | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d chainId=8453 tokenCount=141 hasNativeBalance=true role=TRACE
+[api] [17:55:23] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:55:23] [inf] [TRACE] [AI-6007] Grok: context budget applied | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d taskId=cmll6ubfr00afetww2z3qm1ag sessionId=cmll6u9q3009zetww7w6wr0ro inputTokensEstimated=18 historyKept=2 historyCompacted=0 hasCompaction=false role=TRACE
+[api] [17:55:23] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
 [python] [Model] Original: grok-4-1-fast-non-reasoning -> Normalized: grok-4-1-fast-non-reasoning
-[python] INFO:     127.0.0.1:54392 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
-[python] [Custom Tool] Executing get_token_info...
-[python] [Tool Execution] Executing tool: get_token_info with args: {'address': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', 'chain': 'base'}
+[python] INFO:     127.0.0.1:50923 - "POST /grok/v1/chat/completions HTTP/1.1" 200 OK
+[api] [17:55:26] [inf] [EVENT] [SYS-1007] Starting initial token refresh... | role=EVENT
+[api] [17:55:26] [wrn] [EVENT] [SYS-1007] Skipping primary chain refresh - previous run still in progress | force=false runningForSec=26 role=EVENT
+[api] [17:55:26] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[python] [Custom Tool] Executing external_web_search...
+[python] [Tool Execution] Executing tool: external_web_search with args: {'query': '"我在什么链" crypto token chain', 'max_results': 10}
 [python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
 [python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/api/ai/tools/execute
 [api] [originRestriction] Internal service call authenticated
-[api] [GetTokenInfo] Attempting DexScreener fallback...
-[api] [17:10:42] [inf] [EVENT] [SYS-1007] Starting initial token refresh... | role=EVENT
-[api] [17:10:42] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
-[api] [17:10:42] [inf] [METRIC] [API-5001] Fetching premium trending tokens | chain=ethereum limit=100 role=METRIC
+[api] [17:55:31] [inf] [EVENT] [SYS-1001] No open positions to monitor | role=EVENT
+[api] [17:55:33] [inf] [EVENT] [SYS-1007] Tavily search completed | traceId=16b640c5-27cc-4562-b6ef-a963b14f0b5f query="我在什么链" crypto token chain count=10 role=EVENT
 [python] INFO:httpx:HTTP Request: POST http://localhost:3001/api/ai/tools/execute "HTTP/1.1 200 OK"
-[python] [Custom Tool] get_token_info returned: 869 chars
+[python] [Custom Tool] external_web_search returned: 7107 chars
 [python] [Custom Tool] Buffering tool result: {
-[python]   "source": "DexScreener",
-[python]   "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-[python]   "name": "C...
+[python]   "results": "[1] \u8096\u98a8\uff1a\u300a\u516c\u93c8\uff1a\u65b0\u4e00\u4ee3\u91d1\u878d\u57fa\u...
 [python] [Custom Tool] Added tool result to chat, will call Grok again
-[python] [Custom Tool] Executing get_wallet_info...
-[python] [Tool Execution] Executing tool: get_wallet_info with args: {'address': '0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E', 'chain': 'base', 'includeHistory': False}
-[python] [Tool Execution] 🔍 KIKO_API_BASE = http://localhost:3001
-[python] [Tool Execution] 🔍 Calling unified executor at: http://localhost:3001/api/ai/tools/execute
-[api] [originRestriction] Internal service call authenticated
-[api] [GetWalletInfo] Attempting Alchemy...
-[api] [17:10:43] [inf] [AUDIT] [WTC-2002] WS addresses discovered | wsCount=188 chain=ethereum role=AUDIT
-[api] [17:10:44] [inf] [METRIC] [API-5001] Alchemy Portfolio response received | traceId=d09ba052-e9ed-48cb-9ad7-82720bec85eb duration=1175 role=METRIC
-[api] [17:10:47] [inf] [EVENT] [SYS-1001] No open positions to monitor | role=EVENT
-[api] [17:10:47] [inf] [METRIC] [API-5001] Processed DexScreener trending candidates | candidates=26 limit=200 role=METRIC
-[python] INFO:httpx:HTTP Request: POST http://localhost:3001/api/ai/tools/execute "HTTP/1.1 200 OK"
-[python] [Custom Tool] get_wallet_info returned: 19769 chars
-[python] [Custom Tool] Buffering tool result: {
-[python]   "address": "0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E",
-[python]   "chain": "base",
-[python]   "ethBalance": "0.0...
-[python] [Custom Tool] Added tool result to chat, will call Grok again
+[api] [17:55:33] [inf] [EVENT] [SYS-1007] [chatWorker] Broadcasting citations: msgId=cmll6u9qw00a5etww4hqsckn0, count=9, sample={"url":"https://x.com/i/status/1798954481729814669"} | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d role=EVENT
+[api] [17:55:33] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_citations | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=citations connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_citations role=TRACE
 [python] [Tool Turn] Tool call detected, continuing to turn 2
-[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
-[api] [17:10:50] [wrn] [METRIC] [API-5004] GeckoTerminal 429 triggered backoff | backoffMs=60000 role=METRIC
-[python] [Tool Turn] Tool call detected, continuing to turn 3
-[api] [17:10:51] [wrn] [METRIC] [API-5004] GeckoTerminal 429 triggered backoff | backoffMs=60000 role=METRIC
-[api] [17:10:52] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
-[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
-[api] [17:10:53] [wrn] [METRIC] [API-5004] GeckoTerminal 429 triggered backoff | backoffMs=60000 role=METRIC
-[python] [Tool Turn] Tool call detected, continuing to turn 4
-[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
-[python] [Tool Turn] Tool call detected, continuing to turn 5
-[api] [17:10:58] [wrn] [METRIC] [API-5004] GeckoTerminal 429 triggered backoff | backoffMs=60000 role=METRIC
-[api] [17:10:58] [err] [METRIC] [API-5002] GeckoTerminal API error after retries | endpoint=/networks/eth/trending_pools?page=5&include=base_token&duration=5m error=Rate limit hit, backing off for 60000ms role=METRIC
-[api] [17:10:58] [err] [METRIC] [API-5002] Error fetching trending tokens | network=eth error=Rate limit hit, backing off for 60000ms role=METRIC
-[api] [17:10:58] [inf] [METRIC] [API-5001] Premium trending tokens fetch complete | count=89 chain=ethereum durationMs=16322 source=WebSocket wsOriginal=188 role=METRIC
-[api] [17:10:58] [inf] [METRIC] [API-5001] Got 89 trending tokens for Ethereum | role=METRIC
-[api] [17:10:58] [inf] [METRIC] [API-5001] Filtered out 4 invalid tokens for Ethereum | role=METRIC
-[api] Saved 85/85 trending tokens for eth to database and memory cache
-[api] [17:10:58] [inf] [EVENT] [SYS-1007] Saved 85 tokens for Ethereum to DB + cache | role=EVENT
-[api] Saved 85/85 trending tokens for eth to database and memory cache
-[api] Saved 85/85 trending tokens for eth to database and memory cache
-[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
-[python] [Tool Turn] Tool call detected, continuing to turn 6
-[python] [Tool Guard] Repeat limit reached for get_token_info, stopping further tool calls.
-[api] [17:11:02] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
-[python] [Tool Turn] Tool call detected, continuing to turn 7
-[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=usage connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage role=TRACE
-[python] INFO:moderation.router:Moderating output: ...
-[python] INFO:     127.0.0.1:54918 - "POST /moderation/output HTTP/1.1" 200 OK
-[api] [17:11:03] [inf] [EVENT] [SYS-1007] Moderation Output check result | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb safe=true userId=did:privy:cmj0a3j3f005fl20c4xkl7195 role=EVENT
-[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_latency_metrics | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=latency_metrics connectionCount=1 durationMs=1 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_latency_metrics role=TRACE
-[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_complete connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete role=TRACE
-[api] [17:11:03] [inf] [TRACE] [AI-6007] Grok: task completed | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb taskId=cmll58q0e002p3e7wylvscw78 chunks=0 role=TRACE
-[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
-[api] [17:11:03] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | traceId=a91233d7-3768-4f7e-a5b8-1ee9d87733eb userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_complete connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete role=TRACE
+[api] [17:55:35] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_latency_metrics | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=latency_metrics connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_latency_metrics role=TRACE
+[api] [17:55:36] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[python]   [1] ✓ Valid dict, URL: https://x.com/i/status/1798954481729814669..., Avatar: None...
+[python]   [2] ✓ Valid dict, URL: https://x.com/i/status/2021898218485977577..., Avatar: None...
+[python]   [3] ✓ Valid dict, URL: https://x.com/i/status/2021856154343944368..., Avatar: None...
+[python]   [4] ✓ Valid dict, URL: https://x.com/i/status/1983386169875534138..., Avatar: None...
+[python]   [5] ✓ Valid dict, URL: https://x.com/i/status/1965951299293491299..., Avatar: None...
+[python]   [6] ✓ Valid dict, URL: https://x.com/i/status/2015070563870654895..., Avatar: None...
+[python]   [7] ✓ Valid dict, URL: https://x.com/i/status/2020632550721683861..., Avatar: None...
+[python]   [8] ✓ Valid dict, URL: https://x.com/i/status/2020809852121989245..., Avatar: None...
+[python]   [9] ✓ Valid dict, URL: https://t.co/5evPMuCcty..., Avatar: None...
+[api] [17:55:37] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=usage connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_usage role=TRACE
+[api] [17:55:37] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_citations | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=citations connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_citations role=TRACE
+[python] INFO:moderation.router:Moderating output: 我无法直接访问你的钱包或交易上下文来确定你当前在哪个区块链上（例如 Ethereum、Solana、...
+[api] [17:55:38] [err] [METRIC] [API-5002] api failed after 1 attempts | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d error=This operation was aborted url=http://localhost:8000/moderation/output role=METRIC
+[api] [17:55:38] [wrn] [METRIC] [API-5002] Output moderation request failed, defaulting to original | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d error=This operation was aborted role=METRIC
+[api] [17:55:38] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_latency_metrics | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=latency_metrics connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_latency_metrics role=TRACE
+[api] [17:55:38] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_complete connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete role=TRACE
+[api] [17:55:38] [inf] [TRACE] [AI-6007] Grok: task completed | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d taskId=cmll6ubfr00afetww2z3qm1ag chunks=150 role=TRACE
+[api] [17:55:38] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=task_status connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_task_status role=TRACE
+[api] [17:55:38] [inf] [TRACE] [WS-8004] Timer finished: ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete | traceId=b51229df-2a30-447d-bffc-acce99b8cf9d userId=did:privy:cmj0a3j3f005fl20c4xkl7195 eventType=message_complete connectionCount=1 durationMs=0 timerLabel=ws_broadcast_did:privy:cmj0a3j3f005fl20c4xkl7195_message_complete role=TRACE
+[python] INFO:httpx:HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+[python] INFO:     127.0.0.1:53555 - "POST /moderation/output HTTP/1.1" 200 OK
+[api] [17:55:46] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[api] [17:55:56] [wrn] [EVENT] [SYS-1006] RPC health degraded | endpoints=[5] role=EVENT
+[api] [17:55:56] [inf] [EVENT] [SYS-1007] [CopyTradePending] Tracked wallet snapshot refreshed | chains=[0] totalWallets=0 role=EVENT
+[api] [17:55:59] [inf] [EVENT] [SYS-1007] Alpha Detector: Checking new coin | symbol=zada creator=0x3a3c39fd8144a7971a0efc889167d0af7105539e role=EVENT

@@ -680,12 +680,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
                         // CREATE NEW MESSAGE for transaction status
                         const getSymbol = (token: string | { symbol?: string; name?: string } | null | undefined): string => {
-                            if (typeof token === 'string') return token;
+                            if (typeof token === 'string') {
+                                const t = token.trim();
+                                if (/^0x[eE]{40}$/.test(t)) return 'ETH';
+                                if (/^0x[0-9a-fA-F]{40}$/.test(t)) return `${t.slice(0, 6)}...${t.slice(-4)}`;
+                                return t;
+                            }
                             return token?.symbol || token?.name || 'Unknown';
                         };
 
+                        const targetMessageId = event.data?.message_id || event.data?.messageId || `tx-${Date.now()}`;
                         const txCardMsg: Message = {
-                            id: `tx-${Date.now()}`,
+                            id: targetMessageId,
                             role: 'assistant',
                             content: '',
                             reasoning_content: '',
@@ -705,21 +711,40 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         setIsThinking(false);
                         setIsStreaming(false);
                         setActiveTaskId(null);
-                        setMessages(prev => [...prev, txCardMsg]);
+                        setMessages(prev => {
+                            const idx = prev.findIndex(m => m.id === targetMessageId);
+                            let updated: Message[];
+                            if (idx >= 0) {
+                                updated = prev.map((m, i) => i === idx ? { ...m, ...txCardMsg } : m);
+                            } else {
+                                updated = [...prev, txCardMsg];
+                            }
+                            messagesRef.current = updated;
+                            if (onMessagesChange && currentConversationIdRef.current) {
+                                setTimeout(() => onMessagesChange(updated), 0);
+                            }
+                            return updated;
+                        });
 
                         const patchTransactionCard = (patch: Record<string, unknown>) => {
                             setMessages(prev => {
-                                const idx = prev.findIndex(m => m.id === txCardMsg.id && m.type === 'transaction-status-card');
+                                const idx = prev.findIndex(m => m.id === targetMessageId);
                                 if (idx === -1) return prev;
                                 const current = prev[idx];
                                 const nextMessage: Message = {
                                     ...current,
+                                    type: 'transaction-status-card',
                                     data: {
                                         ...(current.data || {}),
                                         ...patch,
                                     },
                                 };
-                                return replaceMessageAtIndex(prev, idx, nextMessage);
+                                const updated = replaceMessageAtIndex(prev, idx, nextMessage);
+                                messagesRef.current = updated;
+                                if (onMessagesChange && currentConversationIdRef.current) {
+                                    setTimeout(() => onMessagesChange(updated), 0);
+                                }
+                                return updated;
                             });
                         };
 

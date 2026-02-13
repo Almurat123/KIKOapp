@@ -74,6 +74,30 @@ export function resolveTokenAddress(token: string, chainId: number): string {
 
     // If already an address (starts with 0x and correct length), return normalized
     if (token.startsWith('0x') && token.length === 42) {
+        const lower = token.toLowerCase();
+        const chainTokens = COMMON_TOKENS[chainId] || {};
+        // Cross-chain symbol alias normalization:
+        // If model passes a canonical token address from another chain (e.g. ETH USDC on Base),
+        // remap to the same symbol's address on target chain to avoid route-not-found failures.
+        const aliasSymbolByAddress: Record<string, string> = {
+            // USDC variants
+            '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC', // Ethereum USDC
+            '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 'USDC', // Base USDC
+            '0xaf88d065e77c8cc2239327c5edb3a432268e5831': 'USDC', // Arbitrum USDC
+            '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': 'USDC', // Polygon USDC
+            '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': 'USDC', // BSC USDC
+            // USDT variants
+            '0xdac17f958d2ee523a2206206994597c13d831ec7': 'USDT', // Ethereum USDT
+            '0x55d398326f99059ff775485246999027b3197955': 'USDT', // BSC USDT
+            '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9': 'USDT', // Arbitrum USDT
+            // DAI variants
+            '0x6b175474e89094c44da98b954eedeac495271d0f': 'DAI', // Ethereum DAI
+            '0x50c5725949a6f0c72e6c4a641f24049a917db0cb': 'DAI', // Base DAI
+        };
+        const mappedSymbol = aliasSymbolByAddress[lower];
+        if (mappedSymbol && chainTokens[mappedSymbol]) {
+            return chainTokens[mappedSymbol];
+        }
         return token; // Return as-is, let normalize handle casing later if needed
     }
 

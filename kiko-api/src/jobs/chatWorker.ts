@@ -281,6 +281,22 @@ export class ChatWorker {
         return keywords.some(k => compact === k || compact.includes(k) || normalized === k || normalized.includes(k));
     }
 
+    private isChainStatusQuery(message: string): boolean {
+        const text = String(message || '').trim().toLowerCase();
+        if (!text) return false;
+        const patterns = [
+            /我在什么链/,
+            /我在哪条链/,
+            /当前.*链/,
+            /什么网络/,
+            /which\s+chain\s+am\s+i\s+on/,
+            /what\s+chain\s+am\s+i\s+on/,
+            /current\s+chain/,
+            /current\s+network/,
+        ];
+        return patterns.some((p) => p.test(text));
+    }
+
     private parseArgsFromKey(argsKey: string): { name: string; args: any } | null {
         const idx = argsKey.indexOf(':');
         if (idx <= 0) return null;
@@ -658,6 +674,7 @@ export class ChatWorker {
         const payload = {
             walletAddress: ctx.walletAddress || ctx.userAddress,
             chainId: ctx.chainId,
+            chainName: this.resolveChainNameForContext(ctx.chainId),
             currentPage: ctx.currentPage,
             pageContext: ctx.pageContext ? truncateText(String(ctx.pageContext), maxPageContextChars) : undefined,
             nativeBalance: ctx.nativeBalance,
@@ -712,7 +729,12 @@ export class ChatWorker {
             });
         }
 
-        return `[CLIENT_CONTEXT]\n${serialized}`;
+        const chainName = this.resolveChainNameForContext(ctx.chainId);
+        const chainGuardrail = ctx.chainId
+            ? `\n[CHAIN_GUARDRAIL]\nCurrent/default execution chain is ${chainName || 'Unknown'} (${ctx.chainId}).\nDo NOT infer Ethereum mainnet from EVM address format. Use this chain unless user explicitly requests another chain.\n`
+            : '';
+
+        return `[CLIENT_CONTEXT]\n${serialized}${chainGuardrail}`;
     }
 
     private filterBalanceEntriesForAi(
@@ -1030,9 +1052,7 @@ Do NOT estimate or guess USD values.`;
             ctx.currentPage = undefined;
         }
         if (hasWalletBlock) {
-            ctx.userAddress = undefined;
-            ctx.chainId = undefined;
-            ctx.chainName = undefined;
+            // Keep wallet identity in context so the model never treats wallet as "missing".
             ctx.nativeBalance = undefined;
         }
         if (hasBalanceBlock) {
@@ -1218,6 +1238,13 @@ Do NOT estimate or guess USD values.`;
         providerLabel: 'ChatWorker' | 'Grok';
     }): any[] {
         const next = [...params.messages];
+        const systemInjection = (params.task as any).systemInjection;
+        if (systemInjection && String(systemInjection).trim()) {
+            next.push({ role: 'system', content: String(systemInjection).trim() });
+            logger.info(LogCode.AI_API_CALL, `${params.providerLabel}: system injection attached`, {
+                taskId: params.task.id,
+            });
+        }
         if (params.didInjectUserContext || params.routingMode === 'thinking') return next;
 
         const systemContext = this.buildSystemContextMessage(params.task);
@@ -4053,6 +4080,32 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             lastResultByKey: new Map(),
         };
 
+        // Ensure wallet context is always present for execution-mode prompts/tools.
+        if (!task.toolContext?.walletAddress && userId) {
+            try {
+                const chainId = Number(task.toolContext?.chainId || 0);
+                const resolvedWallet = chainId === 900
+                    ? await privyWallet.getSolanaEmbeddedWalletAddress(userId)
+                    : await privyWallet.getEmbeddedWalletAddress(userId);
+                if (resolvedWallet) {
+                    task.toolContext = {
+                        ...task.toolContext,
+                        walletAddress: resolvedWallet,
+                        userAddress: task.toolContext?.userAddress || resolvedWallet,
+                    };
+                    logger.info(LogCode.AI_API_CALL, 'Grok: wallet context resolved at runtime', {
+                        taskId: task.id,
+                        chainId: task.toolContext?.chainId,
+                    });
+                }
+            } catch (e: any) {
+                logger.warn(LogCode.API_FETCH_FAILED, 'Grok: failed to resolve wallet context at runtime', {
+                    taskId: task.id,
+                    error: e?.message || String(e),
+                });
+            }
+        }
+
         // CRITICAL: Broadcast message_start so frontend creates the message BEFORE chunks arrive
         this.ws.broadcastToUser(userId!, {
             type: 'message_start',
@@ -4076,6 +4129,68 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
             chainId: task.toolContext?.chainId,
             isWalletConnected: !!task.toolContext?.walletAddress,
         });
+        const forceChainContextAnswer = this.isChainStatusQuery(lastUserMessage) && !!task.toolContext?.chainId;
+        if (forceChainContextAnswer) {
+            const chainId = Number(task.toolContext?.chainId);
+            const chainName = this.resolveChainNameForContext(chainId) || 'Unknown Chain';
+            const wallet = task.toolContext?.walletAddress || task.toolContext?.userAddress || '';
+            parsedIntent.highLevel.type = 'GENERAL_CHAT';
+            parsedIntent.highLevel.confidence = 1;
+            parsedIntent.decision = {
+                primary: 'GENERAL_CHAT',
+                confidence: 1,
+                labels: [{ label: 'GENERAL_CHAT', confidence: 1 }],
+                evidence: [],
+                routing: { stage: 'rule', reason: 'chain_context_query' },
+                hardRule: { label: 'GENERAL_CHAT', reason: 'user_asks_current_chain' },
+                signals: { hasAction: false, hasAmount: false, hasAsset: false } as any,
+                slots: { action: false, amount: false, asset: false, target: false, complete: true } as any,
+            };
+            (task as any).systemInjection =
+                `CHAIN_CONTEXT_ANSWER_REQUIRED: User asks current chain. Authoritative chain context is chainId=${chainId}, chainName=${chainName}, wallet=${wallet || 'unknown'}. ` +
+                `You MUST answer directly from this context. Do NOT use web_search or any tool. Do NOT say you cannot access wallet/chain context.`;
+        }
+        const confirmedSwap = this.isConfirmationMessage(lastUserMessage)
+            ? this.findRecentSimulateSwap(sessionMessages, 2 * 60 * 1000)
+            : null;
+        if (confirmedSwap) {
+            const chainMatches = !task.toolContext?.chainId || task.toolContext.chainId === confirmedSwap.chain_id;
+            if (chainMatches) {
+                parsedIntent.highLevel.type = 'TRADING';
+                parsedIntent.highLevel.confidence = 1;
+                parsedIntent.detailed.action = 'swap';
+                parsedIntent.detailed.token_in = confirmedSwap.token_in;
+                parsedIntent.detailed.token_out = confirmedSwap.token_out;
+                parsedIntent.detailed.amount = confirmedSwap.amount_in;
+                parsedIntent.detailed.chain_id = confirmedSwap.chain_id;
+                parsedIntent.decision = {
+                    primary: 'TRADING',
+                    confidence: 1,
+                    labels: [{ label: 'TRADING', confidence: 1 }],
+                    evidence: [],
+                    routing: { stage: 'rule', reason: 'confirmation_followup' },
+                    hardRule: { label: 'TRADING', reason: 'user_confirmation_after_simulation' },
+                    signals: { hasAction: true, hasAmount: true, hasAsset: true } as any,
+                    slots: { action: true, amount: true, asset: true, target: true, complete: true } as any,
+                };
+                (task as any).systemInjection = confirmedSwap.isCrossChain
+                    ? `CONFIRMED_CROSS_CHAIN_SWAP: User confirmed cross-chain swap. You MUST call prepare_cross_chain_tx now with: fromToken=${confirmedSwap.token_in}, toToken=${confirmedSwap.token_out}, fromAmount=${confirmedSwap.amount_in}, fromChain=${confirmedSwap.chain_id}, toChain=${confirmedSwap.toChain}. Do NOT call get_cross_chain_quote again.`
+                    : `CONFIRMED_SWAP: User confirmed swap after simulation. You MUST call prepare_swap_transaction now with: token_in=${confirmedSwap.token_in}, token_out=${confirmedSwap.token_out}, amount_in=${confirmedSwap.amount_in}, chain_id=${confirmedSwap.chain_id}, execute=true. Do NOT call simulate_swap again or use web search.`;
+            }
+        } else if (parsedIntent?.detailed?.action === 'swap') {
+            const tokenIn = String(parsedIntent?.detailed?.token_in || '').toUpperCase();
+            const tokenOut = String(parsedIntent?.detailed?.token_out || '').toUpperCase();
+            const amount = String(parsedIntent?.detailed?.amount || '').trim();
+            const hasAmount = !!amount && !Number.isNaN(Number(amount));
+            const isOutStable = ['USDC', 'USDT', 'DAI'].includes(tokenOut);
+            const isInNative = ['ETH', 'BNB', 'SOL', 'POL', 'MATIC'].includes(tokenIn);
+            const lowerMsg = lastUserMessage.toLowerCase();
+            const hasBuySemantics = /\b(buy|get|receive)\b/i.test(lastUserMessage);
+            const outMentioned = tokenOut && lowerMsg.includes(tokenOut.toLowerCase());
+            if (hasAmount && isOutStable && isInNative && hasBuySemantics && outMentioned) {
+                (task as any).systemInjection = `AMOUNT_SEMANTICS_RULE: In this request, numeric amount ${amount} refers to target output ${tokenOut}, NOT input ${tokenIn}. Do NOT treat ${amount} as amount_in ${tokenIn}. First estimate required ${tokenIn} for receiving about ${amount} ${tokenOut}, then simulate/prepare using that estimated amount_in.`;
+            }
+        }
         await this.recordIntentTrace(task, sessionMessages, parsedIntent, lastUserMessage);
 
         this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Identifying intent' });
@@ -4141,6 +4256,9 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         }
         if (!isFreeIntent) {
             toolDefinitions = toolDefinitions.filter(def => def.function?.name !== 'external_web_search');
+        }
+        if (forceChainContextAnswer) {
+            toolDefinitions = [];
         }
 
         // Log detailed intent for debugging

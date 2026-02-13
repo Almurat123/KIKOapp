@@ -1713,6 +1713,8 @@ async def chat_completions(
                 emitted_citation_urls = set()
                 collected_tool_calls = []  # Track tool calls to know if fallback message needed
                 chunk_count = 0
+                text_chunks_sent = 0
+                instant_swap_action_emitted = False
                 log_tools(f"[Generate] Starting generator")
                 
                 def is_client_side_tool(tool_call_obj, tool_name_str: str) -> bool:
@@ -1720,6 +1722,50 @@ async def chat_completions(
                         return get_tool_call_type(tool_call_obj) == "client_side_tool"
                     except Exception:
                         return tool_name_str in available_tools
+
+                def extract_tool_name(tool_call_obj) -> str:
+                    try:
+                        if hasattr(tool_call_obj, "function") and hasattr(tool_call_obj.function, "name"):
+                            return str(tool_call_obj.function.name or "").strip()
+                    except Exception:
+                        pass
+                    return ""
+
+                def parse_tool_args_safe(raw_args) -> tuple[dict, bool]:
+                    """
+                    Returns (args, is_complete_json).
+                    For streaming chunks, tool arguments can be partial JSON fragments.
+                    """
+                    if raw_args is None:
+                        return {}, True
+                    if isinstance(raw_args, dict):
+                        return raw_args, True
+                    if isinstance(raw_args, str):
+                        s = raw_args.strip()
+                        if not s:
+                            return {}, True
+                        # Streamed tool args may be incomplete; wait for finalized args.
+                        if not (s.endswith("}") or s.endswith("]")):
+                            return {}, False
+                        try:
+                            parsed = json.loads(s)
+                            if isinstance(parsed, dict):
+                                return parsed, True
+                            return {"value": parsed}, True
+                        except Exception:
+                            return {}, False
+                    try:
+                        coerced = str(raw_args).strip()
+                        if not coerced:
+                            return {}, True
+                        if not (coerced.endswith("}") or coerced.endswith("]")):
+                            return {}, False
+                        parsed = json.loads(coerced)
+                        if isinstance(parsed, dict):
+                            return parsed, True
+                        return {"value": parsed}, True
+                    except Exception:
+                        return {}, False
                 
                 try:
                     # According to xai-sdk official docs, citations are available in the final response
@@ -1863,7 +1909,10 @@ async def chat_completions(
                                 for tool_call in tool_calls_list:
                                         # Access tool_call attributes according to official SDK structure
                                         if hasattr(tool_call, 'function'):
-                                            tool_name = tool_call.function.name if hasattr(tool_call.function, 'name') else 'unknown'
+                                            tool_name = extract_tool_name(tool_call)
+                                            if not tool_name:
+                                                log_tools("[Tool Call] Skipping call with empty tool name")
+                                                continue
                                             tool_args = tool_call.function.arguments if hasattr(tool_call.function, 'arguments') else ''
                                             
                                             # DEDUPLICATION: Create unique tool call ID based on tool name + args hash
@@ -1886,7 +1935,8 @@ async def chat_completions(
                                                 pending_tool_results.append("No further tool calls (repeat limit reached). Please respond without additional tools.")
                                                 has_tool_calls_this_turn = True
                                                 custom_tool_executed = True
-                                                force_stop_after_turn = tool_turn + 1
+                                                # Stop immediately on repeated tool loops in this turn.
+                                                force_stop_after_turn = tool_turn
                                                 continue
 
                                             # Only mark as tool turn if it's a client-side tool we execute.
@@ -1950,8 +2000,11 @@ async def chat_completions(
                                                 if is_client_tool and tool_name in available_tools:
                                                     print(f"[Custom Tool] Executing {tool_name}...")
                                                     try:
-                                                        # Parse arguments and execute the tool
-                                                        args = json.loads(str(tool_args)) if tool_args else {}
+                                                        # Parse arguments safely; skip partial streaming payloads.
+                                                        args, args_ready = parse_tool_args_safe(tool_args)
+                                                        if not args_ready:
+                                                            log_tools(f"[Tool Call] Deferred {tool_name}: incomplete streamed arguments")
+                                                            continue
                                                         tool_result_data = await execute_custom_tool(tool_name, args, user_auth_token, request.tool_context)
                                                         tool_payload, client_action = normalize_tool_result(tool_result_data)
                                                         print(f"[Custom Tool] {tool_name} returned: {len(tool_payload)} chars")
@@ -2043,83 +2096,11 @@ async def chat_completions(
                                                 }
                                                 try:
                                                     yield f"data: {json.dumps(chunk_data)}\n\n"
+                                                    text_chunks_sent += 1
                                                 except (BrokenPipeError, ConnectionResetError, OSError):
                                                     return
                                         # else:
 
-                                # Special handling for prepare_swap_transaction
-                                # We check the ACCUMULATED response (in 'response') to see if we have valid arguments
-                                # If so, we emit a client_action event
-                                if hasattr(response, 'tool_calls') and response.tool_calls:
-                                    for tool_call in response.tool_calls:
-                                        if tool_call.function.name == 'prepare_swap_transaction':
-                                            try:
-                                                # Try to parse arguments
-                                                args_str = tool_call.function.arguments
-                                                # Only attempt if looks like complete JSON (ends with })
-                                                if args_str and args_str.strip().endswith('}'):
-                                                    # Check if we already sent this action to avoid duplicates
-                                                    # We use a simple hash of args to track
-                                                    action_id = f"swap_{hash(args_str)}"
-                                                    if action_id not in (collected_client_actions if 'collected_client_actions' in locals() else []):
-                                                        if 'collected_client_actions' not in locals():
-                                                            collected_client_actions = set()
-                                                        
-                                                        args = json.loads(args_str)
-                                                        # Verify required fields
-                                                        if all(k in args for k in ['token_in', 'token_out', 'amount_in']):
-                                                            print(f"[Client Action] Detected valid swap intent: {args}")
-                                                            
-                                                            # Check user's trading mode preference
-                                                            # Default to 'confirm' mode for safety
-                                                            allowance_mode = "confirm"
-                                                            if request.user_settings and request.user_settings.allowance_mode:
-                                                                allowance_mode = request.user_settings.allowance_mode
-                                                            
-                                                            # Determine action type based on user preference
-                                                            if allowance_mode == "instant":
-                                                                action_type = "execute_swap_instant"
-                                                                print(f"[Client Action] User has INSTANT mode - auto-executing")
-                                                            else:
-                                                                action_type = "show_swap_card"
-                                                                print(f"[Client Action] User has CONFIRM mode - showing preview")
-                                                            
-                                                            # Construct client action with appropriate type
-                                                            client_action = {
-                                                                "type": action_type,
-                                                                "payload": {
-                                                                    "tokenIn": args.get("token_in"),
-                                                                    "tokenOut": args.get("token_out"),
-                                                                    "amountIn": args.get("amount_in"),
-                                                                    "chainId": args.get("chain_id", 1),
-                                                                    "slippage": args.get("slippage", 0.5),
-                                                                    "maxPriceImpact": args.get("max_price_impact")
-                                                                }
-                                                            }
-                                                            
-                                                            # Emit client action event
-                                                            action_chunk = {
-                                                                "id": f"chatcmpl-{hash(str(request.messages))}",
-                                                                "object": "chat.completion.chunk",
-                                                                "created": int(__import__('time').time()),
-                                                                "model": request.model,
-                                                                "choices": [{
-                                                                    "index": 0,
-                                                                    "delta": {
-                                                                        "client_actions": [client_action]
-                                                                    },
-                                                                    "finish_reason": None
-                                                                }]
-                                                            }
-                                                            
-                                                            yield f"data: {json.dumps(action_chunk)}\n\n"
-                                                            collected_client_actions.add(action_id)
-                                                            print(f"[Client Action] Sent {action_type} action")
-                                            except json.JSONDecodeError:
-                                                pass # Incomplete JSON, wait for more chunks
-                                            except Exception as e:
-                                                print(f"[Client Action] Error processing swap tool: {e}")
-                            
                             # END OF STREAM LOOP - Check if we need another turn
                             final_tool_call_check = custom_tool_executed
                             
@@ -2128,12 +2109,21 @@ async def chat_completions(
                                 # Process tool calls from final_response if not already processed
                                 for tool_call in final_response.tool_calls:
                                     if hasattr(tool_call, 'function'):
-                                        tool_name = tool_call.function.name if hasattr(tool_call.function, 'name') else 'unknown'
+                                        tool_name = extract_tool_name(tool_call)
+                                        if not tool_name:
+                                            continue
                                         is_client_tool = is_client_side_tool(tool_call, tool_name)
                                         if is_client_tool and tool_name in available_tools:
                                             try:
                                                 tool_args = tool_call.function.arguments if hasattr(tool_call.function, 'arguments') else '{}'
-                                                args = json.loads(str(tool_args)) if tool_args else {}
+                                                args, args_ready = parse_tool_args_safe(tool_args)
+                                                if not args_ready:
+                                                    pending_tool_results.append(
+                                                        f"Tool {tool_name} returned incomplete arguments. Respond without calling more tools."
+                                                    )
+                                                    has_tool_calls_this_turn = True
+                                                    custom_tool_executed = True
+                                                    continue
                                                 tool_result_data = await execute_custom_tool(tool_name, args, user_auth_token, request.tool_context)
                                                 tool_payload, client_action = normalize_tool_result(tool_result_data)
                                                 if client_action and tool_name != "prepare_swap_transaction":
@@ -2159,6 +2149,9 @@ async def chat_completions(
                             
                             if force_stop_after_turn is not None and tool_turn >= force_stop_after_turn:
                                 final_tool_call_check = False
+                            if instant_swap_action_emitted:
+                                # Once instant execution is dispatched to client, end tool chaining.
+                                final_tool_call_check = False
 
                             if final_tool_call_check:
                                 # CRITICAL FIX: Tool was called, continue to next turn to get Grok's response
@@ -2176,7 +2169,9 @@ async def chat_completions(
                                         print(f"[Tool Turn] Failed to append response: {e}")
 
                                 if not pending_tool_results:
-                                    pending_tool_results = ["tool_result_empty"]
+                                    pending_tool_results = [
+                                        "Tool execution produced no usable result. Respond directly without additional tool calls."
+                                    ]
 
                                 for tool_payload in pending_tool_results:
                                     if tool_payload is None:
@@ -2210,6 +2205,7 @@ async def chat_completions(
                                                 }]
                                             }
                                             yield f"data: {json.dumps(fallback_chunk)}\n\n"
+                                            text_chunks_sent += 1
                                         except Exception as e:
                                             pass
                                 break  # Done - exit multi-turn loop
@@ -2506,6 +2502,23 @@ async def chat_completions(
                     # Send final chunk with citations
                     # Ensure all data is JSON-serializable (no protobuf types)
                     try:
+                        if text_chunks_sent == 0:
+                            empty_fallback_chunk = {
+                                "id": f"chatcmpl-{hash(str(request.messages))}",
+                                "object": "chat.completion.chunk",
+                                "created": int(__import__('time').time()),
+                                "model": request.model,
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {
+                                        "content": "I couldn't produce a stable final answer in this round. Please retry."
+                                    },
+                                    "finish_reason": None
+                                }]
+                            }
+                            yield f"data: {json.dumps(empty_fallback_chunk)}\n\n"
+                            text_chunks_sent += 1
+
                         # Citations are now objects with url and optional avatar_url
                         citations_list = collected_citations if collected_citations else []
                         

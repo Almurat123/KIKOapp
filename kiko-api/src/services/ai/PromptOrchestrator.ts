@@ -137,6 +137,8 @@ USER_QUERY_END
         if (ctx.solanaAddress) parts.push(`- Solana Address: ${ctx.solanaAddress}`);
         if (ctx.chainId && ctx.chainName) {
             parts.push(`- Chain: ${ctx.chainName} (${ctx.chainId})`);
+            parts.push(`- Default Execution Chain ID: ${ctx.chainId}`);
+            parts.push(`- Chain Guardrail: NEVER infer chain from 0x address format. Always treat current/default chain as ${ctx.chainName} (${ctx.chainId}) unless user explicitly switches chain.`);
         }
         if (ctx.nativeBalance) parts.push(`- Native Balance: ${ctx.nativeBalance}`);
 
