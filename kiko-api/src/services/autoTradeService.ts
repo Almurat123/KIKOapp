@@ -1902,13 +1902,17 @@ async function executePositionExit(params: {
             // 2. Rent Reclamation / Dust Handling
             // If balance is effectively zero (or just dust < 1000 raw units), we consider it empty.
             if (balance < 1000n) {
+                const isMirrorSell = exitReason === 'mirror_sell';
+                const treatAsEmptyOrDust = balance <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1);
                 // CHECK: If we have an open position record but no balance, close it.
                 // This handles the case where an external sell happened or previous sell leftover dust.
-                if (balance <= 0n || (hasValidPrice && balanceUsd < 0.1)) {
+                if (treatAsEmptyOrDust) {
                     logger.throttled(LogCode.WTC_TX_SKIPPED, 'Closing database record for empty or negligible balance', {
                         userId,
                         token: tokenAddress,
-                        balanceUsd
+                        balanceUsd,
+                        reason: exitReason,
+                        isMirrorSell
                     });
                     await prisma.position.updateMany({
                         where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
@@ -1996,16 +2000,43 @@ async function executePositionExit(params: {
 
         } else {
             // EVM Logic
-            const [bal, dec] = await Promise.all([
-                getErc20Balance(tokenAddress, user.walletAddress, chainId),
-                getErc20Decimals(tokenAddress, chainId).catch(() => 18)
-            ]);
+            const dec = await getErc20Decimals(tokenAddress, chainId).catch(() => 18);
+            let bal = await getErc20Balance(tokenAddress, user.walletAddress, chainId);
+            const isMirrorSell = exitReason === 'mirror_sell';
+
+            // Mirror-sell safety: do not trust a single zero read from RPC.
+            // Re-check a few times before deciding there is no balance.
+            if (isMirrorSell && bal <= 0n) {
+                for (let i = 0; i < 3; i++) {
+                    await new Promise((resolve) => setTimeout(resolve, 220));
+                    const retryBal = await getErc20Balance(tokenAddress, user.walletAddress, chainId).catch(() => 0n);
+                    if (retryBal > bal) bal = retryBal;
+                    if (bal > 0n) break;
+                }
+            }
+
             balance = bal;
             decimals = Number(dec);
             const balanceUsd = formatTokenAmount(balance, decimals) * (hasValidPrice ? tokenInfo.price : 0);
 
-            if (balance <= 0n || (hasValidPrice && balanceUsd < 0.1)) {
-                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', { userId, tokenAddress, balanceUsd });
+            const treatAsEmptyOrDust = balance <= 0n || (!isMirrorSell && hasValidPrice && balanceUsd < 0.1);
+            if (treatAsEmptyOrDust) {
+                if (isMirrorSell && balance <= 0n) {
+                    // Keep position open for retry path; do not close on mirror-sell zero-balance uncertainty.
+                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Mirror sell skipped: zero token balance after retries; position left open', {
+                        userId,
+                        tokenAddress,
+                        chainId
+                    });
+                    return null;
+                }
+                logger.throttled(LogCode.WTC_TX_SKIPPED, 'Negligible EVM balance, closing database records', {
+                    userId,
+                    tokenAddress,
+                    balanceUsd,
+                    reason: exitReason,
+                    isMirrorSell
+                });
                 await prisma.position.updateMany({
                     where: { userId: userId, tokenAddress: tokenAddress, status: 'open' },
                     data: { status: 'closed', exitReason: balance <= 0n ? 'balance_empty' : 'balance_dust', closedAt: new Date() }

@@ -34,6 +34,7 @@ import { ethers } from 'ethers';
 import { TradeContext, getTradeContext } from './TradeContext.js';
 import { getTokenData } from './UnifiedDataLayer.js';
 import { executeDirectSwap, isDirectSwapSupported } from './dex/directSwapService.js';
+import { UNIVERSAL_ROUTER_V4 } from './dex/uniswapV4Swap.js';
 import { callRpc } from './rpcManager.js';
 import { resolveTokenAddress, normalizeTokenAddress } from './tokens.js';
 import { sendTransaction } from './privyWallet.js';
@@ -716,6 +717,52 @@ export class MainSwapService {
           lastDirectResult = directResult;
 
           if (directResult.success) {
+            const outTokenLower = normalizedTokenOut.toLowerCase();
+            const isNativeOut =
+              outTokenLower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+              outTokenLower === '0x0000000000000000000000000000000000000000' ||
+              outTokenLower === 'eth' ||
+              outTokenLower === 'bnb' ||
+              outTokenLower === 'sol' ||
+              outTokenLower === 'matic' ||
+              outTokenLower === 'pol' ||
+              outTokenLower === 'avax' ||
+              outTokenLower === 'base';
+
+            const directSpender =
+              directResult.provider === 'uniswap-v4'
+                ? UNIVERSAL_ROUTER_V4[request.chainId]
+                : undefined;
+
+            if (
+              request.mode === 'copytrade' &&
+              !isNativeOut &&
+              directSpender
+            ) {
+              (async () => {
+                try {
+                  const iface = new ethers.Interface(['function approve(address spender, uint256 amount)']);
+                  const approvalData = iface.encodeFunctionData('approve', [directSpender, ethers.MaxUint256]);
+                  const approveTxHash = await sendTransaction(request.userId, request.accessToken || '', {
+                    to: normalizedTokenOut,
+                    data: approvalData,
+                    value: '0',
+                    chainId: request.chainId
+                  });
+                  logger.info(LogCode.EXE_TX_CONFIRMED, trace('Direct path Post-Buy Pre-Approval Sent'), {
+                    txHash: approveTxHash,
+                    token: normalizedTokenOut,
+                    spender: directSpender
+                  });
+                } catch (approvalErr: any) {
+                  logger.warn(LogCode.SYS_ERROR, trace('Direct path pre-approval failed (non-fatal)'), {
+                    error: approvalErr?.message || String(approvalErr),
+                    token: normalizedTokenOut
+                  });
+                }
+              })().catch(() => { });
+            }
+
             try {
               await this.collectDirectSwapFee(
                 request,
