@@ -5,10 +5,25 @@
 import { getAuthToken, clearAuthTokenCache } from './authToken';
 
 function resolveWsBaseUrl(): string {
-    const explicit = (import.meta.env.VITE_CHAT_WS_URL || import.meta.env.VITE_WS_URL || '').trim();
-    if (explicit) return explicit.replace(/\/+$/, '');
+    const explicitRaw = (import.meta.env.VITE_CHAT_WS_URL || import.meta.env.VITE_WS_URL || '').trim();
+    const explicit = explicitRaw.replace(/^["']|["']$/g, '');
+    if (explicit) {
+        try {
+            const parsed = new URL(explicit);
+            if (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') {
+                return explicit.replace(/\/+$/, '');
+            }
+            console.warn('[ChatWS] Invalid ws protocol in VITE_CHAT_WS_URL, falling back:', explicitRaw);
+        } catch {
+            console.warn('[ChatWS] Invalid VITE_CHAT_WS_URL, falling back:', explicitRaw);
+        }
+    }
 
-    // Production safety: derive from current page origin to avoid ws://localhost fallback.
+    // Hard fallback for hosted web deployments when env injection fails.
+    if (import.meta.env.PROD) {
+        return 'wss://kiko-python-production.up.railway.app';
+    }
+
     if (typeof window !== 'undefined' && window.location?.origin) {
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${proto}//${window.location.host}`;

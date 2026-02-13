@@ -748,10 +748,22 @@ export interface FeedItem {
  * Note: Chat routes return custom response format (e.g., { success, sessions } instead of { success, data })
  */
 function resolveChatApiBase(): string {
-    const explicit = (import.meta.env.VITE_CHAT_API_URL || '').trim();
-    if (explicit) return explicit.replace(/\/+$/, '');
+    const explicitRaw = (import.meta.env.VITE_CHAT_API_URL || '').trim();
+    const explicit = explicitRaw.replace(/^["']|["']$/g, '');
+    if (explicit) {
+        try {
+            new URL(explicit);
+            return explicit.replace(/\/+$/, '');
+        } catch {
+            console.warn('[chatApi] Invalid VITE_CHAT_API_URL, falling back:', explicitRaw);
+        }
+    }
 
-    // Production safety: never fallback to localhost from an https origin.
+    // Hard fallback for hosted web deployments when env injection fails.
+    if (import.meta.env.PROD) {
+        return 'https://kiko-python-production.up.railway.app';
+    }
+
     if (typeof window !== 'undefined' && window.location?.origin) {
         return window.location.origin.replace(/\/+$/, '');
     }
