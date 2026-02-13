@@ -4,8 +4,51 @@ from dotenv import load_dotenv
 
 
 _BASE_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(_BASE_DIR / ".env")
-load_dotenv()
+if not os.getenv("RAILWAY_ENVIRONMENT"):
+    load_dotenv(_BASE_DIR / ".env")
+    load_dotenv()
+
+
+def _build_database_url() -> str:
+    direct = (
+        os.getenv("DATABASE_URL")
+        or os.getenv("DATABASE_PRIVATE_URL")
+        or os.getenv("DATABASE_PUBLIC_URL")
+        or os.getenv("POSTGRES_URL")
+        or os.getenv("POSTGRESQL_URL")
+    )
+    if direct:
+        return direct
+
+    # Railway/managed PG plugins sometimes expose discrete PG* vars.
+    pghost = os.getenv("PGHOST")
+    pgport = os.getenv("PGPORT")
+    pguser = os.getenv("PGUSER")
+    pgpassword = os.getenv("PGPASSWORD")
+    pgdatabase = os.getenv("PGDATABASE")
+    if pghost and pgport and pguser and pgpassword and pgdatabase:
+        return f"postgresql://{pguser}:{pgpassword}@{pghost}:{pgport}/{pgdatabase}"
+
+    # Local default only for non-Railway.
+    if os.getenv("RAILWAY_ENVIRONMENT"):
+        raise RuntimeError(
+            "DATABASE_URL missing in Railway env. Set DATABASE_URL (or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE)."
+        )
+    return "postgresql://almurat:almurat@localhost:5432/kiko_db"
+
+
+def _build_redis_url() -> str:
+    direct = (
+        os.getenv("REDIS_URL")
+        or os.getenv("REDIS_PRIVATE_URL")
+        or os.getenv("REDIS_PUBLIC_URL")
+    )
+    if direct:
+        return direct
+    if os.getenv("RAILWAY_ENVIRONMENT"):
+        # Allow startup in Railway without redis plugin; worker queue will still initialize against local fallback only outside Railway.
+        raise RuntimeError("REDIS_URL missing in Railway env. Set REDIS_URL (or REDIS_PRIVATE_URL).")
+    return "redis://localhost:6379/0"
 
 
 def _bool(name: str, default: bool = False) -> bool:
@@ -16,8 +59,8 @@ class Settings:
     APP_NAME = "kiko-chat-v2"
     DEBUG = _bool("DEBUG", False)
 
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://almurat:almurat@localhost:5432/kiko_db")
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    DATABASE_URL = _build_database_url()
+    REDIS_URL = _build_redis_url()
 
     if os.getenv("CHAT_API_PORT"):
         _port = os.getenv("CHAT_API_PORT")
@@ -44,7 +87,13 @@ class Settings:
     CHUNK_FLUSH_MS = int(os.getenv("CHAT_V2_CHUNK_FLUSH_MS", "800"))
     CANCEL_CHECK_MS = int(os.getenv("CHAT_V2_CANCEL_CHECK_MS", "500"))
     MAX_TOOL_ROUNDS = int(os.getenv("CHAT_V2_MAX_TOOL_ROUNDS", "4"))
+    MAX_CONCURRENT_TASKS = int(os.getenv("CHAT_WORKER_MAX_CONCURRENCY", "24"))
+    MAX_TOOL_CALLS = int(os.getenv("CHAT_V2_MAX_TOOL_CALLS", "12"))
+    MAX_TOOL_CALLS_PER_TOOL = int(os.getenv("CHAT_V2_MAX_TOOL_CALLS_PER_TOOL", "3"))
     TOOL_EXEC_TIMEOUT_SEC = int(os.getenv("CHAT_V2_TOOL_EXEC_TIMEOUT_SEC", "45"))
+    CONTEXT_RECENT_WINDOW = int(os.getenv("CHAT_CONTEXT_RECENT_WINDOW", "12"))
+    CONTEXT_MAX_INPUT_TOKENS = int(os.getenv("CHAT_CONTEXT_MAX_INPUT_TOKENS", "16000"))
+    CONTEXT_RESERVED_OUTPUT_TOKENS = int(os.getenv("CHAT_CONTEXT_RESERVED_OUTPUT_TOKENS", "3500"))
 
 
 settings = Settings()

@@ -1,1009 +1,1001 @@
-2026-02-13T04:08:16.902662636Z [inf]  Baseline sweep tick
-2026-02-13T04:08:19.020585798Z [inf]  Baseline sweep tick
-2026-02-13T04:08:19.020589393Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:08:20.075067671Z [inf]  Baseline sweep tick
-2026-02-13T04:08:21.265320243Z [inf]  Baseline sweep tick
-2026-02-13T04:08:28.413917123Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:08:47.887618294Z [inf]  No open positions to monitor
-2026-02-13T04:08:47.887623525Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:08:47.887628369Z [inf]  Baseline sweep tick
-2026-02-13T04:08:47.887633371Z [inf]  Baseline sweep tick
-2026-02-13T04:08:47.887639043Z [inf]  Baseline sweep tick
-2026-02-13T04:08:47.887644063Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:08:47.887649366Z [inf]  Baseline sweep tick
-2026-02-13T04:08:48.927918476Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:08:49.088236417Z [wrn]  RPC health degraded
-2026-02-13T04:08:50.783864588Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:08:53.003641262Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:08:54.854510596Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:08:56.805924541Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:08:59.806764962Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:09:01.913327678Z [inf]  1:M 13 Feb 2026 04:09:01.057 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:09:01.913339564Z [inf]  1:M 13 Feb 2026 04:09:01.058 * Background saving started by pid 6216
-2026-02-13T04:09:01.913351424Z [inf]  6216:C 13 Feb 2026 04:09:01.131 * DB saved on disk
-2026-02-13T04:09:01.913362072Z [inf]  6216:C 13 Feb 2026 04:09:01.132 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:09:01.913368539Z [inf]  1:M 13 Feb 2026 04:09:01.159 * Background saving terminated with success
-2026-02-13T04:09:19.676198933Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:09:19.676206710Z [inf]  No open positions to monitor
-2026-02-13T04:09:20.741165911Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:09:29.757290820Z [inf]  Baseline sweep tick
-2026-02-13T04:09:30.933203149Z [inf]  Baseline sweep tick
-2026-02-13T04:09:31.760012429Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:09:32.800525717Z [inf]  Baseline sweep tick
-2026-02-13T04:09:41.645349868Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:09:41.690373354Z [inf]  No open positions to monitor
-2026-02-13T04:09:49.528469290Z [wrn]  RPC health degraded
-2026-02-13T04:09:51.665524913Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:10:11.325074754Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-13T04:10:11.325082171Z [inf]  Timer finished: recalc_heat_scores
-2026-02-13T04:10:11.325087079Z [inf]  Fetching premium trending tokens
-2026-02-13T04:10:11.325093705Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:10:11.325098169Z [err]  api.coingecko.com failed after 1 attempts
-2026-02-13T04:10:11.325102413Z [err]  Error fetching CoinGecko trending tokens
-2026-02-13T04:10:11.327701039Z [inf]  Saved 0 trending tokens to database via Prisma with retry protection
-2026-02-13T04:10:11.327707092Z [inf]  Trending tokens refreshed: 0 tokens
-2026-02-13T04:10:11.327711317Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:10:11.327715317Z [inf]  WS addresses discovered
-2026-02-13T04:10:11.327719517Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:10:11.802349138Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:10:12.006681520Z [inf]  1:M 13 Feb 2026 04:10:02.019 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:10:12.006688108Z [inf]  1:M 13 Feb 2026 04:10:02.019 * Background saving started by pid 6217
-2026-02-13T04:10:12.006697036Z [inf]  6217:C 13 Feb 2026 04:10:02.083 * DB saved on disk
-2026-02-13T04:10:12.006704195Z [inf]  6217:C 13 Feb 2026 04:10:02.084 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:10:12.006710648Z [inf]  1:M 13 Feb 2026 04:10:02.120 * Background saving terminated with success
-2026-02-13T04:10:12.940369112Z [inf]  No open positions to monitor
-2026-02-13T04:10:12.940380047Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:10:14.656774022Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:10:20.970664469Z [inf]  Baseline sweep tick
-2026-02-13T04:10:24.224959232Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:10:38.268608028Z [err]  2026-02-13 04:10:28.730 UTC [27] LOG:  checkpoint starting: time
-2026-02-13T04:10:43.775253392Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:10:45.034031618Z [inf]  No open positions to monitor
-2026-02-13T04:10:45.034035607Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:10:49.882733006Z [wrn]  RPC health degraded
-2026-02-13T04:10:58.047856209Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:11:01.854726384Z [inf]  Baseline sweep tick
-2026-02-13T04:11:05.741690080Z [inf]  Processed DexScreener trending candidates
-2026-02-13T04:11:08.791288896Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:11:12.011069435Z [inf]  1:M 13 Feb 2026 04:11:03.090 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:11:12.011078539Z [inf]  1:M 13 Feb 2026 04:11:03.091 * Background saving started by pid 6218
-2026-02-13T04:11:12.011084721Z [inf]  6218:C 13 Feb 2026 04:11:03.149 * DB saved on disk
-2026-02-13T04:11:12.011090630Z [inf]  6218:C 13 Feb 2026 04:11:03.150 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:11:12.011097291Z [inf]  1:M 13 Feb 2026 04:11:03.192 * Background saving terminated with success
-2026-02-13T04:11:16.701135194Z [inf]  No open positions to monitor
-2026-02-13T04:11:19.666771386Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:11:21.772294017Z [inf]  Baseline sweep tick
-2026-02-13T04:11:21.772302738Z [inf]  Baseline sweep tick
-2026-02-13T04:11:21.772314813Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:11:21.772322562Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:11:30.856055718Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:11:37.343614856Z [inf]  [RateLimiter] Limiter backend issue, skipping limit check: Redis timeout
-2026-02-13T04:11:40.154304829Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:11:42.185464745Z [inf]  Suppressed repeated logs
-2026-02-13T04:11:42.185475276Z [inf]  [RateLimiter] Limiter backend issue, skipping limit check: Redis timeout
-2026-02-13T04:11:48.210175376Z [inf]  No open positions to monitor
-2026-02-13T04:11:48.500207608Z [err]  2026-02-13 04:11:42.353 UTC [27] LOG:  checkpoint complete: wrote 739 buffers (4.5%); 0 WAL file(s) added, 0 removed, 0 recycled; write=73.575 s, sync=0.013 s, total=73.623 s; sync files=32, longest=0.008 s, average=0.001 s; distance=6653 kB, estimate=6653 kB; lsn=5/2DF1AA98, redo lsn=5/2DD87DC0
-2026-02-13T04:11:49.233666818Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:11:50.283981329Z [wrn]  RPC health degraded
-2026-02-13T04:11:55.333767167Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-13T04:11:57.069393584Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-13T04:11:58.204202794Z [inf]  Suppressed repeated logs
-2026-02-13T04:11:58.204209999Z [inf]  [RateLimiter] Limiter backend issue, skipping limit check: Redis timeout
-2026-02-13T04:12:00.311354422Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-13T04:12:02.185955991Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:12:10.437841815Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:12:12.685150479Z [inf]  1:M 13 Feb 2026 04:12:04.070 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:12:12.685155729Z [inf]  1:M 13 Feb 2026 04:12:04.070 * Background saving started by pid 6219
-2026-02-13T04:12:12.685159862Z [inf]  6219:C 13 Feb 2026 04:12:04.150 * DB saved on disk
-2026-02-13T04:12:12.685164067Z [inf]  6219:C 13 Feb 2026 04:12:04.152 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:12:12.685168043Z [inf]  1:M 13 Feb 2026 04:12:04.172 * Background saving terminated with success
-2026-02-13T04:12:17.254352830Z [err]  Error fetching trending tokens
-2026-02-13T04:12:17.254360766Z [inf]  Premium trending tokens fetch complete
-2026-02-13T04:12:17.254367964Z [inf]  Got 85 trending tokens for Ethereum
-2026-02-13T04:12:17.254422949Z [inf]  Filtered out 3 invalid tokens for Ethereum
-2026-02-13T04:12:19.744065188Z [err]  [ImageProxy] Upstream fetch failed for raw.githubusercontent.com: Upstream returned 404
-2026-02-13T04:12:21.147559392Z [inf]  No open positions to monitor
-2026-02-13T04:12:22.111900061Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:12:30.834573368Z [inf]  Saved 82/82 trending tokens for eth to database and memory cache
-2026-02-13T04:12:31.752244433Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:12:32.741719786Z [inf]  Saved 82 tokens for Ethereum to DB + cache
-2026-02-13T04:12:32.741731369Z [inf]  [LaunchMultiple] Suspicious multiple x339547.4 (max allowed x200000 for age 24850.9h) chain=eth addr=0x69825081 source=rpc_native_first_swap — suppressed
-2026-02-13T04:12:38.094744460Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:12:38.094754050Z [inf]  Saved 82/82 trending tokens for eth to database and memory cache
-2026-02-13T04:12:43.039164242Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:12:43.039171039Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:12:43.039178000Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:12:51.340627066Z [wrn]  RPC health degraded
-2026-02-13T04:12:52.310008345Z [inf]  No open positions to monitor
-2026-02-13T04:12:53.347313407Z [inf]  [LaunchMultiple] Suspicious multiple x339547.4 (max allowed x200000 for age 24850.9h) chain=eth addr=0x69825081 source=rpc_native_first_swap — suppressed
-2026-02-13T04:12:53.347319299Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:13:12.821024042Z [inf]  1:M 13 Feb 2026 04:13:05.040 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:13:12.821035252Z [inf]  1:M 13 Feb 2026 04:13:05.040 * Background saving started by pid 6220
-2026-02-13T04:13:12.821042990Z [inf]  6220:C 13 Feb 2026 04:13:05.106 * DB saved on disk
-2026-02-13T04:13:12.821049959Z [inf]  6220:C 13 Feb 2026 04:13:05.107 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:13:12.821060911Z [inf]  1:M 13 Feb 2026 04:13:05.141 * Background saving terminated with success
-2026-02-13T04:13:13.168760287Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:13:13.168769041Z [inf]  Fetching premium trending tokens
-2026-02-13T04:13:14.919756673Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:13:16.153248485Z [inf]  Saved 82/82 trending tokens for eth to database and memory cache
-2026-02-13T04:13:22.084858270Z [wrn]  Pending baseline apply for solana timed out
-2026-02-13T04:13:22.084862300Z [inf]  Baseline sweep tick
-2026-02-13T04:13:24.256236297Z [inf]  No open positions to monitor
-2026-02-13T04:13:25.934355719Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:13:46.207546305Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:13:46.207553151Z [err]  DexScreener WS: Connection error
-2026-02-13T04:13:46.207559346Z [err]  DexScreener WS: Connection error
-2026-02-13T04:13:46.207565664Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:13:50.181290755Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:13:51.062636065Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:13:51.062643270Z [wrn]  RPC health degraded
-2026-02-13T04:13:53.215747411Z [wrn]  DexScreener WS: All connection attempts failed
-2026-02-13T04:13:53.215755587Z [wrn]  WS returned 0 addresses
-2026-02-13T04:13:53.215765377Z [inf]  Using fallback discovery (Boosts + Organic search)
-2026-02-13T04:13:53.215773656Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:13:55.177811911Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:13:55.209742665Z [inf]  No open positions to monitor
-2026-02-13T04:13:56.146944405Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:13:56.146949474Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:13:56.146954386Z [inf]  Merged addresses
-2026-02-13T04:14:02.939732658Z [inf]  Baseline sweep tick
-2026-02-13T04:14:06.295688584Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:14:13.505149540Z [inf]  1:M 13 Feb 2026 04:14:06.032 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:14:13.505154315Z [inf]  1:M 13 Feb 2026 04:14:06.032 * Background saving started by pid 6221
-2026-02-13T04:14:13.505159096Z [inf]  6221:C 13 Feb 2026 04:14:06.095 * DB saved on disk
-2026-02-13T04:14:13.505163784Z [inf]  6221:C 13 Feb 2026 04:14:06.096 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:14:13.505169261Z [inf]  1:M 13 Feb 2026 04:14:06.134 * Background saving terminated with success
-2026-02-13T04:14:25.873669447Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:14:25.873673429Z [inf]  Processed DexScreener trending candidates
-2026-02-13T04:14:25.873677253Z [inf]  Premium trending tokens fetch complete
-2026-02-13T04:14:25.873681012Z [inf]  Got 100 trending tokens for Solana
-2026-02-13T04:14:25.873684937Z [inf]  Filtered out 1 invalid tokens for Solana
-2026-02-13T04:14:27.827764517Z [inf]  No open positions to monitor
-2026-02-13T04:14:29.075761682Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:14:37.446876341Z [inf]  Baseline sweep tick
-2026-02-13T04:14:38.770830818Z [inf]  Saved 99/99 trending tokens for solana to database and memory cache
-2026-02-13T04:14:39.851702135Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:14:40.783278322Z [inf]  Saved 99 tokens for Solana to DB + cache
-2026-02-13T04:14:49.798640626Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:14:51.629592312Z [wrn]  RPC health degraded
-2026-02-13T04:14:59.419823426Z [inf]  No open positions to monitor
-2026-02-13T04:15:00.449237998Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:15:02.397016309Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-13T04:15:02.397024962Z [inf]  Timer finished: recalc_heat_scores
-2026-02-13T04:15:02.397036207Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:15:04.502839142Z [inf]  Timer finished: launchpad_det_4gKxLDb3ecYmPiQ94UNp9N6XWEyghkQTm2iq7RFkpump
-2026-02-13T04:15:05.652500839Z [inf]  Timer finished: launchpad_det_EbRaYWEBzQBdauHGiEe2GZJg5JgPdRJRdKJQNEATpump
-2026-02-13T04:15:05.652507292Z [wrn]  Launchpad enrichment for Solana timed out
-2026-02-13T04:15:07.360124521Z [err]  Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
-2026-02-13T04:15:09.401905499Z [inf]  LaunchpadDetector: Global timeout reached
-2026-02-13T04:15:09.401911760Z [err]  Server responded with 429 Too Many Requests.  Retrying after 1000ms delay...
-2026-02-13T04:15:09.401926071Z [inf]  Timer finished: launchpad_det_BkHWapdUmenQDLsXnqbx6hDf4N9zaSQYF8esFfqpump
-2026-02-13T04:15:11.657950623Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:15:14.074963088Z [inf]  Fetching premium trending tokens
-2026-02-13T04:15:14.074970544Z [err]  Server responded with 429 Too Many Requests.  Retrying after 2000ms delay...
-2026-02-13T04:15:14.145200563Z [inf]  1:M 13 Feb 2026 04:15:07.001 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:15:14.145206759Z [inf]  1:M 13 Feb 2026 04:15:07.002 * Background saving started by pid 6222
-2026-02-13T04:15:14.145214214Z [inf]  6222:C 13 Feb 2026 04:15:07.065 * DB saved on disk
-2026-02-13T04:15:14.145221137Z [inf]  6222:C 13 Feb 2026 04:15:07.065 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:15:14.145227772Z [inf]  1:M 13 Feb 2026 04:15:07.103 * Background saving terminated with success
-2026-02-13T04:15:16.283957867Z [err]  api failed after 1 attempts
-2026-02-13T04:15:16.283964299Z [err]  api failed after 1 attempts
-2026-02-13T04:15:17.338404504Z [inf]  LaunchpadDetector: Global timeout reached
-2026-02-13T04:15:18.382750845Z [inf]  LaunchpadDetector: Global timeout reached
-2026-02-13T04:15:18.382762384Z [inf]  Timer finished: launchpad_det_B1RB6i7gvxYoyx8Us1eFrJxr7DZv3RzLmBHdfPwDpump
-2026-02-13T04:15:19.563762197Z [inf]  Timer finished: launchpad_det_3Wpd51PMpPM6VU1ydmZXZyeMBAHvd5dpooeQqyBRpump
-2026-02-13T04:15:21.801502483Z [err]  Server responded with 429 Too Many Requests.  Retrying after 4000ms delay...
-2026-02-13T04:15:21.801509540Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:15:28.589734692Z [err]  DexScreener WS: Connection error
-2026-02-13T04:15:31.661690529Z [inf]  No open positions to monitor
-2026-02-13T04:15:32.548228166Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:15:33.801394978Z [err]  DexScreener WS: Connection error
-2026-02-13T04:15:36.224841646Z [err]  2026-02-13 04:15:28.452 UTC [27] LOG:  checkpoint starting: time
-2026-02-13T04:15:41.971958930Z [wrn]  DexScreener WS: All connection attempts failed
-2026-02-13T04:15:41.971964428Z [wrn]  WS returned 0 addresses
-2026-02-13T04:15:41.971969177Z [inf]  Using fallback discovery (Boosts + Organic search)
-2026-02-13T04:15:42.250664504Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:16:02.463106037Z [wrn]  RPC health degraded
-2026-02-13T04:16:02.463124197Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:16:02.463130503Z [err]  All RPC endpoints failed
-2026-02-13T04:16:03.311898282Z [inf]  Baseline sweep tick
-2026-02-13T04:16:04.350477185Z [inf]  No open positions to monitor
-2026-02-13T04:16:04.350484213Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:16:11.387906418Z [wrn]  Launch multiple enrichment for Solana timed out
-2026-02-13T04:16:14.197612955Z [inf]  1:M 13 Feb 2026 04:16:08.083 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:16:14.197619581Z [inf]  1:M 13 Feb 2026 04:16:08.084 * Background saving started by pid 6223
-2026-02-13T04:16:14.197626578Z [inf]  6223:C 13 Feb 2026 04:16:08.147 * DB saved on disk
-2026-02-13T04:16:14.197632669Z [inf]  6223:C 13 Feb 2026 04:16:08.148 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:16:14.197638929Z [inf]  1:M 13 Feb 2026 04:16:08.184 * Background saving terminated with success
-2026-02-13T04:16:15.206109390Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:16:18.956941669Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:16:26.110026347Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:16:26.964975694Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:16:27.211423574Z [err]  2026-02-13 04:16:24.080 UTC [27] LOG:  checkpoint complete: wrote 556 buffers (3.4%); 0 WAL file(s) added, 0 removed, 1 recycled; write=55.539 s, sync=0.024 s, total=55.629 s; sync files=38, longest=0.015 s, average=0.001 s; distance=3601 kB, estimate=6347 kB; lsn=5/2E2FA120, redo lsn=5/2E10C1C0
-2026-02-13T04:16:31.299865520Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-13T04:16:31.299871769Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:16:33.543978896Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:16:36.480316494Z [err]  All RPC endpoints failed
-2026-02-13T04:16:36.480323500Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:16:36.480330305Z [inf]  No open positions to monitor
-2026-02-13T04:16:36.480337635Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:16:37.379424825Z [inf]  Aggregated repetitive logs
-2026-02-13T04:16:37.379431273Z [inf]  Aggregated repetitive logs
-2026-02-13T04:16:37.379437233Z [inf]  Aggregated repetitive logs
-2026-02-13T04:16:37.379443817Z [inf]  Aggregated repetitive logs
-2026-02-13T04:16:37.379450190Z [inf]  Aggregated repetitive logs
-2026-02-13T04:16:37.379456964Z [inf]  Aggregated repetitive logs
-2026-02-13T04:16:37.382192698Z [inf]  Aggregated repetitive logs
-2026-02-13T04:16:38.574083354Z [inf]  [DataRetention] Starting cleanup job...
-2026-02-13T04:16:38.574097613Z [inf]  Fetching premium trending tokens
-2026-02-13T04:16:45.771841137Z [inf]  [DataRetention] Cleanup job completed.
-2026-02-13T04:16:47.590550903Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:16:53.649151781Z [wrn]  RPC health degraded
-2026-02-13T04:16:57.653231816Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:17:02.571113285Z [inf]  Merged addresses
-2026-02-13T04:17:07.664312843Z [inf]  No open positions to monitor
-2026-02-13T04:17:08.573099472Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:17:10.859453242Z [err]  DexScreener WS: Connection error
-2026-02-13T04:17:10.859458449Z [wrn]  DexScreener WS: All connection attempts failed
-2026-02-13T04:17:10.859464004Z [wrn]  WS returned 0 addresses
-2026-02-13T04:17:10.859468691Z [inf]  Using fallback discovery (Boosts + Organic search)
-2026-02-13T04:17:10.862673596Z [inf]  [originRestriction] Request blocked {"origin":"","referer":"","effectiveOrigin":"","userAgent":"curl/8.7.1","allowedOrigins":["https://kikoapp.app","https://kikoapp.pages.dev","https://www.kikoapp.app","capacitor://localhost"]}
-2026-02-13T04:17:10.862691675Z [wrn]  Operational API error
-2026-02-13T04:17:12.687335640Z [wrn]  Operational API error
-2026-02-13T04:17:14.078636682Z [wrn]  Operational API error
-2026-02-13T04:17:14.223240987Z [inf]  1:M 13 Feb 2026 04:17:09.039 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:17:14.223247984Z [inf]  1:M 13 Feb 2026 04:17:09.039 * Background saving started by pid 6224
-2026-02-13T04:17:14.223254789Z [inf]  6224:C 13 Feb 2026 04:17:09.102 * DB saved on disk
-2026-02-13T04:17:14.223262050Z [inf]  6224:C 13 Feb 2026 04:17:09.103 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:17:14.223268890Z [inf]  1:M 13 Feb 2026 04:17:09.140 * Background saving terminated with success
-2026-02-13T04:17:19.179029235Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:17:20.280362346Z [err]  All RPC endpoints failed
-2026-02-13T04:17:39.643863205Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:17:39.643867422Z [err]  All RPC endpoints failed
-2026-02-13T04:17:39.643871231Z [inf]  Processed DexScreener trending candidates
-2026-02-13T04:17:39.643875045Z [inf]  No open positions to monitor
-2026-02-13T04:17:40.277936804Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:17:59.690444552Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:17:59.690451756Z [inf]  Skipping low liquidity token
-2026-02-13T04:17:59.690458289Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:17:59.690463401Z [wrn]  RPC health degraded
-2026-02-13T04:17:59.690469098Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:18:00.616760890Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:18:01.366168019Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:18:04.612681528Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:18:08.790430740Z [wrn]  Pending baseline apply for solana timed out
-2026-02-13T04:18:08.790437395Z [inf]  Baseline sweep tick
-2026-02-13T04:18:10.616027737Z [inf]  Merged addresses
-2026-02-13T04:18:10.670916980Z [inf]  No open positions to monitor
-2026-02-13T04:18:10.670926205Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:18:14.570955278Z [inf]  1:M 13 Feb 2026 04:18:10.027 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:18:14.570961586Z [inf]  1:M 13 Feb 2026 04:18:10.028 * Background saving started by pid 6225
-2026-02-13T04:18:14.570967654Z [inf]  6225:C 13 Feb 2026 04:18:10.091 * DB saved on disk
-2026-02-13T04:18:14.570974196Z [inf]  6225:C 13 Feb 2026 04:18:10.091 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:18:14.570979999Z [inf]  1:M 13 Feb 2026 04:18:10.129 * Background saving terminated with success
-2026-02-13T04:18:31.204016829Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:18:31.204022770Z [inf]  Suppressed repeated logs
-2026-02-13T04:18:31.204028265Z [inf]  Skipping low liquidity token
-2026-02-13T04:18:32.284416869Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:18:35.488735670Z [err]  api failed after 1 attempts
-2026-02-13T04:18:37.158603005Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-17, age=41584h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:18:37.306735245Z [inf]  Baseline sweep tick
-2026-02-13T04:18:39.249358021Z [inf]  Baseline sweep tick
-2026-02-13T04:18:42.084230789Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:18:43.200538034Z [inf]  No open positions to monitor
-2026-02-13T04:18:52.430263273Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:18:53.461115919Z [inf]  Processed DexScreener trending candidates
-2026-02-13T04:18:53.461125071Z [err]  api failed after 1 attempts
-2026-02-13T04:18:55.188357603Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-18, age=41555h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:18:55.188364218Z [wrn]  RPC health degraded
-2026-02-13T04:18:55.455166756Z [inf]  Skipping low liquidity token
-2026-02-13T04:18:59.452005906Z [wrn]  GeckoTerminal 429 triggered backoff
-2026-02-13T04:19:03.351097898Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:19:04.353004472Z [err]  api failed after 1 attempts
-2026-02-13T04:19:06.300184738Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-19, age=41529h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:19:06.388168617Z [inf]  Suppressed repeated logs
-2026-02-13T04:19:06.388176863Z [inf]  Skipping low liquidity token
-2026-02-13T04:19:07.341006668Z [err]  Error fetching trending tokens
-2026-02-13T04:19:07.341014068Z [inf]  Premium trending tokens fetch complete
-2026-02-13T04:19:07.341021949Z [inf]  Got 30 trending tokens for BSC
-2026-02-13T04:19:14.568494617Z [inf]  1:M 13 Feb 2026 04:19:11.094 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:19:14.568499816Z [inf]  1:M 13 Feb 2026 04:19:11.095 * Background saving started by pid 6226
-2026-02-13T04:19:14.568505303Z [inf]  6226:C 13 Feb 2026 04:19:11.153 * DB saved on disk
-2026-02-13T04:19:14.568510446Z [inf]  6226:C 13 Feb 2026 04:19:11.154 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:19:14.568515583Z [inf]  1:M 13 Feb 2026 04:19:11.195 * Background saving terminated with success
-2026-02-13T04:19:16.200184344Z [inf]  Skipping low liquidity token
-2026-02-13T04:19:16.200192801Z [wrn]  New list too small (30) for BSC; keeping existing (73)
-2026-02-13T04:19:16.240851094Z [err]  Error fetching trending tokens
-2026-02-13T04:19:16.240863202Z [inf]  Premium trending tokens fetch complete
-2026-02-13T04:19:16.240870625Z [inf]  Got 27 trending tokens for Base
-2026-02-13T04:19:16.240878893Z [inf]  Filtered out 3 invalid tokens for Base
-2026-02-13T04:19:17.133190785Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:19:17.133197443Z [inf]  Refreshed 4 primary chains in 256.1s
-2026-02-13T04:19:17.133205199Z [err]  api failed after 1 attempts
-2026-02-13T04:19:17.133212001Z [inf]  No open positions to monitor
-2026-02-13T04:19:18.031997245Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-20, age=41516h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:19:24.087082520Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:19:27.277419620Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:19:30.201568307Z [err]  api failed after 1 attempts
-2026-02-13T04:19:30.201577481Z [inf]  Saved 24/24 trending tokens for base to database and memory cache
-2026-02-13T04:19:31.843668399Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:19:32.212622428Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-22, age=41457h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:19:32.212637789Z [inf]  Saved 24 tokens for Base to DB + cache
-2026-02-13T04:19:34.017262185Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:19:38.146393538Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:19:39.005922961Z [err]  api failed after 1 attempts
-2026-02-13T04:19:40.102951299Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-27, age=41340h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:19:47.374527512Z [inf]  Baseline sweep tick
-2026-02-13T04:19:48.430444794Z [err]  api failed after 1 attempts
-2026-02-13T04:19:48.666290792Z [inf]  Baseline sweep tick
-2026-02-13T04:19:48.666298007Z [inf]  No open positions to monitor
-2026-02-13T04:19:48.666303272Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:19:48.666308196Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-28, age=41318h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:19:55.692099249Z [wrn]  RPC health degraded
-2026-02-13T04:19:56.695449539Z [err]  api failed after 1 attempts
-2026-02-13T04:19:56.695453802Z [inf]  Timer finished: launchpad_det_0x1111111111166b7FE7bd91427724B487980aFc69
-2026-02-13T04:19:56.695457758Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-29, age=41306h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:19:57.610960695Z [wrn]  Launchpad enrichment for Base timed out
-2026-02-13T04:20:00.128562658Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:20:05.147370969Z [inf]  Fetching premium trending tokens
-2026-02-13T04:20:05.147408371Z [err]  api failed after 1 attempts
-2026-02-13T04:20:06.159268963Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-30, age=41281h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:20:08.310851995Z [inf]  Baseline sweep tick
-2026-02-13T04:20:09.991019554Z [inf]  Baseline sweep tick
-2026-02-13T04:20:09.991028707Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:20:09.991037765Z [inf]  Timer finished: launchpad_det_0x1111111111166b7FE7bd91427724B487980aFc69
-2026-02-13T04:20:11.998179379Z [inf]  Baseline sweep tick
-2026-02-13T04:20:11.998188025Z [inf]  Saved 24/24 trending tokens for base to database and memory cache
-2026-02-13T04:20:13.044712169Z [inf]  Baseline sweep tick
-2026-02-13T04:20:15.079874242Z [inf]  1:M 13 Feb 2026 04:20:12.058 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:20:15.079880069Z [inf]  1:M 13 Feb 2026 04:20:12.058 * Background saving started by pid 6227
-2026-02-13T04:20:15.079886230Z [inf]  6227:C 13 Feb 2026 04:20:12.116 * DB saved on disk
-2026-02-13T04:20:15.079892679Z [inf]  6227:C 13 Feb 2026 04:20:12.117 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:20:15.079898686Z [inf]  1:M 13 Feb 2026 04:20:12.159 * Background saving terminated with success
-2026-02-13T04:20:16.523195944Z [err]  api failed after 1 attempts
-2026-02-13T04:20:17.476568967Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-31, age=41260h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:20:21.551201921Z [inf]  No open positions to monitor
-2026-02-13T04:20:21.551209646Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:20:27.119413952Z [err]  api failed after 1 attempts
-2026-02-13T04:20:28.176874204Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-01, age=41221h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:20:31.650328102Z [err]  2026-02-13 04:20:28.180 UTC [27] LOG:  checkpoint starting: time
-2026-02-13T04:20:32.527812237Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:20:38.564008784Z [err]  api failed after 1 attempts
-2026-02-13T04:20:38.575492290Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-03, age=41187h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:20:43.453000575Z [err]  DexScreener WS: Connection error
-2026-02-13T04:20:43.453006681Z [wrn]  DexScreener WS: All connection attempts failed
-2026-02-13T04:20:43.453012656Z [wrn]  WS returned 0 addresses
-2026-02-13T04:20:43.453019884Z [inf]  Using fallback discovery (Boosts + Organic search)
-2026-02-13T04:20:43.453027264Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:20:47.504050437Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:20:51.437646752Z [err]  api failed after 1 attempts
-2026-02-13T04:20:52.499927920Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:20:52.499940982Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-04, age=41164h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:20:53.484610897Z [inf]  No open positions to monitor
-2026-02-13T04:20:53.484619606Z [inf]  Baseline sweep tick
-2026-02-13T04:20:53.484629473Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:20:54.631987907Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:20:54.631998806Z [inf]  Baseline sweep tick
-2026-02-13T04:20:56.427893195Z [wrn]  RPC health degraded
-2026-02-13T04:20:56.427897834Z [inf]  Baseline sweep tick
-2026-02-13T04:20:57.295237631Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:20:58.614928208Z [inf]  Baseline sweep tick
-2026-02-13T04:21:00.735359067Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:21:01.629610441Z [err]  2026-02-13 04:20:54.421 UTC [27] LOG:  checkpoint complete: wrote 262 buffers (1.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=26.165 s, sync=0.022 s, total=26.241 s; sync files=31, longest=0.016 s, average=0.001 s; distance=2895 kB, estimate=6002 kB; lsn=5/2E4230C8, redo lsn=5/2E3E0088
-2026-02-13T04:21:03.619435903Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:21:03.619443881Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:21:06.742610929Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:21:11.469437487Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x7b9fc95cfd category=token asset=BOTLESS
-2026-02-13T04:21:12.542324561Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-13T04:21:12.542330347Z [err]  api failed after 1 attempts
-2026-02-13T04:21:12.645694901Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-05, age=41137h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:21:14.730533757Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:21:15.077557609Z [inf]  1:M 13 Feb 2026 04:21:13.031 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:21:15.077563218Z [inf]  1:M 13 Feb 2026 04:21:13.032 * Background saving started by pid 6228
-2026-02-13T04:21:15.077568903Z [inf]  6228:C 13 Feb 2026 04:21:13.105 * DB saved on disk
-2026-02-13T04:21:15.077574536Z [inf]  6228:C 13 Feb 2026 04:21:13.106 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:21:15.077581006Z [inf]  1:M 13 Feb 2026 04:21:13.133 * Background saving terminated with success
-2026-02-13T04:21:16.758115558Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x7b9fc9
-2026-02-13T04:21:19.677467789Z [inf]  [Webhook] Could not fetch receipt after retries: 0x7b9fc95cfd467a {"receiptMissing":true,"attempts":2}
-2026-02-13T04:21:24.767345849Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:21:25.759218948Z [inf]  No open positions to monitor
-2026-02-13T04:21:26.841607268Z [err]  api failed after 1 attempts
-2026-02-13T04:21:27.850855066Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-06, age=41115h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:21:34.997190454Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:21:36.962888953Z [inf]  Baseline sweep tick
-2026-02-13T04:21:38.907989047Z [inf]  Merged addresses
-2026-02-13T04:21:38.908003163Z [inf]  Baseline sweep tick
-2026-02-13T04:21:41.109322529Z [inf]  Baseline sweep tick
-2026-02-13T04:21:42.197583665Z [inf]  Baseline sweep tick
-2026-02-13T04:21:46.498448396Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:21:48.369970928Z [inf]  [Profile] fetchReceipt
-2026-02-13T04:21:56.426369972Z [wrn]  RPC health degraded
-2026-02-13T04:21:56.446735579Z [inf]  No open positions to monitor
-2026-02-13T04:21:56.446742305Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:22:15.091030789Z [inf]  1:M 13 Feb 2026 04:22:14.095 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:22:15.091043826Z [inf]  1:M 13 Feb 2026 04:22:14.095 * Background saving started by pid 6229
-2026-02-13T04:22:15.091052230Z [inf]  6229:C 13 Feb 2026 04:22:14.156 * DB saved on disk
-2026-02-13T04:22:15.091062837Z [inf]  6229:C 13 Feb 2026 04:22:14.157 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:22:15.091069354Z [inf]  1:M 13 Feb 2026 04:22:14.196 * Background saving terminated with success
-2026-02-13T04:22:16.565857644Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:22:19.128492801Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:22:22.353881280Z [inf]  Processed DexScreener trending candidates
-2026-02-13T04:22:23.393143936Z [inf]  Baseline sweep tick
-2026-02-13T04:22:25.348592399Z [inf]  Baseline sweep tick
-2026-02-13T04:22:26.253966191Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:22:27.221228683Z [inf]  Baseline sweep tick
-2026-02-13T04:22:28.809395643Z [inf]  Baseline sweep tick
-2026-02-13T04:22:28.809405895Z [inf]  No open positions to monitor
-2026-02-13T04:22:30.251867038Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:22:31.980614234Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:22:35.672245232Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:22:35.672252358Z [inf]  Suppressed repeated logs
-2026-02-13T04:22:35.672259154Z [inf]  Skipping low liquidity token
-2026-02-13T04:22:37.850157688Z [err]  All RPC endpoints failed
-2026-02-13T04:22:37.850163067Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:22:40.821263162Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:22:40.852688277Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:23:00.714866245Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:23:00.714872622Z [err]  All RPC endpoints failed
-2026-02-13T04:23:00.714883764Z [wrn]  RPC health degraded
-2026-02-13T04:23:01.686776745Z [inf]  No open positions to monitor
-2026-02-13T04:23:02.465432307Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:23:07.883935346Z [err]  All RPC endpoints failed
-2026-02-13T04:23:15.205793067Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:23:15.235987896Z [inf]  1:M 13 Feb 2026 04:23:15.052 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:23:15.235996147Z [inf]  1:M 13 Feb 2026 04:23:15.053 * Background saving started by pid 6230
-2026-02-13T04:23:15.236003486Z [inf]  6230:C 13 Feb 2026 04:23:15.109 * DB saved on disk
-2026-02-13T04:23:15.236009107Z [inf]  6230:C 13 Feb 2026 04:23:15.110 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:23:15.236014903Z [inf]  1:M 13 Feb 2026 04:23:15.154 * Background saving terminated with success
-2026-02-13T04:23:24.539559515Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:23:32.334551246Z [inf]  Baseline sweep tick
-2026-02-13T04:23:33.425230388Z [inf]  No open positions to monitor
-2026-02-13T04:23:34.415282259Z [inf]  Baseline sweep tick
-2026-02-13T04:23:34.415289197Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:23:36.367210359Z [inf]  Baseline sweep tick
-2026-02-13T04:23:39.450869254Z [inf]  Baseline sweep tick
-2026-02-13T04:23:45.787688704Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:23:54.585829507Z [inf]  Baseline sweep tick
-2026-02-13T04:23:54.585835521Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:23:55.558923026Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:23:56.641880088Z [inf]  Baseline sweep tick
-2026-02-13T04:23:57.663201937Z [wrn]  RPC health degraded
-2026-02-13T04:23:58.891483897Z [inf]  Baseline sweep tick
-2026-02-13T04:24:00.996017730Z [inf]  Baseline sweep tick
-2026-02-13T04:24:01.761100814Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:24:04.908979660Z [inf]  No open positions to monitor
-2026-02-13T04:24:05.693510590Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:24:06.702063401Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:24:11.743627931Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:24:15.920794756Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:24:22.102370671Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x144aa96146 category=token asset=BOTLESS
-2026-02-13T04:24:23.276768058Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-13T04:24:25.349830080Z [inf]  6231:C 13 Feb 2026 04:24:16.064 * DB saved on disk
-2026-02-13T04:24:25.349842160Z [inf]  6231:C 13 Feb 2026 04:24:16.065 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:24:25.349849451Z [inf]  1:M 13 Feb 2026 04:24:16.108 * Background saving terminated with success
-2026-02-13T04:24:25.349892260Z [inf]  1:M 13 Feb 2026 04:24:16.007 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:24:25.349898637Z [inf]  1:M 13 Feb 2026 04:24:16.008 * Background saving started by pid 6231
-2026-02-13T04:24:25.814315871Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:24:27.816524741Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x144aa96146 category=token asset=BOTLESS
-2026-02-13T04:24:29.125908170Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-13T04:24:29.125913385Z [inf]  [Webhook] Tx already local in-flight: 0x144aa96146bd01
-2026-02-13T04:24:29.125920560Z [inf]  [Webhook] Ignore tx 0x144aa96146: no tracked wallets (from/to 0xfa87, 0xfb64)
-2026-02-13T04:24:30.194317933Z [err]  All RPC endpoints failed
-2026-02-13T04:24:37.375792741Z [inf]  No open positions to monitor
-2026-02-13T04:24:37.375801922Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:24:40.182255056Z [inf]  [Webhook] Ignore tx 0x144aa96146: no tracked wallets (from/to 0xfa87, 0xfb64)
-2026-02-13T04:24:41.192313958Z [inf]  Baseline sweep tick
-2026-02-13T04:24:42.080993871Z [inf]  Trending tokens fetch complete
-2026-02-13T04:24:42.081000821Z [inf]  Premium trending tokens fetch complete
-2026-02-13T04:24:42.081008908Z [inf]  Got 100 trending tokens for BSC
-2026-02-13T04:24:42.413336596Z [inf]  Baseline sweep tick
-2026-02-13T04:24:44.307480767Z [inf]  Baseline sweep tick
-2026-02-13T04:24:46.435905725Z [inf]  Baseline sweep tick
-2026-02-13T04:24:46.435914090Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:25:06.587030134Z [wrn]  RPC health degraded
-2026-02-13T04:25:06.587035757Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:25:07.708582285Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:25:10.730999142Z [inf]  Saved 100/100 trending tokens for bsc to database and memory cache
-2026-02-13T04:25:11.621238573Z [inf]  No open positions to monitor
-2026-02-13T04:25:11.621244737Z [inf]  Saved 100 tokens for BSC to DB + cache
-2026-02-13T04:25:11.624850302Z [inf]  Refreshed 4 primary chains in 910.8s
-2026-02-13T04:25:16.738543655Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xb53c1ffe3b category=token asset=BOTLESS
-2026-02-13T04:25:17.730965766Z [inf]  Suppressed repeated logs
-2026-02-13T04:25:17.730974343Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-13T04:25:18.596977126Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:25:23.613433832Z [inf]  [Webhook] Ignore tx 0xb53c1ffe3b: no tracked wallets (from/to 0xfa87, 0xfb64)
-2026-02-13T04:25:25.729141598Z [inf]  Baseline sweep tick
-2026-02-13T04:25:25.800938361Z [inf]  1:M 13 Feb 2026 04:25:17.078 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:25:25.800945398Z [inf]  1:M 13 Feb 2026 04:25:17.180 * Background saving terminated with success
-2026-02-13T04:25:25.800946610Z [inf]  1:M 13 Feb 2026 04:25:17.079 * Background saving started by pid 6232
-2026-02-13T04:25:25.800952973Z [inf]  6232:C 13 Feb 2026 04:25:17.151 * DB saved on disk
-2026-02-13T04:25:25.800960482Z [inf]  6232:C 13 Feb 2026 04:25:17.151 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:25:27.514564430Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:25:27.514572768Z [inf]  Baseline sweep tick
-2026-02-13T04:25:29.948330415Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:25:31.770372959Z [inf]  Timer finished: launchpad_det_0x7e3097a38efbbb2952a8b19b6f2c8fe78de54444
-2026-02-13T04:25:33.837086903Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:25:33.837101066Z [inf]  Timer finished: launchpad_det_0x4b86d386518083874288640ad50ef67895fc4444
-2026-02-13T04:25:35.727257131Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:25:37.339275127Z [err]  2026-02-13 04:25:28.521 UTC [27] LOG:  checkpoint starting: time
-2026-02-13T04:25:39.709685858Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:25:42.142930752Z [err]  2026-02-13 04:25:41.441 UTC [27] LOG:  checkpoint complete: wrote 129 buffers (0.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=12.843 s, sync=0.014 s, total=12.921 s; sync files=26, longest=0.013 s, average=0.001 s; distance=871 kB, estimate=5489 kB; lsn=5/2E520D98, redo lsn=5/2E4B9E00
-2026-02-13T04:25:42.932628116Z [inf]  No open positions to monitor
-2026-02-13T04:25:42.958987623Z [err]  Error saving trending tokens: PrismaClientKnownRequestError: Transaction API error: Transaction already closed: A commit cannot be executed on an expired transaction. The timeout for this transaction was 5000 ms, however 5395 ms passed since the start of the transaction. Consider increasing the interactive transaction timeout or doing less work in the transaction.
-2026-02-13T04:25:42.959000895Z [wrn]  Launchpad enrichment failed for BSC
-2026-02-13T04:25:50.894280805Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:25:59.195348014Z [wrn]  RPC health degraded
-2026-02-13T04:26:00.481634076Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:26:20.955121205Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:26:20.955127966Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0xc5caa1dd08 category=token asset=BOTLESS
-2026-02-13T04:26:20.955286119Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-13T04:26:20.955297720Z [inf]  No open positions to monitor
-2026-02-13T04:26:22.963543148Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:26:24.847700892Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0xc5caa1
-2026-02-13T04:26:25.092137165Z [inf]  6233:C 13 Feb 2026 04:26:18.098 * DB saved on disk
-2026-02-13T04:26:25.092148806Z [inf]  6233:C 13 Feb 2026 04:26:18.099 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:26:25.092155796Z [inf]  1:M 13 Feb 2026 04:26:18.140 * Background saving terminated with success
-2026-02-13T04:26:25.092299150Z [inf]  1:M 13 Feb 2026 04:26:18.039 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:26:25.092306137Z [inf]  1:M 13 Feb 2026 04:26:18.039 * Background saving started by pid 6233
-2026-02-13T04:26:25.918357931Z [inf]  [Webhook] Could not fetch receipt after retries: 0xc5caa1dd088d41 {"receiptMissing":true,"attempts":2}
-2026-02-13T04:26:33.705624421Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:26:42.103062024Z [wrn]  Launch multiple enrichment for BSC timed out
-2026-02-13T04:26:45.377476756Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:26:46.288597549Z [inf]  No open positions to monitor
-2026-02-13T04:26:56.129677674Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:26:57.129219260Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:26:59.294800896Z [wrn]  RPC health degraded
-2026-02-13T04:27:02.202228648Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:27:03.162726769Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-13T04:27:04.320756647Z [inf]  Baseline sweep tick
-2026-02-13T04:27:05.314386945Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:27:06.157029991Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-13T04:27:06.397955018Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:27:07.260256440Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:27:25.096764021Z [inf]  1:M 13 Feb 2026 04:27:19.001 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:27:25.096771171Z [inf]  1:M 13 Feb 2026 04:27:19.002 * Background saving started by pid 6234
-2026-02-13T04:27:25.096775769Z [inf]  6234:C 13 Feb 2026 04:27:19.056 * DB saved on disk
-2026-02-13T04:27:25.096781989Z [inf]  6234:C 13 Feb 2026 04:27:19.057 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:27:25.096788290Z [inf]  1:M 13 Feb 2026 04:27:19.102 * Background saving terminated with success
-2026-02-13T04:27:26.647119507Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:27:26.647128943Z [inf]  No open positions to monitor
-2026-02-13T04:27:28.596749964Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:27:30.655921404Z [inf]  [Profile] fetchReceipt
-2026-02-13T04:27:32.574765512Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x2fbebc7982 category=token asset=BOTLESS
-2026-02-13T04:27:33.419620775Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-13T04:27:38.508994287Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:27:40.469055719Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x2fbebc
-2026-02-13T04:27:41.609256698Z [err]  All RPC endpoints failed
-2026-02-13T04:27:43.538872359Z [inf]  [Webhook] Could not fetch receipt after retries: 0x2fbebc79822712 {"receiptMissing":true,"attempts":2}
-2026-02-13T04:27:48.658016352Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:27:50.543928001Z [inf]  No open positions to monitor
-2026-02-13T04:27:58.937006438Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:27:59.915050489Z [wrn]  RPC health degraded
-2026-02-13T04:28:09.007622016Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:28:25.289184010Z [inf]  6235:C 13 Feb 2026 04:28:20.132 * DB saved on disk
-2026-02-13T04:28:25.289198070Z [inf]  6235:C 13 Feb 2026 04:28:20.133 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:28:25.289210298Z [inf]  1:M 13 Feb 2026 04:28:20.071 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:28:25.289214440Z [inf]  1:M 13 Feb 2026 04:28:20.071 * Background saving started by pid 6235
-2026-02-13T04:28:25.289225235Z [inf]  1:M 13 Feb 2026 04:28:20.172 * Background saving terminated with success
-2026-02-13T04:28:29.223257572Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:28:29.223265723Z [inf]  No open positions to monitor
-2026-02-13T04:28:29.223278186Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:28:30.320548113Z [inf]  [Profile] fetchReceipt
-2026-02-13T04:28:30.320554578Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:28:30.320560885Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:28:33.203747772Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:28:41.037367041Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:28:47.679350074Z [inf]  Baseline sweep tick
-2026-02-13T04:28:47.679362788Z [err]  All RPC endpoints failed
-2026-02-13T04:28:51.561337053Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:28:54.522681337Z [inf]  No open positions to monitor
-2026-02-13T04:29:00.944028815Z [wrn]  RPC health degraded
-2026-02-13T04:29:01.718968579Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:29:21.951951759Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:29:21.951960524Z [inf]  Baseline sweep tick
-2026-02-13T04:29:21.951968325Z [inf]  Baseline sweep tick
-2026-02-13T04:29:23.034421853Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:29:25.356960920Z [inf]  6236:C 13 Feb 2026 04:29:21.111 * DB saved on disk
-2026-02-13T04:29:25.356971138Z [inf]  6236:C 13 Feb 2026 04:29:21.111 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:29:25.356977613Z [inf]  1:M 13 Feb 2026 04:29:21.146 * Background saving terminated with success
-2026-02-13T04:29:25.357017877Z [inf]  1:M 13 Feb 2026 04:29:21.044 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:29:25.357024551Z [inf]  1:M 13 Feb 2026 04:29:21.045 * Background saving started by pid 6236
-2026-02-13T04:29:26.908221503Z [inf]  No open positions to monitor
-2026-02-13T04:29:33.036277055Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:29:41.187001601Z [inf]  Baseline sweep tick
-2026-02-13T04:29:44.544280783Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:29:49.509696993Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:29:55.367442994Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:29:55.367447278Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:29:57.387474132Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:29:58.551293225Z [inf]  No open positions to monitor
-2026-02-13T04:30:01.115131839Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:30:02.970240697Z [wrn]  RPC health degraded
-2026-02-13T04:30:05.175349173Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:30:24.985129475Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:30:24.985138078Z [inf]  [Webhook] Alchemy payload: network=BASE_MAINNET hash=0x8e0b12ae8a category=token asset=MARVIN01
-2026-02-13T04:30:24.985146511Z [inf]  [Webhook] Processing as EVM activity (1 items)
-2026-02-13T04:30:26.155650660Z [inf]  1:M 13 Feb 2026 04:30:22.068 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:30:26.155655886Z [inf]  1:M 13 Feb 2026 04:30:22.069 * Background saving started by pid 6237
-2026-02-13T04:30:26.155661744Z [inf]  6237:C 13 Feb 2026 04:30:22.134 * DB saved on disk
-2026-02-13T04:30:26.155668810Z [inf]  6237:C 13 Feb 2026 04:30:22.135 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:30:26.155674197Z [inf]  1:M 13 Feb 2026 04:30:22.171 * Background saving terminated with success
-2026-02-13T04:30:26.736935661Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:30:33.378152759Z [inf]  No open positions to monitor
-2026-02-13T04:30:33.378160787Z [inf]  [Webhook] 🎯 Found 1 tracked wallets for tx 0x8e0b12
-2026-02-13T04:30:36.307206097Z [inf]  [Webhook] Could not fetch receipt after retries: 0x8e0b12ae8a1c0d {"receiptMissing":true,"attempts":2}
-2026-02-13T04:30:36.307212547Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:30:37.595814250Z [err]  2026-02-13 04:30:28.539 UTC [27] LOG:  checkpoint starting: time
-2026-02-13T04:30:55.530171452Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:30:55.533432200Z [err]  All RPC endpoints failed
-2026-02-13T04:30:56.813751367Z [err]  2026-02-13 04:30:49.625 UTC [27] LOG:  checkpoint complete: wrote 210 buffers (1.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=20.984 s, sync=0.028 s, total=21.087 s; sync files=26, longest=0.013 s, average=0.002 s; distance=1464 kB, estimate=5087 kB; lsn=5/2E636C68, redo lsn=5/2E6281A0
-2026-02-13T04:30:57.756578300Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:31:17.752263020Z [wrn]  RPC health degraded
-2026-02-13T04:31:17.752269421Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:31:17.752276246Z [inf]  No open positions to monitor
-2026-02-13T04:31:24.507982765Z [inf]  [Profile] fetchReceipt
-2026-02-13T04:31:24.507993528Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:31:28.367309498Z [inf]  1:M 13 Feb 2026 04:31:23.096 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:31:28.367318668Z [inf]  1:M 13 Feb 2026 04:31:23.097 * Background saving started by pid 6238
-2026-02-13T04:31:28.367325311Z [inf]  6238:C 13 Feb 2026 04:31:23.165 * DB saved on disk
-2026-02-13T04:31:28.367332206Z [inf]  6238:C 13 Feb 2026 04:31:23.166 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:31:28.367339087Z [inf]  1:M 13 Feb 2026 04:31:23.197 * Background saving terminated with success
-2026-02-13T04:31:33.062253320Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:31:35.123842141Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:31:38.027011363Z [inf]  Aggregated repetitive logs
-2026-02-13T04:31:38.027026734Z [inf]  Aggregated repetitive logs
-2026-02-13T04:31:38.027035235Z [inf]  Aggregated repetitive logs
-2026-02-13T04:31:38.877743278Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:31:41.685852212Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:31:49.076968534Z [wrn]  Pending baseline apply for solana timed out
-2026-02-13T04:31:49.076974793Z [inf]  Baseline sweep tick
-2026-02-13T04:31:49.076981217Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:31:50.196634004Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:31:50.342134862Z [inf]  No open positions to monitor
-2026-02-13T04:31:52.101775056Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:32:00.154975256Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:32:20.148954172Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:32:20.148961361Z [wrn]  RPC health degraded
-2026-02-13T04:32:20.148967538Z [inf]  Baseline sweep tick
-2026-02-13T04:32:21.218720960Z [inf]  No open positions to monitor
-2026-02-13T04:32:21.218879970Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:32:30.099155655Z [inf]  1:M 13 Feb 2026 04:32:24.016 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:32:30.099169446Z [inf]  1:M 13 Feb 2026 04:32:24.017 * Background saving started by pid 6239
-2026-02-13T04:32:30.099178519Z [inf]  6239:C 13 Feb 2026 04:32:24.091 * DB saved on disk
-2026-02-13T04:32:30.099187456Z [inf]  6239:C 13 Feb 2026 04:32:24.092 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:32:30.099193976Z [inf]  1:M 13 Feb 2026 04:32:24.117 * Background saving terminated with success
-2026-02-13T04:32:41.027663112Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:32:41.027671314Z [inf]  Baseline sweep tick
-2026-02-13T04:32:43.001255036Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:33:03.383716235Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:33:03.383730359Z [inf]  Baseline sweep tick
-2026-02-13T04:33:03.383785487Z [inf]  No open positions to monitor
-2026-02-13T04:33:04.425529306Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:33:10.267227205Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:33:12.298850770Z [wrn]  RPC health degraded
-2026-02-13T04:33:14.948165300Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:33:14.948171698Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:33:17.821130349Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:33:20.861025025Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:33:25.840699333Z [inf]  No open positions to monitor
-2026-02-13T04:33:25.840704873Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:33:30.208492671Z [inf]  6240:C 13 Feb 2026 04:33:25.159 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:33:30.208508996Z [inf]  1:M 13 Feb 2026 04:33:25.200 * Background saving terminated with success
-2026-02-13T04:33:30.208610758Z [inf]  1:M 13 Feb 2026 04:33:25.099 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:33:30.208616860Z [inf]  1:M 13 Feb 2026 04:33:25.100 * Background saving started by pid 6240
-2026-02-13T04:33:30.208622049Z [inf]  6240:C 13 Feb 2026 04:33:25.158 * DB saved on disk
-2026-02-13T04:33:45.638382994Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:33:47.287380273Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:34:06.697860443Z [inf]  No open positions to monitor
-2026-02-13T04:34:06.697866165Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:34:08.827485921Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:34:12.667559017Z [wrn]  RPC health degraded
-2026-02-13T04:34:20.124767670Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:34:22.952217318Z [inf]  Baseline sweep tick
-2026-02-13T04:34:29.987216458Z [inf]  No open positions to monitor
-2026-02-13T04:34:30.237669720Z [inf]  1:M 13 Feb 2026 04:34:26.062 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:34:30.237683209Z [inf]  1:M 13 Feb 2026 04:34:26.064 * Background saving started by pid 6241
-2026-02-13T04:34:30.237690105Z [inf]  6241:C 13 Feb 2026 04:34:26.126 * DB saved on disk
-2026-02-13T04:34:30.237696597Z [inf]  6241:C 13 Feb 2026 04:34:26.127 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:34:30.237706076Z [inf]  1:M 13 Feb 2026 04:34:26.164 * Background saving terminated with success
-2026-02-13T04:34:31.016763756Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:34:38.088342187Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:34:41.814818366Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:34:45.134066862Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:34:48.152165373Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:34:50.425597639Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:34:52.981611626Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:34:59.990334552Z [inf]  Baseline sweep tick
-2026-02-13T04:35:02.528472284Z [inf]  Baseline sweep tick
-2026-02-13T04:35:03.428971507Z [inf]  No open positions to monitor
-2026-02-13T04:35:03.428978311Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:35:04.977202690Z [inf]  Baseline sweep tick
-2026-02-13T04:35:07.128357913Z [inf]  Baseline sweep tick
-2026-02-13T04:35:12.931585807Z [wrn]  RPC health degraded
-2026-02-13T04:35:14.183395140Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:35:23.260481065Z [inf]  Baseline sweep tick
-2026-02-13T04:35:24.225776886Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:35:25.304406940Z [inf]  Baseline sweep tick
-2026-02-13T04:35:27.317938254Z [inf]  Baseline sweep tick
-2026-02-13T04:35:29.543322738Z [inf]  Baseline sweep tick
-2026-02-13T04:35:30.688992229Z [inf]  1:M 13 Feb 2026 04:35:27.030 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:35:30.688998961Z [inf]  1:M 13 Feb 2026 04:35:27.031 * Background saving started by pid 6242
-2026-02-13T04:35:30.689010632Z [inf]  6242:C 13 Feb 2026 04:35:27.065 * DB saved on disk
-2026-02-13T04:35:30.689017082Z [inf]  6242:C 13 Feb 2026 04:35:27.066 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:35:30.689023414Z [inf]  1:M 13 Feb 2026 04:35:27.131 * Background saving terminated with success
-2026-02-13T04:35:31.719935237Z [err]  2026-02-13 04:35:28.723 UTC [27] LOG:  checkpoint starting: time
-2026-02-13T04:35:36.081730944Z [inf]  No open positions to monitor
-2026-02-13T04:35:36.081737610Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:35:36.745543837Z [err]  2026-02-13 04:35:36.270 UTC [27] LOG:  checkpoint complete: wrote 72 buffers (0.4%); 0 WAL file(s) added, 0 removed, 0 recycled; write=7.131 s, sync=0.364 s, total=7.548 s; sync files=10, longest=0.188 s, average=0.037 s; distance=490 kB, estimate=4627 kB; lsn=5/2E6A2B90, redo lsn=5/2E6A2B00
-2026-02-13T04:35:55.476985498Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:35:56.353174187Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:36:16.416711822Z [inf]  No open positions to monitor
-2026-02-13T04:36:16.416718281Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:36:16.416724175Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:36:16.416729158Z [inf]  Baseline sweep tick
-2026-02-13T04:36:16.416733065Z [inf]  Baseline sweep tick
-2026-02-13T04:36:16.420998574Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:36:16.421011087Z [wrn]  RPC health degraded
-2026-02-13T04:36:17.362074447Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:36:18.441113323Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:36:19.342209106Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:36:22.455522431Z [err]  All RPC endpoints failed
-2026-02-13T04:36:30.423399525Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:36:37.721427635Z [err]  All RPC endpoints failed
-2026-02-13T04:36:39.605034329Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:36:40.461639335Z [inf]  No open positions to monitor
-2026-02-13T04:36:40.901517266Z [inf]  1:M 13 Feb 2026 04:36:33.005 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:36:40.901523496Z [inf]  1:M 13 Feb 2026 04:36:33.006 * Background saving started by pid 6243
-2026-02-13T04:36:40.901529268Z [inf]  6243:C 13 Feb 2026 04:36:33.038 * DB saved on disk
-2026-02-13T04:36:40.901535121Z [inf]  6243:C 13 Feb 2026 04:36:33.038 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:36:40.901540895Z [inf]  1:M 13 Feb 2026 04:36:33.106 * Background saving terminated with success
-2026-02-13T04:36:59.718428909Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:37:00.551444795Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:37:04.773550957Z [inf]  Baseline sweep tick
-2026-02-13T04:37:05.576452659Z [inf]  Baseline sweep tick
-2026-02-13T04:37:10.741164899Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:37:11.658323746Z [inf]  No open positions to monitor
-2026-02-13T04:37:14.183767919Z [wrn]  RPC health degraded
-2026-02-13T04:37:22.156629575Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:37:41.246059838Z [inf]  1:M 13 Feb 2026 04:37:34.062 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:37:41.246065078Z [inf]  1:M 13 Feb 2026 04:37:34.063 * Background saving started by pid 6244
-2026-02-13T04:37:41.246070543Z [inf]  6244:C 13 Feb 2026 04:37:34.098 * DB saved on disk
-2026-02-13T04:37:41.246075778Z [inf]  6244:C 13 Feb 2026 04:37:34.099 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:37:41.246080645Z [inf]  1:M 13 Feb 2026 04:37:34.164 * Background saving terminated with success
-2026-02-13T04:37:42.001328282Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-07, age=41822h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:37:42.001338630Z [inf]  Baseline sweep tick
-2026-02-13T04:37:42.001345460Z [err]  api failed after 1 attempts
-2026-02-13T04:37:42.001390754Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:37:42.001411064Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:37:42.001423555Z [err]  api failed after 1 attempts
-2026-02-13T04:37:44.142234386Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:37:44.142240728Z [inf]  Baseline sweep tick
-2026-02-13T04:37:44.142246395Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:37:45.261268402Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-07, age=41822h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:37:46.228304307Z [inf]  No open positions to monitor
-2026-02-13T04:37:47.084631753Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:37:52.046830897Z [err]  api failed after 1 attempts
-2026-02-13T04:37:56.164403367Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-05-08, age=41809h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:37:57.040598071Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:37:58.007074887Z [err]  api failed after 1 attempts
-2026-02-13T04:38:00.540653751Z [err]  All RPC endpoints failed
-2026-02-13T04:38:07.268365907Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:38:14.994973956Z [wrn]  RPC health degraded
-2026-02-13T04:38:14.994980020Z [err]  api failed after 1 attempts
-2026-02-13T04:38:16.285485615Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-24, age=40671h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:38:17.106167420Z [err]  All RPC endpoints failed
-2026-02-13T04:38:18.197279617Z [err]  api failed after 1 attempts
-2026-02-13T04:38:18.197289539Z [inf]  No open positions to monitor
-2026-02-13T04:38:18.197298683Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:38:24.547469168Z [err]  api failed after 1 attempts
-2026-02-13T04:38:25.268358806Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-26, age=40634h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:38:26.320203831Z [err]  All RPC endpoints failed
-2026-02-13T04:38:28.486714510Z [err]  api failed after 1 attempts
-2026-02-13T04:38:30.488287124Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:38:31.328644579Z [err]  api failed after 1 attempts
-2026-02-13T04:38:32.112433402Z [err]  All RPC endpoints failed
-2026-02-13T04:38:32.439856755Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-28, age=40587h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:38:39.248171807Z [err]  All RPC endpoints failed
-2026-02-13T04:38:40.367472397Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:38:40.605196944Z [inf]  1:M 13 Feb 2026 04:38:35.027 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:38:40.605205974Z [inf]  1:M 13 Feb 2026 04:38:35.028 * Background saving started by pid 6245
-2026-02-13T04:38:40.605213640Z [inf]  6245:C 13 Feb 2026 04:38:35.069 * DB saved on disk
-2026-02-13T04:38:40.605222526Z [inf]  6245:C 13 Feb 2026 04:38:35.070 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:38:40.605230671Z [inf]  1:M 13 Feb 2026 04:38:35.129 * Background saving terminated with success
-2026-02-13T04:38:41.241774875Z [err]  api failed after 1 attempts
-2026-02-13T04:38:41.241778946Z [err]  api failed after 1 attempts
-2026-02-13T04:38:42.595239635Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-29, age=40559h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:38:42.595247642Z [err]  api failed after 1 attempts
-2026-02-13T04:38:43.435474557Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2020-09-09, age=47578h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:38:50.392461951Z [inf]  No open positions to monitor
-2026-02-13T04:38:50.392467641Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:38:52.631705705Z [err]  api failed after 1 attempts
-2026-02-13T04:38:52.631712145Z [err]  api failed after 1 attempts
-2026-02-13T04:38:53.592236487Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-06-30, age=40540h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:39:00.748219176Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:39:04.593361252Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:39:04.593367653Z [err]  api failed after 1 attempts
-2026-02-13T04:39:04.593373739Z [err]  api failed after 1 attempts
-2026-02-13T04:39:05.488117354Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-07-02, age=40487h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:39:09.737967668Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:39:10.666187150Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:39:12.601266987Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:39:13.765064460Z [inf]  Baseline sweep tick
-2026-02-13T04:39:15.079490377Z [wrn]  RPC health degraded
-2026-02-13T04:39:15.079501061Z [err]  api failed after 1 attempts
-2026-02-13T04:39:15.079513032Z [err]  api failed after 1 attempts
-2026-02-13T04:39:17.321055473Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2021-07-06, age=40395h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:39:22.346703543Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:39:23.589097418Z [inf]  No open positions to monitor
-2026-02-13T04:39:32.162580900Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:39:40.789611041Z [inf]  1:M 13 Feb 2026 04:39:36.095 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:39:40.790111759Z [inf]  1:M 13 Feb 2026 04:39:36.096 * Background saving started by pid 6246
-2026-02-13T04:39:40.790118829Z [inf]  6246:C 13 Feb 2026 04:39:36.135 * DB saved on disk
-2026-02-13T04:39:40.790125231Z [inf]  6246:C 13 Feb 2026 04:39:36.135 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:39:40.790130160Z [inf]  1:M 13 Feb 2026 04:39:36.197 * Background saving terminated with success
-2026-02-13T04:39:52.155580639Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:39:53.042042718Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:39:54.833342434Z [inf]  No open positions to monitor
-2026-02-13T04:40:03.313870923Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:40:09.347820868Z [err]  api failed after 1 attempts
-2026-02-13T04:40:09.456058775Z [inf]  [getNativeUsdOnDate] Coinbase historical price unavailable for ETH on 2020-09-10, age=47572h — skipping spot fallback to avoid baseline corruption
-2026-02-13T04:40:15.348194573Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:40:16.232561597Z [wrn]  RPC health degraded
-2026-02-13T04:40:24.346189879Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:40:28.224884265Z [inf]  No open positions to monitor
-2026-02-13T04:40:29.777478607Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:40:30.459324628Z [err]  2026-02-13 04:40:28.369 UTC [27] LOG:  checkpoint starting: time
-2026-02-13T04:40:34.498580009Z [err]  2026-02-13 04:40:33.922 UTC [27] LOG:  checkpoint complete: wrote 56 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=5.447 s, sync=0.034 s, total=5.553 s; sync files=8, longest=0.013 s, average=0.005 s; distance=441 kB, estimate=4208 kB; lsn=5/2E7111E0, redo lsn=5/2E711188
-2026-02-13T04:40:35.816362321Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:40:36.761692287Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:40:39.038708075Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:40:41.090178424Z [inf]  1:M 13 Feb 2026 04:40:37.074 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:40:41.090185184Z [inf]  1:M 13 Feb 2026 04:40:37.075 * Background saving started by pid 6247
-2026-02-13T04:40:41.090191963Z [inf]  6247:C 13 Feb 2026 04:40:37.109 * DB saved on disk
-2026-02-13T04:40:41.090198108Z [inf]  6247:C 13 Feb 2026 04:40:37.109 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:40:41.090205016Z [inf]  1:M 13 Feb 2026 04:40:37.176 * Background saving terminated with success
-2026-02-13T04:40:46.690726070Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:40:48.314260364Z [err]  All RPC endpoints failed
-2026-02-13T04:40:56.322822070Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:40:56.647389469Z [inf]  Baseline sweep tick
-2026-02-13T04:41:00.230873859Z [inf]  No open positions to monitor
-2026-02-13T04:41:05.499237300Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:41:24.557931918Z [wrn]  RPC health degraded
-2026-02-13T04:41:24.557936791Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:41:26.652177264Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:41:27.527857835Z [inf]  Baseline sweep tick
-2026-02-13T04:41:30.304187319Z [inf]  Baseline sweep tick
-2026-02-13T04:41:31.999144983Z [inf]  No open positions to monitor
-2026-02-13T04:41:37.123553139Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:41:41.189934712Z [inf]  1:M 13 Feb 2026 04:41:38.036 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:41:41.189939282Z [inf]  1:M 13 Feb 2026 04:41:38.036 * Background saving started by pid 6248
-2026-02-13T04:41:41.189949903Z [inf]  6248:C 13 Feb 2026 04:41:38.075 * DB saved on disk
-2026-02-13T04:41:41.190000092Z [inf]  6248:C 13 Feb 2026 04:41:38.076 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:41:41.190008783Z [inf]  1:M 13 Feb 2026 04:41:38.137 * Background saving terminated with success
-2026-02-13T04:41:56.840140919Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:41:56.840147525Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:41:57.813516789Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:42:02.145643666Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:42:04.258462423Z [inf]  No open positions to monitor
-2026-02-13T04:42:05.277737316Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:42:09.358463728Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:42:17.887235926Z [wrn]  RPC health degraded
-2026-02-13T04:42:19.736580569Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:42:39.399659172Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:42:39.399667783Z [inf]  No open positions to monitor
-2026-02-13T04:42:41.258906705Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:42:41.308593014Z [inf]  1:M 13 Feb 2026 04:42:39.007 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:42:41.308599386Z [inf]  1:M 13 Feb 2026 04:42:39.008 * Background saving started by pid 6249
-2026-02-13T04:42:41.308606653Z [inf]  6249:C 13 Feb 2026 04:42:39.040 * DB saved on disk
-2026-02-13T04:42:41.308613434Z [inf]  6249:C 13 Feb 2026 04:42:39.041 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:42:41.308619464Z [inf]  1:M 13 Feb 2026 04:42:39.109 * Background saving terminated with success
-2026-02-13T04:43:01.515632743Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:43:01.515640799Z [inf]  Baseline sweep tick
-2026-02-13T04:43:03.451057319Z [err]  All RPC endpoints failed
-2026-02-13T04:43:04.134300167Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:43:08.537363953Z [inf]  No open positions to monitor
-2026-02-13T04:43:15.135656549Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:43:18.988070075Z [wrn]  RPC health degraded
-2026-02-13T04:43:19.002994099Z [err]  All RPC endpoints failed
-2026-02-13T04:43:24.332988206Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:43:25.223836016Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:43:30.963817165Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:43:32.735431412Z [err]  All RPC endpoints failed
-2026-02-13T04:43:34.121807060Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:43:35.922008600Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:43:36.831927471Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:43:41.441176161Z [inf]  1:M 13 Feb 2026 04:43:40.068 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:43:41.441182673Z [inf]  1:M 13 Feb 2026 04:43:40.068 * Background saving started by pid 6250
-2026-02-13T04:43:41.441189540Z [inf]  6250:C 13 Feb 2026 04:43:40.100 * DB saved on disk
-2026-02-13T04:43:41.441196137Z [inf]  6250:C 13 Feb 2026 04:43:40.101 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:43:41.441201953Z [inf]  1:M 13 Feb 2026 04:43:40.169 * Background saving terminated with success
-2026-02-13T04:43:42.058830014Z [inf]  No open positions to monitor
-2026-02-13T04:43:46.518469622Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:44:05.835315430Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:44:08.965336342Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:44:14.413042595Z [inf]  No open positions to monitor
-2026-02-13T04:44:18.129363263Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:44:19.168464137Z [wrn]  RPC health degraded
-2026-02-13T04:44:28.904102523Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:44:41.541662815Z [inf]  1:M 13 Feb 2026 04:44:41.029 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:44:41.541667699Z [inf]  1:M 13 Feb 2026 04:44:41.029 * Background saving started by pid 6251
-2026-02-13T04:44:41.541673049Z [inf]  6251:C 13 Feb 2026 04:44:41.072 * DB saved on disk
-2026-02-13T04:44:41.541679510Z [inf]  6251:C 13 Feb 2026 04:44:41.073 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:44:41.541686671Z [inf]  1:M 13 Feb 2026 04:44:41.130 * Background saving terminated with success
-2026-02-13T04:44:49.010838518Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:44:49.010845446Z [inf]  No open positions to monitor
-2026-02-13T04:44:50.085734468Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:44:55.901976099Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:45:00.821097021Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:45:01.913590061Z [inf]  SocialRepo: Recalculated heat scores for 1000 casts
-2026-02-13T04:45:01.914851152Z [inf]  Timer finished: recalc_heat_scores
-2026-02-13T04:45:02.815392284Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:45:02.815400319Z [inf]  Fetching premium trending tokens
-2026-02-13T04:45:03.756297246Z [wrn]  Pending baseline apply for solana timed out
-2026-02-13T04:45:03.756301322Z [inf]  Baseline sweep tick
-2026-02-13T04:45:05.918975665Z [err]  All RPC endpoints failed
-2026-02-13T04:45:05.918980714Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:45:10.965680222Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:45:11.875515209Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:45:18.796906607Z [inf]  No open positions to monitor
-2026-02-13T04:45:19.826496731Z [wrn]  RPC health degraded
-2026-02-13T04:45:23.863721871Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:45:30.328832133Z [err]  2026-02-13 04:45:29.021 UTC [27] LOG:  checkpoint starting: time
-2026-02-13T04:45:43.334368384Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:45:43.334373767Z [err]  DexScreener WS: Connection error
-2026-02-13T04:45:43.334378834Z [inf]  Baseline sweep tick
-2026-02-13T04:45:45.577687712Z [err]  DexScreener WS: Connection error
-2026-02-13T04:45:45.577695634Z [wrn]  DexScreener WS: All connection attempts failed
-2026-02-13T04:45:45.577703557Z [wrn]  WS returned 0 addresses
-2026-02-13T04:45:45.577711520Z [inf]  Using fallback discovery (Boosts + Organic search)
-2026-02-13T04:45:45.577719292Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:45:49.550093319Z [inf]  Saved 15 trending tokens to database via Prisma with retry protection
-2026-02-13T04:45:49.550102373Z [inf]  Trending tokens refreshed: 15 tokens
-2026-02-13T04:45:51.478405274Z [inf]  No open positions to monitor
-2026-02-13T04:45:51.908601663Z [inf]  1:M 13 Feb 2026 04:45:42.097 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:45:51.908606670Z [inf]  1:M 13 Feb 2026 04:45:42.098 * Background saving started by pid 6252
-2026-02-13T04:45:51.908611733Z [inf]  6252:C 13 Feb 2026 04:45:42.130 * DB saved on disk
-2026-02-13T04:45:51.908616584Z [inf]  6252:C 13 Feb 2026 04:45:42.130 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:45:51.908620749Z [inf]  1:M 13 Feb 2026 04:45:42.199 * Background saving terminated with success
-2026-02-13T04:45:56.206497052Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:46:11.550170061Z [err]  2026-02-13 04:46:09.103 UTC [27] LOG:  checkpoint complete: wrote 398 buffers (2.4%); 0 WAL file(s) added, 0 removed, 0 recycled; write=39.829 s, sync=0.130 s, total=40.083 s; sync files=21, longest=0.077 s, average=0.007 s; distance=2779 kB, estimate=4065 kB; lsn=5/2EB6FDA8, redo lsn=5/2E9C8180
-2026-02-13T04:46:16.410280445Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:46:16.410292768Z [inf]  Baseline sweep tick
-2026-02-13T04:46:18.509344756Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:46:20.619318011Z [wrn]  RPC health degraded
-2026-02-13T04:46:23.563399855Z [inf]  No open positions to monitor
-2026-02-13T04:46:29.811314450Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:46:32.596213320Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:46:37.688786625Z [inf]  Aggregated repetitive logs
-2026-02-13T04:46:37.688794117Z [inf]  Aggregated repetitive logs
-2026-02-13T04:46:37.688799036Z [inf]  Aggregated repetitive logs
-2026-02-13T04:46:39.753837797Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:46:40.543527931Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:46:41.530422222Z [inf]  Baseline sweep tick
-2026-02-13T04:46:42.685613146Z [inf]  Alpha Detector: Checking new coin
-2026-02-13T04:46:52.119228001Z [inf]  1:M 13 Feb 2026 04:46:43.053 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:46:52.119239104Z [inf]  1:M 13 Feb 2026 04:46:43.053 * Background saving started by pid 6253
-2026-02-13T04:46:52.119245098Z [inf]  6253:C 13 Feb 2026 04:46:43.082 * DB saved on disk
-2026-02-13T04:46:52.119252193Z [inf]  6253:C 13 Feb 2026 04:46:43.083 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:46:52.119257880Z [inf]  1:M 13 Feb 2026 04:46:43.154 * Background saving terminated with success
-2026-02-13T04:46:52.649321895Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:46:57.736733534Z [inf]  No open positions to monitor
-2026-02-13T04:47:02.010119077Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:47:21.337813404Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:47:21.337823677Z [err]  All RPC endpoints failed
-2026-02-13T04:47:21.337835685Z [inf]  Merged addresses
-2026-02-13T04:47:21.337843666Z [wrn]  No trending tokens discovered for chain
-2026-02-13T04:47:21.337850098Z [wrn]  RPC health degraded
-2026-02-13T04:47:24.467563501Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:47:31.530344519Z [inf]  No open positions to monitor
-2026-02-13T04:47:34.326823771Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:47:38.527465076Z [inf]  ⚡ Uniswap V4 price fetched
-2026-02-13T04:47:47.748396505Z [inf]  [CopyTradePending] Tracked wallet snapshot refreshed
-2026-02-13T04:47:51.443927412Z [inf]  1:M 13 Feb 2026 04:47:44.006 * 1 changes in 60 seconds. Saving...
-2026-02-13T04:47:51.443934616Z [inf]  1:M 13 Feb 2026 04:47:44.007 * Background saving started by pid 6254
-2026-02-13T04:47:51.443939185Z [inf]  6254:C 13 Feb 2026 04:47:44.040 * DB saved on disk
-2026-02-13T04:47:51.443943655Z [inf]  6254:C 13 Feb 2026 04:47:44.041 * Fork CoW for RDB: current 1 MB, peak 1 MB, average 0 MB
-2026-02-13T04:47:51.443947389Z [inf]  1:M 13 Feb 2026 04:47:44.108 * Background saving terminated with success
-2026-02-13T04:47:53.011670968Z [inf]  Processed DexScreener trending candidates
-2026-02-13T04:47:53.011681346Z [inf]  Got 26 trending tokens for Ethereum
-2026-02-13T04:47:53.011691316Z [inf]  Filtered out 3 invalid tokens for Ethereum
+2026-02-13T07:06:38.868426178Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:06:38.868431488Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:38.868436541Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:06:38.868440983Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:06:38.868445135Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:06:38.868449957Z [err]  
+2026-02-13T07:06:38.868454891Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:06:38.868469050Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:06:38.868474693Z [err]      conn = await _connect_addr(
+2026-02-13T07:06:42.052038085Z [err]  INFO:__main__:✅ Chat v2 service mounted at /chat-api
+2026-02-13T07:06:42.059864539Z [err]  INFO:__main__:✅ LLM Gateway mounted at /llm-gateway
+2026-02-13T07:06:42.064131797Z [err]  INFO:__main__:✅ Tool Runtime mounted at /tool-runtime
+2026-02-13T07:06:42.794546408Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-13T07:06:42.794560015Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-13T07:06:42.794568073Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-13T07:06:43.847564516Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-13T07:06:43.847570134Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-13T07:06:44.883837496Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-13T07:06:44.883842767Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-13T07:06:44.883847657Z [err]  /app/main.py:109: DeprecationWarning: 
+2026-02-13T07:06:44.883853190Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:06:44.883859437Z [err]  
+2026-02-13T07:06:44.883865776Z [err]          Read more about it in the
+2026-02-13T07:06:44.883871545Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:06:44.883878325Z [err]          
+2026-02-13T07:06:44.883884206Z [err]    @app.on_event("startup")
+2026-02-13T07:06:44.883890787Z [err]  /app/main.py:115: DeprecationWarning: 
+2026-02-13T07:06:44.883897908Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:06:44.883904595Z [err]  
+2026-02-13T07:06:44.883915090Z [err]          Read more about it in the
+2026-02-13T07:06:44.883921773Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:06:44.883927605Z [err]          
+2026-02-13T07:06:44.883933096Z [err]    @app.on_event("shutdown")
+2026-02-13T07:06:44.883992155Z [err]  INFO:     Started server process [1]
+2026-02-13T07:06:44.883999416Z [err]  INFO:     Waiting for application startup.
+2026-02-13T07:06:44.884005477Z [err]  ERROR:    Traceback (most recent call last):
+2026-02-13T07:06:44.884012007Z [err]    File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+2026-02-13T07:06:44.884018431Z [err]      async with self.lifespan_context(app) as maybe_state:
+2026-02-13T07:06:44.884024348Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 226, in __aenter__
+2026-02-13T07:06:44.890444133Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3285, in connect
+2026-02-13T07:06:44.890476928Z [err]      await self._router._startup()
+2026-02-13T07:06:44.890478781Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.890483055Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 4554, in _startup
+2026-02-13T07:06:44.890490346Z [err]      await handler()
+2026-02-13T07:06:44.890490878Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+2026-02-13T07:06:44.890498659Z [err]    File "/app/main.py", line 112, in _startup
+2026-02-13T07:06:44.890499819Z [err]      await greenlet_spawn(self.sync_engine.connect)
+2026-02-13T07:06:44.890505912Z [err]      await chat_v2_ensure_started()
+2026-02-13T07:06:44.890509229Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+2026-02-13T07:06:44.890512260Z [err]    File "/app/chat_v2/app.py", line 93, in ensure_started
+2026-02-13T07:06:44.890517306Z [err]      result = context.throw(*sys.exc_info())
+2026-02-13T07:06:44.890519161Z [err]      async with engine.begin() as conn:
+2026-02-13T07:06:44.890525221Z [err]    File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+2026-02-13T07:06:44.890529398Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.890532753Z [err]      return await anext(self.gen)
+2026-02-13T07:06:44.890538045Z [err]             ^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.890544554Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+2026-02-13T07:06:44.890550617Z [err]      async with conn:
+2026-02-13T07:06:44.890556876Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+2026-02-13T07:06:44.890563528Z [err]      return await self.start(is_ctxmanager=True)
+2026-02-13T07:06:44.893876057Z [err]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.893887058Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+2026-02-13T07:06:44.893893709Z [err]      rec = pool._do_get()
+2026-02-13T07:06:44.893901442Z [err]            ^^^^^^^^^^^^^^
+2026-02-13T07:06:44.893904020Z [err]                               ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.893907420Z [err]      return self._connection_cls(self)
+2026-02-13T07:06:44.893914569Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3309, in raw_connection
+2026-02-13T07:06:44.893915919Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+2026-02-13T07:06:44.893916739Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.893923192Z [err]      return self.pool.connect()
+2026-02-13T07:06:44.893924099Z [err]      with util.safe_reraise():
+2026-02-13T07:06:44.893927160Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+2026-02-13T07:06:44.893930522Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:06:44.893933207Z [err]             ^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.893936887Z [err]      self._dbapi_connection = engine.raw_connection()
+2026-02-13T07:06:44.893939670Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+2026-02-13T07:06:44.893946229Z [err]      return _ConnectionFairy._checkout(self)
+2026-02-13T07:06:44.893954398Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.893961399Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+2026-02-13T07:06:44.893967846Z [err]      fairy = _ConnectionRecord.checkout(pool)
+2026-02-13T07:06:44.896724777Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.896729950Z [err]      self.dbapi_connection = connection = pool._invoke_creator(self)
+2026-02-13T07:06:44.896735406Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+2026-02-13T07:06:44.896738538Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+2026-02-13T07:06:44.896740069Z [err]                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.896748215Z [err]      return _ConnectionRecord(self)
+2026-02-13T07:06:44.896748695Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+2026-02-13T07:06:44.896750165Z [err]      return dialect.connect(*cargs, **cparams)
+2026-02-13T07:06:44.896754143Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.896762549Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+2026-02-13T07:06:44.896765751Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.896770628Z [err]      self.__connect()
+2026-02-13T07:06:44.896777268Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+2026-02-13T07:06:44.896782641Z [err]      with util.safe_reraise():
+2026-02-13T07:06:44.896790907Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:06:44.896792642Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:06:44.896799016Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+2026-02-13T07:06:44.896806061Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:06:44.896806629Z [err]      return self._create_connection()
+2026-02-13T07:06:44.896814958Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+2026-02-13T07:06:44.899012362Z [err]      return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+2026-02-13T07:06:44.899018402Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.899024205Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+2026-02-13T07:06:44.899029624Z [err]      await_only(creator_fn(*arg, **kw)),
+2026-02-13T07:06:44.899035163Z [err]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.899040144Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+2026-02-13T07:06:44.899045693Z [err]      return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+2026-02-13T07:06:44.899051485Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.899057844Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+2026-02-13T07:06:44.899063744Z [err]      value = await result
+2026-02-13T07:06:44.899069319Z [err]              ^^^^^^^^^^^^
+2026-02-13T07:06:44.899074767Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+2026-02-13T07:06:44.899080755Z [err]      return await connect_utils._connect(
+2026-02-13T07:06:44.899086452Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.899091807Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+2026-02-13T07:06:44.899101116Z [err]      raise last_error or exceptions.TargetServerAttributeNotMatched(
+2026-02-13T07:06:44.899106891Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:06:44.899112897Z [err]      conn = await _connect_addr(
+2026-02-13T07:06:44.899118756Z [err]             ^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.903218092Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+2026-02-13T07:06:44.903229120Z [err]      return await __connect_addr(params, True, *args)
+2026-02-13T07:06:44.903236846Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.903245434Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+2026-02-13T07:06:44.903253234Z [err]      tr, pr = await connector
+2026-02-13T07:06:44.903262459Z [err]               ^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.903270814Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+2026-02-13T07:06:44.903278456Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:06:44.903296424Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:44.903305777Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:06:44.903315414Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:06:44.903322703Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:06:44.903330136Z [err]  
+2026-02-13T07:06:44.903363597Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:06:47.808772350Z [err]  INFO:__main__:✅ Chat v2 service mounted at /chat-api
+2026-02-13T07:06:47.817139576Z [err]  INFO:__main__:✅ LLM Gateway mounted at /llm-gateway
+2026-02-13T07:06:47.821724835Z [err]  INFO:__main__:✅ Tool Runtime mounted at /tool-runtime
+2026-02-13T07:06:47.987902921Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-13T07:06:48.698924788Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-13T07:06:48.698951748Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-13T07:06:49.946885485Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-13T07:06:49.946894386Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-13T07:06:49.946900352Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-13T07:06:50.012269441Z [err]          Read more about it in the
+2026-02-13T07:06:50.012282778Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:06:50.012291660Z [err]          
+2026-02-13T07:06:50.012299491Z [err]    @app.on_event("shutdown")
+2026-02-13T07:06:50.012314765Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-13T07:06:50.012320778Z [err]  /app/main.py:109: DeprecationWarning: 
+2026-02-13T07:06:50.012325841Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:06:50.012331157Z [err]  
+2026-02-13T07:06:50.012336278Z [err]          Read more about it in the
+2026-02-13T07:06:50.012356048Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:06:50.012362203Z [err]          
+2026-02-13T07:06:50.012368180Z [err]    @app.on_event("startup")
+2026-02-13T07:06:50.012373751Z [err]  /app/main.py:115: DeprecationWarning: 
+2026-02-13T07:06:50.012382824Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:06:50.012388932Z [err]  
+2026-02-13T07:06:50.037301993Z [err]  INFO:     Started server process [1]
+2026-02-13T07:06:50.037312678Z [err]  INFO:     Waiting for application startup.
+2026-02-13T07:06:50.043390400Z [err]    File "/app/chat_v2/app.py", line 93, in ensure_started
+2026-02-13T07:06:50.043404248Z [err]      async with engine.begin() as conn:
+2026-02-13T07:06:50.043412138Z [err]    File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+2026-02-13T07:06:50.043419259Z [err]      return await anext(self.gen)
+2026-02-13T07:06:50.043426045Z [err]             ^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.043433047Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+2026-02-13T07:06:50.043440645Z [err]      async with conn:
+2026-02-13T07:06:50.043447994Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+2026-02-13T07:06:50.043455652Z [err]      return await self.start(is_ctxmanager=True)
+2026-02-13T07:06:50.043462568Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.043467998Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+2026-02-13T07:06:50.043471838Z [err]  ERROR:    Traceback (most recent call last):
+2026-02-13T07:06:50.043477982Z [err]    File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+2026-02-13T07:06:50.043482699Z [err]      async with self.lifespan_context(app) as maybe_state:
+2026-02-13T07:06:50.043487473Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 226, in __aenter__
+2026-02-13T07:06:50.043492092Z [err]      await self._router._startup()
+2026-02-13T07:06:50.043497951Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 4554, in _startup
+2026-02-13T07:06:50.043502779Z [err]      await handler()
+2026-02-13T07:06:50.043507234Z [err]    File "/app/main.py", line 112, in _startup
+2026-02-13T07:06:50.043511430Z [err]      await chat_v2_ensure_started()
+2026-02-13T07:06:50.046699782Z [err]      return self.pool.connect()
+2026-02-13T07:06:50.046709209Z [err]             ^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.046714487Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+2026-02-13T07:06:50.046718987Z [err]      return _ConnectionFairy._checkout(self)
+2026-02-13T07:06:50.046724343Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.046729303Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+2026-02-13T07:06:50.046734099Z [err]      fairy = _ConnectionRecord.checkout(pool)
+2026-02-13T07:06:50.046740488Z [err]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.046745152Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+2026-02-13T07:06:50.046792832Z [err]      await greenlet_spawn(self.sync_engine.connect)
+2026-02-13T07:06:50.046803740Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+2026-02-13T07:06:50.046810474Z [err]      result = context.throw(*sys.exc_info())
+2026-02-13T07:06:50.046817494Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.046823056Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3285, in connect
+2026-02-13T07:06:50.046833539Z [err]      return self._connection_cls(self)
+2026-02-13T07:06:50.046840011Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.046845100Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+2026-02-13T07:06:50.046850838Z [err]      self._dbapi_connection = engine.raw_connection()
+2026-02-13T07:06:50.046856956Z [err]                               ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.046864168Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3309, in raw_connection
+2026-02-13T07:06:50.050926320Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+2026-02-13T07:06:50.050938429Z [err]      self.dbapi_connection = connection = pool._invoke_creator(self)
+2026-02-13T07:06:50.050955058Z [err]      with util.safe_reraise():
+2026-02-13T07:06:50.050962597Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:06:50.050970474Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:06:50.050977902Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+2026-02-13T07:06:50.050984522Z [err]      return self._create_connection()
+2026-02-13T07:06:50.050992038Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.050994795Z [err]      rec = pool._do_get()
+2026-02-13T07:06:50.051000901Z [err]            ^^^^^^^^^^^^^^
+2026-02-13T07:06:50.051001806Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+2026-02-13T07:06:50.051009411Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+2026-02-13T07:06:50.051011651Z [err]      return _ConnectionRecord(self)
+2026-02-13T07:06:50.051017299Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.051022240Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+2026-02-13T07:06:50.051028183Z [err]      self.__connect()
+2026-02-13T07:06:50.051032727Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+2026-02-13T07:06:50.051037248Z [err]      with util.safe_reraise():
+2026-02-13T07:06:50.051041862Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:06:50.051045798Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:06:50.055273852Z [err]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.055302861Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+2026-02-13T07:06:50.055309299Z [err]      return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+2026-02-13T07:06:50.055315613Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.055321633Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+2026-02-13T07:06:50.055328219Z [err]      value = await result
+2026-02-13T07:06:50.055356336Z [err]              ^^^^^^^^^^^^
+2026-02-13T07:06:50.055362734Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+2026-02-13T07:06:50.055367334Z [err]      return await connect_utils._connect(
+2026-02-13T07:06:50.055465882Z [err]                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.055470542Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+2026-02-13T07:06:50.055477410Z [err]      return dialect.connect(*cargs, **cparams)
+2026-02-13T07:06:50.055481738Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.055487053Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+2026-02-13T07:06:50.055492949Z [err]      return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+2026-02-13T07:06:50.055500019Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.055504441Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+2026-02-13T07:06:50.055509618Z [err]      await_only(creator_fn(*arg, **kw)),
+2026-02-13T07:06:50.056842087Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+2026-02-13T07:06:50.056851984Z [err]      tr, pr = await connector
+2026-02-13T07:06:50.056857722Z [err]               ^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.056862897Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+2026-02-13T07:06:50.056867445Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:06:50.056872528Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.056877132Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:06:50.056881942Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:06:50.056886812Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:06:50.056893060Z [err]  
+2026-02-13T07:06:50.056898360Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:06:50.056944688Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.056953737Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+2026-02-13T07:06:50.056960656Z [err]      raise last_error or exceptions.TargetServerAttributeNotMatched(
+2026-02-13T07:06:50.056966264Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:06:50.056971447Z [err]      conn = await _connect_addr(
+2026-02-13T07:06:50.056979750Z [err]             ^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:50.056985213Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+2026-02-13T07:06:50.056990482Z [err]      return await __connect_addr(params, True, *args)
+2026-02-13T07:06:50.056995399Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:53.805924874Z [err]  INFO:__main__:✅ Chat v2 service mounted at /chat-api
+2026-02-13T07:06:53.805932876Z [err]  INFO:__main__:✅ LLM Gateway mounted at /llm-gateway
+2026-02-13T07:06:53.805942290Z [err]  INFO:__main__:✅ Tool Runtime mounted at /tool-runtime
+2026-02-13T07:06:53.805949782Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-13T07:06:53.891597067Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-13T07:06:53.891603069Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-13T07:06:55.665010835Z [err]    @app.on_event("shutdown")
+2026-02-13T07:06:55.665021623Z [err]  INFO:     Started server process [1]
+2026-02-13T07:06:55.665029334Z [err]  INFO:     Waiting for application startup.
+2026-02-13T07:06:55.665035612Z [err]  ERROR:    Traceback (most recent call last):
+2026-02-13T07:06:55.665043331Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-13T07:06:55.665043663Z [err]    File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+2026-02-13T07:06:55.665050796Z [err]      async with self.lifespan_context(app) as maybe_state:
+2026-02-13T07:06:55.665065351Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-13T07:06:55.665071722Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-13T07:06:55.665077446Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-13T07:06:55.665083928Z [err]  /app/main.py:109: DeprecationWarning: 
+2026-02-13T07:06:55.665090212Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:06:55.665097234Z [err]  
+2026-02-13T07:06:55.665102649Z [err]          Read more about it in the
+2026-02-13T07:06:55.665108652Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:06:55.665113958Z [err]          
+2026-02-13T07:06:55.665153221Z [err]    @app.on_event("startup")
+2026-02-13T07:06:55.665173332Z [err]  /app/main.py:115: DeprecationWarning: 
+2026-02-13T07:06:55.665184338Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:06:55.665195233Z [err]  
+2026-02-13T07:06:55.665202201Z [err]          Read more about it in the
+2026-02-13T07:06:55.665210401Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:06:55.665218448Z [err]          
+2026-02-13T07:06:55.668171020Z [err]             ^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668175624Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668182589Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+2026-02-13T07:06:55.668182696Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+2026-02-13T07:06:55.668190152Z [err]      fairy = _ConnectionRecord.checkout(pool)
+2026-02-13T07:06:55.668193912Z [err]      return _ConnectionFairy._checkout(self)
+2026-02-13T07:06:55.668195861Z [err]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668200293Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+2026-02-13T07:06:55.668205650Z [err]      rec = pool._do_get()
+2026-02-13T07:06:55.668210830Z [err]            ^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668215504Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+2026-02-13T07:06:55.668375482Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 226, in __aenter__
+2026-02-13T07:06:55.668379095Z [err]      await self._router._startup()
+2026-02-13T07:06:55.668383178Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 4554, in _startup
+2026-02-13T07:06:55.668387192Z [err]      await handler()
+2026-02-13T07:06:55.668391066Z [err]    File "/app/main.py", line 112, in _startup
+2026-02-13T07:06:55.668395038Z [err]      await chat_v2_ensure_started()
+2026-02-13T07:06:55.668400528Z [err]    File "/app/chat_v2/app.py", line 93, in ensure_started
+2026-02-13T07:06:55.668410573Z [err]      async with engine.begin() as conn:
+2026-02-13T07:06:55.668419826Z [err]    File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+2026-02-13T07:06:55.668425825Z [err]      return await anext(self.gen)
+2026-02-13T07:06:55.668431068Z [err]             ^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668436105Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+2026-02-13T07:06:55.668441690Z [err]      async with conn:
+2026-02-13T07:06:55.668446949Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+2026-02-13T07:06:55.668452191Z [err]      return await self.start(is_ctxmanager=True)
+2026-02-13T07:06:55.668457000Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668462214Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+2026-02-13T07:06:55.668468391Z [err]      await greenlet_spawn(self.sync_engine.connect)
+2026-02-13T07:06:55.668473692Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+2026-02-13T07:06:55.668479682Z [err]      result = context.throw(*sys.exc_info())
+2026-02-13T07:06:55.668789447Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668796751Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3285, in connect
+2026-02-13T07:06:55.668802579Z [err]      return self._connection_cls(self)
+2026-02-13T07:06:55.668811109Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668822119Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+2026-02-13T07:06:55.668827765Z [err]      self._dbapi_connection = engine.raw_connection()
+2026-02-13T07:06:55.668834895Z [err]                               ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.668840544Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3309, in raw_connection
+2026-02-13T07:06:55.668847144Z [err]      return self.pool.connect()
+2026-02-13T07:06:55.669797152Z [err]      with util.safe_reraise():
+2026-02-13T07:06:55.669800805Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:06:55.669804941Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:06:55.669808931Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+2026-02-13T07:06:55.669812897Z [err]      return self._create_connection()
+2026-02-13T07:06:55.669817594Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.669822645Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+2026-02-13T07:06:55.669826667Z [err]      return _ConnectionRecord(self)
+2026-02-13T07:06:55.669830797Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.669834501Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+2026-02-13T07:06:55.669839315Z [err]      self.__connect()
+2026-02-13T07:06:55.669843572Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+2026-02-13T07:06:55.669848003Z [err]      with util.safe_reraise():
+2026-02-13T07:06:55.669852141Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:06:55.669856549Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:06:55.669860807Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+2026-02-13T07:06:55.669864747Z [err]      self.dbapi_connection = connection = pool._invoke_creator(self)
+2026-02-13T07:06:55.669870023Z [err]                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.669875212Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+2026-02-13T07:06:55.670813203Z [err]      return dialect.connect(*cargs, **cparams)
+2026-02-13T07:06:55.670816656Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.670820159Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+2026-02-13T07:06:55.670823771Z [err]      return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+2026-02-13T07:06:55.670828425Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.670832138Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+2026-02-13T07:06:55.670835641Z [err]      await_only(creator_fn(*arg, **kw)),
+2026-02-13T07:06:55.670839130Z [err]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.670842595Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+2026-02-13T07:06:55.670845962Z [err]      return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+2026-02-13T07:06:55.670849480Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.670853346Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+2026-02-13T07:06:55.670856945Z [err]      value = await result
+2026-02-13T07:06:55.670861466Z [err]              ^^^^^^^^^^^^
+2026-02-13T07:06:55.670865486Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+2026-02-13T07:06:55.670869112Z [err]      return await connect_utils._connect(
+2026-02-13T07:06:55.670872871Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.670876692Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+2026-02-13T07:06:55.670886388Z [err]      raise last_error or exceptions.TargetServerAttributeNotMatched(
+2026-02-13T07:06:55.674357940Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:06:55.674366011Z [err]      conn = await _connect_addr(
+2026-02-13T07:06:55.674371847Z [err]             ^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.674377170Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+2026-02-13T07:06:55.674382410Z [err]      return await __connect_addr(params, True, *args)
+2026-02-13T07:06:55.674387936Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.674394668Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+2026-02-13T07:06:55.674400627Z [err]      tr, pr = await connector
+2026-02-13T07:06:55.674406326Z [err]               ^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.674411643Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+2026-02-13T07:06:55.674417628Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:06:55.674423566Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:06:55.674429552Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:06:55.674435155Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:06:55.674440490Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:06:55.674446362Z [err]  
+2026-02-13T07:06:55.674453818Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:06:58.870481607Z [err]  INFO:__main__:✅ Chat v2 service mounted at /chat-api
+2026-02-13T07:06:58.870486114Z [err]  INFO:__main__:✅ LLM Gateway mounted at /llm-gateway
+2026-02-13T07:06:58.870490654Z [err]  INFO:__main__:✅ Tool Runtime mounted at /tool-runtime
+2026-02-13T07:06:59.026872604Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-13T07:07:00.102168138Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-13T07:07:00.102186367Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-13T07:07:00.975148614Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-13T07:07:00.975161206Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-13T07:07:01.004856494Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-13T07:07:01.086240288Z [err]  /app/main.py:115: DeprecationWarning: 
+2026-02-13T07:07:01.086252477Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:01.086259603Z [err]  
+2026-02-13T07:07:01.086266715Z [err]          Read more about it in the
+2026-02-13T07:07:01.086273931Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:01.086280394Z [err]          
+2026-02-13T07:07:01.086286528Z [err]    @app.on_event("shutdown")
+2026-02-13T07:07:01.086440866Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-13T07:07:01.086447496Z [err]  /app/main.py:109: DeprecationWarning: 
+2026-02-13T07:07:01.086454624Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:01.086461125Z [err]  
+2026-02-13T07:07:01.086468171Z [err]          Read more about it in the
+2026-02-13T07:07:01.086474454Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:01.086482168Z [err]          
+2026-02-13T07:07:01.086488639Z [err]    @app.on_event("startup")
+2026-02-13T07:07:01.132226016Z [err]  INFO:     Started server process [1]
+2026-02-13T07:07:01.132232107Z [err]  INFO:     Waiting for application startup.
+2026-02-13T07:07:01.137119170Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+2026-02-13T07:07:01.137133114Z [err]      return await self.start(is_ctxmanager=True)
+2026-02-13T07:07:01.137140556Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.137157541Z [err]    File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+2026-02-13T07:07:01.137167833Z [err]      return await anext(self.gen)
+2026-02-13T07:07:01.137168737Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+2026-02-13T07:07:01.137180737Z [err]      async with conn:
+2026-02-13T07:07:01.137203657Z [err]  ERROR:    Traceback (most recent call last):
+2026-02-13T07:07:01.137213066Z [err]    File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+2026-02-13T07:07:01.137214325Z [err]             ^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.137214366Z [err]      async with engine.begin() as conn:
+2026-02-13T07:07:01.137222307Z [err]      async with self.lifespan_context(app) as maybe_state:
+2026-02-13T07:07:01.137226555Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+2026-02-13T07:07:01.137230696Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 226, in __aenter__
+2026-02-13T07:07:01.137237299Z [err]      await self._router._startup()
+2026-02-13T07:07:01.137243566Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 4554, in _startup
+2026-02-13T07:07:01.137250829Z [err]      await handler()
+2026-02-13T07:07:01.137256965Z [err]    File "/app/main.py", line 112, in _startup
+2026-02-13T07:07:01.137264246Z [err]      await chat_v2_ensure_started()
+2026-02-13T07:07:01.137270669Z [err]    File "/app/chat_v2/app.py", line 93, in ensure_started
+2026-02-13T07:07:01.141174405Z [err]      await greenlet_spawn(self.sync_engine.connect)
+2026-02-13T07:07:01.141179724Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+2026-02-13T07:07:01.141185049Z [err]      result = context.throw(*sys.exc_info())
+2026-02-13T07:07:01.141190155Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.141195352Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3285, in connect
+2026-02-13T07:07:01.141201111Z [err]      return self._connection_cls(self)
+2026-02-13T07:07:01.141206085Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.141220218Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+2026-02-13T07:07:01.141230768Z [err]      self._dbapi_connection = engine.raw_connection()
+2026-02-13T07:07:01.141236122Z [err]                               ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.141241355Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3309, in raw_connection
+2026-02-13T07:07:01.141246704Z [err]      return self.pool.connect()
+2026-02-13T07:07:01.141251400Z [err]             ^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.141256340Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+2026-02-13T07:07:01.141261784Z [err]      return _ConnectionFairy._checkout(self)
+2026-02-13T07:07:01.141266983Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.141272025Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+2026-02-13T07:07:01.141277389Z [err]      fairy = _ConnectionRecord.checkout(pool)
+2026-02-13T07:07:01.141287085Z [err]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.141294165Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+2026-02-13T07:07:01.143804881Z [err]      rec = pool._do_get()
+2026-02-13T07:07:01.143810253Z [err]            ^^^^^^^^^^^^^^
+2026-02-13T07:07:01.143815453Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+2026-02-13T07:07:01.143820385Z [err]      with util.safe_reraise():
+2026-02-13T07:07:01.143825989Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:01.143831119Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:01.143836293Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+2026-02-13T07:07:01.143841295Z [err]      return self._create_connection()
+2026-02-13T07:07:01.143846691Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.143852673Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+2026-02-13T07:07:01.143857092Z [err]      return _ConnectionRecord(self)
+2026-02-13T07:07:01.143862293Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.143866323Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+2026-02-13T07:07:01.143870299Z [err]      self.__connect()
+2026-02-13T07:07:01.143874189Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+2026-02-13T07:07:01.143878171Z [err]      with util.safe_reraise():
+2026-02-13T07:07:01.143881955Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:01.143885919Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:01.143889800Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+2026-02-13T07:07:01.143893791Z [err]      self.dbapi_connection = connection = pool._invoke_creator(self)
+2026-02-13T07:07:01.937435557Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.937443935Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+2026-02-13T07:07:01.937445826Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+2026-02-13T07:07:01.937455777Z [err]      return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+2026-02-13T07:07:01.937459080Z [err]      value = await result
+2026-02-13T07:07:01.937465910Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.937472220Z [err]              ^^^^^^^^^^^^
+2026-02-13T07:07:01.937475856Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+2026-02-13T07:07:01.937480834Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+2026-02-13T07:07:01.937483667Z [err]      await_only(creator_fn(*arg, **kw)),
+2026-02-13T07:07:01.937489761Z [err]      return await connect_utils._connect(
+2026-02-13T07:07:01.937490394Z [err]                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.937492126Z [err]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.937498596Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+2026-02-13T07:07:01.937501505Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+2026-02-13T07:07:01.937506750Z [err]      return dialect.connect(*cargs, **cparams)
+2026-02-13T07:07:01.937509478Z [err]      return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+2026-02-13T07:07:01.937515328Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.941405157Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.941410887Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+2026-02-13T07:07:01.941416836Z [err]      raise last_error or exceptions.TargetServerAttributeNotMatched(
+2026-02-13T07:07:01.941422782Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:07:01.941428845Z [err]      conn = await _connect_addr(
+2026-02-13T07:07:01.941449733Z [err]             ^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.941456236Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+2026-02-13T07:07:01.941462719Z [err]      return await __connect_addr(params, True, *args)
+2026-02-13T07:07:01.941468831Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.941474734Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+2026-02-13T07:07:01.941482579Z [err]      tr, pr = await connector
+2026-02-13T07:07:01.941488955Z [err]               ^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.941495202Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+2026-02-13T07:07:01.941501441Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:07:01.941507792Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:01.941513957Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:07:01.941520208Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:07:01.941526813Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:07:01.941533400Z [err]  
+2026-02-13T07:07:01.941540060Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:07:04.800570812Z [err]  INFO:__main__:✅ Chat v2 service mounted at /chat-api
+2026-02-13T07:07:04.800579352Z [err]  INFO:__main__:✅ LLM Gateway mounted at /llm-gateway
+2026-02-13T07:07:04.800584127Z [err]  INFO:__main__:✅ Tool Runtime mounted at /tool-runtime
+2026-02-13T07:07:04.800589845Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-13T07:07:05.164241634Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-13T07:07:05.164247877Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-13T07:07:06.787639349Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-13T07:07:06.787657463Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:06.787657747Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-13T07:07:06.787670305Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-13T07:07:06.787676149Z [err]  
+2026-02-13T07:07:06.787681926Z [err]  /app/main.py:109: DeprecationWarning: 
+2026-02-13T07:07:06.787689369Z [err]          Read more about it in the
+2026-02-13T07:07:06.787694466Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:06.787703804Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:06.787707152Z [err]  
+2026-02-13T07:07:06.787715033Z [err]          Read more about it in the
+2026-02-13T07:07:06.787719014Z [err]          
+2026-02-13T07:07:06.787724170Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:06.787735445Z [err]    @app.on_event("shutdown")
+2026-02-13T07:07:06.787735804Z [err]          
+2026-02-13T07:07:06.787750726Z [err]  INFO:     Started server process [1]
+2026-02-13T07:07:06.787751952Z [err]    @app.on_event("startup")
+2026-02-13T07:07:06.787762756Z [err]  /app/main.py:115: DeprecationWarning: 
+2026-02-13T07:07:06.787763777Z [err]  INFO:     Waiting for application startup.
+2026-02-13T07:07:06.787768889Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-13T07:07:06.787775292Z [err]  ERROR:    Traceback (most recent call last):
+2026-02-13T07:07:06.787783794Z [err]    File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+2026-02-13T07:07:06.787791595Z [err]      async with self.lifespan_context(app) as maybe_state:
+2026-02-13T07:07:06.791004155Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 226, in __aenter__
+2026-02-13T07:07:06.791008001Z [err]      await self._router._startup()
+2026-02-13T07:07:06.791011906Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 4554, in _startup
+2026-02-13T07:07:06.791015409Z [err]      await handler()
+2026-02-13T07:07:06.791018988Z [err]    File "/app/main.py", line 112, in _startup
+2026-02-13T07:07:06.791022987Z [err]      await chat_v2_ensure_started()
+2026-02-13T07:07:06.791026645Z [err]    File "/app/chat_v2/app.py", line 93, in ensure_started
+2026-02-13T07:07:06.791030988Z [err]      async with engine.begin() as conn:
+2026-02-13T07:07:06.791035681Z [err]    File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+2026-02-13T07:07:06.791039003Z [err]      return await anext(self.gen)
+2026-02-13T07:07:06.791042735Z [err]             ^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791046412Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+2026-02-13T07:07:06.791050597Z [err]      async with conn:
+2026-02-13T07:07:06.791054146Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+2026-02-13T07:07:06.791057767Z [err]      return await self.start(is_ctxmanager=True)
+2026-02-13T07:07:06.791061717Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791065886Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+2026-02-13T07:07:06.791070049Z [err]      await greenlet_spawn(self.sync_engine.connect)
+2026-02-13T07:07:06.791073864Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+2026-02-13T07:07:06.791077776Z [err]      result = context.throw(*sys.exc_info())
+2026-02-13T07:07:06.791171378Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791176431Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3285, in connect
+2026-02-13T07:07:06.791180441Z [err]      return self._connection_cls(self)
+2026-02-13T07:07:06.791184382Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791188187Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+2026-02-13T07:07:06.791192847Z [err]      self._dbapi_connection = engine.raw_connection()
+2026-02-13T07:07:06.791197525Z [err]                               ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791201612Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3309, in raw_connection
+2026-02-13T07:07:06.791206070Z [err]      return self.pool.connect()
+2026-02-13T07:07:06.791210041Z [err]             ^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791213863Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+2026-02-13T07:07:06.791218050Z [err]      return _ConnectionFairy._checkout(self)
+2026-02-13T07:07:06.791222004Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791225552Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+2026-02-13T07:07:06.791229430Z [err]      fairy = _ConnectionRecord.checkout(pool)
+2026-02-13T07:07:06.791233673Z [err]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791237244Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+2026-02-13T07:07:06.791243669Z [err]      rec = pool._do_get()
+2026-02-13T07:07:06.791247715Z [err]            ^^^^^^^^^^^^^^
+2026-02-13T07:07:06.791252114Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+2026-02-13T07:07:06.792718147Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+2026-02-13T07:07:06.792752080Z [err]      return _ConnectionRecord(self)
+2026-02-13T07:07:06.792763811Z [err]      self.__connect()
+2026-02-13T07:07:06.792765767Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.792772807Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+2026-02-13T07:07:06.792778431Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+2026-02-13T07:07:06.792784594Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:06.792785324Z [err]      with util.safe_reraise():
+2026-02-13T07:07:06.792791434Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:06.792800758Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.792800762Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:06.792806364Z [err]                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.792811760Z [err]      with util.safe_reraise():
+2026-02-13T07:07:06.792815263Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+2026-02-13T07:07:06.792815968Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+2026-02-13T07:07:06.792820131Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:06.792829896Z [err]      self.dbapi_connection = connection = pool._invoke_creator(self)
+2026-02-13T07:07:06.792836915Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+2026-02-13T07:07:06.792843301Z [err]      return self._create_connection()
+2026-02-13T07:07:06.794453851Z [err]      raise last_error or exceptions.TargetServerAttributeNotMatched(
+2026-02-13T07:07:06.794466730Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+2026-02-13T07:07:06.794475994Z [err]      value = await result
+2026-02-13T07:07:06.794476266Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+2026-02-13T07:07:06.794488424Z [err]      return await connect_utils._connect(
+2026-02-13T07:07:06.794488485Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.794493210Z [err]      return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+2026-02-13T07:07:06.794497851Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+2026-02-13T07:07:06.794505178Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.794513396Z [err]              ^^^^^^^^^^^^
+2026-02-13T07:07:06.794521031Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.794521633Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+2026-02-13T07:07:06.794528170Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.794534947Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+2026-02-13T07:07:06.794536614Z [err]      await_only(creator_fn(*arg, **kw)),
+2026-02-13T07:07:06.794539761Z [err]      return dialect.connect(*cargs, **cparams)
+2026-02-13T07:07:06.794547386Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+2026-02-13T07:07:06.794548713Z [err]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.794549441Z [err]      return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+2026-02-13T07:07:06.796063482Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:07:06.796068746Z [err]      conn = await _connect_addr(
+2026-02-13T07:07:06.796074630Z [err]             ^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.796080115Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+2026-02-13T07:07:06.796086429Z [err]      return await __connect_addr(params, True, *args)
+2026-02-13T07:07:06.796092879Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.796098781Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+2026-02-13T07:07:06.796104411Z [err]      tr, pr = await connector
+2026-02-13T07:07:06.796110420Z [err]               ^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.796116856Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+2026-02-13T07:07:06.796122696Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:07:06.796128413Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:06.796136030Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:07:06.796142297Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:07:06.796148085Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:07:06.796154025Z [err]  
+2026-02-13T07:07:06.796159548Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:07:09.989940360Z [err]  INFO:__main__:✅ Chat v2 service mounted at /chat-api
+2026-02-13T07:07:09.989945142Z [err]  INFO:__main__:✅ LLM Gateway mounted at /llm-gateway
+2026-02-13T07:07:09.994954665Z [err]  INFO:__main__:✅ Tool Runtime mounted at /tool-runtime
+2026-02-13T07:07:10.172890458Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-13T07:07:11.034489013Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-13T07:07:11.034493780Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-13T07:07:11.897636626Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-13T07:07:11.897642782Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-13T07:07:12.116613757Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 226, in __aenter__
+2026-02-13T07:07:12.116616773Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:12.116630169Z [err]  /app/main.py:109: DeprecationWarning: 
+2026-02-13T07:07:12.116633668Z [err]          
+2026-02-13T07:07:12.116636997Z [err]          Read more about it in the
+2026-02-13T07:07:12.116646221Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:12.116649485Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:12.116657888Z [err]  
+2026-02-13T07:07:12.116665662Z [err]    @app.on_event("shutdown")
+2026-02-13T07:07:12.116665948Z [err]          
+2026-02-13T07:07:12.116666631Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-13T07:07:12.116673567Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-13T07:07:12.116677373Z [err]    @app.on_event("startup")
+2026-02-13T07:07:12.116677991Z [err]  INFO:     Started server process [1]
+2026-02-13T07:07:12.116685501Z [err]  INFO:     Waiting for application startup.
+2026-02-13T07:07:12.116686665Z [err]  /app/main.py:115: DeprecationWarning: 
+2026-02-13T07:07:12.116691910Z [err]  ERROR:    Traceback (most recent call last):
+2026-02-13T07:07:12.116697955Z [err]    File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+2026-02-13T07:07:12.116700258Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:12.116703775Z [err]      async with self.lifespan_context(app) as maybe_state:
+2026-02-13T07:07:12.116712896Z [err]  
+2026-02-13T07:07:12.116721842Z [err]          Read more about it in the
+2026-02-13T07:07:12.120720643Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.120728878Z [err]      await handler()
+2026-02-13T07:07:12.120729459Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3285, in connect
+2026-02-13T07:07:12.120740948Z [err]    File "/app/main.py", line 112, in _startup
+2026-02-13T07:07:12.120746130Z [err]      return await anext(self.gen)
+2026-02-13T07:07:12.120749870Z [err]      await chat_v2_ensure_started()
+2026-02-13T07:07:12.120753128Z [err]             ^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.120758735Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+2026-02-13T07:07:12.120760592Z [err]    File "/app/chat_v2/app.py", line 93, in ensure_started
+2026-02-13T07:07:12.120766001Z [err]      async with conn:
+2026-02-13T07:07:12.120766553Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+2026-02-13T07:07:12.120770249Z [err]      async with engine.begin() as conn:
+2026-02-13T07:07:12.120776875Z [err]      await greenlet_spawn(self.sync_engine.connect)
+2026-02-13T07:07:12.120779767Z [err]    File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+2026-02-13T07:07:12.120780977Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+2026-02-13T07:07:12.120784298Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+2026-02-13T07:07:12.120790573Z [err]      return await self.start(is_ctxmanager=True)
+2026-02-13T07:07:12.120792039Z [err]      result = context.throw(*sys.exc_info())
+2026-02-13T07:07:12.120798811Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.120815090Z [err]      await self._router._startup()
+2026-02-13T07:07:12.120823355Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 4554, in _startup
+2026-02-13T07:07:12.123560991Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.123575828Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+2026-02-13T07:07:12.123583577Z [err]      fairy = _ConnectionRecord.checkout(pool)
+2026-02-13T07:07:12.123592679Z [err]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.123599234Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+2026-02-13T07:07:12.123606061Z [err]      rec = pool._do_get()
+2026-02-13T07:07:12.123612953Z [err]            ^^^^^^^^^^^^^^
+2026-02-13T07:07:12.123620197Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+2026-02-13T07:07:12.123626576Z [err]      with util.safe_reraise():
+2026-02-13T07:07:12.123633354Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:12.123682067Z [err]      return self._connection_cls(self)
+2026-02-13T07:07:12.123689919Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.123697237Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+2026-02-13T07:07:12.123703595Z [err]      self._dbapi_connection = engine.raw_connection()
+2026-02-13T07:07:12.123710120Z [err]                               ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.123716756Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3309, in raw_connection
+2026-02-13T07:07:12.123724634Z [err]      return self.pool.connect()
+2026-02-13T07:07:12.123731050Z [err]             ^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.123737127Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+2026-02-13T07:07:12.123745287Z [err]      return _ConnectionFairy._checkout(self)
+2026-02-13T07:07:12.127364482Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+2026-02-13T07:07:12.127378663Z [err]      self.dbapi_connection = connection = pool._invoke_creator(self)
+2026-02-13T07:07:12.127384466Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:12.127390230Z [err]                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.127396932Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:12.127401151Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+2026-02-13T07:07:12.127412445Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+2026-02-13T07:07:12.127417109Z [err]      return dialect.connect(*cargs, **cparams)
+2026-02-13T07:07:12.127425895Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.127436089Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:12.127443073Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+2026-02-13T07:07:12.127449918Z [err]      return self._create_connection()
+2026-02-13T07:07:12.127457392Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.127463847Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+2026-02-13T07:07:12.127470654Z [err]      return _ConnectionRecord(self)
+2026-02-13T07:07:12.127477781Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.127484742Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+2026-02-13T07:07:12.127491932Z [err]      self.__connect()
+2026-02-13T07:07:12.127499000Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+2026-02-13T07:07:12.127506501Z [err]      with util.safe_reraise():
+2026-02-13T07:07:12.130092282Z [err]      return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+2026-02-13T07:07:12.130098857Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.130105394Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+2026-02-13T07:07:12.130111883Z [err]      await_only(creator_fn(*arg, **kw)),
+2026-02-13T07:07:12.130119048Z [err]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.130125842Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+2026-02-13T07:07:12.130132289Z [err]      return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+2026-02-13T07:07:12.130138638Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.130144992Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+2026-02-13T07:07:12.130149627Z [err]      value = await result
+2026-02-13T07:07:12.130154085Z [err]              ^^^^^^^^^^^^
+2026-02-13T07:07:12.130158946Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+2026-02-13T07:07:12.130163996Z [err]      return await connect_utils._connect(
+2026-02-13T07:07:12.130168946Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.130175987Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+2026-02-13T07:07:12.130181511Z [err]      raise last_error or exceptions.TargetServerAttributeNotMatched(
+2026-02-13T07:07:12.130187782Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:07:12.130192344Z [err]      conn = await _connect_addr(
+2026-02-13T07:07:12.130197483Z [err]             ^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.134311245Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+2026-02-13T07:07:12.134318143Z [err]      return await __connect_addr(params, True, *args)
+2026-02-13T07:07:12.134324852Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.134332247Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+2026-02-13T07:07:12.134339523Z [err]      tr, pr = await connector
+2026-02-13T07:07:12.134346954Z [err]               ^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.134353610Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+2026-02-13T07:07:12.134359774Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:07:12.134365455Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:12.134371217Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:07:12.134378286Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:07:12.134384181Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:07:12.134396511Z [err]  
+2026-02-13T07:07:12.134403396Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:07:16.049205126Z [err]  INFO:__main__:✅ Chat v2 service mounted at /chat-api
+2026-02-13T07:07:16.049208693Z [err]  INFO:__main__:✅ LLM Gateway mounted at /llm-gateway
+2026-02-13T07:07:16.049212325Z [err]  INFO:__main__:✅ Tool Runtime mounted at /tool-runtime
+2026-02-13T07:07:16.049216215Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-13T07:07:16.201526927Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-13T07:07:16.201534012Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-13T07:07:17.932863386Z [err]    File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+2026-02-13T07:07:17.932874894Z [err]      async with self.lifespan_context(app) as maybe_state:
+2026-02-13T07:07:17.932897955Z [err]  /app/main.py:115: DeprecationWarning: 
+2026-02-13T07:07:17.932903422Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:17.932907622Z [err]  INFO:     Started server process [1]
+2026-02-13T07:07:17.932910439Z [err]          Read more about it in the
+2026-02-13T07:07:17.932912829Z [err]  
+2026-02-13T07:07:17.932915256Z [err]  INFO:     Waiting for application startup.
+2026-02-13T07:07:17.932920351Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:17.932927049Z [err]  ERROR:    Traceback (most recent call last):
+2026-02-13T07:07:17.932929609Z [err]          
+2026-02-13T07:07:17.932933566Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-13T07:07:17.932940185Z [err]    @app.on_event("shutdown")
+2026-02-13T07:07:17.932942489Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-13T07:07:17.932948335Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-13T07:07:17.932954914Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-13T07:07:17.932956204Z [err]          Read more about it in the
+2026-02-13T07:07:17.932964345Z [err]  /app/main.py:109: DeprecationWarning: 
+2026-02-13T07:07:17.932969678Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:17.932976238Z [err]  
+2026-02-13T07:07:17.932976861Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:17.932988356Z [err]          
+2026-02-13T07:07:17.932996928Z [err]    @app.on_event("startup")
+2026-02-13T07:07:17.935085426Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 226, in __aenter__
+2026-02-13T07:07:17.935089342Z [err]      await self._router._startup()
+2026-02-13T07:07:17.935093462Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 4554, in _startup
+2026-02-13T07:07:17.935097698Z [err]      await handler()
+2026-02-13T07:07:17.935101428Z [err]    File "/app/main.py", line 112, in _startup
+2026-02-13T07:07:17.935105097Z [err]      await chat_v2_ensure_started()
+2026-02-13T07:07:17.935109098Z [err]    File "/app/chat_v2/app.py", line 93, in ensure_started
+2026-02-13T07:07:17.935113373Z [err]      async with engine.begin() as conn:
+2026-02-13T07:07:17.935117013Z [err]    File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+2026-02-13T07:07:17.935120532Z [err]      return await anext(self.gen)
+2026-02-13T07:07:17.935125948Z [err]             ^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.935129920Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+2026-02-13T07:07:17.935136171Z [err]      async with conn:
+2026-02-13T07:07:17.935140414Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+2026-02-13T07:07:17.935144299Z [err]      return await self.start(is_ctxmanager=True)
+2026-02-13T07:07:17.935148566Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.935152832Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+2026-02-13T07:07:17.935157397Z [err]      await greenlet_spawn(self.sync_engine.connect)
+2026-02-13T07:07:17.935161381Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+2026-02-13T07:07:17.935165176Z [err]      result = context.throw(*sys.exc_info())
+2026-02-13T07:07:17.937255782Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.937259938Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3285, in connect
+2026-02-13T07:07:17.937265830Z [err]      return self._connection_cls(self)
+2026-02-13T07:07:17.937270094Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.937273809Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+2026-02-13T07:07:17.937277459Z [err]      self._dbapi_connection = engine.raw_connection()
+2026-02-13T07:07:17.937282312Z [err]                               ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.937286136Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3309, in raw_connection
+2026-02-13T07:07:17.937291534Z [err]      return self.pool.connect()
+2026-02-13T07:07:17.937295448Z [err]             ^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.937299142Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+2026-02-13T07:07:17.937302851Z [err]      return _ConnectionFairy._checkout(self)
+2026-02-13T07:07:17.937306567Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.937310931Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+2026-02-13T07:07:17.937315098Z [err]      fairy = _ConnectionRecord.checkout(pool)
+2026-02-13T07:07:17.937318806Z [err]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.937325375Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+2026-02-13T07:07:17.937329618Z [err]      rec = pool._do_get()
+2026-02-13T07:07:17.937333471Z [err]            ^^^^^^^^^^^^^^
+2026-02-13T07:07:17.937337281Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+2026-02-13T07:07:17.940446839Z [err]      with util.safe_reraise():
+2026-02-13T07:07:17.940454550Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:17.940461296Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:17.940470152Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+2026-02-13T07:07:17.940478801Z [err]      return self._create_connection()
+2026-02-13T07:07:17.940486239Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.940493724Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+2026-02-13T07:07:17.940500986Z [err]      return _ConnectionRecord(self)
+2026-02-13T07:07:17.940508455Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.940515792Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+2026-02-13T07:07:17.940523342Z [err]      self.__connect()
+2026-02-13T07:07:17.940529982Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+2026-02-13T07:07:17.940537052Z [err]      with util.safe_reraise():
+2026-02-13T07:07:17.940544650Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:17.940551568Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:17.940558203Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+2026-02-13T07:07:17.940564657Z [err]      self.dbapi_connection = connection = pool._invoke_creator(self)
+2026-02-13T07:07:17.940572060Z [err]                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.940578658Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+2026-02-13T07:07:17.946483593Z [err]              ^^^^^^^^^^^^
+2026-02-13T07:07:17.946494894Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+2026-02-13T07:07:17.946506188Z [err]      return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+2026-02-13T07:07:17.946520076Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.946530038Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+2026-02-13T07:07:17.946537666Z [err]      await_only(creator_fn(*arg, **kw)),
+2026-02-13T07:07:17.946546044Z [err]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.946554275Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+2026-02-13T07:07:17.946561147Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+2026-02-13T07:07:17.946562879Z [err]      return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+2026-02-13T07:07:17.946570208Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.946574187Z [err]      return await connect_utils._connect(
+2026-02-13T07:07:17.946588583Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+2026-02-13T07:07:17.946594394Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.946598958Z [err]      value = await result
+2026-02-13T07:07:17.946602870Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+2026-02-13T07:07:17.946609463Z [err]      raise last_error or exceptions.TargetServerAttributeNotMatched(
+2026-02-13T07:07:17.946615301Z [err]      return dialect.connect(*cargs, **cparams)
+2026-02-13T07:07:17.946623369Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.949564843Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:07:17.949575955Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:07:17.949583212Z [err]  
+2026-02-13T07:07:17.949590767Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:07:17.949624112Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:07:17.949631432Z [err]      conn = await _connect_addr(
+2026-02-13T07:07:17.949637408Z [err]             ^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.949643818Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+2026-02-13T07:07:17.949649759Z [err]      return await __connect_addr(params, True, *args)
+2026-02-13T07:07:17.949655714Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.949662743Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+2026-02-13T07:07:17.949669420Z [err]      tr, pr = await connector
+2026-02-13T07:07:17.949675784Z [err]               ^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.949681832Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+2026-02-13T07:07:17.949688381Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:07:17.949694621Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:17.949701775Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:07:21.809254200Z [err]  INFO:__main__:✅ Chat v2 service mounted at /chat-api
+2026-02-13T07:07:21.809260345Z [err]  INFO:__main__:✅ LLM Gateway mounted at /llm-gateway
+2026-02-13T07:07:21.809265518Z [err]  INFO:__main__:✅ Tool Runtime mounted at /tool-runtime
+2026-02-13T07:07:21.809271925Z [err]  INFO:__main__:✅ Grok service mounted at /grok
+2026-02-13T07:07:21.862375896Z [err]  INFO:moderation.models:✅ OpenAI Moderation API initialized (lightweight mode)
+2026-02-13T07:07:21.862383066Z [err]  INFO:__main__:✅ Moderation service mounted at /moderation
+2026-02-13T07:07:23.147282460Z [inf]  DEBUG: Loading .env from /app/kiko-api/.env
+2026-02-13T07:07:23.147287295Z [inf]  DEBUG: OPENAI_API_KEY present: True
+2026-02-13T07:07:23.944566768Z [err]          
+2026-02-13T07:07:23.944575482Z [err]    @app.on_event("startup")
+2026-02-13T07:07:23.944636961Z [err]  INFO:chromadb.telemetry.product.posthog:Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2026-02-13T07:07:23.944640687Z [err]  /app/main.py:115: DeprecationWarning: 
+2026-02-13T07:07:23.944646908Z [err]  INFO:__main__:✅ RAG service mounted at /rag
+2026-02-13T07:07:23.944647042Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:23.944654785Z [err]  
+2026-02-13T07:07:23.944655620Z [err]  /app/main.py:109: DeprecationWarning: 
+2026-02-13T07:07:23.944659670Z [err]          on_event is deprecated, use lifespan event handlers instead.
+2026-02-13T07:07:23.944660866Z [err]          Read more about it in the
+2026-02-13T07:07:23.944666903Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:23.944672586Z [err]          
+2026-02-13T07:07:23.944674483Z [err]  
+2026-02-13T07:07:23.944679239Z [err]    @app.on_event("shutdown")
+2026-02-13T07:07:23.944684810Z [err]          Read more about it in the
+2026-02-13T07:07:23.944688412Z [err]  INFO:     Started server process [1]
+2026-02-13T07:07:23.944692057Z [err]          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+2026-02-13T07:07:23.944695797Z [err]  INFO:     Waiting for application startup.
+2026-02-13T07:07:23.944704330Z [err]  ERROR:    Traceback (most recent call last):
+2026-02-13T07:07:23.944715244Z [err]    File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+2026-02-13T07:07:23.944721435Z [err]      async with self.lifespan_context(app) as maybe_state:
+2026-02-13T07:07:23.944727884Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 226, in __aenter__
+2026-02-13T07:07:23.947995700Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+2026-02-13T07:07:23.947997750Z [err]                               ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948006070Z [err]      with util.safe_reraise():
+2026-02-13T07:07:23.948008589Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3309, in raw_connection
+2026-02-13T07:07:23.948015674Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:23.948017465Z [err]      return self.pool.connect()
+2026-02-13T07:07:23.948022115Z [err]      fairy = _ConnectionRecord.checkout(pool)
+2026-02-13T07:07:23.948025048Z [err]      return self._connection_cls(self)
+2026-02-13T07:07:23.948029572Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+2026-02-13T07:07:23.948030102Z [err]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948036480Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948037792Z [err]      rec = pool._do_get()
+2026-02-13T07:07:23.948041702Z [err]      return _ConnectionFairy._checkout(self)
+2026-02-13T07:07:23.948045776Z [err]            ^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948047128Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+2026-02-13T07:07:23.948049661Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948055805Z [err]      self._dbapi_connection = engine.raw_connection()
+2026-02-13T07:07:23.948056460Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+2026-02-13T07:07:23.948059742Z [err]             ^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948079200Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+2026-02-13T07:07:23.948281395Z [err]      await self._router._startup()
+2026-02-13T07:07:23.948285739Z [err]    File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 4554, in _startup
+2026-02-13T07:07:23.948289834Z [err]      await handler()
+2026-02-13T07:07:23.948293679Z [err]    File "/app/main.py", line 112, in _startup
+2026-02-13T07:07:23.948297839Z [err]      await chat_v2_ensure_started()
+2026-02-13T07:07:23.948302125Z [err]    File "/app/chat_v2/app.py", line 93, in ensure_started
+2026-02-13T07:07:23.948306062Z [err]      async with engine.begin() as conn:
+2026-02-13T07:07:23.948310659Z [err]    File "/usr/local/lib/python3.11/contextlib.py", line 210, in __aenter__
+2026-02-13T07:07:23.948314492Z [err]      return await anext(self.gen)
+2026-02-13T07:07:23.948318548Z [err]             ^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948335021Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+2026-02-13T07:07:23.948340050Z [err]      async with conn:
+2026-02-13T07:07:23.948343834Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+2026-02-13T07:07:23.948347691Z [err]      return await self.start(is_ctxmanager=True)
+2026-02-13T07:07:23.948352907Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948358707Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+2026-02-13T07:07:23.948365482Z [err]      await greenlet_spawn(self.sync_engine.connect)
+2026-02-13T07:07:23.948369934Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+2026-02-13T07:07:23.948373893Z [err]      result = context.throw(*sys.exc_info())
+2026-02-13T07:07:23.948377874Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.948382128Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3285, in connect
+2026-02-13T07:07:23.949561032Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:23.949565201Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+2026-02-13T07:07:23.949569215Z [err]      return self._create_connection()
+2026-02-13T07:07:23.949573197Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.949577062Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+2026-02-13T07:07:23.949581972Z [err]      return _ConnectionRecord(self)
+2026-02-13T07:07:23.949586143Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.949590191Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+2026-02-13T07:07:23.949594970Z [err]      self.__connect()
+2026-02-13T07:07:23.949599877Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+2026-02-13T07:07:23.949604154Z [err]      with util.safe_reraise():
+2026-02-13T07:07:23.949607967Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2026-02-13T07:07:23.949612882Z [err]      raise exc_value.with_traceback(exc_tb)
+2026-02-13T07:07:23.949617172Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+2026-02-13T07:07:23.949621305Z [err]      self.dbapi_connection = connection = pool._invoke_creator(self)
+2026-02-13T07:07:23.949625333Z [err]                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.949630529Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+2026-02-13T07:07:23.949634637Z [err]      return dialect.connect(*cargs, **cparams)
+2026-02-13T07:07:23.949638638Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.949644245Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 630, in connect
+2026-02-13T07:07:23.951131907Z [err]              ^^^^^^^^^^^^
+2026-02-13T07:07:23.951139604Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+2026-02-13T07:07:23.951144722Z [err]      return await connect_utils._connect(
+2026-02-13T07:07:23.951148806Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.951154993Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1249, in _connect
+2026-02-13T07:07:23.951160276Z [err]      raise last_error or exceptions.TargetServerAttributeNotMatched(
+2026-02-13T07:07:23.951164503Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+2026-02-13T07:07:23.951168965Z [err]      conn = await _connect_addr(
+2026-02-13T07:07:23.951173348Z [err]             ^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.951352767Z [err]      return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+2026-02-13T07:07:23.951358212Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.951362954Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+2026-02-13T07:07:23.951367571Z [err]      await_only(creator_fn(*arg, **kw)),
+2026-02-13T07:07:23.951373134Z [err]      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.951377500Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+2026-02-13T07:07:23.951382398Z [err]      return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+2026-02-13T07:07:23.951386893Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.951392964Z [err]    File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+2026-02-13T07:07:23.951398883Z [err]      value = await result
+2026-02-13T07:07:23.953492188Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+2026-02-13T07:07:23.953500588Z [err]      tr, pr = await loop.create_connection(
+2026-02-13T07:07:23.953506024Z [err]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.953511625Z [err]    File "uvloop/loop.pyx", line 2043, in create_connection
+2026-02-13T07:07:23.953516941Z [err]    File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+2026-02-13T07:07:23.953522269Z [err]  ConnectionRefusedError: [Errno 111] Connection refused
+2026-02-13T07:07:23.953527296Z [err]  
+2026-02-13T07:07:23.953533184Z [err]  ERROR:    Application startup failed. Exiting.
+2026-02-13T07:07:23.953558835Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1054, in _connect_addr
+2026-02-13T07:07:23.953563671Z [err]      return await __connect_addr(params, True, *args)
+2026-02-13T07:07:23.953568494Z [err]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-02-13T07:07:23.953572680Z [err]    File "/usr/local/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+2026-02-13T07:07:23.953576460Z [err]      tr, pr = await connector
+2026-02-13T07:07:23.953580901Z [err]               ^^^^^^^^^^^^^^^

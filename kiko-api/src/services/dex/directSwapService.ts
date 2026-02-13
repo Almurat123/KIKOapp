@@ -1212,26 +1212,11 @@ export async function executeDirectSwap(params: {
                 chainId
             });
 
-            // Hard fail fast: if source hints v4 but we have no resolved hint and no discovered pool,
-            // continuing into virtual/zora fallbacks is usually wasted latency.
-            if (
-                fastHintMode
-                && preferredStrategy?.kind === 'v4'
-                && !params.hint?.resolvedPoolHint
-                && !earlyHintedPool
-            ) {
-                logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast fail: no pool from hint and discovery', {
-                    chainId,
-                    hintSourceTx: params.hint?.sourceTxHash
-                });
-                return finish({ success: false, error: 'No suitable pool found', provider: 'failed' });
-            }
-
             // Sniper safeguard: source tx may carry a resolvable pool even when static discovery misses it.
             if (params.hint?.sourceTxHash) {
                 const hintedPool = earlyHintedPool || await withTimeout(
                     resolveHintedPoolFromSourceTx(poolTokenIn, poolTokenOut, chainId, params.hint),
-                    turboMode ? Math.max(120, Math.min(450, turboFastDeadline - Date.now())) : 1200
+                    turboMode ? Math.max(220, Math.min(1200, turboFastDeadline - Date.now())) : 1200
                 ).catch(() => null);
                 if (hintedPool?.kind === 'v4') {
                     logger.info(LogCode.SYS_INFO, '[DirectSwap] Sniper fallback selected (hinted v4 source tx)', {
@@ -1269,6 +1254,20 @@ export async function executeDirectSwap(params: {
                         return finish(await executeV2Swap(normalizedParams, v2Quote));
                     }
                 }
+            }
+
+            // Hard fail fast: if source hints v4 but we still have no resolved source-tx pool, stop early.
+            if (
+                fastHintMode
+                && preferredStrategy?.kind === 'v4'
+                && !params.hint?.resolvedPoolHint
+                && !earlyHintedPool
+            ) {
+                logger.warn(LogCode.SYS_INFO, '[DirectSwap] Fast fail: no pool from hint/discovery/source-tx', {
+                    chainId,
+                    hintSourceTx: params.hint?.sourceTxHash
+                });
+                return finish({ success: false, error: 'No suitable pool found', provider: 'failed' });
             }
         }
 

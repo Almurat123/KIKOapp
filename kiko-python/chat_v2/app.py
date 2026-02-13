@@ -207,6 +207,9 @@ async def send_message(session_id: str, body: MessageSendRequest, claims=Depends
         "currentPage": body.currentPage,
         "pageContext": body.pageContext,
         "context": body.context,
+        "farcaster": (body.context or {}).get("farcaster") if isinstance(body.context, dict) else None,
+        "balance": (body.context or {}).get("balance") if isinstance(body.context, dict) else None,
+        "userId": user_id,
     }
     task = await repo.create_task(db, session_id, user_msg.id, assistant_msg.id, model=model, tool_context=tool_context)
     if worker:
@@ -258,7 +261,7 @@ async def cancel_task(task_id: str, claims=Depends(require_auth), db: AsyncSessi
         "status",
         t.session_id,
         t.assistant_message_id,
-        {"status": "done", "task_id": t.id, "taskId": t.id, "cancelled": True},
+        {"status": "stopped", "task_id": t.id, "taskId": t.id, "cancelled": True},
     )
     return {"success": True}
 

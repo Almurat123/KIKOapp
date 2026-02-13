@@ -13,7 +13,7 @@ import uvicorn
 # Load environment variables
 # First try current directory, then fallback to kiko-api/.env
 load_dotenv()
-if not os.getenv("XAI_API_KEY"):
+if not os.getenv("RAILWAY_ENVIRONMENT") and not os.getenv("XAI_API_KEY"):
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "kiko-api", ".env")
     if os.path.exists(env_path):
         load_dotenv(env_path)

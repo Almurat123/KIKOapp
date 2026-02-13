@@ -169,6 +169,10 @@ async def get_task(db: AsyncSession, task_id: str) -> AITask | None:
     return await db.get(AITask, task_id)
 
 
+async def get_message(db: AsyncSession, message_id: str) -> ChatMessage | None:
+    return await db.get(ChatMessage, message_id)
+
+
 async def get_active_task(db: AsyncSession, session_id: str) -> AITask | None:
     q = (
         select(AITask)

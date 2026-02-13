@@ -273,11 +273,12 @@ export class MainSwapService {
       const isSolana = request.chainId === SOLANA_CONFIG.CHAIN_ID;
       const isEvm = !isSolana;
 
-      const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
+      const isCopytrade = request.mode === 'copytrade';
+      const isTurboCopytrade = isCopytrade && request.userSettings?.copyTradeExecutionMode === 'turbo';
 
       // 4. LAUNCHPAD DETECTION (EVM only)
       // DISABLED: ClankerService not ready - use standard DEX (0x/Kyber) for all tokens
-      if (isEvm && !request.launchpadProvider && !isTurboCopytrade) {
+      if (isEvm && !request.launchpadProvider && !isCopytrade) {
         try {
           // Check both tokenOut (for BUY) and tokenIn (for SELL)
           const launchpadDetection = await this.detectLaunchpad(request.tokenOut, request.chainId)
@@ -300,8 +301,8 @@ export class MainSwapService {
           });
           // Continue with standard routing if detection fails
         }
-      } else if (isEvm && isTurboCopytrade) {
-        logger.debug(LogCode.SYS_INFO, trace('Turbo copytrade: skip launchpad detection on critical path'), {
+      } else if (isEvm && isCopytrade) {
+        logger.debug(LogCode.SYS_INFO, trace('Copytrade: skip launchpad detection on critical path'), {
           chainId: request.chainId,
           tokenIn: request.tokenIn,
           tokenOut: request.tokenOut
@@ -545,6 +546,7 @@ export class MainSwapService {
     const normalizedTokenIn = this.normalizeEvmTokenInput(request.tokenIn, request.chainId);
     const normalizedTokenOut = this.normalizeEvmTokenInput(request.tokenOut, request.chainId);
     const rawTokenIn = String(request.tokenIn || '').trim().toLowerCase();
+    const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
     if (!isNativeToken(normalizedTokenIn, request.chainId) && !/^0x[0-9a-fA-F]{40}$/.test(normalizedTokenIn)) {
       throw new Error(`Invalid EVM tokenIn: ${request.tokenIn}`);
     }
@@ -559,9 +561,8 @@ export class MainSwapService {
     }
 
     // Precheck native spendable balance before routing; fail fast with clear error instead of deep swap failure.
-    // Turbo copytrade skips this precheck to save one RPC on the critical latency path.
-    const isTurboCopytrade = request.mode === 'copytrade' && request.userSettings?.copyTradeExecutionMode === 'turbo';
-    if (isNativeToken(normalizedTokenIn, request.chainId) && !isTurboCopytrade) {
+    // Keep enabled for all modes (including turbo) to prevent pointless on-chain attempts when balance is insufficient.
+    if (isNativeToken(normalizedTokenIn, request.chainId)) {
       const amountInWei = ethers.parseUnits(request.amountIn, 18);
       const chainCfg = getChainConfig(request.chainId);
       const reserveWei = ethers.parseUnits(chainCfg.gasReserve || '0.003', 18);

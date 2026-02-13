@@ -1208,9 +1208,10 @@ async function processSingleUserBuy(
                 }
             }
 
+            }
+
             // 🛡️ GAS BUFFER CHECK (EVM Only)
-            // Ensure user has enough ETH left for gas AFTER the trade amount is deducted
-            // Ensure we have native price for gas calculation
+            // Must run for all execution modes (including turbo), otherwise low-balance wallets still attempt tx.
             if (chainId !== 900) {
                 const nativeBalance = await getNativeBalance(effectiveConfig.user.walletAddress, chainId);
                 const gasBufferWei = ethers.parseEther("0.005"); // ~$15 buffer
@@ -1256,21 +1257,22 @@ async function processSingleUserBuy(
                 }
             }
 
-        }
-
         // 🛡️ DB TRANSACTION LOCK (Prevents Concurrent Buys)
         // Create a PENDING position record atomically. If one exists, this will fail.
         let pendingPositionId: string | null = null;
         try {
             const pendingPos = await prisma.$transaction(async (tx) => {
                 // Check for ANY recent open or pending position for this token
+                const positionWhere: any = {
+                    userId: config.userId,
+                    tokenAddress: tokenToBuy,
+                    status: { in: ['open', 'pending'] },
+                };
+                if (cooldownMinutes > 0) {
+                    positionWhere.createdAt = { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) };
+                }
                 const existing = await tx.position.findFirst({
-                    where: {
-                        userId: config.userId,
-                        tokenAddress: tokenToBuy,
-                        status: { in: ['open', 'pending'] },
-                        createdAt: { gte: new Date(Date.now() - cooldownMinutes * 60 * 1000) }
-                    }
+                    where: positionWhere
                 });
 
                 if (existing) {

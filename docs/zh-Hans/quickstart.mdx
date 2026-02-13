@@ -1,64 +1,20 @@
 ---
-title: '极速入驻'
-description: '从 0 到 1 开启你的 AI 钱包之旅'
+title: '快速开始'
+description: '3 步开始使用 KiKo'
 ---
 
-欢迎使用 KiKo！本指南只包含"当前已实现且用户可直接操作"的快速入驻流程。
-
 <Steps>
-  <Step title="1) 登录（创建你的 KiKo 钱包）">
-    KiKo 使用 **Privy** 进行身份认证，目前支持：
-
-    - **Google 登录**
-    - **Farcaster 登录**
-    - **Passkey 登录**（Face ID / Touch ID / Windows Hello 等）
-
-    登录成功后，系统会自动为你创建一个 **托管钱包（Embedded Wallet）**，无需记忆助记词。
+  <Step title="1. 登录">
+    支持：**Google**、**Farcaster**、**Email**、**Twitter**。登录后自动创建托管钱包。
   </Step>
-
-  <Step title="2) 准备资金（先从 Base 开始）">
-    为了完成第一笔交易，你需要把资金转入你的 KiKo 钱包（或确保钱包里已有资金）。
-
-    - **Base（推荐）**：Gas 低，适合新手
-    - **Ethereum**：Gas 可能较高
-    - **Solana**：进行任何交易都需要 **SOL** 支付手续费（建议至少保留 **0.005 SOL**）
-
-    <Tip>
-      不确定怎么做？可以直接问：`"我现在在哪条链有余额？把收款地址给我。"`
-    </Tip>
+  <Step title="2. 准备资金">
+    Base（推荐，Gas 低）/ Ethereum / BSC / Arbitrum / Polygon / Optimism / Solana。Solana 需至少 0.005 SOL 付手续费。
   </Step>
-
-  <Step title="3) 先做一次查询（验证你已就绪）">
-    在对话界面尝试：
-
-    - `"帮我看看钱包余额"`
-    - `"ETH 现在多少钱？"`
-    - `"Base 链上成交额前 5 的币是哪些？"`
-  </Step>
-
-  <Step title="4) 做第一笔小额 Swap（建议先小额）">
-    直接输入交易意图，例如：
-
-    - `"用 20 USDC 买入 ETH"`
-    - `"在 Base 链上，用 50 USDC 买入 DEGEN"`
-
-    系统会展示交易卡片供你核对（价格、滑点、价格影响、风险提示等）。根据你的设置与执行模式，交易可能需要你手动执行，也可能在开启快速交易模式时直接执行。
-  </Step>
-
-  <Step title="5) 不熟悉的代币先做风险扫描">
-    在交易前先发地址：
-
-    - `"这个代币安全吗？0x..."`
-    - `"在买入之前先扫描一下这个代币风险：0x..."`
+  <Step title="3. 发起操作">
+    - 查询：`"钱包余额"`、`"ETH 价格"`
+    - Swap：`"用 20 USDC 买 ETH"`（Allowance 直接执行，无确认卡片）
+    - 扫描：`"这个币安全吗？0x..."`
   </Step>
 </Steps>
 
-<Warning>
-  KiKo 不提供投资建议。加密资产波动大，请只投入你能承受损失的资金。
-</Warning>
-
-后续建议：
-- [开始使用（更完整）](/zh-Hans/user-guides/getting-started)
-- [Swap 交易](/zh-Hans/user-guides/swap-trading)
-- [Copy Trading](/zh-Hans/user-guides/copy-trading)
-- [风险与安全](/zh-Hans/user-guides/risk-and-security)
+详见 [Swap 交易](/zh-Hans/user-guides/swap-trading)、[Copy Trading](/zh-Hans/user-guides/copy-trading)。

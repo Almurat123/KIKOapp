@@ -138,7 +138,9 @@ async function attemptReceiptRecovery(
             dex: swap.dexName,
             source: 'receipt_recovery'
         }).catch(() => { });
-        enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt });
+        // Recovery path can be delayed by receipt availability; use current time to avoid
+        // false "copytrade delay exceeded" skips in turbo mode.
+        enqueueCopyTradeTask(trackedTarget, swap, chainId, { detectedAt: Date.now() });
     }
 
     await markTxAsProcessedDistributed(txHash, chainId).catch(() => { });
