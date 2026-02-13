@@ -1,4 +1,6 @@
 import os
+import time
+import logging
 from typing import Any
 
 import httpx
@@ -9,6 +11,7 @@ from chat_v2.auth import require_auth
 
 
 app = FastAPI(title="kiko-tool-runtime", version="2.0.0")
+logger = logging.getLogger("tool_runtime")
 NODE_API_URL = os.getenv("NODE_API_URL", "http://127.0.0.1:3001").rstrip("/")
 INTERNAL_SERVICE_KEY = os.getenv("INTERNAL_SERVICE_KEY", "")
 NATIVE_ENABLED = os.getenv("TOOL_RUNTIME_NATIVE_ENABLED", "false").lower() in ("1", "true", "yes", "on")
@@ -17,6 +20,7 @@ NATIVE_TOOLS = {
     for x in (os.getenv("TOOL_RUNTIME_NATIVE_TOOLS", "") or "").split(",")
     if x.strip()
 }
+NATIVE_BRIDGE_FALLBACK = os.getenv("TOOL_RUNTIME_NATIVE_BRIDGE_FALLBACK", "true").lower() in ("1", "true", "yes", "on")
 
 
 class ToolExecRequest(BaseModel):
@@ -24,6 +28,17 @@ class ToolExecRequest(BaseModel):
     arguments: dict[str, Any] = {}
     context: dict[str, Any] = {}
     task_id: str | None = None
+
+
+def _short(value: Any, limit: int = 260) -> str:
+    try:
+        import json
+        s = json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        s = str(value)
+    if len(s) <= limit:
+        return s
+    return s[:limit] + "...(truncated)"
 
 
 @app.get("/health")
@@ -52,12 +67,28 @@ async def _bridge_definitions() -> list[dict[str, Any]]:
 
 
 async def _bridge_execute(tool_name: str, arguments: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    started = time.time()
     payload = {"tool_name": tool_name, "arguments": arguments, "context": context}
+    logger.info(
+        "tool bridge execute start tool=%s wallet=%s chain=%s args=%s",
+        tool_name,
+        context.get("walletAddress") or context.get("userAddress"),
+        context.get("chainId"),
+        _short(arguments, 500),
+    )
     async with httpx.AsyncClient(timeout=45) as client:
         resp = await client.post(f"{NODE_API_URL}/internal/tools/execute", headers=_headers(), json=payload)
     if resp.status_code >= 400:
+        logger.warning("tool bridge execute failed tool=%s status=%s body=%s", tool_name, resp.status_code, resp.text[:600])
         raise HTTPException(status_code=resp.status_code, detail=resp.text[:1000])
     data = resp.json()
+    logger.info(
+        "tool bridge execute done tool=%s ok=%s duration_ms=%s result=%s",
+        tool_name,
+        bool(data.get("success", False)),
+        int((time.time() - started) * 1000),
+        _short(data.get("result"), 700),
+    )
     return {
         "ok": bool(data.get("success", False)),
         "tool_name": tool_name,
@@ -285,8 +316,43 @@ async def tool_definitions():
 
 @app.post("/internal/v1/tool/execute", dependencies=[Depends(require_auth)])
 async def execute_tool(req: ToolExecRequest):
+    logger.info(
+        "tool execute request task_id=%s tool=%s native_enabled=%s native_tools=%s wallet=%s chain=%s args=%s",
+        req.task_id,
+        req.tool_name,
+        NATIVE_ENABLED,
+        sorted(list(NATIVE_TOOLS)),
+        req.context.get("walletAddress") or req.context.get("userAddress"),
+        req.context.get("chainId"),
+        _short(req.arguments, 500),
+    )
     if NATIVE_ENABLED and req.tool_name in NATIVE_TOOLS:
-        return await _native_execute(req.tool_name, req.arguments, req.context)
+        started = time.time()
+        native_res = await _native_execute(req.tool_name, req.arguments, req.context)
+        logger.info(
+            "tool native execute done tool=%s ok=%s duration_ms=%s result=%s",
+            req.tool_name,
+            native_res.get("ok"),
+            int((time.time() - started) * 1000),
+            _short(native_res.get("result"), 700),
+        )
+        if (
+            NATIVE_BRIDGE_FALLBACK
+            and (not native_res.get("ok"))
+            and req.tool_name in {"simulate_swap", "prepare_swap_transaction", "prepare_cross_chain_tx", "get_cross_chain_quote"}
+        ):
+            logger.warning("tool native fallback to bridge tool=%s reason=native_not_ok", req.tool_name)
+            return await _bridge_execute(req.tool_name, req.arguments, req.context)
+        result = native_res.get("result")
+        if (
+            NATIVE_BRIDGE_FALLBACK
+            and isinstance(result, dict)
+            and result.get("_must_stop")
+            and req.tool_name in {"simulate_swap", "prepare_swap_transaction", "prepare_cross_chain_tx", "get_cross_chain_quote"}
+        ):
+            logger.warning("tool native fallback to bridge tool=%s reason=must_stop", req.tool_name)
+            return await _bridge_execute(req.tool_name, req.arguments, req.context)
+        return native_res
     return await _bridge_execute(req.tool_name, req.arguments, req.context)
 
 

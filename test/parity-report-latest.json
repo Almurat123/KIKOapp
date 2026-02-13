@@ -1,0 +1,4366 @@
+{
+  "input": {
+    "messages": [
+      "Buy 1 USDC use ETH"
+    ],
+    "model": "deepseek-chat",
+    "wallet": "0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E",
+    "chain_id": 8453
+  },
+  "summary": {
+    "total_cases": 1,
+    "passed_cases": 0,
+    "pass_rate": 0.0,
+    "all_passed_100_percent": false
+  },
+  "cases": [
+    {
+      "index": 1,
+      "message": "Buy 1 USDC use ETH",
+      "node": {
+        "target": "node",
+        "session_id": "cmlkz7fon00rzh5s2shufia4z",
+        "task_id": "cmlkz7fpc00s7h5s2x5h6cb3n",
+        "events": [
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "taskId": "cmlkz7fpc00s7h5s2x5h6cb3n",
+              "status": "running",
+              "iteration": 1,
+              "maxIterations": 10,
+              "message": "Thinking",
+              "taskType": "text"
+            },
+            "seq": 1
+          },
+          {
+            "type": "message_start",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "role": "assistant",
+              "model": "deepseek-chat"
+            },
+            "seq": 2
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "taskId": "cmlkz7fpc00s7h5s2x5h6cb3n",
+              "status": "running",
+              "message": "Analyzing query",
+              "taskType": "card"
+            },
+            "seq": 3
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "taskId": "cmlkz7fpc00s7h5s2x5h6cb3n",
+              "status": "running",
+              "message": "Loading history",
+              "taskType": "card"
+            },
+            "seq": 4
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "taskId": "cmlkz7fpc00s7h5s2x5h6cb3n",
+              "status": "running",
+              "message": "Verifying safety",
+              "taskType": "card"
+            },
+            "seq": 5
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "iteration": 1,
+              "maxIterations": 10,
+              "message": "Thinking",
+              "taskType": "card"
+            },
+            "seq": 6
+          },
+          {
+            "type": "message_start",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "role": "assistant",
+              "model": "deepseek-chat"
+            },
+            "seq": 7
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "iteration": 1,
+              "maxIterations": 10,
+              "message": "Thinking",
+              "taskType": "card"
+            },
+            "seq": 8
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Checking wallet",
+              "taskType": "card"
+            },
+            "seq": 9
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Identifying intent",
+              "taskType": "card"
+            },
+            "seq": 10
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Building context",
+              "taskType": "card"
+            },
+            "seq": 11
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Thinking",
+              "taskType": "card"
+            },
+            "seq": 12
+          },
+          {
+            "type": "latency_metrics",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "ttftMs": 2643,
+              "inputTokensEstimated": 203,
+              "historyKept": 2,
+              "historyCompacted": 0,
+              "compactionHits": 0,
+              "toolRounds": 1
+            },
+            "seq": 13
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 0,
+              "type": "content",
+              "content": "I",
+              "delta": "I",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 14
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 1,
+              "type": "content",
+              "content": "'ll",
+              "delta": "'ll",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 15
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 2,
+              "type": "content",
+              "content": " help",
+              "delta": " help",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 16
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 3,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 17
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 4,
+              "type": "content",
+              "content": " buy",
+              "delta": " buy",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 18
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 5,
+              "type": "content",
+              "content": " ",
+              "delta": " ",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 19
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 6,
+              "type": "content",
+              "content": "1",
+              "delta": "1",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 20
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 7,
+              "type": "content",
+              "content": " US",
+              "delta": " US",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 21
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 8,
+              "type": "content",
+              "content": "DC",
+              "delta": "DC",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 22
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 9,
+              "type": "content",
+              "content": " using",
+              "delta": " using",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 23
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 10,
+              "type": "content",
+              "content": " ETH",
+              "delta": " ETH",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 24
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 11,
+              "type": "content",
+              "content": " on",
+              "delta": " on",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 25
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 12,
+              "type": "content",
+              "content": " Base",
+              "delta": " Base",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 26
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 13,
+              "type": "content",
+              "content": " chain",
+              "delta": " chain",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 27
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 14,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 28
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 15,
+              "type": "content",
+              "content": " First",
+              "delta": " First",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 29
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 16,
+              "type": "content",
+              "content": ",",
+              "delta": ",",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 30
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 17,
+              "type": "content",
+              "content": " let",
+              "delta": " let",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 31
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 18,
+              "type": "content",
+              "content": " me",
+              "delta": " me",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 32
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 19,
+              "type": "content",
+              "content": " check",
+              "delta": " check",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 33
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 20,
+              "type": "content",
+              "content": " your",
+              "delta": " your",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 34
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 21,
+              "type": "content",
+              "content": " wallet",
+              "delta": " wallet",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 35
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 22,
+              "type": "content",
+              "content": " balance",
+              "delta": " balance",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 36
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 23,
+              "type": "content",
+              "content": " to",
+              "delta": " to",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 37
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 24,
+              "type": "content",
+              "content": " ensure",
+              "delta": " ensure",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 38
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 25,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 39
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 26,
+              "type": "content",
+              "content": " have",
+              "delta": " have",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 40
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 27,
+              "type": "content",
+              "content": " enough",
+              "delta": " enough",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 41
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 28,
+              "type": "content",
+              "content": " ETH",
+              "delta": " ETH",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 42
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 29,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 43
+          },
+          {
+            "type": "usage",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "message_id": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "usage": {
+                "prompt_tokens": 6006,
+                "completion_tokens": 132,
+                "total_tokens": 6138,
+                "prompt_tokens_details": {
+                  "cached_tokens": 5696
+                },
+                "prompt_cache_hit_tokens": 5696,
+                "prompt_cache_miss_tokens": 310
+              }
+            },
+            "seq": 44
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "id": 22,
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "chunkIndex": 30,
+              "chunkType": "tool_result",
+              "content": null,
+              "reasoningContent": null,
+              "metadata": "{\"tool_call_id\":\"call_00_ii460aoNmA0BSaYm2hGBDXZM\",\"result\":\"{\\\"address\\\":\\\"0xA386bc9D8F26AB170A847D73226e3e0BCEb0fe8E\\\",\\\"chain\\\":\\\"base\\\",\\\"ethBalance\\\":\\\"0.0029 BASE\\\",\\\"ethBalanceFormatted\\\":0.002864233147133868,\\\"tokens\\\":[{\\\"symbol\\\":\\\"USDC\\\",\\\"balance\\\":\\\"0.181557\\\",\\\"contract\\\":\\\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\\\",\\\"contractAddress\\\":\\\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\\\",\\\"decimals\\\":6,\\\"valueUsd\\\":0.181557},{\\\"symbol\\\":\\\"QRYPT\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x00256d36db44e37db453206c383d59f6bf23c82a\\\",\\\"contractAddress\\\":\\\"0x00256d36db44e37db453206c383d59f6bf23c82a\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BTW\\\",\\\"balance\\\":\\\"9\\\",\\\"contract\\\":\\\"0x0077ae08200c05af9741b38366e26f7b1e7bfe2d\\\",\\\"contractAddress\\\":\\\"0x0077ae08200c05af9741b38366e26f7b1e7bfe2d\\\",\\\"decimals\\\":9},{\\\"symbol\\\":\\\"PIMP\\\",\\\"balance\\\":\\\"10\\\",\\\"contract\\\":\\\"0x0129614474d4b1df7053cc18c4e1cb646c563332\\\",\\\"contractAddress\\\":\\\"0x0129614474d4b1df7053cc18c4e1cb646c563332\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UP\\\",\\\"balance\\\":\\\"9\\\",\\\"contract\\\":\\\"0x01af27cd29eaab7392039c9fae18a5c86938b96a\\\",\\\"contractAddress\\\":\\\"0x01af27cd29eaab7392039c9fae18a5c86938b96a\\\",\\\"decimals\\\":9},{\\\"symbol\\\":\\\"NUTS\\\",\\\"balance\\\":\\\"10\\\",\\\"contract\\\":\\\"0x04acf03e000f1e982d619c7f40c75ffa32303c77\\\",\\\"contractAddress\\\":\\\"0x04acf03e000f1e982d619c7f40c75ffa32303c77\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"DKP\\\",\\\"balance\\\":\\\"5\\\",\\\"contract\\\":\\\"0x059b2051bc369a52dfa4bcbaa77388483279320c\\\",\\\"contractAddress\\\":\\\"0x059b2051bc369a52dfa4bcbaa77388483279320c\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BEPE\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x06943fe338e9e6d9df904b42ee0bc1d212e2c955\\\",\\\"contractAddress\\\":\\\"0x06943fe338e9e6d9df904b42ee0bc1d212e2c955\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"POLLY\\\",\\\"balance\\\":\\\"8888\\\",\\\"contract\\\":\\\"0x073ffeb4a7a707781f61ce4018ad7111e22cc5da\\\",\\\"contractAddress\\\":\\\"0x073ffeb4a7a707781f61ce4018ad7111e22cc5da\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"100\\\",\\\"contract\\\":\\\"0x07a64e4b5ef8efdd9febab37b948c62bc5e49bb5\\\",\\\"contractAddress\\\":\\\"0x07a64e4b5ef8efdd9febab37b948c62bc5e49bb5\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"ZERO TO HERO\\\",\\\"balance\\\":\\\"50\\\",\\\"contract\\\":\\\"0x07d3eab4cb4e030722cfa848f6059cff839b7d61\\\",\\\"contractAddress\\\":\\\"0x07d3eab4cb4e030722cfa848f6059cff839b7d61\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"VAULTEXE\\\",\\\"balance\\\":\\\"50\\\",\\\"contract\\\":\\\"0x0a1437ed00f6b88d8a1b44761d83803a212d0541\\\",\\\"contractAddress\\\":\\\"0x0a1437ed00f6b88d8a1b44761d83803a212d0541\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"REBELL\\\",\\\"balance\\\":\\\"100\\\",\\\"contract\\\":\\\"0x0c4dcf0e640683d11067c0a257d912024cdb10cf\\\",\\\"contractAddress\\\":\\\"0x0c4dcf0e640683d11067c0a257d912024cdb10cf\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"ORBITOR\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x0f689993a73351104ae69465a77759555e48bf2c\\\",\\\"contractAddress\\\":\\\"0x0f689993a73351104ae69465a77759555e48bf2c\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"35\\\",\\\"contract\\\":\\\"0x0fb47ab8e4b07912ea84ceb146287306fe3d4b2e\\\",\\\"contractAddress\\\":\\\"0x0fb47ab8e4b07912ea84ceb146287306fe3d4b2e\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x1596d5e13ff436897ffe83c12e955b4f4f11c47f\\\",\\\"contractAddress\\\":\\\"0x1596d5e13ff436897ffe83c12e955b4f4f11c47f\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x18a1c2f95ff8e7b87804067d3aa6f7e125ba1ad9\\\",\\\"contractAddress\\\":\\\"0x18a1c2f95ff8e7b87804067d3aa6f7e125ba1ad9\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"$RLSS\\\",\\\"balance\\\":\\\"88\\\",\\\"contract\\\":\\\"0x19ed88560781cbd496e344cbd48701a53eb1a580\\\",\\\"contractAddress\\\":\\\"0x19ed88560781cbd496e344cbd48701a53eb1a580\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BlackWhale\\\",\\\"balance\\\":\\\"0.000000296308622214\\\",\\\"contract\\\":\\\"0x1c0a1da491f5eb5f54b79439587c9e99dc50fd04\\\",\\\"contractAddress\\\":\\\"0x1c0a1da491f5eb5f54b79439587c9e99dc50fd04\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"Moltbook\\\",\\\"balance\\\":\\\"9\\\",\\\"contract\\\":\\\"0x1ce89cf4a098295d4ec294c3dd7e0e195f906626\\\",\\\"contractAddress\\\":\\\"0x1ce89cf4a098295d4ec294c3dd7e0e195f906626\\\",\\\"decimals\\\":9},{\\\"symbol\\\":\\\"Telegram @TronVanity88_bot\\\",\\\"balance\\\":\\\"8888\\\",\\\"contract\\\":\\\"0x1e358596f48420fe4cd147dcc850661632125e21\\\",\\\"contractAddress\\\":\\\"0x1e358596f48420fe4cd147dcc850661632125e21\\\",\\\"decimals\\\":0},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x1e532c832addbe32af951195d1728f919c60969d\\\",\\\"contractAddress\\\":\\\"0x1e532c832addbe32af951195d1728f919c60969d\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"Molten\\\",\\\"balance\\\":\\\"114.7675\\\",\\\"contract\\\":\\\"0x1e7460c4a72bbb592a4047d2fea86cbb81136063\\\",\\\"contractAddress\\\":\\\"0x1e7460c4a72bbb592a4047d2fea86cbb81136063\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"SNOWCAT\\\",\\\"balance\\\":\\\"9999\\\",\\\"contract\\\":\\\"0x1f1bb61c1c1f0b64b6a729bcd73d4a4335aee107\\\",\\\"contractAddress\\\":\\\"0x1f1bb61c1c1f0b64b6a729bcd73d4a4335aee107\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"TRUMP\\\",\\\"balance\\\":\\\"12\\\",\\\"contract\\\":\\\"0x1f43b7e93006951d30f1e0f1eadac4c9864c75f0\\\",\\\"contractAddress\\\":\\\"0x1f43b7e93006951d30f1e0f1eadac4c9864c75f0\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BLKH\\\",\\\"balance\\\":\\\"7\\\",\\\"contract\\\":\\\"0x2107bdfb49d6812d791bd5d3de583db4eb8be02e\\\",\\\"contractAddress\\\":\\\"0x2107bdfb49d6812d791bd5d3de583db4eb8be02e\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"TRUMPEACE\\\",\\\"balance\\\":\\\"9999\\\",\\\"contract\\\":\\\"0x22e67651b451ed7e66cdc12ae3c3dbf2fd3a7927\\\",\\\"contractAddress\\\":\\\"0x22e67651b451ed7e66cdc12ae3c3dbf2fd3a7927\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BLOXX\\\",\\\"balance\\\":\\\"181\\\",\\\"contract\\\":\\\"0x243801e360285343f2bc5672b7f485daff78af5f\\\",\\\"contractAddress\\\":\\\"0x243801e360285343f2bc5672b7f485daff78af5f\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"30\\\",\\\"contract\\\":\\\"0x2554a098498551154cb6c37132d628b28ea5943a\\\",\\\"contractAddress\\\":\\\"0x2554a098498551154cb6c37132d628b28ea5943a\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"1000\\\",\\\"contract\\\":\\\"0x26b5082e857d79964fab0a82507fd55d6161b40b\\\",\\\"contractAddress\\\":\\\"0x26b5082e857d79964fab0a82507fd55d6161b40b\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"MONKAI\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x279e8f331033e26476f22a93e009b7111a75601c\\\",\\\"contractAddress\\\":\\\"0x279e8f331033e26476f22a93e009b7111a75601c\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"MADURO\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x2a23eabf2cf678745e73a36a8545e5025504f9b2\\\",\\\"contractAddress\\\":\\\"0x2a23eabf2cf678745e73a36a8545e5025504f9b2\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BGPT\\\",\\\"balance\\\":\\\"30\\\",\\\"contract\\\":\\\"0x2b2b5a4c03d652dec7cc7849fad8af87f1979404\\\",\\\"contractAddress\\\":\\\"0x2b2b5a4c03d652dec7cc7849fad8af87f1979404\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"STEAK\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x2c12fabe87b10dfdf9674d2e409130b5a79ad88c\\\",\\\"contractAddress\\\":\\\"0x2c12fabe87b10dfdf9674d2e409130b5a79ad88c\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"HYLA\\\",\\\"balance\\\":\\\"10\\\",\\\"contract\\\":\\\"0x2c85854a16a5400e002e16ce7a0d4d733a0b7faa\\\",\\\"contractAddress\\\":\\\"0x2c85854a16a5400e002e16ce7a0d4d733a0b7faa\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"60\\\",\\\"contract\\\":\\\"0x2c872d97dd54a885988217aebb9b19d5463a1f53\\\",\\\"contractAddress\\\":\\\"0x2c872d97dd54a885988217aebb9b19d5463a1f53\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"USOR\\\",\\\"balance\\\":\\\"3.7838\\\",\\\"contract\\\":\\\"0x2efe94bc1dc6642ddc3e3be76e50f97f69e2eadc\\\",\\\"contractAddress\\\":\\\"0x2efe94bc1dc6642ddc3e3be76e50f97f69e2eadc\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"111\\\",\\\"contract\\\":\\\"0x30607b4b05b105e403a62f387ae637941163f4ee\\\",\\\"contractAddress\\\":\\\"0x30607b4b05b105e403a62f387ae637941163f4ee\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"XMAS\\\",\\\"balance\\\":\\\"9999\\\",\\\"contract\\\":\\\"0x32e8da0dc9aaf6444c74304c48f4fd5c4ced157c\\\",\\\"contractAddress\\\":\\\"0x32e8da0dc9aaf6444c74304c48f4fd5c4ced157c\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BEPE\\\",\\\"balance\\\":\\\"121\\\",\\\"contract\\\":\\\"0x3504981b34862a39a7d7297ab2559bc15b744ab1\\\",\\\"contractAddress\\\":\\\"0x3504981b34862a39a7d7297ab2559bc15b744ab1\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"ORCA BASE\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x35ce2d60f6d569afb0666a54bc4c7f9d0a333036\\\",\\\"contractAddress\\\":\\\"0x35ce2d60f6d569afb0666a54bc4c7f9d0a333036\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"a1lon9\\\",\\\"balance\\\":\\\"100\\\",\\\"contract\\\":\\\"0x373f019d535a34f33b263803bb73fc1cdab694e0\\\",\\\"contractAddress\\\":\\\"0x373f019d535a34f33b263803bb73fc1cdab694e0\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"100\\\",\\\"contract\\\":\\\"0x37647650445556473e3458b386b17c421ee01d50\\\",\\\"contractAddress\\\":\\\"0x37647650445556473e3458b386b17c421ee01d50\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"FATTY\\\",\\\"balance\\\":\\\"1000\\\",\\\"contract\\\":\\\"0x37d1de315e7641c8126c2d61d9c84eb83eb7a7ee\\\",\\\"contractAddress\\\":\\\"0x37d1de315e7641c8126c2d61d9c84eb83eb7a7ee\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"100\\\",\\\"contract\\\":\\\"0x3c59fd792c25158c7aa39c5975192dff1f2c3859\\\",\\\"contractAddress\\\":\\\"0x3c59fd792c25158c7aa39c5975192dff1f2c3859\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"EDEL\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x3d0232cf421d75425923130cd7ce55109b75afd7\\\",\\\"contractAddress\\\":\\\"0x3d0232cf421d75425923130cd7ce55109b75afd7\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"POLLY\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x3e6a28cb5d13addc965839708d3172da2e5c0926\\\",\\\"contractAddress\\\":\\\"0x3e6a28cb5d13addc965839708d3172da2e5c0926\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BANGKER\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x3fc63cb55dd2f2d14bb9a581ebee1a43ea668b76\\\",\\\"contractAddress\\\":\\\"0x3fc63cb55dd2f2d14bb9a581ebee1a43ea668b76\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"2\\\",\\\"contract\\\":\\\"0x4051b62489d165b3ba6a81004f0199a82897c73f\\\",\\\"contractAddress\\\":\\\"0x4051b62489d165b3ba6a81004f0199a82897c73f\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"POT\\\",\\\"balance\\\":\\\"3.3\\\",\\\"contract\\\":\\\"0x4122bac0e8bab43595032f161aca0cae7d35008c\\\",\\\"contractAddress\\\":\\\"0x4122bac0e8bab43595032f161aca0cae7d35008c\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"WHALE\\\",\\\"balance\\\":\\\"20\\\",\\\"contract\\\":\\\"0x4709ac37a7e3f97aec93796db2a214339b03c7c7\\\",\\\"contractAddress\\\":\\\"0x4709ac37a7e3f97aec93796db2a214339b03c7c7\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BaseMoon\\\",\\\"balance\\\":\\\"20\\\",\\\"contract\\\":\\\"0x49d559a32d404d6a4faf9ece9001116071dbe84d\\\",\\\"contractAddress\\\":\\\"0x49d559a32d404d6a4faf9ece9001116071dbe84d\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x4a67abdb88ba6be3e794921a761fa0de80aad76d\\\",\\\"contractAddress\\\":\\\"0x4a67abdb88ba6be3e794921a761fa0de80aad76d\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"5\\\",\\\"contract\\\":\\\"0x4b0e047c455036f1d25a1d0908bd99a632dbf9d0\\\",\\\"contractAddress\\\":\\\"0x4b0e047c455036f1d25a1d0908bd99a632dbf9d0\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"SHARC\\\",\\\"balance\\\":\\\"10\\\",\\\"contract\\\":\\\"0x4b3c670a7d4affc94e749ac4c4001a4a3e357496\\\",\\\"contractAddress\\\":\\\"0x4b3c670a7d4affc94e749ac4c4001a4a3e357496\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"PTT\\\",\\\"balance\\\":\\\"10000\\\",\\\"contract\\\":\\\"0x4b545661b3a21a7d4ae98c91499884f94a66c444\\\",\\\"contractAddress\\\":\\\"0x4b545661b3a21a7d4ae98c91499884f94a66c444\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"PICKLE\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x4c3a205240cdd2336573c0ed5bb25676a3cc427b\\\",\\\"contractAddress\\\":\\\"0x4c3a205240cdd2336573c0ed5bb25676a3cc427b\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"SEND\\\",\\\"balance\\\":\\\"75\\\",\\\"contract\\\":\\\"0x4d1aa95f03042718cf489415b999bffb28b3d376\\\",\\\"contractAddress\\\":\\\"0x4d1aa95f03042718cf489415b999bffb28b3d376\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"KAMIYO\\\",\\\"balance\\\":\\\"250\\\",\\\"contract\\\":\\\"0x4dda8083a02e60ea2593dc1f2b16b92c34d02b24\\\",\\\"contractAddress\\\":\\\"0x4dda8083a02e60ea2593dc1f2b16b92c34d02b24\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"Coin\\\",\\\"balance\\\":\\\"40\\\",\\\"contract\\\":\\\"0x4f38ce38be7c33cc693f8ae3aa7e24f33a493721\\\",\\\"contractAddress\\\":\\\"0x4f38ce38be7c33cc693f8ae3aa7e24f33a493721\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"THENICKSHIRIEY\\\",\\\"balance\\\":\\\"10\\\",\\\"contract\\\":\\\"0x50b630d4fe4c601cfd38123f996478b2f825ce14\\\",\\\"contractAddress\\\":\\\"0x50b630d4fe4c601cfd38123f996478b2f825ce14\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"BW\\\",\\\"balance\\\":\\\"10000\\\",\\\"contract\\\":\\\"0x50c75903a5fe9acc87cce2706c43625e59076b57\\\",\\\"contractAddress\\\":\\\"0x50c75903a5fe9acc87cce2706c43625e59076b57\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"5\\\",\\\"contract\\\":\\\"0x51b92122fe58883601fba4e99fc6f7f98ce0d1e0\\\",\\\"contractAddress\\\":\\\"0x51b92122fe58883601fba4e99fc6f7f98ce0d1e0\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"250\\\",\\\"contract\\\":\\\"0x5446bf5c4716f0b13f9f56f7c51db8d8ee6583af\\\",\\\"contractAddress\\\":\\\"0x5446bf5c4716f0b13f9f56f7c51db8d8ee6583af\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"15\\\",\\\"contract\\\":\\\"0x54fbcfad1a0e4817d0f53f5a26cd7abc3a49c78c\\\",\\\"contractAddress\\\":\\\"0x54fbcfad1a0e4817d0f53f5a26cd7abc3a49c78c\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x551c2aa8018a56e459404d9f6719d50dc7ef9bee\\\",\\\"contractAddress\\\":\\\"0x551c2aa8018a56e459404d9f6719d50dc7ef9bee\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"bhole\\\",\\\"balance\\\":\\\"30\\\",\\\"contract\\\":\\\"0x5692f34c815473231a9282c6beb6b9d9af55e18c\\\",\\\"contractAddress\\\":\\\"0x5692f34c815473231a9282c6beb6b9d9af55e18c\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"PGWL\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x56c6350e494f1ee49b9b3dbe396c6d7885d1b6fc\\\",\\\"contractAddress\\\":\\\"0x56c6350e494f1ee49b9b3dbe396c6d7885d1b6fc\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"PENGUIN\\\",\\\"balance\\\":\\\"9\\\",\\\"contract\\\":\\\"0x57894437f05640ca014e2c4723fa18fd79b4c9e1\\\",\\\"contractAddress\\\":\\\"0x57894437f05640ca014e2c4723fa18fd79b4c9e1\\\",\\\"decimals\\\":9},{\\\"symbol\\\":\\\"ZAMA\\\",\\\"balance\\\":\\\"9\\\",\\\"contract\\\":\\\"0x581632b90ab75c871641fef5ce51dfd528e45aee\\\",\\\"contractAddress\\\":\\\"0x581632b90ab75c871641fef5ce51dfd528e45aee\\\",\\\"decimals\\\":9},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"50\\\",\\\"contract\\\":\\\"0x583f282d1b87b83c38f8e1d7dfcc6e68ff9131a8\\\",\\\"contractAddress\\\":\\\"0x583f282d1b87b83c38f8e1d7dfcc6e68ff9131a8\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"FUCK\\\",\\\"balance\\\":\\\"3.0379\\\",\\\"contract\\\":\\\"0x58eee759ea6a4beef61497db012270e454095cc0\\\",\\\"contractAddress\\\":\\\"0x58eee759ea6a4beef61497db012270e454095cc0\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"10\\\",\\\"contract\\\":\\\"0x592949460d93a54bba0c799c49ed659609dbbaae\\\",\\\"contractAddress\\\":\\\"0x592949460d93a54bba0c799c49ed659609dbbaae\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x598b6297eeb4988d65ca883fecab6b9e01e7fff7\\\",\\\"contractAddress\\\":\\\"0x598b6297eeb4988d65ca883fecab6b9e01e7fff7\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"3\\\",\\\"contract\\\":\\\"0x5af84c2aa176b72cce189d700179cf9010035dc5\\\",\\\"contractAddress\\\":\\\"0x5af84c2aa176b72cce189d700179cf9010035dc5\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x5bdb7c7ccbc327f371e1cf06097f894082f673be\\\",\\\"contractAddress\\\":\\\"0x5bdb7c7ccbc327f371e1cf06097f894082f673be\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"10\\\",\\\"contract\\\":\\\"0x5c52f204a8bbafffdb74abb70c1e441a55267a58\\\",\\\"contractAddress\\\":\\\"0x5c52f204a8bbafffdb74abb70c1e441a55267a58\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"49\\\",\\\"contract\\\":\\\"0x5cfb5b38322bb85fbb90fdc9d478169f3f71b5c0\\\",\\\"contractAddress\\\":\\\"0x5cfb5b38322bb85fbb90fdc9d478169f3f71b5c0\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x5d611ec50d67f8598c25dcbe3b58305cbcba7908\\\",\\\"contractAddress\\\":\\\"0x5d611ec50d67f8598c25dcbe3b58305cbcba7908\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"1\\\",\\\"contract\\\":\\\"0x5fa666eafb44afd7d60c4e8270caf4b8fc8f75cb\\\",\\\"contractAddress\\\":\\\"0x5fa666eafb44afd7d60c4e8270caf4b8fc8f75cb\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"111\\\",\\\"contract\\\":\\\"0x625b2c48020901df23a95136cdfd173220b6fbbd\\\",\\\"contractAddress\\\":\\\"0x625b2c48020901df23a95136cdfd173220b6fbbd\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"55\\\",\\\"contract\\\":\\\"0x64dec1b7684274a4e327c57c6182563fe8b3ec1d\\\",\\\"contractAddress\\\":\\\"0x64dec1b7684274a4e327c57c6182563fe8b3ec1d\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"25\\\",\\\"contract\\\":\\\"0x6553290cbb449aae8f020a71d867911845f6b3e2\\\",\\\"contractAddress\\\":\\\"0x6553290cbb449aae8f020a71d867911845f6b3e2\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"0.000000009\\\",\\\"contract\\\":\\\"0x65bdee83c585059fec8215d36b540271921762b3\\\",\\\"contractAddress\\\":\\\"0x65bdee83c585059fec8215d36b540271921762b3\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"1.25\\\",\\\"contract\\\":\\\"0x65df9378fced154c7e755cb8215c69e2ebf46daa\\\",\\\"contractAddress\\\":\\\"0x65df9378fced154c7e755cb8215c69e2ebf46daa\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"0.000000009\\\",\\\"contract\\\":\\\"0x67159b4b3311f05647d8f70e09660e270af8d223\\\",\\\"contractAddress\\\":\\\"0x67159b4b3311f05647d8f70e09660e270af8d223\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"10\\\",\\\"contract\\\":\\\"0x68e0acc6a24007718a9d1877ed2f41a2f9561004\\\",\\\"contractAddress\\\":\\\"0x68e0acc6a24007718a9d1877ed2f41a2f9561004\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"2\\\",\\\"contract\\\":\\\"0x69581a9dc7a572c052e25749fee0a09236ed4eeb\\\",\\\"contractAddress\\\":\\\"0x69581a9dc7a572c052e25749fee0a09236ed4eeb\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"2\\\",\\\"contract\\\":\\\"0x695e449525d42055d368f84e97912032c7410a46\\\",\\\"contractAddress\\\":\\\"0x695e449525d42055d368f84e97912032c7410a46\\\",\\\"decimals\\\":18},{\\\"symbol\\\":\\\"UNKNOWN\\\",\\\"balance\\\":\\\"50\\\",\\\"contract\\\":\\\"0x6a727fb511c225592f401087a843f701b7d3f1df\\\",\\\"contractAddress\\\":\\\"0x6a727fb511c225592f401087a843f701b7d3f1df\\\",\\\"decimals\\\":18}],\\\"nativePriceUsd\\\":1970.46,\\\"nativeValueUsd\\\":5.643856847101402,\\\"totalValueUsd\\\":5.825413847101402}\"}",
+              "createdAt": "2026-02-13T14:21:42.914Z",
+              "message_id": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "reasoning_content": null
+            },
+            "seq": 45
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "iteration": 2,
+              "maxIterations": 10,
+              "message": "Processing tool results (2/10)",
+              "taskType": "card"
+            },
+            "seq": 46
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Checking wallet",
+              "taskType": "card"
+            },
+            "seq": 47
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Identifying intent",
+              "taskType": "card"
+            },
+            "seq": 48
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Building context",
+              "taskType": "card"
+            },
+            "seq": 49
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Thinking",
+              "taskType": "card"
+            },
+            "seq": 50
+          },
+          {
+            "type": "latency_metrics",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "ttftMs": 2195,
+              "inputTokensEstimated": 4194,
+              "historyKept": 4,
+              "historyCompacted": 0,
+              "compactionHits": 0,
+              "toolRounds": 2
+            },
+            "seq": 51
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 31,
+              "type": "content",
+              "content": "Great",
+              "delta": "Great",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 52
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 32,
+              "type": "content",
+              "content": "!",
+              "delta": "!",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 53
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 33,
+              "type": "content",
+              "content": " I",
+              "delta": " I",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 54
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 34,
+              "type": "content",
+              "content": " can",
+              "delta": " can",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 55
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 35,
+              "type": "content",
+              "content": " see",
+              "delta": " see",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 56
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 36,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 57
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 37,
+              "type": "content",
+              "content": " have",
+              "delta": " have",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 58
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 38,
+              "type": "content",
+              "content": " ",
+              "delta": " ",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 59
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 39,
+              "type": "content",
+              "content": "0",
+              "delta": "0",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 60
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 40,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 61
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 41,
+              "type": "content",
+              "content": "002",
+              "delta": "002",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 62
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 42,
+              "type": "content",
+              "content": "864",
+              "delta": "864",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 63
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 43,
+              "type": "content",
+              "content": " ETH",
+              "delta": " ETH",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 64
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 44,
+              "type": "content",
+              "content": " (",
+              "delta": " (",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 65
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 45,
+              "type": "content",
+              "content": "worth",
+              "delta": "worth",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 66
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 46,
+              "type": "content",
+              "content": " about",
+              "delta": " about",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 67
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 47,
+              "type": "content",
+              "content": " $",
+              "delta": " $",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 68
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 48,
+              "type": "content",
+              "content": "5",
+              "delta": "5",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 69
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 49,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 70
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 50,
+              "type": "content",
+              "content": "64",
+              "delta": "64",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 71
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 51,
+              "type": "content",
+              "content": ")",
+              "delta": ")",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 72
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 52,
+              "type": "content",
+              "content": " on",
+              "delta": " on",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 73
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 53,
+              "type": "content",
+              "content": " Base",
+              "delta": " Base",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 74
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 54,
+              "type": "content",
+              "content": " chain",
+              "delta": " chain",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 75
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 55,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 76
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 56,
+              "type": "content",
+              "content": " Now",
+              "delta": " Now",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 77
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 57,
+              "type": "content",
+              "content": " I",
+              "delta": " I",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 78
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 58,
+              "type": "content",
+              "content": "'ll",
+              "delta": "'ll",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 79
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 59,
+              "type": "content",
+              "content": " simulate",
+              "delta": " simulate",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 80
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 60,
+              "type": "content",
+              "content": " the",
+              "delta": " the",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 81
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 61,
+              "type": "content",
+              "content": " swap",
+              "delta": " swap",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 82
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 62,
+              "type": "content",
+              "content": " to",
+              "delta": " to",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 83
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 63,
+              "type": "content",
+              "content": " show",
+              "delta": " show",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 84
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 64,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 85
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 65,
+              "type": "content",
+              "content": " how",
+              "delta": " how",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 86
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 66,
+              "type": "content",
+              "content": " much",
+              "delta": " much",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 87
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 67,
+              "type": "content",
+              "content": " ETH",
+              "delta": " ETH",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 88
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 68,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 89
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 69,
+              "type": "content",
+              "content": "'ll",
+              "delta": "'ll",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 90
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 70,
+              "type": "content",
+              "content": " need",
+              "delta": " need",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 91
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 71,
+              "type": "content",
+              "content": " to",
+              "delta": " to",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 92
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 72,
+              "type": "content",
+              "content": " buy",
+              "delta": " buy",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 93
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 73,
+              "type": "content",
+              "content": " ",
+              "delta": " ",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 94
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 74,
+              "type": "content",
+              "content": "1",
+              "delta": "1",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 95
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 75,
+              "type": "content",
+              "content": " US",
+              "delta": " US",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 96
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 76,
+              "type": "content",
+              "content": "DC",
+              "delta": "DC",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 97
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 77,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 98
+          },
+          {
+            "type": "usage",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "message_id": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "usage": {
+                "prompt_tokens": 12811,
+                "completion_tokens": 195,
+                "total_tokens": 13006,
+                "prompt_tokens_details": {
+                  "cached_tokens": 5696
+                },
+                "prompt_cache_hit_tokens": 5696,
+                "prompt_cache_miss_tokens": 7115
+              }
+            },
+            "seq": 99
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Executing Simulate Swap",
+              "taskType": "card"
+            },
+            "seq": 100
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "id": 24,
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "chunkIndex": 78,
+              "chunkType": "tool_result",
+              "content": null,
+              "reasoningContent": null,
+              "metadata": "{\"tool_call_id\":\"call_00_EuZpXkhhQzaWkSMU4HfxSCtN\",\"result\":\"{\\\"expected_out\\\":\\\"0.98392\\\",\\\"expected_out_human\\\":\\\"0.98392\\\",\\\"price_impact\\\":\\\"0.0734351075957634%\\\",\\\"price_impact_pct\\\":0.0734351075957634,\\\"is_safe\\\":true,\\\"path\\\":[\\\"0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE\\\",\\\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\\\"],\\\"fee\\\":\\\"0\\\",\\\"fee_human\\\":\\\"0\\\",\\\"warning\\\":null,\\\"quote_ok\\\":true}\"}",
+              "createdAt": "2026-02-13T14:22:04.954Z",
+              "message_id": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "reasoning_content": null
+            },
+            "seq": 101
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "iteration": 3,
+              "maxIterations": 10,
+              "message": "Processing tool results (3/10)",
+              "taskType": "card"
+            },
+            "seq": 102
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Checking wallet",
+              "taskType": "card"
+            },
+            "seq": 103
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Identifying intent",
+              "taskType": "card"
+            },
+            "seq": 104
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Building context",
+              "taskType": "card"
+            },
+            "seq": 105
+          },
+          {
+            "type": "task_status",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "status": "running",
+              "message": "Thinking",
+              "taskType": "card"
+            },
+            "seq": 106
+          },
+          {
+            "type": "latency_metrics",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "ttftMs": 3433,
+              "inputTokensEstimated": 4390,
+              "historyKept": 6,
+              "historyCompacted": 0,
+              "compactionHits": 0,
+              "toolRounds": 3
+            },
+            "seq": 107
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 79,
+              "type": "content",
+              "content": "Based",
+              "delta": "Based",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 108
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 80,
+              "type": "content",
+              "content": " on",
+              "delta": " on",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 109
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 81,
+              "type": "content",
+              "content": " the",
+              "delta": " the",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 110
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 82,
+              "type": "content",
+              "content": " simulation",
+              "delta": " simulation",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 111
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 83,
+              "type": "content",
+              "content": ",",
+              "delta": ",",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 112
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 84,
+              "type": "content",
+              "content": " if",
+              "delta": " if",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 113
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 85,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 114
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 86,
+              "type": "content",
+              "content": " swap",
+              "delta": " swap",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 115
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 87,
+              "type": "content",
+              "content": " ",
+              "delta": " ",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 116
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 88,
+              "type": "content",
+              "content": "0",
+              "delta": "0",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 117
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 89,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 118
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 90,
+              "type": "content",
+              "content": "000",
+              "delta": "000",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 119
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 91,
+              "type": "content",
+              "content": "5",
+              "delta": "5",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 120
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 92,
+              "type": "content",
+              "content": " ETH",
+              "delta": " ETH",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 121
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 93,
+              "type": "content",
+              "content": ",",
+              "delta": ",",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 122
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 94,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 123
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 95,
+              "type": "content",
+              "content": "'ll",
+              "delta": "'ll",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 124
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 96,
+              "type": "content",
+              "content": " receive",
+              "delta": " receive",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 125
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 97,
+              "type": "content",
+              "content": " approximately",
+              "delta": " approximately",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 126
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 98,
+              "type": "content",
+              "content": " ",
+              "delta": " ",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 127
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 99,
+              "type": "content",
+              "content": "0",
+              "delta": "0",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 128
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 100,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 129
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 101,
+              "type": "content",
+              "content": "983",
+              "delta": "983",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 130
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 102,
+              "type": "content",
+              "content": "92",
+              "delta": "92",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 131
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 103,
+              "type": "content",
+              "content": " US",
+              "delta": " US",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 132
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 104,
+              "type": "content",
+              "content": "DC",
+              "delta": "DC",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 133
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 105,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 134
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 106,
+              "type": "content",
+              "content": " This",
+              "delta": " This",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 135
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 107,
+              "type": "content",
+              "content": " is",
+              "delta": " is",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 136
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 108,
+              "type": "content",
+              "content": " very",
+              "delta": " very",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 137
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 109,
+              "type": "content",
+              "content": " close",
+              "delta": " close",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 138
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 110,
+              "type": "content",
+              "content": " to",
+              "delta": " to",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 139
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 111,
+              "type": "content",
+              "content": " your",
+              "delta": " your",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 140
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 112,
+              "type": "content",
+              "content": " target",
+              "delta": " target",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 141
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 113,
+              "type": "content",
+              "content": " of",
+              "delta": " of",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 142
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 114,
+              "type": "content",
+              "content": " ",
+              "delta": " ",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 143
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 115,
+              "type": "content",
+              "content": "1",
+              "delta": "1",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 144
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 116,
+              "type": "content",
+              "content": " US",
+              "delta": " US",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 145
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 117,
+              "type": "content",
+              "content": "DC",
+              "delta": "DC",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 146
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 118,
+              "type": "content",
+              "content": ".\n\n",
+              "delta": ".\n\n",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 147
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 119,
+              "type": "content",
+              "content": "To",
+              "delta": "To",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 148
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 120,
+              "type": "content",
+              "content": " get",
+              "delta": " get",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 149
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 121,
+              "type": "content",
+              "content": " exactly",
+              "delta": " exactly",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 150
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 122,
+              "type": "content",
+              "content": " ",
+              "delta": " ",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 151
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 123,
+              "type": "content",
+              "content": "1",
+              "delta": "1",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 152
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 124,
+              "type": "content",
+              "content": " US",
+              "delta": " US",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 153
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 125,
+              "type": "content",
+              "content": "DC",
+              "delta": "DC",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 154
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 126,
+              "type": "content",
+              "content": ",",
+              "delta": ",",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 155
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 127,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 156
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 128,
+              "type": "content",
+              "content": "'d",
+              "delta": "'d",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 157
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 129,
+              "type": "content",
+              "content": " need",
+              "delta": " need",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 158
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 130,
+              "type": "content",
+              "content": " slightly",
+              "delta": " slightly",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 159
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 131,
+              "type": "content",
+              "content": " more",
+              "delta": " more",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 160
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 132,
+              "type": "content",
+              "content": " ETH",
+              "delta": " ETH",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 161
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 133,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 162
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 134,
+              "type": "content",
+              "content": " Would",
+              "delta": " Would",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 163
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 135,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 164
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 136,
+              "type": "content",
+              "content": " like",
+              "delta": " like",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 165
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 137,
+              "type": "content",
+              "content": " me",
+              "delta": " me",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 166
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 138,
+              "type": "content",
+              "content": " to",
+              "delta": " to",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 167
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 139,
+              "type": "content",
+              "content": " proceed",
+              "delta": " proceed",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 168
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 140,
+              "type": "content",
+              "content": " with",
+              "delta": " with",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 169
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 141,
+              "type": "content",
+              "content": " swapping",
+              "delta": " swapping",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 170
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 142,
+              "type": "content",
+              "content": " ",
+              "delta": " ",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 171
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 143,
+              "type": "content",
+              "content": "0",
+              "delta": "0",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 172
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 144,
+              "type": "content",
+              "content": ".",
+              "delta": ".",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 173
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 145,
+              "type": "content",
+              "content": "000",
+              "delta": "000",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 174
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 146,
+              "type": "content",
+              "content": "5",
+              "delta": "5",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 175
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 147,
+              "type": "content",
+              "content": " ETH",
+              "delta": " ETH",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 176
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 148,
+              "type": "content",
+              "content": " for",
+              "delta": " for",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 177
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 149,
+              "type": "content",
+              "content": " US",
+              "delta": " US",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 178
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 150,
+              "type": "content",
+              "content": "DC",
+              "delta": "DC",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 179
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 151,
+              "type": "content",
+              "content": ",",
+              "delta": ",",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 180
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 152,
+              "type": "content",
+              "content": " or",
+              "delta": " or",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 181
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 153,
+              "type": "content",
+              "content": " would",
+              "delta": " would",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 182
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 154,
+              "type": "content",
+              "content": " you",
+              "delta": " you",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 183
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 155,
+              "type": "content",
+              "content": " prefer",
+              "delta": " prefer",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 184
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 156,
+              "type": "content",
+              "content": " to",
+              "delta": " to",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 185
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 157,
+              "type": "content",
+              "content": " adjust",
+              "delta": " adjust",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 186
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 158,
+              "type": "content",
+              "content": " the",
+              "delta": " the",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 187
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 159,
+              "type": "content",
+              "content": " amount",
+              "delta": " amount",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 188
+          },
+          {
+            "type": "chunk",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "index": 160,
+              "type": "content",
+              "content": "?",
+              "delta": "?",
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r"
+            },
+            "seq": 189
+          },
+          {
+            "type": "usage",
+            "sessionId": "cmlkz7fon00rzh5s2shufia4z",
+            "data": {
+              "message_id": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "usage": {
+                "prompt_tokens": 13154,
+                "completion_tokens": 82,
+                "total_tokens": 13236,
+                "prompt_tokens_details": {
+                  "cached_tokens": 5696
+                },
+                "prompt_cache_hit_tokens": 5696,
+                "prompt_cache_miss_tokens": 7458
+              }
+            },
+            "seq": 190
+          }
+        ],
+        "normalized_events": [
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "text",
+              "iteration": 1,
+              "maxIterations": 10
+            }
+          },
+          {
+            "type": "message_start",
+            "payload": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "role": "assistant",
+              "model": "deepseek-chat"
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": 1,
+              "maxIterations": 10
+            }
+          },
+          {
+            "type": "message_start",
+            "payload": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "role": "assistant",
+              "model": "deepseek-chat"
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": 1,
+              "maxIterations": 10
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "latency_metrics",
+            "payload": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "ttftMs": 2643,
+              "inputTokensEstimated": 203,
+              "historyKept": 2,
+              "historyCompacted": 0,
+              "compactionHits": 0,
+              "toolRounds": 1
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "usage",
+            "payload": {
+              "has_usage": true
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": 2,
+              "maxIterations": 10
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "latency_metrics",
+            "payload": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "ttftMs": 2195,
+              "inputTokensEstimated": 4194,
+              "historyKept": 4,
+              "historyCompacted": 0,
+              "compactionHits": 0,
+              "toolRounds": 2
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "usage",
+            "payload": {
+              "has_usage": true
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": 3,
+              "maxIterations": 10
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "card",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "latency_metrics",
+            "payload": {
+              "messageId": "cmlkz7fpb00s5h5s2vu7ibz7r",
+              "ttftMs": 3433,
+              "inputTokensEstimated": 4390,
+              "historyKept": 6,
+              "historyCompacted": 0,
+              "compactionHits": 0,
+              "toolRounds": 3
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 0
+            }
+          },
+          {
+            "type": "usage",
+            "payload": {
+              "has_usage": true
+            }
+          }
+        ],
+        "assistant_content": "I'll help you buy 1 USDC using ETH on Base chain. First, let me check your wallet balance to ensure you have enough ETH.Great! I can see you have 0.002864 ETH (worth about $5.64) on Base chain. Now I'll simulate the swap to show you how much ETH you'll need to buy 1 USDC.Based on the simulation, if you swap 0.0005 ETH, you'll receive approximately 0.98392 USDC. This is very close to your target of 1 USDC.\n\nTo get exactly 1 USDC, you'd need slightly more ETH. Would you like me to proceed with swapping 0.0005 ETH for USDC, or would you prefer to adjust the amount?",
+        "assistant_reasoning": "",
+        "assistant_tool_trace": null,
+        "timed_out": false
+      },
+      "python": {
+        "target": "python",
+        "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+        "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+        "events": [
+          {
+            "event_id": "edd8b3f7-f946-4031-a5af-00cfbd9e7f42",
+            "type": "message_start",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 1,
+            "ts": "2026-02-13T14:21:36.195078Z",
+            "payload": {
+              "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+              "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b"
+            }
+          },
+          {
+            "event_id": "62257638-590f-40a7-9da7-733a7e71575e",
+            "type": "status",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 2,
+            "ts": "2026-02-13T14:21:36.198568Z",
+            "payload": {
+              "status": "running",
+              "message": "Thinking",
+              "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+              "taskId": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+              "taskType": "text"
+            }
+          },
+          {
+            "event_id": "6592399f-0c77-4319-aef0-d8aa18c97aec",
+            "type": "status",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 3,
+            "ts": "2026-02-13T14:21:42.944982Z",
+            "payload": {
+              "status": "running",
+              "message": "Thinking",
+              "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+              "taskId": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+              "taskType": "text",
+              "iteration": 1,
+              "maxIterations": 10
+            }
+          },
+          {
+            "event_id": "37e97f56-cfcb-4bd5-9a34-82037227e3e6",
+            "type": "message_start",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 4,
+            "ts": "2026-02-13T14:21:45.806496Z",
+            "payload": {
+              "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+              "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+              "taskId": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b"
+            }
+          },
+          {
+            "event_id": "654af142-4310-49be-805a-9a96cab5a22b",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 5,
+            "ts": "2026-02-13T14:21:45.806799Z",
+            "payload": {
+              "text": "I"
+            }
+          },
+          {
+            "event_id": "1e1be0c8-26e3-44a8-90dc-74c571946d5e",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 6,
+            "ts": "2026-02-13T14:21:45.987734Z",
+            "payload": {
+              "text": "'ll"
+            }
+          },
+          {
+            "event_id": "44976403-7e09-45f6-96d6-ceabf43a4a80",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 7,
+            "ts": "2026-02-13T14:21:46.032211Z",
+            "payload": {
+              "text": " help"
+            }
+          },
+          {
+            "event_id": "254d9a02-26df-4848-9830-3ebb89f66b1a",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 8,
+            "ts": "2026-02-13T14:21:46.032411Z",
+            "payload": {
+              "text": " you"
+            }
+          },
+          {
+            "event_id": "36605160-140d-4049-b183-d4744267d1d3",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 9,
+            "ts": "2026-02-13T14:21:46.092152Z",
+            "payload": {
+              "text": " buy"
+            }
+          },
+          {
+            "event_id": "adb6aca3-5244-4da4-95cc-a6cdfd188a45",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 10,
+            "ts": "2026-02-13T14:21:46.092389Z",
+            "payload": {
+              "text": " "
+            }
+          },
+          {
+            "event_id": "62841751-ae1e-4360-a815-492eeb2777dc",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 11,
+            "ts": "2026-02-13T14:21:46.150724Z",
+            "payload": {
+              "text": "1"
+            }
+          },
+          {
+            "event_id": "12aadfb1-b437-4b7d-8fd7-9e24ad8d676f",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 12,
+            "ts": "2026-02-13T14:21:46.150924Z",
+            "payload": {
+              "text": " US"
+            }
+          },
+          {
+            "event_id": "b8131dd9-2dc3-4631-980e-0eb655a96b04",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 13,
+            "ts": "2026-02-13T14:21:46.209955Z",
+            "payload": {
+              "text": "DC"
+            }
+          },
+          {
+            "event_id": "24334ec6-608a-43b1-a542-2c7d79517124",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 14,
+            "ts": "2026-02-13T14:21:46.210157Z",
+            "payload": {
+              "text": " using"
+            }
+          },
+          {
+            "event_id": "20729c3a-83cf-46c2-80b3-5f8efed27f85",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 15,
+            "ts": "2026-02-13T14:21:46.265698Z",
+            "payload": {
+              "text": " ETH"
+            }
+          },
+          {
+            "event_id": "994d7101-d1de-4ca4-89e8-319818bf36d5",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 16,
+            "ts": "2026-02-13T14:21:46.265900Z",
+            "payload": {
+              "text": " on"
+            }
+          },
+          {
+            "event_id": "5c2b391b-51df-403a-b293-825b23573128",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 17,
+            "ts": "2026-02-13T14:21:46.324805Z",
+            "payload": {
+              "text": " Base"
+            }
+          },
+          {
+            "event_id": "73246161-b5dd-4579-8c01-b59e66b95cc7",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 18,
+            "ts": "2026-02-13T14:21:46.324988Z",
+            "payload": {
+              "text": "."
+            }
+          },
+          {
+            "event_id": "78c13a7d-4c98-40fc-9c4a-64a70c7b3278",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 19,
+            "ts": "2026-02-13T14:21:46.385888Z",
+            "payload": {
+              "text": " Let"
+            }
+          },
+          {
+            "event_id": "fd2524b1-ff34-4e5f-bd6f-6453e919fd62",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 20,
+            "ts": "2026-02-13T14:21:46.386102Z",
+            "payload": {
+              "text": " me"
+            }
+          },
+          {
+            "event_id": "36d31297-c075-4c03-acd1-e2d3c3318869",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 21,
+            "ts": "2026-02-13T14:21:46.439786Z",
+            "payload": {
+              "text": " first"
+            }
+          },
+          {
+            "event_id": "85d7d7f7-a00c-4d4b-9bbf-02715c97c6be",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 22,
+            "ts": "2026-02-13T14:21:46.439963Z",
+            "payload": {
+              "text": " check"
+            }
+          },
+          {
+            "event_id": "785193cc-71e5-49f3-8bdb-acf8d9c7cf78",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 23,
+            "ts": "2026-02-13T14:21:46.501140Z",
+            "payload": {
+              "text": " your"
+            }
+          },
+          {
+            "event_id": "d594ed84-ae85-4b52-a456-75d4105cd05e",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 24,
+            "ts": "2026-02-13T14:21:46.501304Z",
+            "payload": {
+              "text": " ETH"
+            }
+          },
+          {
+            "event_id": "307104e7-dfb8-4758-aa69-5d1a5a1e9e63",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 25,
+            "ts": "2026-02-13T14:21:46.556962Z",
+            "payload": {
+              "text": " balance"
+            }
+          },
+          {
+            "event_id": "dc34b138-acd8-4b44-ac2f-71331f556e6a",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 26,
+            "ts": "2026-02-13T14:21:46.557149Z",
+            "payload": {
+              "text": " to"
+            }
+          },
+          {
+            "event_id": "0b6c4e4b-dd47-4969-9fea-2eca0aa85cc2",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 27,
+            "ts": "2026-02-13T14:21:46.615178Z",
+            "payload": {
+              "text": " ensure"
+            }
+          },
+          {
+            "event_id": "15341697-ad24-43c3-9287-a5685f1c0ce7",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 28,
+            "ts": "2026-02-13T14:21:46.617226Z",
+            "payload": {
+              "text": " you"
+            }
+          },
+          {
+            "event_id": "75e961f0-0cae-4f8d-b86f-7d76ab935c94",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 29,
+            "ts": "2026-02-13T14:21:46.672436Z",
+            "payload": {
+              "text": " have"
+            }
+          },
+          {
+            "event_id": "bf072816-d610-4798-8157-783f03b54e0a",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 30,
+            "ts": "2026-02-13T14:21:46.672562Z",
+            "payload": {
+              "text": " enough"
+            }
+          },
+          {
+            "event_id": "73ff878a-5e11-4f86-af28-aca500f6f3c9",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 31,
+            "ts": "2026-02-13T14:21:46.732980Z",
+            "payload": {
+              "text": " funds"
+            }
+          },
+          {
+            "event_id": "bd13aebb-bbf1-4529-a956-a77d440197ab",
+            "type": "delta_text",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 32,
+            "ts": "2026-02-13T14:21:46.788581Z",
+            "payload": {
+              "text": "."
+            }
+          },
+          {
+            "event_id": "730aaf91-4776-4e9c-9ad0-ba7228fe14f5",
+            "type": "usage",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 33,
+            "ts": "2026-02-13T14:21:50.370160Z",
+            "payload": {
+              "usage": {
+                "prompt_tokens": 4825,
+                "completion_tokens": 150,
+                "total_tokens": 4975,
+                "prompt_tokens_details": {
+                  "cached_tokens": 4800
+                },
+                "prompt_cache_hit_tokens": 4800,
+                "prompt_cache_miss_tokens": 25
+              }
+            }
+          },
+          {
+            "event_id": "625aad06-5ad8-44e2-b2d8-1d8381b955d9",
+            "type": "latency_metrics",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 34,
+            "ts": "2026-02-13T14:21:50.370396Z",
+            "payload": {
+              "end_to_end_ms": 7423,
+              "first_token_ms": 2858
+            }
+          },
+          {
+            "event_id": "da5d84ee-06a8-461b-b99b-af985d32ebf5",
+            "type": "tool_call",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 35,
+            "ts": "2026-02-13T14:21:50.371168Z",
+            "payload": {
+              "tool_calls": [
+                {
+                  "id": "call_00_NRgPg7SBuGgrJFGOABynClHr",
+                  "type": "function",
+                  "function": {
+                    "name": "simulate_swap",
+                    "arguments": ""
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "event_id": "6318c8d1-ec8c-4f14-9c0a-e983bc0d86bb",
+            "type": "tool_result",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 36,
+            "ts": "2026-02-13T14:21:55.888233Z",
+            "payload": {
+              "tool_name": "simulate_swap",
+              "tool_call_id": "call_00_NRgPg7SBuGgrJFGOABynClHr",
+              "result": {
+                "expected_out": "0.997623",
+                "expected_out_human": "0.997623",
+                "price_impact": "-0.07498388867492226%",
+                "price_impact_pct": -0.07498388867492226,
+                "is_safe": true,
+                "path": [
+                  "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+                  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+                ],
+                "fee": "0",
+                "fee_human": "0",
+                "warning": null,
+                "quote_ok": true
+              },
+              "status": "success"
+            }
+          },
+          {
+            "event_id": "ab73b419-3962-4592-96be-e1acb3b85c87",
+            "type": "tool_call",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 37,
+            "ts": "2026-02-13T14:21:55.890936Z",
+            "payload": {
+              "tool_calls": [
+                {
+                  "id": "auto_prepare_1",
+                  "type": "function",
+                  "function": {
+                    "name": "prepare_swap_transaction",
+                    "arguments": "{}"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "event_id": "9ef363f6-3347-4309-9501-5c62c0fa6427",
+            "type": "tool_result",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 38,
+            "ts": "2026-02-13T14:22:00.642420Z",
+            "payload": {
+              "tool_name": "prepare_swap_transaction",
+              "tool_call_id": "auto_prepare_1",
+              "result": {
+                "mode": "simulation_only",
+                "success": true,
+                "summary": "Swap prepared: 0.0005075 ETH → 0x833589fcd6edb6e08f4c7c32d4f71b54bda02913. Please reply \"confirm\" or \"execute\" to complete the trade.",
+                "requires_confirmation": true,
+                "swapDetails": {
+                  "tokenIn": "ETH",
+                  "tokenOut": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                  "amountIn": "0.0005075",
+                  "chainId": 8453,
+                  "slippage": 0.5
+                }
+              },
+              "status": "success"
+            }
+          },
+          {
+            "event_id": "210253de-3f14-4d62-990c-1c2931bb8043",
+            "type": "status",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 39,
+            "ts": "2026-02-13T14:22:00.649195Z",
+            "payload": {
+              "status": "done",
+              "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+              "taskId": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+              "taskType": "text"
+            }
+          },
+          {
+            "event_id": "8c446402-a9c6-4ce7-bfaf-ad377df1c6df",
+            "type": "message_complete",
+            "session_id": "e0b25401-2e3a-4269-bdb8-7cad08b67dbc",
+            "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+            "seq": 40,
+            "ts": "2026-02-13T14:22:00.649319Z",
+            "payload": {
+              "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0"
+            }
+          }
+        ],
+        "normalized_events": [
+          {
+            "type": "message_start",
+            "payload": {
+              "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+              "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b"
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "text",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "running",
+              "taskType": "text",
+              "iteration": 1,
+              "maxIterations": 10
+            }
+          },
+          {
+            "type": "message_start",
+            "payload": {
+              "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+              "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b",
+              "taskId": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b"
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 1
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 3
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 5
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 4
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 4
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 1
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 1
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 3
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 2
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 6
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 4
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 3
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 5
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 1
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 4
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 3
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 6
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 6
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 5
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 4
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 8
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 3
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 7
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 4
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 5
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 7
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 6
+            }
+          },
+          {
+            "type": "delta_text",
+            "payload": {
+              "len": 1
+            }
+          },
+          {
+            "type": "usage",
+            "payload": {
+              "has_usage": true
+            }
+          },
+          {
+            "type": "latency_metrics",
+            "payload": {
+              "end_to_end_ms": 7423,
+              "first_token_ms": 2858
+            }
+          },
+          {
+            "type": "tool_call",
+            "payload": {
+              "tools": [
+                "simulate_swap"
+              ]
+            }
+          },
+          {
+            "type": "tool_result",
+            "payload": {
+              "tool": "simulate_swap",
+              "status": "success",
+              "has_result": true
+            }
+          },
+          {
+            "type": "tool_call",
+            "payload": {
+              "tools": [
+                "prepare_swap_transaction"
+              ]
+            }
+          },
+          {
+            "type": "tool_result",
+            "payload": {
+              "tool": "prepare_swap_transaction",
+              "status": "success",
+              "has_result": true
+            }
+          },
+          {
+            "type": "status",
+            "payload": {
+              "status": "done",
+              "taskType": "text",
+              "iteration": null,
+              "maxIterations": null
+            }
+          },
+          {
+            "type": "message_complete",
+            "payload": {
+              "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0"
+            }
+          }
+        ],
+        "assistant_content": "I'll help you buy 1 USDC using ETH on Base. Let me first check your ETH balance to ensure you have enough funds.\n\nSwap prepared: 0.0005075 ETH → 0x833589fcd6edb6e08f4c7c32d4f71b54bda02913. Please reply \"confirm\" or \"execute\" to complete the trade.",
+        "assistant_reasoning": "",
+        "assistant_tool_trace": null,
+        "timed_out": false
+      },
+      "diff": {
+        "events": {
+          "same_length": false,
+          "len_a": 190,
+          "len_b": 40,
+          "first_mismatch": {
+            "index": 0,
+            "a": {
+              "type": "status",
+              "payload": {
+                "status": "running",
+                "taskType": "text",
+                "iteration": 1,
+                "maxIterations": 10
+              }
+            },
+            "b": {
+              "type": "message_start",
+              "payload": {
+                "message_id": "f4016a0a-6fc9-41d6-9a25-672dee9376c0",
+                "task_id": "2b0f6a68-bf79-47ab-be8d-c9f51025bb2b"
+              }
+            }
+          }
+        },
+        "assistant_content_equal_normalized": false,
+        "tool_sequence_equal": true,
+        "stop_reasons_equal": true,
+        "node_tools": [],
+        "python_tools": [],
+        "node_stop_reasons": [],
+        "python_stop_reasons": []
+      },
+      "pass": false
+    }
+  ]
+}

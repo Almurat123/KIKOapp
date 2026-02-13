@@ -26,8 +26,12 @@ class MessageSendRequest(BaseModel):
     toolConfig: dict[str, Any] | None = None
     allowanceMode: str | None = None
     nativeBalance: str | None = None
+    balance: dict[str, Any] | None = None
     currentPage: str | None = None
     pageContext: str | None = None
+    farcaster: dict[str, Any] | None = None
+    accessToken: str | None = None
+    appKey: str | None = None
     context: dict[str, Any] | None = None
 
 
@@ -80,6 +84,7 @@ class UnifiedEvent(BaseModel):
         "message_complete",
         "error",
         "latency_metrics",
+        "client_action",
     ]
     session_id: str
     message_id: str | None = None

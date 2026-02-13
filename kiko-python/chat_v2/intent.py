@@ -33,10 +33,11 @@ def _extract_contract_address(text: str) -> tuple[str | None, int | None]:
 
 
 def _detect_swap_slots(text: str) -> dict[str, Any]:
-    # Examples: "swap 100 usdc to eth", "buy pepe with 0.1 eth"
+    # Examples: "swap 100 usdc to eth", "buy pepe with 0.1 eth", "sell all usdc to eth"
     amount = None
     token_in = None
     token_out = None
+    amount_semantic = "input"
 
     m = re.search(
         r"\b(?:swap|trade|convert|exchange)\s+([\d.]+)\s+([a-zA-Z0-9._-]+)\s+(?:to|for)\s+([a-zA-Z0-9._-]+)\b",
@@ -47,6 +48,7 @@ def _detect_swap_slots(text: str) -> dict[str, Any]:
         amount = m.group(1)
         token_in = m.group(2)
         token_out = m.group(3)
+        amount_semantic = "input"
 
     if amount is None:
         buy = re.search(
@@ -58,11 +60,65 @@ def _detect_swap_slots(text: str) -> dict[str, Any]:
             token_out = buy.group(1)
             amount = buy.group(2)
             token_in = buy.group(3)
+            amount_semantic = "output"
+
+    # "buy 1 USDC use ETH" / "buy 1 usdc using eth"
+    if amount is None:
+        buy_use = re.search(
+            r"\b(?:buy)\s+([\d.]+)\s+([a-zA-Z0-9._-]+)\s+(?:use|using)\s+([a-zA-Z0-9._-]+)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if buy_use:
+            amount = buy_use.group(1)
+            token_out = buy_use.group(2)
+            token_in = buy_use.group(3)
+            amount_semantic = "output"
+
+    # "use ETH buy 1 USDC"
+    if amount is None:
+        use_buy = re.search(
+            r"\b(?:use|using)\s+([a-zA-Z0-9._-]+)\s+(?:to\s+)?buy\s+([\d.]+)\s+([a-zA-Z0-9._-]+)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if use_buy:
+            token_in = use_buy.group(1)
+            amount = use_buy.group(2)
+            token_out = use_buy.group(3)
+            amount_semantic = "output"
+
+    # "sell all USDC to ETH"
+    if amount is None:
+        sell_all = re.search(
+            r"\b(?:sell)\s+(all)\s+([a-zA-Z0-9._-]+)\s+(?:to|for)\s+([a-zA-Z0-9._-]+)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if sell_all:
+            amount = sell_all.group(1).lower()
+            token_in = sell_all.group(2)
+            token_out = sell_all.group(3)
+            amount_semantic = "input"
+
+    # "sell 10 USDC to ETH"
+    if amount is None:
+        sell_num = re.search(
+            r"\b(?:sell)\s+([\d.]+)\s+([a-zA-Z0-9._-]+)\s+(?:to|for)\s+([a-zA-Z0-9._-]+)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if sell_num:
+            amount = sell_num.group(1)
+            token_in = sell_num.group(2)
+            token_out = sell_num.group(3)
+            amount_semantic = "input"
 
     return {
         "token_in": token_in,
         "token_out": token_out,
         "amount": amount,
+        "amount_semantic": amount_semantic,
     }
 
 
@@ -144,6 +200,7 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentR
         "token_in": swap_slots.get("token_in"),
         "token_out": swap_slots.get("token_out"),
         "amount": swap_slots.get("amount"),
+        "amount_semantic": swap_slots.get("amount_semantic") or "input",
         "chain_id": chain_id,
         "token_address": contract_address,
         "query": text,
@@ -168,6 +225,7 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentR
         "tokenIn": swap_slots.get("token_in"),
         "tokenOut": swap_slots.get("token_out"),
         "amount": swap_slots.get("amount"),
+        "amountSemantic": swap_slots.get("amount_semantic") or "input",
     }
 
     return IntentResult(

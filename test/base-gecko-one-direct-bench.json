@@ -1,0 +1,69 @@
+{
+  "startedAt": "2026-02-13T13:46:13.767Z",
+  "finishedAt": "2026-02-13T13:46:20.719Z",
+  "inputPath": "/Users/almurat/KiKo/test/base-gecko-one-direct.json",
+  "outputPath": "/Users/almurat/KiKo/test/base-gecko-one-direct-bench.json",
+  "config": {
+    "chainId": 8453,
+    "maxTx": 1,
+    "concurrency": 1,
+    "slippageBps": 1500,
+    "simulationMode": "true"
+  },
+  "elapsedMs": 6951,
+  "summary": {
+    "total": 1,
+    "attempted": 1,
+    "success": 1,
+    "failed": 0,
+    "successRatePct": 100,
+    "statusBreakdown": {
+      "ok": 1,
+      "missing": 0,
+      "not_swap": 0,
+      "not_native_buy": 0,
+      "direct_failed": 0
+    },
+    "latencyMs": {
+      "all": {
+        "avg": 6951,
+        "p50": 6951,
+        "p95": 6951
+      },
+      "direct": {
+        "avg": 5719,
+        "p50": 5719,
+        "p95": 5719
+      },
+      "direct_success": {
+        "avg": 5719,
+        "p50": 5719,
+        "p95": 5719
+      }
+    },
+    "providerBreakdown": [
+      {
+        "provider": "uniswap-v4",
+        "count": 1
+      }
+    ],
+    "failReasons": [],
+    "failDomains": []
+  },
+  "rows": [
+    {
+      "txHash": "0x76c9159d98c549c8011de3a8744bd949ebd1af6a155099a0a5e24cad1baaa0d5",
+      "bucket": "new",
+      "status": "ok",
+      "directAttempted": true,
+      "directSuccess": true,
+      "provider": "uniswap-v4",
+      "error": "",
+      "failureDomain": "unknown",
+      "fetchMs": 1215,
+      "parseMs": 17,
+      "directMs": 5719,
+      "totalMs": 6951
+    }
+  ]
+}

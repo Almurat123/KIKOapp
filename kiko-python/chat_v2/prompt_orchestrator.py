@@ -133,7 +133,7 @@ class SkillPromptRegistry:
             if routing_mode == "thinking" and skill_id not in THINKING_SKILL_ID_ALLOWLIST:
                 continue
             intents = [str(x).upper() for x in (meta.get("intents") or [])]
-            if routing_mode == "thinking" or intent_upper in intents:
+            if intent_upper in intents:
                 out.append(skill.get("prompt") or "")
         return [x for x in out if x]
 
@@ -147,7 +147,7 @@ class SkillPromptRegistry:
             if routing_mode == "thinking" and skill_id not in THINKING_SKILL_ID_ALLOWLIST:
                 continue
             intents = [str(x).upper() for x in (meta.get("intents") or [])]
-            if routing_mode == "thinking" or intent_upper in intents:
+            if intent_upper in intents:
                 for name in meta.get("tools") or []:
                     if isinstance(name, str) and name.strip():
                         names.add(name.strip())
@@ -194,6 +194,8 @@ class PromptOrchestrator:
             parts.append(f"- Wallet: {'Connected' if ctx.get('isWalletConnected') else 'Not connected'}")
         if ctx.get("userAddress"):
             parts.append(f"- EVM Address: {ctx['userAddress']}")
+        if ctx.get("isWalletConnected") and ctx.get("userAddress"):
+            parts.append("- Wallet address is already known from app context. Do NOT ask user to provide wallet address again.")
         if ctx.get("chainId") and ctx.get("chainName"):
             parts.append(f"- Chain: {ctx['chainName']} ({ctx['chainId']})")
         if ctx.get("nativeBalance"):

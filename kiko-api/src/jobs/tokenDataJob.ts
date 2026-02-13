@@ -29,6 +29,7 @@ import { ethers } from 'ethers';
 import { getChainConfig } from '../config/chainConfig.js';
 import { getRpcEndpointsWithStrategy } from '../config/apiEndpoints.js';
 import { getNativeTokenPriceUsd } from '../services/onChainPriceService.js';
+import { computeLaunchpadMultiple } from '../services/launchpadMultipleService.js';
 import prisma from '../db/prisma.js';
 import { Prisma } from '@prisma/client';
 
@@ -103,31 +104,6 @@ const BASELINE_EXTERNAL_RETRY_TTL_SECONDS = Math.max(
   2 * 60,
   Number(process.env.BASELINE_EXTERNAL_RETRY_TTL_SECONDS || `${10 * 60}`)
 );
-const BASELINE_SWEEP_INTERVAL_SECONDS = Math.max(
-  20,
-  Number(process.env.BASELINE_SWEEP_INTERVAL_SECONDS || '45')
-);
-const BASELINE_SWEEP_MAX_PER_CHAIN = Math.max(
-  12,
-  Number(process.env.BASELINE_SWEEP_MAX_PER_CHAIN || '40')
-);
-const BASELINE_SWEEP_ENABLED = String(process.env.BASELINE_SWEEP_ENABLED || 'true').toLowerCase() !== 'false';
-const BASELINE_SWEEP_CHAINS = String(process.env.BASELINE_SWEEP_CHAINS || 'eth,base,bsc,solana')
-  .split(',')
-  .map((v) => v.trim().toLowerCase())
-  .filter(Boolean);
-const BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA = Math.max(
-  8,
-  Number(process.env.BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA || '20')
-);
-const BASELINE_SWEEP_MAX_CHAINS_PER_TICK = Math.max(
-  1,
-  Number(process.env.BASELINE_SWEEP_MAX_CHAINS_PER_TICK || '1')
-);
-const BASELINE_SWEEP_IDLE_BACKOFF_SECONDS = Math.max(
-  60,
-  Number(process.env.BASELINE_SWEEP_IDLE_BACKOFF_SECONDS || '300')
-);
 const GECKO_CANDLE_BACKOFF_MS = Math.max(
   5 * 60 * 1000,
   Number(process.env.GECKO_CANDLE_BACKOFF_MS || `${15 * 60 * 1000}`)
@@ -153,11 +129,55 @@ function detectBySuffix(chainId: string, address: string): string | null {
   return null;
 }
 
+function detectByMetadata(
+  chainId: string,
+  token: {
+    websites?: Array<{ url?: string; label?: string }>;
+    socials?: Array<{ type?: string; url?: string }>;
+    creatorUrl?: string;
+    creatorLabel?: string;
+    dexId?: string;
+    dex?: string;
+  }
+): string | null {
+  if (chainId !== 'base') return null;
+
+  const hints: string[] = [];
+  for (const w of token.websites || []) {
+    if (w?.url) hints.push(String(w.url).toLowerCase());
+    if (w?.label) hints.push(String(w.label).toLowerCase());
+  }
+  for (const s of token.socials || []) {
+    if (s?.type) hints.push(String(s.type).toLowerCase());
+    if (s?.url) hints.push(String(s.url).toLowerCase());
+  }
+  if (token.creatorUrl) hints.push(String(token.creatorUrl).toLowerCase());
+  if (token.creatorLabel) hints.push(String(token.creatorLabel).toLowerCase());
+  if (token.dexId) hints.push(String(token.dexId).toLowerCase());
+  if (token.dex) hints.push(String(token.dex).toLowerCase());
+
+  const merged = hints.join(' ');
+  if (!merged) return null;
+
+  // Doppler tokens usually expose doppler domains/labels in metadata.
+  if (
+    merged.includes('doppler.lol')
+    || merged.includes('doppler finance')
+    || merged.includes('dopplerfinance')
+    || merged.includes(' doppler ')
+  ) {
+    return 'doppler';
+  }
+
+  return null;
+}
+
 function normalizeLaunchpad(provider?: string | null): string | null {
   if (!provider) return null;
   if (provider === 'pumpfun') return 'pump.fun';
   if (provider === 'bonkfun') return 'bonk.fun';
   if (provider === 'fourmeme') return 'four.meme';
+  if (provider === 'doppler finance' || provider === 'dopplerfinance') return 'doppler';
   return provider;
 }
 
@@ -235,11 +255,7 @@ const TRUSTED_BASELINE_SOURCES = [
   'solana_public_rpc',
   'bsc_token_manager_purchase'
 ] as const;
-const pendingBaselineInFlight = new Map<string, Promise<{ queued: number; processed: number }>>();
 const multipleEnrichmentInFlight = new Map<string, Promise<void>>();
-let baselineSweepInProgress = false;
-let baselineSweepChainCursor = 0;
-const baselineSweepIdleBackoffUntilByChain = new Map<string, number>();
 
 const geckoCandleBackoffByChain = new Map<string, number>();
 let geckoNextCandleAtMs = 0;
@@ -1113,6 +1129,15 @@ async function fetchExternalBaselinePrice(
 
   if (lastFailure) throw lastFailure;
   return null;
+}
+
+export async function probeTokenBaselineViaRpc(
+  chainId: string,
+  token: { address?: string; launchpad?: string; poolAddress?: string; poolCreatedAt?: string }
+): Promise<ExternalBaselineResult | null> {
+  const normalizedChain = String(chainId || '').toLowerCase();
+  const geckoNetwork = normalizedChain === 'ethereum' ? 'eth' : normalizedChain;
+  return fetchExternalBaselinePrice(normalizedChain, geckoNetwork, token);
 }
 
 async function fetchExternalBaselinePriceForPool(
@@ -2765,480 +2790,6 @@ async function fetchSolanaRpcBaselineUsd(
   return Number.isFinite(chosen.price) && chosen.price > 0 ? chosen.price : null;
 }
 
-export async function processPendingBaselines(
-  chainId: string,
-  geckoNetwork: string,
-  maxRowsOverride?: number,
-  ignoreRetryAfter: boolean = false
-): Promise<{ queued: number; processed: number }> {
-  const existing = pendingBaselineInFlight.get(chainId);
-  if (existing) {
-    try {
-      await existing;
-    } catch {
-      // best-effort wait
-    }
-    return { queued: 0, processed: 0 };
-  }
-
-  const task = (async (): Promise<{ queued: number; processed: number }> => {
-    let processed = 0;
-    try {
-      const maxRows = Math.max(1, Number(maxRowsOverride || Number(process.env.PENDING_BASELINE_MAX_PER_RUN || '40')));
-      const trendingUniverse = await prisma.trendingToken.findMany({
-        where: { chain: chainId },
-        orderBy: [{ rank: 'asc' }],
-        take: Math.max(maxRows * 3, maxRows),
-        select: {
-          address: true,
-          launchpad: true,
-          poolCreatedAt: true,
-          price: true,
-        },
-      });
-      if (trendingUniverse.length === 0) return { queued: 0, processed: 0 };
-
-      const addressSet = new Set(trendingUniverse.map((r) => String(r.address || '').toLowerCase()).filter(Boolean));
-      if (addressSet.size === 0) return { queued: 0, processed: 0 };
-
-      const addressList = Array.from(addressSet);
-      const baselineRows = await prisma.tokenLaunchBaseline.findMany({
-        where: {
-          chain: chainId,
-          address: { in: addressList },
-        },
-        select: {
-          address: true,
-          baselinePrice: true,
-          baselineSource: true,
-          retryAfter: true,
-          lastCheckedAt: true,
-          firstSeenAt: true,
-        },
-      });
-      const baselineByAddress = new Map(
-        baselineRows.map((r) => [String(r.address || '').toLowerCase(), r])
-      );
-      const nowMs = Date.now();
-      const prioritized = trendingUniverse
-        .map((row, idx) => ({ row, idx }))
-        .filter(({ row }) => {
-          const key = String(row.address || '').toLowerCase();
-          const baseline = baselineByAddress.get(key);
-          if (!baseline) return true;
-          if (!ignoreRetryAfter && baseline.retryAfter && baseline.retryAfter.getTime() > nowMs) return false;
-          const source = String(baseline.baselineSource || '');
-          const baselinePrice = Number(baseline.baselinePrice || 0);
-          if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) return true;
-          return !TRUSTED_BASELINE_SOURCES.includes(source as (typeof TRUSTED_BASELINE_SOURCES)[number]);
-        })
-        .sort((a, b) => {
-          const aBase = baselineByAddress.get(String(a.row.address || '').toLowerCase());
-          const bBase = baselineByAddress.get(String(b.row.address || '').toLowerCase());
-          const aLast = aBase?.lastCheckedAt?.getTime() || 0;
-          const bLast = bBase?.lastCheckedAt?.getTime() || 0;
-          if (aLast !== bLast) return aLast - bLast;
-          const aFirst = aBase?.firstSeenAt?.getTime() || 0;
-          const bFirst = bBase?.firstSeenAt?.getTime() || 0;
-          if (aFirst !== bFirst) return aFirst - bFirst;
-          return a.idx - b.idx;
-        })
-        .slice(0, maxRows)
-        .map((x) => x.row);
-
-      if (prioritized.length === 0) return { queued: 0, processed: 0 };
-      await ensureBaselineTrackingRows(chainId, prioritized.map((p) => ({ address: p.address })));
-
-      const tokenMap = new Map<string, {
-        address: string;
-        launchpad?: string;
-        poolAddress?: string;
-        poolCreatedAt?: string;
-        price?: number;
-        launchMultiple?: number;
-        creatorAddress?: string;
-        creatorUrl?: string;
-        creatorLabel?: string;
-      }>();
-      for (const row of prioritized) {
-        tokenMap.set(String(row.address).toLowerCase(), {
-          address: row.address,
-          launchpad: (row as any).launchpad || undefined,
-          poolCreatedAt: row.poolCreatedAt ? row.poolCreatedAt.toISOString() : undefined,
-          price: Number.isFinite(Number(row.price || 0)) ? Number(row.price || 0) : undefined,
-        });
-      }
-
-      const dexPoolLookupLimiter = pLimit(Math.max(1, Number(process.env.PENDING_BASELINE_DEX_LOOKUP_CONCURRENCY || '2')));
-      const withPools = await Promise.all(
-        Array.from(tokenMap.values()).map(async (t) => {
-          try {
-            const initialRaw = await getRedisCache(initialPoolCacheKey(chainId, t.address));
-            if (initialRaw) {
-              const parsed = JSON.parse(initialRaw) as {
-                initialPoolAddress?: string;
-                initialPoolCreatedAt?: string;
-              };
-              if (!t.poolAddress && typeof parsed?.initialPoolAddress === 'string' && parsed.initialPoolAddress.trim()) {
-                t.poolAddress = parsed.initialPoolAddress.trim();
-              }
-              if (!t.poolCreatedAt && typeof parsed?.initialPoolCreatedAt === 'string' && parsed.initialPoolCreatedAt.trim()) {
-                t.poolCreatedAt = parsed.initialPoolCreatedAt.trim();
-              }
-            }
-          } catch {
-            // best effort
-          }
-
-          if (!t.poolAddress) {
-            await dexPoolLookupLimiter(async () => {
-              try {
-                const details = await getDexTokenDetails(chainId, t.address);
-                if (details?.poolAddress) t.poolAddress = details.poolAddress;
-                if (!t.poolCreatedAt && details?.pairCreatedAt && Number.isFinite(Number(details.pairCreatedAt))) {
-                  t.poolCreatedAt = new Date(Number(details.pairCreatedAt)).toISOString();
-                }
-              } catch {
-                // best effort
-              }
-            });
-          }
-          return t;
-        })
-      );
-
-      const baselineOut = await runWithTimeout(
-        applyBaselineMultiples(chainId, geckoNetwork, withPools),
-        Math.max(LAUNCH_MULTIPLE_ENRICH_TIMEOUT_MS, 120_000),
-        `Pending baseline apply for ${chainId}`
-      );
-      if (baselineOut === null) {
-        return { queued: prioritized.length, processed: 0 };
-      }
-      processed = withPools.length;
-      return { queued: prioritized.length, processed };
-    } catch (error) {
-      logger.warn(LogCode.API_FETCH_FAILED, `Pending baseline processor failed for ${chainId}`, {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      // non-blocking pending processor
-      return { queued: 0, processed };
-    }
-  })().finally(() => {
-    pendingBaselineInFlight.delete(chainId);
-  });
-
-  pendingBaselineInFlight.set(chainId, task);
-  return task;
-}
-
-async function applyBaselineMultiples(
-  chainId: string,
-  geckoNetwork: string,
-  tokens: Array<{
-    address: string;
-    launchpad?: string;
-    poolAddress?: string;
-    poolCreatedAt?: string;
-    price?: number;
-    priceChange1h?: number;
-    priceChange6h?: number;
-    priceChange24h?: number;
-    launchMultiple?: number;
-    creatorAddress?: string;
-    creatorUrl?: string;
-    creatorLabel?: string;
-  }>
-): Promise<void> {
-  const baselineSnapshot = new Map<string, TokenBaselineMeta>();
-  try {
-    const addresses = buildAddressVariants(tokens.map((t) => String(t.address || '')));
-    if (addresses.length > 0) {
-      const rows = await prisma.tokenLaunchBaseline.findMany({
-        where: {
-          chain: chainId,
-          address: { in: addresses },
-          baselinePrice: { not: null },
-        },
-        select: {
-          address: true,
-          baselinePrice: true,
-          baselineSource: true,
-          firstSeenAt: true,
-        },
-      });
-      for (const row of rows) {
-        const baselinePrice = Number(row?.baselinePrice || 0);
-        const firstSeenAt = row?.firstSeenAt ? row.firstSeenAt.getTime() : 0;
-        const baselineSource = typeof row?.baselineSource === 'string' ? row.baselineSource : undefined;
-        if (!Number.isFinite(baselinePrice) || baselinePrice <= 0 || !Number.isFinite(firstSeenAt) || firstSeenAt <= 0) continue;
-        baselineSnapshot.set(row.address.toLowerCase(), {
-          baselinePrice,
-          firstSeenAt,
-          baselineSource,
-        });
-      }
-    }
-  } catch {
-    // best-effort snapshot only
-  }
-
-  const getBaseline = async (address: string): Promise<TokenBaselineMeta | null> => {
-    const key = address.toLowerCase();
-    const fromSnap = baselineSnapshot.get(key);
-    if (fromSnap) return fromSnap;
-    const fromCache = await readTokenBaselineCache(chainId, key);
-    if (fromCache) {
-      baselineSnapshot.set(key, fromCache);
-      // Self-heal path: old deployments may have baseline in Redis but missing DB row.
-      if (
-        isTrustedBaselineSource(fromCache.baselineSource) &&
-        isDisplayTrustedBaselineSource(fromCache.baselineSource) &&
-        Number.isFinite(fromCache.baselinePrice) &&
-        fromCache.baselinePrice > 0
-      ) {
-        await writeTokenBaselineCache(chainId, key, fromCache.baselinePrice, fromCache.baselineSource || 'rpc_native_first_swap').catch(() => undefined);
-      }
-    }
-    return fromCache;
-  };
-
-  const setBaseline = async (
-    address: string,
-    price: number,
-    source: string,
-    meta?: { blockNumber?: number; txHash?: string; poolAddress?: string; nativeUsd?: number; quotedAt?: Date }
-  ): Promise<void> => {
-    await writeTokenBaselineCache(chainId, address, price, source, meta);
-    const refreshed = await readTokenBaselineCache(chainId, address);
-    if (refreshed) baselineSnapshot.set(address.toLowerCase(), refreshed);
-  };
-
-  // 1) Existing baseline -> direct multiple
-  await Promise.all(tokens.map(async (token) => {
-    try {
-      const current = Number(token.price || 0);
-      if (!Number.isFinite(current) || current <= 0) return;
-
-      const baseline = await getBaseline(token.address);
-      if (!baseline || !isTrustedBaselineSource(baseline.baselineSource)) return;
-      if (!isDisplayTrustedBaselineSource(baseline.baselineSource)) return;
-
-      const multipleRaw = current / baseline.baselinePrice;
-      if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return;
-      const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: baseline.baselineSource, address: token.address });
-      if (multiple === null) return;
-      token.launchMultiple = multiple;
-      await writeTokenMetaCache(chainId, token.address, {
-        creatorAddress: token.creatorAddress,
-        creatorUrl: token.creatorUrl,
-        creatorLabel: token.creatorLabel,
-        launchMultiple: multiple
-      });
-    } catch {
-      // best-effort only
-    }
-  }));
-
-  // 2) Missing/provisional baseline -> attempt external initial price (budgeted).
-  //    We treat first_seen_fallback as provisional and keep trying to upgrade it.
-  const externalCandidates = (await Promise.all(tokens.map(async (t) => {
-    const current = Number(t.price || 0);
-    if (!Number.isFinite(current) || current <= 0) return null;
-    const baseline = await getBaseline(t.address);
-    if (!baseline || !isTrustedBaselineSource(baseline.baselineSource)) {
-      return { token: t, baselineSource: undefined as string | undefined, forceRevalidate: false };
-    }
-    if (!isDisplayTrustedBaselineSource(baseline.baselineSource)) {
-      return { token: t, baselineSource: baseline.baselineSource, forceRevalidate: false };
-    }
-
-    const source = String(baseline.baselineSource || '');
-    const raw = current / baseline.baselinePrice;
-    const createdMs = t.poolCreatedAt ? Date.parse(t.poolCreatedAt) : NaN;
-    const ageDays = Number.isFinite(createdMs) && createdMs > 0
-      ? Math.max(0, (Date.now() - createdMs) / (1000 * 60 * 60 * 24))
-      : NaN;
-    const launchpadKnown = typeof t.launchpad === 'string' && t.launchpad.trim().length > 0;
-    const isDisplaySource = isDisplayTrustedBaselineSource(source);
-    const tooLowLikelyWrong = Number.isFinite(raw) && raw > 0 && raw <= 0.85 && (
-      launchpadKnown || !Number.isFinite(ageDays) || ageDays <= 45
-    );
-    const tooHighLikelyWrong = Number.isFinite(raw) && raw >= 20_000;
-    const geckoLikelyWrong = source === 'gecko_launch_window' && Number.isFinite(raw) && raw > 0 && raw <= 0.7;
-    const shouldForceRevalidateTrusted = isDisplaySource && (tooLowLikelyWrong || tooHighLikelyWrong || geckoLikelyWrong);
-    if (shouldForceRevalidateTrusted) {
-      return { token: t, baselineSource: baseline.baselineSource, forceRevalidate: true };
-    }
-    return null;
-  }))).filter(Boolean) as Array<{ token: typeof tokens[number]; baselineSource?: string; forceRevalidate?: boolean }>;
-
-  if (externalCandidates.length === 0) return;
-
-  const targets = pickVerifyTargets(externalCandidates, BASELINE_EXTERNAL_FETCH_BUDGET_PER_RUN);
-  const externalConcurrency = chainId === 'solana'
-    ? Math.max(1, Number(process.env.BASELINE_EXTERNAL_CONCURRENCY_SOL || '2'))
-    : Math.max(4, Number(process.env.BASELINE_EXTERNAL_CONCURRENCY || '8'));
-  const limiter = pLimit(externalConcurrency);
-  await Promise.all(targets.map((candidate) => limiter(async () => {
-      const token = candidate.token;
-      try {
-        const hasCooldown = await readBaselineRetryCooldown(chainId, token.address);
-        const forceRevalidate = !!candidate.forceRevalidate;
-        // Recheck cache in case another worker already wrote baseline.
-        const cachedBaseline = await getBaseline(token.address);
-        const hasDisplayTrustedCachedBaseline = !!(
-          cachedBaseline &&
-          isTrustedBaselineSource(cachedBaseline.baselineSource) &&
-          isDisplayTrustedBaselineSource(cachedBaseline.baselineSource) &&
-          Number.isFinite(cachedBaseline.baselinePrice) &&
-          cachedBaseline.baselinePrice > 0
-        );
-        // Keep retrying when baseline is missing. Cooldown should only throttle
-        // expensive retries after we already have a trusted visible baseline.
-        if (hasCooldown && !forceRevalidate && hasDisplayTrustedCachedBaseline) return;
-
-      if (
-        cachedBaseline &&
-        isTrustedBaselineSource(cachedBaseline.baselineSource) &&
-        isDisplayTrustedBaselineSource(cachedBaseline.baselineSource) &&
-        Number.isFinite(cachedBaseline.baselinePrice) &&
-        cachedBaseline.baselinePrice > 0 &&
-        !forceRevalidate
-      ) {
-        const current = Number(token.price || 0);
-        if (!Number.isFinite(current) || current <= 0) return;
-        const multipleRaw = current / cachedBaseline.baselinePrice;
-        if (!Number.isFinite(multipleRaw) || multipleRaw <= 0) return;
-        const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: cachedBaseline.baselineSource, address: token.address });
-        if (multiple === null) return;
-        token.launchMultiple = multiple;
-        await writeTokenMetaCache(chainId, token.address, {
-          creatorAddress: token.creatorAddress,
-          creatorUrl: token.creatorUrl,
-          creatorLabel: token.creatorLabel,
-          launchMultiple: multiple
-        });
-        return;
-      }
-
-      const externalTimeoutMs = Math.max(
-        3000,
-        Number(process.env.BASELINE_EXTERNAL_PER_TOKEN_TIMEOUT_MS || '10000')
-      );
-      let externalHintReason: BaselineFetchFailureReason | null = null;
-      let externalHintCooldown: number | null = null;
-      const externalBaseline = await Promise.race<ExternalBaselineResult | null>([
-        fetchExternalBaselinePrice(chainId, geckoNetwork, token).catch((error) => {
-          if (error instanceof BaselineFetchFailure) {
-            externalHintReason = error.reason;
-            externalHintCooldown = error.cooldownSeconds;
-            return null;
-          }
-          throw error;
-        }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), externalTimeoutMs)),
-      ]);
-      const current = Number(token.price || 0);
-
-      if (externalBaseline && Number.isFinite(externalBaseline.price) && externalBaseline.price > 0) {
-        const tentativeMultiple = Number.isFinite(current) && current > 0 ? (current / externalBaseline.price) : NaN;
-        if (
-          chainId === 'solana' &&
-          externalBaseline.source === 'solana_public_rpc' &&
-          Number.isFinite(tentativeMultiple) &&
-          tentativeMultiple > 0 &&
-          token.poolCreatedAt
-        ) {
-          const createdMs = Date.parse(token.poolCreatedAt);
-          const ageHours = Number.isFinite(createdMs) ? Math.max(0, (Date.now() - createdMs) / (1000 * 60 * 60)) : NaN;
-          const allowedMax = Number.isFinite(ageHours)
-            ? (ageHours <= 1 ? 30 : ageHours <= 6 ? 80 : ageHours <= 24 ? 250 : 2000)
-            : 2000;
-          if (tentativeMultiple > allowedMax) {
-            // Ignore suspicious early outlier baseline (usually dust-sized first swap).
-            await writeBaselineRetryCooldown(chainId, token.address);
-            return;
-          }
-        }
-        const externalSource = externalBaseline.source || 'rpc_native_first_swap';
-        await setBaseline(token.address, externalBaseline.price, externalSource, {
-          blockNumber: externalBaseline.blockNumber,
-          txHash: externalBaseline.txHash,
-          poolAddress: externalBaseline.poolAddress || token.poolAddress,
-          nativeUsd: externalBaseline.nativeUsd,
-          quotedAt: externalBaseline.quotedAt,
-        });
-        if (isDisplayTrustedBaselineSource(externalSource) && Number.isFinite(current) && current > 0) {
-          const multipleRaw = current / externalBaseline.price;
-          if (Number.isFinite(multipleRaw) && multipleRaw > 0) {
-            const multiple = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: externalSource, address: token.address });
-            if (multiple !== null) {
-              token.launchMultiple = multiple;
-              await writeTokenMetaCache(chainId, token.address, {
-                creatorAddress: token.creatorAddress,
-                creatorUrl: token.creatorUrl,
-                creatorLabel: token.creatorLabel,
-                launchMultiple: multiple
-              });
-            }
-          }
-        }
-        return;
-      }
-
-      // External baseline unavailable now: set cooldown to avoid hammering.
-      await writeBaselineAttemptError(
-        chainId,
-        token.address,
-        externalHintReason
-          ? `${externalHintReason} pool=${token.poolAddress || 'n/a'} created=${token.poolCreatedAt || 'n/a'}`
-          : `baseline_not_found pool=${token.poolAddress || 'n/a'} created=${token.poolCreatedAt || 'n/a'}`,
-        token.poolAddress
-      );
-      await writeBaselineRetryCooldown(
-        chainId,
-        token.address,
-        externalHintCooldown ?? BASELINE_EXTERNAL_RETRY_TTL_SECONDS
-      );
-
-      // Keep displaying a stable value even when external enrichment is unavailable.
-      if (
-        cachedBaseline &&
-        isTrustedBaselineSource(cachedBaseline.baselineSource) &&
-        isDisplayTrustedBaselineSource(cachedBaseline.baselineSource) &&
-        Number.isFinite(cachedBaseline.baselinePrice) &&
-        cachedBaseline.baselinePrice > 0
-      ) {
-        const currentFallback = Number(token.price || 0);
-        if (Number.isFinite(currentFallback) && currentFallback > 0) {
-          const multipleRaw = currentFallback / cachedBaseline.baselinePrice;
-          if (Number.isFinite(multipleRaw) && multipleRaw > 0) {
-            const sanitized = sanitizeMultiple(multipleRaw, token.poolCreatedAt, { chainId, source: cachedBaseline.baselineSource, address: token.address });
-            if (sanitized !== null) {
-              token.launchMultiple = sanitized;
-              await writeTokenMetaCache(chainId, token.address, {
-                creatorAddress: token.creatorAddress,
-                creatorUrl: token.creatorUrl,
-                creatorLabel: token.creatorLabel,
-                launchMultiple: token.launchMultiple
-              });
-            }
-          }
-        }
-      }
-    } catch (error) {
-      await writeBaselineAttemptError(
-        chainId,
-        token.address,
-        `baseline_fetch_error ${(error instanceof Error ? error.message : String(error)).slice(0, 250)}`,
-        token.poolAddress
-      );
-      // best-effort only
-    }
-  })));
-}
-
 function pickCreatorAddress(detected: any): string | undefined {
   const root = detected?.data || {};
   const nested = (root && typeof root === 'object' && (root as any).data && typeof (root as any).data === 'object')
@@ -3518,8 +3069,20 @@ async function enrichLaunchpadsForTrending(
   }));
 
   // Step 1: deterministic suffix detection
-  for (const token of tokens) {
-    token.launchpad = detectBySuffix(chainId, token.address) || undefined;
+  for (const token of tokens as Array<{
+    address: string;
+    launchpad?: string;
+    websites?: Array<{ url?: string; label?: string }>;
+    socials?: Array<{ type?: string; url?: string }>;
+    creatorUrl?: string;
+    creatorLabel?: string;
+    dexId?: string;
+    dex?: string;
+  }>) {
+    token.launchpad =
+      detectBySuffix(chainId, token.address)
+      || detectByMetadata(chainId, token)
+      || undefined;
   }
   const deterministic = tokens.filter((t) => !!t.launchpad);
   if (deterministic.length > 0) {
@@ -3705,12 +3268,25 @@ async function enrichLaunchpadsForTrending(
 
 async function enrichLaunchMultiplesForTrending(
   chainId: string,
-  geckoNetwork: string,
+  _geckoNetwork: string,
   tokens: Array<{ address: string; launchpad?: string; poolAddress?: string; poolCreatedAt?: string; price?: number; launchMultiple?: number; creatorAddress?: string; creatorUrl?: string; creatorLabel?: string }>
 ): Promise<void> {
   if (!LAUNCH_MULTIPLE_ENRICH_ENABLED) return;
   if (!Array.isArray(tokens) || tokens.length === 0) return;
-  await applyBaselineMultiples(chainId, geckoNetwork, tokens);
+  await Promise.all(tokens.map(async (token) => {
+    const multiple = computeLaunchpadMultiple(chainId, token.launchpad, token.price);
+    if (!multiple) {
+      delete token.launchMultiple;
+      return;
+    }
+    token.launchMultiple = multiple;
+    await writeTokenMetaCache(chainId, token.address, {
+      creatorAddress: token.creatorAddress,
+      creatorUrl: token.creatorUrl,
+      creatorLabel: token.creatorLabel,
+      launchMultiple: multiple
+    });
+  }));
 }
 
 const onDemandMultipleInFlight = new Map<string, Promise<void>>();
@@ -3729,9 +3305,8 @@ export async function enrichLaunchMultiplesOnDemand(
     return;
   }
 
-  const geckoNetwork = chainId === 'ethereum' ? 'eth' : chainId;
   const task = (async () => {
-    await applyBaselineMultiples(chainId, geckoNetwork, tokens);
+    await enrichLaunchMultiplesForTrending(chainId, chainId, tokens);
   })().finally(() => {
     onDemandMultipleInFlight.delete(key);
   });
@@ -3877,8 +3452,21 @@ async function refreshChainTokens(chain: typeof SUPPORTED_CHAINS[0], force = fal
       return;
     }
     // Fast deterministic hinting before DB write (cheap, no external calls).
-    for (const token of tokens as Array<{ address: string; launchpad?: string }>) {
-      if (!token.launchpad) token.launchpad = detectBySuffix(chain.id, token.address) || undefined;
+    for (const token of tokens as Array<{
+      address: string;
+      launchpad?: string;
+      websites?: Array<{ url?: string; label?: string }>;
+      socials?: Array<{ type?: string; url?: string }>;
+      creatorUrl?: string;
+      creatorLabel?: string;
+      dexId?: string;
+      dex?: string;
+    }>) {
+      if (token.launchpad) continue;
+      token.launchpad =
+        detectBySuffix(chain.id, token.address)
+        || detectByMetadata(chain.id, token)
+        || undefined;
     }
 
     // Capture initial pool snapshot once per token (address/time/liquidity-at-first-seen).
@@ -4068,66 +3656,6 @@ export function getSupportedChains(): string[] {
   return SUPPORTED_CHAINS.map(c => c.id);
 }
 
-async function runBaselineSweepTick(): Promise<void> {
-  if (!BASELINE_SWEEP_ENABLED) return;
-  if (baselineSweepInProgress) return;
-  baselineSweepInProgress = true;
-
-  try {
-    const allTargets = BASELINE_SWEEP_CHAINS
-      .map((id) => SUPPORTED_CHAINS.find((c) => c.id === id))
-      .filter(Boolean) as Array<{ id: string; name: string; geckoNetwork: string }>;
-    if (allTargets.length === 0) return;
-
-    const now = Date.now();
-    const targets: Array<{ id: string; name: string; geckoNetwork: string }> = [];
-    let scanned = 0;
-    while (targets.length < BASELINE_SWEEP_MAX_CHAINS_PER_TICK && scanned < allTargets.length) {
-      const idx = (baselineSweepChainCursor + scanned) % allTargets.length;
-      const chain = allTargets[idx];
-      const backoffUntil = baselineSweepIdleBackoffUntilByChain.get(chain.id) || 0;
-      if (backoffUntil <= now) {
-        targets.push(chain);
-      }
-      scanned += 1;
-    }
-    baselineSweepChainCursor = (baselineSweepChainCursor + Math.max(1, scanned)) % allTargets.length;
-    if (targets.length === 0) return;
-
-    for (const chain of targets) {
-      try {
-        const maxRows = chain.id === 'solana'
-          ? BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA
-          : BASELINE_SWEEP_MAX_PER_CHAIN;
-        const out = await processPendingBaselines(chain.id, chain.geckoNetwork, maxRows, false);
-        if ((out.queued || 0) === 0 && (out.processed || 0) === 0) {
-          baselineSweepIdleBackoffUntilByChain.set(
-            chain.id,
-            Date.now() + BASELINE_SWEEP_IDLE_BACKOFF_SECONDS * 1000
-          );
-        } else {
-          baselineSweepIdleBackoffUntilByChain.delete(chain.id);
-        }
-        logger.info(LogCode.SYS_INFO, 'Baseline sweep tick', {
-          chain: chain.id,
-          queued: out.queued,
-          processed: out.processed,
-          maxRows,
-          idleBackoffSec: (out.queued || 0) === 0 && (out.processed || 0) === 0
-            ? BASELINE_SWEEP_IDLE_BACKOFF_SECONDS
-            : 0,
-        });
-      } catch (error) {
-        logger.warn(LogCode.API_FETCH_FAILED, `Baseline sweep failed for ${chain.id}`, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  } finally {
-    baselineSweepInProgress = false;
-  }
-}
-
 /**
  * Initialize and start cron jobs
  */
@@ -4144,21 +3672,6 @@ export function startTokenDataJobs(): void {
 
   logger.info(LogCode.SYS_INFO, `Scheduled: Primary chains every ${PRIMARY_REFRESH_INTERVAL_MINUTES}min (${PRIMARY_CHAINS.map(c => c.name).join(', ')})`);
   logger.info(LogCode.SYS_INFO, `Scheduled: Secondary chains every ${SECONDARY_REFRESH_INTERVAL_HOURS}h (${SECONDARY_CHAINS.map(c => c.name).join(', ')})`);
-
-  if (BASELINE_SWEEP_ENABLED) {
-    setInterval(() => {
-      void runBaselineSweepTick();
-    }, BASELINE_SWEEP_INTERVAL_SECONDS * 1000);
-    setTimeout(() => {
-      void runBaselineSweepTick();
-    }, 15_000);
-    logger.info(LogCode.SYS_INFO, 'Scheduled: Baseline sweep queue', {
-      intervalSeconds: BASELINE_SWEEP_INTERVAL_SECONDS,
-      chains: BASELINE_SWEEP_CHAINS,
-      solanaMaxPerTick: BASELINE_SWEEP_MAX_PER_CHAIN_SOLANA,
-      defaultMaxPerTick: BASELINE_SWEEP_MAX_PER_CHAIN,
-    });
-  }
 
   // Run initial refresh on startup (with delay for services to be ready)
   setTimeout(() => {

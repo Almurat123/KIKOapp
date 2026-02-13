@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 import logging
 
-from fastapi import FastAPI, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -187,7 +187,7 @@ async def get_messages(session_id: str, after: int | None = None, claims=Depends
 
 
 @app.post("/v2/chat/sessions/{session_id}/messages", dependencies=[Depends(require_auth)])
-async def send_message(session_id: str, body: MessageSendRequest, claims=Depends(require_auth), db: AsyncSession = Depends(get_db)):
+async def send_message(session_id: str, body: MessageSendRequest, request: Request, claims=Depends(require_auth), db: AsyncSession = Depends(get_db)):
     global worker
     user_id = extract_user_id(claims)
     s = await repo.get_session(db, session_id, user_id)
@@ -198,19 +198,50 @@ async def send_message(session_id: str, body: MessageSendRequest, claims=Depends
     user_msg = await repo.create_message(db, session_id, "user", body.content, status="complete")
     assistant_msg = await repo.create_message(db, session_id, "assistant", "", status="streaming")
 
+    auth_header = request.headers.get("authorization", "")
+    bearer_access_token = ""
+    if isinstance(auth_header, str) and auth_header.lower().startswith("bearer "):
+        bearer_access_token = auth_header[7:]
+
+    merged_context = dict(body.context or {})
+    if body.balance and not merged_context.get("balance"):
+        merged_context["balance"] = body.balance
+    if body.walletAddress and not merged_context.get("walletAddress"):
+        merged_context["walletAddress"] = body.walletAddress
+    if body.chainId and not merged_context.get("chainId"):
+        merged_context["chainId"] = body.chainId
+
+    ctx_wallet = body.walletAddress or (merged_context.get("walletAddress") if isinstance(merged_context, dict) else None)
+    ctx_chain = body.chainId or (merged_context.get("chainId") if isinstance(merged_context, dict) else None)
+    ctx_native = body.nativeBalance or (merged_context.get("nativeBalance") if isinstance(merged_context, dict) else None)
+    ctx_balance = body.balance or (merged_context.get("balance") if isinstance(merged_context, dict) else None)
+
     tool_context = {
-        "walletAddress": body.walletAddress,
-        "chainId": body.chainId,
+        "walletAddress": ctx_wallet,
+        "chainId": ctx_chain,
         "toolConfig": body.toolConfig,
         "allowanceMode": body.allowanceMode,
-        "nativeBalance": body.nativeBalance,
+        "nativeBalance": ctx_native,
+        "balance": ctx_balance,
         "currentPage": body.currentPage,
         "pageContext": body.pageContext,
-        "context": body.context,
-        "farcaster": (body.context or {}).get("farcaster") if isinstance(body.context, dict) else None,
-        "balance": (body.context or {}).get("balance") if isinstance(body.context, dict) else None,
+        "context": merged_context,
+        "farcaster": body.farcaster or (merged_context.get("farcaster") if isinstance(merged_context, dict) else None),
+        "accessToken": body.accessToken or bearer_access_token,
+        "appKey": body.appKey,
         "userId": user_id,
+        "sessionId": session_id,
     }
+    logger.info(
+        "send_message context session_id=%s user_id=%s wallet=%s chain=%s nativeBalance=%s balance_keys=%s context_keys=%s",
+        session_id,
+        user_id,
+        ctx_wallet,
+        ctx_chain,
+        ctx_native,
+        list((ctx_balance or {}).keys())[:12] if isinstance(ctx_balance, dict) else [],
+        list((merged_context or {}).keys())[:20] if isinstance(merged_context, dict) else [],
+    )
     task = await repo.create_task(db, session_id, user_msg.id, assistant_msg.id, model=model, tool_context=tool_context)
     if worker:
         await worker.enqueue(task.id, user_id)

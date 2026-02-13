@@ -137,6 +137,16 @@ type StrategyKind = 'v4' | 'v3' | 'v2' | 'aerodrome' | 'infinity' | 'zora-sdk' |
 const V4_QUOTER_ADDRESSES: Record<number, string> = {
     8453: '0x0d5e0f971ed27fbff6c2837bf31316121532048d'
 };
+const DOPPLER_LENS_QUOTER_ADDRESSES: Record<number, string> = {
+    // DopplerLensQuoter (Base)
+    // [Ref]: https://docs.doppler.lol/resources/doppler-hooks
+    8453: '0x43d0d9fe0f888fca2721e8f2f22163029d7f5f6b'
+};
+const UNISWAP_V4_POOL_MANAGER_BY_CHAIN: Record<number, string> = {
+    // Uniswap V4 PoolManager
+    8453: '0x000000000004444c5dc75cb358380d2e3de08a90',
+    1: '0x000000000004444c5dc75cb358380d2e3de08a90'
+};
 
 const V4_SWAP_EVENT = ethers.id('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)');
 const V4_INIT_EVENT = ethers.id('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)');
@@ -1023,6 +1033,7 @@ export async function executeDirectSwap(params: {
                 forceV4 = preloadedV4Pools.some((p) => {
                     const family = resolveV4HookProfile(chainId, p.poolKey.hooks).family;
                     if (family === 'clanker') return true;
+                    if (family === 'doppler') return true;
                     if (p.poolKey.fee === V4_DYNAMIC_FEE_FLAG && (family === 'custom' || family === 'unknown')) return true;
                     return false;
                 });
@@ -2369,6 +2380,54 @@ function decodeV4QuoterRevert(data: string): bigint | null {
     }
 }
 
+async function callDopplerLensQuote(
+    poolKey: V4PoolKey,
+    zeroForOne: boolean,
+    amountInWei: bigint,
+    chainId: number,
+    hookData: string
+): Promise<bigint> {
+    const lens = DOPPLER_LENS_QUOTER_ADDRESSES[chainId];
+    const poolManager = UNISWAP_V4_POOL_MANAGER_BY_CHAIN[chainId];
+    if (!lens || !poolManager) return 0n;
+
+    const iface = new ethers.Interface([
+        'function quoteDopplerLensData(address poolManager,(address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,int256 amountSpecified,bytes hookData) external returns ((int128 amount0,int128 amount1) delta,uint160 sqrtPriceX96After)'
+    ]);
+
+    const data = iface.encodeFunctionData('quoteDopplerLensData', [
+        poolManager,
+        {
+            currency0: poolKey.currency0,
+            currency1: poolKey.currency1,
+            fee: poolKey.fee,
+            tickSpacing: poolKey.tickSpacing,
+            hooks: poolKey.hooks
+        },
+        zeroForOne,
+        amountInWei,
+        hookData
+    ]);
+
+    const response = await withTimeout(
+        callRpcRaw<any>(chainId, 'eth_call', [{ to: lens, data }, 'latest'], { strategy: 'fast', importance: 'critical' }),
+        V4_QUOTER_TIMEOUT_MS
+    ).catch(() => null);
+    if (!response?.result) return 0n;
+
+    try {
+        const decoded = iface.decodeFunctionResult('quoteDopplerLensData', response.result) as any;
+        const delta = decoded?.[0];
+        if (!delta) return 0n;
+        const amount0 = BigInt(delta.amount0?.toString?.() ?? delta[0]?.toString?.() ?? '0');
+        const amount1 = BigInt(delta.amount1?.toString?.() ?? delta[1]?.toString?.() ?? '0');
+        const out = zeroForOne ? (amount1 < 0n ? -amount1 : 0n) : (amount0 < 0n ? -amount0 : 0n);
+        return out > 0n ? out : 0n;
+    } catch {
+        return 0n;
+    }
+}
+
 async function callV4QuoterExactOut(
     poolKey: V4PoolKey,
     zeroForOne: boolean,
@@ -2425,6 +2484,19 @@ async function callV4QuoterExactOut(
         : [undefined];
 
     for (const hookData of hookDataCandidates) {
+        if (hookProfile.family === 'doppler') {
+            const dopplerOut = await callDopplerLensQuote(poolKey, zeroForOne, amountInWei, chainId, hookData);
+            if (dopplerOut > 0n) {
+                v4QuoterCache.set(cacheKey, { value: dopplerOut, timestamp: Date.now() });
+                await cacheSet(
+                    v4QuoterRedisKey(cacheKey),
+                    JSON.stringify({ value: dopplerOut.toString(), timestamp: Date.now() }),
+                    Math.max(1, Math.ceil(V4_QUOTER_CACHE_TTL_MS / 1000))
+                ).catch(() => { });
+                return dopplerOut;
+            }
+        }
+
         const data = iface.encodeFunctionData('quoteExactInputSingle', [
             {
                 currency0: poolKey.currency0,

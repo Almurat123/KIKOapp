@@ -13,6 +13,7 @@ import { fetchJson } from '../../config/unifiedApiService.js';
 import { getEthersProvider, getSolanaConnection } from '../rpcManager.js';
 import { get as getCache, set as setCache } from '../../cache/redis.js';
 import { ethers } from 'ethers';
+import { DOPPLER_HOOKS_BY_CHAIN } from '../dex/v4Hooks.js';
 
 const LAUNCHPAD_AUTH_PDA = 'WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh';
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
@@ -39,7 +40,7 @@ async function checkLaunchpadAuth(mintAddress: string): Promise<boolean> {
 }
 
 export interface LaunchpadResult {
-    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph';
+    provider: 'zora' | 'fourmeme' | 'flap' | 'pumpfun' | 'bonkfun' | 'virtuals' | 'clanker' | 'paragraph' | 'doppler';
     data: any;
     chainId: number;
 }
@@ -79,6 +80,14 @@ const PUMPFUN_FRONTEND_BASES = (process.env.PUMPFUN_FRONTEND_BASES
         'https://frontend-api-v2.pump.fun',
         'https://frontend-api.pump.fun',
     ]);
+const DOPPLER_INDEXER_BASES = (process.env.DOPPLER_INDEXER_BASES
+    ? process.env.DOPPLER_INDEXER_BASES.split(',').map((v) => v.trim()).filter(Boolean)
+    : [
+        'https://indexer.doppler.lol',
+        'https://testnet-indexer.doppler.lol',
+    ]);
+const DOPPLER_INDEXER_API_KEY = process.env.DOPPLER_INDEXER_API_KEY || process.env.DOPPLER_API_KEY || '';
+const DOPPLER_INDEXER_BEARER = process.env.DOPPLER_INDEXER_BEARER || process.env.DOPPLER_BEARER_TOKEN || '';
 const FLAP_CREATOR_ABI = [
     'function creator() view returns (address)',
     'function getCreator() view returns (address)',
@@ -86,6 +95,14 @@ const FLAP_CREATOR_ABI = [
     'function deployer() view returns (address)',
     'function dev() view returns (address)'
 ] as const;
+const UNISWAP_V4_POOL_MANAGER_BY_CHAIN: Record<number, string> = {
+    8453: '0x000000000004444c5dc75cb358380d2e3de08a90',
+    1: '0x000000000004444c5dc75cb358380d2e3de08a90'
+};
+const V4_INIT_EVENT = ethers.id('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)');
+const v4InitEventInterface = new ethers.Interface([
+    'event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)'
+]);
 const PROVIDER_BACKOFF_BASE_MS = Math.max(30_000, Number(process.env.LAUNCHPAD_PROVIDER_BACKOFF_BASE_MS || '120000'));
 const PROVIDER_BACKOFF_MAX_MS = Math.max(PROVIDER_BACKOFF_BASE_MS, Number(process.env.LAUNCHPAD_PROVIDER_BACKOFF_MAX_MS || '1800000'));
 const providerBackoffState = new Map<string, { until: number; strikes: number }>();
@@ -120,7 +137,22 @@ function isLaunchpadProvider(value: unknown): value is LaunchpadResult['provider
         || value === 'bonkfun'
         || value === 'virtuals'
         || value === 'clanker'
-        || value === 'paragraph';
+        || value === 'paragraph'
+        || value === 'doppler';
+}
+
+function buildDopplerHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+    if (DOPPLER_INDEXER_API_KEY) {
+        headers['x-api-key'] = DOPPLER_INDEXER_API_KEY;
+    }
+    if (DOPPLER_INDEXER_BEARER) {
+        headers['Authorization'] = `Bearer ${DOPPLER_INDEXER_BEARER}`;
+    }
+    return headers;
 }
 
 function hasCreatorInResult(result: LaunchpadResult | null | undefined): boolean {
@@ -268,6 +300,7 @@ function hasAnyRelevantBackoff(address: string, chainId?: number): boolean {
         if (isProviderBackoffActive('zora')
             || isProviderBackoffActive('virtuals')
             || isProviderBackoffActive('paragraph')
+            || isProviderBackoffActive('doppler')
             || isProviderBackoffActive('clanker')
             || isProviderBackoffActive('flap')) {
             return true;
@@ -534,6 +567,160 @@ async function getVirtualsToken(address: string, _mode: DetectMode = 'full'): Pr
             address,
             error: error?.message?.slice(0, 120)
         });
+        return null;
+    }
+}
+
+function collectObjectNodes(input: unknown, out: any[] = [], depth = 0): any[] {
+    if (!input || depth > 5) return out;
+    if (Array.isArray(input)) {
+        for (const item of input) collectObjectNodes(item, out, depth + 1);
+        return out;
+    }
+    if (typeof input === 'object') {
+        const obj = input as Record<string, unknown>;
+        out.push(obj);
+        for (const value of Object.values(obj)) {
+            if (value && typeof value === 'object') collectObjectNodes(value, out, depth + 1);
+        }
+    }
+    return out;
+}
+
+async function getDopplerToken(address: string, chainId?: number): Promise<any | null> {
+    try {
+        if (isProviderBackoffActive('doppler')) return null;
+        const lower = address.toLowerCase();
+        const cid = Number(chainId || 8453);
+        const headers = buildDopplerHeaders();
+        for (const base of DOPPLER_INDEXER_BASES) {
+            try {
+                const baseUrl = String(base || '').replace(/\/+$/, '');
+                const endpointCandidates = [
+                    `${baseUrl}/search/${encodeURIComponent(address)}?chain_ids=${encodeURIComponent(String(cid))}`,
+                    `${baseUrl}/search?query=${encodeURIComponent(address)}&chain_ids=${encodeURIComponent(String(cid))}`,
+                ];
+
+                let data: any = null;
+                for (const url of endpointCandidates) {
+                    try {
+                        data = await fetchJson({
+                            url,
+                            timeout: 8000,
+                            headers
+                        }) as any;
+                        if (data) break;
+                    } catch (e) {
+                        const msg = String((e as any)?.message || '').toLowerCase();
+                        if (isRateLimitedError(e) || msg.includes('fetch failed') || msg.includes('enotfound')) {
+                            markProviderRateLimited('doppler');
+                        }
+                        // Continue to next endpoint candidate under same host.
+                    }
+                }
+                if (!data) continue;
+
+                const nodes = collectObjectNodes(data);
+                const hit = nodes.find((row: any) => {
+                    const tokenAddress = normalizeEvmAddress(
+                        row?.token_address
+                        || row?.tokenAddress
+                        || row?.address
+                        || row?.coin_address
+                        || row?.coinAddress
+                    );
+                    if (!tokenAddress || tokenAddress !== lower) return false;
+                    const rowChain = Number(row?.chain_id ?? row?.chainId ?? row?.chain ?? 8453);
+                    return !Number.isFinite(rowChain) || rowChain === cid;
+                });
+
+                if (hit) {
+                    markProviderHealthy('doppler');
+                    return {
+                        ...hit,
+                        source: 'doppler_indexer',
+                        creatorAddress: hit?.creator_address || hit?.creatorAddress || hit?.deployer || undefined,
+                        creatorUrl: hit?.creator_url || hit?.creatorUrl || undefined,
+                        creatorLabel: hit?.creator_label || hit?.creatorLabel || undefined,
+                        imageUrl: hit?.image_url || hit?.image || undefined,
+                    };
+                }
+                markProviderHealthy('doppler');
+            } catch (e) {
+                const msg = String((e as any)?.message || '').toLowerCase();
+                if (isRateLimitedError(e) || msg.includes('fetch failed') || msg.includes('enotfound')) {
+                    markProviderRateLimited('doppler');
+                }
+            }
+        }
+        return null;
+    } catch (error: any) {
+        if (isRateLimitedError(error)) markProviderRateLimited('doppler');
+        logger.debug(LogCode.SYS_INFO, 'LaunchpadDetector: Doppler detection failed', {
+            address,
+            error: error?.message?.slice(0, 120)
+        });
+        return null;
+    }
+}
+
+async function getDopplerTokenByV4Hook(address: string, chainId?: number): Promise<any | null> {
+    try {
+        const cid = Number(chainId || 8453);
+        if (cid !== 8453) return null;
+        const poolManager = UNISWAP_V4_POOL_MANAGER_BY_CHAIN[cid];
+        if (!poolManager) return null;
+        const provider = getEthersProvider(cid);
+        const normalizedAddress = normalizeEvmAddress(address);
+        if (!normalizedAddress) return null;
+        const dopplerHooks = new Set((DOPPLER_HOOKS_BY_CHAIN[cid] || []).map((h) => h.toLowerCase()));
+        if (dopplerHooks.size === 0) return null;
+
+        const latest = await provider.getBlockNumber();
+        const window = Math.max(50_000, Number(process.env.DOPPLER_V4_SCAN_WINDOW || '120000'));
+        const maxScan = Math.max(window, Number(process.env.DOPPLER_V4_SCAN_MAX_BLOCKS || '600000'));
+        const topicAddress = ethers.zeroPadValue(normalizedAddress, 32).toLowerCase();
+        const minBlock = Math.max(0, latest - maxScan);
+
+        for (let toBlock = latest; toBlock >= minBlock; toBlock -= window) {
+            const fromBlock = Math.max(minBlock, toBlock - window + 1);
+            const [asCurrency0, asCurrency1] = await Promise.all([
+                provider.getLogs({
+                    address: poolManager,
+                    fromBlock,
+                    toBlock,
+                    topics: [V4_INIT_EVENT, null, topicAddress]
+                }),
+                provider.getLogs({
+                    address: poolManager,
+                    fromBlock,
+                    toBlock,
+                    topics: [V4_INIT_EVENT, null, null, topicAddress]
+                })
+            ]);
+
+            const logs = [...asCurrency0, ...asCurrency1];
+            if (logs.length === 0) continue;
+
+            for (const log of logs) {
+                try {
+                    const parsed = v4InitEventInterface.parseLog(log);
+                    const hook = String(parsed?.args?.hooks || '').toLowerCase();
+                    if (!hook || !dopplerHooks.has(hook)) continue;
+                    return {
+                        address: normalizedAddress,
+                        source: 'doppler_v4_hook_scan',
+                        hookAddress: hook,
+                        txHash: log.transactionHash,
+                        blockNumber: Number(log.blockNumber || 0),
+                    };
+                } catch {
+                    // Skip malformed/unknown logs
+                }
+            }
+        }
+        return null;
+    } catch {
         return null;
     }
 }
@@ -1199,7 +1386,31 @@ async function handleDetection(
             }
         }
 
-        // Priority 1.6: Virtuals official API (Base only)
+        // Priority 1.6: Doppler indexer (Base)
+        if (basePlatforms) {
+            try {
+                const dopplerResult = await getDopplerToken(address, 8453);
+                if (dopplerResult) {
+                    const result: LaunchpadResult = { provider: 'doppler', data: dopplerResult, chainId: 8453 };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // Doppler check failed
+            }
+            try {
+                const dopplerByHook = await getDopplerTokenByV4Hook(address, 8453);
+                if (dopplerByHook) {
+                    const result: LaunchpadResult = { provider: 'doppler', data: dopplerByHook, chainId: 8453 };
+                    DETECTION_CACHE.set(cacheKey, { result, expiry: Date.now() + CACHE_TTL });
+                    return result;
+                }
+            } catch {
+                // Doppler hook scan failed
+            }
+        }
+
+        // Priority 1.7: Virtuals official API (Base only)
         if (basePlatforms) {
             try {
                 const virtualsResult = await getVirtualsToken(address, options.mode || 'full');

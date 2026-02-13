@@ -2,6 +2,7 @@ import prisma, { withRetry } from '../db/prisma.js';
 import { memoryCache, CACHE_KEYS, CACHE_TTL } from '../cache/memoryCache.js';
 import { TokenSearchResult } from '../services/geckoTerminal.js';
 import { hasMeaningfulActivity } from '../services/trendingValidation.js';
+import { computeLaunchpadMultiple } from '../services/launchpadMultipleService.js';
 import { get as getRedisCache } from '../cache/redis.js';
 import { Prisma } from '@prisma/client';
 
@@ -199,6 +200,16 @@ let tokenLaunchpadProfileTableCache:
   | { checkedAt: number; exists: boolean }
   | null = null;
 
+function normalizeLaunchpadTag(value?: string | null): string | undefined {
+  const v = String(value || '').trim().toLowerCase();
+  if (!v) return undefined;
+  if (v === 'pumpfun') return 'pump.fun';
+  if (v === 'bonkfun') return 'bonk.fun';
+  if (v === 'fourmeme') return 'four.meme';
+  if (v === 'doppler finance' || v === 'dopplerfinance') return 'doppler';
+  return v;
+}
+
 async function hasTrendingLaunchpadColumn(): Promise<boolean> {
   const now = Date.now();
   if (trendingLaunchpadColumnCache && now - trendingLaunchpadColumnCache.checkedAt < 10 * 60 * 1000) {
@@ -363,7 +374,7 @@ export async function saveTokenLaunchpadProfile(
     await prisma.tokenLaunchpadProfile.upsert({
       where: { chain_address: { chain, address: lower } },
       update: {
-        launchpad: profile.launchpad || undefined,
+        launchpad: normalizeLaunchpadTag(profile.launchpad),
         creatorAddress: profile.creatorAddress || undefined,
         creatorUrl: profile.creatorUrl || undefined,
         creatorLabel: profile.creatorLabel || undefined,
@@ -375,7 +386,7 @@ export async function saveTokenLaunchpadProfile(
       create: {
         chain,
         address: lower,
-        launchpad: profile.launchpad || undefined,
+        launchpad: normalizeLaunchpadTag(profile.launchpad),
         creatorAddress: profile.creatorAddress || undefined,
         creatorUrl: profile.creatorUrl || undefined,
         creatorLabel: profile.creatorLabel || undefined,
@@ -466,7 +477,7 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
             poolCreatedAt: poolCreatedAt ? poolCreatedAt.toISOString() : undefined,
           };
           if (existingCreator) {
-            if (!merged.launchpad && existingCreator.launchpad) merged.launchpad = existingCreator.launchpad;
+            if (!merged.launchpad && existingCreator.launchpad) merged.launchpad = normalizeLaunchpadTag(existingCreator.launchpad);
             if (!merged.creatorAddress && existingCreator.creatorAddress) merged.creatorAddress = existingCreator.creatorAddress;
             if (!merged.creatorUrl && existingCreator.creatorUrl) merged.creatorUrl = existingCreator.creatorUrl;
             if (!merged.creatorLabel && existingCreator.creatorLabel) merged.creatorLabel = existingCreator.creatorLabel;
@@ -501,7 +512,7 @@ export async function saveTrendingTokens(chain: string, tokens: TokenSearchResul
               rank: index + 1,
             };
             if (canWriteLaunchpad) {
-              baseData.launchpad = (token as any).launchpad || null;
+              baseData.launchpad = normalizeLaunchpadTag((token as any).launchpad) || null;
             }
             if (canWriteCreator) {
               baseData.creatorAddress = (token as any).creatorAddress || null;
@@ -608,7 +619,7 @@ export async function getTrendingTokens(
       volume24h: toOptionalNumber(row.volume24h),
       liquidity: toOptionalNumber(row.liquidity),
       fdv: toOptionalNumber(row.fdv),
-      launchpad: (row as any).launchpad || undefined,
+      launchpad: normalizeLaunchpadTag((row as any).launchpad),
       creatorAddress: (row as any).creatorAddress || undefined,
       creatorUrl: (row as any).creatorUrl || undefined,
       creatorLabel: (row as any).creatorLabel || undefined,
@@ -634,7 +645,7 @@ export async function getTrendingTokens(
         for (const token of tokens) {
           const profile = byAddress.get(token.address.toLowerCase());
           if (!profile) continue;
-          if (!token.launchpad && profile.launchpad) token.launchpad = profile.launchpad;
+          if (!token.launchpad && profile.launchpad) token.launchpad = normalizeLaunchpadTag(profile.launchpad);
           if (!token.creatorAddress && profile.creatorAddress) token.creatorAddress = profile.creatorAddress;
           if (!(token as any).creatorUrl && profile.creatorUrl) (token as any).creatorUrl = profile.creatorUrl;
           if (!(token as any).creatorLabel && profile.creatorLabel) (token as any).creatorLabel = profile.creatorLabel;
@@ -644,7 +655,15 @@ export async function getTrendingTokens(
       // best-effort merge only
     }
 
-    // Launch multiple is intentionally disabled; keep backend payload stable without x-metrics.
+    // Launch multiple from fixed launchpad start prices (non-launchpad tokens stay empty).
+    for (const token of tokens) {
+      const multiple = computeLaunchpadMultiple(chain, token.launchpad, token.price);
+      if (multiple) {
+        (token as any).launchMultiple = multiple;
+      } else {
+        delete (token as any).launchMultiple;
+      }
+    }
 
     if (!opts?.lightweight) {
       await Promise.all(tokens.map(async (token) => {
@@ -660,12 +679,13 @@ export async function getTrendingTokens(
           if (meta?.creatorAddress && !token.creatorAddress) token.creatorAddress = meta.creatorAddress;
           if (meta?.creatorUrl && !(token as any).creatorUrl) (token as any).creatorUrl = meta.creatorUrl;
           if (meta?.creatorLabel && !(token as any).creatorLabel) (token as any).creatorLabel = meta.creatorLabel;
-          // Prefer v2 meta cache launchMultiple produced by baseline pipeline.
-          // Ignore legacy cache to avoid leaking stale values.
-          const multiple = Number(meta?.launchMultiple || 0);
-          const cacheVersion = Number(meta?.cacheVersion || 0);
-          if (!fromLegacy && cacheVersion >= 2 && Number.isFinite(multiple) && multiple > 0 && multiple <= 200_000) {
-            (token as any).launchMultiple = multiple;
+          // Preserve fixed-launchpad multiple as source of truth; only backfill if absent.
+          if (!Number.isFinite(Number((token as any).launchMultiple || 0))) {
+            const multiple = Number(meta?.launchMultiple || 0);
+            const cacheVersion = Number(meta?.cacheVersion || 0);
+            if (!fromLegacy && cacheVersion >= 2 && Number.isFinite(multiple) && multiple > 0 && multiple <= 200_000) {
+              (token as any).launchMultiple = multiple;
+            }
           }
         } catch {
           // ignore metadata cache parse/read errors

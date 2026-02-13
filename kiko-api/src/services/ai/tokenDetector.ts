@@ -22,7 +22,7 @@ export interface TokenInfo {
     marketCap?: number;
     volume24h?: number;
     launchpad?: {
-        provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'flap' | 'pumpfun' | 'bonkfun' | 'virtuals';
+        provider: 'zora' | 'clanker' | 'paragraph' | 'fourmeme' | 'flap' | 'pumpfun' | 'bonkfun' | 'virtuals' | 'doppler';
         data: any;
     };
 }

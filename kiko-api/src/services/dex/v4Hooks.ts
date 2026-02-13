@@ -21,6 +21,21 @@ export const ZORA_HOOKS_BY_CHAIN: Record<number, string[]> = {
     ]
 };
 
+// Doppler hooks / multicurve initializer hooks (v4)
+// [Ref]: https://docs.doppler.lol/resources/doppler-hooks
+export const DOPPLER_HOOKS_BY_CHAIN: Record<number, string[]> = {
+    8453: [
+        // RehypeDopplerHook (Base)
+        '0x97cad25c7796df5df4da6f4f56877b6874e7a503',
+        // UniswapV4MulticurveInitializerHook (Base)
+        '0x892d0d37d61f30f8f15be8cfc24eb9cece210210',
+        // UniswapV4ScheduledMulticurveInitializerHook (Base)
+        '0x3e342c2f6ea14f4f26919dc5ff0652db10f42dc0',
+        // DecayMulticurveInitializerHook seen on Base
+        '0xbb7784a4d481184283ed89619a3e3ed143e1adc0'
+    ]
+};
+
 // Known non-clanker/non-zora hook families seen in production traffic
 export const CUSTOM_V4_HOOKS_BY_CHAIN: Record<number, string[]> = {
     8453: [
@@ -29,7 +44,7 @@ export const CUSTOM_V4_HOOKS_BY_CHAIN: Record<number, string[]> = {
     ]
 };
 
-export type V4HookFamily = 'none' | 'clanker' | 'zora' | 'custom' | 'unknown';
+export type V4HookFamily = 'none' | 'clanker' | 'zora' | 'doppler' | 'custom' | 'unknown';
 export type V4HookStage = 'quote' | 'execute';
 
 export interface V4HookProfile {
@@ -61,6 +76,7 @@ export function getKnownV4HooksByChain(chainId: number): string[] {
     return Array.from(new Set([
         ...(CLANKER_HOOKS_BY_CHAIN[chainId] || []),
         ...(ZORA_HOOKS_BY_CHAIN[chainId] || []),
+        ...(DOPPLER_HOOKS_BY_CHAIN[chainId] || []),
         ...(CUSTOM_V4_HOOKS_BY_CHAIN[chainId] || []),
         ...dynamic
     ].map((h) => h.toLowerCase())));
@@ -91,7 +107,7 @@ function normalizeHookDataList(input?: string[]): string[] {
 
 function parseFamily(value: unknown): V4HookFamily {
     const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === 'none' || normalized === 'clanker' || normalized === 'zora' || normalized === 'custom' || normalized === 'unknown') {
+    if (normalized === 'none' || normalized === 'clanker' || normalized === 'zora' || normalized === 'doppler' || normalized === 'custom' || normalized === 'unknown') {
         return normalized as V4HookFamily;
     }
     return 'custom';
@@ -168,6 +184,16 @@ export function resolveV4HookProfile(chainId: number, hookAddress?: string): V4H
             family: 'zora',
             requiresWalletAddress: false,
             description: 'zora_creator_coin_hook'
+        };
+    }
+    const dopplerHooks = DOPPLER_HOOKS_BY_CHAIN[chainId] || [];
+    if (dopplerHooks.some((h) => h.toLowerCase() === normalizedHook)) {
+        return {
+            chainId,
+            hookAddress: normalizedHook,
+            family: 'doppler',
+            requiresWalletAddress: false,
+            description: 'doppler_multicurve_hook'
         };
     }
     const customHooks = CUSTOM_V4_HOOKS_BY_CHAIN[chainId] || [];
