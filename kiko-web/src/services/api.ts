@@ -41,6 +41,7 @@ import { type RaydiumToken } from './raydiumApi';
 export type LaunchpadData =
     | { provider: 'zora'; data: ZoraToken; chainId: number }
     | { provider: 'clanker'; data: ClankerToken; chainId: number }
+    | { provider: 'doppler'; data: unknown; chainId: number }
     | { provider: 'fourmeme'; data: FourMemeToken; chainId: number }
     | { provider: 'flap'; data: unknown; chainId: number }
     | { provider: 'pumpfun'; data: PumpFunToken; chainId: number }
@@ -76,6 +77,7 @@ export interface ChatSession {
     createdAt: string;
     updatedAt: string;
     status: 'active' | 'archived' | 'deleted';
+    backend?: 'node' | 'python';
 }
 
 /**
@@ -200,6 +202,7 @@ interface ApiResponse<T> {
  */
 import { apiCache } from '../utils/apiCache';
 import { getAuthToken, clearAuthTokenCache } from '../utils/authToken';
+import { getRuntimeConfigUrl, getEnvUrl } from '../utils/runtimeConfig';
 
 /**
  * Request deduplication map
@@ -748,24 +751,33 @@ export interface FeedItem {
  * Note: Chat routes return custom response format (e.g., { success, sessions } instead of { success, data })
  */
 function resolveChatApiBase(): string {
-    const explicitRaw = (import.meta.env.VITE_CHAT_API_URL || '').trim();
-    const explicit = explicitRaw.replace(/^["']|["']$/g, '');
+    const explicit = getRuntimeConfigUrl('CHAT_API_URL') || getEnvUrl('VITE_CHAT_API_URL');
     if (explicit) {
         try {
             new URL(explicit);
             return explicit.replace(/\/+$/, '');
         } catch {
-            console.warn('[chatApi] Invalid VITE_CHAT_API_URL, falling back:', explicitRaw);
+            console.warn('[chatApi] Invalid CHAT_API_URL, falling back:', explicit);
         }
     }
 
-    // Hard fallback for hosted web deployments when env injection fails.
-    if (import.meta.env.PROD) {
-        return 'https://kiko-python-production.up.railway.app';
+    // Fallback to core API URL when chat URL is not explicitly configured.
+    const core = getRuntimeConfigUrl('API_URL') || getEnvUrl('VITE_API_URL');
+    if (core) {
+        try {
+            new URL(core);
+            return core.replace(/\/+$/, '');
+        } catch {
+            console.warn('[chatApi] Invalid API_URL fallback:', core);
+        }
     }
 
     if (typeof window !== 'undefined' && window.location?.origin) {
-        return window.location.origin.replace(/\/+$/, '');
+        const host = window.location.hostname.toLowerCase();
+        const isLocal = host === 'localhost' || host === '127.0.0.1';
+        if (isLocal) {
+            return window.location.origin.replace(/\/+$/, '');
+        }
     }
 
     return 'http://localhost:8100';

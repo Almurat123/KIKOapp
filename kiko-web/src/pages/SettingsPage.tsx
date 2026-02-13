@@ -5,6 +5,9 @@ import { SessionSignerButton } from '../components/Wallet/SessionSignerButton';
 import { PolymarketAuthButton } from '../components/Wallet/PolymarketAuthButton';
 import { PageContainer } from '../components/Layout/PageContainer';
 import styles from './SettingsPage.module.css';
+import { resolveCoreApiBase } from '../utils/coreApiBase';
+
+const CORE_API_BASE_URL = resolveCoreApiBase();
 
 // [Logic]: Extract community follow button logic.
 // [Ref]: Migrated from WalletSettingsModal.tsx:L16-L191.
@@ -27,9 +30,8 @@ const FollowKikoButton: React.FC = () => {
                 try {
                     const storageKey = `kiko-farcaster-synced-v2-${fid}`;
                     if (localStorage.getItem(storageKey)) return;
-                    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
                     const authToken = await getAccessToken();
-                    const response = await fetch(`${API_BASE_URL}/api/users/farcaster`, {
+                    const response = await fetch(`${CORE_API_BASE_URL}/api/users/farcaster`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
                         body: JSON.stringify({ fid, username })
@@ -51,8 +53,7 @@ const FollowKikoButton: React.FC = () => {
         if (localStorage.getItem('kiko-farcaster-follow-dismissed') === 'true') { setIsFollowing(true); setLoading(false); return; }
 
         try {
-            const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-            const response = await fetch(`${API_BASE_URL}/api/social/is-following/${fid}`);
+            const response = await fetch(`${CORE_API_BASE_URL}/api/social/is-following/${fid}`);
             const data = await response.json();
             if (data.success && data.data.isFollowing) {
                 setIsFollowing(true);

@@ -7,6 +7,9 @@ interface LaunchpadCapsuleProps {
     address: string;
     chain: string;
     launchpad?: string; // Optional backend-provided launchpad tag
+    websiteUrl?: string;
+    creatorUrl?: string;
+    creatorLabel?: string;
     onAskAI?: () => void;
 }
 
@@ -14,6 +17,9 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
     address,
     chain,
     launchpad: backendLaunchpad,
+    websiteUrl,
+    creatorUrl,
+    creatorLabel,
     onAskAI
 }) => {
 
@@ -23,8 +29,19 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
     // but per requirements, we trust the DB flow. Since the user asked for logic 
     // "based on chain matching" we can include a light version here if prop is missing.
 
+    const normalizeLaunchpad = (value?: string | null): string | null => {
+        const v = String(value || '').trim().toLowerCase();
+        if (!v) return null;
+        if (v === 'pumpfun') return 'pump.fun';
+        if (v === 'bonkfun') return 'bonk.fun';
+        if (v === 'fourmeme') return 'four.meme';
+        if (v === 'dopplerfinance' || v === 'doppler finance') return 'doppler';
+        return v;
+    };
+
     const detectedLaunchpad = useMemo(() => {
-        if (backendLaunchpad) return backendLaunchpad;
+        const normalizedBackend = normalizeLaunchpad(backendLaunchpad);
+        if (normalizedBackend) return normalizedBackend;
 
         const lowerAddr = address?.toLowerCase() || '';
         const lowerChain = chain?.toLowerCase() || '';
@@ -42,8 +59,15 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
             if (lowerAddr.endsWith('8888') || lowerAddr.endsWith('7777')) return 'flap';
         }
 
+        // Metadata fallback: Doppler tokens often expose doppler links before backend tag is hydrated.
+        const dopplerHints = [websiteUrl, creatorUrl, creatorLabel]
+            .filter(Boolean)
+            .map((v) => String(v).toLowerCase())
+            .join(' ');
+        if (dopplerHints.includes('doppler.lol') || dopplerHints.includes('doppler')) return 'doppler';
+
         return null;
-    }, [address, chain, backendLaunchpad]);
+    }, [address, chain, backendLaunchpad, websiteUrl, creatorUrl, creatorLabel]);
 
     // 2. URL Generation
     const getLaunchpadUrl = () => {
@@ -75,6 +99,7 @@ export const LaunchpadCapsule: React.FC<LaunchpadCapsuleProps> = ({
         // Four.meme
         if (provider === 'four.meme') return `https://four.meme/token/${address}`;
         if (provider === 'flap') return `https://flap.sh/board`;
+        if (provider === 'doppler') return `https://doppler.lol`;
 
         // Fallback
         return '#';

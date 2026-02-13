@@ -803,6 +803,9 @@ const TokenRow = React.memo(({
                   address={t.address || t.poolAddress || ''}
                   chain={t.chain}
                   launchpad={t.launchpad}
+                  websiteUrl={t.socialLinks?.website}
+                  creatorUrl={t.creatorUrl}
+                  creatorLabel={t.creatorLabel}
                   onAskAI={() => console.log('Trigger Ask AI for', t.name)}
                 />
                 {creatorDisplay && (t.creatorLabel || t.creatorAddress || t.creatorUrl) && (

@@ -28,6 +28,7 @@ import { chatWSClient, type ChatEvent } from '../../utils/chatWebSocket';
 import type { Message } from '../../hooks/useConversations';
 import { moderationService } from '../../services/moderation';
 import { logger } from '../../utils/logger';
+import { resolveCoreApiBase } from '../../utils/coreApiBase';
 
 // Model options
 // DeepSeek models:
@@ -45,6 +46,8 @@ const MODEL_OPTIONS = [
     { id: 'grok-4-1-fast-reasoning', name: 'Grok-4.1-Fast', mode: 'thinking' },
     { id: 'grok-4-1-fast-non-reasoning', name: 'Grok-4.1-Fast', mode: 'fast' },
 ];
+
+const CORE_API_BASE_URL = resolveCoreApiBase();
 
 // Common token addresses by chain with decimals
 const COMMON_TOKENS: Record<number, Array<{ address: string; symbol: string; decimals: number }>> = {
@@ -333,7 +336,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             if (fid) {
                 try {
-                    const response = await fetch(`/api/social/is-following/${fid}`);
+                    const response = await fetch(`${CORE_API_BASE_URL}/api/social/is-following/${fid}`);
                     const data = await response.json();
                     if (data.success && data.data.isFollowing) {
                         // Already following, mark as dismissed and don't show
@@ -372,9 +375,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     const storageKey = `kiko-farcaster-synced-v2-${fid}`;
                     if (localStorage.getItem(storageKey)) return;
 
-                    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
                     const authToken = await getAccessToken();
-                    const response = await fetch(`${API_BASE_URL}/api/users/farcaster`, {
+                    const response = await fetch(`${CORE_API_BASE_URL}/api/users/farcaster`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1758,12 +1760,39 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             // 4. Call backend API
             logger.debug('Sending message with walletAddress:', walletAddress, 'chainId:', chainId);
+            const nativeSymbolMap: Record<number, string> = {
+                1: 'ETH',
+                8453: 'ETH',
+                10: 'ETH',
+                42161: 'ETH',
+                56: 'BNB',
+                137: 'MATIC',
+                900: 'SOL',
+            };
+            const nativeSymbol = nativeSymbolMap[chainId] || 'ETH';
+            const nativeBalance = userBalances[nativeSymbol];
+            const contextPayload = {
+                walletAddress,
+                chainId,
+                chainName: currentChain.name,
+                isWalletConnected: !!walletAddress,
+                balance: userBalances,
+                nativeBalance,
+                currentPage: window.location.pathname,
+                pageContext: `${document.title || 'KiKo'} | ${window.location.pathname}`,
+                farcaster: null,
+            };
             const resp = await chatApi.sendMessage(currentConvId, text, {
                 model: modelToUse.id,
                 walletAddress: walletAddress,
                 chainId: chainId,
                 toolConfig: customSettings,
+                allowanceMode: 'instant',
+                nativeBalance,
+                currentPage: window.location.pathname,
+                pageContext: `${document.title || 'KiKo'} | ${window.location.pathname}`,
                 balance: userBalances,
+                context: contextPayload,
             });
 
             if (resp.success) {

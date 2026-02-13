@@ -3,30 +3,43 @@
  * Manages connection to backend chat WebSocket
  */
 import { getAuthToken, clearAuthTokenCache } from './authToken';
+import { getRuntimeConfigUrl, getEnvUrl } from './runtimeConfig';
 
 function resolveWsBaseUrl(): string {
-    const explicitRaw = (import.meta.env.VITE_CHAT_WS_URL || import.meta.env.VITE_WS_URL || '').trim();
-    const explicit = explicitRaw.replace(/^["']|["']$/g, '');
+    const explicit = getRuntimeConfigUrl('CHAT_WS_URL') || getEnvUrl('VITE_CHAT_WS_URL') || getEnvUrl('VITE_WS_URL');
     if (explicit) {
         try {
             const parsed = new URL(explicit);
             if (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') {
                 return explicit.replace(/\/+$/, '');
             }
-            console.warn('[ChatWS] Invalid ws protocol in VITE_CHAT_WS_URL, falling back:', explicitRaw);
+            console.warn('[ChatWS] Invalid ws protocol in CHAT_WS_URL, falling back:', explicit);
         } catch {
-            console.warn('[ChatWS] Invalid VITE_CHAT_WS_URL, falling back:', explicitRaw);
+            console.warn('[ChatWS] Invalid CHAT_WS_URL, falling back:', explicit);
         }
     }
 
-    // Hard fallback for hosted web deployments when env injection fails.
-    if (import.meta.env.PROD) {
-        return 'wss://kiko-python-production.up.railway.app';
+    // Derive WS URL from explicit HTTP API URL when CHAT_WS_URL is not configured.
+    const apiBase = getRuntimeConfigUrl('CHAT_API_URL') || getEnvUrl('VITE_CHAT_API_URL') || getRuntimeConfigUrl('API_URL') || getEnvUrl('VITE_API_URL');
+    if (apiBase) {
+        try {
+            const parsed = new URL(apiBase);
+            const wsProto = parsed.protocol === 'https:' ? 'wss:' : parsed.protocol === 'http:' ? 'ws:' : '';
+            if (wsProto) {
+                return `${wsProto}//${parsed.host}`.replace(/\/+$/, '');
+            }
+        } catch {
+            console.warn('[ChatWS] Invalid API URL fallback for WS:', apiBase);
+        }
     }
 
     if (typeof window !== 'undefined' && window.location?.origin) {
-        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${proto}//${window.location.host}`;
+        const host = window.location.hostname.toLowerCase();
+        const isLocal = host === 'localhost' || host === '127.0.0.1';
+        if (isLocal) {
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${proto}//${window.location.host}`;
+        }
     }
 
     return 'ws://localhost:8100';
@@ -182,6 +195,9 @@ export class ChatWebSocketClient {
                     error: payload.error,
                     task_id: payload.task_id,
                     taskId: payload.taskId || payload.task_id,
+                    taskType: payload.taskType,
+                    iteration: payload.iteration,
+                    maxIterations: payload.maxIterations,
                 }
             };
         }
@@ -198,6 +214,18 @@ export class ChatWebSocketClient {
         }
         if (t === 'tool_result') {
             return { type: 'client_action', sessionId, seq, data: { message_id: messageId, action: { type: 'tool_result', payload } } };
+        }
+        if (t === 'client_action') {
+            return {
+                type: 'client_action',
+                sessionId,
+                seq,
+                data: {
+                    message_id: payload.message_id || payload.messageId || messageId,
+                    messageId: payload.message_id || payload.messageId || messageId,
+                    action: payload.action || payload,
+                }
+            };
         }
         if (t === 'usage') {
             return { type: 'usage', sessionId, seq, data: { message_id: messageId, messageId, usage: payload.usage || payload } };

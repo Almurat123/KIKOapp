@@ -8,6 +8,7 @@ import ParagraphLogo from '../assets/images/Paragraph.png';
 import RaydiumLogo from '../assets/images/Raydium.png';
 import VirtualsLogo from '../assets/images/Virtuals.ico';
 import FlapLogo from '../assets/images/Flap.png';
+import DopplerLogo from '../assets/images/Doppler.ico';
 
 export const LAUNCHPAD_LOGOS: Record<string, string> = {
     'pump.fun': PumpFunLogo,
@@ -19,6 +20,9 @@ export const LAUNCHPAD_LOGOS: Record<string, string> = {
     'raydium': RaydiumLogo,
     'virtuals': VirtualsLogo,
     'flap': FlapLogo,
+    'doppler': DopplerLogo,
+    'doppler finance': DopplerLogo,
+    'dopplerfinance': DopplerLogo,
 };
 
 /**
@@ -88,6 +92,7 @@ export function getLaunchpadDisplayName(launchpad: string): string {
         'virtuals': 'Virtuals',
         'zora': 'Zora',
         'clanker': 'Clanker',
+        'doppler': 'Doppler',
         'four.meme': '4.meme',
         'paragraph': 'Paragraph',
         'moonshot': 'Moonshot',

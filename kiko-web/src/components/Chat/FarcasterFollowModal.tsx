@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import styles from './FarcasterFollowModal.module.css';
 import { logger } from '../../utils/logger';
+import { resolveCoreApiBase } from '../../utils/coreApiBase';
 
 interface FarcasterProfile {
     fid: number;
@@ -18,6 +19,7 @@ interface FarcasterFollowModalProps {
 }
 
 export const FarcasterFollowModal: React.FC<FarcasterFollowModalProps> = ({ onDismiss }) => {
+    const API_BASE_URL = resolveCoreApiBase();
     const [profile, setProfile] = useState<FarcasterProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [isVisible, setIsVisible] = useState(false);
@@ -25,8 +27,12 @@ export const FarcasterFollowModal: React.FC<FarcasterFollowModalProps> = ({ onDi
     useEffect(() => {
         const fetchProfile = async () => {
             try {
-                const response = await fetch('/api/social/profile/kikoapp');
-                const data = await response.json();
+                const response = await fetch(`${API_BASE_URL}/api/social/profile/kikoapp`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const text = await response.text();
+                const data = JSON.parse(text);
                 if (data.success) {
                     setProfile(data.data);
                 }
