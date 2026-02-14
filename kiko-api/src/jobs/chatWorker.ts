@@ -750,9 +750,43 @@ export class ChatWorker {
                 sessionId: params.task.sessionId,
                 data: {
                     message_id: params.assistantMessageId,
+                    targetMessageId: params.assistantMessageId,
                     action: result.__client_action,
                 }
             });
+        }
+
+        // Fallback broadcast: prepare_swap_transaction often returns a persisted transaction messageId.
+        // Re-broadcast card state from DB to guarantee immediate UI rendering even if tool-internal WS misses.
+        const txMessageId = result?.messageId;
+        if (txMessageId && params.userId) {
+            try {
+                const txMessage = await this.repo.getMessage(txMessageId);
+                const txData = txMessage?.data || {};
+                this.ws.broadcastToUser(params.userId, {
+                    type: 'client_action',
+                    sessionId: params.task.sessionId,
+                    data: {
+                        message_id: params.assistantMessageId,
+                        targetMessageId: txMessageId,
+                        action: {
+                            type: 'show_transaction_status_card',
+                            data: txData,
+                        }
+                    }
+                });
+                logger.info(LogCode.WS_MESSAGE_SENT, 'ChatWorker: bypass rebroadcasted transaction card from DB', {
+                    taskId: params.task.id,
+                    txMessageId,
+                    status: txData?.status || null,
+                });
+            } catch (err: any) {
+                logger.warn(LogCode.WS_ERROR, 'ChatWorker: bypass transaction card rebroadcast failed', {
+                    taskId: params.task.id,
+                    txMessageId,
+                    error: err?.message || String(err),
+                });
+            }
         }
 
         const errorMessage = !result?.success ? (result?.error || result?.message) : null;

@@ -43,7 +43,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
-import { persistTargetSwapEvent } from './targetWalletTrackingService.js';
+import { persistTargetSwapEvent, backfillMissingTargetUsd } from './targetWalletTrackingService.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -405,6 +405,13 @@ export async function handleSwapDetected(
                 valueOutUsd = undefined;
             }
 
+            const normalizedValueIn = Number.isFinite(valueInUsd as number) ? Number(valueInUsd) : undefined;
+            const normalizedValueOut = Number.isFinite(valueOutUsd as number) ? Number(valueOutUsd) : undefined;
+            let normalizedValueUsd = Number.isFinite(valueUsd as number) ? Number(valueUsd) : undefined;
+            if (!normalizedValueUsd) {
+                normalizedValueUsd = isBuy ? normalizedValueIn : isSell ? normalizedValueOut : undefined;
+            }
+
             await persistTargetSwapEvent({
                 walletAddress: targetWallet,
                 chainId,
@@ -416,13 +423,21 @@ export async function handleSwapDetected(
                 tokenOutAddress: swap.tokenOut,
                 amountIn: swap.amountIn,
                 amountOut: swap.amountOut,
-                valueInUsd: Number.isFinite(valueInUsd as number) ? Number(valueInUsd) : undefined,
-                valueOutUsd: Number.isFinite(valueOutUsd as number) ? Number(valueOutUsd) : undefined,
-                valueUsd: Number.isFinite(valueUsd as number) ? Number(valueUsd) : undefined,
+                valueInUsd: normalizedValueIn,
+                valueOutUsd: normalizedValueOut,
+                valueUsd: normalizedValueUsd,
                 blockTimestamp: new Date(),
                 parseReason: isBuy ? 'cash_to_token' : isSell ? 'token_to_cash' : 'token_to_token',
                 source: 'webhook'
             });
+
+            if (!normalizedValueUsd) {
+                void backfillMissingTargetUsd({
+                    walletAddress: targetWallet,
+                    chainId,
+                    limit: 3
+                }).catch(() => undefined);
+            }
         })().catch((err: any) => {
             logger.warn(LogCode.SYS_ERROR, 'Failed to persist target swap event', {
                 wallet: targetWallet,

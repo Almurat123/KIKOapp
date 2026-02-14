@@ -257,6 +257,9 @@ export class ZoraAlertService {
             for (const user of interestedUsers) {
                 if (!user.farcasterFid) continue;
 
+                // For now, Zora creator coins are primarily on Base (8453)
+                const BASE_CHAIN_ID = 8453;
+
                 notificationService.sendNotification({
                     userId: user.privyDid,
                     farcasterFid: user.farcasterFid,
@@ -266,7 +269,8 @@ export class ZoraAlertService {
                         tokenAddress: data.coinAddress,
                         creatorName: data.creatorName,
                         followerCount: followerDisplay,
-                        zoraUrl: data.zoraUrl
+                        zoraUrl: `https://zora.co/coin/base:${data.coinAddress}`,
+                        chainId: BASE_CHAIN_ID
                     }
                 }).catch(err => {
                     logger.warn(LogCode.API_NOTIFY_FAILED, 'Failed to send broadcast', { userId: user.privyDid, error: err.message });

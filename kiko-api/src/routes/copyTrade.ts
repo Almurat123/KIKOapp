@@ -442,6 +442,14 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
         try {
             const data = await getTargetWalletStatus({ userId, configId: id, recentLimit: 120 });
             if (!data) return reply.status(404).send({ error: 'Config not found' });
+            console.log('[CopyTrade] GET /config/:id/target-status', {
+                userId,
+                configId: id,
+                trackedTxCount: data.aggregate?.trackedTxCount ?? 0,
+                buyCount: data.aggregate?.buyCount ?? 0,
+                sellCount: data.aggregate?.sellCount ?? 0,
+                tokenSwapCount: data.aggregate?.tokenSwapCount ?? 0,
+            });
             return reply.send({ success: true, ...data });
         } catch (error: any) {
             console.error('[CopyTrade] Error fetching target status:', error);

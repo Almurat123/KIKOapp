@@ -121,7 +121,8 @@ class TokenAlertService {
                     tokenSymbol: tokenLabel,
                     targetType: rule.targetType,
                     usdValue: currentValue.toLocaleString(),
-                    alertMessage: `${rule.ruleType} ${Number(rule.conditionValue).toLocaleString()}`
+                    alertMessage: `${rule.ruleType} ${Number(rule.conditionValue).toLocaleString()}`,
+                    chainId: rule.chainId
                 }
             });
         }
@@ -135,7 +136,8 @@ class TokenAlertService {
                     tokenSymbol: tokenLabel,
                     targetType: rule.targetType,
                     usdValue: currentValue.toLocaleString(),
-                    alertMessage: `Auto-${rule.action.toUpperCase()} Triggered: ${rule.actionAmount} USD`
+                    alertMessage: `Auto-${rule.action.toUpperCase()} Triggered: ${rule.actionAmount} USD`,
+                    chainId: rule.chainId
                 }
             });
             // Actual execution would call a refined executePositionExit or similar

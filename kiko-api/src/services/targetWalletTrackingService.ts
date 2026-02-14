@@ -6,6 +6,10 @@ import { calculateTargetPnlSummary } from './targetWalletPnl.js';
 import { setIfNotExists } from '../cache/redis.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
+import { getChainConfig } from '../config/chainConfig.js';
+import { getNativeTokenPriceUsd } from './onChainPriceService.js';
+import { getTokenMetadata } from './rpcService.js';
+import { ethers } from 'ethers';
 
 const TARGET_STATUS_MIN_TX_USD = Number(process.env.TARGET_STATUS_MIN_TX_USD || 0.000001);
 const TARGET_STATUS_MAX_TX_USD = Number(process.env.TARGET_STATUS_MAX_TX_USD || 250000);
@@ -20,6 +24,17 @@ function chainIdToLabel(chainId: number): string {
   if (chainId === 137) return 'polygon';
   if (chainId === 1) return 'eth';
   return 'eth';
+}
+
+function chainLabelToId(chain: string): number {
+  const n = String(chain || '').toLowerCase();
+  if (n === 'base') return 8453;
+  if (n === 'bsc') return 56;
+  if (n === 'solana') return 900;
+  if (n === 'arbitrum') return 42161;
+  if (n === 'optimism') return 10;
+  if (n === 'polygon') return 137;
+  return 1;
 }
 
 function safeNum(v: number | string | null | undefined): number {
@@ -100,6 +115,150 @@ export async function persistTargetSwapEvent(params: {
       blockTimestamp: params.blockTimestamp || new Date(),
     },
   }), 4, 250);
+}
+
+async function fillUsdFromDecodedLeg(params: {
+  chainId: number;
+  tokenAddress?: string | null;
+  amountRaw?: string | null;
+}): Promise<number | null> {
+  const tokenAddress = params.tokenAddress ? normalizeAddress(params.tokenAddress) : '';
+  const amountRaw = params.amountRaw || '';
+  if (!tokenAddress || !amountRaw) return null;
+  let amountBn: bigint;
+  try {
+    amountBn = BigInt(amountRaw);
+  } catch {
+    return null;
+  }
+  if (amountBn <= 0n) return null;
+
+  const chainCfg = getChainConfig(params.chainId);
+  const stableSet = new Set((chainCfg.stablecoins || []).map((s) => normalizeAddress(s)));
+  if (stableSet.has(tokenAddress)) {
+    const meta = await getTokenMetadata(params.chainId, tokenAddress, { rpcStrategy: 'fast' }).catch(() => null);
+    const decimals = Number(meta?.decimals ?? 6);
+    const usd = Number(ethers.formatUnits(amountBn, decimals));
+    return Number.isFinite(usd) ? usd : null;
+  }
+
+  const isNativeLike = tokenAddress === normalizeAddress(chainCfg.wrappedNativeAddress) || tokenAddress === normalizeAddress('0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
+  if (isNativeLike) {
+    const nativePrice = Number(await getNativeTokenPriceUsd(params.chainId).catch(() => 0));
+    if (!Number.isFinite(nativePrice) || nativePrice <= 0) return null;
+    const usd = Number(ethers.formatUnits(amountBn, 18)) * nativePrice;
+    return Number.isFinite(usd) ? usd : null;
+  }
+
+  return null;
+}
+
+export async function backfillMissingTargetUsd(params: {
+  walletAddress?: string;
+  chainId?: number;
+  limit?: number;
+} = {}): Promise<{ scanned: number; updated: number }> {
+  const limit = Math.max(1, Math.min(50, Number(params.limit || 12)));
+  const where: any = {
+    txType: { in: ['TARGET_BUY', 'TARGET_SELL'] },
+    valueUsd: null,
+  };
+  if (params.walletAddress) where.walletAddress = normalizeAddress(params.walletAddress);
+  if (params.chainId) where.chainId = params.chainId;
+
+  const rows = await prisma.walletTransaction.findMany({
+    where,
+    orderBy: { blockTimestamp: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      txHash: true,
+      txType: true,
+      walletAddress: true,
+      chain: true,
+      chainId: true,
+      tokenAddress: true,
+      amount: true,
+      amountIn: true,
+      amountOut: true,
+      tokenInAddress: true,
+      tokenOutAddress: true,
+      valueInUsd: true,
+      valueOutUsd: true,
+    },
+  });
+
+  let updated = 0;
+  for (const row of rows) {
+    let valueUsd: number | null = null;
+
+    if (row.txType === 'TARGET_BUY' && Number(row.valueInUsd || 0) > 0) valueUsd = Number(row.valueInUsd);
+    if (row.txType === 'TARGET_SELL' && Number(row.valueOutUsd || 0) > 0) valueUsd = Number(row.valueOutUsd);
+
+    const cid = Number(row.chainId || chainLabelToId(row.chain));
+    if (!valueUsd) {
+      if (row.txType === 'TARGET_BUY') {
+        valueUsd = await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: row.tokenInAddress, amountRaw: row.amountIn });
+      } else if (row.txType === 'TARGET_SELL') {
+        valueUsd = await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: row.tokenOutAddress, amountRaw: row.amountOut });
+      }
+    }
+
+    // last resort: decode tx once to recover amountIn/amountOut legs, then compute USD from cash leg
+    if (!valueUsd && row.txHash) {
+      try {
+        const { fetchTransaction, fetchTransactionReceipt } = await import('./watcherService.js');
+        const { parseSwapTransaction } = await import('./txDecoder.js');
+        const [tx, receipt] = await Promise.all([
+          fetchTransaction(row.txHash, cid),
+          fetchTransactionReceipt(row.txHash, cid),
+        ]);
+        if (tx && receipt) {
+          const swap = await parseSwapTransaction(tx, receipt, cid, row.walletAddress);
+          if (swap) {
+            const legUsd = row.txType === 'TARGET_BUY'
+              ? await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenIn, amountRaw: swap.amountIn })
+              : await fillUsdFromDecodedLeg({ chainId: cid, tokenAddress: swap.tokenOut, amountRaw: swap.amountOut });
+            if (legUsd && legUsd > 0) {
+              valueUsd = legUsd;
+              await prisma.walletTransaction.update({
+                where: { id: row.id },
+                data: {
+                  chainId: cid,
+                  tokenInAddress: normalizeAddress(swap.tokenIn),
+                  tokenOutAddress: normalizeAddress(swap.tokenOut),
+                  amountIn: swap.amountIn || null,
+                  amountOut: swap.amountOut || null,
+                  valueUsd: legUsd,
+                  parseReason: 'backfill_decode',
+                  source: 'backfill',
+                },
+              });
+              updated += 1;
+              continue;
+            }
+          }
+        }
+      } catch {
+        // keep silent: backfill best-effort only
+      }
+    }
+
+    if (valueUsd && Number.isFinite(valueUsd) && valueUsd > 0) {
+      await prisma.walletTransaction.update({
+        where: { id: row.id },
+        data: {
+          chainId: cid,
+          valueUsd,
+          parseReason: row.txType === 'TARGET_BUY' ? 'backfill_buy_leg' : 'backfill_sell_leg',
+          source: 'backfill',
+        },
+      });
+      updated += 1;
+    }
+  }
+
+  return { scanned: rows.length, updated };
 }
 
 export async function bootstrapTrackedWalletHistory(
@@ -221,6 +380,8 @@ export async function getTargetWalletStatus(params: {
   await bootstrapTrackedWalletHistory(walletAddress, cfg.chainId, Math.max(120, recentLimit), {
     source: 'target_status'
   }).catch(() => undefined);
+  // Non-blocking best-effort repair for missing USD values (does not affect trading path).
+  void backfillMissingTargetUsd({ walletAddress, chainId: cfg.chainId, limit: 8 }).catch(() => undefined);
 
   const [leaderStats, recentTx, copiedPositions, targetTradeTxs] = await Promise.all([
     prisma.leaderWalletStats.findUnique({
@@ -264,8 +425,12 @@ export async function getTargetWalletStatus(params: {
   ]);
 
   let tokenSwaps = 0;
+  let rawBuyCount = 0;
+  let rawSellCount = 0;
   const buySellRows = targetTradeTxs.flatMap((row) => {
     if (row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL' || row.txType === 'BUY' || row.txType === 'SELL') {
+      if (row.txType === 'TARGET_BUY' || row.txType === 'BUY') rawBuyCount += 1;
+      if (row.txType === 'TARGET_SELL' || row.txType === 'SELL') rawSellCount += 1;
       return [{
         id: row.id,
         txType: row.txType as 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL',
@@ -316,7 +481,7 @@ export async function getTargetWalletStatus(params: {
     chain,
     chainId: cfg.chainId,
   });
-  const trackedTxCount = pnl.buyCount + pnl.sellCount + tokenSwaps;
+  const trackedTxCount = rawBuyCount + rawSellCount + tokenSwaps;
 
   return {
     config: {
@@ -331,8 +496,8 @@ export async function getTargetWalletStatus(params: {
       windowEndAt: new Date(),
       windowDays: 30,
       trackedTxCount,
-      buyCount: pnl.buyCount,
-      sellCount: pnl.sellCount,
+      buyCount: rawBuyCount,
+      sellCount: rawSellCount,
       tokenSwapCount: tokenSwaps,
       buyVolumeUsd: pnl.buyVolumeUsd,
       sellVolumeUsd: pnl.sellVolumeUsd,

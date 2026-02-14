@@ -151,6 +151,13 @@ export class ZoraSniperService {
                         followerDisplay = `${twitterFollowers.toLocaleString()} (X) / ${farcasterFollowers.toLocaleString()} (FC)`;
                     }
 
+                    // Map chainId to Zora chain slug (Strategic focus is now on Base)
+                    const zoraChainMap: Record<number, string> = {
+                        8453: 'base',
+                        1: 'eth'
+                    };
+                    const zoraChainSlug = zoraChainMap[CHAIN_ID] || 'base';
+
                     await notificationService.sendNotification({
                         userId: this.config.userId,
                         farcasterFid: user?.farcasterFid,
@@ -160,7 +167,8 @@ export class ZoraSniperService {
                             tokenAddress: coin,
                             creatorName: profile?.displayName || profile?.handle || caller.slice(0, 6),
                             followerCount: followerDisplay,
-                            zoraUrl: `https://zora.co/coin/base:${coin}`
+                            zoraUrl: `https://zora.co/coin/${zoraChainSlug}:${coin}`,
+                            chainId: CHAIN_ID
                         }
                     });
                 } else {
