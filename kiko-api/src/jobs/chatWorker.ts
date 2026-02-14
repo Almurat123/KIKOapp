@@ -17,6 +17,7 @@ import { scrub } from '../utils/scrubber.js';
 import { computeUsdCost, getBillingCategory, getUtcDateString } from '../services/billing/billingService.js';
 import { recordUsage } from '../services/usageCounter.js';
 import { buildSignedHeaders } from '../utils/requestSigningClient.js';
+import { fetchJson } from '../config/unifiedApiService.js';
 import { insertUsageRecord } from '../repositories/billingRepository.js';
 import { AnalystPolicy } from '../services/ai/prompts/v2/policies/AnalystPolicy.js';
 import { GENERAL_THINKING_POLICY } from '../services/ai/prompts/v2/policies/GeneralThinkingPolicy.js';
@@ -32,6 +33,7 @@ import { skillRegistryClean, skillRegistryExec } from '../skills/registry.js';
 import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getChainConfig } from '../config/chainConfig.js';
+import { normalizeTokenAddress, resolveTokenAddress } from '../services/tokens.js';
 import { processClaimedTasks } from './chat/taskClaimRunner.js';
 import { buildBalanceContextBlock } from './chat/balanceContextBuilder.js';
 import { buildLaunchpadContextBlock, buildTokenContextBlock } from './chat/contextBlockBuilder.js';
@@ -312,7 +314,7 @@ export class ChatWorker {
     private findRecentSimulateSwap(
         sessionMessages: any[],
         windowMs: number
-    ): { token_in: string; token_out: string; amount_in: string; chain_id: number; isCrossChain: boolean; toChain?: number } | null {
+    ): { token_in: string; token_out: string; amount_in: string; chain_id: number; isCrossChain: boolean; toChain?: number; simulatedAtMs?: number } | null {
         const sorted = [...sessionMessages].sort((a, b) => (a.message_index || a.messageIndex || 0) - (b.message_index || b.messageIndex || 0));
         const now = Date.now();
         for (let i = sorted.length - 1; i >= 0; i -= 1) {
@@ -361,7 +363,7 @@ export class ChatWorker {
                 }
 
                 if (!token_in || !token_out || !amount_in || !chain_id) continue;
-                return { token_in, token_out, amount_in, chain_id, isCrossChain, toChain };
+                return { token_in, token_out, amount_in, chain_id, isCrossChain, toChain, simulatedAtMs: createdMs || undefined };
             }
         }
         return null;
@@ -533,6 +535,291 @@ export class ChatWorker {
             map[entry.symbol] = entry.balance;
         }
         return map;
+    }
+
+    private cleanNaturalLanguageToken(token: unknown): string {
+        return String(token || '')
+            .trim()
+            .replace(/^[\s"'`]+|[\s"'`,.!?;:]+$/g, '')
+            .replace(/^\$/, '');
+    }
+
+    private isEvmAddressToken(token: string): boolean {
+        return /^0x[0-9a-fA-F]{40}$/.test(token);
+    }
+
+    private isLikelySolanaAddress(token: string): boolean {
+        return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(token);
+    }
+
+    private canonicalizeSwapTokenForCache(token: unknown, chainId: number): string {
+        const raw = this.cleanNaturalLanguageToken(token);
+        if (!raw) return '';
+
+        // Solana addresses are base58 and case-sensitive; avoid lowercasing.
+        if (chainId === 900) {
+            if (this.isLikelySolanaAddress(raw)) return raw;
+            const upper = raw.toUpperCase();
+            if (upper === 'SOL' || upper === 'WSOL') return 'So11111111111111111111111111111111111111112';
+            return upper;
+        }
+
+        const resolved = resolveTokenAddress(raw, chainId);
+        const normalized = normalizeTokenAddress(resolved);
+        if (this.isEvmAddressToken(normalized)) return normalized.toLowerCase();
+        return this.cleanNaturalLanguageToken(normalized).toUpperCase();
+    }
+
+    private canonicalizeSwapAmountForCache(amount: unknown): string {
+        let raw = String(amount || '').trim().replace(/[,_\s]/g, '');
+        if (!raw) return '';
+
+        if (/^[+-]?\d*\.?\d+$/.test(raw)) {
+            const negative = raw.startsWith('-');
+            raw = raw.replace(/^[+-]/, '');
+            if (raw.startsWith('.')) raw = `0${raw}`;
+            const [wholeRaw, fracRaw = ''] = raw.split('.');
+            const whole = (wholeRaw || '0').replace(/^0+(?=\d)/, '') || '0';
+            const frac = fracRaw.replace(/0+$/, '');
+            const normalized = frac ? `${whole}.${frac}` : whole;
+            return negative && normalized !== '0' ? `-${normalized}` : normalized;
+        }
+
+        return raw.toLowerCase();
+    }
+
+    private buildSimulateSwapCanonicalKey(args: any): string | null {
+        const chainId = Number(args?.chain_id ?? args?.chainId);
+        if (!Number.isFinite(chainId) || chainId <= 0) return null;
+
+        const tokenIn = this.canonicalizeSwapTokenForCache(args?.token_in ?? args?.tokenIn, chainId);
+        const tokenOut = this.canonicalizeSwapTokenForCache(args?.token_out ?? args?.tokenOut, chainId);
+        const amountIn = this.canonicalizeSwapAmountForCache(args?.amount_in ?? args?.amountIn);
+        if (!tokenIn || !tokenOut || !amountIn) return null;
+
+        return `simulate_swap:__canon:${chainId}:${tokenIn}:${tokenOut}:${amountIn}`;
+    }
+
+    private buildSimulateSwapLegacyNormKey(args: any): string | null {
+        const tokenIn = String(args?.token_in || '').trim().toLowerCase();
+        const tokenOut = String(args?.token_out || '').trim().toLowerCase();
+        const amountIn = this.canonicalizeSwapAmountForCache(args?.amount_in);
+        const chainId = args?.chain_id;
+        if (!tokenIn || !tokenOut || !amountIn || chainId === undefined || chainId === null || chainId === '') return null;
+        return `simulate_swap:__norm:${tokenIn}:${tokenOut}:${amountIn}:${chainId}`;
+    }
+
+    private isSimulateQuoteExpired(simulatedAtMs?: number): boolean {
+        if (!simulatedAtMs || !Number.isFinite(simulatedAtMs)) return true;
+        const ttlMs = Math.max(5000, parseInt(process.env.CHAT_SIM_QUOTE_TTL_MS || '45000', 10) || 45000);
+        return (Date.now() - simulatedAtMs) > ttlMs;
+    }
+
+    private async refreshQuoteComparisonForConfirmedSwap(input: {
+        task: AITask;
+        userId: string | null;
+        tokenIn: string;
+        tokenOut: string;
+        amountIn: string;
+        chainId: number;
+    }): Promise<{ ok: boolean; bestDex?: string; quoteCount?: number; error?: string }> {
+        const API_BASE = process.env.API_BASE_URL || (process.env.PORT ? `http://127.0.0.1:${process.env.PORT}` : 'http://localhost:3001');
+        const accessToken = input.task.toolContext?.accessToken;
+        const appKey = process.env.KIKO_WEB_APP_KEY || process.env.KIKO_MOBILE_APP_KEY || '';
+        const payload = {
+            tokenIn: input.tokenIn,
+            tokenOut: input.tokenOut,
+            amountIn: input.amountIn,
+            chainId: input.chainId,
+            slippageBps: input.task.toolContext?.toolConfig?.customSlippage
+                ? Math.round(Number(input.task.toolContext.toolConfig.customSlippage) * 100)
+                : 100,
+            userAddress: input.task.toolContext?.walletAddress || input.task.toolContext?.userAddress,
+        };
+
+        try {
+            const body = JSON.stringify(payload);
+            const result = await fetchJson({
+                url: `${API_BASE}/api/swap/quote`,
+                method: 'POST',
+                endpointName: 'swap-api',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+                    ...(appKey ? { 'X-App-Key': appKey } : {}),
+                    ...buildSignedHeaders('POST', '/api/swap/quote', body),
+                },
+                body,
+            });
+
+            const best = (result as any)?.data;
+            const quotes = Array.isArray((result as any)?.quotes) ? (result as any).quotes : [];
+            logger.info(LogCode.AI_API_CALL, 'ChatWorker: refreshed quote comparison for expired simulate', {
+                taskId: input.task.id,
+                chainId: input.chainId,
+                tokenIn: input.tokenIn,
+                tokenOut: input.tokenOut,
+                amountIn: input.amountIn,
+                bestDex: best?.dex || best?.dexName || null,
+                quoteCount: quotes.length,
+            });
+            return {
+                ok: !!best,
+                bestDex: best?.dex || best?.dexName,
+                quoteCount: quotes.length,
+            };
+        } catch (error: any) {
+            logger.warn(LogCode.API_FETCH_FAILED, 'ChatWorker: quote refresh failed for expired simulate', {
+                taskId: input.task.id,
+                error: error?.message || String(error),
+            });
+            return { ok: false, error: error?.message || String(error) };
+        }
+    }
+
+    private async executeConfirmedSwapBypass(params: {
+        task: AITask;
+        assistantMessageId: string;
+        sessionMessages: any[];
+        userId: string | null;
+        providerLabel: 'DeepSeek' | 'Grok';
+    }): Promise<boolean> {
+        const lastUserMessage = params.sessionMessages.filter(m => m.role === 'user').pop()?.content || '';
+        if (!this.isConfirmationMessage(lastUserMessage)) return false;
+
+        const confirmedSwap = this.findRecentSimulateSwap(params.sessionMessages, 2 * 60 * 1000);
+        if (!confirmedSwap || confirmedSwap.isCrossChain) return false;
+
+        const chainMatches = !params.task.toolContext?.chainId || params.task.toolContext.chainId === confirmedSwap.chain_id;
+        if (!chainMatches) return false;
+
+        const tokenIn = this.canonicalizeSwapTokenForCache(confirmedSwap.token_in, Number(confirmedSwap.chain_id)) || confirmedSwap.token_in;
+        const tokenOut = this.canonicalizeSwapTokenForCache(confirmedSwap.token_out, Number(confirmedSwap.chain_id)) || confirmedSwap.token_out;
+        const amountIn = this.canonicalizeSwapAmountForCache(confirmedSwap.amount_in) || String(confirmedSwap.amount_in);
+        const chainId = Number(confirmedSwap.chain_id);
+
+        this.broadcastTaskStatus(params.userId, params.task, {
+            status: 'running',
+            message: 'Executing confirmed swap (LLM bypass)',
+            taskType: 'card',
+        });
+
+        const quoteExpired = this.isSimulateQuoteExpired(confirmedSwap.simulatedAtMs);
+        if (quoteExpired) {
+            this.broadcastTaskStatus(params.userId, params.task, {
+                status: 'running',
+                message: 'Quote expired, refreshing and comparing providers',
+                taskType: 'card',
+            });
+            await this.refreshQuoteComparisonForConfirmedSwap({
+                task: params.task,
+                userId: params.userId,
+                tokenIn,
+                tokenOut,
+                amountIn,
+                chainId,
+            });
+        }
+
+        const execArgs = {
+            token_in: tokenIn,
+            token_out: tokenOut,
+            amount_in: amountIn,
+            chain_id: chainId,
+            slippage: params.task.toolContext?.toolConfig?.customSlippage
+                ? Number(params.task.toolContext.toolConfig.customSlippage)
+                : 1.0,
+            execute: true,
+        };
+
+        let result: any = null;
+        try {
+            result = await toolRegistry.execute('prepare_swap_transaction', execArgs, {
+                ...(params.task.toolContext || {}),
+                sessionId: params.task.sessionId,
+                messageId: params.assistantMessageId,
+                userId: params.userId,
+            });
+        } catch (error: any) {
+            result = { error: error?.message || String(error) };
+        }
+
+        if (result?.__client_action && params.userId) {
+            this.ws.broadcastToUser(params.userId, {
+                type: 'client_action',
+                sessionId: params.task.sessionId,
+                data: {
+                    message_id: params.assistantMessageId,
+                    action: result.__client_action,
+                }
+            });
+        }
+
+        const errorMessage = !result?.success ? (result?.error || result?.message) : null;
+        if (errorMessage && params.userId) {
+            this.ws.broadcastToUser(params.userId, {
+                type: 'client_action',
+                sessionId: params.task.sessionId,
+                data: {
+                    message_id: params.assistantMessageId,
+                    action: {
+                        type: 'show_transaction_status_card',
+                        data: {
+                            status: 'failed',
+                            tokenInSymbol: tokenIn,
+                            tokenOutSymbol: tokenOut,
+                            amountIn,
+                            chainId,
+                            errorMessage: String(errorMessage),
+                            isLoading: false,
+                        }
+                    }
+                }
+            });
+        }
+
+        const finalText = result?.summary
+            || (result?.success
+                ? `Proceed confirmed. Executed ${amountIn} ${tokenIn} -> ${tokenOut}.`
+                : `Proceed confirmed, but execution failed: ${String(errorMessage || 'unknown error')}`);
+
+        await this.persistAssistantMessageSafe({
+            assistantMessageId: params.assistantMessageId,
+            patch: {
+                content: finalText,
+                status: 'complete',
+            },
+            logLabel: `${params.providerLabel} bypass final update`,
+        });
+
+        this.broadcastAssistantMessageComplete(params.userId, params.task.sessionId, params.assistantMessageId, {
+            status: result?.success ? 'success' : 'error',
+            totalIterations: 1,
+        });
+
+        logger.info(LogCode.AI_ORCHESTRATOR, 'ChatWorker: confirmed swap executed via LLM bypass', {
+            taskId: params.task.id,
+            provider: params.providerLabel,
+            chainId,
+            tokenIn,
+            tokenOut,
+            amountIn,
+            quoteExpired,
+            success: !!result?.success,
+            hasError: !!result?.error,
+        });
+
+        return true;
+    }
+
+    private getInitialContextStatusMessage(task: AITask): string {
+        const toolContext = task?.toolContext || {};
+        const hasWalletAddress = !!(toolContext.walletAddress || toolContext.userAddress);
+        const hasBalanceSnapshot = !!this.normalizeBalanceSnapshot(toolContext.balance) || !!toolContext.nativeBalance;
+
+        if (hasWalletAddress && !hasBalanceSnapshot) return 'Checking wallet';
+        if (hasWalletAddress && hasBalanceSnapshot) return 'Loading wallet context';
+        return 'Preparing context';
     }
 
     private findSnapshotBalanceForToken(task: AITask, tokenIn: string, chainName: string, isNative: boolean): number | null {
@@ -1814,6 +2101,15 @@ Do NOT estimate or guess USD values.`;
             lastResultByKey: new Map(),
         };
 
+        const bypassed = await this.executeConfirmedSwapBypass({
+            task,
+            assistantMessageId,
+            sessionMessages,
+            userId,
+            providerLabel: 'DeepSeek',
+        });
+        if (bypassed) return;
+
         // Base tool list is the full registry; skills gating will narrow it by intent.
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
         const baseToolDefs = toolRegistry.getAllDefinitions();
@@ -1886,7 +2182,11 @@ Do NOT estimate or guess USD values.`;
             // Parse intent from user message
             const taskType = (task as any).fastSwapCandidate ? 'card' : 'text';
             if (task.sessionId) {
-                this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Checking wallet', taskType });
+                this.broadcastTaskStatus(userId, task, {
+                    status: 'running',
+                    message: this.getInitialContextStatusMessage(task),
+                    taskType
+                });
             }
             const parsedIntent = await parseIntent(lastUserMessage, {
                 userAddress: task.toolContext?.walletAddress,
@@ -3550,29 +3850,35 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         if (isTrading && task.toolContext?.toolConfig?.showQuoteBeforeSwap && !task.toolContext?.toolConfig?.fastSwapMode) {
             const tokenIn = String(parsedIntent?.detailed?.token_in || parsedIntent?.tokenIn || '').trim();
             const tokenOut = String(parsedIntent?.detailed?.token_out || parsedIntent?.tokenOut || '').trim();
-            const amount = String(parsedIntent?.detailed?.amount || parsedIntent?.amount || '').trim();
+            const amount = this.canonicalizeSwapAmountForCache(parsedIntent?.detailed?.amount || parsedIntent?.amount);
             const chainId = parsedIntent?.chainId || task.toolContext?.chainId;
 
             if (tokenIn && tokenOut && amount && chainId) {
+                const resolvedTokenIn = this.canonicalizeSwapTokenForCache(tokenIn, Number(chainId)) || tokenIn;
+                const resolvedTokenOut = this.canonicalizeSwapTokenForCache(tokenOut, Number(chainId)) || tokenOut;
                 const simArgs = {
-                    token_in: tokenIn,
-                    token_out: tokenOut,
+                    token_in: resolvedTokenIn,
+                    token_out: resolvedTokenOut,
                     amount_in: amount,
                     chain_id: Number(chainId),
                     slippage: task.toolContext?.toolConfig?.customSlippage ? Number(task.toolContext.toolConfig.customSlippage) : 1.0,
                 };
                 const simKey = `simulate_swap:${this.stableStringify(simArgs)}`;
-                // Also store under a normalized key so we can fuzzy-match LLM arg variations
-                const normKey = `simulate_swap:__norm:${tokenIn.toLowerCase()}:${tokenOut.toLowerCase()}:${amount}:${chainId}`;
+                const canonicalKey = this.buildSimulateSwapCanonicalKey(simArgs);
+                const legacyNormKey = this.buildSimulateSwapLegacyNormKey(simArgs);
 
-                if (!resultsMap.has(simKey)) {
+                if (!resultsMap.has(simKey) && !(canonicalKey && resultsMap.has(canonicalKey))) {
                     logger.info(LogCode.AI_API_CALL, 'ChatWorker: speculative simulate_swap pre-fetch', {
                         taskId: task.id,
-                        tokenIn, tokenOut, amount, chainId,
+                        tokenIn: resolvedTokenIn,
+                        tokenOut: resolvedTokenOut,
+                        amount,
+                        chainId,
                     });
                     toolRegistry.execute('simulate_swap', simArgs, task.toolContext).then(res => {
                         resultsMap.set(simKey, res);
-                        resultsMap.set(normKey, res);
+                        if (canonicalKey) resultsMap.set(canonicalKey, res);
+                        if (legacyNormKey) resultsMap.set(legacyNormKey, res);
                         logger.info(LogCode.CACHE_HIT, 'ChatWorker: speculative simulate_swap stored', { taskId: task.id });
                     }).catch(err => logger.warn(LogCode.API_FETCH_FAILED, 'Speculative simulate_swap failed (non-blocking)', {
                         taskId: task.id,
@@ -3785,14 +4091,19 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                 }
                 // Fallback: simulate_swap normalized key lookup for speculative pre-fetch
                 if (tc.function.name === 'simulate_swap' && cache) {
-                    const tIn = String(args.token_in || '').trim().toLowerCase();
-                    const tOut = String(args.token_out || '').trim().toLowerCase();
-                    const amt = String(args.amount_in || '').trim();
-                    const cid = args.chain_id;
-                    const normKey = `simulate_swap:__norm:${tIn}:${tOut}:${amt}:${cid}`;
-                    if (cache.has(normKey)) {
-                        logger.info(LogCode.CACHE_HIT, 'ChatWorker: simulate_swap speculative cache hit (normalized)', { tool: tc.function.name });
-                        const cachedResult = cache.get(normKey);
+                    const canonicalKey = this.buildSimulateSwapCanonicalKey(args);
+                    if (canonicalKey && cache.has(canonicalKey)) {
+                        logger.info(LogCode.CACHE_HIT, 'ChatWorker: simulate cache diagnostic', {
+                            source: 'canonical',
+                            tool: tc.function.name,
+                            canonicalKey,
+                            tokenIn: args?.token_in ?? args?.tokenIn,
+                            tokenOut: args?.token_out ?? args?.tokenOut,
+                            amountIn: args?.amount_in ?? args?.amountIn,
+                            chainId: args?.chain_id ?? args?.chainId,
+                        });
+                        logger.info(LogCode.CACHE_HIT, 'ChatWorker: simulate_swap speculative cache hit (canonical)', { tool: tc.function.name });
+                        const cachedResult = cache.get(canonicalKey);
                         trace?.toolCalls.push({ tool: toolName, argsKey, status: 'cached' });
                         results.push({
                             role: 'tool',
@@ -3801,6 +4112,40 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
                         });
                         continue;
                     }
+
+                    const legacyNormKey = this.buildSimulateSwapLegacyNormKey(args);
+                    if (legacyNormKey && cache.has(legacyNormKey)) {
+                        logger.info(LogCode.CACHE_HIT, 'ChatWorker: simulate cache diagnostic', {
+                            source: 'legacy_norm',
+                            tool: tc.function.name,
+                            legacyNormKey,
+                            canonicalKey: canonicalKey || null,
+                            tokenIn: args?.token_in ?? args?.tokenIn,
+                            tokenOut: args?.token_out ?? args?.tokenOut,
+                            amountIn: args?.amount_in ?? args?.amountIn,
+                            chainId: args?.chain_id ?? args?.chainId,
+                        });
+                        logger.info(LogCode.CACHE_HIT, 'ChatWorker: simulate_swap speculative cache hit (normalized)', { tool: tc.function.name });
+                        const cachedResult = cache.get(legacyNormKey);
+                        trace?.toolCalls.push({ tool: toolName, argsKey, status: 'cached' });
+                        results.push({
+                            role: 'tool',
+                            tool_call_id: tc.id,
+                            content: typeof cachedResult === 'string' ? cachedResult : JSON.stringify(cachedResult)
+                        });
+                        continue;
+                    }
+
+                    logger.debug(LogCode.CACHE_MISS, 'ChatWorker: simulate cache diagnostic', {
+                        source: 'miss',
+                        tool: tc.function.name,
+                        canonicalKey: canonicalKey || null,
+                        legacyNormKey: legacyNormKey || null,
+                        tokenIn: args?.token_in ?? args?.tokenIn,
+                        tokenOut: args?.token_out ?? args?.tokenOut,
+                        amountIn: args?.amount_in ?? args?.amountIn,
+                        chainId: args?.chain_id ?? args?.chainId,
+                    });
                 }
                 if (toolName === 'get_wallet_info' && cache) {
                     const contextChain = this.normalizeChainName(this.resolveChainNameForContext(context?.chainId));
@@ -4179,8 +4524,20 @@ For example: "Create a copy trade for wallet 0x..." or "What's the price of ETH?
         });
         logger.info(LogCode.AI_API_CALL, 'Grok: message_start sent', { assistantMessageId, taskId: task.id });
 
+        const bypassed = await this.executeConfirmedSwapBypass({
+            task,
+            assistantMessageId,
+            sessionMessages,
+            userId,
+            providerLabel: 'Grok',
+        });
+        if (bypassed) return;
+
         // Parse intent from user message
-        this.broadcastTaskStatus(userId, task, { status: 'running', message: 'Checking wallet' });
+        this.broadcastTaskStatus(userId, task, {
+            status: 'running',
+            message: this.getInitialContextStatusMessage(task)
+        });
         const lastUserMessage = history.filter(m => m.role === 'user').pop()?.content || '';
         const baseToolDefs = toolRegistry.getAllDefinitions();
         let toolDefinitions = baseToolDefs.map(def => ({ type: 'function', function: def }));

@@ -89,6 +89,7 @@ export function buildBalanceContextBlock(params: BuildBalanceContextParams): Bui
     const lines: string[] = [
         `\n\n[WALLET_STATE]`,
         `Native: ${nativeBalanceRaw} ${nativeSymbol}${nativeUsdStr}`,
+        `Rule: Use this as the default balance source for this turn. Do not re-fetch wallet balances unless missing/stale or user explicitly asks to refresh.`,
     ];
     if (nativePriceStr) lines.push(`Price ref: ${nativePriceStr}`);
     if (params.balanceSnapshotAt) lines.push(`Snapshot: ${params.balanceSnapshotAt}`);

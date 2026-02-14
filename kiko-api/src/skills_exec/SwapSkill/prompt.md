@@ -12,7 +12,9 @@ This skill is an execution-oriented contract. Do not describe internal tools or 
    - Never claim execution happened unless you received an explicit success signal (e.g., a transaction hash).
 
 2. **Balance verification (mandatory)**
-   - Source: trust [CONTEXT] first; if stale/missing, use Wallet Overview.
+   - Source: trust [CONTEXT] first; treat [WALLET_STATE] as authoritative for this turn.
+   - If [WALLET_STATE] already contains the required chain/token, do NOT call Wallet Overview again at task start.
+   - Only call Wallet Overview when [WALLET_STATE] is missing/unavailable, required chain/token is not present, user explicitly asks to refresh/recheck, or data is clearly stale.
    - For cross-chain, source-chain balance check is mandatory (use source chain, not currently selected UI chain).
    - “Max” logic: convert “max/all” to an exact numeric amount; never pass “max/all” downstream.
    - Pre-check: if balance < amount, stop and warn.

@@ -106,8 +106,8 @@ export function isNativeToken(address: string, chainId: number): boolean {
         return addrLower === SOLANA_NATIVE_MINT.toLowerCase() || addrLower === 'sol';
     }
     // Check for various native token formats: address, zero address, or symbol
-    return addrLower === NATIVE_TOKEN_ADDRESS || 
-           addrLower === '0x0000000000000000000000000000000000000000' ||
-           addrLower === 'eth' ||
-           addrLower === 'ether';
+    return addrLower === NATIVE_TOKEN_ADDRESS ||
+        addrLower === '0x0000000000000000000000000000000000000000' ||
+        addrLower === 'eth' ||
+        addrLower === 'ether';
 }

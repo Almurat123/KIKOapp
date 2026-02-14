@@ -50,6 +50,14 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
     },
 };
 
+function normalizeSymbolForLookup(token: string): string {
+    return String(token || '')
+        .trim()
+        .replace(/^\$/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+}
+
 /**
  * Check if an address is the native token placeholder
  */
@@ -71,10 +79,12 @@ export function isNativeToken(address?: string | null): boolean {
  */
 export function resolveTokenAddress(token: string, chainId: number): string {
     if (!token) return '';
+    const rawToken = String(token).trim();
+    const cleanedToken = rawToken.replace(/^\$/, '');
 
     // If already an address (starts with 0x and correct length), return normalized
-    if (token.startsWith('0x') && token.length === 42) {
-        const lower = token.toLowerCase();
+    if (cleanedToken.startsWith('0x') && cleanedToken.length === 42) {
+        const lower = cleanedToken.toLowerCase();
         const chainTokens = COMMON_TOKENS[chainId] || {};
         // Cross-chain symbol alias normalization:
         // If model passes a canonical token address from another chain (e.g. ETH USDC on Base),
@@ -98,19 +108,30 @@ export function resolveTokenAddress(token: string, chainId: number): string {
         if (mappedSymbol && chainTokens[mappedSymbol]) {
             return chainTokens[mappedSymbol];
         }
-        return token; // Return as-is, let normalize handle casing later if needed
+        return cleanedToken; // Return as-is, let normalize handle casing later if needed
     }
 
     // Check common tokens mapping
     const chainTokens = COMMON_TOKENS[chainId] || {};
-    const upperToken = token.toUpperCase();
+    const upperToken = cleanedToken.toUpperCase();
+    if (chainTokens[cleanedToken]) return chainTokens[cleanedToken];
 
     if (chainTokens[upperToken]) {
         return chainTokens[upperToken];
     }
 
+    // Case-insensitive + punctuation-insensitive lookup (e.g. USDC.e / USDC.E / usdce / $usdc).
+    const targetNorm = normalizeSymbolForLookup(cleanedToken);
+    if (targetNorm) {
+        for (const [symbol, address] of Object.entries(chainTokens)) {
+            if (normalizeSymbolForLookup(symbol) === targetNorm) {
+                return address;
+            }
+        }
+    }
+
     // Return as-is if not found (caller should handle validation)
-    return token;
+    return cleanedToken;
 }
 
 /**
