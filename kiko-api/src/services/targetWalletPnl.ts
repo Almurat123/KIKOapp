@@ -184,6 +184,24 @@ export async function calculateTargetPnlSummary(
   options: TargetPnlSummaryOptions
 ): Promise<TargetPnlSummary> {
   const lots = new Map<string, Array<{ qty: number; unitCostUsd: number }>>();
+  const decimalsCache = new Map<string, number>();
+
+  const normalizeQtyHuman = async (tokenAddress: string, qtyRaw: number, usd: number): Promise<number> => {
+    if (qtyRaw <= EPS) return 0;
+    // Mixed-source data can store token amount as raw base units OR human units.
+    // If implied unit price is absurdly tiny, treat qty as raw and scale by decimals.
+    const impliedUnitPrice = usd > 0 ? (usd / qtyRaw) : 0;
+    const looksRaw = impliedUnitPrice > 0 && impliedUnitPrice < 1e-9;
+    if (!looksRaw) return qtyRaw;
+
+    let decimals = decimalsCache.get(tokenAddress);
+    if (decimals === undefined) {
+      decimals = await getTokenDecimals(options.chainId, tokenAddress);
+      decimalsCache.set(tokenAddress, decimals);
+    }
+    const qtyHuman = qtyRaw / Math.pow(10, decimals);
+    return qtyHuman > EPS ? qtyHuman : 0;
+  };
 
   let buyCount = 0;
   let sellCount = 0;
@@ -199,7 +217,8 @@ export async function calculateTargetPnlSummary(
   for (const row of sortRows(rows)) {
     const tokenAddress = row.tokenAddress?.trim().toLowerCase() || '';
     const usd = safeNum(row.valueUsd);
-    const qty = safePositive(row.amount);
+    const qtyRaw = safePositive(row.amount);
+    const qty = await normalizeQtyHuman(tokenAddress, qtyRaw, usd);
     const isUsdPlausible = usd >= options.minTxUsd && usd <= options.maxTxUsd;
 
     if (!tokenAddress || !isUsdPlausible || qty <= EPS) {
@@ -269,8 +288,6 @@ export async function calculateTargetPnlSummary(
   let openPositionValueUsd = 0;
   let pricedOpenTokenCount = 0;
   let unpricedOpenTokenCount = 0;
-  const decimalsCache = new Map<string, number>();
-
   for (const pos of tokenExposure) {
     openPositionCostUsd += pos.costUsd;
     let decimals = decimalsCache.get(pos.tokenAddress);
@@ -284,7 +301,8 @@ export async function calculateTargetPnlSummary(
       continue;
     }
 
-    const qtyHuman = pos.qty / Math.pow(10, decimals);
+    // pos.qty is already normalized to human units in this function.
+    const qtyHuman = pos.qty;
     const valueUsd = qtyHuman * priceUsd;
     openPositionValueUsd += valueUsd;
     targetUnrealizedPnlUsd += (valueUsd - pos.costUsd);

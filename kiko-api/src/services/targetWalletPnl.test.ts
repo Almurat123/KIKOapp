@@ -90,6 +90,46 @@ test('partial sell realizes only matched portion', () => {
   assert.equal(agg.targetRealizedLossUsd, 0);
 });
 
+test('fifo multi-sell from one buy: 1 ETH->1000, then 200->0.5 ETH, 800->1.5 ETH', () => {
+  const rows: TargetBuySellRow[] = [
+    {
+      id: 1,
+      txType: 'TARGET_BUY',
+      tokenAddress: '0xabc',
+      amount: '1000',
+      valueUsd: 2000, // 1 ETH assumed $2000
+      blockTimestamp: at('2026-02-01T00:00:00Z'),
+    },
+    {
+      id: 2,
+      txType: 'TARGET_SELL',
+      tokenAddress: '0xabc',
+      amount: '200',
+      valueUsd: 1000, // 0.5 ETH assumed $2000
+      blockTimestamp: at('2026-02-01T00:01:00Z'),
+    },
+    {
+      id: 3,
+      txType: 'TARGET_SELL',
+      tokenAddress: '0xabc',
+      amount: '800',
+      valueUsd: 3000, // 1.5 ETH assumed $2000
+      blockTimestamp: at('2026-02-01T00:02:00Z'),
+    },
+  ];
+
+  const agg = calculateTargetRealizedPnl(rows, OPTS);
+  assert.equal(agg.buyCount, 1);
+  assert.equal(agg.sellCount, 2);
+  // Cost basis: 1000 * $2 = $2000
+  // Proceeds: $1000 + $3000 = $4000
+  // Realized PnL: +$2000
+  assert.equal(agg.targetRealizedPnlUsd, 2000);
+  assert.equal(agg.targetRealizedProfitUsd, 2000);
+  assert.equal(agg.targetRealizedLossUsd, 0);
+  assert.equal(agg.unmatchedSellCount, 0);
+});
+
 test('sell with no matched buy does not pollute realized pnl (airdrop/spam transfer style)', () => {
   const rows: TargetBuySellRow[] = [
     {

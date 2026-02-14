@@ -35,10 +35,16 @@ export async function persistTargetSwapEvent(params: {
   txType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP';
   tokenIn: string;
   tokenOut: string;
+  tokenInAddress?: string;
+  tokenOutAddress?: string;
   amountIn?: string;
   amountOut?: string;
+  valueInUsd?: number;
+  valueOutUsd?: number;
   valueUsd?: number;
   blockTimestamp?: Date;
+  parseReason?: string;
+  source?: string;
 }) {
   if (!params.txHash) return;
   const walletAddress = normalizeAddress(params.walletAddress);
@@ -55,6 +61,7 @@ export async function persistTargetSwapEvent(params: {
     create: {
       walletAddress,
       chain: chainIdToLabel(params.chainId),
+      chainId: params.chainId,
       txHash,
       txType: params.txType,
       fromAddress: walletAddress,
@@ -62,17 +69,34 @@ export async function persistTargetSwapEvent(params: {
       tokenAddress: params.txType === 'TARGET_SELL' ? normalizeAddress(params.tokenIn) : normalizeAddress(params.tokenOut),
       tokenInSymbol: params.tokenIn,
       tokenOutSymbol: params.tokenOut,
+      tokenInAddress: params.tokenInAddress ? normalizeAddress(params.tokenInAddress) : normalizeAddress(params.tokenIn),
+      tokenOutAddress: params.tokenOutAddress ? normalizeAddress(params.tokenOutAddress) : normalizeAddress(params.tokenOut),
       amount,
+      amountIn: params.amountIn || null,
+      amountOut: params.amountOut || null,
       valueUsd: params.valueUsd ?? null,
+      valueInUsd: params.valueInUsd ?? null,
+      valueOutUsd: params.valueOutUsd ?? null,
+      parseReason: params.parseReason ?? null,
+      source: params.source ?? 'webhook',
       blockTimestamp: params.blockTimestamp || new Date(),
     },
     update: {
+      chainId: params.chainId,
       txType: params.txType,
       tokenAddress: params.txType === 'TARGET_SELL' ? normalizeAddress(params.tokenIn) : normalizeAddress(params.tokenOut),
       tokenInSymbol: params.tokenIn,
       tokenOutSymbol: params.tokenOut,
+      tokenInAddress: params.tokenInAddress ? normalizeAddress(params.tokenInAddress) : normalizeAddress(params.tokenIn),
+      tokenOutAddress: params.tokenOutAddress ? normalizeAddress(params.tokenOutAddress) : normalizeAddress(params.tokenOut),
       amount,
+      amountIn: params.amountIn || null,
+      amountOut: params.amountOut || null,
       valueUsd: params.valueUsd ?? undefined,
+      valueInUsd: params.valueInUsd ?? undefined,
+      valueOutUsd: params.valueOutUsd ?? undefined,
+      parseReason: params.parseReason ?? undefined,
+      source: params.source ?? undefined,
       blockTimestamp: params.blockTimestamp || new Date(),
     },
   }), 4, 250);
@@ -198,7 +222,7 @@ export async function getTargetWalletStatus(params: {
     source: 'target_status'
   }).catch(() => undefined);
 
-  const [leaderStats, recentTx, copiedPositions, targetBuySellTxs, targetTokenSwapCount] = await Promise.all([
+  const [leaderStats, recentTx, copiedPositions, targetTradeTxs] = await Promise.all([
     prisma.leaderWalletStats.findUnique({
       where: { address_chainId: { address: walletAddress, chainId: cfg.chainId } },
     }),
@@ -219,7 +243,7 @@ export async function getTargetWalletStatus(params: {
         walletAddress,
         chain,
         blockTimestamp: { gte: since },
-        txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'BUY', 'SELL'] }
+        txType: { in: ['TARGET_BUY', 'TARGET_SELL', 'BUY', 'SELL', 'TARGET_TOKEN_SWAP', 'SWAP'] }
       },
       select: {
         id: true,
@@ -227,32 +251,64 @@ export async function getTargetWalletStatus(params: {
         valueUsd: true,
         tokenAddress: true,
         amount: true,
+        amountIn: true,
+        amountOut: true,
+        tokenInAddress: true,
+        tokenOutAddress: true,
+        valueInUsd: true,
+        valueOutUsd: true,
         blockTimestamp: true,
       },
       orderBy: { blockTimestamp: 'asc' },
     }),
-    prisma.walletTransaction.count({
-      where: {
-        walletAddress,
-        chain,
-        blockTimestamp: { gte: since },
-        txType: { in: ['TARGET_TOKEN_SWAP', 'SWAP'] },
-      },
-    }),
   ]);
 
-  const tokenSwaps = targetTokenSwapCount;
-  const buySellRows = targetBuySellTxs
-    .filter((row): row is typeof row & { txType: 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL' } =>
-      row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL' || row.txType === 'BUY' || row.txType === 'SELL')
-    .map((row) => ({
-      id: row.id,
-      txType: row.txType,
-      tokenAddress: row.tokenAddress,
-      amount: row.amount,
-      valueUsd: row.valueUsd,
-      blockTimestamp: row.blockTimestamp,
-    }));
+  let tokenSwaps = 0;
+  const buySellRows = targetTradeTxs.flatMap((row) => {
+    if (row.txType === 'TARGET_BUY' || row.txType === 'TARGET_SELL' || row.txType === 'BUY' || row.txType === 'SELL') {
+      return [{
+        id: row.id,
+        txType: row.txType as 'TARGET_BUY' | 'TARGET_SELL' | 'BUY' | 'SELL',
+        tokenAddress: row.tokenAddress,
+        amount: row.amount,
+        valueUsd: row.valueUsd,
+        blockTimestamp: row.blockTimestamp,
+      }];
+    }
+
+    if (row.txType === 'TARGET_TOKEN_SWAP' || row.txType === 'SWAP') {
+      tokenSwaps += 1;
+      const synthetic: Array<{
+        id: number;
+        txType: 'TARGET_BUY' | 'TARGET_SELL';
+        tokenAddress: string | null;
+        amount: string | null;
+        valueUsd: number | null;
+        blockTimestamp: Date;
+      }> = [];
+      // Token->Token: interpret as sell tokenIn + buy tokenOut when both legs carry usable USD.
+      if (safeNum(row.valueInUsd) > 0 && safeNum(row.valueOutUsd) > 0) {
+        synthetic.push({
+          id: row.id,
+          txType: 'TARGET_SELL',
+          tokenAddress: row.tokenInAddress || null,
+          amount: row.amountIn || null,
+          valueUsd: row.valueInUsd || null,
+          blockTimestamp: row.blockTimestamp,
+        });
+        synthetic.push({
+          id: row.id,
+          txType: 'TARGET_BUY',
+          tokenAddress: row.tokenOutAddress || null,
+          amount: row.amountOut || null,
+          valueUsd: row.valueOutUsd || null,
+          blockTimestamp: row.blockTimestamp,
+        });
+      }
+      return synthetic;
+    }
+    return [];
+  });
 
   const pnl = await calculateTargetPnlSummary(buySellRows, {
     minTxUsd: TARGET_STATUS_MIN_TX_USD,

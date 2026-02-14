@@ -496,6 +496,9 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
                 'takeProfitPct',
                 'stopLossPct',
                 'mirrorSell',
+                'aiAnalysisMode',
+                'enableDynamicTP',
+                'dynamicTPMinProfitPct',
             ]);
             const updateKeys = Object.keys(updates);
             const unknownKeys = updateKeys.filter((k) => !allowedPatchKeys.has(k));
@@ -568,6 +571,18 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             if (updates.mirrorSell !== undefined && typeof updates.mirrorSell !== 'boolean') {
                 return reply.status(400).send({ error: 'mirrorSell must be a boolean' });
             }
+            if (updates.aiAnalysisMode !== undefined) {
+                const v = String(updates.aiAnalysisMode);
+                if (!['disabled', 'analyze_only', 'auto_decide'].includes(v)) {
+                    return reply.status(400).send({ error: 'aiAnalysisMode must be one of: disabled, analyze_only, auto_decide' });
+                }
+            }
+            if (updates.enableDynamicTP !== undefined && typeof updates.enableDynamicTP !== 'boolean') {
+                return reply.status(400).send({ error: 'enableDynamicTP must be a boolean' });
+            }
+            if (!isNullableFiniteNumber(updates.dynamicTPMinProfitPct) || Number(updates.dynamicTPMinProfitPct) < 0) {
+                return reply.status(400).send({ error: 'dynamicTPMinProfitPct must be a non-negative number or null' });
+            }
 
             const existingMode =
                 coerceExecutionMode((existing as any).executionMode) ||
@@ -595,6 +610,9 @@ export default async function copyTradeRoutes(fastify: FastifyInstance) {
             if (updates.takeProfitPct !== undefined) dataToUpdate.takeProfitPct = updates.takeProfitPct === null ? null : Number(updates.takeProfitPct);
             if (updates.stopLossPct !== undefined) dataToUpdate.stopLossPct = updates.stopLossPct === null ? null : Number(updates.stopLossPct);
             if (updates.mirrorSell !== undefined) dataToUpdate.mirrorSell = updates.mirrorSell;
+            if (updates.aiAnalysisMode !== undefined) dataToUpdate.aiAnalysisMode = String(updates.aiAnalysisMode);
+            if (updates.enableDynamicTP !== undefined) dataToUpdate.enableDynamicTP = Boolean(updates.enableDynamicTP);
+            if (updates.dynamicTPMinProfitPct !== undefined) dataToUpdate.dynamicTPMinProfitPct = updates.dynamicTPMinProfitPct === null ? null : Number(updates.dynamicTPMinProfitPct);
 
             const config = await prisma.copyTradeConfig.update({
                 where: { id },

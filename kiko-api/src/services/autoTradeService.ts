@@ -43,6 +43,7 @@ import { logger } from '../utils/logger.js';
 import { LogCode } from '../config/logRegistry.js';
 import { getNativeBalance as rpcGetNativeBalance, getErc20Balance, getErc20Decimals } from './rpcManager.js';
 import { startCopyTradePendingWatcher, stopCopyTradePendingWatcher } from './copyTradePendingService.js';
+import { persistTargetSwapEvent } from './targetWalletTrackingService.js';
 
 export { getTokenInfo } from './tokenService.js';
 
@@ -357,6 +358,80 @@ export async function handleSwapDetected(
         tokenInIsCash: isTokenInCash,
         tokenOutIsCash: isTokenOutCash
     });
+
+    // Persist every detected target-wallet swap event for PnL/trade-count accuracy.
+    if (swap.txHash) {
+        const txType: 'TARGET_BUY' | 'TARGET_SELL' | 'TARGET_TOKEN_SWAP' = isBuy
+            ? 'TARGET_BUY'
+            : isSell
+                ? 'TARGET_SELL'
+                : 'TARGET_TOKEN_SWAP';
+        void (async () => {
+            let valueUsd: number | undefined;
+            let valueInUsd: number | undefined;
+            let valueOutUsd: number | undefined;
+            try {
+                const stableSet = new Set(chainConfig.stablecoins.map((s) => normalizeAddress(s)));
+                const nativePrice = await getNativeTokenPriceUsd(chainId).catch(() => 0);
+                const estimateLegUsd = async (tokenAddr: string, rawAmount: string | undefined): Promise<number | undefined> => {
+                    if (!rawAmount) return undefined;
+                    const amountBn = BigInt(rawAmount);
+                    if (amountBn <= 0n) return undefined;
+                    const norm = normalizeAddress(tokenAddr);
+                    if (stableSet.has(norm)) {
+                        const stableMeta = await getTokenMetadata(chainId, tokenAddr, { rpcStrategy: 'fast' }).catch(() => null);
+                        const decimals = Number(stableMeta?.decimals ?? 6);
+                        const usd = Number(ethers.formatUnits(amountBn, decimals));
+                        return Number.isFinite(usd) ? usd : undefined;
+                    }
+                    if (norm === normalizeAddress(chainConfig.wrappedNativeAddress) || norm === NATIVE_ETH) {
+                        const usd = Number(ethers.formatUnits(amountBn, 18)) * (Number(nativePrice) || 0);
+                        return Number.isFinite(usd) ? usd : undefined;
+                    }
+                    return undefined;
+                };
+
+                valueInUsd = await estimateLegUsd(swap.tokenIn, swap.amountIn);
+                valueOutUsd = await estimateLegUsd(swap.tokenOut, swap.amountOut);
+
+                if (isBuy) {
+                    valueUsd = valueInUsd;
+                } else if (isSell) {
+                    valueUsd = valueOutUsd;
+                }
+            } catch {
+                valueUsd = undefined;
+                valueInUsd = undefined;
+                valueOutUsd = undefined;
+            }
+
+            await persistTargetSwapEvent({
+                walletAddress: targetWallet,
+                chainId,
+                txHash: swap.txHash,
+                txType,
+                tokenIn: swap.tokenIn,
+                tokenOut: swap.tokenOut,
+                tokenInAddress: swap.tokenIn,
+                tokenOutAddress: swap.tokenOut,
+                amountIn: swap.amountIn,
+                amountOut: swap.amountOut,
+                valueInUsd: Number.isFinite(valueInUsd as number) ? Number(valueInUsd) : undefined,
+                valueOutUsd: Number.isFinite(valueOutUsd as number) ? Number(valueOutUsd) : undefined,
+                valueUsd: Number.isFinite(valueUsd as number) ? Number(valueUsd) : undefined,
+                blockTimestamp: new Date(),
+                parseReason: isBuy ? 'cash_to_token' : isSell ? 'token_to_cash' : 'token_to_token',
+                source: 'webhook'
+            });
+        })().catch((err: any) => {
+            logger.warn(LogCode.SYS_ERROR, 'Failed to persist target swap event', {
+                wallet: targetWallet,
+                chainId,
+                txHash: swap.txHash,
+                error: err?.message || String(err)
+            });
+        });
+    }
 
     if (isSell) {
         logger.info(LogCode.EXE_TX_BROADCAST, 'Target is selling - triggering mirror sell', { targetWallet, token: swap.tokenIn });
@@ -1838,6 +1913,7 @@ async function executePositionExit(params: {
     tokenInfo?: any;
     config: any;
     userSettings?: any;
+    mirrorSellFraction?: number;
 }): Promise<string | null> {
     const { userId, tokenAddress, chainId, exitReason, config } = params;
     const tokenInfo = params.tokenInfo ?? { price: 0, symbol: 'UNKNOWN' };
@@ -1853,6 +1929,7 @@ async function executePositionExit(params: {
     let balance = 0n;
     let decimals = 18;
     let txHash = '';
+    let executedExitAmountRaw: bigint | undefined;
     const user = config.user;
 
     // Fetch universal global slippage from UserSettings
@@ -1930,6 +2007,7 @@ async function executePositionExit(params: {
                 balance: balance.toString(),
                 valueUsd: balanceUsd.toFixed(2)
             });
+            executedExitAmountRaw = balance;
 
             let isPartialSell = false;
             try {
@@ -2045,16 +2123,41 @@ async function executePositionExit(params: {
             }
 
             let isPartialSell = false;
+            let amountToSellRaw = 0n;
+            const requestedMirrorFraction = (() => {
+                const f = Number(params.mirrorSellFraction);
+                if (!Number.isFinite(f)) return undefined;
+                if (f <= 0) return undefined;
+                return Math.min(1, Math.max(0.0001, f));
+            })();
+            const isMirrorPartial = isMirrorSell && requestedMirrorFraction !== undefined && requestedMirrorFraction < 0.9999;
             const executionMode = resolveExecutionModeForConfig(config);
             try {
-                const safeBalance = balance > 0n ? balance - 1n : 0n;
+                if (isMirrorPartial) {
+                    const scaled = (balance * BigInt(Math.floor(requestedMirrorFraction! * 1_000_000))) / 1_000_000n;
+                    amountToSellRaw = scaled > 0n ? scaled : 0n;
+                    if (amountToSellRaw >= balance && balance > 1n) amountToSellRaw = balance - 1n;
+                } else {
+                    amountToSellRaw = balance > 0n ? balance - 1n : 0n;
+                }
+                if (amountToSellRaw <= 0n) {
+                    logger.warn(LogCode.WTC_TX_SKIPPED, 'Exit skipped: computed sell amount is zero', {
+                        userId,
+                        tokenAddress,
+                        chainId,
+                        exitReason,
+                        requestedMirrorFraction
+                    });
+                    return null;
+                }
                 // Use universal global slippage
                 const initialSlippage = universalSlippageBps;
                 logger.debug(LogCode.EXE_TX_BROADCAST, 'Attempting EVM sell with slippage', { userId, slippageBps: initialSlippage });
 
                 // [Logic]: Use ethers.formatUnits to prevent precision loss when converting BigInt to string.
                 // [Ref]: ethers.js v6 documentation "formatUnits".
-                const amountToSellHuman = ethers.formatUnits(safeBalance, decimals);
+                const amountToSellHuman = ethers.formatUnits(amountToSellRaw, decimals);
+                executedExitAmountRaw = amountToSellRaw;
 
                 const sellResult = await MainSwapService.executeSwap({
                     userId: user.privyDid,
@@ -2075,7 +2178,7 @@ async function executePositionExit(params: {
             } catch (e: any) {
                 logger.warn(LogCode.EXE_TX_REVERTED, 'EVM sell failed, retrying partial sell', { userId, error: e.message });
                 try {
-                    const safeBalance999 = (balance * 999n) / 1000n;
+                    const safeBalance999 = (amountToSellRaw * 999n) / 1000n;
                     // Retry with 1.5x of global slippage, capped at 25%
                     const retrySlippage = Math.min(Math.floor(universalSlippageBps * 1.5), 2500);
                     logger.debug(LogCode.EXE_TX_BROADCAST, 'Retrying EVM sell with higher slippage', { userId, slippageBps: retrySlippage });
@@ -2122,6 +2225,14 @@ async function executePositionExit(params: {
             // Sweep dust
             if (txHash) {
                 try {
+                    if (isMirrorPartial) {
+                        logger.debug(LogCode.SYS_INFO, 'Skip dust sweep for mirror partial sell', {
+                            userId,
+                            token: tokenAddress,
+                            chainId,
+                            requestedMirrorFraction
+                        });
+                    } else {
                     const remainingBalance = await getErc20Balance(tokenAddress, user.walletAddress, chainId);
                     const dustUsd = formatTokenAmount(remainingBalance, decimals) * (tokenInfo?.price || 0);
                     if (remainingBalance > 1000n && (dustUsd >= 0.05 || isPartialSell)) {
@@ -2143,6 +2254,7 @@ async function executePositionExit(params: {
                         });
                         // Dust sweep failure is non-critical, just log
                     }
+                    }
                 } catch (sweepErr: any) {
                     logger.debug(LogCode.EXE_TX_REVERTED, 'EVM dust sweep failed', { error: sweepErr.message });
                 }
@@ -2161,7 +2273,9 @@ async function executePositionExit(params: {
                 ?? openPositions.find(p => (p.entryPrice || 0) > 0)?.entryPrice
                 ?? 0;
             const exitPrice = hasValidPrice ? tokenInfo.price : fallbackExitPrice;
-            const sellVolUsd = exitPrice > 0 ? formatTokenAmount(balance, decimals) * exitPrice : 0;
+            const soldRawForPnl = (executedExitAmountRaw && executedExitAmountRaw > 0n) ? executedExitAmountRaw : balance;
+            const soldQtyTotal = exitPrice > 0 ? formatTokenAmount(soldRawForPnl, decimals) : 0;
+            const sellVolUsd = exitPrice > 0 ? soldQtyTotal * exitPrice : 0;
 
             // [Logic]: Fetch open positions to get entry data for PNL calculation
             // [Ref]: Prisma Position model has entryPrice, entryUsdValue fields
@@ -2177,25 +2291,97 @@ async function executePositionExit(params: {
             // [Logic]: Update each position with calculated PNL
             // [Ref]: Prisma schema fields: realizedPnlUsd, realizedPnlPct, exitPrice, exitUsdValue
             // [Risk]: Division by zero if entryPrice is 0 (shouldn't happen, but guard against it)
-            for (const pos of openPositions) {
-                const realizedPnlUsd = sellVolUsd - (pos.entryUsdValue || 0);
-                const realizedPnlPct = pos.entryPrice && pos.entryPrice > 0
-                    ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100
-                    : 0;
+            const ordered = [...openPositions].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+            const entries = ordered.map((p) => ({
+                pos: p,
+                qty: Number(p.entryAmount || '0'),
+                costUsd: Number(p.entryUsdValue || 0),
+            })).filter((x) => Number.isFinite(x.qty) && x.qty > 0);
+            const totalOpenQty = entries.reduce((s, x) => s + x.qty, 0);
+            const qtyToApply = Math.max(0, Math.min(soldQtyTotal, totalOpenQty));
+            const proceedsPerQty = qtyToApply > 0 ? (sellVolUsd / qtyToApply) : 0;
+            let remainingQty = qtyToApply;
 
-                await prisma.position.update({
-                    where: { id: pos.id },
-                    data: {
-                        status: 'closed',
-                        exitTxHash: txHash,
-                        exitReason: exitReason,
-                        closedAt: new Date(),
-                        exitPrice: exitPrice,
-                        exitUsdValue: sellVolUsd,
-                        realizedPnlUsd: realizedPnlUsd,
-                        realizedPnlPct: realizedPnlPct,
-                    },
-                });
+            const fmt = (n: number) => {
+                const fixed = n.toFixed(18);
+                return fixed.replace(/\.?0+$/, '');
+            };
+
+            for (const entry of entries) {
+                if (remainingQty <= 1e-12) break;
+                const takeQty = Math.min(entry.qty, remainingQty);
+                if (takeQty <= 1e-12) continue;
+                const takeCostUsd = entry.costUsd * (takeQty / entry.qty);
+                const takeProceedsUsd = proceedsPerQty * takeQty;
+                const realizedPnlUsd = takeProceedsUsd - takeCostUsd;
+                const realizedPnlPct = takeCostUsd > 0 ? (realizedPnlUsd / takeCostUsd) * 100 : 0;
+
+                if (takeQty >= entry.qty - 1e-12) {
+                    await prisma.position.update({
+                        where: { id: entry.pos.id },
+                        data: {
+                            status: 'closed',
+                            exitTxHash: txHash,
+                            exitReason: exitReason,
+                            closedAt: new Date(),
+                            exitAmount: fmt(entry.qty),
+                            exitPrice: exitPrice,
+                            exitUsdValue: takeProceedsUsd,
+                            realizedPnlUsd: realizedPnlUsd,
+                            realizedPnlPct: realizedPnlPct,
+                        },
+                    });
+                } else {
+                    const remainQty = entry.qty - takeQty;
+                    const remainCostUsd = entry.costUsd - takeCostUsd;
+                    await prisma.$transaction([
+                        prisma.position.update({
+                            where: { id: entry.pos.id },
+                            data: {
+                                entryAmount: fmt(remainQty),
+                                entryUsdValue: remainCostUsd,
+                            },
+                        }),
+                        prisma.position.create({
+                            data: {
+                                userId: entry.pos.userId,
+                                configId: entry.pos.configId,
+                                tokenAddress: entry.pos.tokenAddress,
+                                tokenSymbol: entry.pos.tokenSymbol,
+                                chainId: entry.pos.chainId,
+                                entryPrice: entry.pos.entryPrice,
+                                entryAmount: fmt(takeQty),
+                                entryTxHash: entry.pos.entryTxHash,
+                                entryUsdValue: takeCostUsd,
+                                currentPrice: entry.pos.currentPrice,
+                                peakPrice: entry.pos.peakPrice,
+                                priceHistory: entry.pos.priceHistory ?? undefined,
+                                dynamicTPTriggered: entry.pos.dynamicTPTriggered,
+                                profitLossPct: entry.pos.profitLossPct,
+                                status: 'closed',
+                                exitTxHash: txHash,
+                                exitReason: exitReason,
+                                closedAt: new Date(),
+                                executionDelayMs: entry.pos.executionDelayMs,
+                                exitAmount: fmt(takeQty),
+                                exitPrice: exitPrice,
+                                exitUsdValue: takeProceedsUsd,
+                                holdDurationHours: entry.pos.holdDurationHours,
+                                leaderBuyAmount: entry.pos.leaderBuyAmount,
+                                leaderBuyPrice: entry.pos.leaderBuyPrice,
+                                leaderBuyValueUsd: entry.pos.leaderBuyValueUsd,
+                                leaderTxHash: null,
+                                ourGasPriceGwei: entry.pos.ourGasPriceGwei,
+                                ourGasUsed: entry.pos.ourGasUsed,
+                                ourSlippageBps: entry.pos.ourSlippageBps,
+                                realizedPnlPct: realizedPnlPct,
+                                realizedPnlUsd: realizedPnlUsd,
+                                exitRetryCount: 0,
+                            },
+                        }),
+                    ]);
+                }
+                remainingQty -= takeQty;
             }
 
             logger.info(LogCode.EXE_TX_CONFIRMED, 'Position exit executed successfully', { userId, token: tokenAddress, reason: exitReason, txHash });
@@ -2345,7 +2531,84 @@ async function handleTargetSell(
 
     if (configs.length === 0) return;
 
-    logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, { token: tokenToSell, configCount: configs.length, targetWallet });
+    let mirrorSellFraction: number | undefined;
+    try {
+        if (chainId !== 900 && swap.amountIn) {
+            const soldRaw = BigInt(swap.amountIn);
+            if (soldRaw > 0n) {
+                const chainLabel = chainId === 8453 ? 'base'
+                    : chainId === 56 ? 'bsc'
+                        : chainId === 42161 ? 'arbitrum'
+                            : chainId === 10 ? 'optimism'
+                                : chainId === 137 ? 'polygon'
+                                    : chainId === 1 ? 'eth'
+                                        : null;
+
+                if (chainLabel) {
+                    const txHashNorm = (swap.txHash || '').toLowerCase();
+                    const rows = await prisma.$queryRaw<Array<{ tx_type: string; amt: any }>>`
+                        SELECT "tx_type", COALESCE(SUM(("amount")::numeric), 0) AS amt
+                        FROM "wallet_transactions"
+                        WHERE "wallet_address" = ${normalizedWallet}
+                          AND "chain" = ${chainLabel}
+                          AND "token_address" = ${normalizeAddress(tokenToSell)}
+                          AND "tx_type" IN ('TARGET_BUY','TARGET_SELL')
+                          AND (${txHashNorm} = '' OR "tx_hash" <> ${txHashNorm})
+                        GROUP BY "tx_type"
+                    `;
+
+                    let buyRaw = 0n;
+                    let sellRaw = 0n;
+                    for (const r of rows) {
+                        const v = BigInt(String(r.amt).split('.')[0] || '0');
+                        if (r.tx_type === 'TARGET_BUY') buyRaw = v;
+                        if (r.tx_type === 'TARGET_SELL') sellRaw = v;
+                    }
+                    const openBeforeCurrent = buyRaw > sellRaw ? (buyRaw - sellRaw) : 0n;
+                    const preSellBal = openBeforeCurrent + soldRaw;
+                    if (preSellBal > 0n) {
+                        const ppm = Number((soldRaw * 1_000_000n) / preSellBal);
+                        mirrorSellFraction = Math.max(0.0001, Math.min(1, ppm / 1_000_000));
+                    }
+                }
+            }
+        }
+    } catch (e: any) {
+        logger.debug(LogCode.SYS_INFO, 'Mirror sell fraction by ledger failed; fallback to balance estimate/full exit', {
+            targetWallet,
+            chainId,
+            token: tokenToSell,
+            error: e?.message || String(e)
+        });
+    }
+
+    // Fallback: infer from on-chain balance snapshot if ledger path unavailable.
+    if (mirrorSellFraction === undefined) {
+        try {
+            if (chainId !== 900 && swap.amountIn) {
+                const soldRaw = BigInt(swap.amountIn);
+                if (soldRaw > 0n) {
+                    const targetBalAfter = await getErc20Balance(tokenToSell, targetWallet, chainId).catch(() => null as any);
+                    if (typeof targetBalAfter === 'bigint' && targetBalAfter >= 0n) {
+                        const preSellBal = targetBalAfter + soldRaw;
+                        if (preSellBal > 0n) {
+                            const ppm = Number((soldRaw * 1_000_000n) / preSellBal);
+                            mirrorSellFraction = Math.max(0.0001, Math.min(1, ppm / 1_000_000));
+                        }
+                    }
+                }
+            }
+        } catch {
+            // keep undefined -> full exit fallback
+        }
+    }
+
+    logger.info(LogCode.EXE_TX_BROADCAST, `Mirror sell: Processing open positions for token`, {
+        token: tokenToSell,
+        configCount: configs.length,
+        targetWallet,
+        mirrorSellFraction: mirrorSellFraction ?? null
+    });
 
     await Promise.all(configs.map(async (config) => {
         // Reconcile rare turbo race: tx settled on-chain but position stayed pending.
@@ -2420,7 +2683,8 @@ async function handleTargetSell(
                 chainId,
                 exitReason: 'mirror_sell',
                 tokenInfo,
-                config: { ...config, user: (config as any).user }
+                config: { ...config, user: (config as any).user },
+                mirrorSellFraction
             });
         } finally {
             positionIds.forEach(id => positionsBeingExited.delete(id));
